@@ -1,4 +1,5 @@
 import { createImageAttributesPanel } from './image_attributes_panel.js';
+import { addFeature, updateFeature } from '../store.js';
 
 class AddImageControl {
 
@@ -132,6 +133,7 @@ class AddImageControl {
             const data = this.map.getSource('images')._data;
             data.features.push(feature);
             this.map.getSource('images').setData(data);
+            addFeature('images',feature)
         };
     }
     
@@ -165,6 +167,7 @@ class AddImageControl {
                 if (featureIndex !== -1) {
                     data.features[featureIndex] = feature;
                     this.map.getSource('images').setData(data);
+                    updateFeature('images',feature)
                 }
                 lastUpdateTime = currentTime;
                 isDragging = false;

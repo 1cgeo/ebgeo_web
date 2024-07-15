@@ -46,7 +46,7 @@ body, html {
     margin: 2px;
     font-size: 18px;
     display: block; /* Ensure the input file button looks like a block element */
-    width: 100px; /* Ensure it has a standard width */
+    width: 40px; /* Ensure it has a standard width */
     z-index: 10; /* Ensure they are above other elements */
     pointer-events: auto; /* Ensure they can be clicked */
 }
@@ -199,3 +199,72 @@ body, html {
     margin-right: 5px;
 }
 
+.map-control-panel {
+    position: absolute;
+    top: 150px;
+    left: 10px;
+    padding: 10px;
+    background-color: #243413;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    color: white;
+    width: 200px;
+}
+
+.map-control-title-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.map-control-title {
+    margin: 0;
+}
+
+.add-map-button {
+    background-color: transparent;
+    border: 1px solid white;
+    color: white;
+    cursor: pointer;
+    padding: 5px;
+    font-size: 16px;
+    pointer-events: auto !important; /* Ensure they can be clicked */
+}
+
+.map-list {
+    margin-top: 10px;
+    list-style-type: none;
+    padding: 0;
+}
+
+.map-list li {
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px;
+    border: 1px solid white;
+    border-radius: 3px;
+}
+
+.map-list li.current-map {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.button-container {
+    display: flex;
+    gap: 5px;
+}
+
+.change-map-button,
+.remove-map-button {
+    background-color: transparent;
+    border: 1px solid white;
+    color: white;
+    cursor: pointer;
+    padding: 5px;
+    font-size: 12px;
+    pointer-events: auto !important; /* Ensure they can be clicked */
+}

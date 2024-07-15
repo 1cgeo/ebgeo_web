@@ -1,11 +1,11 @@
-import store from './store.js';
+import { setBaseLayer } from './store.js';
 
 const switchLayer = (map, layer) => {
     const styleUrl = layer === 'Ortoimagem'
         ? 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
         : 'https://demotiles.maplibre.org/style.json';
     map.setStyle(styleUrl);
-    store.maps[store.currentMap].baseLayer = layer;
+    setBaseLayer(layer);
 };
 
 const baseLayerControl = {
@@ -38,4 +38,4 @@ const baseLayerControl = {
     }
 };
 
-export default baseLayerControl;
+export {switchLayer, baseLayerControl};

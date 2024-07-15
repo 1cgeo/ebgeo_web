@@ -1,4 +1,5 @@
 import { createTextAttributesPanel } from './text_attributes_panel.js';
+import { addFeature, updateFeature } from '../store.js';
 
 let defaultTextProperties = {
     text: '',
@@ -120,6 +121,7 @@ class AddTextControl {
         const data = this.map.getSource('texts')._data;
         data.features.push(feature);
         this.map.getSource('texts').setData(data);
+        addFeature('texts', feature);
     }
 
     handleTextClick(e) {
@@ -151,6 +153,7 @@ class AddTextControl {
                     if (featureIndex !== -1) {
                         data.features[featureIndex] = feature;
                         this.map.getSource('texts').setData(data);
+                        updateFeature('texts', feature)
                     }
     
                     isDragging = false;

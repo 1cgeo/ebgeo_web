@@ -1,6 +1,7 @@
 import 'https://unpkg.com/@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.js';
 import drawStyles from './drawStyles.js';
 import { createFeatureAttributesPanel } from './feature_attributes_panel.js';
+import { addFeature, updateFeature, removeFeature } from '../store.js';
 
 class DrawControl {
 
@@ -8,8 +9,8 @@ class DrawControl {
         this.toolManager = toolManager;
         this.isActive = false;
         this.defaultProperties = {
-            user_color: '#1100FF',
-            user_opacity: 0.2,
+            color: '#1100FF',
+            opacity: 0.2,
         };
     }
 
@@ -35,17 +36,34 @@ class DrawControl {
 
 
         this.map.on('draw.create', (e) => {
-            const feature = e.features[0];        
+            const feature = e.features[0];
+
+            if (!feature.properties.color) {
+                feature.properties.color = this.defaultProperties.color;
+            }
+            if (!feature.properties.opacity) {
+                feature.properties.opacity = this.defaultProperties.opacity;
+            }
+            const type = feature.geometry.type.toLowerCase() + 's';
+            addFeature(type, feature);
 
             // Define as propriedades padrão na feição
-            this.draw.setFeatureProperty(feature.id, 'color', this.defaultProperties.user_color);
-            this.draw.setFeatureProperty(feature.id, 'opacity', this.defaultProperties.user_opacity);
+            this.draw.setFeatureProperty(feature.id, 'color', this.defaultProperties.color);
+            this.draw.setFeatureProperty(feature.id, 'opacity', this.defaultProperties.opacity);
         
             this.map.getCanvas().style.cursor = ''; // Reset cursor
         });
 
         this.map.on('draw.update', (e) => {
-            // Handle feature update
+            const feature = e.features[0];
+            const type = feature.geometry.type.toLowerCase() + 's';
+            updateFeature(type, feature);
+        });
+        this.map.on('draw.delete', (e) => {
+            e.features.forEach(feature => {
+                const type = feature.geometry.type.toLowerCase() + 's';
+                removeFeature(type, feature.id);
+            });
         });
 
         this.map.on('draw.modechange', (e) => {

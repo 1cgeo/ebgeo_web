@@ -1,3 +1,5 @@
+import { updateFeature, removeFeature } from '../store.js';
+
 export function createImageAttributesPanel(feature, map) {
     let panel = document.querySelector('.image-attributes-panel');
     if (panel) {
@@ -54,6 +56,7 @@ export function createImageAttributesPanel(feature, map) {
         data.features = data.features.filter(f => f.id !== feature.id);
         map.getSource('images').setData(data);
         panel.remove();
+        removeFeature('images', feature)
     };
 
     panel.appendChild(sizeLabel);
@@ -73,5 +76,6 @@ export function updateImageAttributesPanel(feature, map) {
     if (featureIndex !== -1) {
         data.features[featureIndex].properties = feature.properties;
         map.getSource('images').setData(data);
+        updateFeature('images', feature)
     }
 }

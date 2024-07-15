@@ -1,6 +1,6 @@
 const store = {
     maps: {
-        main: {
+        'Principal': {
             baseLayer: 'Carta',
             features: {
                 polygons: [],
@@ -11,7 +11,7 @@ const store = {
             }
         }
     },
-    currentMap: 'main',
+    currentMap: 'Principal',
 };
 
 export const addFeature = (type, feature) => {
@@ -56,6 +56,10 @@ export const getCurrentMapFeatures = () => {
 
 export const getCurrentBaseLayer = () => {
     return store.maps[store.currentMap].baseLayer;
+};
+
+export const setBaseLayer = (layer) => {
+    store.maps[store.currentMap].baseLayer = layer;
 };
 
 export default store;

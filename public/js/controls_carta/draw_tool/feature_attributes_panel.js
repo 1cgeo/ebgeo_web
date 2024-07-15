@@ -1,3 +1,5 @@
+import { updateFeature, removeFeature } from '../store.js';
+
 export function createFeatureAttributesPanel(feature, map, defaultProperties) {
     let panel = document.querySelector('.feature-attributes-panel');
     if (panel) {
@@ -42,6 +44,8 @@ export function createFeatureAttributesPanel(feature, map, defaultProperties) {
         const draw = map._controls.find(control => control instanceof MapboxDraw);
         if (draw) {
             draw.delete(feature.id);
+            const type = feature.geometry.type.toLowerCase() + 's';
+            removeFeature(type, feature.id);
         }
         panel.remove();
     };
@@ -72,6 +76,8 @@ export function updateFeatureAttributesPanel(feature, map) {
 
         var feat = draw.get(feature.id);
         draw.add(feat);
+        const type = feature.geometry.type.toLowerCase() + 's';
+        updateFeature(type, feature);
     } else {
         console.error('Draw control not found on map');
     }

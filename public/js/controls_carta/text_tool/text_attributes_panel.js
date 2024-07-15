@@ -1,3 +1,5 @@
+import { updateFeature, removeFeature } from '../store.js';
+
 export function createTextAttributesPanel(feature, map, defaultTextProperties) {
     let panel = document.querySelector('.text-attributes-panel');
     if (panel) {
@@ -73,6 +75,7 @@ export function createTextAttributesPanel(feature, map, defaultTextProperties) {
         data.features = data.features.filter(f => f.id !== feature.id);
         map.getSource('texts').setData(data);
         panel.remove();
+        removeFeature('texts', feature)
     };
 
     const setDefaultButton = document.createElement('button');
@@ -105,5 +108,6 @@ export function updateTextAttributesPanel(feature, map) {
     if (featureIndex !== -1) {
         data.features[featureIndex].properties = feature.properties;
         map.getSource('texts').setData(data);
+        updateFeature('texts', feature)
     }
 }

@@ -1,26 +1,39 @@
-import store, { addMap, removeMap, setCurrentMap, getCurrentMapFeatures, getCurrentBaseLayer } from '../store.js';
-import { switchLayer } from '../map.js';
-
+import store, { addMap, removeMap, setCurrentMap, getCurrentMapFeatures, getCurrentBaseLayer } from './store.js';
+import { switchLayer } from './base_layer_control.js';
 class MapControl {
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl map-control';
+        this.container.className = 'mapboxgl-ctrl map-control-panel';
+
+        const titleContainer = document.createElement('div');
+        titleContainer.className = 'map-control-title-container';
+
+        const title = document.createElement('h3');
+        title.className = 'map-control-title';
+        title.textContent = 'Mapas';
 
         const addButton = document.createElement('button');
-        addButton.textContent = 'Add Map';
+        addButton.className = 'add-map-button';
+        addButton.textContent = '+';
+        addButton.title = 'Adicionar mapa';
         addButton.onclick = () => {
-            const mapName = prompt("Enter map name:");
+            const mapName = prompt("Digite o nome do mapa:");
             if (mapName) {
                 addMap(mapName);
                 this.updateMapList();
             }
         };
 
+        titleContainer.appendChild(title);
+        titleContainer.appendChild(addButton);
+
         this.mapList = document.createElement('ul');
+        this.mapList.className = 'map-list';
+
         this.updateMapList();
 
-        this.container.appendChild(addButton);
+        this.container.appendChild(titleContainer);
         this.container.appendChild(this.mapList);
 
         return this.container;
@@ -36,20 +49,42 @@ class MapControl {
         Object.keys(store.maps).forEach(mapName => {
             const listItem = document.createElement('li');
             listItem.textContent = mapName;
-            listItem.onclick = () => {
-                setCurrentMap(mapName);
-                this.switchMap();
-            };
+            listItem.className = mapName === store.currentMap ? 'current-map' : '';
 
-            const removeButton = document.createElement('button');
-            removeButton.textContent = 'X';
-            removeButton.onclick = (e) => {
+            const buttonContainer = document.createElement('div');
+            buttonContainer.className = 'button-container';
+
+            const changeButton = document.createElement('button');
+            changeButton.className = 'change-map-button';
+            changeButton.textContent = '👁️';
+            changeButton.title = 'Alterar';
+            changeButton.onclick = (e) => {
                 e.stopPropagation();
-                removeMap(mapName);
+                setCurrentMap(mapName);
+                console.log('CLICK')
+                this.switchMap();
                 this.updateMapList();
             };
 
-            listItem.appendChild(removeButton);
+            const removeButton = document.createElement('button');
+            removeButton.className = 'remove-map-button';
+            removeButton.textContent = 'X';
+            removeButton.title = 'Excluir';
+            removeButton.onclick = (e) => {
+                e.stopPropagation();
+                if (Object.keys(store.maps).length > 1) {
+                    if (confirm("Você tem certeza que deseja deletar este mapa?")) {
+                        removeMap(mapName);
+                        this.updateMapList();
+                    }
+                } else {
+                    alert("Deve haver pelo menos um mapa.");
+                }
+            };
+
+            buttonContainer.appendChild(changeButton);
+            buttonContainer.appendChild(removeButton);
+            listItem.appendChild(buttonContainer);
             this.mapList.appendChild(listItem);
         });
     }
@@ -57,7 +92,7 @@ class MapControl {
     switchMap() {
         const features = getCurrentMapFeatures();
         const baseLayer = getCurrentBaseLayer();
-        switchLayer(baseLayer);
+        switchLayer(this.map, baseLayer);
 
         // Remova as feições atuais do mapa
         const draw = this.map._controls.find(control => control instanceof MapboxDraw);
@@ -70,11 +105,15 @@ class MapControl {
         }
 
         if (this.map.getSource('texts')) {
+            console.log('AQUI')
+            console.log(features.texts)
             this.map.getSource('texts').setData({
                 type: 'FeatureCollection',
                 features: features.texts
             });
         } else {
+            console.log('NOT FOUND')
+            console.log(features.texts)
             this.map.addSource('texts', {
                 type: 'geojson',
                 data: {
@@ -130,11 +169,16 @@ class MapControl {
         }
 
         // Zoom para as feições existentes
-        const allFeatures = features.polygons.concat(features.linestrings).concat(features.points).concat(features.texts).concat(features.images);
+        const allFeatures = features.polygons
+        .concat(features.linestrings)
+        .concat(features.points)
+        .concat(features.texts)
+        .concat(features.images);
+    
         if (allFeatures.length > 0) {
-            const bounds = allFeatures.reduce((bounds, feature) => {
-                return bounds.extend(feature.geometry.coordinates);
-            }, new maplibregl.LngLatBounds(allFeatures[0].geometry.coordinates, allFeatures[0].geometry.coordinates));
+            const featureCollection = turf.featureCollection(allFeatures);
+            const bbox = turf.bbox(featureCollection);
+            const bounds = new maplibregl.LngLatBounds([bbox[0], bbox[1]], [bbox[2], bbox[3]]);
             this.map.fitBounds(bounds, { padding: 20 });
         }
     }
