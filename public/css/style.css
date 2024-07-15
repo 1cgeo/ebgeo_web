@@ -1,0 +1,201 @@
+/* public/css/style.css */
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* Prevent horizontal scrollbar */
+}
+
+#top-bar {
+    background-color: #243413;
+    color: white;
+    padding: 20px; /* Increase padding for better visibility */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 70px; /* Increase height */
+    box-sizing: border-box;
+}
+
+#map {
+    position: absolute;
+    top: 70px; /* Adjust height according to the top-bar */
+    bottom: 0;
+    width: 100%;
+    cursor: default; /* Default cursor */
+}
+
+.mapboxgl-ctrl-group {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    z-index: 10; /* Ensure they are above other elements */
+    pointer-events: auto; /* Ensure they can be clicked */
+}
+
+.save-load-icon {
+    background-color: #243413;
+    color: white;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+    margin: 2px;
+    font-size: 18px;
+    display: block; /* Ensure the input file button looks like a block element */
+    width: 100px; /* Ensure it has a standard width */
+    z-index: 10; /* Ensure they are above other elements */
+    pointer-events: auto; /* Ensure they can be clicked */
+}
+
+.base-layer-control {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    display: flex;
+    gap: 10px;
+    z-index: 10; /* Ensure they are above other elements */
+    pointer-events: auto; /* Ensure they can be clicked */
+    background-color: #243413; /* Background color */
+    color: white; /* Text color */
+    padding: 5px;
+    border-radius: 5px;
+}
+
+.layer-switch {
+    display: flex;
+    align-items: center;
+    margin: 0;
+}
+
+.layer-switch input {
+    margin-right: 5px;
+}
+
+.layer-switch label {
+    color: white;
+}
+
+.save-load-control {
+    position: absolute;
+    top: 60px; /* Position below the base layer control */
+    left: 10px;
+    z-index: 10; /* Ensure they are above other elements */
+    pointer-events: auto; /* Ensure they can be clicked */
+}
+
+.draw-control {
+    z-index: 10; /* Ensure it is above other elements */
+    pointer-events: auto; /* Ensure it can be clicked */
+}
+
+.mapbox-gl-draw_polygon,
+.mapbox-gl-draw_line,
+.mapbox-gl-draw_point,
+.mapbox-gl-draw_trash,
+.mapbox-gl-draw_ctrl-draw-btn {
+    background-color: #dbc9ec !important;
+    color: black !important;
+    font-weight: bold;
+    border: none !important;
+    padding: 5px !important;
+    cursor: pointer !important;
+    margin: 2px !important;
+    font-size: 18px !important;
+    z-index: 10 !important; /* Ensure they are above other elements */
+    pointer-events: auto !important; /* Ensure they can be clicked */
+    filter: invert(1); /* Change icon color to white */
+}
+
+.mapbox-gl-draw_polygon:hover,
+.mapbox-gl-draw_line:hover,
+.mapbox-gl-draw_point:hover,
+.mapbox-gl-draw_trash:hover,
+.mapbox-gl-draw_ctrl-draw-btn:hover  {
+    background-color: #c9aad9 !important;
+}
+
+.text-attributes-panel {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    padding: 10px;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+}
+
+.text-attributes-panel label {
+    display: block;
+    margin-top: 5px;
+}
+
+.text-attributes-panel input {
+    width: 100%;
+    margin-top: 5px;
+}
+
+.text-attributes-panel button {
+    margin-top: 10px;
+    margin-right: 5px;
+}
+
+.feature-attributes-panel {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    padding: 10px;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+}
+
+.feature-attributes-panel label {
+    display: block;
+    margin-top: 5px;
+}
+
+.feature-attributes-panel input {
+    width: 100%;
+    margin-top: 5px;
+}
+
+.feature-attributes-panel button {
+    margin-top: 10px;
+    margin-right: 5px;
+}
+
+.image-attributes-panel {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    padding: 10px;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+}
+
+.image-attributes-panel label {
+    display: block;
+    margin-top: 5px;
+}
+
+.image-attributes-panel input {
+    width: 100%;
+    margin-top: 5px;
+}
+
+.image-attributes-panel button {
+    margin-top: 10px;
+    margin-right: 5px;
+}
+

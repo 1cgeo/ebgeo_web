@@ -1,0 +1,16 @@
+{
+  "name": "sigweb",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "http-server ./public"
+  },
+  "dependencies": {
+  },
+  "devDependencies": {
+    "http-server": "^0.12.3"
+  },
+  "author": "",
+  "license": "ISC"
+}
