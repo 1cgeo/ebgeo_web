@@ -1,6 +1,12 @@
 import { createImageAttributesPanel } from './image_attributes_panel.js';
 
 class AddImageControl {
+
+    constructor(toolManager) {
+        this.toolManager = toolManager;
+        this.isActive = false;
+    }
+
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
@@ -10,7 +16,7 @@ class AddImageControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.innerHTML = '📷';
         button.title = 'Adicionar imagem';
-        button.onclick = () => this.enableImageAddingMode();
+        button.onclick = () =>this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
 
@@ -37,13 +43,18 @@ class AddImageControl {
         this.map = undefined;
     }
 
-    enableImageAddingMode() {
-        this.isAddingImage = true;
+    activate() {
+        this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
     }
 
+    deactivate() {
+        this.isActive = false;
+        this.map.getCanvas().style.cursor = '';
+    }
+
     handleMapClick(e) {
-        if (this.isAddingImage) {
+        if (this.isActive) {
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = 'image/*';
@@ -57,8 +68,7 @@ class AddImageControl {
                 reader.readAsDataURL(file);
             };
             input.click();
-            this.isAddingImage = false;
-            this.map.getCanvas().style.cursor = '';
+            this.toolManager.deactivateCurrentTool();
         } else {
             let panel = document.querySelector('.image-attributes-panel');
             if (panel) {
@@ -141,22 +151,23 @@ class AddImageControl {
         this.map.getCanvas().style.cursor = 'grabbing';
     
         let isDragging = false;
+        let lastUpdateTime = Date.now();
     
         const onMove = (e) => {
-            if (!isDragging) {
+            const currentTime = Date.now();
+            if (currentTime - lastUpdateTime >= 75) { // Update every 50ms
                 isDragging = true;
-                requestAnimationFrame(() => {
-                    const coords = e.lngLat;
-                    feature.geometry.coordinates = [coords.lng, coords.lat];
+                const coords = e.lngLat;
+                feature.geometry.coordinates = [coords.lng, coords.lat];
     
-                    const data = this.map.getSource('images')._data;
-                    const featureIndex = data.features.findIndex(f => f.id == feature.id);
-                    if (featureIndex !== -1) {
-                        data.features[featureIndex] = feature;
-                        this.map.getSource('images').setData(data);
-                    }
-                    isDragging = false;
-                });
+                const data = this.map.getSource('images')._data;
+                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                if (featureIndex !== -1) {
+                    data.features[featureIndex] = feature;
+                    this.map.getSource('images').setData(data);
+                }
+                lastUpdateTime = currentTime;
+                isDragging = false;
             }
         };
     
@@ -168,7 +179,7 @@ class AddImageControl {
     
         this.map.on('mousemove', onMove);
         this.map.once('mouseup', onUp);
-    }
+    }    
 }
 
 export default AddImageControl;

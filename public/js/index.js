@@ -1,17 +1,27 @@
-// public/js/index.js
-import { map } from './map.js';
-import baseLayerControl from './controls/baseLayerControl.js';
-import drawControl from './controls/draw.js';
-import saveLoadControl from './controls/save_load_control.js';
-import AddTextControl from './controls/add_text_control.js';
-import AddImageControl from './controls/add_image_control.js';
+import { map } from './controls_carta/map.js';
+import baseLayerControl from './controls_carta/base_layer_control.js';
+import DrawControl from './controls_carta/draw_tool/draw.js';
+import saveLoadControl from './controls_carta/save_load_control.js';
+import AddTextControl from './controls_carta/text_tool/add_text_control.js';
+import AddImageControl from './controls_carta/image_tool/add_image_control.js';
+import ToolManager from './controls_carta/tool_manager.js';
+import MapControl from './controls/map_control.js';
 
-// Add controls to the map
 map.addControl(baseLayerControl, 'top-left');
-map.addControl(drawControl, 'top-right');
+map.addControl(new MapControl(), 'top-left');
 map.addControl(saveLoadControl, 'top-left');
-map.addControl(new AddTextControl(), 'top-right');
-map.addControl(new AddImageControl(), 'top-right');
+
+const toolManager = new ToolManager(map);
+
+const drawControl = new DrawControl(toolManager);
+map.addControl(drawControl, 'top-right');
+
+const textControl = new AddTextControl(toolManager);
+map.addControl(textControl, 'top-right');
+
+const imageControl = new AddImageControl(toolManager);
+map.addControl(imageControl, 'top-right');
+
 
 const scale = new maplibregl.ScaleControl({
     maxWidth: 80,

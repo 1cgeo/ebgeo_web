@@ -1,4 +1,3 @@
-// public/js/controls/add_text_control.js
 import { createTextAttributesPanel } from './text_attributes_panel.js';
 
 let defaultTextProperties = {
@@ -9,6 +8,12 @@ let defaultTextProperties = {
 };
 
 class AddTextControl {
+
+    constructor(toolManager) {
+        this.toolManager = toolManager;
+        this.isActive = false;
+    }
+
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
@@ -18,7 +23,7 @@ class AddTextControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.innerHTML = 'T';
         button.title = 'Adicionar texto';
-        button.onclick = () => this.enableTextAddingMode();
+        button.onclick = () =>this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
 
@@ -45,19 +50,23 @@ class AddTextControl {
         this.map = undefined;
     }
 
-    enableTextAddingMode() {
-        this.isAddingText = true;
+    activate() {
+        this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
     }
 
+    deactivate() {
+        this.isActive = false;
+        this.map.getCanvas().style.cursor = '';
+    }
+
     handleMapClick(e) {
-        if (this.isAddingText) {
+        if (this.isActive) {
             const text = prompt("Enter text:");
             if (text) {
                 this.addTextFeature(e.lngLat, text);
             }
-            this.isAddingText = false;
-            this.map.getCanvas().style.cursor = '';
+            this.toolManager.deactivateCurrentTool();
         } else {
             let panel = document.querySelector('.text-attributes-panel');
             if (panel) {
@@ -69,7 +78,6 @@ class AddTextControl {
             }
         }
     }
-
 
     addTextFeature(lngLat, text) {
         if (!this.map.getSource('texts')) {
@@ -101,7 +109,7 @@ class AddTextControl {
 
         const feature = {
             type: 'Feature',
-            id: Date.now().toString(), // Use timestamp as unique ID
+            id: Date.now().toString(),
             properties: {...defaultTextProperties, text},
             geometry: {
                 type: 'Point',
@@ -131,10 +139,11 @@ class AddTextControl {
         let isDragging = false;
     
         const onMove = (e) => {
+            const coords = e.lngLat;
+    
             if (!isDragging) {
                 isDragging = true;
                 requestAnimationFrame(() => {
-                    const coords = e.lngLat;
                     feature.geometry.coordinates = [coords.lng, coords.lat];
     
                     const data = this.map.getSource('texts')._data;
@@ -143,6 +152,7 @@ class AddTextControl {
                         data.features[featureIndex] = feature;
                         this.map.getSource('texts').setData(data);
                     }
+    
                     isDragging = false;
                 });
             }
@@ -156,7 +166,7 @@ class AddTextControl {
     
         this.map.on('mousemove', onMove);
         this.map.once('mouseup', onUp);
-    }
+    }    
     
 }
 

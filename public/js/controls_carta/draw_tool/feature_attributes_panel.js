@@ -1,5 +1,3 @@
-// public/js/controls/feature_attributes_panel.js
-
 export function createFeatureAttributesPanel(feature, map, defaultProperties) {
     let panel = document.querySelector('.feature-attributes-panel');
     if (panel) {

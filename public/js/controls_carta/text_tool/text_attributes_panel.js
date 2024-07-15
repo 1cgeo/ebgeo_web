@@ -1,5 +1,3 @@
-// public/js/controls/text_attributes_panel.js
-
 export function createTextAttributesPanel(feature, map, defaultTextProperties) {
     let panel = document.querySelector('.text-attributes-panel');
     if (panel) {
@@ -43,7 +41,7 @@ export function createTextAttributesPanel(feature, map, defaultTextProperties) {
     };
 
     const backgroundColorLabel = document.createElement('label');
-    backgroundColorLabel.textContent = 'Cor de fundo:';
+    backgroundColorLabel.textContent = 'Cor da borda:';
     const backgroundColorInput = document.createElement('input');
     backgroundColorInput.type = 'color';
     backgroundColorInput.value = feature.properties.backgroundColor;
@@ -74,7 +72,6 @@ export function createTextAttributesPanel(feature, map, defaultTextProperties) {
         const data = map.getSource('texts')._data;
         data.features = data.features.filter(f => f.id !== feature.id);
         map.getSource('texts').setData(data);
-        removeFeature('texts', feature.id);
         panel.remove();
     };
 

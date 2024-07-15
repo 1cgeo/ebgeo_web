@@ -53,7 +53,6 @@ export function createImageAttributesPanel(feature, map) {
         const data = map.getSource('images')._data;
         data.features = data.features.filter(f => f.id !== feature.id);
         map.getSource('images').setData(data);
-        removeFeature('images', feature.id);
         panel.remove();
     };
 

@@ -1,4 +1,3 @@
-// public/js/controls/drawStyles.js
 export default [
     {
         'id': 'gl-draw-polygon-fill-active',

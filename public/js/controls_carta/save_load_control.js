@@ -1,5 +1,4 @@
-// public/js/controls/saveLoadControl.js
-import { saveToFile, loadFromFile } from '../utils.js';
+import { saveToFile, loadFromFile } from './utils.js';
 
 const saveLoadControl = {
     onAdd: function (map) {
