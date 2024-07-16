@@ -53,8 +53,8 @@ export function createFeatureAttributesPanel(feature, map, defaultProperties) {
     const setDefaultButton = document.createElement('button');
     setDefaultButton.textContent = 'Definir padrão';
     setDefaultButton.onclick = () => {
-        defaultProperties.user_color = feature.properties.color;
-        defaultProperties.user_opacity = feature.properties.opacity;
+        defaultProperties.color = feature.properties.color;
+        defaultProperties.opacity = feature.properties.opacity;
     };
 
     panel.appendChild(colorLabel);

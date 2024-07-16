@@ -81,33 +81,6 @@ class AddTextControl {
     }
 
     addTextFeature(lngLat, text) {
-        if (!this.map.getSource('texts')) {
-            this.map.addSource('texts', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: []
-                }
-            });
-
-            this.map.addLayer({
-                id: 'text-layer',
-                type: 'symbol',
-                source: 'texts',
-                layout: {
-                    'text-field': ['get', 'text'],
-                    'text-size': ['get', 'size'],
-                    'text-justify': 'center',
-                    'text-anchor': 'center'
-                },
-                paint: {
-                    'text-color': ['get', 'color'],
-                    'text-halo-color': ['get', 'backgroundColor'],
-                    'text-halo-width': 2
-                }
-            });
-        }
-
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
@@ -118,7 +91,7 @@ class AddTextControl {
             }
         };
 
-        const data = this.map.getSource('texts')._data;
+        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         data.features.push(feature);
         this.map.getSource('texts').setData(data);
         addFeature('texts', feature);
@@ -126,7 +99,7 @@ class AddTextControl {
 
     handleTextClick(e) {
         const featureId = e.features[0].id;
-        const data = this.map.getSource('texts')._data;
+        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         const feature = data.features.find(f => f.id == featureId);
         if (feature) {
             createTextAttributesPanel(feature, this.map, defaultTextProperties);
@@ -148,7 +121,7 @@ class AddTextControl {
                 requestAnimationFrame(() => {
                     feature.geometry.coordinates = [coords.lng, coords.lat];
     
-                    const data = this.map.getSource('texts')._data;
+                    const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
                     const featureIndex = data.features.findIndex(f => f.id == feature.id);
                     if (featureIndex !== -1) {
                         data.features[featureIndex] = feature;

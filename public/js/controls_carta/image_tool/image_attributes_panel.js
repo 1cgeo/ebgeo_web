@@ -52,8 +52,8 @@ export function createImageAttributesPanel(feature, map) {
     const deleteButton = document.createElement('button');
     deleteButton.textContent = 'Deletar';
     deleteButton.onclick = () => {
-        const data = map.getSource('images')._data;
-        data.features = data.features.filter(f => f.id !== feature.id);
+        const data = JSON.parse(JSON.stringify(map.getSource('images')._data));
+        data.features = data.features.filter(f => f.id != feature.id);
         map.getSource('images').setData(data);
         panel.remove();
         removeFeature('images', feature)
@@ -71,7 +71,7 @@ export function createImageAttributesPanel(feature, map) {
 }
 
 export function updateImageAttributesPanel(feature, map) {
-    const data = map.getSource('images')._data;
+    const data = JSON.parse(JSON.stringify(map.getSource('images')._data));
     const featureIndex = data.features.findIndex(f => f.id === feature.id);
     if (featureIndex !== -1) {
         data.features[featureIndex].properties = feature.properties;

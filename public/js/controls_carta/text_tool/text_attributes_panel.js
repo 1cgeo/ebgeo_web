@@ -71,7 +71,7 @@ export function createTextAttributesPanel(feature, map, defaultTextProperties) {
     const deleteButton = document.createElement('button');
     deleteButton.textContent = 'Deletar';
     deleteButton.onclick = () => {
-        const data = map.getSource('texts')._data;
+        const data = JSON.parse(JSON.stringify(map.getSource('texts')._data));
         data.features = data.features.filter(f => f.id !== feature.id);
         map.getSource('texts').setData(data);
         panel.remove();
@@ -103,7 +103,7 @@ export function createTextAttributesPanel(feature, map, defaultTextProperties) {
 }
 
 export function updateTextAttributesPanel(feature, map) {
-    const data = map.getSource('texts')._data;
+    const data = JSON.parse(JSON.stringify(map.getSource('texts')._data));
     const featureIndex = data.features.findIndex(f => f.id === feature.id);
     if (featureIndex !== -1) {
         data.features[featureIndex].properties = feature.properties;

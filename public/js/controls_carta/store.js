@@ -19,14 +19,14 @@ export const addFeature = (type, feature) => {
 };
 
 export const updateFeature = (type, feature) => {
-    const index = store.maps[store.currentMap].features[type].findIndex(f => f.id === feature.id);
+    const index = store.maps[store.currentMap].features[type].findIndex(f => f.id == feature.id);
     if (index !== -1) {
         store.maps[store.currentMap].features[type][index] = feature;
     }
 };
 
 export const removeFeature = (type, id) => {
-    store.maps[store.currentMap].features[type] = store.maps[store.currentMap].features[type].filter(feature => feature.id !== id);
+    store.maps[store.currentMap].features[type] = store.maps[store.currentMap].features[type].filter(feature => feature.id != id);
 };
 
 export const addMap = (mapName) => {
@@ -51,7 +51,7 @@ export const setCurrentMap = (mapName) => {
 };
 
 export const getCurrentMapFeatures = () => {
-    return store.maps[store.currentMap].features;
+    return JSON.parse(JSON.stringify(store.maps[store.currentMap].features));
 };
 
 export const getCurrentBaseLayer = () => {

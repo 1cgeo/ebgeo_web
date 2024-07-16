@@ -1,13 +1,5 @@
 import { setBaseLayer } from './store.js';
 
-const switchLayer = (map, layer) => {
-    const styleUrl = layer === 'Ortoimagem'
-        ? 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
-        : 'https://demotiles.maplibre.org/style.json';
-    map.setStyle(styleUrl);
-    setBaseLayer(layer);
-};
-
 const baseLayerControl = {
     onAdd: function (map) {
         this.map = map;
@@ -26,7 +18,7 @@ const baseLayerControl = {
 
         this.container.querySelectorAll('input[name="base-layer"]').forEach((input) => {
             input.addEventListener('change', (event) => {
-                switchLayer(map, event.target.value);
+                this.switchLayer(event.target.value);
             });
         });
 
@@ -35,7 +27,19 @@ const baseLayerControl = {
     onRemove: function () {
         this.container.parentNode.removeChild(this.container);
         this.map = undefined;
+    },
+    switchLayer: async function (layer) {
+        setBaseLayer(layer);
+        const styleUrl = layer === 'Ortoimagem'
+            ? 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
+            : 'https://demotiles.maplibre.org/style.json';
+        
+        this.container.querySelector(`input[value="${layer}"]`).checked = true;
+
+        // Set the new style
+        this.map.setStyle(styleUrl);
     }
 };
 
-export {switchLayer, baseLayerControl};
+export const switchLayer = baseLayerControl.switchLayer.bind(baseLayerControl);
+export default baseLayerControl;

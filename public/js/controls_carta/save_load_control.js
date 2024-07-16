@@ -1,5 +1,5 @@
 import { saveToFile, loadFromFile } from './utils.js';
-import store, { getCurrentMapFeatures, getCurrentBaseLayer, setCurrentMap } from './store.js';
+import store, { getCurrentMapFeatures, getCurrentBaseLayer } from './store.js';
 import { switchLayer } from './base_layer_control.js';
 
 class SaveLoadControl {
@@ -58,7 +58,7 @@ class SaveLoadControl {
         const features = getCurrentMapFeatures();
         const baseLayer = getCurrentBaseLayer();
 
-        switchLayer(this.map, baseLayer);
+        switchLayer(baseLayer);
 
         // Remova as feições atuais do mapa
         const draw = this.map._controls.find(control => control instanceof MapboxDraw);
@@ -70,65 +70,15 @@ class SaveLoadControl {
             });
         }
 
-        if (this.map.getSource('texts')) {
-            this.map.getSource('texts').setData({
-                type: 'FeatureCollection',
-                features: features.texts
-            });
-        } else {
-            this.map.addSource('texts', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: features.texts
-                }
-            });
+        this.map.getSource('texts').setData({
+            type: 'FeatureCollection',
+            features: features.texts
+        });
 
-            this.map.addLayer({
-                id: 'text-layer',
-                type: 'symbol',
-                source: 'texts',
-                layout: {
-                    'text-field': ['get', 'text'],
-                    'text-size': ['get', 'size'],
-                    'text-justify': 'center',
-                    'text-anchor': 'center'
-                },
-                paint: {
-                    'text-color': ['get', 'color'],
-                    'text-halo-color': ['get', 'backgroundColor'],
-                    'text-halo-width': 2
-                }
-            });
-        }
-
-        if (this.map.getSource('images')) {
-            this.map.getSource('images').setData({
-                type: 'FeatureCollection',
-                features: features.images
-            });
-        } else {
-            this.map.addSource('images', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: features.images
-                }
-            });
-
-            this.map.addLayer({
-                id: 'image-layer',
-                type: 'symbol',
-                source: 'images',
-                layout: {
-                    'icon-image': ['get', 'imageId'],
-                    'icon-size': ['get', 'size'],
-                    'icon-rotate': ['get', 'rotation'],
-                    'icon-allow-overlap': true,
-                    'icon-ignore-placement': true
-                }
-            });
-        }
+        this.map.getSource('images').setData({
+            type: 'FeatureCollection',
+            features: features.images
+        });
 
         features.images.forEach(feature => {
             const image = new Image();
@@ -142,17 +92,28 @@ class SaveLoadControl {
 
         // Zoom para as feições existentes
         const allFeatures = features.polygons
-            .concat(features.linestrings)
-            .concat(features.points)
-            .concat(features.texts)
-            .concat(features.images);
-
+        .concat(features.linestrings)
+        .concat(features.points)
+        .concat(features.texts)
+        .concat(features.images);
+    
         if (allFeatures.length > 0) {
             const featureCollection = turf.featureCollection(allFeatures);
             const bbox = turf.bbox(featureCollection);
-            const bounds = new maplibregl.LngLatBounds([bbox[0], bbox[1]], [bbox[2], bbox[3]]);
-            this.map.fitBounds(bounds, { padding: 20 });
+            
+            // Verificar se há apenas um ponto
+            if (allFeatures.length === 1 && allFeatures[0].geometry.type === 'Point') {
+                // Usar um buffer para evitar zoom infinito
+                const buffered = turf.buffer(allFeatures[0], 0.1, { units: 'degrees' });
+                const bufferedBbox = turf.bbox(buffered);
+                const bounds = new maplibregl.LngLatBounds([bufferedBbox[0], bufferedBbox[1]], [bufferedBbox[2], bufferedBbox[3]]);
+                this.map.fitBounds(bounds, { padding: 100 });
+            } else {
+                const bounds = new maplibregl.LngLatBounds([bbox[0], bbox[1]], [bbox[2], bbox[3]]);
+                this.map.fitBounds(bounds, { padding: 100 });
+            }
         }
+        
     }
 }
 

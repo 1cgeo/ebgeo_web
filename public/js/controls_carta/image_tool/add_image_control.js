@@ -84,30 +84,7 @@ class AddImageControl {
 
     addImageFeature(lngLat, imageBase64) {
         const imageId = Date.now().toString(); // Use timestamp as unique ID
-    
-        if (!this.map.getSource('images')) {
-            this.map.addSource('images', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: []
-                }
-            });
-    
-            this.map.addLayer({
-                id: 'image-layer',
-                type: 'symbol',
-                source: 'images',
-                layout: {
-                    'icon-image': ['get', 'imageId'],
-                    'icon-size': ['get', 'size'],
-                    'icon-rotate': ['get', 'rotation'],
-                    'icon-allow-overlap': true,
-                    'icon-ignore-placement': true
-                }
-            });
-        }
-    
+
         const feature = {
             type: 'Feature',
             id: imageId,
@@ -130,7 +107,7 @@ class AddImageControl {
                 this.map.addImage(imageId, imageElement);
             }
     
-            const data = this.map.getSource('images')._data;
+            const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
             data.features.push(feature);
             this.map.getSource('images').setData(data);
             addFeature('images',feature)
@@ -140,7 +117,7 @@ class AddImageControl {
 
     handleImageClick(e) {
         const featureId = e.features[0].id;
-        const data = this.map.getSource('images')._data;
+        const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
         const feature = data.features.find(f => f.id == featureId);
         if (feature) {
             createImageAttributesPanel(feature, this.map);
@@ -162,7 +139,7 @@ class AddImageControl {
                 const coords = e.lngLat;
                 feature.geometry.coordinates = [coords.lng, coords.lat];
     
-                const data = this.map.getSource('images')._data;
+                const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
                     data.features[featureIndex] = feature;
