@@ -1,5 +1,5 @@
 import 'https://unpkg.com/@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.js';
-import drawStyles from './drawStyles.js';
+import drawStyles from './draw_styles.js';
 import { createFeatureAttributesPanel } from './feature_attributes_panel.js';
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 
