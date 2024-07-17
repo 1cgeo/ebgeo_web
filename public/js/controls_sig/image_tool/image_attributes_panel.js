@@ -67,3 +67,13 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
 
     document.body.appendChild(panel);
 }
+
+export function updateImageAttributesPanel(feature, map) {
+    const data = JSON.parse(JSON.stringify(map.getSource('images')._data));
+    const featureIndex = data.features.findIndex(f => f.id === feature.id);
+    if (featureIndex !== -1) {
+        data.features[featureIndex].properties = feature.properties;
+        map.getSource('images').setData(data);
+        updateFeature('images', feature)
+    }
+}
