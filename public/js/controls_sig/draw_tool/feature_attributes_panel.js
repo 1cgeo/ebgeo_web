@@ -1,28 +1,21 @@
-import { updateFeature, removeFeature } from '../store.js';
-
-export function createFeatureAttributesPanel(features, map, defaultProperties) {
-    let panel = document.querySelector('.feature-attributes-panel');
-    if (panel) {
-        panel.remove();
+export function addFeatureAttributesToPanel(panel, selectedFeatures, featureControl, selectionManager, uiManager) {
+    if (selectedFeatures.length === 0) {
+        return;
     }
 
-    const initialProperties = features.map(feature => ({ ...feature.properties }));
-    const initialCoordinates = features.map(feature => [...feature.geometry.coordinates]);
-
-    panel = document.createElement('div');
-    panel.className = 'feature-attributes-panel';
-
-    const commonAttributes = findCommonAttributes(features);
+    const feature = selectedFeatures[0]; // Use the first selected feature to populate the form.
+    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
+    
+    const commonAttributes = findCommonAttributes(selectedFeatures);
 
     commonAttributes.forEach(attr => {
         const attrLabel = document.createElement('label');
-        attrLabel.textContent = getLabel(attr, features);
-        const attrInput = createInput(attr, features[0].properties[attr]);
+        attrLabel.textContent = getLabel(attr, selectedFeatures);
+        const attrInput = createInput(attr, selectedFeatures[0].properties[attr]);
         attrInput.oninput = (e) => {
-            features.forEach(feature => {
-                feature.properties[attr] = attrInput.type === 'range' || attrInput.type === 'number' ? parseFloat(e.target.value) : e.target.value;
-            });
-            updateFeatureAttributesPanel(features, map);
+            let value = attrInput.type === 'range' || attrInput.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+            value = attrInput.type === 'checkbox' ? e.target.checked : value;
+            featureControl.updateFeaturesProperty(selectedFeatures, attr, value);
         };
         panel.appendChild(attrLabel);
         panel.appendChild(attrInput);
@@ -30,76 +23,40 @@ export function createFeatureAttributesPanel(features, map, defaultProperties) {
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
-    saveButton.id = 'SalvarFeat';
+    saveButton.type = 'submit';
     saveButton.onclick = () => {
-        features.forEach(feature => {
-            const type = feature.geometry.type.toLowerCase() + 's';
-            updateFeature(type, feature);
-        });
-        panel.remove();
+        featureControl.saveFeatures(selectedFeatures, initialPropertiesMap)
+        selectionManager.deselectAllFeatures();
+        selectionManager.updateUI();
     };
+    panel.appendChild(saveButton);
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        features.forEach((feature, index) => {
-            Object.assign(feature.properties, initialProperties[index]);
-            feature.geometry.coordinates = initialCoordinates[index];
-        });
-        updateFeatureAttributesPanel(features, map);
-        panel.remove();
+        featureControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap)
+        selectionManager.deselectAllFeatures();
+        selectionManager.updateUI();
     };
-
-    const deleteButton = document.createElement('button');
-    deleteButton.textContent = 'Deletar';
-    deleteButton.onclick = () => {
-        const draw = map._controls.find(control => control instanceof MapboxDraw);
-        if (draw) {
-            features.forEach(feature => {
-                draw.delete(feature.id);
-                const type = feature.geometry.type.toLowerCase() + 's';
-                removeFeature(type, feature.id);
-            });
-        }
-        panel.remove();
-    };
-
-    const setDefaultButton = document.createElement('button');
-    setDefaultButton.textContent = 'Definir padrão';
-    setDefaultButton.onclick = () => {
-        commonAttributes.forEach(attr => {
-            defaultProperties[attr] = features[0].properties[attr];
-        });
-    };
-
-    panel.appendChild(saveButton);
     panel.appendChild(discardButton);
-    panel.appendChild(deleteButton);
-    panel.appendChild(setDefaultButton);
 
-    document.body.appendChild(panel);
-}
-
-export function updateFeatureAttributesPanel(features, map) {
-    const draw = map._controls.find(control => control instanceof MapboxDraw);
-    if (draw) {
-        features.forEach(feature => {
-            Object.keys(feature.properties).forEach(key => {
-                draw.setFeatureProperty(feature.id, key, feature.properties[key]);
-            });
-            const feat = draw.get(feature.id);
-            draw.add(feat);
-        });
-    } else {
-        console.error('Draw control not found on map');
+    if (selectedFeatures.length === 1) {
+        const setDefaultButton = document.createElement('button');
+        setDefaultButton.textContent = 'Definir padrão';
+        setDefaultButton.onclick = () => {
+            featureControl.setDefaultProperties(feature.properties, commonAttributes);
+            selectionManager.deselectAllFeatures();
+            selectionManager.updateUI();
+        };
+        panel.appendChild(setDefaultButton);
     }
 }
 
 function findCommonAttributes(features) {
     const attributeSets = {
         Point: ['size', 'color', 'opacity'],
-        LineString: ['size', 'color', 'opacity'],
-        Polygon: ['color', 'opacity', 'outlinecolor', 'size']
+        LineString: ['size', 'color', 'opacity', 'measure'],
+        Polygon: ['color', 'opacity', 'outlinecolor', 'size', 'measure']
     };
 
     const featureTypes = features.map(f => f.geometry.type);
@@ -109,12 +66,14 @@ function findCommonAttributes(features) {
         return common.filter(attr => attributes.includes(attr));
     });
 }
+
 function getLabel(attr, features) {
     const labels = {
         size: 'Tamanho',
         color: 'Cor',
         opacity: 'Opacidade',
-        outlinecolor: 'Cor da borda'
+        outlinecolor: 'Cor da borda',
+        measure: 'Medir'
     };
 
     if (attr === 'size') {
@@ -136,10 +95,14 @@ function createInput(attr, value) {
     } else if (attr === 'opacity') {
         input = document.createElement('input');
         input.type = 'range';
-        input.min = 0;
+        input.min = 0.1;
         input.max = 1;
         input.step = 0.1;
         input.value = value !== undefined ? value : 1;
+    } else if (attr === 'measure') {
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = value === true;
     } else {
         input = document.createElement('input');
         input.type = 'number';

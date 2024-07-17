@@ -114,7 +114,7 @@ class DrawControl {
             }
         }
 
-        this.map.on('move', updateSelectedBBoxSource);
+        this.map.on('zoomend', updateSelectedBBoxSource);
         this.map.on('draw.render', updateSelectedBBoxSource);
 
         this.map.on('click', (e) => {
