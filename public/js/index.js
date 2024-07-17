@@ -6,6 +6,7 @@ import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
 import ToolManager from './controls_sig/tool_manager.js';
 import MapControl from './controls_sig/map_control.js';
+import { undoLastAction, redoLastAction } from './controls_sig/store.js';
 
 map.addControl(baseLayerControl, 'top-left');
 
@@ -32,3 +33,16 @@ const scale = new maplibregl.ScaleControl({
     unit: 'metric'
 });
 map.addControl(scale, 'bottom-left');
+
+document.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
+        undoLastAction();
+        // Atualize o mapa para refletir as mudanças
+        mapControl.switchMap();
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === 'y') {
+        redoLastAction();
+        // Atualize o mapa para refletir as mudanças
+        mapControl.switchMap();
+    }
+});
