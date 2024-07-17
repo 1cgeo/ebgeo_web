@@ -8,20 +8,24 @@ const store = {
                 points: [],
                 texts: [],
                 images: [],
-            }
+            },
+            undoStack: [],
+            redoStack: [],
         }
     },
     currentMap: 'Principal',
-    undoStack: [],
-    redoStack: [],
     isUndoing: false,
     isRedoing: false,
 };
 
 const recordAction = (action) => {
+    const currentMap = store.maps[store.currentMap];
     if (!store.isUndoing && !store.isRedoing) {
-        store.undoStack.push(action);
-        store.redoStack = []; // Clear the redo stack when a new action is performed
+        currentMap.undoStack.push(action);
+        if (currentMap.undoStack.length > 20) {
+            currentMap.undoStack.shift(); // Remove the oldest action if stack exceeds 20
+        }
+        currentMap.redoStack = []; // Clear the redo stack when a new action is performed
     }
 };
 
@@ -37,14 +41,16 @@ export const addFeature = (type, feature) => {
 export const updateFeature = (type, feature) => {
     const index = store.maps[store.currentMap].features[type].findIndex(f => f.id == feature.id);
     if (index !== -1) {
-        const oldFeature = JSON.parse(JSON.stringify(store.maps[store.currentMap].features[type][index]));
-        store.maps[store.currentMap].features[type][index] = feature;
-        recordAction({
-            type: 'update',
-            featureType: type,
-            oldFeature,
-            newFeature: JSON.parse(JSON.stringify(feature))
-        });
+        const oldFeature = store.maps[store.currentMap].features[type][index];
+        if (JSON.stringify(oldFeature) !== JSON.stringify(feature)) {
+            store.maps[store.currentMap].features[type][index] = feature;
+            recordAction({
+                type: 'update',
+                featureType: type,
+                oldFeature: JSON.parse(JSON.stringify(oldFeature)),
+                newFeature: JSON.parse(JSON.stringify(feature))
+            });
+        }
     }
 };
 
@@ -60,8 +66,8 @@ export const removeFeature = (type, id) => {
     }
 };
 
-export const addMap = (mapName) => {
-    store.maps[mapName] = {
+export const addMap = (mapName, mapData = null) => {
+    store.maps[mapName] = mapData || {
         baseLayer: 'Carta',
         features: {
             polygons: [],
@@ -69,9 +75,10 @@ export const addMap = (mapName) => {
             points: [],
             texts: [],
             images: [],
-        }
+        },
+        undoStack: [],
+        redoStack: [],
     };
-
 };
 
 export const removeMap = (mapName) => {
@@ -95,12 +102,12 @@ export const setBaseLayer = (layer) => {
 };
 
 export const undoLastAction = () => {
-    const lastAction = store.undoStack.pop();
-    if (!lastAction) return;
+    const currentMap = store.maps[store.currentMap];
+    const lastAction = currentMap.undoStack.pop();
+    if (!lastAction) return false;
 
     store.isUndoing = true;
-
-    store.redoStack.push(lastAction);
+    currentMap.redoStack.push(lastAction);
 
     switch (lastAction.type) {
         case 'add':
@@ -117,15 +124,17 @@ export const undoLastAction = () => {
     }
 
     store.isUndoing = false;
+    return true;
+
 };
 
 export const redoLastAction = () => {
-    const lastUndoneAction = store.redoStack.pop();
-    if (!lastUndoneAction) return;
+    const currentMap = store.maps[store.currentMap];
+    const lastUndoneAction = currentMap.redoStack.pop();
+    if (!lastUndoneAction) return false;
 
     store.isRedoing = true;
-
-    store.undoStack.push(lastUndoneAction);
+    currentMap.undoStack.push(lastUndoneAction);
 
     switch (lastUndoneAction.type) {
         case 'add':
@@ -142,6 +151,21 @@ export const redoLastAction = () => {
     }
 
     store.isRedoing = false;
+    return true;
+
+};
+
+export const hasUnsavedData = () => {
+    const maps = store.maps;
+    for (const mapName in maps) {
+        const features = maps[mapName].features;
+        for (const featureType in features) {
+            if (features[featureType].length > 0) {
+                return true;
+            }
+        }
+    }
+    return false;
 };
 
 export default store;

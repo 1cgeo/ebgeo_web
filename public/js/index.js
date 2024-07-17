@@ -6,8 +6,14 @@ import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
 import ToolManager from './controls_sig/tool_manager.js';
 import MapControl from './controls_sig/map_control.js';
-import { undoLastAction, redoLastAction } from './controls_sig/store.js';
+//import ResetNorthControl from './controls_sig/reset_north_control.js';
+//import ResetOrthogonalControl from './controls_sig/reset_otho_control.js';
+//import FlyToCoordinatesControl from './controls_sig/fly_coordinates_control.js';
+import { undoLastAction, redoLastAction, hasUnsavedData } from './controls_sig/store.js';
 
+//-----------------------------------------------
+//CONTROLES
+//-----------------------------------------------
 map.addControl(baseLayerControl, 'top-left');
 
 const mapControl = new MapControl();
@@ -15,6 +21,10 @@ map.addControl(mapControl, 'top-left');
 
 const saveLoadControl = new SaveLoadControl(mapControl);
 map.addControl(saveLoadControl, 'top-left');
+
+//map.addControl(new ResetNorthControl(), 'top-right');
+//map.addControl(new ResetOrthogonalControl(), 'top-right');
+//map.addControl(new FlyToCoordinatesControl(), 'top-right');
 
 const toolManager = new ToolManager(map);
 
@@ -34,15 +44,32 @@ const scale = new maplibregl.ScaleControl({
 });
 map.addControl(scale, 'bottom-left');
 
+
+//-----------------------------------------------
+//ATALHOS
+//-----------------------------------------------
 document.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
-        undoLastAction();
-        // Atualize o mapa para refletir as mudanças
-        mapControl.switchMap();
+        if (undoLastAction()) {
+            mapControl.switchMap(false);
+        }
     }
     if ((event.ctrlKey || event.metaKey) && event.key === 'y') {
-        redoLastAction();
-        // Atualize o mapa para refletir as mudanças
-        mapControl.switchMap();
+        if (redoLastAction()) {
+            mapControl.switchMap(false);
+        }
+    }
+});
+
+//-----------------------------------------------
+//OUTROS
+//-----------------------------------------------
+
+window.addEventListener('beforeunload', function (e) {
+    if (hasUnsavedData()) {
+        e.preventDefault();
+        
+        // Para navegadores mais antigos que precisam de um valor retornado.
+        return 'Ao fechar perderá todos os dados. Tem certeza de que deseja sair?'
     }
 });

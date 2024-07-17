@@ -76,6 +76,45 @@ class DrawControl {
             }
         });
 
+        const pixelsToDegrees = (pixels, latitude, zoom) => {
+            const earthCircumference = 40075017; // Circunferência da Terra em metros
+            const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
+            const degreesPerMeter = 360 / earthCircumference;
+            return pixels * metersPerPixel * degreesPerMeter;
+        }
+
+        const calculateBuffer = (feature, zoom, latitude, pixelBuffer) => {
+            const bufferSize = pixelsToDegrees(pixelBuffer, latitude, zoom);
+            const buffered = turf.buffer(feature, bufferSize, { units: 'degrees' });
+            return buffered;
+          }
+
+        const updateSelectedBBoxSource = () => {
+            const selectedFeatures = this.draw.getSelected().features;
+            if (selectedFeatures.length) {
+                const zoom = map.getZoom();
+                const center = map.getCenter();
+                const latitude = center.lat;
+                const pixelBuffer = 10;
+              
+                const boundsFeatures = selectedFeatures.map(feature => calculateBuffer(feature, zoom, latitude, pixelBuffer));
+              
+                this.map.getSource('highlighted_bbox').setData({
+                    type: 'FeatureCollection',
+                    features: boundsFeatures
+                });
+            
+            } else {
+                this.map.getSource('highlighted_bbox').setData({
+                  type: 'FeatureCollection',
+                  features: []
+                });
+            }
+        }
+
+        this.map.on('zoomend', updateSelectedBBoxSource);
+        this.map.on('draw.render', updateSelectedBBoxSource);
+
         this.map.on('click', (e) => {
             const features = this.draw.getSelected().features;
             if (features.length > 0) {
@@ -84,9 +123,9 @@ class DrawControl {
             } else {
                 let panel = document.querySelector('.feature-attributes-panel');
                 if (panel) {
-                    const discardButton = panel.querySelector('button[id="DescartarFeat"]');
-                    if (discardButton) {
-                        discardButton.click();
+                    const saveButton = panel.querySelector('button[id="SalvarFeat"]');
+                    if (saveButton) {
+                        saveButton.click();
                     }
                     panel.remove();
                 }

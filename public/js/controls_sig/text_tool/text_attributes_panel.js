@@ -54,13 +54,14 @@ export function createTextAttributesPanel(feature, map, defaultTextProperties) {
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
+    saveButton.id = 'SalvarTxt';
     saveButton.onclick = () => {
+        updateFeature('texts', feature)
         panel.remove();
     };
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
-    discardButton.id = 'DescartarTxt';
     discardButton.onclick = () => {
         Object.assign(feature.properties, initialProperties);
         feature.geometry.coordinates = initialCoordinates;
@@ -108,6 +109,5 @@ export function updateTextAttributesPanel(feature, map) {
     if (featureIndex !== -1) {
         data.features[featureIndex].properties = feature.properties;
         map.getSource('texts').setData(data);
-        updateFeature('texts', feature)
     }
 }
