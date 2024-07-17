@@ -8,6 +8,8 @@ const store = {
                 points: [],
                 texts: [],
                 images: [],
+                los: [],
+                visibility: []
             },
             undoStack: [],
             redoStack: [],
@@ -20,13 +22,7 @@ const store = {
 
 const recordAction = (action) => {
     const currentMap = store.maps[store.currentMap];
-    const currentMap = store.maps[store.currentMap];
     if (!store.isUndoing && !store.isRedoing) {
-        currentMap.undoStack.push(action);
-        if (currentMap.undoStack.length > 20) {
-            currentMap.undoStack.shift(); // Remove the oldest action if stack exceeds 20
-        }
-        currentMap.redoStack = []; // Clear the redo stack when a new action is performed
         currentMap.undoStack.push(action);
         if (currentMap.undoStack.length > 20) {
             currentMap.undoStack.shift(); // Remove the oldest action if stack exceeds 20
@@ -57,16 +53,6 @@ export const updateFeature = (type, feature) => {
                 newFeature: JSON.parse(JSON.stringify(feature))
             });
         }
-        const oldFeature = store.maps[store.currentMap].features[type][index];
-        if (JSON.stringify(oldFeature) !== JSON.stringify(feature)) {
-            store.maps[store.currentMap].features[type][index] = feature;
-            recordAction({
-                type: 'update',
-                featureType: type,
-                oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                newFeature: JSON.parse(JSON.stringify(feature))
-            });
-        }
     }
 };
 
@@ -84,8 +70,6 @@ export const removeFeature = (type, id) => {
 
 export const addMap = (mapName, mapData = null) => {
     store.maps[mapName] = mapData || {
-export const addMap = (mapName, mapData = null) => {
-    store.maps[mapName] = mapData || {
         baseLayer: 'Carta',
         features: {
             polygons: [],
@@ -93,6 +77,8 @@ export const addMap = (mapName, mapData = null) => {
             points: [],
             texts: [],
             images: [],
+            los: [],
+            visibility: []
         },
         undoStack: [],
         redoStack: [],
@@ -123,12 +109,8 @@ export const undoLastAction = () => {
     const currentMap = store.maps[store.currentMap];
     const lastAction = currentMap.undoStack.pop();
     if (!lastAction) return false;
-    const currentMap = store.maps[store.currentMap];
-    const lastAction = currentMap.undoStack.pop();
-    if (!lastAction) return false;
 
     store.isUndoing = true;
-    currentMap.redoStack.push(lastAction);
     currentMap.redoStack.push(lastAction);
 
     switch (lastAction.type) {
@@ -148,20 +130,14 @@ export const undoLastAction = () => {
     store.isUndoing = false;
     return true;
 
-    return true;
-
 };
 
 export const redoLastAction = () => {
     const currentMap = store.maps[store.currentMap];
     const lastUndoneAction = currentMap.redoStack.pop();
     if (!lastUndoneAction) return false;
-    const currentMap = store.maps[store.currentMap];
-    const lastUndoneAction = currentMap.redoStack.pop();
-    if (!lastUndoneAction) return false;
 
     store.isRedoing = true;
-    currentMap.undoStack.push(lastUndoneAction);
     currentMap.undoStack.push(lastUndoneAction);
 
     switch (lastUndoneAction.type) {
@@ -179,21 +155,6 @@ export const redoLastAction = () => {
     }
 
     store.isRedoing = false;
-    return true;
-
-};
-
-export const hasUnsavedData = () => {
-    const maps = store.maps;
-    for (const mapName in maps) {
-        const features = maps[mapName].features;
-        for (const featureType in features) {
-            if (features[featureType].length > 0) {
-                return true;
-            }
-        }
-    }
-    return false;
     return true;
 
 };
