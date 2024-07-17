@@ -169,7 +169,7 @@ html {
     background-color: #c9aad9 !important;
 }
 
-.unified-attributes-panel {
+.text-attributes-panel {
     position: absolute;
     bottom: 10px;
     right: 10px;
@@ -181,17 +181,71 @@ html {
     z-index: 10;
 }
 
-.unified-attributes-panel label {
+.text-attributes-panel label {
     display: block;
     margin-top: 5px;
 }
 
-.unified-attributes-panel input {
+.text-attributes-panel input {
     width: 100%;
     margin-top: 5px;
 }
 
-.unified-attributes-panel button {
+.text-attributes-panel button {
+    margin-top: 10px;
+    margin-right: 5px;
+}
+
+.feature-attributes-panel {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    padding: 10px;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+}
+
+.feature-attributes-panel label {
+    display: block;
+    margin-top: 5px;
+}
+
+.feature-attributes-panel input {
+    width: 100%;
+    margin-top: 5px;
+}
+
+.feature-attributes-panel button {
+    margin-top: 10px;
+    margin-right: 5px;
+}
+
+.image-attributes-panel {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    padding: 10px;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+}
+
+.image-attributes-panel label {
+    display: block;
+    margin-top: 5px;
+}
+
+.image-attributes-panel input {
+    width: 100%;
+    margin-top: 5px;
+}
+
+.image-attributes-panel button {
     margin-top: 10px;
     margin-right: 5px;
 }
