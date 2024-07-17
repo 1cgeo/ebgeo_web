@@ -9,8 +9,10 @@ class DrawControl {
         this.toolManager = toolManager;
         this.isActive = false;
         this.defaultProperties = {
-            color: '#1100FF',
-            opacity: 0.2,
+            color: '#fbb03b',
+            opacity: 0.5,
+            size: 3,
+            outlinecolor: '#fbb03b'
         };
     }
 
@@ -33,31 +35,31 @@ class DrawControl {
 
         this.map.addControl(this.draw, 'top-right');
 
-
-
         this.map.on('draw.create', (e) => {
-            const feature = e.features[0];
+            e.features.forEach(feature => {
+                Object.keys(this.defaultProperties).forEach(key => {
+                    if (!feature.properties.hasOwnProperty(key)) {
+                        feature.properties[key] = this.defaultProperties[key];
+                    }
+                });
+                const type = feature.geometry.type.toLowerCase() + 's';
+                addFeature(type, feature);
+    
+                // Define as propriedades padrão na feição
+                this.draw.setFeatureProperty(feature.id, 'color', this.defaultProperties.color);
+                this.draw.setFeatureProperty(feature.id, 'opacity', this.defaultProperties.opacity);
+                this.draw.setFeatureProperty(feature.id, 'size', this.defaultProperties.size);
+                this.draw.setFeatureProperty(feature.id, 'outlinecolor', this.defaultProperties.outlinecolor);    
+            });
 
-            if (!feature.properties.color) {
-                feature.properties.color = this.defaultProperties.color;
-            }
-            if (!feature.properties.opacity) {
-                feature.properties.opacity = this.defaultProperties.opacity;
-            }
-            const type = feature.geometry.type.toLowerCase() + 's';
-            addFeature(type, feature);
-
-            // Define as propriedades padrão na feição
-            this.draw.setFeatureProperty(feature.id, 'color', this.defaultProperties.color);
-            this.draw.setFeatureProperty(feature.id, 'opacity', this.defaultProperties.opacity);
-        
             this.map.getCanvas().style.cursor = ''; // Reset cursor
         });
 
         this.map.on('draw.update', (e) => {
-            const feature = e.features[0];
-            const type = feature.geometry.type.toLowerCase() + 's';
-            updateFeature(type, feature);
+            e.features.forEach(feature => {
+                const type = feature.geometry.type.toLowerCase() + 's';
+                updateFeature(type, feature.id);
+            });
         });
         this.map.on('draw.delete', (e) => {
             e.features.forEach(feature => {
@@ -118,8 +120,7 @@ class DrawControl {
         this.map.on('click', (e) => {
             const features = this.draw.getSelected().features;
             if (features.length > 0) {
-                const feature = features[0];
-                createFeatureAttributesPanel(feature, this.map, this.defaultProperties);
+                createFeatureAttributesPanel(features, this.map, this.defaultProperties);
             } else {
                 let panel = document.querySelector('.feature-attributes-panel');
                 if (panel) {
@@ -141,6 +142,8 @@ class DrawControl {
         this.map.off('draw.update');
         this.map.off('draw.delete');
         this.map.off('draw.modechange');
+        this.map.off('zoomend');
+        this.map.off('draw.render');
         this.map = undefined;
     }
 
