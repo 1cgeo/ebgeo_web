@@ -48,11 +48,10 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
-    saveButton.type = 'submit';
+    saveButton.id = 'SalvarImg';
     saveButton.onclick = () => {
-        imageControl.saveFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
+        updateFeature('images', feature)
+        panel.remove();
     };
     panel.appendChild(saveButton);
 
@@ -66,4 +65,13 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     panel.appendChild(discardButton);
 
     document.body.appendChild(panel);
+}
+
+export function updateImageAttributesPanel(feature, map) {
+    const data = JSON.parse(JSON.stringify(map.getSource('images')._data));
+    const featureIndex = data.features.findIndex(f => f.id === feature.id);
+    if (featureIndex !== -1) {
+        data.features[featureIndex].properties = feature.properties;
+        map.getSource('images').setData(data);
+    }
 }

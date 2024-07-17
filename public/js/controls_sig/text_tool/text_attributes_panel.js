@@ -87,12 +87,11 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     panel.appendChild(justifyContainer);
 
     const saveButton = document.createElement('button');
-    saveButton.textContent = 'Save';
-    saveButton.type = 'submit';
+    saveButton.textContent = 'Salvar';
+    saveButton.id = 'SalvarTxt';
     saveButton.onclick = () => {
-        textControl.saveFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
+        updateFeature('texts', feature)
+        panel.remove();
     };
     panel.appendChild(saveButton);
 
@@ -104,15 +103,17 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         selectionManager.updateUI();
     };
     panel.appendChild(discardButton);
+    panel.appendChild(deleteButton);
+    panel.appendChild(setDefaultButton);
 
-    if (selectedFeatures.length === 1) {
-        const setDefaultButton = document.createElement('button');
-        setDefaultButton.textContent = 'Set as Default';
-        setDefaultButton.onclick = () => {
-            textControl.setDefaultProperties(feature.properties);
-            selectionManager.deselectAllFeatures();
-            selectionManager.updateUI();
-        };
-        panel.appendChild(setDefaultButton);
+    document.body.appendChild(panel);
+}
+
+export function updateTextAttributesPanel(feature, map) {
+    const data = JSON.parse(JSON.stringify(map.getSource('texts')._data));
+    const featureIndex = data.features.findIndex(f => f.id === feature.id);
+    if (featureIndex !== -1) {
+        data.features[featureIndex].properties = feature.properties;
+        map.getSource('texts').setData(data);
     }
 }

@@ -3,106 +3,93 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
         return;
     }
 
-    const feature = selectedFeatures[0]; // Use the first selected feature to populate the form.
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
-    
-    const commonAttributes = findCommonAttributes(selectedFeatures);
+    const initialProperties = { ...feature.properties };
+    const initialCoordinates = [...feature.geometry.coordinates];
 
-    commonAttributes.forEach(attr => {
-        const attrLabel = document.createElement('label');
-        attrLabel.textContent = getLabel(attr, selectedFeatures);
-        const attrInput = createInput(attr, selectedFeatures[0].properties[attr]);
-        attrInput.oninput = (e) => {
-            let value = attrInput.type === 'range' || attrInput.type === 'number' ? parseFloat(e.target.value) : e.target.value;
-            value = attrInput.type === 'checkbox' ? e.target.checked : value;
-            featureControl.updateFeaturesProperty(selectedFeatures, attr, value);
-        };
-        panel.appendChild(attrLabel);
-        panel.appendChild(attrInput);
-    });
+    panel = document.createElement('div');
+    panel.className = 'feature-attributes-panel';
+
+    const colorLabel = document.createElement('label');
+    colorLabel.textContent = 'Cor:';
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.value = feature.properties.color || '#000000';
+    colorInput.oninput = (e) => {
+        feature.properties.color = e.target.value;
+        updateFeatureAttributesPanel(feature, map);
+    };
+
+    const opacityLabel = document.createElement('label');
+    opacityLabel.textContent = 'Opacidade:';
+    const opacityInput = document.createElement('input');
+    opacityInput.type = 'range';
+    opacityInput.min = 0;
+    opacityInput.max = 1;
+    opacityInput.step = 0.1;
+    opacityInput.value = feature.properties.opacity !== undefined ? feature.properties.opacity : 1;
+    opacityInput.oninput = (e) => {
+        feature.properties.opacity = parseFloat(e.target.value);
+        updateFeatureAttributesPanel(feature, map);
+    };
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
-    saveButton.type = 'submit';
+    saveButton.id = 'SalvarFeat';
     saveButton.onclick = () => {
-        featureControl.saveFeatures(selectedFeatures, initialPropertiesMap)
-        selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
+        const type = feature.geometry.type.toLowerCase() + 's';
+        updateFeature(type, feature);
+        panel.remove();
     };
-    panel.appendChild(saveButton);
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        featureControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap)
-        selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
+        Object.assign(feature.properties, initialProperties);
+        feature.geometry.coordinates = initialCoordinates;
+        updateFeatureAttributesPanel(feature, map);
+        panel.remove();
     };
-    panel.appendChild(discardButton);
+    panel.appendChild(saveButton);
 
-    if (selectedFeatures.length === 1) {
-        const setDefaultButton = document.createElement('button');
-        setDefaultButton.textContent = 'Definir padrão';
-        setDefaultButton.onclick = () => {
-            featureControl.setDefaultProperties(feature.properties, commonAttributes);
-            selectionManager.deselectAllFeatures();
-            selectionManager.updateUI();
-        };
-        panel.appendChild(setDefaultButton);
-    }
-}
-
-function findCommonAttributes(features) {
-    const attributeSets = {
-        Point: ['size', 'color', 'opacity'],
-        LineString: ['size', 'color', 'opacity', 'measure'],
-        Polygon: ['color', 'opacity', 'outlinecolor', 'size', 'measure']
-    };
-
-    const featureTypes = features.map(f => f.geometry.type);
-    const allAttributes = featureTypes.map(type => attributeSets[type]);
-
-    return allAttributes.reduce((common, attributes) => {
-        return common.filter(attr => attributes.includes(attr));
-    });
-}
-
-function getLabel(attr, features) {
-    const labels = {
-        size: 'Tamanho',
-        color: 'Cor',
-        opacity: 'Opacidade',
-        outlinecolor: 'Cor da borda',
-        measure: 'Medir'
-    };
-
-    if (attr === 'size') {
-        const hasPolygon = features.some(feature => feature.geometry.type === 'Polygon');
-        if (hasPolygon) {
-            return features.length === 1 ? 'Largura da borda' : 'Tamanho';
+    const deleteButton = document.createElement('button');
+    deleteButton.textContent = 'Deletar';
+    deleteButton.onclick = () => {
+        const draw = map._controls.find(control => control instanceof MapboxDraw);
+        if (draw) {
+            draw.delete(feature.id);
+            const type = feature.geometry.type.toLowerCase() + 's';
+            removeFeature(type, feature.id);
         }
-    }
+        panel.remove();
+    };
 
-    return labels[attr] || attr;
+    const setDefaultButton = document.createElement('button');
+    setDefaultButton.textContent = 'Definir padrão';
+    setDefaultButton.onclick = () => {
+        defaultProperties.color = feature.properties.color;
+        defaultProperties.opacity = feature.properties.opacity;
+    };
+
+    panel.appendChild(colorLabel);
+    panel.appendChild(colorInput);
+    panel.appendChild(opacityLabel);
+    panel.appendChild(opacityInput);
+    panel.appendChild(saveButton);
+    panel.appendChild(discardButton);
+    panel.appendChild(deleteButton);
+    panel.appendChild(setDefaultButton);
+
+    document.body.appendChild(panel);
 }
 
-function createInput(attr, value) {
-    let input;
-    if (attr === 'color' || attr === 'outlinecolor') {
-        input = document.createElement('input');
-        input.type = 'color';
-        input.value = value || '#000000';
-    } else if (attr === 'opacity') {
-        input = document.createElement('input');
-        input.type = 'range';
-        input.min = 0.1;
-        input.max = 1;
-        input.step = 0.1;
-        input.value = value !== undefined ? value : 1;
-    } else if (attr === 'measure') {
-        input = document.createElement('input');
-        input.type = 'checkbox';
-        input.checked = value === true;
+export function updateFeatureAttributesPanel(feature, map) {
+    const draw = map._controls.find(control => control instanceof MapboxDraw);
+    if (draw) {
+        draw.setFeatureProperty(feature.id, 'color', feature.properties.color);
+        draw.setFeatureProperty(feature.id, 'opacity', feature.properties.opacity);
+
+        const feat = draw.get(feature.id);
+        draw.add(feat);
     } else {
         input = document.createElement('input');
         input.type = 'number';

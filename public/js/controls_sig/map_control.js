@@ -67,7 +67,7 @@ class MapControl {
             changeButton.onclick = (e) => {
                 e.stopPropagation();
                 setCurrentMap(mapName);
-                switchMap()
+                this.switchMap(true);
                 this.updateMapList();
             };
 
@@ -83,7 +83,7 @@ class MapControl {
                     const copiedMap = JSON.parse(JSON.stringify(store.maps[mapName]));
                     addMap(newMapName, copiedMap);
                     setCurrentMap(newMapName);
-                    switchMap()
+                    this.switchMap(true);
                     this.updateMapList();
                 }
             };
@@ -101,7 +101,7 @@ class MapControl {
                         if (store.currentMap === mapName) {
                             const remainingMaps = Object.keys(store.maps);
                             setCurrentMap(remainingMaps[0]);
-                            switchMap()
+                            this.switchMap(true);
                         }
 
                         this.updateMapList();
@@ -113,15 +113,74 @@ class MapControl {
 
             buttonContainer.appendChild(changeButton);
             buttonContainer.appendChild(copyButton);
+            buttonContainer.appendChild(copyButton);
             buttonContainer.appendChild(removeButton);
             listItem.appendChild(buttonContainer);
             this.mapList.appendChild(listItem);
         });
     }
 
-    switchMap() {
+    switchMap(zoom) {
+        const features = getCurrentMapFeatures();
         const baseLayer = getCurrentBaseLayer();
-        this.baseLayerControl.switchLayer(baseLayer);
+        switchLayer(baseLayer);
+
+        // Remova as feições atuais do mapa
+        const draw = this.map._controls.find(control => control instanceof MapboxDraw);
+        if (draw) {
+            draw.deleteAll();
+            draw.set({
+                type: 'FeatureCollection',
+                features: features.polygons.concat(features.linestrings).concat(features.points)
+            });
+        }
+
+        this.map.getSource('texts').setData({
+            type: 'FeatureCollection',
+            features: features.texts
+        });
+
+        this.map.getSource('images').setData({
+            type: 'FeatureCollection',
+            features: features.images
+        });
+
+        features.images.forEach(feature => {
+            const image = new Image();
+            image.src = feature.properties.imageBase64;
+            image.onload = () => {
+                if (!this.map.hasImage(feature.properties.imageId)) {
+                    this.map.addImage(feature.properties.imageId, image);
+                }
+            };
+        });
+
+        if (zoom) {
+            // Zoom para as feições existentes
+            const allFeatures = features.polygons
+                .concat(features.linestrings)
+                .concat(features.points)
+                .concat(features.texts)
+                .concat(features.images);
+
+            if (allFeatures.length > 0) {
+                const featureCollection = turf.featureCollection(allFeatures);
+                const bbox = turf.bbox(featureCollection);
+
+                // Verificar se há apenas um ponto
+                if (allFeatures.length === 1 && allFeatures[0].geometry.type === 'Point') {
+                    // Usar um buffer para evitar zoom infinito
+                    const buffered = turf.buffer(allFeatures[0], 0.1, { units: 'degrees' });
+                    const bufferedBbox = turf.bbox(buffered);
+                    const bounds = new maplibregl.LngLatBounds([bufferedBbox[0], bufferedBbox[1]], [bufferedBbox[2], bufferedBbox[3]]);
+                    this.map.fitBounds(bounds, { padding: 100 });
+                } else {
+                    const bounds = new maplibregl.LngLatBounds([bbox[0], bbox[1]], [bbox[2], bbox[3]]);
+                    this.map.fitBounds(bounds, { padding: 100 });
+                }
+            }
+        }
+
     }
 }
 

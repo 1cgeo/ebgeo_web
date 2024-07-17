@@ -82,20 +82,20 @@ class AddTextControl {
         if (this.isActive) {
             this.addTextFeature(e.lngLat, 'Texto');
             this.toolManager.deactivateCurrentTool();
+        } else {
+            let panel = document.querySelector('.text-attributes-panel');
+            if (panel) {
+                const saveButton = panel.querySelector('button[id="SalvarTxt"]');
+                if (saveButton) {
+                    saveButton.click();
+                }
+                panel.remove();
+            }
         }
     }
 
-    addTextFeature = (lngLat, text) => {
-        const feature = this.createTextFeature(lngLat, text);
-        addFeature('texts', feature);
-
-        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-        data.features.push(feature);
-        this.map.getSource('texts').setData(data);
-    }
-
-    createTextFeature = (lngLat, text) => {
-        return {
+    addTextFeature(lngLat, text) {
+        const feature = {
             type: 'Feature',
             id: Date.now().toString(),
             properties: { ...AddTextControl.DEFAULT_PROPERTIES, text },
@@ -128,62 +128,59 @@ class AddTextControl {
 
     updateFeatures = (features, save = false) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-        features.forEach(feature => {
-            const featureIndex = data.features.findIndex(f => f.id === feature.id);
+        const feature = data.features.find(f => f.id == featureId);
+        if (feature) {
+            createTextAttributesPanel(feature, this.map, defaultTextProperties);
+        }
+    }
+
+    handleMouseDown(e) {
+        e.preventDefault();
+        const feature = e.features[0];
+        this.map.getCanvas().style.cursor = 'grabbing';
+    
+        let isDragging = false;
+        let coords;
+    
+        const updateCoordinates = () => {
+            if (!isDragging) {
+                requestAnimationFrame(updateCoordinates);
+                return;
+            }
+            
+            feature.geometry.coordinates = [coords.lng, coords.lat];
+            
+            const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+            const featureIndex = data.features.findIndex(f => f.id == feature.id);
             if (featureIndex !== -1) {
                 data.features[featureIndex] = feature;
+                this.map.getSource('texts').setData(data);
             }
-            if(save){
-                updateFeature('texts', feature);
-            }
-        });
-        this.map.getSource('texts').setData(data);
+    
+            isDragging = false;
+            requestAnimationFrame(updateCoordinates);
+        };
+    
+        const onMove = (e) => {
+            coords = e.lngLat;
+            isDragging = true;
+        };
+    
+        const onUp = () => {
+            this.map.getCanvas().style.cursor = '';
+            this.map.off('mousemove', onMove);
+            this.map.off('mouseup', onUp);
+    
+            // Call updateFeature here, when dragging is complete
+            updateFeature('texts', feature);
+        };
+    
+        this.map.on('mousemove', onMove);
+        this.map.once('mouseup', onUp);
+    
+        requestAnimationFrame(updateCoordinates);
     }
-
-    saveFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                updateFeature('texts', f);
-            }
-        });
-    }
-
-    discartChangeFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
-        });
-        this.updateFeatures(features);
-    }
-
-    deleteFeatures = (features) => {
-        if (features.size === 0) {
-            return;
-        }
-        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-        const idsToDelete = new Set(Array.from(features).map(f => f.id));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id));
-        this.map.getSource('texts').setData(data);
-
-        features.forEach(f => {
-            removeFeature('texts', f.id);
-
-        });
-    }
-
-    setDefaultProperties = (properties) => {
-        Object.assign(AddTextControl.DEFAULT_PROPERTIES, properties);
-    }
-
-    hasFeatureChanged = (feature, initialProperties) => {
-        return (
-            feature.properties.text !== initialProperties.text ||
-            feature.properties.size !== initialProperties.size ||
-            feature.properties.color !== initialProperties.color ||
-            feature.properties.backgroundColor !== initialProperties.backgroundColor ||
-            feature.properties.rotate !== initialProperties.rotate ||
-            feature.properties.justify !== initialProperties.justify
-        );
-    }
+    
 }
 
 export default AddTextControl;

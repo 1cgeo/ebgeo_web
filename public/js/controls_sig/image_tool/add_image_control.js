@@ -93,12 +93,36 @@ class AddImageControl {
             };
             input.click();
             this.toolManager.deactivateCurrentTool();
+        } else {
+            let panel = document.querySelector('.image-attributes-panel');
+            if (panel) {
+                const saveButton = panel.querySelector('button[id="SalvarImg"]');
+                if (saveButton) {
+                    saveButton.click();
+                }
+                panel.remove();
+            }
         }
     }
 
-    addImageFeature = (lngLat, imageBase64) => {
-        const imageId = Date.now().toString();
+    addImageFeature(lngLat, imageBase64) {
+        const imageId = Date.now().toString(); // Use timestamp as unique ID
 
+        const feature = {
+            type: 'Feature',
+            id: imageId,
+            properties: {
+                imageId: imageId,
+                size: 1,
+                rotation: 0,
+                imageBase64: imageBase64
+            },
+            geometry: {
+                type: 'Point',
+                coordinates: [lngLat.lng, lngLat.lat]
+            }
+        };
+    
         const imageElement = new Image();
         imageElement.src = imageBase64;
         imageElement.onload = () => {
@@ -140,67 +164,64 @@ class AddImageControl {
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-        features.forEach(feature => {
-            const f = data.features.find(f => f.id === feature.id);
-            if (f) {
-                f.properties[property] = value;
-                feature.properties[property] = value;
-            }
-        });
-        this.map.getSource('images').setData(data);
-    }
-    
-    updateFeatures = (features, save = false) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-        features.forEach(feature => {
-            const featureIndex = data.features.findIndex(f => f.id === feature.id);
-            if (featureIndex !== -1) {
-                data.features[featureIndex] = feature;
-            }
-            if(save){
-                updateFeature('images', feature);
-            }
-        });
-        this.map.getSource('images').setData(data);
-    }
-
-    saveFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                updateFeature('images', f);
-            }
-        });
-    }
-
-    discartChangeFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
-        });
-        this.updateFeatures(features);
-    }
-
-    deleteFeatures = (features) => {
-        if (features.size === 0) {
-            return;
+        const feature = data.features.find(f => f.id == featureId);
+        if (feature) {
+            createImageAttributesPanel(feature, this.map);
         }
-        const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-        const idsToDelete = new Set(Array.from(features).map(f => f.id));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id));
-        this.map.getSource('images').setData(data);
-
-        features.forEach(f => {
-            removeFeature('images', f.id);
-        });
     }
 
-    hasFeatureChanged = (feature, initialProperties) => {
-        return (
-            feature.properties.size !== initialProperties.size ||
-            feature.properties.rotation !== initialProperties.rotation ||
-            feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.imageBase64 !== initialProperties.imageBase64
-        );
-    }
+    handleMouseDown(e) {
+        e.preventDefault();
+        const feature = e.features[0];
+        this.map.getCanvas().style.cursor = 'grabbing';
+    
+        let isDragging = false;
+        let coords;
+        let lastUpdateTime = Date.now();
+    
+        const updateCoordinates = () => {
+            if (!isDragging) {
+                requestAnimationFrame(updateCoordinates);
+                return;
+            }
+    
+            const currentTime = Date.now();
+            if (currentTime - lastUpdateTime >= 50) { // Update every 50ms
+                feature.geometry.coordinates = [coords.lng, coords.lat];
+    
+                const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
+                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                if (featureIndex !== -1) {
+                    data.features[featureIndex] = feature;
+                    this.map.getSource('images').setData(data);
+                }
+    
+                lastUpdateTime = currentTime;
+                isDragging = false;
+            }
+    
+            requestAnimationFrame(updateCoordinates);
+        };
+    
+        const onMove = (e) => {
+            coords = e.lngLat;
+            isDragging = true;
+        };
+    
+        const onUp = () => {
+            this.map.getCanvas().style.cursor = '';
+            this.map.off('mousemove', onMove);
+            this.map.off('mouseup', onUp);
+    
+            // Call updateFeature here, when dragging is complete
+            updateFeature('images', feature);
+        };
+    
+        this.map.on('mousemove', onMove);
+        this.map.once('mouseup', onUp);
+    
+        requestAnimationFrame(updateCoordinates);
+    }  
 }
 
 export default AddImageControl;
