@@ -46,3 +46,8 @@ document.addEventListener('keydown', (event) => {
         mapControl.switchMap();
     }
 });
+
+$(".bar-center-buttons a").click(function() {
+    $(".bar-center-buttons a").removeClass('active-button')
+    $(this).addClass('active-button')
+});
