@@ -61,10 +61,27 @@ class MapControl {
             changeButton.onclick = (e) => {
                 e.stopPropagation();
                 setCurrentMap(mapName);
-                this.switchMap();
+                this.switchMap(true);
                 this.updateMapList();
             };
 
+
+            const copyButton = document.createElement('button');
+            copyButton.className = 'copy-map-button';
+            copyButton.textContent = '📋';
+            copyButton.title = 'Copiar mapa';
+            copyButton.onclick = (e) => {
+                e.stopPropagation();
+                const newMapName = prompt("Digite o nome para o novo mapa:");
+                if (newMapName) {
+                    const copiedMap = JSON.parse(JSON.stringify(store.maps[mapName]));
+                    addMap(newMapName, copiedMap);
+                    setCurrentMap(newMapName);
+                    this.switchMap(true);
+                    this.updateMapList();
+                }
+            };
+            
             const removeButton = document.createElement('button');
             removeButton.className = 'remove-map-button';
             removeButton.textContent = 'X';
@@ -74,6 +91,13 @@ class MapControl {
                 if (Object.keys(store.maps).length > 1) {
                     if (confirm("Você tem certeza que deseja deletar este mapa?")) {
                         removeMap(mapName);
+
+                        if (store.currentMap === mapName) {
+                            const remainingMaps = Object.keys(store.maps);
+                            setCurrentMap(remainingMaps[0]);
+                            this.switchMap(true);
+                        }
+
                         this.updateMapList();
                     }
                 } else {
@@ -82,13 +106,14 @@ class MapControl {
             };
 
             buttonContainer.appendChild(changeButton);
+            buttonContainer.appendChild(copyButton);
             buttonContainer.appendChild(removeButton);
             listItem.appendChild(buttonContainer);
             this.mapList.appendChild(listItem);
         });
     }
 
-    switchMap() {
+    switchMap(zoom) {
         const features = getCurrentMapFeatures();
         const baseLayer = getCurrentBaseLayer();
         switchLayer(baseLayer);
@@ -123,29 +148,32 @@ class MapControl {
             };
         });
 
-        // Zoom para as feições existentes
-        const allFeatures = features.polygons
-        .concat(features.linestrings)
-        .concat(features.points)
-        .concat(features.texts)
-        .concat(features.images);
-    
-        if (allFeatures.length > 0) {
-            const featureCollection = turf.featureCollection(allFeatures);
-            const bbox = turf.bbox(featureCollection);
-            
-            // Verificar se há apenas um ponto
-            if (allFeatures.length === 1 && allFeatures[0].geometry.type === 'Point') {
-                // Usar um buffer para evitar zoom infinito
-                const buffered = turf.buffer(allFeatures[0], 0.1, { units: 'degrees' });
-                const bufferedBbox = turf.bbox(buffered);
-                const bounds = new maplibregl.LngLatBounds([bufferedBbox[0], bufferedBbox[1]], [bufferedBbox[2], bufferedBbox[3]]);
-                this.map.fitBounds(bounds, { padding: 100 });
-            } else {
-                const bounds = new maplibregl.LngLatBounds([bbox[0], bbox[1]], [bbox[2], bbox[3]]);
-                this.map.fitBounds(bounds, { padding: 100 });
+        if (zoom) {
+            // Zoom para as feições existentes
+            const allFeatures = features.polygons
+                .concat(features.linestrings)
+                .concat(features.points)
+                .concat(features.texts)
+                .concat(features.images);
+
+            if (allFeatures.length > 0) {
+                const featureCollection = turf.featureCollection(allFeatures);
+                const bbox = turf.bbox(featureCollection);
+
+                // Verificar se há apenas um ponto
+                if (allFeatures.length === 1 && allFeatures[0].geometry.type === 'Point') {
+                    // Usar um buffer para evitar zoom infinito
+                    const buffered = turf.buffer(allFeatures[0], 0.1, { units: 'degrees' });
+                    const bufferedBbox = turf.bbox(buffered);
+                    const bounds = new maplibregl.LngLatBounds([bufferedBbox[0], bufferedBbox[1]], [bufferedBbox[2], bufferedBbox[3]]);
+                    this.map.fitBounds(bounds, { padding: 100 });
+                } else {
+                    const bounds = new maplibregl.LngLatBounds([bbox[0], bbox[1]], [bbox[2], bbox[3]]);
+                    this.map.fitBounds(bounds, { padding: 100 });
+                }
             }
         }
+
     }
 }
 

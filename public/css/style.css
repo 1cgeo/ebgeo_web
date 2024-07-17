@@ -310,7 +310,8 @@ html {
 }
 
 .change-map-button,
-.remove-map-button {
+.remove-map-button,
+.copy-map-button {
     background-color: transparent;
     border: 1px solid white;
     color: white;

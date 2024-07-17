@@ -71,9 +71,9 @@ class AddTextControl {
         } else {
             let panel = document.querySelector('.text-attributes-panel');
             if (panel) {
-                const discardButton = panel.querySelector('button[id="DescartarTxt"]');
-                if (discardButton) {
-                    discardButton.click();
+                const saveButton = panel.querySelector('button[id="SalvarTxt"]');
+                if (saveButton) {
+                    saveButton.click();
                 }
                 panel.remove();
             }
@@ -112,37 +112,46 @@ class AddTextControl {
         this.map.getCanvas().style.cursor = 'grabbing';
     
         let isDragging = false;
+        let coords;
+    
+        const updateCoordinates = () => {
+            if (!isDragging) {
+                requestAnimationFrame(updateCoordinates);
+                return;
+            }
+            
+            feature.geometry.coordinates = [coords.lng, coords.lat];
+            
+            const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+            const featureIndex = data.features.findIndex(f => f.id == feature.id);
+            if (featureIndex !== -1) {
+                data.features[featureIndex] = feature;
+                this.map.getSource('texts').setData(data);
+            }
+    
+            isDragging = false;
+            requestAnimationFrame(updateCoordinates);
+        };
     
         const onMove = (e) => {
-            const coords = e.lngLat;
-    
-            if (!isDragging) {
-                isDragging = true;
-                requestAnimationFrame(() => {
-                    feature.geometry.coordinates = [coords.lng, coords.lat];
-    
-                    const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-                    const featureIndex = data.features.findIndex(f => f.id == feature.id);
-                    if (featureIndex !== -1) {
-                        data.features[featureIndex] = feature;
-                        this.map.getSource('texts').setData(data);
-                        updateFeature('texts', feature)
-                    }
-    
-                    isDragging = false;
-                });
-            }
+            coords = e.lngLat;
+            isDragging = true;
         };
     
         const onUp = () => {
             this.map.getCanvas().style.cursor = '';
             this.map.off('mousemove', onMove);
             this.map.off('mouseup', onUp);
+    
+            // Call updateFeature here, when dragging is complete
+            updateFeature('texts', feature);
         };
     
         this.map.on('mousemove', onMove);
         this.map.once('mouseup', onUp);
-    }    
+    
+        requestAnimationFrame(updateCoordinates);
+    }
     
 }
 

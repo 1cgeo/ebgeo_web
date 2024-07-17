@@ -73,9 +73,9 @@ class AddImageControl {
         } else {
             let panel = document.querySelector('.image-attributes-panel');
             if (panel) {
-                const discardButton = panel.querySelector('button[id="DescartarImg"]');
-                if (discardButton) {
-                    discardButton.click();
+                const saveButton = panel.querySelector('button[id="SalvarImg"]');
+                if (saveButton) {
+                    saveButton.click();
                 }
                 panel.remove();
             }
@@ -130,13 +130,17 @@ class AddImageControl {
         this.map.getCanvas().style.cursor = 'grabbing';
     
         let isDragging = false;
+        let coords;
         let lastUpdateTime = Date.now();
     
-        const onMove = (e) => {
+        const updateCoordinates = () => {
+            if (!isDragging) {
+                requestAnimationFrame(updateCoordinates);
+                return;
+            }
+    
             const currentTime = Date.now();
-            if (currentTime - lastUpdateTime >= 75) { // Update every 50ms
-                isDragging = true;
-                const coords = e.lngLat;
+            if (currentTime - lastUpdateTime >= 50) { // Update every 50ms
                 feature.geometry.coordinates = [coords.lng, coords.lat];
     
                 const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
@@ -144,22 +148,34 @@ class AddImageControl {
                 if (featureIndex !== -1) {
                     data.features[featureIndex] = feature;
                     this.map.getSource('images').setData(data);
-                    updateFeature('images',feature)
                 }
+    
                 lastUpdateTime = currentTime;
                 isDragging = false;
             }
+    
+            requestAnimationFrame(updateCoordinates);
+        };
+    
+        const onMove = (e) => {
+            coords = e.lngLat;
+            isDragging = true;
         };
     
         const onUp = () => {
             this.map.getCanvas().style.cursor = '';
             this.map.off('mousemove', onMove);
             this.map.off('mouseup', onUp);
+    
+            // Call updateFeature here, when dragging is complete
+            updateFeature('images', feature);
         };
     
         this.map.on('mousemove', onMove);
         this.map.once('mouseup', onUp);
-    }    
+    
+        requestAnimationFrame(updateCoordinates);
+    }  
 }
 
 export default AddImageControl;

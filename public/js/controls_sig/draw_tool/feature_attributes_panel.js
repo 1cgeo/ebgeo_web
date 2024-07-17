@@ -6,6 +6,9 @@ export function createFeatureAttributesPanel(feature, map, defaultProperties) {
         panel.remove();
     }
 
+    const initialProperties = { ...feature.properties };
+    const initialCoordinates = [...feature.geometry.coordinates];
+
     panel = document.createElement('div');
     panel.className = 'feature-attributes-panel';
 
@@ -34,7 +37,19 @@ export function createFeatureAttributesPanel(feature, map, defaultProperties) {
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
+    saveButton.id = 'SalvarFeat';
     saveButton.onclick = () => {
+        const type = feature.geometry.type.toLowerCase() + 's';
+        updateFeature(type, feature);
+        panel.remove();
+    };
+
+    const discardButton = document.createElement('button');
+    discardButton.textContent = 'Descartar';
+    discardButton.onclick = () => {
+        Object.assign(feature.properties, initialProperties);
+        feature.geometry.coordinates = initialCoordinates;
+        updateFeatureAttributesPanel(feature, map);
         panel.remove();
     };
 
@@ -62,6 +77,7 @@ export function createFeatureAttributesPanel(feature, map, defaultProperties) {
     panel.appendChild(opacityLabel);
     panel.appendChild(opacityInput);
     panel.appendChild(saveButton);
+    panel.appendChild(discardButton);
     panel.appendChild(deleteButton);
     panel.appendChild(setDefaultButton);
 
@@ -74,10 +90,8 @@ export function updateFeatureAttributesPanel(feature, map) {
         draw.setFeatureProperty(feature.id, 'color', feature.properties.color);
         draw.setFeatureProperty(feature.id, 'opacity', feature.properties.opacity);
 
-        var feat = draw.get(feature.id);
+        const feat = draw.get(feature.id);
         draw.add(feat);
-        const type = feature.geometry.type.toLowerCase() + 's';
-        updateFeature(type, feature);
     } else {
         console.error('Draw control not found on map');
     }

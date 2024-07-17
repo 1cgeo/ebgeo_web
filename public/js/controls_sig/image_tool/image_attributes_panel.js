@@ -35,13 +35,14 @@ export function createImageAttributesPanel(feature, map) {
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
+    saveButton.id = 'SalvarImg';
     saveButton.onclick = () => {
+        updateFeature('images', feature)
         panel.remove();
     };
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
-    discardButton.id = 'DescartarImg';
     discardButton.onclick = () => {
         Object.assign(feature.properties, initialProperties);
         feature.geometry.coordinates = initialCoordinates;
@@ -76,6 +77,5 @@ export function updateImageAttributesPanel(feature, map) {
     if (featureIndex !== -1) {
         data.features[featureIndex].properties = feature.properties;
         map.getSource('images').setData(data);
-        updateFeature('images', feature)
     }
 }
