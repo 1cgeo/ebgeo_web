@@ -6,7 +6,8 @@ class AddTextControl {
         color: '#000000',
         backgroundColor: '#ffffff',
         rotation: 0,
-        justify: 'center'
+        justify: 'center',
+        source: 'text'
     };
 
     constructor(toolManager) {
@@ -31,19 +32,9 @@ class AddTextControl {
 
         this.setupEventListeners();
 
-        this.changeButtonColor()
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
-
         return this.container;
     }
     
-    changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
-        $("#text-tool").html(`<img class="icon-sig-tool" src="./images/icon_text_${color}.svg" alt="TEXT" />`);
-        if (!this.isActive) return
-        $("#text-tool").html('<img class="icon-sig-tool" src="./images/icon_text_red.svg" alt="TEXT" />');
-    }
-
     onRemove = () => {
         try {
             this.uiManager.removeControl(this.container);
@@ -68,34 +59,31 @@ class AddTextControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.changeButtonColor()
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
-        $('input[name="base-layer"]').off('change', this.changeButtonColor);
-        this.changeButtonColor()
     }
 
     handleMapClick = (e) => {
         if (this.isActive) {
             this.addTextFeature(e.lngLat, 'Texto');
             this.toolManager.deactivateCurrentTool();
-        } else {
-            let panel = document.querySelector('.text-attributes-panel');
-            if (panel) {
-                const saveButton = panel.querySelector('button[id="SalvarTxt"]');
-                if (saveButton) {
-                    saveButton.click();
-                }
-                panel.remove();
-            }
         }
     }
 
-    addTextFeature(lngLat, text) {
-        const feature = {
+    addTextFeature = (lngLat, text) => {
+        const feature = this.createTextFeature(lngLat, text);
+        addFeature('texts', feature);
+
+        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        data.features.push(feature);
+        this.map.getSource('texts').setData(data);
+    }
+
+    createTextFeature = (lngLat, text) => {
+        return {
             type: 'Feature',
             id: Date.now().toString(),
             properties: { ...AddTextControl.DEFAULT_PROPERTIES, text },
@@ -117,7 +105,7 @@ class AddTextControl {
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         features.forEach(feature => {
-            const f = data.features.find(f => f.id === feature.id);
+            const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
@@ -126,61 +114,74 @@ class AddTextControl {
         this.map.getSource('texts').setData(data);
     }
 
-    updateFeatures = (features, save = false) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-        const feature = data.features.find(f => f.id == featureId);
-        if (feature) {
-            createTextAttributesPanel(feature, this.map, defaultTextProperties);
+    updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
+        if(features.length > 0){
+            const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+            features.forEach(feature => {
+                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                if (featureIndex !== -1) {
+                    if (onlyUpdateProperties) {
+                        // Only update properties of the existing feature
+                        Object.assign(data.features[featureIndex].properties, feature.properties);
+                    } else {
+                        // Replace the entire feature
+                        data.features[featureIndex] = feature;
+                    }
+        
+                    if (save) {
+                        const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
+                        updateFeature('texts', featureToUpdate);
+                    }
+                }
+            });
+            this.map.getSource('texts').setData(data);
         }
     }
 
-    handleMouseDown(e) {
-        e.preventDefault();
-        const feature = e.features[0];
-        this.map.getCanvas().style.cursor = 'grabbing';
-    
-        let isDragging = false;
-        let coords;
-    
-        const updateCoordinates = () => {
-            if (!isDragging) {
-                requestAnimationFrame(updateCoordinates);
-                return;
+    saveFeatures = (features, initialPropertiesMap) => {
+        features.forEach(f => {
+            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
+                updateFeature('texts', f);
             }
-            
-            feature.geometry.coordinates = [coords.lng, coords.lat];
-            
-            const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-            const featureIndex = data.features.findIndex(f => f.id == feature.id);
-            if (featureIndex !== -1) {
-                data.features[featureIndex] = feature;
-                this.map.getSource('texts').setData(data);
-            }
-    
-            isDragging = false;
-            requestAnimationFrame(updateCoordinates);
-        };
-    
-        const onMove = (e) => {
-            coords = e.lngLat;
-            isDragging = true;
-        };
-    
-        const onUp = () => {
-            this.map.getCanvas().style.cursor = '';
-            this.map.off('mousemove', onMove);
-            this.map.off('mouseup', onUp);
-    
-            // Call updateFeature here, when dragging is complete
-            updateFeature('texts', feature);
-        };
-    
-        this.map.on('mousemove', onMove);
-        this.map.once('mouseup', onUp);
-    
-        requestAnimationFrame(updateCoordinates);
+        });
     }
-    
+
+    discardChangeFeatures = (features, initialPropertiesMap) => {
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+        });
+        this.updateFeatures(features, true, true);
+    }
+
+    deleteFeatures = (features) => {
+        if (features.size === 0) {
+            return;
+        }
+        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        const idsToDelete = new Set(Array.from(features).map(f => f.id));
+        data.features = data.features.filter(f => !idsToDelete.has(f.id));
+        this.map.getSource('texts').setData(data);
+
+        features.forEach(f => {
+            removeFeature('texts', f.id);
+
+        });
+    }
+
+    setDefaultProperties = (properties) => {
+        Object.assign(AddTextControl.DEFAULT_PROPERTIES, properties);
+    }
+
+    hasFeatureChanged = (feature, initialProperties) => {
+        return (
+            feature.properties.text !== initialProperties.text ||
+            feature.properties.size !== initialProperties.size ||
+            feature.properties.color !== initialProperties.color ||
+            feature.properties.backgroundColor !== initialProperties.backgroundColor ||
+            feature.properties.rotate !== initialProperties.rotate ||
+            feature.properties.justify !== initialProperties.justify
+        );
+    }
 }
 
 export default AddTextControl;
