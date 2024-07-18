@@ -2,7 +2,7 @@ import { getCurrentMapFeatures } from './store.js';
 import 'https://unpkg.com/maplibre-gl/dist/maplibre-gl.js';
 
 const map = new maplibregl.Map({
-    container: 'map',
+    container: 'map-sig',
     style: 'https://demotiles.maplibre.org/style.json',
     center: [-74.5, 40],
     zoom: 9,

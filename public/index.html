@@ -6,8 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EBSIG</title>
     <link rel="icon" type="image/x-icon" href="./images/favicon.ico">
-    <link href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css" rel="stylesheet" />
-    <link href="https://unpkg.com/@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css" rel="stylesheet" />
+    <link href="./vendors/maplibre-gl.css" rel="stylesheet" />
+    <link href="./vendors/mapbox-gl-draw.css" rel="stylesheet" />
+    <link href="./vendors/cesium/Widgets/widgets.css" rel="stylesheet" />
     <link rel="stylesheet" href="./css/style.css">
 </head>
 
@@ -36,11 +37,70 @@
               );" class="tutorial-button pure-material-button-contained">Tutorial</button>
         </div>
     </div>
-    <div id="map"></div>
-    <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
-    <script src="https://unpkg.com/@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.js"></script>
-    <script src="./js/vendors/turf.min.js"></script>
-    <script src="./js/vendors/jquery.min.3.7.1.js"></script>
+    <div id="map-sig"></div>
+    <div id="map-3d-container">
+        <div id="map-3d"></div>
+        <div id="map-3d-tool-bar" class="card">
+            <div id="model-3d-container">
+                <p><b>Modelos 3D</b></p>
+                <hr class="solid">
+                <!-- <button id="btnAMAN" class="tools">AMAN</button>
+            <button id="btnPCL" class="tools">PCL</button>
+            <button id="btnESA" class="tools">ESA</button> -->
+                <div id="locate-3d-container">
+                    <div class="radio-item">
+                        <input type="radio" name="modelo-3d" value="aman" checked>
+                        <label>AMAN</label>
+                    </div>
+                    <div class="radio-item">
+                        <input type="radio" name="modelo-3d" value="aman-pcl">
+                        <label>AMAN PCL</label>
+                    </div>
+                    <div class="radio-item">
+                        <input type="radio" name="modelo-3d" value="esa">
+                        <label>ESA</label>
+                    </div>
+                </div>
+            </div>
+            <div id="tool-3d-container">
+                <p><b>Ferramentas</b></p>
+                <hr class="solid">
+                <div class="tools-3d-bar">
+                    <div>
+                        <a id="visualizacao" class="button-tool-3d icon-tool-3d">
+                            <img src="./images/viewshed_icon.svg" alt="Viewshed" />
+                        </a>
+                    </div>
+                    <div>
+                        <a id="distancia" class="button-tool-3d icon-tool-3d">
+                            <img src="./images/distance_icon.svg" alt="distance" />
+                        </a>
+                    </div>
+                    <div>
+                        <a id="area" class="button-tool-3d icon-tool-3d">
+                            <img src="./images/area_icon.svg" alt="area" />
+                        </a>
+                    </div>
+                    <div>
+                        <a id="limpar" href="javascript:;" class="button-tool-3d icon-tool-3d">
+                            <img src="./images/clear_icon.svg" alt="clear" />
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <!-- <button id="visualizacao" class="tools">Visualização</button>
+            <button id="distancia" class="tools">Distância Espacial</button>
+            <button id="area" class="tools">Área Espacial</button>
+            <button id="limpar" class="tools">Limpar</button> -->
+        </div>
+    </div>
+    <script src="./vendors/maplibre-gl.js"></script>
+    <script src="./vendors/mapbox-gl-draw.js"></script>
+    <script src="./vendors/turf.min.js"></script>
+    <script src="./vendors/jquery.min.3.7.1.js"></script>
+    <script src="./vendors/cesium/Cesium.js"></script>
+    <script src="./vendors/cesium/cesium-measure.js"></script>
+    <script src="./vendors/cesium/cesium-viewshed.js"></script>
     <script type="module" src="./js/index.js"></script>
 </body>
 

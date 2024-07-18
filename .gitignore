@@ -35,3 +35,7 @@ coverage/
 .idea/
 *.sublime-project
 *.sublime-workspace
+
+public/3d/AMAN/
+public/3d/ESA/
+public/3d/PCL/
