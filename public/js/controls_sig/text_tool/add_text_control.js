@@ -1,11 +1,12 @@
-import { createTextAttributesPanel, deselectAllFeatures } from './text_attributes_panel.js';
+import { createTextAttributesPanel } from './text_attributes_panel.js';
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 
 let defaultTextProperties = {
     text: '',
     size: 16,
     color: '#000000',
-    backgroundColor: '#ffffff'
+    backgroundColor: '#ffffff',
+    rotation: 0
 };
 
 class AddTextControl {
@@ -34,6 +35,7 @@ class AddTextControl {
         this.map.on('mouseenter', 'text-layer', this.handleMouseEnter.bind(this));
         this.map.on('mouseleave', 'text-layer', this.handleMouseLeave.bind(this));
         this.map.on('mousedown', 'text-layer', this.handleMouseDown.bind(this));
+        this.map.on('move', this.updateSelectionBoxes.bind(this)); // Atualizar as caixas de seleção ao mudar o zoom
 
         return this.container;
     }
@@ -45,6 +47,7 @@ class AddTextControl {
         this.map.off('mouseenter', 'text-layer', this.handleMouseEnter.bind(this));
         this.map.off('mouseleave', 'text-layer', this.handleMouseLeave.bind(this));
         this.map.off('mousedown', 'text-layer', this.handleMouseDown.bind(this));
+        this.map.off('move', this.updateSelectionBoxes.bind(this));
         this.map = undefined;
     }
 
@@ -60,10 +63,7 @@ class AddTextControl {
 
     handleMapClick(e) {
         if (this.isActive) {
-            const text = prompt("Enter text:");
-            if (text) {
-                this.addTextFeature(e.lngLat, text);
-            }
+            this.addTextFeature(e.lngLat, 'Texto');
             this.toolManager.deactivateCurrentTool();
         } else {
             if (!e.originalEvent.shiftKey) {
@@ -116,7 +116,8 @@ class AddTextControl {
             }
 
             this.map.getSource('texts').setData(data);
-            createTextAttributesPanel(Array.from(this.selectedFeatures), this.map, defaultTextProperties);
+            this.updateSelectionBoxes();
+            createTextAttributesPanel(Array.from(this.selectedFeatures), this);
         }
     }
 
@@ -134,34 +135,37 @@ class AddTextControl {
     handleMouseDown(e) {
         e.preventDefault();
         const feature = e.features[0];
-
+    
         // Only allow dragging if the feature is selected
         if (!feature.properties.selected) {
             return;
         }
-
+    
         this.map.getCanvas().style.cursor = 'grabbing';
-
+    
         let isDragging = false;
         const startCoords = e.lngLat;
-        const offsets = Array.from(this.selectedFeatures).map(f => {
-            return {
-                feature: f,
-                offset: [
-                    f.geometry.coordinates[0] - startCoords.lng,
-                    f.geometry.coordinates[1] - startCoords.lat
-                ]
-            };
-        });
-
-        const updateCoordinates = () => {
-            if (!isDragging) {
-                requestAnimationFrame(updateCoordinates);
-                return;
-            }
-
+        const scale = this.map.getZoom();
+        const tolerance = 2 / Math.pow(2, scale);
+    
+        const initialCoordinates = [...feature.geometry.coordinates]; // Correctly copy the initial coordinates
+    
+        const offsets = Array.from(this.selectedFeatures).map(f => ({
+            feature: f,
+            offset: [
+                f.geometry.coordinates[0] - startCoords.lng,
+                f.geometry.coordinates[1] - startCoords.lat
+            ]
+        }));
+    
+        const updatePositions = (newCoords) => {
             const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
             offsets.forEach(item => {
+                item.feature.geometry.coordinates = [
+                    newCoords.lng + item.offset[0],
+                    newCoords.lat + item.offset[1]
+                ];
+    
                 const featureIndex = data.features.findIndex(f => f.id === item.feature.id);
                 if (featureIndex !== -1) {
                     data.features[featureIndex].geometry.coordinates = [
@@ -170,46 +174,167 @@ class AddTextControl {
                     ];
                 }
             });
-
+    
             this.map.getSource('texts').setData(data);
-            requestAnimationFrame(updateCoordinates);
+            this.updateSelectionBoxes();
         };
-
+    
         const onMove = (e) => {
             isDragging = true;
             const newCoords = e.lngLat;
-            offsets.forEach(item => {
-                item.feature.geometry.coordinates = [
-                    newCoords.lng + item.offset[0],
-                    newCoords.lat + item.offset[1]
-                ];
-            });
+            requestAnimationFrame(() => updatePositions(newCoords));
         };
-
-        const onUp = () => {
+    
+        const onUp = (e) => {
             this.map.getCanvas().style.cursor = '';
             this.map.off('mousemove', onMove);
             this.map.off('mouseup', onUp);
-
-            // Call updateFeature for each selected feature when dragging is complete
-            this.selectedFeatures.forEach(f => updateFeature('texts', f));
+            const newCoords = e.lngLat;
+    
+            // Calculate the distance moved
+            const dx = newCoords.lng - initialCoordinates[0];
+            const dy = newCoords.lat - initialCoordinates[1];
+            const distanceMoved = Math.sqrt(dx * dx + dy * dy);
+    
+            // Only call updateFeature if the movement exceeds the tolerance
+            if (distanceMoved > tolerance) {
+                this.selectedFeatures.forEach(f => updateFeature('texts', f));
+            }
         };
-
+    
         this.map.on('mousemove', onMove);
         this.map.once('mouseup', onUp);
+    }
+    
+    
+    updateFeaturesProperty(features, property, value) {
+        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        features.forEach(feature => {
+            const f = data.features.find(f => f.id === feature.id);
+            if (f) {
+                f.properties[property] = value;
+                // Atualize a feature também em this.selectedFeatures
+                feature.properties[property] = value;
+            }
+        });
+        this.map.getSource('texts').setData(data);
+    
+        if (property === 'size' || property === 'text' || property === 'rotation') {
+            this.updateSelectionBoxes();
+        }
+    }
 
-        requestAnimationFrame(updateCoordinates);
+    updateFeatures(features) {
+        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        features.forEach(feature => {
+            const featureIndex = data.features.findIndex(f => f.id === feature.id);
+            if (featureIndex !== -1) {
+                data.features[featureIndex] = feature;
+            }
+        });
+        this.map.getSource('texts').setData(data);
+    }
+
+    saveFeature(feature) {
+        updateFeature('texts', feature);
+    }
+
+    deleteFeature(id) {
+        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        data.features = data.features.filter(f => f.id !== id);
+        this.map.getSource('texts').setData(data);
+        removeFeature('texts', id);
+    }
+
+    setDefaultProperties(properties) {
+        defaultTextProperties.color = properties.color;
+        defaultTextProperties.size = properties.size;
+        defaultTextProperties.backgroundColor = properties.backgroundColor;
     }
 
     deselectAllFeatures() {
         const selectedFeaturesArray = Array.from(this.selectedFeatures);
-        deselectAllFeatures(selectedFeaturesArray, this.map);
+        selectedFeaturesArray.forEach(feature => {
+            feature.properties.selected = false;
+        });
         this.selectedFeatures.clear();
+        this.updateSelectionBoxes();
     }
 
     getAllSelectedFeatures() {
         return Array.from(this.selectedFeatures);
     }
+
+    updateSelectionBoxes() {
+        if(this.selectedFeatures.size > 0){
+            const features = Array.from(this.selectedFeatures).map(feature => {
+                const coordinates = feature.geometry.coordinates;
+                const { width, height } = measureTextSize(feature.properties.text, feature.properties.size+15, 'Arial'); // Ajuste a família de fontes conforme necessário
+                const polygon = createSelectionBox(this.map, coordinates, width, height, feature.properties.rotation);
+                return {
+                    type: 'Feature',
+                    geometry: polygon,
+                    properties: {}
+                };
+            });
+    
+            const data = {
+                type: 'FeatureCollection',
+                features: features
+            };
+    
+            this.map.getSource('selection-boxes').setData(data);
+        }
+        else{
+            if(this.map.getSource('selection-boxes')._data.features.length > 0){
+                this.map.getSource('selection-boxes').setData({
+                    type: 'FeatureCollection',
+                    features: []
+                });
+            }
+        }
+    }
 }
+
+function measureTextSize(text, fontSize, fontFamily) {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    context.font = `${fontSize}px ${fontFamily}`;
+    const lines = text.split('\n');
+    const width = Math.max(...lines.map(line => context.measureText(line).width));
+    const height = (fontSize - 8) * lines.length; // Calcular a altura com base no número de linhas
+    return { width, height };
+}
+
+
+function createSelectionBox(map, coordinates, width, height, rotate) {
+    const radians = rotate * (Math.PI / 180); // Converter graus para radianos
+
+    const point = map.project(coordinates);
+    const points = [
+        [-width / 2, -height / 2],
+        [width / 2, -height / 2],
+        [width / 2, height / 2],
+        [-width / 2, height / 2]
+    ];
+
+    const rotatedPoints = points.map(([x, y]) => {
+        const nx = x * Math.cos(radians) - y * Math.sin(radians);
+        const ny = x * Math.sin(radians) + y * Math.cos(radians);
+        return map.unproject([point.x + nx, point.y + ny]);
+    });
+
+    return {
+        type: 'Polygon',
+        coordinates: [[
+            [rotatedPoints[0].lng, rotatedPoints[0].lat],
+            [rotatedPoints[1].lng, rotatedPoints[1].lat],
+            [rotatedPoints[2].lng, rotatedPoints[2].lat],
+            [rotatedPoints[3].lng, rotatedPoints[3].lat],
+            [rotatedPoints[0].lng, rotatedPoints[0].lat]
+        ]]
+    };
+}
+
 
 export default AddTextControl;

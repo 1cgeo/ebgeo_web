@@ -36,7 +36,8 @@ map.on('styledata', () => {
                 'text-field': ['get', 'text'],
                 'text-size': ['get', 'size'],
                 'text-justify': 'center',
-                'text-anchor': 'center'
+                'text-anchor': 'center',
+                'text-rotate': ['get', 'rotation'],
             },
             paint: {
                 'text-color': ['get', 'color'],
@@ -95,6 +96,25 @@ map.on('styledata', () => {
             }
         });
     }
+
+    if (!map.getLayer('selection-boxes')) {
+        map.addLayer({
+            id: 'selection-boxes',
+            type: 'line',
+            source: {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: []
+                }
+            },
+            paint: {
+                'line-color': '#FF0000',
+                'line-width': 2
+            }
+        });
+    }
+
 });
 
 
