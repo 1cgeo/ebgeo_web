@@ -114,7 +114,7 @@ class DrawControl {
             }
         }
 
-        this.map.on('zoomend', updateSelectedBBoxSource);
+        this.map.on('move', updateSelectedBBoxSource);
         this.map.on('draw.render', updateSelectedBBoxSource);
 
         this.map.on('click', (e) => {
@@ -142,7 +142,7 @@ class DrawControl {
         this.map.off('draw.update');
         this.map.off('draw.delete');
         this.map.off('draw.modechange');
-        this.map.off('zoomend');
+        this.map.off('move');
         this.map.off('draw.render');
         this.map = undefined;
     }
