@@ -84,30 +84,136 @@ map.on('styledata', () => {
         });
     }
 
-    // Check if the 'highlighted_bbox' source and layer exist before adding them
-    if (!map.getSource('highlighted_bbox')) {
-        map.addSource('highlighted_bbox', {
+    features.images.forEach(feature => {
+        const image = new Image();
+        image.src = feature.properties.imageBase64;
+        image.onload = () => {
+            if (!map.hasImage(feature.properties.imageId)) {
+                map.addImage(feature.properties.imageId, image);
+            }
+        };
+    });
+
+    if (!map.getSource('los')) {
+        map.addSource('los', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
-                features: features.images
+                features: features.los
             }
         });
     }
 
-    if (!map.getLayer('highlighted_bbox-layer')) {
+    if (!map.getLayer('los-layer')) {
         map.addLayer({
-            id: 'highlighted_bbox-layer',
-            type: 'line',
-            source: 'highlighted_bbox',
+            'id': 'los-layer',
+            'type': 'line',
+            'source': 'los',
+            'paint': {
+                'line-color': ['get', 'visibleColor'],
+                'line-opacity': ['get', 'opacity'],
+                'line-width': ['get', 'width']
+            }
+        });
+    }
+
+    if (!map.getSource('visibility')) {
+        map.addSource('visibility', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.visibility
+            }
+        });
+    }
+
+    if (!map.getLayer('visibility-layer')) {
+        map.addLayer({
+            id: 'visibility-layer',
+            type: 'fill',
+            source: 'visibility',
             layout: {},
             paint: {
-              'line-color': '#ff0000',
-              'line-width': 2
+                'fill-color': ['get', 'color'],
+                'fill-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
+    if (!map.getSource('selection-boxes')) {
+        map.addSource('selection-boxes', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+    }
+
+    if (!map.getLayer('selection-boxes-layer')) {
+        map.addLayer({
+            id: 'selection-boxes-layer',
+            type: 'line',
+            source: 'selection-boxes',
+            paint: {
+                'line-color': '#FF0000',
+                'line-width': 2,
+                'line-dasharray': [2, 2]
+            }
+        });
+    }
+
+    if (!map.getSource('temp-line')) {
+        map.addSource('temp-line', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+    }
+
+    if (!map.getLayer('temp-line-layer')) {
+        map.addLayer({
+            id: 'temp-line-layer',
+            type: 'line',
+            source: 'temp-line',
+            paint: {
+                'line-color': '#3f4fb5',
+                'line-width': 2,
+                'line-dasharray': [2, 2]
+            }
+        });
+    }
+
+    if (!map.getSource('temp-polygon')) {
+        map.addSource('temp-polygon', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+    }
+
+    if (!map.getLayer('temp-polygon-layer')) {
+        map.addLayer({
+            id: 'temp-polygon-layer',
+            type: 'fill',
+            source: 'temp-polygon',
+            paint: {
+                'fill-color': '#3f4fb5',
+                'fill-opacity': 0.5,
+                'fill-outline-color': '#3f4fb5'
             }
         });
     }
 });
 
+//FIT AMAN
+map.fitBounds([
+    [-44.4633992903047, -22.46265178239199],
+    [-44.439695820515325, -22.444666254876367]
+]);
 
 export { map };
