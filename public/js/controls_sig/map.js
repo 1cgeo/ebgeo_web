@@ -35,9 +35,10 @@ map.on('styledata', () => {
             layout: {
                 'text-field': ['get', 'text'],
                 'text-size': ['get', 'size'],
-                'text-justify': 'center',
+                'text-justify': ['get', 'justify'],
                 'text-anchor': 'center',
                 'text-rotate': ['get', 'rotation'],
+                'text-ignore-placement': true
             },
             paint: {
                 'text-color': ['get', 'color'],

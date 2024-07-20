@@ -6,7 +6,8 @@ let defaultTextProperties = {
     size: 16,
     color: '#000000',
     backgroundColor: '#ffffff',
-    rotation: 0
+    rotation: 0,
+    justify: 'center'
 };
 
 class AddTextControl {
@@ -250,6 +251,8 @@ class AddTextControl {
         defaultTextProperties.color = properties.color;
         defaultTextProperties.size = properties.size;
         defaultTextProperties.backgroundColor = properties.backgroundColor;
+        defaultTextProperties.justify = properties.justify;
+        defaultTextProperties.rotation = properties.rotation;
     }
 
     deselectAllFeatures() {

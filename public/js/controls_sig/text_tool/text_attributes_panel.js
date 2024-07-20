@@ -22,6 +22,8 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
         textInput.cols = 50; // Define o número de colunas visíveis
         textInput.oninput = (e) => {
             textControl.updateFeaturesProperty(selectedFeatures, 'text', e.target.value);
+            updateJustifyButtons(e.target.value);
+
         };
         panel.appendChild(textLabel);
         panel.appendChild(textInput);
@@ -63,6 +65,49 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
     rotateInput.oninput = (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'rotation', parseFloat(e.target.value));
     };
+
+    const justifyLabel = document.createElement('label');
+    justifyLabel.textContent = 'Justificativa:';
+
+    const justifyContainer = document.createElement('div');
+    justifyContainer.style.display = 'flex';
+    justifyContainer.style.justifyContent = 'space-between';
+
+    const justifyLeftButton = document.createElement('button');
+    justifyLeftButton.innerHTML = 'L'; // Substitua por um ícone apropriado
+    justifyLeftButton.title = 'Alinhar à esquerda';
+    justifyLeftButton.onclick = () => {
+        textControl.updateFeaturesProperty(selectedFeatures, 'justify', 'left');
+    };
+
+    const justifyCenterButton = document.createElement('button');
+    justifyCenterButton.innerHTML = 'C'; // Substitua por um ícone apropriado
+    justifyCenterButton.title = 'Centralizar';
+    justifyCenterButton.onclick = () => {
+        textControl.updateFeaturesProperty(selectedFeatures, 'justify', 'center');
+    };
+
+    const justifyRightButton = document.createElement('button');
+    justifyRightButton.innerHTML = 'R'; // Substitua por um ícone apropriado
+    justifyRightButton.title = 'Alinhar à direita';
+    justifyRightButton.onclick = () => {
+        textControl.updateFeaturesProperty(selectedFeatures, 'justify', 'right');
+    };
+
+    justifyContainer.appendChild(justifyLeftButton);
+    justifyContainer.appendChild(justifyCenterButton);
+    justifyContainer.appendChild(justifyRightButton);
+
+    const updateJustifyButtons = (text) => {
+        const lines = text.split('\n').length;
+        const enabled = lines > 1;
+        justifyLeftButton.disabled = !enabled;
+        justifyCenterButton.disabled = !enabled;
+        justifyRightButton.disabled = !enabled;
+    };
+
+    // Inicializa os botões de justificativa com o estado correto
+    updateJustifyButtons(feature.properties.text);
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
@@ -109,6 +154,8 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
     panel.appendChild(backgroundColorInput);
     panel.appendChild(rotateLabel);
     panel.appendChild(rotateInput);
+    panel.appendChild(justifyLabel);
+    panel.appendChild(justifyContainer);
     panel.appendChild(saveButton);
     panel.appendChild(discardButton);
     panel.appendChild(deleteButton);
@@ -123,6 +170,7 @@ function hasFeatureChanged(feature, initialProperties) {
         feature.properties.size !== initialProperties.size ||
         feature.properties.color !== initialProperties.color ||
         feature.properties.backgroundColor !== initialProperties.backgroundColor ||
-        feature.properties.rotation !== initialProperties.rotation
+        feature.properties.rotate !== initialProperties.rotate ||
+        feature.properties.justify !== initialProperties.justify
     );
 }
