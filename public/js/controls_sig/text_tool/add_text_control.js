@@ -138,8 +138,16 @@ class AddTextControl {
     handleMouseDown(e) {
         e.preventDefault();
         const feature = e.features[0];
-    
-        if (!this.selectedFeatures.has(feature)) {
+
+        let selectedFeature = null;
+        for (let f of this.selectedFeatures) {
+            if (f.id == feature.id) {
+                selectedFeature = f;
+                break;
+            }
+        }
+
+        if (!selectedFeature) {
             return;
         }
     
@@ -212,6 +220,7 @@ class AddTextControl {
             const f = data.features.find(f => f.id === feature.id);
             if (f) {
                 f.properties[property] = value;
+                feature.properties[property] = value;
             }
         });
         this.map.getSource('texts').setData(data);

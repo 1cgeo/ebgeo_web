@@ -1,13 +1,14 @@
-import { updateFeature, removeFeature } from '../store.js';
-
-export function createImageAttributesPanel(feature, map) {
+export function createImageAttributesPanel(selectedFeatures, imageControl) {
     let panel = document.querySelector('.image-attributes-panel');
     if (panel) {
         panel.remove();
     }
+    if (selectedFeatures.length == 0) {
+        return;
+    }
 
+    const feature = selectedFeatures[0]; // Use the first selected feature to populate the form.
     const initialProperties = { ...feature.properties };
-    const initialCoordinates = [...feature.geometry.coordinates];
 
     panel = document.createElement('div');
     panel.className = 'image-attributes-panel';
@@ -19,8 +20,7 @@ export function createImageAttributesPanel(feature, map) {
     sizeInput.step = '0.1';
     sizeInput.value = feature.properties.size;
     sizeInput.oninput = (e) => {
-        feature.properties.size = parseFloat(e.target.value);
-        updateImageAttributesPanel(feature, map);
+        imageControl.updateFeaturesProperty(selectedFeatures, 'size', parseFloat(e.target.value));
     };
 
     const rotationLabel = document.createElement('label');
@@ -29,35 +29,38 @@ export function createImageAttributesPanel(feature, map) {
     rotationInput.type = 'number';
     rotationInput.value = feature.properties.rotation;
     rotationInput.oninput = (e) => {
-        feature.properties.rotation = parseFloat(e.target.value);
-        updateImageAttributesPanel(feature, map);
+        imageControl.updateFeaturesProperty(selectedFeatures, 'rotation', parseFloat(e.target.value));
     };
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
     saveButton.id = 'SalvarImg';
     saveButton.onclick = () => {
-        updateFeature('images', feature)
+        selectedFeatures.forEach(f => {
+            if (hasFeatureChanged(f, initialProperties)) {
+                imageControl.saveFeature(f);
+            }
+        });
         panel.remove();
     };
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        Object.assign(feature.properties, initialProperties);
-        feature.geometry.coordinates = initialCoordinates;
-        updateImageAttributesPanel(feature, map);
+        selectedFeatures.forEach(f => {
+            Object.assign(f.properties, initialProperties);
+        });
+        imageControl.updateFeatures(selectedFeatures);
         panel.remove();
+        imageControl.deselectAllFeatures();
     };
 
     const deleteButton = document.createElement('button');
     deleteButton.textContent = 'Deletar';
     deleteButton.onclick = () => {
-        const data = JSON.parse(JSON.stringify(map.getSource('images')._data));
-        data.features = data.features.filter(f => f.id != feature.id);
-        map.getSource('images').setData(data);
+        selectedFeatures.forEach(f => imageControl.deleteFeature(f.id));
         panel.remove();
-        removeFeature('images', feature)
+        imageControl.deselectAllFeatures();
     };
 
     panel.appendChild(sizeLabel);
@@ -71,11 +74,10 @@ export function createImageAttributesPanel(feature, map) {
     document.body.appendChild(panel);
 }
 
-export function updateImageAttributesPanel(feature, map) {
-    const data = JSON.parse(JSON.stringify(map.getSource('images')._data));
-    const featureIndex = data.features.findIndex(f => f.id === feature.id);
-    if (featureIndex !== -1) {
-        data.features[featureIndex].properties = feature.properties;
-        map.getSource('images').setData(data);
-    }
+function hasFeatureChanged(feature, initialProperties) {
+    return (
+        feature.properties.size !== initialProperties.size ||
+        feature.properties.rotation !== initialProperties.rotation ||
+        feature.properties.imageBase64 !== initialProperties.imageBase64
+    );
 }
