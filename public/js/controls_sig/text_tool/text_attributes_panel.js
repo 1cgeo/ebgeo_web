@@ -8,7 +8,10 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
     }
 
     const feature = selectedFeatures[0]; // Usar a primeira feição selecionada para popular o formulário.
-    const initialProperties = { ...feature.properties };
+    const initialPropertiesMap = new Map();
+    selectedFeatures.forEach(f => {
+        initialPropertiesMap.set(f.id, { ...f.properties });
+    });
 
     panel = document.createElement('div');
     panel.className = 'text-attributes-panel';
@@ -33,6 +36,8 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
     sizeLabel.textContent = 'Tamanho:';
     const sizeInput = document.createElement('input');
     sizeInput.type = 'number';
+    sizeInput.step = 1;
+    sizeInput.min = 1;
     sizeInput.value = feature.properties.size;
     sizeInput.oninput = (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'size', parseInt(e.target.value, 10));
@@ -111,31 +116,22 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
     saveButton.textContent = 'Salvar';
     saveButton.id = 'SalvarTxt';
     saveButton.onclick = () => {
-        selectedFeatures.forEach(f => {
-            if (hasFeatureChanged(f, initialProperties)) {
-                textControl.saveFeature(f);
-            }
-        });
+        textControl.saveFeatures(selectedFeatures, initialPropertiesMap)
         panel.remove();
     };
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        selectedFeatures.forEach(f => {
-            Object.assign(f.properties, initialProperties);
-        });
-        textControl.updateFeatures(selectedFeatures);
+        textControl.discartChangeFeatures(selectedFeatures, initialPropertiesMap)
         panel.remove();
-        textControl.deselectAllFeatures();
     };
 
     const deleteButton = document.createElement('button');
     deleteButton.textContent = 'Deletar';
     deleteButton.onclick = () => {
-        selectedFeatures.forEach(f => textControl.deleteFeature(f.id));
+        textControl.deleteFeatures(selectedFeatures)
         panel.remove();
-        textControl.deselectAllFeatures();
     };
 
     const setDefaultButton = document.createElement('button');
@@ -160,15 +156,4 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
     panel.appendChild(setDefaultButton);
 
     document.body.appendChild(panel);
-}
-
-function hasFeatureChanged(feature, initialProperties) {
-    return (
-        feature.properties.text !== initialProperties.text ||
-        feature.properties.size !== initialProperties.size ||
-        feature.properties.color !== initialProperties.color ||
-        feature.properties.backgroundColor !== initialProperties.backgroundColor ||
-        feature.properties.rotate !== initialProperties.rotate ||
-        feature.properties.justify !== initialProperties.justify
-    );
 }

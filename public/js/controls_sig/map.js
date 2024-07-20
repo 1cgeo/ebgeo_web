@@ -17,6 +17,15 @@ map.addControl(new maplibregl.AttributionControl({
 map.on('styledata', () => { 
     const features = getCurrentMapFeatures();
 
+    const draw = map._controls.find(control => control instanceof MapboxDraw);
+    if (draw) {
+        draw.deleteAll();
+        draw.set({
+            type: 'FeatureCollection',
+            features: features.polygons.concat(features.linestrings).concat(features.points)
+        });
+    }
+
     if (!map.getSource('texts')) {
         map.addSource('texts', {
             type: 'geojson',
@@ -48,7 +57,6 @@ map.on('styledata', () => {
         });
     }
 
-    // Check if the 'images' source and layer exist before adding them
     if (!map.getSource('images')) {
         map.addSource('images', {
             type: 'geojson',
@@ -74,13 +82,22 @@ map.on('styledata', () => {
         });
     }
 
-    // Check if the 'highlighted_bbox' source and layer exist before adding them
+    features.images.forEach(feature => {
+        const image = new Image();
+        image.src = feature.properties.imageBase64;
+        image.onload = () => {
+            if (!map.hasImage(feature.properties.imageId)) {
+                map.addImage(feature.properties.imageId, image);
+            }
+        };
+    });
+
     if (!map.getSource('highlighted_bbox')) {
         map.addSource('highlighted_bbox', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
-                features: features.images
+                features: []
             }
         });
     }
@@ -90,7 +107,6 @@ map.on('styledata', () => {
             id: 'highlighted_bbox-layer',
             type: 'line',
             source: 'highlighted_bbox',
-            layout: {},
             paint: {
               'line-color': '#ff0000',
               'line-width': 2
@@ -98,24 +114,27 @@ map.on('styledata', () => {
         });
     }
 
-    if (!map.getLayer('selection-boxes')) {
+    if (!map.getSource('selection-boxes')) {
+        map.addSource('selection-boxes', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+    }
+
+    if (!map.getLayer('selection-boxes-layer')) {
         map.addLayer({
-            id: 'selection-boxes',
+            id: 'selection-boxes-layer',
             type: 'line',
-            source: {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: []
-                }
-            },
+            source: 'selection-boxes',
             paint: {
                 'line-color': '#FF0000',
                 'line-width': 2
             }
         });
     }
-
 });
 
 

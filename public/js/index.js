@@ -1,5 +1,5 @@
 import { map } from './controls_sig/map.js';
-import baseLayerControl from './controls_sig/base_layer_control.js';
+import BaseLayerControl from './controls_sig/base_layer_control.js';
 import DrawControl from './controls_sig/draw_tool/draw.js';
 import SaveLoadControl from './controls_sig/save_load_control.js';
 import AddTextControl from './controls_sig/text_tool/add_text_control.js';
@@ -14,12 +14,13 @@ import { undoLastAction, redoLastAction, hasUnsavedData } from './controls_sig/s
 //-----------------------------------------------
 //CONTROLES
 //-----------------------------------------------
+const baseLayerControl = new BaseLayerControl();
 map.addControl(baseLayerControl, 'top-left');
 
-const mapControl = new MapControl();
+const mapControl = new MapControl(baseLayerControl);
 map.addControl(mapControl, 'top-left');
 
-const saveLoadControl = new SaveLoadControl(mapControl);
+const saveLoadControl = new SaveLoadControl(mapControl, baseLayerControl);
 map.addControl(saveLoadControl, 'top-left');
 
 //map.addControl(new ResetNorthControl(), 'top-right');

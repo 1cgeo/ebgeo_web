@@ -241,16 +241,36 @@ class AddTextControl {
         this.map.getSource('texts').setData(data);
     }
 
-    saveFeature(feature) {
-        updateFeature('texts', feature);
+    saveFeatures(features, initialPropertiesMap) {
+        features.forEach(f => {
+            if (hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
+                updateFeature('texts', f);
+            }
+        });
+        this.deselectAllFeatures();
     }
 
-    deleteFeature(id) {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-        data.features = data.features.filter(f => f.id !== id);
-        this.map.getSource('texts').setData(data);
-        removeFeature('texts', id);
+    discartChangeFeatures(features, initialPropertiesMap) {
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+        });
+        this.updateFeatures(features);
+        this.deselectAllFeatures();
     }
+
+    deleteFeatures(features) {
+        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        const idsToDelete = new Set(features.map(f => f.id));
+        data.features = data.features.filter(f => !idsToDelete.has(f.id));
+        this.map.getSource('texts').setData(data);
+
+        features.forEach(f => {
+            removeFeature('texts', f.id);
+
+        });
+        this.deselectAllFeatures();
+    }
+
 
     setDefaultProperties(properties) {
         defaultTextProperties.color = properties.color;
@@ -263,6 +283,10 @@ class AddTextControl {
     deselectAllFeatures() {
         this.selectedFeatures.clear();
         this.updateSelectionBoxes();
+        let panel = document.querySelector('.text-attributes-panel');
+        if (panel) {
+            panel.remove();
+        }
     }
 
     getAllSelectedFeatures() {
@@ -288,7 +312,7 @@ class AddTextControl {
             this.map.getSource('selection-boxes').setData(data);
         }
         else{
-            if(this.map.getSource('selection-boxes')._data.features.length > 0){
+            if(this.map.getSource('selection-boxes') && this.map.getSource('selection-boxes')._data.features.length > 0){
                 this.map.getSource('selection-boxes').setData({
                     type: 'FeatureCollection',
                     features: []
@@ -337,6 +361,17 @@ function createSelectionBox(map, coordinates, width, height, rotate) {
             [rotatedPoints[0].lng, rotatedPoints[0].lat]
         ]]
     };
+}
+
+function hasFeatureChanged(feature, initialProperties) {
+    return (
+        feature.properties.text !== initialProperties.text ||
+        feature.properties.size !== initialProperties.size ||
+        feature.properties.color !== initialProperties.color ||
+        feature.properties.backgroundColor !== initialProperties.backgroundColor ||
+        feature.properties.rotate !== initialProperties.rotate ||
+        feature.properties.justify !== initialProperties.justify
+    );
 }
 
 

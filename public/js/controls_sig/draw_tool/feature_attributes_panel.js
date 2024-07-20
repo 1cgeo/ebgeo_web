@@ -1,28 +1,31 @@
-import { updateFeature, removeFeature } from '../store.js';
-
-export function createFeatureAttributesPanel(features, map, defaultProperties) {
+export function createFeatureAttributesPanel(selectedFeatures, featureControl) {
     let panel = document.querySelector('.feature-attributes-panel');
     if (panel) {
         panel.remove();
     }
 
-    const initialProperties = features.map(feature => ({ ...feature.properties }));
-    const initialCoordinates = features.map(feature => [...feature.geometry.coordinates]);
+    if(selectedFeatures.length == 0){
+        return
+    }
+
+    const feature = selectedFeatures[0]; // Usar a primeira feição selecionada para popular o formulário.
+    const initialPropertiesMap = new Map();
+    selectedFeatures.forEach(f => {
+        initialPropertiesMap.set(f.id, { ...f.properties });
+    });
 
     panel = document.createElement('div');
     panel.className = 'feature-attributes-panel';
 
-    const commonAttributes = findCommonAttributes(features);
+    const commonAttributes = findCommonAttributes(selectedFeatures);
 
     commonAttributes.forEach(attr => {
         const attrLabel = document.createElement('label');
-        attrLabel.textContent = getLabel(attr, features);
-        const attrInput = createInput(attr, features[0].properties[attr]);
+        attrLabel.textContent = getLabel(attr, selectedFeatures);
+        const attrInput = createInput(attr, selectedFeatures[0].properties[attr]);
         attrInput.oninput = (e) => {
-            features.forEach(feature => {
-                feature.properties[attr] = attrInput.type === 'range' || attrInput.type === 'number' ? parseFloat(e.target.value) : e.target.value;
-            });
-            updateFeatureAttributesPanel(features, map);
+            let value = attrInput.type === 'range' || attrInput.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+            featureControl.updateFeaturesProperty(selectedFeatures, attr, value);
         };
         panel.appendChild(attrLabel);
         panel.appendChild(attrInput);
@@ -32,44 +35,28 @@ export function createFeatureAttributesPanel(features, map, defaultProperties) {
     saveButton.textContent = 'Salvar';
     saveButton.id = 'SalvarFeat';
     saveButton.onclick = () => {
-        features.forEach(feature => {
-            const type = feature.geometry.type.toLowerCase() + 's';
-            updateFeature(type, feature);
-        });
+        featureControl.saveFeatures(selectedFeatures, initialPropertiesMap)
         panel.remove();
     };
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        features.forEach((feature, index) => {
-            Object.assign(feature.properties, initialProperties[index]);
-            feature.geometry.coordinates = initialCoordinates[index];
-        });
-        updateFeatureAttributesPanel(features, map);
+        featureControl.discartChangeFeatures(selectedFeatures, initialPropertiesMap)
         panel.remove();
     };
 
     const deleteButton = document.createElement('button');
     deleteButton.textContent = 'Deletar';
     deleteButton.onclick = () => {
-        const draw = map._controls.find(control => control instanceof MapboxDraw);
-        if (draw) {
-            features.forEach(feature => {
-                draw.delete(feature.id);
-                const type = feature.geometry.type.toLowerCase() + 's';
-                removeFeature(type, feature.id);
-            });
-        }
+        featureControl.deleteFeatures(selectedFeatures)
         panel.remove();
     };
 
     const setDefaultButton = document.createElement('button');
     setDefaultButton.textContent = 'Definir padrão';
     setDefaultButton.onclick = () => {
-        commonAttributes.forEach(attr => {
-            defaultProperties[attr] = features[0].properties[attr];
-        });
+        featureControl.setDefaultProperties(feature.properties, commonAttributes);
     };
 
     panel.appendChild(saveButton);
@@ -78,21 +65,6 @@ export function createFeatureAttributesPanel(features, map, defaultProperties) {
     panel.appendChild(setDefaultButton);
 
     document.body.appendChild(panel);
-}
-
-export function updateFeatureAttributesPanel(features, map) {
-    const draw = map._controls.find(control => control instanceof MapboxDraw);
-    if (draw) {
-        features.forEach(feature => {
-            Object.keys(feature.properties).forEach(key => {
-                draw.setFeatureProperty(feature.id, key, feature.properties[key]);
-            });
-            const feat = draw.get(feature.id);
-            draw.add(feat);
-        });
-    } else {
-        console.error('Draw control not found on map');
-    }
 }
 
 function findCommonAttributes(features) {
@@ -109,6 +81,7 @@ function findCommonAttributes(features) {
         return common.filter(attr => attributes.includes(attr));
     });
 }
+
 function getLabel(attr, features) {
     const labels = {
         size: 'Tamanho',
@@ -136,7 +109,7 @@ function createInput(attr, value) {
     } else if (attr === 'opacity') {
         input = document.createElement('input');
         input.type = 'range';
-        input.min = 0;
+        input.min = 0.1;
         input.max = 1;
         input.step = 0.1;
         input.value = value !== undefined ? value : 1;

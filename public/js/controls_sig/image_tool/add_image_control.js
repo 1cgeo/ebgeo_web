@@ -272,20 +272,43 @@ class AddImageControl {
         this.map.getSource('images').setData(data);
     }
 
-    saveFeature(feature) {
-        updateFeature('images', feature);
+    saveFeatures(features, initialPropertiesMap) {
+        features.forEach(f => {
+            if (hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
+                updateFeature('images', f);
+            }
+        });
+        this.deselectAllFeatures();
     }
 
-    deleteFeature(id) {
+    discartChangeFeatures(features, initialPropertiesMap) {
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+        });
+        this.updateFeatures(features);
+        this.deselectAllFeatures();
+    }
+
+    deleteFeatures(features) {
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-        data.features = data.features.filter(f => f.id !== id);
+        const idsToDelete = new Set(features.map(f => f.id));
+        data.features = data.features.filter(f => !idsToDelete.has(f.id));
         this.map.getSource('images').setData(data);
-        removeFeature('images', id);
+
+        features.forEach(f => {
+            removeFeature('images', f.id);
+
+        });
+        this.deselectAllFeatures();
     }
 
     deselectAllFeatures() {
         this.selectedFeatures.clear();
         this.updateSelectionBoxes();
+        let panel = document.querySelector('.image-attributes-panel');
+        if (panel) {
+            panel.remove();
+        }
     }
 
     getAllSelectedFeatures() {
@@ -311,7 +334,7 @@ class AddImageControl {
             };
             this.map.getSource('selection-boxes').setData(data);
         } else {
-            if (this.map.getSource('selection-boxes')._data.features.length > 0) {
+            if (this.map.getSource('selection-boxes') && this.map.getSource('selection-boxes')._data.features.length > 0) {
                 this.map.getSource('selection-boxes').setData({
                     type: 'FeatureCollection',
                     features: []
@@ -348,6 +371,14 @@ function createSelectionBox(map, coordinates, width, height, rotate) {
             [rotatedPoints[0].lng, rotatedPoints[0].lat]
         ]]
     };
+}
+
+function hasFeatureChanged(feature, initialProperties) {
+    return (
+        feature.properties.size !== initialProperties.size ||
+        feature.properties.rotation !== initialProperties.rotation ||
+        feature.properties.imageBase64 !== initialProperties.imageBase64
+    );
 }
 
 export default AddImageControl;
