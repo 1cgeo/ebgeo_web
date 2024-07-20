@@ -1,7 +1,17 @@
 import { setBaseLayer } from './store.js';
+import { getCurrentMapFeatures } from './store.js';
 
-const baseLayerControl = {
-    onAdd: function (map) {
+class BaseLayerControl {
+    constructor() {
+        this.map = null;
+        this.container = null;
+        this.styleUrls = {
+            'Carta': 'https://demotiles.maplibre.org/style.json',
+            'Ortoimagem': 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
+        };
+    }
+
+    onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
         this.container.className = 'mapboxgl-ctrl base-layer-control';
@@ -23,23 +33,20 @@ const baseLayerControl = {
         });
 
         return this.container;
-    },
-    onRemove: function () {
-        this.container.parentNode.removeChild(this.container);
-        this.map = undefined;
-    },
-    switchLayer: async function (layer) {
-        setBaseLayer(layer);
-        const styleUrl = layer === 'Ortoimagem'
-            ? 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
-            : 'https://demotiles.maplibre.org/style.json';
-        
-        this.container.querySelector(`input[value="${layer}"]`).checked = true;
-
-        // Set the new style
-        this.map.setStyle(styleUrl);
     }
-};
 
-export const switchLayer = baseLayerControl.switchLayer.bind(baseLayerControl);
-export default baseLayerControl;
+    onRemove() {
+        this.container.parentNode.removeChild(this.container);
+        this.map = null;
+    }
+
+    switchLayer(layer) {
+        setBaseLayer(layer);
+
+        const styleUrl = this.styleUrls[layer];
+        this.map.setStyle(styleUrl);
+        this.container.querySelector(`input[value="${layer}"]`).checked = true;
+    }
+}
+
+export default BaseLayerControl;

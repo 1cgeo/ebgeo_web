@@ -36,35 +36,36 @@ class DrawControl {
         this.map.addControl(this.draw, 'top-right');
 
         this.map.on('draw.create', (e) => {
-            e.features.forEach(feature => {
+            e.features.forEach(f => {
                 Object.keys(this.defaultProperties).forEach(key => {
-                    if (!feature.properties.hasOwnProperty(key)) {
-                        feature.properties[key] = this.defaultProperties[key];
+                    if (!f.properties.hasOwnProperty(key)) {
+                        f.properties[key] = this.defaultProperties[key];
                     }
                 });
-                const type = feature.geometry.type.toLowerCase() + 's';
-                addFeature(type, feature);
+                const type = f.geometry.type.toLowerCase() + 's';
+                addFeature(type, f);
     
                 // Define as propriedades padrão na feição
-                this.draw.setFeatureProperty(feature.id, 'color', this.defaultProperties.color);
-                this.draw.setFeatureProperty(feature.id, 'opacity', this.defaultProperties.opacity);
-                this.draw.setFeatureProperty(feature.id, 'size', this.defaultProperties.size);
-                this.draw.setFeatureProperty(feature.id, 'outlinecolor', this.defaultProperties.outlinecolor);    
+                this.draw.setFeatureProperty(f.id, 'color', this.defaultProperties.color);
+                this.draw.setFeatureProperty(f.id, 'opacity', this.defaultProperties.opacity);
+                this.draw.setFeatureProperty(f.id, 'size', this.defaultProperties.size);
+                this.draw.setFeatureProperty(f.id, 'outlinecolor', this.defaultProperties.outlinecolor);    
             });
 
             this.map.getCanvas().style.cursor = ''; // Reset cursor
         });
 
         this.map.on('draw.update', (e) => {
-            e.features.forEach(feature => {
-                const type = feature.geometry.type.toLowerCase() + 's';
-                updateFeature(type, feature.id);
+            e.features.forEach(f => {
+                const type = f.geometry.type.toLowerCase() + 's';
+                updateFeature(type, f);
             });
         });
+
         this.map.on('draw.delete', (e) => {
-            e.features.forEach(feature => {
-                const type = feature.geometry.type.toLowerCase() + 's';
-                removeFeature(type, feature.id);
+            e.features.forEach(f => {
+                const type = f.geometry.type.toLowerCase() + 's';
+                removeFeature(type, f.id);
             });
         });
 
@@ -120,7 +121,7 @@ class DrawControl {
         this.map.on('click', (e) => {
             const features = this.draw.getSelected().features;
             if (features.length > 0) {
-                createFeatureAttributesPanel(features, this.map, this.defaultProperties);
+                createFeatureAttributesPanel(features, this);
             } else {
                 let panel = document.querySelector('.feature-attributes-panel');
                 if (panel) {
@@ -157,7 +158,68 @@ class DrawControl {
         this.draw.changeMode('simple_select');
         this.map.getCanvas().style.cursor = '';
     }
+
+    updateFeaturesProperty(features, property, value) {
+        features.forEach(feature => {
+            this.draw.setFeatureProperty(feature.id, property, value);
+
+            const feat = this.draw.get(feature.id);
+            this.draw.add(feat);
+        });
+    }
+
+    updateFeatures(features) {
+        features.forEach(feature => {
+            Object.keys(feature.properties).forEach(key => {
+                this.draw.setFeatureProperty(feature.id, key, feature.properties[key]);
+            });
+            const feat = this.draw.get(feature.id);
+            this.draw.add(feat);
+        });
+    }
+
+    saveFeatures(features, initialPropertiesMap) {
+        console.log(initialPropertiesMap)
+        features.forEach(f => {
+            console.log(f)
+            if (hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
+                const type = feature.geometry.type.toLowerCase() + 's';
+                updateFeature(type, f);            
+            }
+        });
+    }
+
+    discartChangeFeatures(features, initialPropertiesMap) {
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+        });
+        this.updateFeatures(features);
+    }
+
+    deleteFeatures(features) {
+        features.forEach(f => {
+            this.draw.delete(f.id);
+            const type = f.geometry.type.toLowerCase() + 's';
+            removeFeature(type, f.id);
+        });
+    }
+
+    setDefaultProperties(properties, commonAttributes) {
+        commonAttributes.forEach(attr => {
+            this.defaultProperties[attr] = properties[attr];
+        });
+    }
 };
+
+function hasFeatureChanged(feature, initialProperties) {
+    console.log(feature, initialProperties);
+    return (
+        feature.properties.color !== initialProperties.color ||
+        feature.properties.opacity !== initialProperties.opacity ||
+        feature.properties.size !== initialProperties.size ||
+        feature.properties.outlinecolor !== initialProperties.outlinecolor
+    );
+}
 
 export default DrawControl;
 
