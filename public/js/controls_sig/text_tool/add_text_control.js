@@ -15,7 +15,8 @@ class AddTextControl {
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.isActive = false;
-        this.selectedFeatures = new Set(); // Set to store selected features
+        this.selectedFeatures = new Set();
+        this.isTextClick = false;
     }
 
     onAdd(map) {
@@ -31,12 +32,12 @@ class AddTextControl {
 
         this.container.appendChild(button);
 
-        this.map.on('click', this.handleMapClick.bind(this));
         this.map.on('click', 'text-layer', this.handleTextClick.bind(this));
+        this.map.on('click', this.handleMapClick.bind(this));
         this.map.on('mouseenter', 'text-layer', this.handleMouseEnter.bind(this));
         this.map.on('mouseleave', 'text-layer', this.handleMouseLeave.bind(this));
         this.map.on('mousedown', 'text-layer', this.handleMouseDown.bind(this));
-        this.map.on('move', this.updateSelectionBoxes.bind(this)); // Atualizar as caixas de seleção ao mudar o zoom
+        this.map.on('move', this.updateSelectionBoxes.bind(this));
 
         return this.container;
     }
@@ -63,6 +64,11 @@ class AddTextControl {
     }
 
     handleMapClick(e) {
+        if (this.isTextClick) {
+            this.isTextClick = false;
+            return;
+        }
+
         if (this.isActive) {
             this.addTextFeature(e.lngLat, 'Texto');
             this.toolManager.deactivateCurrentTool();
@@ -85,7 +91,7 @@ class AddTextControl {
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
-            properties: { ...defaultTextProperties, text, selected: false }, // Add selected property
+            properties: { ...defaultTextProperties, text },
             geometry: {
                 type: 'Point',
                 coordinates: [lngLat.lng, lngLat.lat]
@@ -99,6 +105,7 @@ class AddTextControl {
     }
 
     handleTextClick(e) {
+        this.isTextClick = true;
         const featureId = e.features[0].id;
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         const feature = data.features.find(f => f.id == featureId);
@@ -108,12 +115,10 @@ class AddTextControl {
                 this.deselectAllFeatures();
             }
 
-            // Toggle selection state
-            feature.properties.selected = !feature.properties.selected;
-            if (feature.properties.selected) {
-                this.selectedFeatures.add(feature);
-            } else {
+            if (this.selectedFeatures.has(feature)) {
                 this.selectedFeatures.delete(feature);
+            } else {
+                this.selectedFeatures.add(feature);
             }
 
             this.map.getSource('texts').setData(data);
@@ -123,10 +128,7 @@ class AddTextControl {
     }
 
     handleMouseEnter(e) {
-        const feature = e.features[0];
-        if (feature.properties.selected) {
-            this.map.getCanvas().style.cursor = 'move';
-        }
+        this.map.getCanvas().style.cursor = 'pointer';
     }
 
     handleMouseLeave(e) {
@@ -137,19 +139,17 @@ class AddTextControl {
         e.preventDefault();
         const feature = e.features[0];
     
-        // Only allow dragging if the feature is selected
-        if (!feature.properties.selected) {
+        if (!this.selectedFeatures.has(feature)) {
             return;
         }
     
         this.map.getCanvas().style.cursor = 'grabbing';
     
-        let isDragging = false;
         const startCoords = e.lngLat;
         const scale = this.map.getZoom();
         const tolerance = 2 / Math.pow(2, scale);
     
-        const initialCoordinates = [...feature.geometry.coordinates]; // Correctly copy the initial coordinates
+        const initialCoordinates = [...feature.geometry.coordinates];
     
         const offsets = Array.from(this.selectedFeatures).map(f => ({
             feature: f,
@@ -181,7 +181,6 @@ class AddTextControl {
         };
     
         const onMove = (e) => {
-            isDragging = true;
             const newCoords = e.lngLat;
             requestAnimationFrame(() => updatePositions(newCoords));
         };
@@ -207,15 +206,12 @@ class AddTextControl {
         this.map.once('mouseup', onUp);
     }
     
-    
     updateFeaturesProperty(features, property, value) {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         features.forEach(feature => {
             const f = data.features.find(f => f.id === feature.id);
             if (f) {
                 f.properties[property] = value;
-                // Atualize a feature também em this.selectedFeatures
-                feature.properties[property] = value;
             }
         });
         this.map.getSource('texts').setData(data);
@@ -256,10 +252,6 @@ class AddTextControl {
     }
 
     deselectAllFeatures() {
-        const selectedFeaturesArray = Array.from(this.selectedFeatures);
-        selectedFeaturesArray.forEach(feature => {
-            feature.properties.selected = false;
-        });
         this.selectedFeatures.clear();
         this.updateSelectionBoxes();
     }
@@ -269,10 +261,10 @@ class AddTextControl {
     }
 
     updateSelectionBoxes() {
-        if(this.selectedFeatures.size > 0){
+        if (this.selectedFeatures.size > 0) {
             const features = Array.from(this.selectedFeatures).map(feature => {
                 const coordinates = feature.geometry.coordinates;
-                const { width, height } = measureTextSize(feature.properties.text, feature.properties.size+15, 'Arial'); // Ajuste a família de fontes conforme necessário
+                const { width, height } = measureTextSize(feature.properties.text, feature.properties.size, 'Arial');
                 const polygon = createSelectionBox(this.map, coordinates, width, height, feature.properties.rotation);
                 return {
                     type: 'Feature',
@@ -280,12 +272,10 @@ class AddTextControl {
                     properties: {}
                 };
             });
-    
             const data = {
                 type: 'FeatureCollection',
                 features: features
             };
-    
             this.map.getSource('selection-boxes').setData(data);
         }
         else{
@@ -300,18 +290,19 @@ class AddTextControl {
 }
 
 function measureTextSize(text, fontSize, fontFamily) {
-    const canvas = document.createElement('canvas');
+    let adjustedFontSize = fontSize + 15; // 15 é um ajuste manual da caixa
+    const canvas = document.createElement('canvas'); 
     const context = canvas.getContext('2d');
-    context.font = `${fontSize}px ${fontFamily}`;
+    context.font = `${adjustedFontSize}px ${fontFamily}`;
     const lines = text.split('\n');
     const width = Math.max(...lines.map(line => context.measureText(line).width));
-    const height = (fontSize - 8) * lines.length; // Calcular a altura com base no número de linhas
+    const height = (adjustedFontSize - 8) * lines.length; //8 é um ajuste manual da caixa
     return { width, height };
 }
 
 
 function createSelectionBox(map, coordinates, width, height, rotate) {
-    const radians = rotate * (Math.PI / 180); // Converter graus para radianos
+    const radians = rotate * (Math.PI / 180);
 
     const point = map.project(coordinates);
     const points = [

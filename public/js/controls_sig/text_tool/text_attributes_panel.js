@@ -7,7 +7,7 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
         return
     }
 
-    const feature = selectedFeatures[0]; // Usar a primeira feição selecionada
+    const feature = selectedFeatures[0]; // Usar a primeira feição selecionada para popular o formulário.
     const initialProperties = { ...feature.properties };
 
     panel = document.createElement('div');
@@ -16,10 +16,10 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
     if (selectedFeatures.length === 1) {
         const textLabel = document.createElement('label');
         textLabel.textContent = 'Texto:';
-        const textInput = document.createElement('textarea'); // Alterado para textarea
+        const textInput = document.createElement('textarea');
         textInput.value = feature.properties.text;
-        textInput.rows = 3; // Define o número de linhas visíveis
-        textInput.cols = 50; // Define o número de colunas visíveis
+        textInput.rows = 3;
+        textInput.cols = 50;
         textInput.oninput = (e) => {
             textControl.updateFeaturesProperty(selectedFeatures, 'text', e.target.value);
             updateJustifyButtons(e.target.value);
@@ -56,7 +56,6 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
         textControl.updateFeaturesProperty(selectedFeatures, 'backgroundColor', e.target.value);
     };
 
-    // Adiciona controle de rotação
     const rotateLabel = document.createElement('label');
     rotateLabel.textContent = 'Rotação:';
     const rotateInput = document.createElement('input');
@@ -74,21 +73,21 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
     justifyContainer.style.justifyContent = 'space-between';
 
     const justifyLeftButton = document.createElement('button');
-    justifyLeftButton.innerHTML = 'L'; // Substitua por um ícone apropriado
+    justifyLeftButton.innerHTML = 'L';
     justifyLeftButton.title = 'Alinhar à esquerda';
     justifyLeftButton.onclick = () => {
         textControl.updateFeaturesProperty(selectedFeatures, 'justify', 'left');
     };
 
     const justifyCenterButton = document.createElement('button');
-    justifyCenterButton.innerHTML = 'C'; // Substitua por um ícone apropriado
+    justifyCenterButton.innerHTML = 'C';
     justifyCenterButton.title = 'Centralizar';
     justifyCenterButton.onclick = () => {
         textControl.updateFeaturesProperty(selectedFeatures, 'justify', 'center');
     };
 
     const justifyRightButton = document.createElement('button');
-    justifyRightButton.innerHTML = 'R'; // Substitua por um ícone apropriado
+    justifyRightButton.innerHTML = 'R';
     justifyRightButton.title = 'Alinhar à direita';
     justifyRightButton.onclick = () => {
         textControl.updateFeaturesProperty(selectedFeatures, 'justify', 'right');
@@ -106,7 +105,6 @@ export function createTextAttributesPanel(selectedFeatures, textControl) {
         justifyRightButton.disabled = !enabled;
     };
 
-    // Inicializa os botões de justificativa com o estado correto
     updateJustifyButtons(feature.properties.text);
 
     const saveButton = document.createElement('button');
