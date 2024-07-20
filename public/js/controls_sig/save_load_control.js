@@ -43,7 +43,7 @@ class SaveLoadControl {
 
                     // Atualize o mapa para refletir os dados carregados
                     const baseLayer = getCurrentBaseLayer();
-                    this.baseLayerControl.switchLayer(baseLayer);
+                    this.baseLayerControl.switchLayer(baseLayer);     
 
                     // Atualize a lista de mapas no mapControl
                     this.mapControl.updateMapList();
@@ -66,7 +66,6 @@ class SaveLoadControl {
     onRemove() {
         this.container.parentNode.removeChild(this.container);
         this.map = undefined;
-        $('input[name="base-layer"]').off('change', this.changeButtonColor);
     }
 }
 

@@ -21,5 +21,3 @@ $(".bar-center-buttons a").click(function () {
 $('#mini-map-street-view').css({
     display: 'none'
 });
-
-
