@@ -179,9 +179,7 @@ class DrawControl {
     }
 
     saveFeatures(features, initialPropertiesMap) {
-        console.log(initialPropertiesMap)
         features.forEach(f => {
-            console.log(f)
             if (hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
                 const type = feature.geometry.type.toLowerCase() + 's';
                 updateFeature(type, f);            
@@ -212,7 +210,6 @@ class DrawControl {
 };
 
 function hasFeatureChanged(feature, initialProperties) {
-    console.log(feature, initialProperties);
     return (
         feature.properties.color !== initialProperties.color ||
         feature.properties.opacity !== initialProperties.opacity ||
