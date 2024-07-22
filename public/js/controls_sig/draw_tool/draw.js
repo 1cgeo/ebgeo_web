@@ -1,10 +1,8 @@
 import 'https://unpkg.com/@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.js';
 import drawStyles from './draw_styles.js';
-import { createFeatureAttributesPanel } from './feature_attributes_panel.js';
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 
 class DrawControl {
-
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.isActive = false;
@@ -12,189 +10,205 @@ class DrawControl {
             color: '#fbb03b',
             opacity: 0.5,
             size: 3,
-            outlinecolor: '#fbb03b'
+            outlinecolor: '#fbb03b',
+            measure: false
         };
+        this.controlPosition = 'top-right';
     }
 
-    onAdd(map) {
-        this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl draw-control';
+    onAdd = (map) => {
+        try {
+            this.map = map;
+            this.container = document.createElement('div');
+            this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl draw-control';
 
-        this.draw = new MapboxDraw({
-            displayControlsDefault: false,
-            userProperties: true,
-            controls: {
-                polygon: true,
-                line_string: true,
-                point: true,
-                trash: false
-            },
-            styles: drawStyles
-        });
-
-        this.map.addControl(this.draw, 'top-right');
-
-        this.map.on('draw.create', (e) => {
-            e.features.forEach(f => {
-                Object.keys(this.defaultProperties).forEach(key => {
-                    if (!f.properties.hasOwnProperty(key)) {
-                        f.properties[key] = this.defaultProperties[key];
-                    }
-                });
-                const type = f.geometry.type.toLowerCase() + 's';
-                addFeature(type, f);
-    
-                // Define as propriedades padrão na feição
-                this.draw.setFeatureProperty(f.id, 'color', this.defaultProperties.color);
-                this.draw.setFeatureProperty(f.id, 'opacity', this.defaultProperties.opacity);
-                this.draw.setFeatureProperty(f.id, 'size', this.defaultProperties.size);
-                this.draw.setFeatureProperty(f.id, 'outlinecolor', this.defaultProperties.outlinecolor);    
+            this.draw = new MapboxDraw({
+                displayControlsDefault: false,
+                userProperties: true,
+                controls: {
+                    polygon: true,
+                    line_string: true,
+                    point: true,
+                    trash: false
+                },
+                styles: drawStyles
             });
 
-            this.map.getCanvas().style.cursor = ''; // Reset cursor
-        });
+            this.map.addControl(this.draw, this.controlPosition);
 
-        this.map.on('draw.update', (e) => {
-            e.features.forEach(f => {
-                const type = f.geometry.type.toLowerCase() + 's';
-                updateFeature(type, f);
-            });
-        });
+            this.setupEventListeners();
 
-        this.map.on('draw.delete', (e) => {
-            e.features.forEach(f => {
-                const type = f.geometry.type.toLowerCase() + 's';
-                removeFeature(type, f.id);
-            });
-        });
-
-        this.map.on('draw.modechange', (e) => {
-            const mode = e.mode;
-            if (mode === 'draw_polygon' || mode === 'draw_line_string' || mode === 'draw_point') {
-                this.toolManager.setActiveTool(this);
-                this.map.getCanvas().style.cursor = 'crosshair';
-            } else {
-                this.map.getCanvas().style.cursor = '';
-            }
-        });
-
-        const pixelsToDegrees = (pixels, latitude, zoom) => {
-            const earthCircumference = 40075017; // Circunferência da Terra em metros
-            const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
-            const degreesPerMeter = 360 / earthCircumference;
-            return pixels * metersPerPixel * degreesPerMeter;
+            return this.container;
+        } catch (error) {
+            console.error('Error adding DrawControl:', error);
+            throw error;
         }
+    }
 
-        const calculateBuffer = (feature, zoom, latitude, pixelBuffer) => {
-            const bufferSize = pixelsToDegrees(pixelBuffer, latitude, zoom);
-            const buffered = turf.buffer(feature, bufferSize, { units: 'degrees' });
-            return buffered;
-          }
-
-        const updateSelectedBBoxSource = () => {
-            const selectedFeatures = this.draw.getSelected().features;
-            if (selectedFeatures.length) {
-                const zoom = map.getZoom();
-                const center = map.getCenter();
-                const latitude = center.lat;
-                const pixelBuffer = 10;
-              
-                const boundsFeatures = selectedFeatures.map(feature => calculateBuffer(feature, zoom, latitude, pixelBuffer));
-              
-                this.map.getSource('highlighted_bbox').setData({
-                    type: 'FeatureCollection',
-                    features: boundsFeatures
-                });
-            
-            } else {
-                this.map.getSource('highlighted_bbox').setData({
-                  type: 'FeatureCollection',
-                  features: []
-                });
-            }
+    onRemove = () => {
+        try {
+            this.map.removeControl(this.draw);
+            this.removeEventListeners();
+            this.map = undefined;
+        } catch (error) {
+            console.error('Error removing DrawControl:', error);
+            throw error;
         }
+    }
 
-        this.map.on('zoomend', updateSelectedBBoxSource);
-        this.map.on('draw.render', updateSelectedBBoxSource);
+    setupEventListeners = () => {
+        this.map.on('draw.create', this.handleDrawCreate);
+        this.map.on('draw.update', this.handleDrawUpdate);
+        this.map.on('draw.delete', this.handleDrawDelete);
+        this.map.on('draw.modechange', this.handleDrawModeChange);
+    }
 
-        this.map.on('click', (e) => {
-            const features = this.draw.getSelected().features;
-            if (features.length > 0) {
-                createFeatureAttributesPanel(features, this);
-            } else {
-                let panel = document.querySelector('.feature-attributes-panel');
-                if (panel) {
-                    const saveButton = panel.querySelector('button[id="SalvarFeat"]');
-                    if (saveButton) {
-                        saveButton.click();
-                    }
-                    panel.remove();
-                }
-            }
+    removeEventListeners = () => {
+        this.map.off('draw.create', this.handleDrawCreate);
+        this.map.off('draw.update', this.handleDrawUpdate);
+        this.map.off('draw.delete', this.handleDrawDelete);
+        this.map.off('draw.modechange', this.handleDrawModeChange);
+    }
+
+    handleDrawCreate = (e) => {
+        e.features.forEach(f => {
+            const properties = { ...this.defaultProperties, ...f.properties };
+            f.properties = properties
+            Object.keys(properties).forEach(key => {
+                this.draw.setFeatureProperty(f.id, key, properties[key]);
+            });
+            const type = f.geometry.type.toLowerCase() + 's';
+            addFeature(type, f);
+            this.updateFeatureMeasurement(f);
         });
 
-        return this.container;
+        this.toolManager.deactivateCurrentTool();
     }
 
-    onRemove() {
-        this.map.removeControl(this.draw);
-        this.map.off('draw.create');
-        this.map.off('draw.update');
-        this.map.off('draw.delete');
-        this.map.off('draw.modechange');
-        this.map.off('move');
-        this.map.off('draw.render');
-        this.map = undefined;
+    handleDrawUpdate = (e) => {
+        e.features.forEach(f => {
+            const type = f.geometry.type.toLowerCase() + 's';
+            updateFeature(type, f);
+            this.updateFeatureMeasurement(f);
+        });
     }
 
-    activate() {
+    updateFeatureMeasurement = (feature) => {
+        this.removeFeatureMeasurement(feature.id);
+
+        if (feature.properties.measure) {
+            if (feature.geometry.type === 'LineString') {
+                const line = turf.lineString(feature.geometry.coordinates);
+                const lengthInMeters = turf.length(line, { units: 'meters' });
+                const lengthFormatted = lengthInMeters >= 1000 
+                    ? `${(lengthInMeters / 1000).toFixed(2)} km`
+                    : `${lengthInMeters.toFixed(2)} m`;
+                const midpoint = turf.midpoint(line.geometry.coordinates[0], line.geometry.coordinates[line.geometry.coordinates.length - 1]);
+                this.displayMeasurement(midpoint.geometry.coordinates, lengthFormatted, feature.id);
+            } else if (feature.geometry.type === 'Polygon') {
+                const polygon = turf.polygon(feature.geometry.coordinates);
+                const areaInSquareMeters = turf.area(polygon);
+                const areaFormatted = areaInSquareMeters >= 100000 
+                    ? `${(areaInSquareMeters / 1000000).toFixed(2)} km²`
+                    : `${areaInSquareMeters.toFixed(2)} m²`;
+                const centroid = turf.centroid(polygon);
+                this.displayMeasurement(centroid.geometry.coordinates, areaFormatted, feature.id);
+            }
+        }
+    }
+
+    removeFeatureMeasurement = (featureId) => {
+        const measurementLabel = document.querySelector(`.measurement-label[data-feature-id="${featureId}"]`);
+        if (measurementLabel) {
+            measurementLabel.remove();
+        }
+    }
+
+    displayMeasurement = (coordinates, measurement, featureId) => {
+        const markerElement = this.createMeasurementLabel(measurement, featureId);
+        new maplibregl.Marker({ element: markerElement })
+            .setLngLat(coordinates)
+            .addTo(this.map);
+    }
+
+    createMeasurementLabel = (measurement, featureId) => {
+        const label = document.createElement('div');
+        label.className = 'measurement-label';
+        label.innerText = measurement;
+        label.dataset.featureId = featureId;
+        return label;
+    }
+
+    handleDrawDelete = (e) => {
+        e.features.forEach(f => {
+            this.removeFeatureMeasurement(f.id);
+            const type = f.geometry.type.toLowerCase() + 's';
+            removeFeature(type, f.id);
+        });
+    }
+
+    handleDrawModeChange = (e) => {
+        const mode = e.mode;
+        if (['draw_polygon', 'draw_line_string', 'draw_point'].includes(mode)) {
+            this.toolManager.setActiveTool(this);
+        }
+    }
+
+    activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
     }
 
-    deactivate() {
+    deactivate = () => {
         this.isActive = false;
-        this.draw.changeMode('simple_select');
         this.map.getCanvas().style.cursor = '';
     }
 
-    updateFeaturesProperty(features, property, value) {
-        features.forEach(feature => {
-            this.draw.setFeatureProperty(feature.id, property, value);
+    handleMapClick = () => {
+        //nothing to do here
+    }
 
+    updateFeaturesProperty = (features, property, value) => {
+        features.forEach(feature => {
+            feature.properties[property] = value;
+            this.draw.setFeatureProperty(feature.id, property, value);
             const feat = this.draw.get(feature.id);
             this.draw.add(feat);
+            this.updateFeatureMeasurement(feature);
         });
     }
 
-    updateFeatures(features) {
+    updateFeatures = (features, save = false) => {
         features.forEach(feature => {
             Object.keys(feature.properties).forEach(key => {
                 this.draw.setFeatureProperty(feature.id, key, feature.properties[key]);
             });
             const feat = this.draw.get(feature.id);
             this.draw.add(feat);
-        });
-    }
-
-    saveFeatures(features, initialPropertiesMap) {
-        features.forEach(f => {
-            if (hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                const type = feature.geometry.type.toLowerCase() + 's';
-                updateFeature(type, f);            
+            const type = feat.geometry.type.toLowerCase() + 's';
+            if(save){
+                updateFeature(type, feat);
             }
         });
     }
 
-    discartChangeFeatures(features, initialPropertiesMap) {
+    saveFeatures = (features, initialPropertiesMap) => {
+        features.forEach(f => {
+            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
+                const type = f.geometry.type.toLowerCase() + 's';
+                updateFeature(type, f);
+            }
+        });
+    }
+
+    discardChangeFeatures = (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
         this.updateFeatures(features);
     }
 
-    deleteFeatures(features) {
+    deleteFeatures = (features) => {
         features.forEach(f => {
             this.draw.delete(f.id);
             const type = f.geometry.type.toLowerCase() + 's';
@@ -202,21 +216,19 @@ class DrawControl {
         });
     }
 
-    setDefaultProperties(properties, commonAttributes) {
+    setDefaultProperties = (properties, commonAttributes) => {
         commonAttributes.forEach(attr => {
             this.defaultProperties[attr] = properties[attr];
         });
     }
+
+    hasFeatureChanged = (feature, initialProperties) => {
+        return (
+            feature.properties.color !== initialProperties.color ||
+            feature.properties.opacity !== initialProperties.opacity ||
+            feature.properties.size !== initialProperties.size ||
+            feature.properties.outlinecolor !== initialProperties.outlinecolor
+        );
+    }
 };
-
-function hasFeatureChanged(feature, initialProperties) {
-    return (
-        feature.properties.color !== initialProperties.color ||
-        feature.properties.opacity !== initialProperties.opacity ||
-        feature.properties.size !== initialProperties.size ||
-        feature.properties.outlinecolor !== initialProperties.outlinecolor
-    );
-}
-
 export default DrawControl;
-
