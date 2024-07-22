@@ -1,13 +1,16 @@
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 class AddVisibilityControl {
     static DEFAULT_PROPERTIES = {
-        opacity: 1
+        opacity: 0.5,
+        color: '#3f4fb5',
+        source: 'visibility'
     };
 
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.toolManager.textControl = this;
         this.isActive = false;
+        this.startPoint = null;
     }
 
     onAdd = (map) => {
@@ -57,13 +60,35 @@ class AddVisibilityControl {
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
+        this.startPoint = null;
+        this.map.getSource('temp-polygon').setData({
+            type: 'FeatureCollection',
+            features: []
+        });
+        this.map.off('mousemove', this.handleMouseMove);
     }
 
     handleMapClick = (e) => {
-        if (this.isActive) {
-            this.addTextFeature(e.lngLat, 'Texto');
-            this.toolManager.deactivateCurrentTool();
+        if (!this.isActive) return;
+
+        const { lng, lat } = e.lngLat;
+
+        if (!this.startPoint) {
+            this.startPoint = [lng, lat];
+            this.map.on('mousemove', this.handleMouseMove);
+        } else {
+            const endPoint = [lng, lat];
+            this.addPolygonFeature(this.calculateSectorCoordinates(this.startPoint, endPoint));
+            this.deactivate();
         }
+    }
+
+    handleMouseMove = (e) => {
+        if (!this.isActive || !this.startPoint) return;
+
+        const { lng, lat } = e.lngLat;
+        const endPoint = [lng, lat];
+        this.updateTempPolygon(this.calculateSectorCoordinates(this.startPoint, endPoint));
     }
 
     addTextFeature = (lngLat, text) => {
@@ -75,16 +100,61 @@ class AddVisibilityControl {
         this.map.getSource('visibility').setData(data);
     }
 
-    createTextFeature = (lngLat, text) => {
+    updateTempPolygon = (coordinates) => {
+        const data = {
+            type: 'FeatureCollection',
+            features: [{
+                type: 'Feature',
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [coordinates]
+                }
+            }]
+        };
+
+        this.map.getSource('temp-polygon').setData(data);
+    }
+
+    addPolygonFeature = (coordinates) => {
+        const feature = this.createPolygonFeature(coordinates);
+        addFeature('visibility', feature);
+
+        const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
+        data.features.push(feature);
+        this.map.getSource('visibility').setData(data);
+    }
+
+    createPolygonFeature = (coordinates) => {
         return {
             type: 'Feature',
             id: Date.now().toString(),
             properties: { ...AddVisibilityControl.DEFAULT_PROPERTIES },
             geometry: {
-                type: 'LineString',
-                coordinates: [lngLat.lng, lngLat.lat]
+                type: 'Polygon',
+                coordinates: [coordinates]
             }
         };
+    }
+
+    calculateSectorCoordinates = (center, edgePoint) => {
+        const [cx, cy] = center;
+        const radius = Math.sqrt((edgePoint[0] - cx) ** 2 + (edgePoint[1] - cy) ** 2);
+        const angleStep = Math.PI / 180;
+        const sectorAngle = Math.PI / 4;
+        const startAngle = Math.atan2(edgePoint[1] - cy, edgePoint[0] - cx) - sectorAngle / 2;
+
+        const coordinates = [];
+        coordinates.push(center);
+        for (let i = 0; i <= 45; i++) {
+            const angle = startAngle + angleStep * i;
+            coordinates.push([
+                cx + radius * Math.cos(angle),
+                cy + radius * Math.sin(angle)
+            ]);
+        }
+        coordinates.push(center);
+
+        return coordinates;
     }
 
     handleMouseEnter = (e) => {
@@ -98,7 +168,7 @@ class AddVisibilityControl {
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         features.forEach(feature => {
-            const f = data.features.find(f => f.id === feature.id);
+            const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
@@ -107,15 +177,23 @@ class AddVisibilityControl {
         this.map.getSource('visibility').setData(data);
     }
 
-    updateFeatures = (features, save = false) => {
+    updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         features.forEach(feature => {
-            const featureIndex = data.features.findIndex(f => f.id === feature.id);
+            const featureIndex = data.features.findIndex(f => f.id == feature.id);
             if (featureIndex !== -1) {
-                data.features[featureIndex] = feature;
-            }
-            if(save){
-                updateFeature('visibility', feature);
+                if (onlyUpdateProperties) {
+                    // Only update properties of the existing feature
+                    Object.assign(data.features[featureIndex].properties, feature.properties);
+                } else {
+                    // Replace the entire feature
+                    data.features[featureIndex] = feature;
+                }
+    
+                if (save) {
+                    const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
+                    updateFeature('visibility', featureToUpdate);
+                }
             }
         });
         this.map.getSource('visibility').setData(data);
@@ -129,15 +207,15 @@ class AddVisibilityControl {
         });
     }
 
-    discartChangeFeatures = (features, initialPropertiesMap) => {
+    discardChangeFeatures = (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features);
+        this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = (features) => {
-        if (features.size === 0) {
+        if (features.length === 0) {
             return;
         }
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));

@@ -30,7 +30,7 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        visibilityControl.discartChangeFeatures(selectedFeatures, initialPropertiesMap);
+        visibilityControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
         selectionManager.updateUI();
     };
