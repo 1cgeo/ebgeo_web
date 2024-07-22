@@ -33,6 +33,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
+    saveButton.type = 'submit';
     saveButton.onclick = () => {
         imageControl.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();

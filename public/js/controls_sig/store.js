@@ -8,6 +8,8 @@ const store = {
                 points: [],
                 texts: [],
                 images: [],
+                los: [],
+                visibility: []
             },
             undoStack: [],
             redoStack: [],
@@ -75,6 +77,8 @@ export const addMap = (mapName, mapData = null) => {
             points: [],
             texts: [],
             images: [],
+            los: [],
+            visibility: []
         },
         undoStack: [],
         redoStack: [],

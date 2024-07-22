@@ -72,6 +72,7 @@ class DrawControl {
     handleDrawCreate = (e) => {
         e.features.forEach(f => {
             const properties = { ...this.defaultProperties, ...f.properties };
+            f.properties = properties
             Object.keys(properties).forEach(key => {
                 this.draw.setFeatureProperty(f.id, key, properties[key]);
             });

@@ -92,6 +92,56 @@ map.on('styledata', () => {
         };
     });
 
+    if (!map.getSource('los')) {
+        map.addSource('los', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.los
+            }
+        });
+    }
+
+    if (!map.getLayer('los-layer')) {
+        map.addLayer({
+            id: 'los-layer',
+            type: 'line',
+            source: 'los',
+            layout: {
+                'line-join': 'round',
+                'line-cap': 'round'
+            },
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-opacity': ['get', 'opacity'],
+                'line-width': 2
+            }
+        });
+    }
+
+    if (!map.getSource('visibility')) {
+        map.addSource('visibility', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.visibility
+            }
+        });
+    }
+
+    if (!map.getLayer('visibility-layer')) {
+        map.addLayer({
+            id: 'visibility-layer',
+            type: 'fill',
+            source: 'visibility',
+            layout: {},
+            paint: {
+                'fill-color': ['get', 'color'],
+                'fill-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
     if (!map.getSource('selection-boxes')) {
         map.addSource('selection-boxes', {
             type: 'geojson',

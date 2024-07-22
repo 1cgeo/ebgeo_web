@@ -1,6 +1,8 @@
 import { addImageAttributesToPanel } from '../image_tool/image_attributes_panel.js';
 import { addTextAttributesToPanel } from '../text_tool/text_attributes_panel.js';
 import { addFeatureAttributesToPanel } from '../draw_tool/feature_attributes_panel.js';
+import { addLOSAttributesToPanel } from '../los_tool/los_attributes_panel.js';
+import { addVisibilityAttributesToPanel } from '../visibility_tool/visibility_attributes_panel.js';
 
 class UIManager {
     constructor(map, selectionManager) {
@@ -75,7 +77,9 @@ class UIManager {
         const allSelectedFeatures = [
             ...Array.from(this.selectionManager.selectedTextFeatures),
             ...Array.from(this.selectionManager.selectedImageFeatures),
-            ...Array.from(this.selectionManager.selectedFeatures)
+            ...Array.from(this.selectionManager.selectedFeatures),
+            ...Array.from(this.selectionManager.selectedLOSFeatures),
+            ...Array.from(this.selectionManager.selectedVisibilityFeatures)
         ];
 
         if (allSelectedFeatures.length > 0) {
@@ -107,6 +111,10 @@ class UIManager {
                 this.addImageAttributes(panel, selectedFeatures);
             } else if (featureType === 'draw') {
                 this.addDrawAttributes(panel, selectedFeatures);
+            } else if (featureType === 'los') {
+                this.addLOSAttributes(panel, selectedFeatures);
+            } else if (featureType === 'visibility') {
+                this.addVisibilityAttributes(panel, selectedFeatures);
             }
         }
 
@@ -116,6 +124,20 @@ class UIManager {
 
         panel.appendChild(deleteButton);
         document.body.appendChild(panel);
+    }
+
+    saveChangesAndClosePanel = () => {
+        const panel = document.querySelector('.unified-attributes-panel');
+        if (panel) {
+            // Trigger save action for the current panel
+            const saveButton = panel.querySelector('button[type="submit"]');
+            if (saveButton) {
+                saveButton.click();
+            }
+            
+            // Close the panel
+            panel.remove();
+        }
     }
 
     addTextAttributes = (panel, features) => {
@@ -139,11 +161,29 @@ class UIManager {
         panel.appendChild(drawPanel);
     }
 
+    addLOSAttributes = (panel, features) => {
+        const losPanel = document.createElement('div');
+        losPanel.className = 'los-attributes-section';
+        addLOSAttributesToPanel(losPanel, features, this.selectionManager.losControl, this.selectionManager, this);
+        panel.appendChild(losPanel);
+    }
+
+    addVisibilityAttributes = (panel, features) => {
+        const visibilityPanel = document.createElement('div');
+        visibilityPanel.className = 'visibility-attributes-section';
+        addVisibilityAttributesToPanel(visibilityPanel, features, this.selectionManager.visibilityControl, this.selectionManager, this);
+        panel.appendChild(visibilityPanel);
+    }
+
     getFeatureType = (feature) => {
         if (this.selectionManager.selectedTextFeatures.has(feature)) {
             return 'text';
         } else if (this.selectionManager.selectedImageFeatures.has(feature)) {
             return 'image';
+        } else if (this.selectionManager.selectedLOSFeatures.has(feature)) {
+            return 'los';
+        } else if (this.selectionManager.selectedVisibilityFeatures.has(feature)) {
+            return 'visibility';
         } else {
             return 'draw';
         }

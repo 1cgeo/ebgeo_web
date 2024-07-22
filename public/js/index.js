@@ -4,6 +4,8 @@ import DrawControl from './controls_sig/draw_tool/draw.js';
 import SaveLoadControl from './controls_sig/save_load_control.js';
 import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
+import AddLOSControl from './controls_sig/los_tool/add_los_control.js';
+import AddVisibilityControl from './controls_sig/visibility_tool/add_visibility_control.js';
 import ToolManager from './controls_sig/tool_manager/tool_manager.js';
 import SelectionManager from './controls_sig/tool_manager/selection_manager.js';
 import UIManager from './controls_sig/tool_manager/ui_manager.js';
@@ -41,7 +43,13 @@ map.addControl(textControl, 'top-right');
 const imageControl = new AddImageControl(toolManager);
 map.addControl(imageControl, 'top-right');
 
-const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl);
+const losControl = new AddLOSControl(toolManager);
+map.addControl(losControl, 'top-right');
+
+const visibilityControl = new AddVisibilityControl(toolManager);
+map.addControl(visibilityControl, 'top-right');
+
+const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
 const uiManager = new UIManager(map, selectionManager);
 selectionManager.setUIManager(uiManager);
 

@@ -88,6 +88,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Save';
+    saveButton.type = 'submit';
     saveButton.onclick = () => {
         textControl.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
