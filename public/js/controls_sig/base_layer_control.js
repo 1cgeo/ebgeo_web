@@ -1,6 +1,4 @@
 import { setBaseLayer } from './store.js';
-import { getCurrentMapFeatures } from './store.js';
-
 class BaseLayerControl {
     constructor() {
         this.map = null;
