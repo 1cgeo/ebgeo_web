@@ -72,6 +72,9 @@ map.on('styledata', () => {
             id: 'image-layer',
             type: 'symbol',
             source: 'images',
+            paint: {
+                'icon-opacity': ['get', 'opacity']
+            },
             layout: {
                 'icon-image': ['get', 'imageId'],
                 'icon-size': ['get', 'size'],
