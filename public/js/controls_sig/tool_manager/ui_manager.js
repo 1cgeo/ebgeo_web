@@ -24,8 +24,10 @@ class UIManager {
         const textFeatures = this.createSelectionBoxesForTextFeatures();
         const imageFeatures = this.createSelectionBoxesForImageFeatures();
         const drawFeatures = this.createSelectionBoxesForDrawFeatures();
+        const losFeatures = this.createSelectionBoxesForLOSFeatures();
+        const visibilityFeatures = this.createSelectionBoxesForVisibilityFeatures();
 
-        features.push(...textFeatures, ...imageFeatures, ...drawFeatures);
+        features.push(...textFeatures, ...imageFeatures, ...drawFeatures, ...losFeatures, ...visibilityFeatures);
 
         const data = {
             type: 'FeatureCollection',
@@ -36,7 +38,7 @@ class UIManager {
     }
 
     createSelectionBoxesForTextFeatures = () => {
-        return Array.from(this.selectionManager.selectedTextFeatures).map(feature => {
+        return Array.from(this.selectionManager.selectedTextFeatures.values()).map(feature => {
             const coordinates = feature.geometry.coordinates;
             const { width, height } = this.measureTextSize(feature.properties.text, feature.properties.size, 'Arial');
             const polygon = this.createSelectionBox(coordinates, width, height, feature.properties.rotation);
@@ -49,7 +51,7 @@ class UIManager {
     }
 
     createSelectionBoxesForImageFeatures = () => {
-        return Array.from(this.selectionManager.selectedImageFeatures).map(feature => {
+        return Array.from(this.selectionManager.selectedImageFeatures.values()).map(feature => {
             const coordinates = feature.geometry.coordinates;
             const width = feature.properties.width * feature.properties.size;
             const height = feature.properties.height * feature.properties.size;
@@ -68,19 +70,33 @@ class UIManager {
         const latitude = center.lat;
         const pixelBuffer = 10;
 
-        return Array.from(this.selectionManager.drawControl.draw.getSelected().features).map(feature => 
+        return Array.from(this.selectionManager.selectedDrawFeatures.values()).map(feature => 
             this.calculateBuffer(feature, zoom, latitude, pixelBuffer)
         );
     }
 
+    createSelectionBoxesForLOSFeatures = () => {
+        return Array.from(this.selectionManager.selectedLOSFeatures.values()).map(feature => {
+            const mergedLine = {
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: feature.geometry.coordinates.flat()
+                }
+            };
+
+            return this.calculateBuffer(mergedLine);
+        });
+    }
+
+    createSelectionBoxesForVisibilityFeatures = () => {
+        const x= Array.from(this.selectionManager.selectedVisibilityFeatures.values()).map(feature => 
+            this.calculateBuffer(feature));
+        return x
+    }
+
     updatePanels = () => {
-        const allSelectedFeatures = [
-            ...Array.from(this.selectionManager.selectedTextFeatures),
-            ...Array.from(this.selectionManager.selectedImageFeatures),
-            ...Array.from(this.selectionManager.selectedFeatures),
-            ...Array.from(this.selectionManager.selectedLOSFeatures),
-            ...Array.from(this.selectionManager.selectedVisibilityFeatures)
-        ];
+        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
 
         if (allSelectedFeatures.length > 0) {
             this.createUnifiedAttributesPanel(allSelectedFeatures);
@@ -101,7 +117,7 @@ class UIManager {
         panel = document.createElement('div');
         panel.className = 'unified-attributes-panel';
 
-        const featureTypes = new Set(selectedFeatures.map(f => this.getFeatureType(f)));
+        const featureTypes = new Set(selectedFeatures.map(f => f.properties.source));
 
         if (featureTypes.size === 1) {
             const featureType = featureTypes.values().next().value;
@@ -175,25 +191,16 @@ class UIManager {
         panel.appendChild(visibilityPanel);
     }
 
-    getFeatureType = (feature) => {
-        if (this.selectionManager.selectedTextFeatures.has(feature)) {
-            return 'text';
-        } else if (this.selectionManager.selectedImageFeatures.has(feature)) {
-            return 'image';
-        } else if (this.selectionManager.selectedLOSFeatures.has(feature)) {
-            return 'los';
-        } else if (this.selectionManager.selectedVisibilityFeatures.has(feature)) {
-            return 'visibility';
-        } else {
-            return 'draw';
-        }
-    }
-
     pixelsToDegrees = (pixels, latitude, zoom) => {
         const earthCircumference = 40075017;
         const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
         const degreesPerMeter = 360 / earthCircumference;
         return pixels * metersPerPixel * degreesPerMeter;
+    }
+    
+    calculateBoundingBox = (feature) => {
+        const bbox = turf.bbox(feature);
+        return turf.bboxPolygon(bbox);
     }
 
     calculateBuffer = (feature, zoom, latitude, pixelBuffer) => {
