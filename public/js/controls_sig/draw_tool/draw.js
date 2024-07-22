@@ -119,6 +119,7 @@ class DrawControl {
 
     updateFeaturesProperty = (features, property, value) => {
         features.forEach(feature => {
+            feature.properties[property] = value;
             this.draw.setFeatureProperty(feature.id, property, value);
             const feat = this.draw.get(feature.id);
             this.draw.add(feat);

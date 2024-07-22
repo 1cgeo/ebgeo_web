@@ -96,7 +96,6 @@ class SelectionManager {
         this.selectedTextFeatures.clear();
         this.selectedImageFeatures.clear();
         this.selectedFeatures.clear();
-        this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
     }
 
     updateUI = () => {
