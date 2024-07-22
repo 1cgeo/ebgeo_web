@@ -108,9 +108,6 @@ class UIManager {
             } else if (featureType === 'draw') {
                 this.addDrawAttributes(panel, selectedFeatures);
             }
-        } else {
-            // Mixed selection
-            this.addMixedSelectionPanel(panel, selectedFeatures);
         }
 
         const deleteButton = document.createElement('button');
@@ -120,18 +117,6 @@ class UIManager {
         panel.appendChild(deleteButton);
         document.body.appendChild(panel);
     }
-
-    addMixedSelectionPanel = (panel, features) => {
-        const mixedPanel = document.createElement('div');
-        mixedPanel.className = 'mixed-selection-panel';
-        
-        const countText = document.createElement('p');
-        countText.textContent = `${features.length} items selected`;
-        mixedPanel.appendChild(countText);
-
-        panel.appendChild(mixedPanel);
-    }
-
 
     addTextAttributes = (panel, features) => {
         const textPanel = document.createElement('div');
