@@ -18,19 +18,23 @@ class MoveHandler {
         const selectedTextFeatures = Array.from(this.selectionManager.selectedTextFeatures).map(feature => ({ feature, source: 'text' }));
         const selectedImageFeatures = Array.from(this.selectionManager.selectedImageFeatures).map(feature => ({ feature, source: 'image' }));
         const selectedDrawFeatures = Array.from(this.selectionManager.selectedFeatures).map(feature => ({ feature, source: 'draw' }));
-    
+        const selectedLOSFeatures = Array.from(this.selectionManager.selectedLOSFeatures).map(feature => ({ feature, source: 'los' }));
+        const selectedVisibilityFeatures = Array.from(this.selectionManager.selectedVisibilityFeatures).map(feature => ({ feature, source: 'visibility' }));
+
         const allSelectedFeatures = [
             ...selectedTextFeatures,
             ...selectedImageFeatures,
-            ...selectedDrawFeatures
+            ...selectedDrawFeatures,
+            ...selectedLOSFeatures,
+            ...selectedVisibilityFeatures
         ];
-    
+
         if (allSelectedFeatures.length > 0) {
             this.isDragging = true;
             this.lastPos = e.lngLat;
             this.initialCoordinates = e.lngLat;
             this.map.getCanvas().style.cursor = 'grabbing';
-    
+
             this.offsets = allSelectedFeatures.map(item => ({
                 feature: item.feature,
                 source: item.source,
@@ -63,6 +67,10 @@ class MoveHandler {
                 this.moveTextFeature(feature, newCoords);
             } else if (source === 'image') {
                 this.moveImageFeature(feature, newCoords);
+            } else if (source === 'los') {
+                this.moveLOSFeature(feature, dx, dy);
+            } else if (source === 'visibility') {
+                this.moveVisibilityFeature(feature, dx, dy);
             }
         });
 
@@ -98,6 +106,16 @@ class MoveHandler {
     moveDrawFeature(feature, dx, dy) {
         const updatedFeature = this.translateFeature(feature, dx, dy);
         this.selectionManager.updateFeature(updatedFeature, 'draw');
+    }
+
+    moveLOSFeature(feature, dx, dy) {
+        const updatedFeature = this.translateFeature(feature, dx, dy);
+        this.selectionManager.updateFeature(updatedFeature, 'los');
+    }
+
+    moveVisibilityFeature(feature, dx, dy) {
+        const updatedFeature = this.translateFeature(feature, dx, dy);
+        this.selectionManager.updateFeature(updatedFeature, 'visibility');
     }
 
     translateFeature(feature, dx, dy) {

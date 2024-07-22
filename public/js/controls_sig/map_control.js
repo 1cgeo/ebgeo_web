@@ -26,8 +26,7 @@ class MapControl {
             if (mapName) {
                 addMap(mapName);
                 setCurrentMap(mapName);
-                const baseLayer = getCurrentBaseLayer();
-                this.baseLayerControl.switchLayer(baseLayer);
+                switchMap()
                 this.updateMapList();
             }
         };
@@ -68,8 +67,7 @@ class MapControl {
             changeButton.onclick = (e) => {
                 e.stopPropagation();
                 setCurrentMap(mapName);
-                const baseLayer = getCurrentBaseLayer();
-                this.baseLayerControl.switchLayer(baseLayer);
+                switchMap()
                 this.updateMapList();
             };
 
@@ -85,8 +83,7 @@ class MapControl {
                     const copiedMap = JSON.parse(JSON.stringify(store.maps[mapName]));
                     addMap(newMapName, copiedMap);
                     setCurrentMap(newMapName);
-                    const baseLayer = getCurrentBaseLayer();
-                    this.baseLayerControl.switchLayer(baseLayer);
+                    switchMap()
                     this.updateMapList();
                 }
             };
@@ -104,8 +101,7 @@ class MapControl {
                         if (store.currentMap === mapName) {
                             const remainingMaps = Object.keys(store.maps);
                             setCurrentMap(remainingMaps[0]);
-                            const baseLayer = getCurrentBaseLayer();
-                            this.baseLayerControl.switchLayer(baseLayer);
+                            switchMap()
                         }
 
                         this.updateMapList();
@@ -121,6 +117,11 @@ class MapControl {
             listItem.appendChild(buttonContainer);
             this.mapList.appendChild(listItem);
         });
+    }
+
+    switchMap() {
+        const baseLayer = getCurrentBaseLayer();
+        this.baseLayerControl.switchLayer(baseLayer);
     }
 }
 
