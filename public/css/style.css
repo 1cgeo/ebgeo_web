@@ -118,7 +118,7 @@ body, html {
     background-color: #c9aad9 !important;
 }
 
-.text-attributes-panel {
+.unified-attributes-panel {
     position: absolute;
     bottom: 10px;
     right: 10px;
@@ -130,22 +130,22 @@ body, html {
     z-index: 10;
 }
 
-.text-attributes-panel label {
+.unified-attributes-panel label {
     display: block;
     margin-top: 5px;
 }
 
-.text-attributes-panel input {
+.unified-attributes-panel input {
     width: 100%;
     margin-top: 5px;
 }
 
-.text-attributes-panel button {
+.unified-attributes-panel button {
     margin-top: 10px;
     margin-right: 5px;
 }
 
-.feature-attributes-panel {
+.mixed-selection-panel {
     position: absolute;
     bottom: 10px;
     right: 10px;
@@ -157,44 +157,17 @@ body, html {
     z-index: 10;
 }
 
-.feature-attributes-panel label {
+.mixed-selection-panel label {
     display: block;
     margin-top: 5px;
 }
 
-.feature-attributes-panel input {
+.mixed-selection-panel input {
     width: 100%;
     margin-top: 5px;
 }
 
-.feature-attributes-panel button {
-    margin-top: 10px;
-    margin-right: 5px;
-}
-
-.image-attributes-panel {
-    position: absolute;
-    bottom: 10px;
-    right: 10px;
-    padding: 10px;
-    background-color: white;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-    z-index: 10;
-}
-
-.image-attributes-panel label {
-    display: block;
-    margin-top: 5px;
-}
-
-.image-attributes-panel input {
-    width: 100%;
-    margin-top: 5px;
-}
-
-.image-attributes-panel button {
+.mixed-selection-panel button {
     margin-top: 10px;
     margin-right: 5px;
 }

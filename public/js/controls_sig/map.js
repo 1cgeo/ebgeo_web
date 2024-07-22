@@ -92,28 +92,6 @@ map.on('styledata', () => {
         };
     });
 
-    if (!map.getSource('highlighted_bbox')) {
-        map.addSource('highlighted_bbox', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: []
-            }
-        });
-    }
-
-    if (!map.getLayer('highlighted_bbox-layer')) {
-        map.addLayer({
-            id: 'highlighted_bbox-layer',
-            type: 'line',
-            source: 'highlighted_bbox',
-            paint: {
-              'line-color': '#ff0000',
-              'line-width': 2
-            }
-        });
-    }
-
     if (!map.getSource('selection-boxes')) {
         map.addSource('selection-boxes', {
             type: 'geojson',
@@ -131,7 +109,8 @@ map.on('styledata', () => {
             source: 'selection-boxes',
             paint: {
                 'line-color': '#FF0000',
-                'line-width': 2
+                'line-width': 2,
+                'line-dasharray': [2, 2]
             }
         });
     }

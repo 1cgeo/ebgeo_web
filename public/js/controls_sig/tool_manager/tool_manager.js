@@ -1,6 +1,8 @@
 class ToolManager {
-    constructor(map) {
+    constructor(map, draw, selectionManager) {
         this.map = map;
+        this.draw = draw;
+        this.selectionManager = selectionManager;
         this.activeTool = null;
     }
 
@@ -19,11 +21,6 @@ class ToolManager {
             this.activeTool.deactivate();
             this.activeTool = null;
         }
-    }
-
-    setDrawMode(mode) {
-        this.deactivateCurrentTool();
-        this.draw.changeMode(mode);
     }
 }
 

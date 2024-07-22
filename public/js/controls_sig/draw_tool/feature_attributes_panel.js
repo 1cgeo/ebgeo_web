@@ -1,22 +1,11 @@
-export function createFeatureAttributesPanel(selectedFeatures, featureControl) {
-    let panel = document.querySelector('.feature-attributes-panel');
-    if (panel) {
-        panel.remove();
+export function addFeatureAttributesToPanel(panel, selectedFeatures, featureControl, selectionManager, uiManager) {
+    if (selectedFeatures.length === 0) {
+        return;
     }
 
-    if(selectedFeatures.length == 0){
-        return
-    }
-
-    const feature = selectedFeatures[0]; // Usar a primeira feição selecionada para popular o formulário.
-    const initialPropertiesMap = new Map();
-    selectedFeatures.forEach(f => {
-        initialPropertiesMap.set(f.id, { ...f.properties });
-    });
-
-    panel = document.createElement('div');
-    panel.className = 'feature-attributes-panel';
-
+    const feature = selectedFeatures[0]; // Use the first selected feature to populate the form.
+    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
+    
     const commonAttributes = findCommonAttributes(selectedFeatures);
 
     commonAttributes.forEach(attr => {
@@ -36,35 +25,30 @@ export function createFeatureAttributesPanel(selectedFeatures, featureControl) {
     saveButton.id = 'SalvarFeat';
     saveButton.onclick = () => {
         featureControl.saveFeatures(selectedFeatures, initialPropertiesMap)
-        panel.remove();
+        selectionManager.deselectAllFeatures();
+        selectionManager.updateUI();
     };
+    panel.appendChild(saveButton);
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        featureControl.discartChangeFeatures(selectedFeatures, initialPropertiesMap)
-        panel.remove();
+        featureControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap)
+        selectionManager.deselectAllFeatures();
+        selectionManager.updateUI();
     };
-
-    const deleteButton = document.createElement('button');
-    deleteButton.textContent = 'Deletar';
-    deleteButton.onclick = () => {
-        featureControl.deleteFeatures(selectedFeatures)
-        panel.remove();
-    };
-
-    const setDefaultButton = document.createElement('button');
-    setDefaultButton.textContent = 'Definir padrão';
-    setDefaultButton.onclick = () => {
-        featureControl.setDefaultProperties(feature.properties, commonAttributes);
-    };
-
-    panel.appendChild(saveButton);
     panel.appendChild(discardButton);
-    panel.appendChild(deleteButton);
-    panel.appendChild(setDefaultButton);
 
-    document.body.appendChild(panel);
+    if (selectedFeatures.length === 1) {
+        const setDefaultButton = document.createElement('button');
+        setDefaultButton.textContent = 'Definir padrão';
+        setDefaultButton.onclick = () => {
+            featureControl.setDefaultProperties(feature.properties, commonAttributes);
+            selectionManager.deselectAllFeatures();
+            uiManager.updateSelectionHighlight();
+        };
+        panel.appendChild(setDefaultButton);
+    }
 }
 
 function findCommonAttributes(features) {
