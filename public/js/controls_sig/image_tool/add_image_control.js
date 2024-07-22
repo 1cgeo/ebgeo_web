@@ -1,7 +1,7 @@
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 
 class AddImageControl {
-    static DEFAULT_IMAGE_PROPERTIES = {
+    static DEFAULT_PROPERTIES = {
         size: 1,
         rotation: 0,
         imageBase64: '',
@@ -108,7 +108,7 @@ class AddImageControl {
         return {
             type: 'Feature',
             id: imageId,
-            properties: { ...AddImageControl.DEFAULT_IMAGE_PROPERTIES, imageBase64, width, height, imageId },
+            properties: { ...AddImageControl.DEFAULT_PROPERTIES, imageBase64, width, height, imageId },
             geometry: {
                 type: 'Point',
                 coordinates: [lngLat.lng, lngLat.lat]

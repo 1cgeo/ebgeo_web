@@ -1,6 +1,6 @@
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 class AddTextControl {
-    static DEFAULT_TEXT_PROPERTIES = {
+    static DEFAULT_PROPERTIES = {
         text: '',
         size: 16,
         color: '#000000',
@@ -84,7 +84,7 @@ class AddTextControl {
         return {
             type: 'Feature',
             id: Date.now().toString(),
-            properties: { ...AddTextControl.DEFAULT_TEXT_PROPERTIES, text },
+            properties: { ...AddTextControl.DEFAULT_PROPERTIES, text },
             geometry: {
                 type: 'Point',
                 coordinates: [lngLat.lng, lngLat.lat]
@@ -157,7 +157,7 @@ class AddTextControl {
     }
 
     setDefaultProperties = (properties) => {
-        Object.assign(AddTextControl.DEFAULT_TEXT_PROPERTIES, properties);
+        Object.assign(AddTextControl.DEFAULT_PROPERTIES, properties);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
