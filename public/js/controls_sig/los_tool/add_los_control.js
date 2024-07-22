@@ -81,7 +81,7 @@ class AddLOSControl {
         return {
             type: 'Feature',
             id: Date.now().toString(),
-            properties: { ...this.DEFAULT_PROPERTIES },
+            properties: { ...AddLOSControl.DEFAULT_PROPERTIES },
             geometry: {
                 type: 'LineString',
                 coordinates: [lngLat.lng, lngLat.lat]
@@ -154,7 +154,7 @@ class AddLOSControl {
     }
 
     setDefaultProperties = (properties) => {
-        Object.assign(AddTextControl.DEFAULT_PROPERTIES, properties);
+        Object.assign(AddLOSControl.DEFAULT_PROPERTIES, properties);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {

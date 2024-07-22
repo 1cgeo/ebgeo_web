@@ -79,7 +79,7 @@ class AddVisibilityControl {
         return {
             type: 'Feature',
             id: Date.now().toString(),
-            properties: { ...this.DEFAULT_PROPERTIES },
+            properties: { ...AddVisibilityControl.DEFAULT_PROPERTIES },
             geometry: {
                 type: 'LineString',
                 coordinates: [lngLat.lng, lngLat.lat]
@@ -152,7 +152,7 @@ class AddVisibilityControl {
     }
 
     setDefaultProperties = (properties) => {
-        Object.assign(AddTextControl.DEFAULT_PROPERTIES, properties);
+        Object.assign(AddVisibilityControl.DEFAULT_PROPERTIES, properties);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
