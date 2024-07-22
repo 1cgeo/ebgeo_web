@@ -5,6 +5,7 @@ class AddImageControl {
         size: 1,
         rotation: 0,
         imageBase64: '',
+        opacity: 1,
     };
 
     constructor(toolManager) {
@@ -182,6 +183,7 @@ class AddImageControl {
         return (
             feature.properties.size !== initialProperties.size ||
             feature.properties.rotation !== initialProperties.rotation ||
+            feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.imageBase64 !== initialProperties.imageBase64
         );
     }

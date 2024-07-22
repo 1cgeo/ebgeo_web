@@ -31,6 +31,21 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     panel.appendChild(rotationLabel);
     panel.appendChild(rotationInput);
 
+    const opacityLabel = document.createElement('label');
+    opacityLabel.textContent = 'Opacidade:';
+    const opacityInput = document.createElement('input');
+    opacityInput.type = 'range';
+    opacityInput.min = 0;
+    opacityInput.max = 1;
+    opacityInput.step = 0.1;
+    opacityInput.value = feature.properties.opacity;
+    opacityInput.oninput = (e) => {
+        imageControl.updateFeaturesProperty(selectedFeatures, 'opacity', parseFloat(e.target.value));
+        uiManager.updateSelectionHighlight();
+    };
+    panel.appendChild(opacityLabel);
+    panel.appendChild(opacityInput);
+
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
     saveButton.type = 'submit';
