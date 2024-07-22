@@ -14,7 +14,6 @@ class MoveHandler {
     }
 
     onMouseDown(e) {
-        e.preventDefault();
         const selectedTextFeatures = Array.from(this.selectionManager.selectedTextFeatures).map(feature => ({ feature, source: 'text' }));
         const selectedImageFeatures = Array.from(this.selectionManager.selectedImageFeatures).map(feature => ({ feature, source: 'image' }));
         const selectedDrawFeatures = Array.from(this.selectionManager.selectedFeatures).map(feature => ({ feature, source: 'draw' }));
@@ -31,6 +30,7 @@ class MoveHandler {
 
         if (allSelectedFeatures.length > 0) {
             this.isDragging = true;
+            this.map.dragPan.disable();
             this.lastPos = e.lngLat;
             this.initialCoordinates = e.lngLat;
             this.map.getCanvas().style.cursor = 'grabbing';
@@ -83,6 +83,7 @@ class MoveHandler {
         if (!this.isDragging) return;
 
         this.isDragging = false;
+        this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
 
         const dx = e.lngLat.lng - this.initialCoordinates.lng;
