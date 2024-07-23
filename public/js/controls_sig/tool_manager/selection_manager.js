@@ -48,7 +48,6 @@ class SelectionManager {
 
     handleElementClick = (e) => {
         e.preventDefault();
-
         if (!e.originalEvent.shiftKey) {
             this.deselectAllFeatures();
         }
@@ -75,66 +74,58 @@ class SelectionManager {
             this.toggleVisibilitySelection(feature);
         }
 
+        this.drawControl.draw.changeMode('simple_select', { featureIds: Array.from(this.selectedFeatures).map(f => f.id) });
+
         this.updateUI();
     }
 
     handleDrawSelectionChange = (e) => {
-        this.selectedFeatures = new Set(this.drawControl.draw.getSelected().features);
+        console.log(this.drawControl.draw.getSelected().features)
+        const selectedFeatures = this.drawControl.draw.getSelected().features;
+        this.selectedFeatures = new Set(selectedFeatures);
         this.updateUI();
     }
 
-    toggleTextSelection = (feature) => {
-        if (this.selectedTextFeatures.has(feature)) {
-            this.selectedTextFeatures.delete(feature);
+    toggleSelection(feature, selectedSet) {
+        if (selectedSet.has(feature)) {
+            selectedSet.delete(feature);
         } else {
-            this.selectedTextFeatures.add(feature);
+            selectedSet.add(feature);
         }
     }
 
-    toggleImageSelection = (feature) => {
-        if (this.selectedImageFeatures.has(feature)) {
-            this.selectedImageFeatures.delete(feature);
-        } else {
-            this.selectedImageFeatures.add(feature);
-        }
+    toggleTextSelection(feature) {
+        this.toggleSelection(feature, this.selectedTextFeatures);
     }
 
-    toggleLOSSelection = (feature) => {
-        if (this.selectedLOSFeatures.has(feature)) {
-            this.selectedLOSFeatures.delete(feature);
-        } else {
-            this.selectedLOSFeatures.add(feature);
-        }
+    toggleImageSelection(feature) {
+        this.toggleSelection(feature, this.selectedImageFeatures);
     }
 
-    toggleVisibilitySelection = (feature) => {
-        if (this.selectedVisibilityFeatures.has(feature)) {
-            this.selectedVisibilityFeatures.delete(feature);
-        } else {
-            this.selectedVisibilityFeatures.add(feature);
-        }
+    toggleLOSSelection(feature) {
+        this.toggleSelection(feature, this.selectedLOSFeatures);
     }
 
-    toggleDrawSelection = (feature) => {
-        if (this.selectedFeatures.has(feature)) {
-            this.selectedFeatures.delete(feature);
-            this.drawControl.draw.changeMode('simple_select', { featureIds: Array.from(this.selectedFeatures).map(f => f.id) });
-        } else {
-            this.selectedFeatures.add(feature);
-            this.drawControl.draw.changeMode('simple_select', { featureIds: Array.from(this.selectedFeatures).map(f => f.id) });
-        }
+    toggleVisibilitySelection(feature) {
+        this.toggleSelection(feature, this.selectedVisibilityFeatures);
     }
 
-    deselectAllFeatures = (forceDraw = false) => {
+    deselectAllFeatures = () => {
         this.selectedTextFeatures.clear();
         this.selectedImageFeatures.clear();
         this.selectedLOSFeatures.clear();
         this.selectedVisibilityFeatures.clear();
         this.selectedFeatures.clear();
+    }
 
-        if(forceDraw){
-            this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
-        }
+    getAllSelectedFeatures() {
+        return [
+            ...Array.from(this.selectedTextFeatures).map(feature => ({ ...feature, source: 'text' })),
+            ...Array.from(this.selectedImageFeatures).map(feature => ({ ...feature, source: 'image' })),
+            ...Array.from(this.selectedLOSFeatures).map(feature => ({ ...feature, source: 'los' })),
+            ...Array.from(this.selectedVisibilityFeatures).map(feature => ({ ...feature, source: 'visibility' })),
+            ...Array.from(this.selectedFeatures).map(feature => ({ ...feature, source: 'draw' }))
+        ];
     }
 
     updateUI = () => {
@@ -170,7 +161,7 @@ class SelectionManager {
         } else if(sourceId === 'images') {
             this.imageControl.updateFeatures([feature], false);
         } else if(sourceId === 'draw') {
-            this.drawControl.updateFeatures([feature], false);
+            //this.drawControl.updateFeatures([feature], false);
         } else if(sourceId === 'los') {
             this.losControl.updateFeatures([feature], false);
         } else if(sourceId === 'visibility') {
@@ -185,7 +176,7 @@ class SelectionManager {
         this.imageControl.updateFeatures(this.selectedImageFeatures, true);
         this.losControl.updateFeatures(this.selectedLOSFeatures, true);
         this.visibilityControl.updateFeatures(this.selectedVisibilityFeatures, true);
-        this.drawControl.updateFeatures(this.selectedFeatures, true);
+        //this.drawControl.updateFeatures(this.selectedFeatures, true);
     }
 }
 

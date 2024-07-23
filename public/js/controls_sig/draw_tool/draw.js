@@ -94,7 +94,7 @@ class DrawControl {
     }
 
     updateFeatureMeasurement = (feature) => {
-        this.removeFeatureMeasurement(feature.id); // Remove existing measurement if any
+        this.removeFeatureMeasurement(feature.id);
 
         if (feature.properties.measure) {
             if (feature.geometry.type === 'LineString') {

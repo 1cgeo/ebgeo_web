@@ -26,7 +26,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     saveButton.type = 'submit';
     saveButton.onclick = () => {
         featureControl.saveFeatures(selectedFeatures, initialPropertiesMap)
-        selectionManager.deselectAllFeatures(true);
+        selectionManager.deselectAllFeatures();
         selectionManager.updateUI();
     };
     panel.appendChild(saveButton);
@@ -35,7 +35,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
         featureControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap)
-        selectionManager.deselectAllFeatures(true);
+        selectionManager.deselectAllFeatures();
         selectionManager.updateUI();
     };
     panel.appendChild(discardButton);
@@ -45,7 +45,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
         setDefaultButton.textContent = 'Definir padrão';
         setDefaultButton.onclick = () => {
             featureControl.setDefaultProperties(feature.properties, commonAttributes);
-            selectionManager.deselectAllFeatures(true);
+            selectionManager.deselectAllFeatures();
             selectionManager.updateUI();
         };
         panel.appendChild(setDefaultButton);
