@@ -14,6 +14,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
         const attrInput = createInput(attr, selectedFeatures[0].properties[attr]);
         attrInput.oninput = (e) => {
             let value = attrInput.type === 'range' || attrInput.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+            value = attrInput.type === 'checkbox' ? e.target.checked : value;
             featureControl.updateFeaturesProperty(selectedFeatures, attr, value);
         };
         panel.appendChild(attrLabel);
@@ -54,8 +55,8 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
 function findCommonAttributes(features) {
     const attributeSets = {
         Point: ['size', 'color', 'opacity'],
-        LineString: ['size', 'color', 'opacity'],
-        Polygon: ['color', 'opacity', 'outlinecolor', 'size']
+        LineString: ['size', 'color', 'opacity', 'measure'],
+        Polygon: ['color', 'opacity', 'outlinecolor', 'size', 'measure']
     };
 
     const featureTypes = features.map(f => f.geometry.type);
@@ -71,7 +72,8 @@ function getLabel(attr, features) {
         size: 'Tamanho',
         color: 'Cor',
         opacity: 'Opacidade',
-        outlinecolor: 'Cor da borda'
+        outlinecolor: 'Cor da borda',
+        measure: 'Medir'
     };
 
     if (attr === 'size') {
@@ -97,6 +99,10 @@ function createInput(attr, value) {
         input.max = 1;
         input.step = 0.1;
         input.value = value !== undefined ? value : 1;
+    } else if (attr === 'measure') {
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = value === true;
     } else {
         input = document.createElement('input');
         input.type = 'number';

@@ -10,7 +10,8 @@ class DrawControl {
             color: '#fbb03b',
             opacity: 0.5,
             size: 3,
-            outlinecolor: '#fbb03b'
+            outlinecolor: '#fbb03b',
+            measure: false
         };
         this.controlPosition = 'top-right';
     }
@@ -78,6 +79,7 @@ class DrawControl {
             });
             const type = f.geometry.type.toLowerCase() + 's';
             addFeature(type, f);
+            this.updateFeatureMeasurement(f);
         });
 
         this.toolManager.deactivateCurrentTool();
@@ -87,11 +89,59 @@ class DrawControl {
         e.features.forEach(f => {
             const type = f.geometry.type.toLowerCase() + 's';
             updateFeature(type, f);
+            this.updateFeatureMeasurement(f);
         });
+    }
+
+    updateFeatureMeasurement = (feature) => {
+        this.removeFeatureMeasurement(feature.id); // Remove existing measurement if any
+
+        if (feature.properties.measure) {
+            if (feature.geometry.type === 'LineString') {
+                const line = turf.lineString(feature.geometry.coordinates);
+                const lengthInMeters = turf.length(line, { units: 'meters' });
+                const lengthFormatted = lengthInMeters >= 1000 
+                    ? `${(lengthInMeters / 1000).toFixed(2)} km`
+                    : `${lengthInMeters.toFixed(2)} m`;
+                const midpoint = turf.midpoint(line.geometry.coordinates[0], line.geometry.coordinates[line.geometry.coordinates.length - 1]);
+                this.displayMeasurement(midpoint.geometry.coordinates, lengthFormatted, feature.id);
+            } else if (feature.geometry.type === 'Polygon') {
+                const polygon = turf.polygon(feature.geometry.coordinates);
+                const areaInSquareMeters = turf.area(polygon);
+                const areaFormatted = areaInSquareMeters >= 100000 
+                    ? `${(areaInSquareMeters / 1000000).toFixed(2)} km²`
+                    : `${areaInSquareMeters.toFixed(2)} m²`;
+                const centroid = turf.centroid(polygon);
+                this.displayMeasurement(centroid.geometry.coordinates, areaFormatted, feature.id);
+            }
+        }
+    }
+
+    removeFeatureMeasurement = (featureId) => {
+        const measurementLabel = document.querySelector(`.measurement-label[data-feature-id="${featureId}"]`);
+        if (measurementLabel) {
+            measurementLabel.remove();
+        }
+    }
+
+    displayMeasurement = (coordinates, measurement, featureId) => {
+        const markerElement = this.createMeasurementLabel(measurement, featureId);
+        new maplibregl.Marker({ element: markerElement })
+            .setLngLat(coordinates)
+            .addTo(this.map);
+    }
+
+    createMeasurementLabel = (measurement, featureId) => {
+        const label = document.createElement('div');
+        label.className = 'measurement-label';
+        label.innerText = measurement;
+        label.dataset.featureId = featureId;
+        return label;
     }
 
     handleDrawDelete = (e) => {
         e.features.forEach(f => {
+            this.removeFeatureMeasurement(f.id);
             const type = f.geometry.type.toLowerCase() + 's';
             removeFeature(type, f.id);
         });
@@ -124,6 +174,7 @@ class DrawControl {
             this.draw.setFeatureProperty(feature.id, property, value);
             const feat = this.draw.get(feature.id);
             this.draw.add(feat);
+            this.updateFeatureMeasurement(feature);
         });
     }
 
