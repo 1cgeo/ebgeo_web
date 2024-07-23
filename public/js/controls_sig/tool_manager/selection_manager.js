@@ -109,12 +109,16 @@ class SelectionManager {
         this.toggleSelection(feature, this.selectedVisibilityFeatures);
     }
 
-    deselectAllFeatures = () => {
+    deselectAllFeatures = (forceDraw = false) => {
         this.selectedTextFeatures.clear();
         this.selectedImageFeatures.clear();
         this.selectedLOSFeatures.clear();
         this.selectedVisibilityFeatures.clear();
-        this.selectedFeatures.clear();
+
+        if(forceDraw) {
+            this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
+            this.selectedFeatures.clear();
+        }
     }
 
     getAllSelectedFeatures() {

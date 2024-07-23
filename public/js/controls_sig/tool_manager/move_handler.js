@@ -29,14 +29,13 @@ class MoveHandler {
             if (allSelectedFeatures.some(f => f.id == clickedFeature.id)) {
                 this.isDragging = true;
                 this.map.dragPan.disable();
-                this.lastPos = e.lngLat;
                 this.initialCoordinates = e.lngLat;
                 this.setCursorStyle('grabbing');
 
                 this.offsets = allSelectedFeatures.map(item => ({
                     feature: item,
                     source: item.source,
-                    offset: this.calculateOffset(item, this.lastPos)
+                    offset: this.calculateOffset(item, this.initialCoordinates)
                 }));
             }
         }
@@ -52,8 +51,8 @@ class MoveHandler {
         this.lastUpdateTime = currentTime;
 
         const newPos = e.lngLat;
-        const dx = newPos.lng - this.lastPos.lng;
-        const dy = newPos.lat - this.lastPos.lat;
+        const dx = newPos.lng - this.initialCoordinates.lng;
+        const dy = newPos.lat - this.initialCoordinates.lat;
 
         const updatedFeatures = this.offsets.map(({ feature, source, offset }) => {
             const newCoords = {
@@ -65,10 +64,6 @@ class MoveHandler {
         this.updateSelectionManagerFeatures(updatedFeatures);
 
         this.selectionManager.updateSelectedFeatures();
-
-        this.lastPos = newPos;
-
-        this.uiManager.updateSelectionHighlight();
     }
 
     onMouseUp(e) {
@@ -84,7 +79,6 @@ class MoveHandler {
         const tolerance = 2 / Math.pow(2, this.map.getZoom());
         if (distanceMoved > tolerance) {
             this.selectionManager.updateSelectedFeatures(true);
-            this.uiManager.updateSelectionHighlight();
         }
 
         this.map.off('mousemove', this.onMouseMove);

@@ -42,7 +42,6 @@ class DrawControl {
             this.map.addControl(this.draw, this.controlPosition);
 
             this.setupEventListeners();
-
             return this.container;
         } catch (error) {
             console.error('Error adding DrawControl:', error);
@@ -192,14 +191,13 @@ class DrawControl {
                 });
 
                 existingFeature.geometry =  JSON.parse(JSON.stringify(feature.geometry));
-                
                 this.draw.add(existingFeature);
+
+                if (save) {
+                    const type = feature.geometry.type.toLowerCase() + 's';
+                    updateFeature(type, feature);
+                }
             }
-            
-            if (save) {
-                const type = feature.geometry.type.toLowerCase() + 's';
-                updateFeature(type, feature);
-            }            
         });
     }
 
@@ -216,7 +214,7 @@ class DrawControl {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features);
+        this.updateFeatures(features, true);
     }
 
     deleteFeatures = (features) => {
