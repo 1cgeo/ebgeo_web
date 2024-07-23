@@ -7,39 +7,38 @@ class MoveHandler {
         this.lastPos = null;
         this.debounceTime = 20;
         this.lastUpdateTime = 0;
-
         this.map.on('mousedown', this.onMouseDown.bind(this));
-        this.map.on('mousemove', this.onMouseMove.bind(this));
-        this.map.on('mouseup', this.onMouseUp.bind(this));
     }
 
     onMouseDown(e) {
-        const selectedTextFeatures = Array.from(this.selectionManager.selectedTextFeatures).map(feature => ({ feature, source: 'text' }));
-        const selectedImageFeatures = Array.from(this.selectionManager.selectedImageFeatures).map(feature => ({ feature, source: 'image' }));
-        const selectedDrawFeatures = Array.from(this.selectionManager.selectedFeatures).map(feature => ({ feature, source: 'draw' }));
-        const selectedLOSFeatures = Array.from(this.selectionManager.selectedLOSFeatures).map(feature => ({ feature, source: 'los' }));
-        const selectedVisibilityFeatures = Array.from(this.selectionManager.selectedVisibilityFeatures).map(feature => ({ feature, source: 'visibility' }));
+        this.startDrag(e);
+        this.map.on('mousemove', this.onMouseMove.bind(this));
+        this.map.once('mouseup', this.onMouseUp.bind(this));
+    }
 
-        const allSelectedFeatures = [
-            ...selectedTextFeatures,
-            ...selectedImageFeatures,
-            ...selectedDrawFeatures,
-            ...selectedLOSFeatures,
-            ...selectedVisibilityFeatures
-        ];
-
+    startDrag(e) {
+        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
+        
         if (allSelectedFeatures.length > 0) {
-            this.isDragging = true;
-            this.map.dragPan.disable();
-            this.lastPos = e.lngLat;
-            this.initialCoordinates = e.lngLat;
-            this.map.getCanvas().style.cursor = 'grabbing';
+            const clickedFeature = this.map.queryRenderedFeatures(e.point)[0];
+            if(!clickedFeature){
+                return
+            }
+            clickedFeature.id = clickedFeature.id || clickedFeature.properties.id
 
-            this.offsets = allSelectedFeatures.map(item => ({
-                feature: item.feature,
-                source: item.source,
-                offset: this.calculateOffset(item.feature, this.lastPos)
-            }));
+            if (allSelectedFeatures.some(f => f.id == clickedFeature.id)) {
+                this.isDragging = true;
+                this.map.dragPan.disable();
+                this.lastPos = e.lngLat;
+                this.initialCoordinates = e.lngLat;
+                this.setCursorStyle('grabbing');
+
+                this.offsets = allSelectedFeatures.map(item => ({
+                    feature: item,
+                    source: item.source,
+                    offset: this.calculateOffset(item, this.lastPos)
+                }));
+            }
         }
     }
 
@@ -61,17 +60,7 @@ class MoveHandler {
                 lng: newPos.lng + offset[0],
                 lat: newPos.lat + offset[1]
             };
-            if (source === 'draw') {
-                this.moveDrawFeature(feature, dx, dy);
-            } else if (source === 'text') {
-                this.moveTextFeature(feature, newCoords);
-            } else if (source === 'image') {
-                this.moveImageFeature(feature, newCoords);
-            } else if (source === 'los') {
-                this.moveLOSFeature(feature, dx, dy);
-            } else if (source === 'visibility') {
-                this.moveVisibilityFeature(feature, dx, dy);
-            }
+            this.moveFeature(feature, source, dx, dy, newCoords);
         });
 
         this.lastPos = newPos;
@@ -84,7 +73,7 @@ class MoveHandler {
 
         this.isDragging = false;
         this.map.dragPan.enable();
-        this.map.getCanvas().style.cursor = '';
+        this.setCursorStyle('');
 
         const dx = e.lngLat.lng - this.initialCoordinates.lng;
         const dy = e.lngLat.lat - this.initialCoordinates.lat;
@@ -93,6 +82,29 @@ class MoveHandler {
         if (distanceMoved > tolerance) {
             this.selectionManager.updateSelectedFeatures();
             this.uiManager.updateSelectionHighlight();
+        }
+
+        this.map.off('mousemove', this.onMouseMove);
+
+    }
+
+    moveFeature(feature, source, dx, dy, newCoords) {
+        switch (source) {
+            case 'draw':
+                this.moveDrawFeature(feature, dx, dy);
+                break;
+            case 'text':
+                this.moveTextFeature(feature, newCoords);
+                break;
+            case 'image':
+                this.moveImageFeature(feature, newCoords);
+                break;
+            case 'los':
+                this.moveLOSFeature(feature, dx, dy);
+                break;
+            case 'visibility':
+                this.moveVisibilityFeature(feature, dx, dy);
+                break;
         }
     }
 
@@ -107,6 +119,7 @@ class MoveHandler {
     moveDrawFeature(feature, dx, dy) {
         const updatedFeature = this.translateFeature(feature, dx, dy);
         this.selectionManager.updateFeature(updatedFeature, 'draw');
+
     }
 
     moveLOSFeature(feature, dx, dy) {
@@ -121,13 +134,30 @@ class MoveHandler {
 
     translateFeature(feature, dx, dy) {
         const translatedFeature = JSON.parse(JSON.stringify(feature));
-        const translateCoords = coords => {
+    
+        const translateCoords = (coords) => {
             if (typeof coords[0] === 'number') {
                 return [coords[0] + dx, coords[1] + dy];
             }
             return coords.map(translateCoords);
         };
-        translatedFeature.geometry.coordinates = translateCoords(feature.geometry.coordinates);
+    
+        const { type, coordinates } = feature.geometry;
+    
+        switch (type) {
+            case 'Point':
+                translatedFeature.geometry.coordinates = translateCoords(coordinates);
+                break;
+            case 'LineString':
+                translatedFeature.geometry.coordinates = coordinates.map(translateCoords);
+                break;
+            case 'Polygon':
+                translatedFeature.geometry.coordinates = coordinates.map(ring => ring.map(translateCoords));
+                break;
+            default:
+                throw new Error(`Unsupported geometry type: ${type}`);
+        }
+    
         return translatedFeature;
     }
 
@@ -139,6 +169,10 @@ class MoveHandler {
     moveImageFeature(feature, newCoords) {
         feature.geometry.coordinates = [newCoords.lng, newCoords.lat];
         this.selectionManager.updateFeature(feature, 'images');
+    }
+
+    setCursorStyle(style) {
+        this.map.getCanvas().style.cursor = style;
     }
 }
 
