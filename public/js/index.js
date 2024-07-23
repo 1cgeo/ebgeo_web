@@ -4,7 +4,6 @@ import { } from './map_3d.js'
 $(".bar-center-buttons a").click(function () {
     $(".bar-center-buttons a").removeClass('active-button')
     $(this).addClass('active-button')
-
     switch ($(this).attr('id')) {
         case '3d-button':
             $('#map-sig').hide();
@@ -15,3 +14,10 @@ $(".bar-center-buttons a").click(function () {
             $('#map-sig').show();
     }
 });
+
+
+$('#mini-map-street-view').css({
+    display: 'none'
+});
+
+

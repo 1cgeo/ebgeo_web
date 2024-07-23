@@ -6,6 +6,8 @@ import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
 import ToolManager from './controls_sig/tool_manager.js';
 import MapControl from './controls_sig/map_control.js';
+import AddStreetViewControl from './controls_sig/street_view_tool/add_street_view_control.js';
+
 //import ResetNorthControl from './controls_sig/reset_north_control.js';
 //import ResetOrthogonalControl from './controls_sig/reset_otho_control.js';
 //import FlyToCoordinatesControl from './controls_sig/fly_coordinates_control.js';
@@ -36,6 +38,9 @@ map.addControl(textControl, 'top-right');
 
 const imageControl = new AddImageControl(toolManager);
 map.addControl(imageControl, 'top-right');
+
+const streetViewControl = new AddStreetViewControl(toolManager);
+map.addControl(streetViewControl, 'top-right');
 
 
 const scale = new maplibregl.ScaleControl({

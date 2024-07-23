@@ -17,6 +17,7 @@ html {
     /* padding: 20px; */
     /* Increase padding for better visibility */
     display: flex;
+    flex-direction: row;
     /* align-items: center;
     justify-content: center; */
     width: 100%;
@@ -561,7 +562,7 @@ hr.solid {
 /* button center bar */
 .tools-3d-bar {
     display: grid;
-    grid-template-columns: repeat(auto-fill,minmax(70px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
 }
 
 .tools-3d-bar img {
@@ -613,4 +614,55 @@ hr.solid {
     height: 30px;
     border-radius: 10%;
     padding: 0px;
+}
+
+.icon-sig-tool {
+    width: 20px;
+    height: 20px;
+}
+
+.custom-tool-sig-button {
+    background-color: #243413;
+    font-weight: bold;
+    border: none !important;
+    padding: 5px !important;
+    cursor: pointer !important;
+    margin: 2px !important;
+    font-size: 18px !important;
+    z-index: 10 !important;
+    /* Ensure they are above other elements */
+    pointer-events: auto !important;
+    /* Ensure they can be clicked */
+    /* Change icon color to white */
+}
+
+#mini-map-street-view {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 30%;
+    height: 30%;
+    border-radius: 14px;
+    margin: 10px;
+}
+
+
+.float {
+    display: none;
+    justify-content: center;
+    align-items: center;
+    position: fixed;
+    width: 60px;
+    height: 60px;
+    bottom: 40px;
+    right: 40px;
+    background-color: black;
+    color: #FFF;
+    border-radius: 50px;
+    text-align: center;
+    box-shadow: 2px 2px 3px #999;
+}
+
+.my-float {
+    margin-top: 22px;
 }

@@ -17,13 +17,111 @@
 
 <body>
     <div id="top-bar">
-        <h1>EBSIG</h1>
+        <a href="https://geoportal.eb.mil.br/portal/" class="logo" target="_blank">
+            <img src="./images/dsg_symbol.svg" />
+            <h1><span style="color:#80AF81;">EB</span><span style="color: black;">SIG</span></h1>
+        </a>
+        <div class="bar-center-buttons">
+            <div>
+                <a id="sig-button" class="button icon-button active-button">
+                    <img src="./images/icon_sig.svg" alt="SIG" />
+                </a>
+            </div>
+            <div>
+                <a id="3d-button" class="button icon-button">
+                    <img src="./images/icon_3d.svg" alt="3D" />
+                </a>
+            </div>
+        </div>
+        <div class="extra-bar-buttons">
+            <button onclick="window.open(
+                'https://google.com',
+                '_blank' // <- This is what makes it open in a new window.
+              );" class="tutorial-button pure-material-button-contained">Tutorial</button>
+        </div>
     </div>
-    <div id="map"></div>
-    <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
-    <script src="https://unpkg.com/@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.js"></script>
-    <script src="./js/vendors/turf.min.js"></script>
-    <script src="./js/vendors/jquery.min.3.7.1.js"></script>
+    <div id="map-sig"></div>
+    <div id="mini-map-street-view"></div>
+    <div id="street-view-container"></div>
+    <a id="close-street-view-button" href="#" class="float">
+        <i data-feather="x-circle"></i>
+    </a>
+    <div id="map-3d-container">
+        <div id="map-3d"></div>
+        <div id="map-3d-tool-bar" class="card">
+            <div id="model-3d-container">
+                <p><b>Modelos 3D</b></p>
+                <hr class="solid">
+                <!-- <button id="btnAMAN" class="tools">AMAN</button>
+            <button id="btnPCL" class="tools">PCL</button>
+            <button id="btnESA" class="tools">ESA</button> -->
+                <div id="locate-3d-container">
+                    <div class="radio-item">
+                        <input type="radio" name="modelo-3d" value="aman" checked>
+                        <label>AMAN</label>
+                    </div>
+                    <div class="radio-item">
+                        <input type="radio" name="modelo-3d" value="aman-pcl">
+                        <label>AMAN PCL</label>
+                    </div>
+                    <div class="radio-item">
+                        <input type="radio" name="modelo-3d" value="esa">
+                        <label>ESA</label>
+                    </div>
+                </div>
+            </div>
+            <div id="tool-3d-container">
+                <p><b>Ferramentas</b></p>
+                <hr class="solid">
+                <div class="tools-3d-bar">
+                    <div>
+                        <a id="visualizacao" class="button-tool-3d icon-tool-3d">
+                            <img src="./images/viewshed_icon.svg" alt="Viewshed" />
+                        </a>
+                    </div>
+                    <div>
+                        <a id="distancia" class="button-tool-3d icon-tool-3d">
+                            <img src="./images/distance_icon.svg" alt="distance" />
+                        </a>
+                    </div>
+                    <div>
+                        <a id="area" class="button-tool-3d icon-tool-3d">
+                            <img src="./images/area_icon.svg" alt="area" />
+                        </a>
+                    </div>
+                    <div>
+                        <a id="limpar" href="javascript:;" class="button-tool-3d icon-tool-3d">
+                            <img src="./images/clear_icon.svg" alt="clear" />
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <!-- <button id="visualizacao" class="tools">Visualização</button>
+            <button id="distancia" class="tools">Distância Espacial</button>
+            <button id="area" class="tools">Área Espacial</button>
+            <button id="limpar" class="tools">Limpar</button> -->
+        </div>
+    </div>
+    <script src="./vendors/feather.min.js"></script>
+    <script src="./vendors/maplibre-gl.js"></script>
+    <script src="./vendors/mapbox-gl-draw.js"></script>
+    <script src="./vendors/turf.min.js"></script>
+    <script src="./vendors/jquery.min.3.7.1.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "/street_view/build/three.module.js",
+                "OrbitControls": "/street_view/build/addons/controls/OrbitControls.js",
+                "DragControls": "/street_view/build/addons/controls/DragControls.js"
+            }
+        }
+    </script>
+    <script src="./vendors/cesium/Cesium.js"></script>
+    <script src="./vendors/cesium/cesium-measure.js"></script>
+    <script src="./vendors/cesium/cesium-viewshed.js"></script>
+    <script>
+        feather.replace();
+    </script>
     <script type="module" src="./js/index.js"></script>
 </body>
 

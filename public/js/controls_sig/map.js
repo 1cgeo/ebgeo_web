@@ -1,11 +1,54 @@
 import { getCurrentMapFeatures } from './store.js';
-import 'https://unpkg.com/maplibre-gl/dist/maplibre-gl.js';
+import '../../vendors/maplibre-gl.js';
 
 const map = new maplibregl.Map({
     container: 'map-sig',
-    style: 'https://demotiles.maplibre.org/style.json',
-    center: [-74.5, 40],
-    zoom: 9,
+    style: {
+        version: 8,
+        center: [-44.451547555410016, -22.453659018634177],
+        zoom: 14,
+        "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+        sources: {
+            osm: {
+                type: 'raster',
+                tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                tileSize: 256,
+                attribution: '&copy; OpenStreetMap Contributors',
+                maxzoom: 19
+            },
+            // Use a different source for terrain and hillshade layers, to improve render quality
+            terrainSource: {
+                type: 'raster-dem',
+                url: 'https://demotiles.maplibre.org/terrain-tiles/tiles.json',
+                tileSize: 256
+            },
+            hillshadeSource: {
+                type: 'raster-dem',
+                url: 'https://demotiles.maplibre.org/terrain-tiles/tiles.json',
+                tileSize: 256
+            }
+        },
+        layers: [
+            {
+                id: 'osm',
+                type: 'raster',
+                source: 'osm'
+            },
+            {
+                id: 'hills',
+                type: 'hillshade',
+                source: 'hillshadeSource',
+                layout: {visibility: 'visible'},
+                paint: {'hillshade-shadow-color': '#473B24'}
+            }
+        ],
+        terrain: {
+            source: 'terrainSource',
+            exaggeration: 1
+        },
+        sky: {}
+    },
+  
     attributionControl: false
 });
 
@@ -117,5 +160,10 @@ map.on('styledata', () => {
 
 });
 
+//FIT AMAN
+map.fitBounds([
+    [-44.4633992903047, -22.46265178239199],
+    [-44.439695820515325, -22.444666254876367]
+]);
 
 export { map };
