@@ -80,7 +80,6 @@ class SelectionManager {
     }
 
     handleDrawSelectionChange = (e) => {
-        console.log(this.drawControl.draw.getSelected().features)
         const selectedFeatures = this.drawControl.draw.getSelected().features;
         this.selectedFeatures = new Set(selectedFeatures);
         this.updateUI();
@@ -155,28 +154,12 @@ class SelectionManager {
         this.updateUI();
     }
 
-    updateFeature(feature, sourceId) {
-        if(sourceId === 'texts') {
-            this.textControl.updateFeatures([feature], false);
-        } else if(sourceId === 'images') {
-            this.imageControl.updateFeatures([feature], false);
-        } else if(sourceId === 'draw') {
-            //this.drawControl.updateFeatures([feature], false);
-        } else if(sourceId === 'los') {
-            this.losControl.updateFeatures([feature], false);
-        } else if(sourceId === 'visibility') {
-            this.visibilityControl.updateFeatures([feature], false);
-        } else {
-            console.error('Unknown source id');
-        }
-    }
-
-    updateSelectedFeatures() {
-        this.textControl.updateFeatures(this.selectedTextFeatures, true);
-        this.imageControl.updateFeatures(this.selectedImageFeatures, true);
-        this.losControl.updateFeatures(this.selectedLOSFeatures, true);
-        this.visibilityControl.updateFeatures(this.selectedVisibilityFeatures, true);
-        //this.drawControl.updateFeatures(this.selectedFeatures, true);
+    updateSelectedFeatures(save = false) {
+        this.textControl.updateFeatures(this.selectedTextFeatures, save);
+        this.imageControl.updateFeatures(this.selectedImageFeatures, save);
+        this.losControl.updateFeatures(this.selectedLOSFeatures, save);
+        this.visibilityControl.updateFeatures(this.selectedVisibilityFeatures, save);
+        this.drawControl.updateFeatures(this.selectedFeatures, save);
     }
 }
 

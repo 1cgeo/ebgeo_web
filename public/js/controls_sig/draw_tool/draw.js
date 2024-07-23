@@ -31,6 +31,11 @@ class DrawControl {
                     point: true,
                     trash: false
                 },
+                modes: {
+                    ...MapboxDraw.modes,
+                    simple_select: { ...MapboxDraw.modes.simple_select, dragMove() {} },
+                    direct_select: { ...MapboxDraw.modes.direct_select, dragFeature() {} },
+                  },
                 styles: drawStyles
             });
 
@@ -180,15 +185,21 @@ class DrawControl {
 
     updateFeatures = (features, save = false) => {
         features.forEach(feature => {
-            Object.keys(feature.properties).forEach(key => {
-                this.draw.setFeatureProperty(feature.id, key, feature.properties[key]);
-            });
-            const feat = this.draw.get(feature.id);
-            this.draw.add(feat);
-            const type = feat.geometry.type.toLowerCase() + 's';
-            if(save){
-                updateFeature(type, feat);
+            const existingFeature = this.draw.get(feature.id);
+            if (existingFeature) {
+                Object.keys(feature.properties).forEach(key => {
+                    this.draw.setFeatureProperty(feature.id, key, feature.properties[key]);
+                });
+
+                existingFeature.geometry =  JSON.parse(JSON.stringify(feature.geometry));
+                
+                this.draw.add(existingFeature);
             }
+            
+            if (save) {
+                const type = feature.geometry.type.toLowerCase() + 's';
+                updateFeature(type, feature);
+            }            
         });
     }
 

@@ -55,13 +55,16 @@ class MoveHandler {
         const dx = newPos.lng - this.lastPos.lng;
         const dy = newPos.lat - this.lastPos.lat;
 
-        this.offsets.forEach(({ feature, source, offset }) => {
+        const updatedFeatures = this.offsets.map(({ feature, source, offset }) => {
             const newCoords = {
                 lng: newPos.lng + offset[0],
                 lat: newPos.lat + offset[1]
             };
-            this.moveFeature(feature, source, dx, dy, newCoords);
+            return this.calculateUpdatedFeature(feature, source, dx, dy, newCoords);
         });
+        this.updateSelectionManagerFeatures(updatedFeatures);
+
+        this.selectionManager.updateSelectedFeatures();
 
         this.lastPos = newPos;
 
@@ -80,7 +83,7 @@ class MoveHandler {
         const distanceMoved = Math.sqrt(dx * dx + dy * dy);
         const tolerance = 2 / Math.pow(2, this.map.getZoom());
         if (distanceMoved > tolerance) {
-            this.selectionManager.updateSelectedFeatures();
+            this.selectionManager.updateSelectedFeatures(true);
             this.uiManager.updateSelectionHighlight();
         }
 
@@ -88,49 +91,51 @@ class MoveHandler {
 
     }
 
-    moveFeature(feature, source, dx, dy, newCoords) {
+    calculateUpdatedFeature(feature, source, dx, dy, newCoords) {
+        let updatedFeature;
         switch (source) {
             case 'draw':
-                this.moveDrawFeature(feature, dx, dy);
+            case 'los':
+            case 'visibility':
+                updatedFeature = this.translateFeature(feature, dx, dy);
                 break;
             case 'text':
-                this.moveTextFeature(feature, newCoords);
-                break;
             case 'image':
-                this.moveImageFeature(feature, newCoords);
+                updatedFeature = { ...feature, geometry: { ...feature.geometry, coordinates: [newCoords.lng, newCoords.lat] } };
                 break;
-            case 'los':
-                this.moveLOSFeature(feature, dx, dy);
-                break;
-            case 'visibility':
-                this.moveVisibilityFeature(feature, dx, dy);
-                break;
+            default:
+                console.error('Unknown source type:', source);
+                return feature;
         }
+        return { ...updatedFeature, source };
     }
 
     calculateOffset(feature, referencePoint) {
         const coords = feature.geometry.coordinates;
-        return [
-            Array.isArray(coords[0]) ? coords[0][0] - referencePoint.lng : coords[0] - referencePoint.lng,
-            Array.isArray(coords[0]) ? coords[0][1] - referencePoint.lat : coords[1] - referencePoint.lat
-        ];
+    
+        if (feature.geometry.type === "Point") {
+            // For Point geometry
+            return [
+                coords[0] - referencePoint.lng,
+                coords[1] - referencePoint.lat
+            ];
+        } else if (feature.geometry.type === "LineString") {
+            // For LineString geometry (assuming we want to offset the first point)
+            return [
+                coords[0][0] - referencePoint.lng,
+                coords[0][1] - referencePoint.lat
+            ];
+        } else if (feature.geometry.type === "Polygon") {
+            // For Polygon geometry (assuming we want to offset the first point of the first ring)
+            return [
+                coords[0][0][0] - referencePoint.lng,
+                coords[0][0][1] - referencePoint.lat
+            ];
+        } else {
+            throw new Error("Unsupported geometry type: " + feature.geometry.type);
+        }
     }
-
-    moveDrawFeature(feature, dx, dy) {
-        const updatedFeature = this.translateFeature(feature, dx, dy);
-        this.selectionManager.updateFeature(updatedFeature, 'draw');
-
-    }
-
-    moveLOSFeature(feature, dx, dy) {
-        const updatedFeature = this.translateFeature(feature, dx, dy);
-        this.selectionManager.updateFeature(updatedFeature, 'los');
-    }
-
-    moveVisibilityFeature(feature, dx, dy) {
-        const updatedFeature = this.translateFeature(feature, dx, dy);
-        this.selectionManager.updateFeature(updatedFeature, 'visibility');
-    }
+    
 
     translateFeature(feature, dx, dy) {
         const translatedFeature = JSON.parse(JSON.stringify(feature));
@@ -161,14 +166,38 @@ class MoveHandler {
         return translatedFeature;
     }
 
-    moveTextFeature(feature, newCoords) {
-        feature.geometry.coordinates = [newCoords.lng, newCoords.lat];
-        this.selectionManager.updateFeature(feature, 'texts');
-    }
+    updateSelectionManagerFeatures(updatedFeatures) {
+        const newSelectedFeatures = new Set();
+        const newSelectedTextFeatures = new Set();
+        const newSelectedImageFeatures = new Set();
+        const newSelectedLOSFeatures = new Set();
+        const newSelectedVisibilityFeatures = new Set();
 
-    moveImageFeature(feature, newCoords) {
-        feature.geometry.coordinates = [newCoords.lng, newCoords.lat];
-        this.selectionManager.updateFeature(feature, 'images');
+        updatedFeatures.forEach(feature => {
+            switch (feature.source) {
+                case 'draw':
+                    newSelectedFeatures.add(feature);
+                    break;
+                case 'text':
+                    newSelectedTextFeatures.add(feature);
+                    break;
+                case 'image':
+                    newSelectedImageFeatures.add(feature);
+                    break;
+                case 'los':
+                    newSelectedLOSFeatures.add(feature);
+                    break;
+                case 'visibility':
+                    newSelectedVisibilityFeatures.add(feature);
+                    break;
+            }
+        });
+
+        this.selectionManager.selectedFeatures = newSelectedFeatures;
+        this.selectionManager.selectedTextFeatures = newSelectedTextFeatures;
+        this.selectionManager.selectedImageFeatures = newSelectedImageFeatures;
+        this.selectionManager.selectedLOSFeatures = newSelectedLOSFeatures;
+        this.selectionManager.selectedVisibilityFeatures = newSelectedVisibilityFeatures;
     }
 
     setCursorStyle(style) {
