@@ -3,9 +3,6 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
         return;
     }
 
-    const initialProperties = { ...feature.properties };
-    const initialCoordinates = [...feature.geometry.coordinates];
-
     const feature = selectedFeatures[0]; // Use the first selected feature to populate the form.
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
     
