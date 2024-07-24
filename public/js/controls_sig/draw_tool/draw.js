@@ -7,12 +7,33 @@ class DrawControl {
         this.toolManager = toolManager;
         this.isActive = false;
         this.defaultProperties = {
-            color: '#fbb03b',
-            opacity: 0.5,
-            size: 3,
-            outlinecolor: '#fbb03b',
-            measure: false,
-            profile: false
+            polygon: {
+                color: '#fbb03b',
+                opacity: 0.5,
+                size: 3,
+                outlinecolor: '#fbb03b',
+                measure: false,
+                profile: false,
+                source: 'draw'
+            },
+            linestring: {
+                color: '#fbb03b',
+                opacity: 0.7,
+                size: 2,
+                outlinecolor: '#fbb03b',
+                measure: false,
+                profile: false,
+                source: 'draw'
+            },
+            point: {
+                color: '#fbb03b',
+                opacity: 1,
+                size: 10,
+                outlinecolor: '#fbb03b',
+                measure: false,
+                profile: false,
+                source: 'draw'
+            }
         };
         this.controlPosition = 'top-right';
     }
@@ -77,12 +98,13 @@ class DrawControl {
 
     handleDrawCreate = (e) => {
         e.features.forEach(f => {
-            const properties = { ...this.defaultProperties, ...f.properties };
+            const geomtype = f.geometry.type.toLowerCase();
+            const properties = { ...this.defaultProperties[geomtype], ...f.properties };
             f.properties = properties
             Object.keys(properties).forEach(key => {
                 this.draw.setFeatureProperty(f.id, key, properties[key]);
             });
-            const type = f.geometry.type.toLowerCase() + 's';
+            const type = geomtype + 's';
             addFeature(type, f);
             this.updateFeatureMeasurement(f);
         });
@@ -183,15 +205,21 @@ class DrawControl {
         });
     }
 
-    updateFeatures = (features, save = false) => {
+    updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
         features.forEach(feature => {
             const existingFeature = this.draw.get(feature.id);
             if (existingFeature) {
-                this.draw.add(feature);
-
+                if (!onlyUpdateProperties) {
+                    this.draw.add(feature);
+                } else {
+                    Object.assign(existingFeature.properties, feature.properties);
+                    this.draw.add(existingFeature);
+                }
+                
                 if (save) {
-                    const type = feature.geometry.type.toLowerCase() + 's';
-                    updateFeature(type, feature);
+                    const featureToUpdate = onlyUpdateProperties ? existingFeature : feature;
+                    const type = featureToUpdate.geometry.type.toLowerCase() + 's';
+                    updateFeature(type, featureToUpdate);
                 }
             }
             this.updateFeatureMeasurement(feature);
@@ -211,7 +239,7 @@ class DrawControl {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features, true);
+        this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = (features) => {
@@ -225,6 +253,14 @@ class DrawControl {
     setDefaultProperties = (properties, commonAttributes) => {
         commonAttributes.forEach(attr => {
             this.defaultProperties[attr] = properties[attr];
+        });
+    }
+
+    setDefaultProperties = (properties, commonAttributes) => {
+        Object.keys(this.defaultProperties).forEach(geometryType => {
+            commonAttributes.forEach(attr => {
+                this.defaultProperties[geometryType][attr] = properties[attr];
+            });
         });
     }
 

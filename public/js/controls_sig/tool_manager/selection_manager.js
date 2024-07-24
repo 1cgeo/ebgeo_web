@@ -7,11 +7,11 @@ class SelectionManager {
         this.imageControl = imageControl;
         this.losControl = losControl;
         this.visibilityControl = visibilityControl;
-        this.selectedFeatures = new Set();
-        this.selectedTextFeatures = new Set();
-        this.selectedImageFeatures = new Set();
-        this.selectedLOSFeatures = new Set();
-        this.selectedVisibilityFeatures = new Set();
+        this.selectedDrawFeatures = new Map();
+        this.selectedTextFeatures = new Map();
+        this.selectedImageFeatures = new Map();
+        this.selectedLOSFeatures = new Map();
+        this.selectedVisibilityFeatures = new Map();
 
         this.setupEventListeners();
     }
@@ -36,81 +36,87 @@ class SelectionManager {
         if (activeTool) {
             activeTool.handleMapClick(e);
         } else {
-            if (!e.originalEvent.shiftKey) {
-                this.uiManager.saveChangesAndClosePanel();
-                console.log('handleMapClick');
-                this.deselectAllFeatures();
+
+            const clickedFeature = this.getClickedDrawFeature(e.point);
+
+            if (!clickedFeature) {
+                if (!e.originalEvent.shiftKey) {
+                    this.uiManager.saveChangesAndClosePanel();
+                    this.deselectAllFeatures();
+                }
+            } else {
+                // If we clicked on a selected draw feature, don't deselect
+                if (this.selectedDrawFeatures.has(clickedFeature.id)) {
+                    this.drawControl.draw.changeMode('direct_select', { featureId: clickedFeature.id });
+                } else {
+                    this.deselectAllFeatures();
+                }
             }
         }
         this.updateUI();
     }
 
+    getClickedDrawFeature(point) {
+        const features = this.map.queryRenderedFeatures(point);
+        return features.find(f => f.source === 'mapbox-gl-draw-cold' || f.source === 'mapbox-gl-draw-hot');
+    }
+
     handleElementClick = (e) => {
         e.preventDefault();
         if (!e.originalEvent.shiftKey) {
-            console.log('not using shift');
             this.deselectAllFeatures();
         }
 
         const feature = e.features[0];
-        const layerId = feature.layer.id;
-        const featureId  = feature.id;
+        const source = feature.properties.source;
+        const featureId = feature.id;
 
-        if (layerId === 'text-layer') {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-            const feature = data.features.find(f => f.id == featureId);
-            this.toggleTextSelection(feature);
-        } else if (layerId === 'image-layer') {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-            const feature = data.features.find(f => f.id == featureId);
-            this.toggleImageSelection(feature);
-        } else if (layerId === 'los-layer') {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-            const feature = data.features.find(f => f.id == featureId);
-            this.toggleLOSSelection(feature);
-        } else if (layerId === 'visibility-layer') {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
-            const feature = data.features.find(f => f.id == featureId);
-            this.toggleVisibilitySelection(feature);
-        }
+        this.toggleFeatureSelection(source, featureId, feature);
 
-        this.drawControl.draw.changeMode('simple_select', { featureIds: Array.from(this.selectedFeatures).map(f => f.id) });
+        const drawFeatureIds = Array.from(this.selectedDrawFeatures.keys());
+        this.drawControl.draw.changeMode('simple_select', { featureIds: drawFeatureIds });
 
         this.updateUI();
+    }
+
+    toggleFeatureSelection(source, featureId, feature) {
+        let targetMap;
+        switch (source) {
+            case 'text':
+                targetMap = this.selectedTextFeatures;
+                break;
+            case 'image':
+                targetMap = this.selectedImageFeatures;
+                break;
+            case 'los':
+                targetMap = this.selectedLOSFeatures;
+                break;
+            case 'visibility':
+                targetMap = this.selectedVisibilityFeatures;
+                break;
+            case 'draw':
+                targetMap = this.selectedDrawFeatures;
+                break;
+            default:
+                console.error('Invalid source');
+        }
+
+        if (targetMap.has(featureId)) {
+            targetMap.delete(featureId);
+        } else {
+            targetMap.set(featureId, feature);
+        }
     }
 
     handleDrawSelectionChange = (e) => {
         const selectedFeatures = this.drawControl.draw.getSelected().features;
-        this.selectedFeatures = new Set(selectedFeatures);
+        this.selectedDrawFeatures = new Map(
+            selectedFeatures.map(f => [f.id, f])
+        );
         this.updateUI();
     }
 
-    toggleSelection(feature, selectedSet) {
-        if (selectedSet.has(feature)) {
-            selectedSet.delete(feature);
-        } else {
-            selectedSet.add(feature);
-        }
-    }
-
-    toggleTextSelection(feature) {
-        this.toggleSelection(feature, this.selectedTextFeatures);
-    }
-
-    toggleImageSelection(feature) {
-        this.toggleSelection(feature, this.selectedImageFeatures);
-    }
-
-    toggleLOSSelection(feature) {
-        this.toggleSelection(feature, this.selectedLOSFeatures);
-    }
-
-    toggleVisibilitySelection(feature) {
-        this.toggleSelection(feature, this.selectedVisibilityFeatures);
-    }
-
     deselectAllFeatures = (forceDraw = false) => {
-        console.log('deselecting all features', forceDraw);
         this.selectedTextFeatures.clear();
         this.selectedImageFeatures.clear();
         this.selectedLOSFeatures.clear();
@@ -118,17 +124,17 @@ class SelectionManager {
 
         if(forceDraw) {
             this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
-            this.selectedFeatures.clear();
+            this.selectedDrawFeatures.clear();
         }
     }
 
     getAllSelectedFeatures() {
         return [
-            ...Array.from(this.selectedTextFeatures).map(feature => ({ ...feature, source: 'text' })),
-            ...Array.from(this.selectedImageFeatures).map(feature => ({ ...feature, source: 'image' })),
-            ...Array.from(this.selectedLOSFeatures).map(feature => ({ ...feature, source: 'los' })),
-            ...Array.from(this.selectedVisibilityFeatures).map(feature => ({ ...feature, source: 'visibility' })),
-            ...Array.from(this.selectedFeatures).map(feature => ({ ...feature, source: 'draw' }))
+            ...[...this.selectedDrawFeatures.values()],
+            ...[...this.selectedTextFeatures.values()],
+            ...[...this.selectedImageFeatures.values()],
+            ...[...this.selectedLOSFeatures.values()],
+            ...[...this.selectedVisibilityFeatures.values()]
         ];
     }
 
@@ -147,23 +153,22 @@ class SelectionManager {
     }
 
     deleteSelectedFeatures = () => {
-        console.log('deleteSelectedFeatures');
-        this.textControl.deleteFeatures(this.selectedTextFeatures);
-        this.imageControl.deleteFeatures(this.selectedImageFeatures);
-        this.losControl.deleteFeatures(this.selectedLOSFeatures);
-        this.visibilityControl.deleteFeatures(this.selectedVisibilityFeatures);
-        this.drawControl.deleteFeatures(this.selectedFeatures);
+        this.textControl.deleteFeatures([...this.selectedTextFeatures.values()]);
+        this.imageControl.deleteFeatures([...this.selectedImageFeatures.values()]);
+        this.losControl.deleteFeatures([...this.selectedLOSFeatures.values()]);
+        this.visibilityControl.deleteFeatures([...this.selectedVisibilityFeatures.values()]);
+        this.drawControl.deleteFeatures([...this.selectedDrawFeatures.values()]);
 
         this.deselectAllFeatures(true);
         this.updateUI();
     }
 
     updateSelectedFeatures(save = false) {
-        this.textControl.updateFeatures(this.selectedTextFeatures, save);
-        this.imageControl.updateFeatures(this.selectedImageFeatures, save);
-        this.losControl.updateFeatures(this.selectedLOSFeatures, save);
-        this.visibilityControl.updateFeatures(this.selectedVisibilityFeatures, save);
-        this.drawControl.updateFeatures(this.selectedFeatures, save);
+        this.textControl.updateFeatures([...this.selectedTextFeatures.values()], save);
+        this.imageControl.updateFeatures([...this.selectedImageFeatures.values()], save);
+        this.losControl.updateFeatures([...this.selectedLOSFeatures.values()], save);
+        this.visibilityControl.updateFeatures([...this.selectedVisibilityFeatures.values()], save);
+        this.drawControl.updateFeatures([...this.selectedDrawFeatures.values()], save);
     }
 }
 

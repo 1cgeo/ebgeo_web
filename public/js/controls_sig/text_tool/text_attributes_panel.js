@@ -10,6 +10,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         textInput.rows = 3;
         textInput.cols = 50;
         textInput.oninput = (e) => {
+            updateJustifyButtons(e.target.value);
             textControl.updateFeaturesProperty(selectedFeatures, 'text', e.target.value);
             uiManager.updateSelectionHighlight();
         };
@@ -72,7 +73,10 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     const justifyContainer = document.createElement('div');
     justifyContainer.style.display = 'flex';
     justifyContainer.style.justifyContent = 'space-between';
-
+    
+    // Initialize button variables
+    let justifyLeftButton, justifyCenterButton, justifyRightButton;
+    
     const justifyOptions = ['left', 'center', 'right'];
     justifyOptions.forEach(option => {
         const button = document.createElement('button');
@@ -82,9 +86,28 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
             textControl.updateFeaturesProperty(selectedFeatures, 'justify', option);
         };
         justifyContainer.appendChild(button);
+    
+        // Assign buttons to variables
+        if (option === 'left') {
+            justifyLeftButton = button;
+        } else if (option === 'center') {
+            justifyCenterButton = button;
+        } else if (option === 'right') {
+            justifyRightButton = button;
+        }
     });
-
+    
     panel.appendChild(justifyContainer);
+    
+    const updateJustifyButtons = (text) => {
+        const lines = text.split('\n').length;
+        const enabled = lines > 1;
+        justifyLeftButton.disabled = !enabled;
+        justifyCenterButton.disabled = !enabled;
+        justifyRightButton.disabled = !enabled;
+    };
+
+    updateJustifyButtons(feature.properties.text);
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Save';
@@ -99,7 +122,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        textControl.discartChangeFeatures(selectedFeatures, initialPropertiesMap);
+        textControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
         selectionManager.updateUI();
     };

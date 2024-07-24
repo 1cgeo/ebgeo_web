@@ -6,7 +6,8 @@ class AddTextControl {
         color: '#000000',
         backgroundColor: '#ffffff',
         rotation: 0,
-        justify: 'center'
+        justify: 'center',
+        source: 'text'
     };
 
     constructor(toolManager) {
@@ -103,7 +104,7 @@ class AddTextControl {
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         features.forEach(feature => {
-            const f = data.features.find(f => f.id === feature.id);
+            const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
@@ -112,18 +113,28 @@ class AddTextControl {
         this.map.getSource('texts').setData(data);
     }
 
-    updateFeatures = (features, save = false) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-        features.forEach(feature => {
-            const featureIndex = data.features.findIndex(f => f.id === feature.id);
-            if (featureIndex !== -1) {
-                data.features[featureIndex] = feature;
-            }
-            if(save){
-                updateFeature('texts', feature);
-            }
-        });
-        this.map.getSource('texts').setData(data);
+    updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
+        if(features.length > 0){
+            const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+            features.forEach(feature => {
+                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                if (featureIndex !== -1) {
+                    if (onlyUpdateProperties) {
+                        // Only update properties of the existing feature
+                        Object.assign(data.features[featureIndex].properties, feature.properties);
+                    } else {
+                        // Replace the entire feature
+                        data.features[featureIndex] = feature;
+                    }
+        
+                    if (save) {
+                        const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
+                        updateFeature('texts', featureToUpdate);
+                    }
+                }
+            });
+            this.map.getSource('texts').setData(data);
+        }
     }
 
     saveFeatures = (features, initialPropertiesMap) => {
@@ -134,11 +145,11 @@ class AddTextControl {
         });
     }
 
-    discartChangeFeatures = (features, initialPropertiesMap) => {
+    discardChangeFeatures = (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features);
+        this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = (features) => {

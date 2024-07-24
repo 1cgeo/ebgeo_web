@@ -38,7 +38,7 @@ class UIManager {
     }
 
     createSelectionBoxesForTextFeatures = () => {
-        return Array.from(this.selectionManager.selectedTextFeatures).map(feature => {
+        return Array.from(this.selectionManager.selectedTextFeatures.values()).map(feature => {
             const coordinates = feature.geometry.coordinates;
             const { width, height } = this.measureTextSize(feature.properties.text, feature.properties.size, 'Arial');
             const polygon = this.createSelectionBox(coordinates, width, height, feature.properties.rotation);
@@ -51,7 +51,7 @@ class UIManager {
     }
 
     createSelectionBoxesForImageFeatures = () => {
-        return Array.from(this.selectionManager.selectedImageFeatures).map(feature => {
+        return Array.from(this.selectionManager.selectedImageFeatures.values()).map(feature => {
             const coordinates = feature.geometry.coordinates;
             const width = feature.properties.width * feature.properties.size;
             const height = feature.properties.height * feature.properties.size;
@@ -70,31 +70,25 @@ class UIManager {
         const latitude = center.lat;
         const pixelBuffer = 10;
 
-        return Array.from(this.selectionManager.drawControl.draw.getSelected().features).map(feature => 
+        return Array.from(this.selectionManager.selectedDrawFeatures.values()).map(feature => 
             this.calculateBuffer(feature, zoom, latitude, pixelBuffer)
         );
     }
 
     createSelectionBoxesForLOSFeatures = () => {
-        const newfeat = Array.from(this.selectionManager.selectedLOSFeatures).map(feature =>
+        const newfeat = Array.from(this.selectionManager.selectedLOSFeatures.values()).map(feature =>
             this.calculateBoundingBox(feature));
         return newfeat
     }
 
     createSelectionBoxesForVisibilityFeatures = () => {
-        const x= Array.from(this.selectionManager.selectedVisibilityFeatures).map(feature => 
+        const x= Array.from(this.selectionManager.selectedVisibilityFeatures.values()).map(feature => 
             this.calculateBoundingBox(feature));
         return x
     }
 
     updatePanels = () => {
-        const allSelectedFeatures = [
-            ...Array.from(this.selectionManager.selectedTextFeatures),
-            ...Array.from(this.selectionManager.selectedImageFeatures),
-            ...Array.from(this.selectionManager.selectedFeatures),
-            ...Array.from(this.selectionManager.selectedLOSFeatures),
-            ...Array.from(this.selectionManager.selectedVisibilityFeatures)
-        ];
+        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
 
         if (allSelectedFeatures.length > 0) {
             this.createUnifiedAttributesPanel(allSelectedFeatures);
@@ -115,7 +109,7 @@ class UIManager {
         panel = document.createElement('div');
         panel.className = 'unified-attributes-panel';
 
-        const featureTypes = new Set(selectedFeatures.map(f => this.getFeatureType(f)));
+        const featureTypes = new Set(selectedFeatures.map(f => f.properties.source));
 
         if (featureTypes.size === 1) {
             const featureType = featureTypes.values().next().value;
@@ -187,20 +181,6 @@ class UIManager {
         visibilityPanel.className = 'visibility-attributes-section';
         addVisibilityAttributesToPanel(visibilityPanel, features, this.selectionManager.visibilityControl, this.selectionManager, this);
         panel.appendChild(visibilityPanel);
-    }
-
-    getFeatureType = (feature) => {
-        if (this.selectionManager.selectedTextFeatures.has(feature)) {
-            return 'text';
-        } else if (this.selectionManager.selectedImageFeatures.has(feature)) {
-            return 'image';
-        } else if (this.selectionManager.selectedLOSFeatures.has(feature)) {
-            return 'los';
-        } else if (this.selectionManager.selectedVisibilityFeatures.has(feature)) {
-            return 'visibility';
-        } else {
-            return 'draw';
-        }
     }
 
     pixelsToDegrees = (pixels, latitude, zoom) => {

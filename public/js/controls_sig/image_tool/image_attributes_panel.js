@@ -59,7 +59,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        imageControl.discartChangeFeatures(selectedFeatures, initialPropertiesMap);
+        imageControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
         selectionManager.updateUI();
     };

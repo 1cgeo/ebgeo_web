@@ -34,7 +34,7 @@ class MoveHandler {
 
                 this.offsets = allSelectedFeatures.map(item => ({
                     feature: item,
-                    source: item.source,
+                    source: item.properties.source,
                     offset: this.calculateOffset(item, this.initialCoordinates)
                 }));
             }
@@ -63,7 +63,7 @@ class MoveHandler {
         });
         this.updateSelectionManagerFeatures(updatedFeatures);
 
-        this.selectionManager.updateSelectedFeatures();
+        //this.selectionManager.updateSelectedFeatures();
     }
 
     onMouseUp(e) {
@@ -161,33 +161,33 @@ class MoveHandler {
     }
 
     updateSelectionManagerFeatures(updatedFeatures) {
-        const newSelectedFeatures = new Set();
-        const newSelectedTextFeatures = new Set();
-        const newSelectedImageFeatures = new Set();
-        const newSelectedLOSFeatures = new Set();
-        const newSelectedVisibilityFeatures = new Set();
+        const newSelectedFeatures = new Map();
+        const newSelectedTextFeatures = new Map();
+        const newSelectedImageFeatures = new Map();
+        const newSelectedLOSFeatures = new Map();
+        const newSelectedVisibilityFeatures = new Map();
 
         updatedFeatures.forEach(feature => {
-            switch (feature.source) {
+            switch (feature.properties.source) {
                 case 'draw':
-                    newSelectedFeatures.add(feature);
+                    newSelectedFeatures.set(feature.id, feature);
                     break;
                 case 'text':
-                    newSelectedTextFeatures.add(feature);
+                    newSelectedTextFeatures.set(feature.id, feature);
                     break;
                 case 'image':
-                    newSelectedImageFeatures.add(feature);
+                    newSelectedImageFeatures.set(feature.id, feature);
                     break;
                 case 'los':
-                    newSelectedLOSFeatures.add(feature);
+                    newSelectedLOSFeatures.set(feature.id, feature);
                     break;
                 case 'visibility':
-                    newSelectedVisibilityFeatures.add(feature);
+                    newSelectedVisibilityFeatures.set(feature.id, feature);
                     break;
             }
         });
 
-        this.selectionManager.selectedFeatures = newSelectedFeatures;
+        this.selectionManager.selectedDrawFeatures = newSelectedFeatures;
         this.selectionManager.selectedTextFeatures = newSelectedTextFeatures;
         this.selectionManager.selectedImageFeatures = newSelectedImageFeatures;
         this.selectionManager.selectedLOSFeatures = newSelectedLOSFeatures;

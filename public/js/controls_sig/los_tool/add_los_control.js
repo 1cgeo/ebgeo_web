@@ -4,7 +4,8 @@ class AddLOSControl {
         opacity: 1,
         profile: true,
         measure: false,
-        color: '#3f4fb5'
+        color: '#3f4fb5',
+        source: 'los'
     };
 
     constructor(toolManager) {
@@ -139,7 +140,7 @@ class AddLOSControl {
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
         features.forEach(feature => {
-            const f = data.features.find(f => f.id === feature.id);
+            const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
@@ -148,18 +149,28 @@ class AddLOSControl {
         this.map.getSource('los').setData(data);
     }
 
-    updateFeatures = (features, save = false) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-        features.forEach(feature => {
-            const featureIndex = data.features.findIndex(f => f.id === feature.id);
-            if (featureIndex !== -1) {
-                data.features[featureIndex] = feature;
-            }
-            if(save){
-                updateFeature('los', feature);
-            }
-        });
-        this.map.getSource('los').setData(data);
+    updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
+        if(features.length > 0){
+            const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+            features.forEach(feature => {
+                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                if (featureIndex !== -1) {
+                    if (onlyUpdateProperties) {
+                        // Only update properties of the existing feature
+                        Object.assign(data.features[featureIndex].properties, feature.properties);
+                    } else {
+                        // Replace the entire feature
+                        data.features[featureIndex] = feature;
+                    }
+        
+                    if (save) {
+                        const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
+                        updateFeature('los', featureToUpdate);
+                    }
+                }
+            });
+            this.map.getSource('los').setData(data);
+        }
     }
 
     saveFeatures = (features, initialPropertiesMap) => {
@@ -170,15 +181,15 @@ class AddLOSControl {
         });
     }
 
-    discartChangeFeatures = (features, initialPropertiesMap) => {
+    discardChangeFeatures = (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features);
+        this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = (features) => {
-        if (features.size === 0) {
+        if (features.length === 0) {
             return;
         }
         const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
