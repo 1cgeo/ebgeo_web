@@ -167,6 +167,52 @@ map.on('styledata', () => {
             }
         });
     }
+
+    if (!map.getSource('temp-line')) {
+        map.addSource('temp-line', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+    }
+
+    if (!map.getLayer('temp-line-layer')) {
+        map.addLayer({
+            id: 'temp-line-layer',
+            type: 'line',
+            source: 'temp-line',
+            paint: {
+                'line-color': '#3f4fb5',
+                'line-width': 2,
+                'line-dasharray': [2, 2]
+            }
+        });
+    }
+
+    if (!map.getSource('temp-polygon')) {
+        map.addSource('temp-polygon', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+    }
+
+    if (!map.getLayer('temp-polygon-layer')) {
+        map.addLayer({
+            id: 'temp-polygon-layer',
+            type: 'fill',
+            source: 'temp-polygon',
+            paint: {
+                'fill-color': '#3f4fb5',
+                'fill-opacity': 0.5,
+                'fill-outline-color': '#3f4fb5'
+            }
+        });
+    }
 });
 
 

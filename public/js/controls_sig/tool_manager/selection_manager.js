@@ -37,9 +37,8 @@ class SelectionManager {
             activeTool.handleMapClick(e);
         } else {
             if (!e.originalEvent.shiftKey) {
-                if (this.uiManager) {
-                    this.uiManager.saveChangesAndClosePanel();
-                }
+                this.uiManager.saveChangesAndClosePanel();
+                console.log('handleMapClick');
                 this.deselectAllFeatures();
             }
         }
@@ -49,6 +48,7 @@ class SelectionManager {
     handleElementClick = (e) => {
         e.preventDefault();
         if (!e.originalEvent.shiftKey) {
+            console.log('not using shift');
             this.deselectAllFeatures();
         }
 
@@ -110,6 +110,7 @@ class SelectionManager {
     }
 
     deselectAllFeatures = (forceDraw = false) => {
+        console.log('deselecting all features', forceDraw);
         this.selectedTextFeatures.clear();
         this.selectedImageFeatures.clear();
         this.selectedLOSFeatures.clear();
@@ -132,10 +133,8 @@ class SelectionManager {
     }
 
     updateUI = () => {
-        if (this.uiManager) {
-            this.uiManager.updateSelectionHighlight();
-            this.uiManager.updatePanels();
-        }
+        this.uiManager.updateSelectionHighlight();
+        this.uiManager.updatePanels();
     }
 
     getActiveTool = () => {
@@ -148,13 +147,14 @@ class SelectionManager {
     }
 
     deleteSelectedFeatures = () => {
+        console.log('deleteSelectedFeatures');
         this.textControl.deleteFeatures(this.selectedTextFeatures);
         this.imageControl.deleteFeatures(this.selectedImageFeatures);
         this.losControl.deleteFeatures(this.selectedLOSFeatures);
         this.visibilityControl.deleteFeatures(this.selectedVisibilityFeatures);
         this.drawControl.deleteFeatures(this.selectedFeatures);
 
-        this.deselectAllFeatures();
+        this.deselectAllFeatures(true);
         this.updateUI();
     }
 

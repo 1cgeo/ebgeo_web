@@ -3,13 +3,15 @@ class AddLOSControl {
     static DEFAULT_PROPERTIES = {
         opacity: 1,
         profile: true,
-        measure: false
+        measure: false,
+        color: '#3f4fb5'
     };
 
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.toolManager.textControl = this;
         this.isActive = false;
+        this.startPoint = null;
     }
 
     onAdd = (map) => {
@@ -59,17 +61,54 @@ class AddLOSControl {
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
+        this.startPoint = null;
+        this.map.getSource('temp-line').setData({
+            type: 'FeatureCollection',
+            features: []
+        });
+        this.map.off('mousemove', this.handleMouseMove);
     }
 
     handleMapClick = (e) => {
-        if (this.isActive) {
-            this.addTextFeature(e.lngLat, 'Texto');
-            this.toolManager.deactivateCurrentTool();
+        if (!this.isActive) return;
+
+        const { lng, lat } = e.lngLat;
+
+        if (!this.startPoint) {
+            this.startPoint = [lng, lat];
+            this.map.on('mousemove', this.handleMouseMove);
+        } else {
+            const endPoint = [lng, lat];
+            this.addLineFeature([this.startPoint, endPoint]);
+            this.deactivate();
         }
     }
 
-    addTextFeature = (lngLat, text) => {
-        const feature = this.createTextFeature(lngLat, text);
+    handleMouseMove = (e) => {
+        if (!this.isActive || !this.startPoint) return;
+
+        const { lng, lat } = e.lngLat;
+        const endPoint = [lng, lat];
+        this.updateTempLine([this.startPoint, endPoint]);
+    }
+
+    updateTempLine = (coordinates) => {
+        const data = {
+            type: 'FeatureCollection',
+            features: [{
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: coordinates
+                }
+            }]
+        };
+
+        this.map.getSource('temp-line').setData(data);
+    }
+
+    addLineFeature = (coordinates) => {
+        const feature = this.createLineFeature(coordinates);
         addFeature('los', feature);
 
         const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
@@ -77,14 +116,14 @@ class AddLOSControl {
         this.map.getSource('los').setData(data);
     }
 
-    createTextFeature = (lngLat, text) => {
+    createLineFeature = (coordinates) => {
         return {
             type: 'Feature',
             id: Date.now().toString(),
             properties: { ...AddLOSControl.DEFAULT_PROPERTIES },
             geometry: {
                 type: 'LineString',
-                coordinates: [lngLat.lng, lngLat.lat]
+                coordinates: coordinates
             }
         };
     }

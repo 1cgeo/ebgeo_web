@@ -11,7 +11,8 @@ class DrawControl {
             opacity: 0.5,
             size: 3,
             outlinecolor: '#fbb03b',
-            measure: false
+            measure: false,
+            profile: false
         };
         this.controlPosition = 'top-right';
     }
@@ -186,18 +187,14 @@ class DrawControl {
         features.forEach(feature => {
             const existingFeature = this.draw.get(feature.id);
             if (existingFeature) {
-                Object.keys(feature.properties).forEach(key => {
-                    this.draw.setFeatureProperty(feature.id, key, feature.properties[key]);
-                });
-
-                existingFeature.geometry =  JSON.parse(JSON.stringify(feature.geometry));
-                this.draw.add(existingFeature);
+                this.draw.add(feature);
 
                 if (save) {
                     const type = feature.geometry.type.toLowerCase() + 's';
                     updateFeature(type, feature);
                 }
             }
+            this.updateFeatureMeasurement(feature);
         });
     }
 

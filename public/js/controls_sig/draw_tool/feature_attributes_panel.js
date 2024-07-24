@@ -55,7 +55,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
 function findCommonAttributes(features) {
     const attributeSets = {
         Point: ['size', 'color', 'opacity'],
-        LineString: ['size', 'color', 'opacity', 'measure'],
+        LineString: ['size', 'color', 'opacity', 'measure', 'profile'],
         Polygon: ['color', 'opacity', 'outlinecolor', 'size', 'measure']
     };
 
@@ -73,7 +73,8 @@ function getLabel(attr, features) {
         color: 'Cor',
         opacity: 'Opacidade',
         outlinecolor: 'Cor da borda',
-        measure: 'Medir'
+        measure: 'Medir',
+        profile: 'Perfil do terreno'
     };
 
     if (attr === 'size') {
@@ -99,7 +100,7 @@ function createInput(attr, value) {
         input.max = 1;
         input.step = 0.1;
         input.value = value !== undefined ? value : 1;
-    } else if (attr === 'measure') {
+    } else if (attr === 'measure' || attr === 'profile') {
         input = document.createElement('input');
         input.type = 'checkbox';
         input.checked = value === true;

@@ -24,8 +24,10 @@ class UIManager {
         const textFeatures = this.createSelectionBoxesForTextFeatures();
         const imageFeatures = this.createSelectionBoxesForImageFeatures();
         const drawFeatures = this.createSelectionBoxesForDrawFeatures();
+        const losFeatures = this.createSelectionBoxesForLOSFeatures();
+        const visibilityFeatures = this.createSelectionBoxesForVisibilityFeatures();
 
-        features.push(...textFeatures, ...imageFeatures, ...drawFeatures);
+        features.push(...textFeatures, ...imageFeatures, ...drawFeatures, ...losFeatures, ...visibilityFeatures);
 
         const data = {
             type: 'FeatureCollection',
@@ -71,6 +73,18 @@ class UIManager {
         return Array.from(this.selectionManager.drawControl.draw.getSelected().features).map(feature => 
             this.calculateBuffer(feature, zoom, latitude, pixelBuffer)
         );
+    }
+
+    createSelectionBoxesForLOSFeatures = () => {
+        const newfeat = Array.from(this.selectionManager.selectedLOSFeatures).map(feature =>
+            this.calculateBoundingBox(feature));
+        return newfeat
+    }
+
+    createSelectionBoxesForVisibilityFeatures = () => {
+        const x= Array.from(this.selectionManager.selectedVisibilityFeatures).map(feature => 
+            this.calculateBoundingBox(feature));
+        return x
     }
 
     updatePanels = () => {
@@ -194,6 +208,11 @@ class UIManager {
         const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
         const degreesPerMeter = 360 / earthCircumference;
         return pixels * metersPerPixel * degreesPerMeter;
+    }
+    
+    calculateBoundingBox = (feature) => {
+        const bbox = turf.bbox(feature);
+        return turf.bboxPolygon(bbox);
     }
 
     calculateBuffer = (feature, zoom, latitude, pixelBuffer) => {
