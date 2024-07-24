@@ -54,7 +54,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
-        losControl.discartChangeFeatures(selectedFeatures, initialPropertiesMap);
+        losControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
         selectionManager.updateUI();
     };

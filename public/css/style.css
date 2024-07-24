@@ -283,11 +283,18 @@ html {
     cursor: pointer;
     padding: 5px;
     font-size: 12px;
+    pointer-events: auto !important; /* Ensure they can be clicked */
+}
+
+.measurement-label {
+    background-color: white;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+    box-shadow: 0 0 2px rgba(0,0,0,0.5);
     pointer-events: auto !important;
     /* Ensure they can be clicked */
 }
-
-
 
 /* button center bar */
 .bar-center-buttons {
