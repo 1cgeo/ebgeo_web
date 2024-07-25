@@ -219,7 +219,7 @@ class AddStreetViewControl {
         let texture = new THREE.TextureLoader().load(
             `${this.IMAGES_LOCATION}/${info.camera.img}.webp`
         );
-
+        texture.colorSpace = THREE.SRGBColorSpace
         this.material = new THREE.MeshBasicMaterial({ map: texture });
         this.mesh = new THREE.Mesh(geometry, this.material);
         this.mesh.name = 'IMAGE_360';
@@ -416,6 +416,7 @@ class AddStreetViewControl {
             let texture = new THREE.TextureLoader().load(
                 `${this.IMAGES_LOCATION}/${data.camera.img}.webp`,
                 (texture) => {
+                    texture.colorSpace = THREE.SRGBColorSpace
                     this.material.map = texture
                     this.offsetRad = THREE.MathUtils.degToRad(data.camera.fix_heading);
                     this.mesh.rotation.y = this.offsetRad
