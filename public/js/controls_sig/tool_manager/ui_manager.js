@@ -76,14 +76,22 @@ class UIManager {
     }
 
     createSelectionBoxesForLOSFeatures = () => {
-        const newfeat = Array.from(this.selectionManager.selectedLOSFeatures.values()).map(feature =>
-            this.calculateBoundingBox(feature));
-        return newfeat
+        return Array.from(this.selectionManager.selectedLOSFeatures.values()).map(feature => {
+            const mergedLine = {
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: feature.geometry.coordinates.flat()
+                }
+            };
+
+            return this.calculateBuffer(mergedLine);
+        });
     }
 
     createSelectionBoxesForVisibilityFeatures = () => {
         const x= Array.from(this.selectionManager.selectedVisibilityFeatures.values()).map(feature => 
-            this.calculateBoundingBox(feature));
+            this.calculateBuffer(feature));
         return x
     }
 

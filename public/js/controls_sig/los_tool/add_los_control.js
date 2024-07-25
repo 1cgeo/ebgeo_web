@@ -2,9 +2,11 @@ import { addFeature, updateFeature, removeFeature } from '../store.js';
 class AddLOSControl {
     static DEFAULT_PROPERTIES = {
         opacity: 1,
+        wdith: 2,
         profile: true,
         measure: false,
-        color: '#3f4fb5',
+        visibleColor: '#00FF00',
+        obstructedColor: '#FF0000',
         source: 'los'
     };
 
@@ -13,6 +15,7 @@ class AddLOSControl {
         this.toolManager.textControl = this;
         this.isActive = false;
         this.startPoint = null;
+        this.endPoint = null;
     }
 
     onAdd = (map) => {
@@ -63,6 +66,7 @@ class AddLOSControl {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
         this.startPoint = null;
+        this.endPoint = null;
         this.map.getSource('temp-line').setData({
             type: 'FeatureCollection',
             features: []
@@ -70,7 +74,7 @@ class AddLOSControl {
         this.map.off('mousemove', this.handleMouseMove);
     }
 
-    handleMapClick = (e) => {
+    handleMapClick = async (e) => {
         if (!this.isActive) return;
 
         const { lng, lat } = e.lngLat;
@@ -79,8 +83,8 @@ class AddLOSControl {
             this.startPoint = [lng, lat];
             this.map.on('mousemove', this.handleMouseMove);
         } else {
-            const endPoint = [lng, lat];
-            this.addLineFeature([this.startPoint, endPoint]);
+            this.endPoint = [lng, lat];
+            await this.addLOSFeature();
             this.deactivate();
         }
     }
@@ -108,24 +112,78 @@ class AddLOSControl {
         this.map.getSource('temp-line').setData(data);
     }
 
-    addLineFeature = (coordinates) => {
-        const feature = this.createLineFeature(coordinates);
-        addFeature('los', feature);
+    async addLOSFeature() {
+        const linestring = {
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: [this.startPoint, this.endPoint]
+            }
+        };
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-        data.features.push(feature);
-        this.map.getSource('los').setData(data);
-    }
+        const losResult = await this.calculateLOS(linestring);
 
-    createLineFeature = (coordinates) => {
-        return {
+        const losFeature = {
             type: 'Feature',
             id: Date.now().toString(),
             properties: { ...AddLOSControl.DEFAULT_PROPERTIES },
             geometry: {
-                type: 'LineString',
-                coordinates: coordinates
+                type: 'MultiLineString',
+                coordinates: [
+                    losResult.visibleLine.geometry.coordinates,
+                    losResult.obstructedLine ? losResult.obstructedLine.geometry.coordinates : []
+                ]
             }
+        };
+        
+        addFeature('los', losFeature);
+
+        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+        data.features.push(losFeature.toGeoJSON());
+        this.map.getSource('los').setData(data);
+    }
+
+    async calculateLOS(linestring) {
+        const line = turf.lineString(linestring.geometry.coordinates);
+        const length = turf.length(line, { units: 'meters' });
+        const steps = 20; // Number of steps to check elevation along the line
+        const stepLength = length / steps;
+      
+        // Get start and end elevations
+        const startCoordinates = line.geometry.coordinates[0];
+        const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
+        const startElevation = await map.queryTerrainElevation(startCoordinates, { exaggerated: false });
+        const endElevation = await map.queryTerrainElevation(endCoordinates, { exaggerated: false });
+      
+        let firstObstructedPoint = null;
+      
+        for (let i = 1; i <= steps; i++) {
+          const segment = turf.along(line, i * stepLength, { units: 'meters' });
+          const segmentCoordinates = segment.geometry.coordinates;
+      
+          // Calculate expected elevation on the line
+          const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
+      
+          // Query terrain elevation
+          const actualElevation = await map.queryTerrainElevation(segmentCoordinates, { exaggerated: false });
+      
+          if (actualElevation > expectedElevation) {
+            firstObstructedPoint = segmentCoordinates;
+            break;
+          }
+        }
+      
+        const visibleLine = firstObstructedPoint 
+          ? turf.lineString([startCoordinates, firstObstructedPoint]) 
+          : turf.lineString([startCoordinates, endCoordinates]);
+      
+        const obstructedLine = firstObstructedPoint 
+          ? turf.lineString([firstObstructedPoint, endCoordinates]) 
+          : null; // Empty line if no obstruction
+      
+        return {
+          visible: visibleLine,
+          obstructed: obstructedLine
         };
     }
 
@@ -156,10 +214,8 @@ class AddLOSControl {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
-                        // Only update properties of the existing feature
                         Object.assign(data.features[featureIndex].properties, feature.properties);
                     } else {
-                        // Replace the entire feature
                         data.features[featureIndex] = feature;
                     }
         

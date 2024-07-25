@@ -45,11 +45,12 @@ class SelectionManager {
                     this.deselectAllFeatures();
                 }
             } else {
-                // If we clicked on a selected draw feature, don't deselect
                 if (this.selectedDrawFeatures.has(clickedFeature.id)) {
                     this.drawControl.draw.changeMode('direct_select', { featureId: clickedFeature.id });
                 } else {
-                    this.deselectAllFeatures();
+                    if (!e.originalEvent.shiftKey) {
+                        this.deselectAllFeatures();
+                    }
                 }
             }
         }

@@ -5,7 +5,7 @@ class MoveHandler {
         this.uiManager = uiManager;
         this.isDragging = false;
         this.lastPos = null;
-        this.debounceTime = 20;
+        this.debounceTime = 16;
         this.lastUpdateTime = 0;
         this.map.on('mousedown', this.onMouseDown.bind(this));
     }
@@ -32,11 +32,15 @@ class MoveHandler {
                 this.initialCoordinates = e.lngLat;
                 this.setCursorStyle('grabbing');
 
-                this.offsets = allSelectedFeatures.map(item => ({
-                    feature: item,
-                    source: item.properties.source,
-                    offset: this.calculateOffset(item, this.initialCoordinates)
-                }));
+                this.selectedFeatures = allSelectedFeatures;
+                this.offsets = new Map(allSelectedFeatures.map(item => [
+                    item.id,
+                    {
+                        feature: item,
+                        source: item.properties.source,
+                        offset: this.calculateOffset(item, this.initialCoordinates)
+                    }
+                ]));
             }
         }
     }
@@ -44,7 +48,7 @@ class MoveHandler {
     onMouseMove(e) {
         if (!this.isDragging) return;
 
-        const currentTime = Date.now();
+        const currentTime = performance.now();
         if (currentTime - this.lastUpdateTime < this.debounceTime) {
             return;
         }
@@ -54,16 +58,16 @@ class MoveHandler {
         const dx = newPos.lng - this.initialCoordinates.lng;
         const dy = newPos.lat - this.initialCoordinates.lat;
 
-        const updatedFeatures = this.offsets.map(({ feature, source, offset }) => {
+        const updatedFeatures = this.selectedFeatures.map(feature => {
+            const { offset } = this.offsets.get(feature.id);
             const newCoords = {
                 lng: newPos.lng + offset[0],
                 lat: newPos.lat + offset[1]
             };
-            return this.calculateUpdatedFeature(feature, source, dx, dy, newCoords);
+            return this.calculateUpdatedFeature(feature, feature.properties.source, dx, dy, newCoords);
         });
-        this.updateSelectionManagerFeatures(updatedFeatures);
 
-        //this.selectionManager.updateSelectedFeatures();
+        this.updateSelectionManagerFeatures(updatedFeatures);
     }
 
     onMouseUp(e) {
@@ -82,7 +86,6 @@ class MoveHandler {
         }
 
         this.map.off('mousemove', this.onMouseMove);
-
     }
 
     calculateUpdatedFeature(feature, source, dx, dy, newCoords) {
@@ -114,22 +117,33 @@ class MoveHandler {
                 coords[1] - referencePoint.lat
             ];
         } else if (feature.geometry.type === "LineString") {
-            // For LineString geometry (assuming we want to offset the first point)
+            // For LineString geometry (offset the first point)
             return [
                 coords[0][0] - referencePoint.lng,
                 coords[0][1] - referencePoint.lat
             ];
         } else if (feature.geometry.type === "Polygon") {
-            // For Polygon geometry (assuming we want to offset the first point of the first ring)
+            // For Polygon geometry (offset the first point of the first ring)
             return [
                 coords[0][0][0] - referencePoint.lng,
                 coords[0][0][1] - referencePoint.lat
+            ];
+        } else if (feature.geometry.type === "MultiLineString") {
+            // For MultiLineString geometry (offset the first point of the first line)
+            return [
+                coords[0][0][0] - referencePoint.lng,
+                coords[0][0][1] - referencePoint.lat
+            ];
+        } else if (feature.geometry.type === "MultiPolygon") {
+            // For MultiPolygon geometry (offset the first point of the first polygon)
+            return [
+                coords[0][0][0][0] - referencePoint.lng,
+                coords[0][0][0][1] - referencePoint.lat
             ];
         } else {
             throw new Error("Unsupported geometry type: " + feature.geometry.type);
         }
     }
-    
 
     translateFeature(feature, dx, dy) {
         const translatedFeature = JSON.parse(JSON.stringify(feature));
@@ -152,6 +166,12 @@ class MoveHandler {
                 break;
             case 'Polygon':
                 translatedFeature.geometry.coordinates = coordinates.map(ring => ring.map(translateCoords));
+                break;
+            case 'MultiLineString':
+                translatedFeature.geometry.coordinates = coordinates.map(line => line.map(translateCoords));
+                break;
+            case 'MultiPolygon':
+                translatedFeature.geometry.coordinates = coordinates.map(polygon => polygon.map(ring => ring.map(translateCoords)));
                 break;
             default:
                 throw new Error(`Unsupported geometry type: ${type}`);

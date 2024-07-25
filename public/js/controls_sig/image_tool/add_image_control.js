@@ -13,6 +13,8 @@ class AddImageControl {
         this.toolManager = toolManager;
         this.toolManager.imageControl = this;
         this.isActive = false;
+        this.maxImageSize = 800;
+        this.imageQuality = 0.7;
     }
 
     onAdd(map) {
@@ -71,16 +73,50 @@ class AddImageControl {
             input.accept = 'image/*';
             input.onchange = (event) => {
                 const file = event.target.files[0];
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const imageBase64 = reader.result;
-                    this.addImageFeature(e.lngLat, imageBase64);
-                };
-                reader.readAsDataURL(file);
+                this.compressAndAddImage(file, e.lngLat);
             };
             input.click();
             this.toolManager.deactivateCurrentTool();
         }
+    }
+
+    compressAndAddImage = (file, lngLat) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const compressedImageData = this.compressImage(img);
+                this.addImageFeature(lngLat, compressedImageData);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    compressImage = (img) => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+            if (width > this.maxImageSize) {
+                height *= this.maxImageSize / width;
+                width = this.maxImageSize;
+            }
+        } else {
+            if (height > this.maxImageSize) {
+                width *= this.maxImageSize / height;
+                height = this.maxImageSize;
+            }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        return canvas.toDataURL('image/jpeg', this.imageQuality);
     }
 
     addImageFeature = (lngLat, imageBase64) => {

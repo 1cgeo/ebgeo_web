@@ -107,18 +107,20 @@ map.on('styledata', () => {
 
     if (!map.getLayer('los-layer')) {
         map.addLayer({
-            id: 'los-layer',
-            type: 'line',
-            source: 'los',
-            layout: {
-                'line-join': 'round',
-                'line-cap': 'round'
-            },
-            paint: {
-                'line-color': ['get', 'color'],
+            'id': 'los-layer',
+            'type': 'line',
+            'source': 'los',
+            'paint': {
+                'line-color': [
+                    'case',
+                    ['==', ['array-index', ['get', 'coordinates'], 0], 0],
+                    ['get', 'visibleColor'],
+                    ['get', 'obstructedColor']
+                ],
                 'line-opacity': ['get', 'opacity'],
-                'line-width': 2
-            }
+                'line-width': ['get', 'width']
+            },
+            'filter': ['==', '$type', 'MultiLineString']
         });
     }
 
