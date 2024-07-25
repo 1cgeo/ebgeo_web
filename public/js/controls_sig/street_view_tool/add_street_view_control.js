@@ -35,6 +35,7 @@ class AddStreetViewControl {
         this.nextPhotoTarget = null
         this.isDrag = false
         this.miniMap = null
+        this.isOpen = false
         this.loadData()
     }
 
@@ -191,6 +192,7 @@ class AddStreetViewControl {
     }
 
     loadStreetView = (info) => {
+        this.isOpen = true
         $('#close-street-view-button').on('click', this.closeStreetView)
         const container = document.getElementById('street-view-container');
         document.addEventListener('pointermove', this.setCurrentMouse);
@@ -463,7 +465,7 @@ class AddStreetViewControl {
     }
 
     onDocumentMouseWheel = (event) => {
-        if ($('#mini-map-street-view:hover').length == 1) return
+        if ($('#mini-map-street-view:hover').length == 1 || !this.isOpen) return
         const fov = this.camera.fov + event.deltaY * 0.05;
         this.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
         this.camera.updateProjectionMatrix();
@@ -603,6 +605,7 @@ class AddStreetViewControl {
 
     closeStreetView = () => {
         this.setFullMap(true)
+        this.isOpen = false
     }
 
     hidePhotos = () => {
