@@ -462,7 +462,7 @@ class AddStreetViewControl {
     }
 
     onDocumentMouseWheel = (event) => {
-        if ($('#mini-map:hover').length == 0) return
+        if ($('#mini-map-street-view:hover').length == 1) return
         const fov = this.camera.fov + event.deltaY * 0.05;
         this.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
         this.camera.updateProjectionMatrix();
