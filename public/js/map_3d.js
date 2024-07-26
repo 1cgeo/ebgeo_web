@@ -10,17 +10,32 @@ for (let tilesetSetup of [
         heightOffset: -360, //-360 para elipsoide 40 para terreno,
         id: "AMAN",
         default: true,
+        locate: {
+            lat: -22.455921,
+            lon: -44.449655,
+            height: 2200
+        }
     },
     {
         url: "/3d/ESA/tileset.json",
         heightOffset: -770,
         id: "ESA",
+        locate: {
+            lon: -45.25666459926732,
+            lat: -21.703613735103637,
+            height: 1500
+        }
 
     },
     {
         url: "/3d/PCL/tileset.json",
         heightOffset: -387,
         id: "PCL",
+        locate: {
+            lon: -44.47332385414955,
+            lat: -22.43976556982974,
+            height: 300
+        }
 
     },
 
@@ -28,11 +43,11 @@ for (let tilesetSetup of [
     let tileset = load3dTileset(map, tilesetSetup)
     // Nome das imagens para o Fly To
     if (tilesetSetup.id === "AMAN") {
-        var tilesetAMAN = tileset;
+        var tilesetAMAN = tilesetSetup.locate;
     } else if (tilesetSetup.id === "ESA") {
-        var tilesetESA = tileset;
+        var tilesetESA = tilesetSetup.locate;
     } else if (tilesetSetup.id === "PCL") {
-        var tilesetPCL = tileset;
+        var tilesetPCL = tilesetSetup.locate;
     }
 }
 
@@ -77,21 +92,36 @@ $('#locate-3d-container button').click(function () {
         removeAllTools()
         switch (text) {
             case 'aman':
-                map.flyTo(tilesetAMAN, {
-                    offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-60), 0)
-                });
+                var { lat, lon, height } = tilesetAMAN
                 break;
             case 'esa':
-                map.flyTo(tilesetESA, {
-                    offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-60), 0)
-                });
+                var { lat, lon, height } = tilesetESA
                 break;
             case 'aman-pcl':
-                map.flyTo(tilesetPCL, {
-                    offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-60), 0)
-                });
+                var { lat, lon, height } = tilesetPCL
+
                 break;
         }
+        map.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
+        });
     }
 });
+
+
+var handler = new Cesium.ScreenSpaceEventHandler(map.canvas);
+handler.setInputAction(function (event) {
+    var scratchRectangle = new Cesium.Rectangle();
+    var pickedPosition = map.scene.pickPosition(event.position);
+    if (Cesium.defined(pickedPosition)) {
+        var carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(pickedPosition);
+        var lon = Cesium.Math.toDegrees(carto.longitude);
+        var lat = Cesium.Math.toDegrees(carto.latitude);
+        console.log(lon, lat)
+    }
+    console.log(
+        map.camera.computeViewRectangle(Cesium.Ellipsoid.default,
+            scratchRectangle)
+    )
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 

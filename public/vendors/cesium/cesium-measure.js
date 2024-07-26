@@ -288,7 +288,7 @@
                         }
                         const distance = +$this.getPositionDistance($this.transformCartesianArrayToWGS84Array(positions))
                         _labelEntity.label = {
-                            text: `${(distance < 1000 ? distance : distance / 1000).toFixed(4)} ${distance < 1000 ? 'm' : 'km'}`,
+                            text: `${(distance < 1000 ? distance : distance / 1000).toFixed(1)} ${distance < 1000 ? 'm' : 'km'}`.replace('.', ','),
                             show: true,
                             showBackground: true,
                             font: '14px monospace',
@@ -399,7 +399,7 @@
                         }
                         const area = +$this.getPositionsArea($this.transformCartesianArrayToWGS84Array(positions))
                         _labelEntity.label = {
-                            text: `${(area / 1000000.0 < 1 ? area : area / 1000000.0).toFixed(4)} ${area / 1000000.0 < 1 ? 'm²' : 'km²'}`,
+                            text: `${(area / 1000000.0 < 1 ? area : area / 1000000.0).toFixed(1)} ${area / 1000000.0 < 1 ? 'm²' : 'km²'}`.replace('.', ','),
                             show: true,
                             showBackground: true,
                             font: '14px monospace',
