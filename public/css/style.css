@@ -459,7 +459,7 @@ html {
     bottom: 0;
     left: 0;
     right: 0;
-    background-color: rgb(var(--pure-material-onprimary-rgb, 255, 255, 255));
+    /* background-color: rgb(var(--pure-material-onprimary-rgb, 255, 255, 255)); */
     opacity: 0;
     transition: opacity 0.2s;
 }

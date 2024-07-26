@@ -226,9 +226,10 @@
 
                     var positions = [], _lineEntity = new Cesium.Entity(), $this = this, lineObj,
                         _handlers = new Cesium.ScreenSpaceEventHandler(this._viewer.scene.canvas);
+
+                    this.lineMeasureHandlers = _handlers
                     // left
                     _handlers.setInputAction(function (movement) {
-
                         var cartesian = $this.getCatesian3FromPX(movement.position);
                         if (cartesian && cartesian.x) {
                             if (positions.length == 0) {
@@ -300,6 +301,13 @@
                 }
 
             },
+
+            removeDrawLineMeasureGraphics: function (options = {}) {
+                let _handlers = this.lineMeasureHandlers
+                if (!_handlers) return
+                _handlers.destroy()
+                _handlers = null
+            },
             /**
              * 测面积
              * @param {*} options 
@@ -310,6 +318,7 @@
 
                     var positions = [], polygon = new Cesium.PolygonHierarchy(), _polygonEntity = new Cesium.Entity(), $this = this, polyObj = null, _label = '',
                         _handler = new Cesium.ScreenSpaceEventHandler(this._viewer.scene.canvas);
+                    this.areaMeasureHandlers = _handler
                     // left
                     _handler.setInputAction(function (movement) {
 
@@ -402,6 +411,12 @@
                     }
                 }
 
+            },
+            removeDrawAreaMeasureGraphics: function (options = {}) {
+                let _handlers = this.areaMeasureHandlers
+                if (!_handlers) return
+                _handlers.destroy()
+                _handlers = null
             },
             /**
              * 画三角量测

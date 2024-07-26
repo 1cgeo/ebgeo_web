@@ -42,17 +42,19 @@ const scene = map.scene;
 //TOOLS
 const removeAllTools = () => {
     measure._drawLayer.entities.removeAll();
+    measure.removeDrawLineMeasureGraphics()
+    measure.removeDrawAreaMeasureGraphics()
     clearAllViewField()
 }
 
 let clampToGround = true
-let measure = new Cesium.Measure(map)
+const measure = new Cesium.Measure(map)
 $('.button-tool-3d').on('click', function () {
     let text = $(this).attr('id')
     if (text) {
         removeAllTools()
-        $(".tools-3d-bar a").removeClass('active-tool-3d')
-        $(this).addClass('active-tool-3d')
+        // $(".tools-3d-bar a").removeClass('active-tool-3d')
+        // $(this).addClass('active-tool-3d')
         switch (text) {
             case 'distancia':
                 measure.drawLineMeasureGraphics({ clampToGround: clampToGround, callback: () => { } });
@@ -69,8 +71,8 @@ $('.button-tool-3d').on('click', function () {
 });
 
 
-$('input[type=radio][name=modelo-3d]').change(function () {
-    let text = this.value
+$('#locate-3d-container button').click(function () {
+    let text = $(this).attr('id')
     if (text) {
         removeAllTools()
         switch (text) {
