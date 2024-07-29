@@ -23,7 +23,8 @@ class AddTextControl {
 
         const button = document.createElement('button');
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.innerHTML = 'T';
+        button.setAttribute("id", "text-tool");
+        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_text_black.svg" alt="TEXT" />';
         button.title = 'Adicionar texto';
         button.onclick = () => this.toolManager.setActiveTool(this);
 

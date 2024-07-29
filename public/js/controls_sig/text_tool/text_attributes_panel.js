@@ -106,6 +106,8 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         justifyCenterButton.disabled = !enabled;
         justifyRightButton.disabled = !enabled;
     };
+    panel.appendChild(backgroundColorLabel);
+    panel.appendChild(backgroundColorInput);
 
     updateJustifyButtons(feature.properties.text);
 

@@ -1,0 +1,127 @@
+import { map } from './control_3d/map.js'
+import { load3dTileset } from './control_3d/3d_tileset.js'
+import { addViewField, clearAllViewField } from './control_3d/viewshed.js';
+
+//MODELOS 3D
+for (let tilesetSetup of [
+    {
+        url: "/3d/AMAN/tileset.json",
+
+        heightOffset: -360, //-360 para elipsoide 40 para terreno,
+        id: "AMAN",
+        default: true,
+        locate: {
+            lat: -22.455921,
+            lon: -44.449655,
+            height: 2200
+        }
+    },
+    {
+        url: "/3d/ESA/tileset.json",
+        heightOffset: -770,
+        id: "ESA",
+        locate: {
+            lon: -45.25666459926732,
+            lat: -21.703613735103637,
+            height: 1500
+        }
+
+    },
+    {
+        url: "/3d/PCL/tileset.json",
+        heightOffset: -387,
+        id: "PCL",
+        locate: {
+            lon: -44.47332385414955,
+            lat: -22.43976556982974,
+            height: 300
+        }
+
+    },
+
+]) {
+    let tileset = load3dTileset(map, tilesetSetup)
+    // Nome das imagens para o Fly To
+    if (tilesetSetup.id === "AMAN") {
+        var tilesetAMAN = tilesetSetup.locate;
+    } else if (tilesetSetup.id === "ESA") {
+        var tilesetESA = tilesetSetup.locate;
+    } else if (tilesetSetup.id === "PCL") {
+        var tilesetPCL = tilesetSetup.locate;
+    }
+}
+
+
+const scene = map.scene;
+
+//TOOLS
+const removeAllTools = () => {
+    measure._drawLayer.entities.removeAll();
+    measure.removeDrawLineMeasureGraphics()
+    measure.removeDrawAreaMeasureGraphics()
+    clearAllViewField()
+}
+
+let clampToGround = true
+const measure = new Cesium.Measure(map)
+$('.button-tool-3d').on('click', function () {
+    let text = $(this).attr('id')
+    if (text) {
+        removeAllTools()
+        // $(".tools-3d-bar a").removeClass('active-tool-3d')
+        // $(this).addClass('active-tool-3d')
+        switch (text) {
+            case 'distancia':
+                measure.drawLineMeasureGraphics({ clampToGround: clampToGround, callback: () => { } });
+                break;
+            case 'area':
+                measure.drawAreaMeasureGraphics({ clampToGround: clampToGround, callback: () => { } });
+                break;
+            // case '三角量测': measure.drawTrianglesMeasureGraphics({ callback: () => { } }); break;
+            case 'visualizacao':
+                addViewField(map)
+                break;
+        }
+    }
+});
+
+
+$('#locate-3d-container button').click(function () {
+    let text = $(this).attr('id')
+    if (text) {
+        removeAllTools()
+        switch (text) {
+            case 'aman':
+                var { lat, lon, height } = tilesetAMAN
+                break;
+            case 'esa':
+                var { lat, lon, height } = tilesetESA
+                break;
+            case 'aman-pcl':
+                var { lat, lon, height } = tilesetPCL
+
+                break;
+        }
+        map.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
+        });
+    }
+});
+
+
+var handler = new Cesium.ScreenSpaceEventHandler(map.canvas);
+handler.setInputAction(function (event) {
+    var scratchRectangle = new Cesium.Rectangle();
+    var pickedPosition = map.scene.pickPosition(event.position);
+    if (Cesium.defined(pickedPosition)) {
+        var carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(pickedPosition);
+        var lon = Cesium.Math.toDegrees(carto.longitude);
+        var lat = Cesium.Math.toDegrees(carto.latitude);
+        console.log(lon, lat)
+    }
+    console.log(
+        map.camera.computeViewRectangle(Cesium.Ellipsoid.default,
+            scratchRectangle)
+    )
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+

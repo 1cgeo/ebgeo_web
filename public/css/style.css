@@ -1,54 +1,98 @@
 /* public/css/style.css */
-body, html {
+body,
+html {
     margin: 0;
     padding: 0;
     height: 100%;
     width: 100%;
     display: flex;
     flex-direction: column;
-    overflow: hidden; /* Prevent horizontal scrollbar */
+    overflow: hidden;
+    /* Prevent horizontal scrollbar */
 }
 
 #top-bar {
-    background-color: #243413;
+    background-color: #fbfbfa;
     color: white;
-    padding: 20px; /* Increase padding for better visibility */
+    /* padding: 20px; */
+    /* Increase padding for better visibility */
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: row;
+    /* align-items: center;
+    justify-content: center; */
     width: 100%;
-    height: 70px; /* Increase height */
-    box-sizing: border-box;
+    /* height: 70px; */
+    flex-wrap: wrap;
+    /* Increase height */
+    /* box-sizing: border-box; */
+    border-bottom: 0.5mm solid #EEEEEE;
 }
 
-#map {
-    position: absolute;
-    top: 70px; /* Adjust height according to the top-bar */
+#map-sig {
+    position: relative;
+    /* top: 70px; */
+    /* Adjust height according to the top-bar */
     bottom: 0;
     width: 100%;
-    cursor: default; /* Default cursor */
+    height: 100%;
+    cursor: default;
+    /* Default cursor */
+}
+
+#map-3d-container {
+    display: none;
+}
+
+#map-3d-container,
+#map-3d {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+#map-3d-tool-bar {
+    padding: 15px;
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    top: 1px;
+    left: 1px;
+    background-color: #f8f8f8F2;
+    width: 300px;
+    border-radius: 5px;
 }
 
 .mapboxgl-ctrl-group {
     display: flex !important;
     flex-direction: column !important;
     align-items: flex-end !important;
-    z-index: 10; /* Ensure they are above other elements */
-    pointer-events: auto; /* Ensure they can be clicked */
+    z-index: 10;
+    /* Ensure they are above other elements */
+    pointer-events: auto;
+    /* Ensure they can be clicked */
 }
 
 .save-load-icon {
-    background-color: #243413;
+    background-color: transparent;
     color: white;
     border: none;
     padding: 5px;
     cursor: pointer;
     margin: 2px;
     font-size: 18px;
-    display: block; /* Ensure the input file button looks like a block element */
-    width: 40px; /* Ensure it has a standard width */
-    z-index: 10; /* Ensure they are above other elements */
-    pointer-events: auto; /* Ensure they can be clicked */
+    display: block;
+    /* Ensure the input file button looks like a block element */
+    width: 40px;
+    /* Ensure it has a standard width */
+    z-index: 10;
+    /* Ensure they are above other elements */
+    pointer-events: auto;
+    /* Ensure they can be clicked */
+}
+
+.save-load-icon img {
+    height: 30px;
 }
 
 .base-layer-control {
@@ -57,10 +101,14 @@ body, html {
     left: 10px;
     display: flex;
     gap: 10px;
-    z-index: 10; /* Ensure they are above other elements */
-    pointer-events: auto; /* Ensure they can be clicked */
-    background-color: #243413; /* Background color */
-    color: white; /* Text color */
+    z-index: 10;
+    /* Ensure they are above other elements */
+    pointer-events: auto;
+    /* Ensure they can be clicked */
+    background-color: #f8f8f8F2;
+    /* Background color */
+    color: black;
+    /* Text color */
     padding: 5px;
     border-radius: 5px;
 }
@@ -81,15 +129,22 @@ body, html {
 
 .save-load-control {
     position: absolute;
-    top: 60px; /* Position below the base layer control */
+    display: flex !important;
+    flex-direction: row !important;
+    top: 60px;
+    /* Position below the base layer control */
     left: 10px;
-    z-index: 10; /* Ensure they are above other elements */
-    pointer-events: auto; /* Ensure they can be clicked */
+    z-index: 10;
+    /* Ensure they are above other elements */
+    pointer-events: auto;
+    /* Ensure they can be clicked */
 }
 
 .draw-control {
-    z-index: 10; /* Ensure it is above other elements */
-    pointer-events: auto; /* Ensure it can be clicked */
+    z-index: 10;
+    /* Ensure it is above other elements */
+    pointer-events: auto;
+    /* Ensure it can be clicked */
 }
 
 .mapbox-gl-draw_polygon,
@@ -97,7 +152,8 @@ body, html {
 .mapbox-gl-draw_point,
 .mapbox-gl-draw_trash,
 .mapbox-gl-draw_ctrl-draw-btn {
-    background-color: #dbc9ec !important;
+    background-image: none !important;
+    background-color: transparent !important;
     color: black !important;
     font-weight: bold;
     border: none !important;
@@ -105,17 +161,30 @@ body, html {
     cursor: pointer !important;
     margin: 2px !important;
     font-size: 18px !important;
-    z-index: 10 !important; /* Ensure they are above other elements */
-    pointer-events: auto !important; /* Ensure they can be clicked */
-    filter: invert(1); /* Change icon color to white */
+    z-index: 10 !important;
+    /* Ensure they are above other elements */
+    pointer-events: auto !important;
+    /* Ensure they can be clicked */
+    /* filter: invert(1); */
+    /* Change icon color to white */
+    width: 50px;
+}
+
+.maplibregl-ctrl-top-right  {
+    display: flex;
+    flex-direction: column;
 }
 
 .mapbox-gl-draw_polygon:hover,
 .mapbox-gl-draw_line:hover,
 .mapbox-gl-draw_point:hover,
 .mapbox-gl-draw_trash:hover,
-.mapbox-gl-draw_ctrl-draw-btn:hover  {
-    background-color: #c9aad9 !important;
+.mapbox-gl-draw_ctrl-draw-btn:hover {
+    background-color: transparent !important;
+}
+
+.mapbox-gl-draw_ctrl-draw-btn img, .icon-sig-tool {
+    width: 40px;
 }
 
 .unified-attributes-panel {
@@ -147,15 +216,15 @@ body, html {
 
 .map-control-panel {
     position: absolute;
-    top: 150px;
+    top: 110px;
     left: 10px;
     padding: 10px;
-    background-color: #243413;
+    background-color: #f8f8f8F2;
     border: 1px solid #ccc;
     border-radius: 5px;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     z-index: 10;
-    color: white;
+    color: black;
     width: 200px;
 }
 
@@ -171,12 +240,13 @@ body, html {
 
 .add-map-button {
     background-color: transparent;
-    border: 1px solid white;
-    color: white;
+    border: 1px solid black;
+    color: black;
     cursor: pointer;
     padding: 5px;
     font-size: 16px;
-    pointer-events: auto !important; /* Ensure they can be clicked */
+    pointer-events: auto !important;
+    /* Ensure they can be clicked */
 }
 
 .map-list {
@@ -191,7 +261,7 @@ body, html {
     justify-content: space-between;
     align-items: center;
     padding: 5px;
-    border: 1px solid white;
+    border: 1px solid black;
     border-radius: 3px;
 }
 
@@ -208,8 +278,8 @@ body, html {
 .remove-map-button,
 .copy-map-button {
     background-color: transparent;
-    border: 1px solid white;
-    color: white;
+    border: 1px solid black;
+    color: black;
     cursor: pointer;
     padding: 5px;
     font-size: 12px;
@@ -222,4 +292,355 @@ body, html {
     border-radius: 3px;
     font-size: 12px;
     box-shadow: 0 0 2px rgba(0,0,0,0.5);
+    pointer-events: auto !important;
+    /* Ensure they can be clicked */
+}
+
+/* button center bar */
+.bar-center-buttons {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    flex-grow: 1;
+    gap: 7px
+}
+
+.bar-center-buttons img {
+    width: 50px;
+}
+
+.button {
+    text-decoration: none;
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: start;
+    font-size: 1.5rem;
+    color: #fff;
+    /* border-radius: 8px; */
+    /* box-shadow: 0 3px 5px rgba(0, 0, 0, 0.18); */
+    text-align: center;
+    line-height: 1.1;
+    transition: 220ms all ease-in-out;
+}
+
+.button:not(.icon-button) {
+    padding: 0.25em 0.75em;
+    min-width: 10ch;
+    min-height: 44px;
+}
+
+.button:hover,
+.button:active {
+    background-color: #B4E380;
+}
+
+.active-button {
+    outline: none;
+    box-shadow: 0 0 0 4px #508D4E;
+    background-color: #508D4E;
+
+}
+
+.button--small {
+    font-size: 1.15rem;
+}
+
+.icon-button {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 10%;
+    padding: 0.35em;
+}
+
+/* logo */
+.logo {
+    padding: 5px;
+    cursor: pointer;
+    min-width: 130px !important;
+    justify-content: center;
+    color: inherit;
+    /* blue colors for links too */
+    text-decoration: inherit;
+    /* no underline */
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 0;
+    gap: 5px
+}
+
+.logo img {
+    height: 50px;
+}
+
+
+/* turoial */
+.extra-bar-buttons {
+    padding: 5px;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    flex-grow: 0;
+}
+
+.tutorial-button {
+    background-color: #508D4E;
+}
+
+/* material button */
+.pure-material-button-contained {
+    position: relative;
+    display: inline-block;
+    box-sizing: border-box;
+    border: none;
+    border-radius: 4px;
+    padding: 0 16px;
+    min-width: 64px;
+    height: 36px;
+    vertical-align: middle;
+    text-align: center;
+    text-overflow: ellipsis;
+    color: rgb(var(--pure-material-onprimary-rgb, 255, 255, 255));
+    box-shadow: 0 3px 1px -2px rgba(0, 0, 0, 0.2), 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 1px 5px 0 rgba(0, 0, 0, 0.12);
+    font-family: var(--pure-material-font, "Roboto", "Segoe UI", BlinkMacSystemFont, system-ui, -apple-system);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 36px;
+    overflow: hidden;
+    outline: none;
+    cursor: pointer;
+    transition: box-shadow 0.2s;
+}
+
+.pure-material-button-contained::-moz-focus-inner {
+    border: none;
+}
+
+/* Overlay */
+.pure-material-button-contained::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    /* background-color: rgb(var(--pure-material-onprimary-rgb, 255, 255, 255)); */
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+/* Ripple */
+.pure-material-button-contained::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    border-radius: 50%;
+    padding: 50%;
+    width: 32px;
+    /* Safari */
+    height: 32px;
+    /* Safari */
+    background-color: rgb(var(--pure-material-onprimary-rgb, 255, 255, 255));
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+    transition: opacity 1s, transform 0.5s;
+}
+
+/* Hover, Focus */
+.pure-material-button-contained:hover,
+.pure-material-button-contained:focus {
+    box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.2), 0 4px 5px 0 rgba(0, 0, 0, 0.14), 0 1px 10px 0 rgba(0, 0, 0, 0.12);
+}
+
+.pure-material-button-contained:hover::before {
+    opacity: 0.08;
+}
+
+.pure-material-button-contained:focus::before {
+    opacity: 0.24;
+}
+
+.pure-material-button-contained:hover:focus::before {
+    opacity: 0.3;
+}
+
+/* Active */
+.pure-material-button-contained:active {
+    box-shadow: 0 5px 5px -3px rgba(0, 0, 0, 0.2), 0 8px 10px 1px rgba(0, 0, 0, 0.14), 0 3px 14px 2px rgba(0, 0, 0, 0.12);
+}
+
+.pure-material-button-contained:active::after {
+    opacity: 0.32;
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 0s;
+}
+
+/* Disabled */
+.pure-material-button-contained:disabled {
+    color: rgba(var(--pure-material-onsurface-rgb, 0, 0, 0), 0.38);
+    background-color: rgba(var(--pure-material-onsurface-rgb, 0, 0, 0), 0.12);
+    box-shadow: none;
+    cursor: initial;
+}
+
+.pure-material-button-contained:disabled::before {
+    opacity: 0;
+}
+
+.pure-material-button-contained:disabled::after {
+    opacity: 0;
+}
+
+
+/* material card */
+.card {
+    display: inline-block;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, .15);
+    margin: 20px;
+    position: relative;
+    margin-bottom: 50px;
+    transition: all .2s ease-in-out;
+}
+
+.card:hover {
+    /*box-shadow: 0 5px 22px 0 rgba(0,0,0,.25);*/
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.19), 0 6px 6px rgba(0, 0, 0, 0.23);
+    margin-bottom: 54px;
+}
+
+/* divider */
+hr.solid {
+    width: 100%;
+    border-top: 1px solid #A2AAB9;
+}
+
+.radio-item {
+    color: #000000b3;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+
+/* 3d tools bar */
+/* button center bar */
+.tools-3d-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+}
+
+.tools-3d-bar img {
+    width: 30px;
+}
+
+.button-tool-3d {
+    text-decoration: none;
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: start;
+    font-size: 1.5rem;
+    color: #fff;
+    /* border-radius: 8px; */
+    /* box-shadow: 0 3px 5px rgba(0, 0, 0, 0.18); */
+    text-align: center;
+    line-height: 1.1;
+    transition: 220ms all ease-in-out;
+}
+
+.button-tool-3d:not(.icon-button) {
+    padding: 0.25em 0.75em;
+    min-width: 30px;
+    min-height: 30px;
+}
+
+.button-tool-3d:hover,
+.button-tool-3d:active {
+    background-color: #DDDDDD;
+}
+
+.active-tool-3d {
+    outline: none;
+    box-shadow: 0 0 0 2px #758694;
+    background-color: #758694;
+
+}
+
+.button-tool-3d--small {
+    font-size: 1.15rem;
+}
+
+.icon-tool-3d {
+    width: 30px;
+    height: 30px;
+    border-radius: 10%;
+    padding: 0px;
+}
+
+.custom-tool-sig-button {
+    background-color: transparent;
+    font-weight: bold;
+    border: none !important;
+    padding: 5px !important;
+    cursor: pointer !important;
+    margin: 2px !important;
+    font-size: 18px !important;
+    z-index: 10 !important;
+    /* Ensure they are above other elements */
+    pointer-events: auto !important;
+    /* Ensure they can be clicked */
+    /* Change icon color to white */
+}
+
+#mini-map-street-view {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 30%;
+    height: 30%;
+    border-radius: 14px;
+    margin: 10px;
+}
+
+
+.float {
+    display: none;
+    justify-content: center;
+    align-items: center;
+    position: fixed;
+    width: 60px;
+    height: 60px;
+    bottom: 40px;
+    right: 40px;
+    background-color: black;
+    color: #FFF;
+    border-radius: 50px;
+    text-align: center;
+    box-shadow: 2px 2px 3px #999;
+}
+
+.my-float {
+    margin-top: 22px;
+}
+
+.unified-attributes-panel {
+    padding: 15px;
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    bottom: 40px;
+    right: 10px;
+    background-color: #f8f8f8F2;
+    width: 300px;
+    border-radius: 5px;
 }

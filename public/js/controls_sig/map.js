@@ -1,11 +1,10 @@
 import { getCurrentMapFeatures } from './store.js';
-import 'https://unpkg.com/maplibre-gl/dist/maplibre-gl.js';
+import '../../vendors/maplibre-gl.js';
+import baseStyle from './base_map_styles.js'
 
 const map = new maplibregl.Map({
-    container: 'map',
-    style: 'https://demotiles.maplibre.org/style.json',
-    center: [-74.5, 40],
-    zoom: 9,
+    container: 'map-sig',
+    style: baseStyle,
     attributionControl: false
 });
 
@@ -111,16 +110,10 @@ map.on('styledata', () => {
             'type': 'line',
             'source': 'los',
             'paint': {
-                'line-color': [
-                    'case',
-                    ['==', ['array-index', ['get', 'coordinates'], 0], 0],
-                    ['get', 'visibleColor'],
-                    ['get', 'obstructedColor']
-                ],
+                'line-color': ['get', 'visibleColor'],
                 'line-opacity': ['get', 'opacity'],
                 'line-width': ['get', 'width']
-            },
-            'filter': ['==', '$type', 'MultiLineString']
+            }
         });
     }
 
@@ -217,5 +210,10 @@ map.on('styledata', () => {
     }
 });
 
+//FIT AMAN
+map.fitBounds([
+    [-44.4633992903047, -22.46265178239199],
+    [-44.439695820515325, -22.444666254876367]
+]);
 
 export { map };

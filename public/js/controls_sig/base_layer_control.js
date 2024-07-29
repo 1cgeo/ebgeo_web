@@ -1,10 +1,11 @@
 import { setBaseLayer } from './store.js';
+import baseStyle from './base_map_styles.js'
 class BaseLayerControl {
     constructor() {
         this.map = null;
         this.container = null;
         this.styleUrls = {
-            'Carta': 'https://demotiles.maplibre.org/style.json',
+            'Carta': baseStyle,
             'Ortoimagem': 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
         };
     }

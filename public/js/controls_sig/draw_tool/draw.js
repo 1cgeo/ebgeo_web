@@ -64,6 +64,10 @@ class DrawControl {
             this.map.addControl(this.draw, this.controlPosition);
 
             this.setupEventListeners();
+
+            this.changeButtonColors()
+            $('input[name="base-layer"]').on('change', this.changeButtonColors);
+
             return this.container;
         } catch (error) {
             console.error('Error adding DrawControl:', error);
@@ -184,11 +188,81 @@ class DrawControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.changeButtonColors()
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
+        $('input[name="base-layer"]').off('change', this.changeButtonColors);
+        this.changeButtonColors()
+    }
+
+    handleMapClick = () => {
+        //nothing to do here
+    }
+
+    updateFeaturesProperty = (features, property, value) => {
+        features.forEach(feature => {
+            feature.properties[property] = value;
+            this.draw.setFeatureProperty(feature.id, property, value);
+            const feat = this.draw.get(feature.id);
+            this.draw.add(feat);
+            this.updateFeatureMeasurement(feature);
+        });
+    }
+
+    updateFeatures = (features, save = false) => {
+        features.forEach(feature => {
+            Object.keys(feature.properties).forEach(key => {
+                this.draw.setFeatureProperty(feature.id, key, feature.properties[key]);
+            });
+            const feat = this.draw.get(feature.id);
+            this.draw.add(feat);
+            const type = feat.geometry.type.toLowerCase() + 's';
+            if (save) {
+                updateFeature(type, feat);
+            }
+        });
+    }
+
+    saveFeatures = (features, initialPropertiesMap) => {
+        features.forEach(f => {
+            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
+                const type = f.geometry.type.toLowerCase() + 's';
+                updateFeature(type, f);
+            }
+        });
+    }
+
+    discardChangeFeatures = (features, initialPropertiesMap) => {
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+        });
+        this.updateFeatures(features);
+    }
+
+    deleteFeatures = (features) => {
+        features.forEach(f => {
+            this.draw.delete(f.id);
+            const type = f.geometry.type.toLowerCase() + 's';
+            removeFeature(type, f.id);
+        });
+    }
+
+    setDefaultProperties = (properties, commonAttributes) => {
+        commonAttributes.forEach(attr => {
+            this.defaultProperties[attr] = properties[attr];
+        });
+    }
+
+    hasFeatureChanged = (feature, initialProperties) => {
+        return (
+            feature.properties.color !== initialProperties.color ||
+            feature.properties.opacity !== initialProperties.opacity ||
+            feature.properties.size !== initialProperties.size ||
+            feature.properties.outlinecolor !== initialProperties.outlinecolor
+        );
     }
 
     handleMapClick = () => {
@@ -271,6 +345,46 @@ class DrawControl {
             feature.properties.size !== initialProperties.size ||
             feature.properties.outlinecolor !== initialProperties.outlinecolor
         );
+    }
+
+    changeButtonColors = () => {
+        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
+        $('.mapbox-gl-draw_point').html(
+            `
+                <img src="./images/icon_point_${color}.svg" alt="POINT" />
+            `
+        )
+
+        $('.mapbox-gl-draw_line').html(
+            `
+                <img src="./images/icon_line_${color}.svg" alt="LINE" />
+            `
+        )
+
+        $('.mapbox-gl-draw_polygon').html(
+            `
+                <img src="./images/icon_polygon_${color}.svg" alt="POLYGON" />
+            `
+        )
+
+        const currentBtn = {
+            'draw_point': '.mapbox-gl-draw_point',
+            'draw_line_string': '.mapbox-gl-draw_line',
+            'draw_polygon': '.mapbox-gl-draw_polygon'
+        }[this.draw.getMode()]
+
+        if (!(currentBtn && this.isActive)) return
+        const imageName = {
+            'draw_point': 'icon_point_',
+            'draw_line_string': 'icon_line_',
+            'draw_polygon': 'icon_polygon_'
+        }[this.draw.getMode()]
+
+        $(currentBtn).html(
+            `
+                <img src="./images/${imageName}red.svg" />
+            `
+        )
     }
 };
 export default DrawControl;

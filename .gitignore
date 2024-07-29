@@ -35,3 +35,11 @@ coverage/
 .idea/
 *.sublime-project
 *.sublime-workspace
+
+public/3d/AMAN/
+public/3d/ESA/
+public/3d/PCL/
+
+public/street_view/IMG/*.webp
+public/street_view/IMG/*.jpg
+public/street_view/METADATA/*.json

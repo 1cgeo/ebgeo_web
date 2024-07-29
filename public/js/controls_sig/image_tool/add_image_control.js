@@ -24,7 +24,8 @@ class AddImageControl {
 
         const button = document.createElement('button');
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.innerHTML = '📷';
+        button.setAttribute("id", "photo-tool");
+        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_photo_black.svg" alt="PHOTO" />';
         button.title = 'Adicionar imagem';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
@@ -59,11 +60,14 @@ class AddImageControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.changeButtonColor()
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
+        $('input[name="base-layer"]').off('change', this.changeButtonColor);
+        this.changeButtonColor()
     }
 
     handleMapClick = (e) => {
