@@ -34,9 +34,29 @@ class DrawControl {
                 styles: drawStyles
             });
 
+          
+
             this.map.addControl(this.draw, this.controlPosition);
 
             this.setupEventListeners();
+
+            $('.mapbox-gl-draw_point').html(
+                `
+                    <img src="./images/icon_point.svg" alt="POINT" />
+                `
+            )
+
+            $('.mapbox-gl-draw_line').html(
+                `
+                    <img src="./images/icon_line.svg" alt="LINE" />
+                `
+            )
+
+            $('.mapbox-gl-draw_polygon').html(
+                `
+                    <img src="./images/icon_polygon.svg" alt="POLYGON" />
+                `
+            )
 
             return this.container;
         } catch (error) {

@@ -7,11 +7,13 @@ $(".bar-center-buttons a").click(function () {
     switch ($(this).attr('id')) {
         case '3d-button':
             $('#map-sig').hide();
+            $('.unified-attributes-panel').hide()
             $('#map-3d-container').show();
             break;
         default:
             $('#map-3d-container').hide();
             $('#map-sig').show();
+            $('.unified-attributes-panel').show()
     }
 });
 

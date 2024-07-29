@@ -12,7 +12,7 @@ html {
 }
 
 #top-bar {
-    background-color: #243413;
+    background-color: #fbfbfa;
     color: white;
     /* padding: 20px; */
     /* Increase padding for better visibility */
@@ -25,6 +25,7 @@ html {
     flex-wrap: wrap;
     /* Increase height */
     /* box-sizing: border-box; */
+    border-bottom: 0.5mm solid #EEEEEE;
 }
 
 #map-sig {
@@ -73,7 +74,7 @@ html {
 }
 
 .save-load-icon {
-    background-color: #243413;
+    background-color: transparent;
     color: white;
     border: none;
     padding: 5px;
@@ -90,6 +91,10 @@ html {
     /* Ensure they can be clicked */
 }
 
+.save-load-icon img {
+    height: 30px;
+}
+
 .base-layer-control {
     position: absolute;
     top: 10px;
@@ -100,9 +105,9 @@ html {
     /* Ensure they are above other elements */
     pointer-events: auto;
     /* Ensure they can be clicked */
-    background-color: #243413;
+    background-color: #f8f8f8F2;
     /* Background color */
-    color: white;
+    color: black;
     /* Text color */
     padding: 5px;
     border-radius: 5px;
@@ -124,6 +129,8 @@ html {
 
 .save-load-control {
     position: absolute;
+    display: flex !important;
+    flex-direction: row !important;
     top: 60px;
     /* Position below the base layer control */
     left: 10px;
@@ -145,7 +152,8 @@ html {
 .mapbox-gl-draw_point,
 .mapbox-gl-draw_trash,
 .mapbox-gl-draw_ctrl-draw-btn {
-    background-color: #dbc9ec !important;
+    background-image: none !important;
+    background-color: transparent !important;
     color: black !important;
     font-weight: bold;
     border: none !important;
@@ -157,8 +165,14 @@ html {
     /* Ensure they are above other elements */
     pointer-events: auto !important;
     /* Ensure they can be clicked */
-    filter: invert(1);
+    /* filter: invert(1); */
     /* Change icon color to white */
+    width: 50px;
+}
+
+.maplibregl-ctrl-top-right  {
+    display: flex;
+    flex-direction: column;
 }
 
 .mapbox-gl-draw_polygon:hover,
@@ -166,7 +180,11 @@ html {
 .mapbox-gl-draw_point:hover,
 .mapbox-gl-draw_trash:hover,
 .mapbox-gl-draw_ctrl-draw-btn:hover {
-    background-color: #c9aad9 !important;
+    background-color: transparent !important;
+}
+
+.mapbox-gl-draw_ctrl-draw-btn img, .icon-sig-tool {
+    width: 40px;
 }
 
 .text-attributes-panel {
@@ -252,15 +270,15 @@ html {
 
 .map-control-panel {
     position: absolute;
-    top: 150px;
+    top: 110px;
     left: 10px;
     padding: 10px;
-    background-color: #243413;
+    background-color: #f8f8f8F2;
     border: 1px solid #ccc;
     border-radius: 5px;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     z-index: 10;
-    color: white;
+    color: black;
     width: 200px;
 }
 
@@ -276,8 +294,8 @@ html {
 
 .add-map-button {
     background-color: transparent;
-    border: 1px solid white;
-    color: white;
+    border: 1px solid black;
+    color: black;
     cursor: pointer;
     padding: 5px;
     font-size: 16px;
@@ -297,7 +315,7 @@ html {
     justify-content: space-between;
     align-items: center;
     padding: 5px;
-    border: 1px solid white;
+    border: 1px solid black;
     border-radius: 3px;
 }
 
@@ -314,8 +332,8 @@ html {
 .remove-map-button,
 .copy-map-button {
     background-color: transparent;
-    border: 1px solid white;
-    color: white;
+    border: 1px solid black;
+    color: black;
     cursor: pointer;
     padding: 5px;
     font-size: 12px;
@@ -390,21 +408,21 @@ html {
 .logo {
     padding: 5px;
     cursor: pointer;
-    min-width: 160px !important;
-    justify-content: space-between;
+    min-width: 130px !important;
+    justify-content: center;
     color: inherit;
     /* blue colors for links too */
     text-decoration: inherit;
     /* no underline */
     display: flex;
     flex-direction: row;
-    justify-content: center;
+    align-items: center;
     flex-grow: 0;
     gap: 5px
 }
 
 .logo img {
-    height: 75px;
+    height: 50px;
 }
 
 
@@ -616,13 +634,8 @@ hr.solid {
     padding: 0px;
 }
 
-.icon-sig-tool {
-    width: 20px;
-    height: 20px;
-}
-
 .custom-tool-sig-button {
-    background-color: #243413;
+    background-color: transparent;
     font-weight: bold;
     border: none !important;
     padding: 5px !important;
@@ -665,4 +678,16 @@ hr.solid {
 
 .my-float {
     margin-top: 22px;
+}
+
+.unified-attributes-panel {
+    padding: 15px;
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    bottom: 40px;
+    right: 10px;
+    background-color: #f8f8f8F2;
+    width: 300px;
+    border-radius: 5px;
 }
