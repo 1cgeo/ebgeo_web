@@ -36,22 +36,31 @@ class AddStreetViewControl {
         this.isDrag = false
         this.miniMap = null
         this.isOpen = false
-        this.loadData()
     }
 
-    async loadData() {
+    loadData = async () => {
         this.photosGeojson = await $.getJSON("/street_view/fotos.geojson")
         this.photosLinhasGeoJson = await $.getJSON("/street_view/fotos_linha.geojson")
         this.centroid = turf.centroid(this.photosGeojson)
-        this.map.addSource('points-street-view', {
-            'type': 'geojson',
-            'data': this.photosGeojson
-        });
 
-        this.map.addSource('lines-street-view', {
-            'type': 'geojson',
-            'data': this.photosLinhasGeoJson
-        });
+        try {
+            this.map.addSource('points-street-view', {
+                'type': 'geojson',
+                'data': this.photosGeojson
+            });
+        } catch (error) {
+
+        }
+
+        try {
+            this.map.addSource('lines-street-view', {
+                'type': 'geojson',
+                'data': this.photosLinhasGeoJson
+            });
+
+        } catch (error) {
+
+        }
     }
 
     onAdd(map) {
@@ -62,31 +71,52 @@ class AddStreetViewControl {
         const button = document.createElement('button');
         button.setAttribute("id", "street-view-tool");
         button.className = 'custom-tool-sig-button';
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_white.svg" />';
         button.title = 'Adicionar street view';
+        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
-
+        this.changeButtonColor()
+        $('input[name="base-layer"]').on('change', this.changeButtonColor);
+        $('input[name="base-layer"]').on('change', this.reload);
         return this.container;
+    }
+
+    changeButtonColor = () => {
+        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
+        $("#street-view-tool").html(`<img class="icon-sig-tool" src="./images/icon_street_view_${color}.svg" />`);
+        if (!this.isActive) return
+        $("#street-view-tool").html('<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />');
+    }
+
+    reload = async () => {
+        await this.loadData()
+        if (this.isActive) this.showPhotos()
     }
 
     onRemove() {
         this.container.parentNode.removeChild(this.container);
     }
 
-    activate() {
+    async activate() {
         if (this.isActive) {
             this.deactivate()
             return
         }
         this.isActive = true;
         $("#street-view-tool").empty().append('<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />');
+        await this.loadData()
         this.showPhotos()
     }
 
     showPhotos = async () => {
 
+        if (this.map.getLayer('street-view')) {
+            this.map.off('click', 'street-view', this.loadPoint);
+            this.map.off('mouseenter', 'street-view', this.showHoverCursor);
+            this.map.off('mouseleave', 'street-view', this.hideHoverCursor);
+            this.map.removeLayer('street-view')
+        }
         this.map.addLayer({
             'id': 'street-view',
             'type': 'line',
@@ -400,6 +430,7 @@ class AddStreetViewControl {
     cleanArrows = (objects) => {
         for (let mesh of objects) {
             const object = this.scene.getObjectByProperty('uuid', mesh.uuid);
+            if (!object) continue
             object.geometry.dispose();
             object.material.dispose();
             this.scene.remove(object);
@@ -597,7 +628,7 @@ class AddStreetViewControl {
 
     deactivate = () => {
         this.isActive = false;
-        $("#street-view-tool").empty().append('<img class="icon-sig-tool" src="./images/icon_street_view_white.svg" />');
+        this.changeButtonColor()
         this.map.getCanvas().style.cursor = '';
         this.hidePhotos()
         $('#close-street-view-button').off('click', this.closeStreetView)
@@ -615,15 +646,15 @@ class AddStreetViewControl {
 
         this.map.off('mouseleave', 'street-view', this.hideHoverCursor);
 
-        this.map.removeLayer('street-view')
+        if (this.map.getLayer('street-view')) this.map.removeLayer('street-view')
     }
 
     handleMapClick(e) {
-        
+
     }
 
     handleMouseDown(e) {
-      
+
     }
 }
 

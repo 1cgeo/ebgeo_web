@@ -21,7 +21,8 @@ class AddImageControl {
 
         const button = document.createElement('button');
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.innerHTML = '📷';
+        button.setAttribute("id", "photo-tool");
+        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_photo_black.svg" alt="PHOTO" />';
         button.title = 'Adicionar imagem';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
@@ -29,7 +30,17 @@ class AddImageControl {
 
         this.setupEventListeners();
 
+        this.changeButtonColor()
+        $('input[name="base-layer"]').on('change', this.changeButtonColor);
+
         return this.container;
+    }
+
+    changeButtonColor = () => {
+        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
+        $("#photo-tool").html(`<img class="icon-sig-tool" src="./images/icon_photo_${color}.svg" alt="PHOTO" />`);
+        if (!this.isActive) return
+        $("#photo-tool").html('<img class="icon-sig-tool" src="./images/icon_photo_red.svg" alt="PHOTO" />');
     }
 
     onRemove() {
@@ -56,11 +67,14 @@ class AddImageControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.changeButtonColor()
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
+        $('input[name="base-layer"]').off('change', this.changeButtonColor);
+        this.changeButtonColor()
     }
 
     handleMapClick = (e) => {

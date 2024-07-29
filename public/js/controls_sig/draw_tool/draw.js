@@ -34,35 +34,60 @@ class DrawControl {
                 styles: drawStyles
             });
 
-          
+
 
             this.map.addControl(this.draw, this.controlPosition);
 
             this.setupEventListeners();
 
-            $('.mapbox-gl-draw_point').html(
-                `
-                    <img src="./images/icon_point.svg" alt="POINT" />
-                `
-            )
-
-            $('.mapbox-gl-draw_line').html(
-                `
-                    <img src="./images/icon_line.svg" alt="LINE" />
-                `
-            )
-
-            $('.mapbox-gl-draw_polygon').html(
-                `
-                    <img src="./images/icon_polygon.svg" alt="POLYGON" />
-                `
-            )
+            this.changeButtonColors()
+            $('input[name="base-layer"]').on('change', this.changeButtonColors);
 
             return this.container;
         } catch (error) {
             console.error('Error adding DrawControl:', error);
             throw error;
         }
+    }
+
+    changeButtonColors = () => {
+        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
+        $('.mapbox-gl-draw_point').html(
+            `
+                <img src="./images/icon_point_${color}.svg" alt="POINT" />
+            `
+        )
+
+        $('.mapbox-gl-draw_line').html(
+            `
+                <img src="./images/icon_line_${color}.svg" alt="LINE" />
+            `
+        )
+
+        $('.mapbox-gl-draw_polygon').html(
+            `
+                <img src="./images/icon_polygon_${color}.svg" alt="POLYGON" />
+            `
+        )
+
+        const currentBtn = {
+            'draw_point': '.mapbox-gl-draw_point',
+            'draw_line_string': '.mapbox-gl-draw_line',
+            'draw_polygon': '.mapbox-gl-draw_polygon'
+        }[this.draw.getMode()]
+
+        if (!(currentBtn && this.isActive)) return
+        const imageName = {
+            'draw_point': 'icon_point_',
+            'draw_line_string': 'icon_line_',
+            'draw_polygon': 'icon_polygon_'
+        }[this.draw.getMode()]
+
+        $(currentBtn).html(
+            `
+                <img src="./images/${imageName}red.svg" />
+            `
+        )
     }
 
     onRemove = () => {
@@ -120,7 +145,7 @@ class DrawControl {
             if (feature.geometry.type === 'LineString') {
                 const line = turf.lineString(feature.geometry.coordinates);
                 const lengthInMeters = turf.length(line, { units: 'meters' });
-                const lengthFormatted = lengthInMeters >= 1000 
+                const lengthFormatted = lengthInMeters >= 1000
                     ? `${(lengthInMeters / 1000).toFixed(2)} km`
                     : `${lengthInMeters.toFixed(2)} m`;
                 const midpoint = turf.midpoint(line.geometry.coordinates[0], line.geometry.coordinates[line.geometry.coordinates.length - 1]);
@@ -128,7 +153,7 @@ class DrawControl {
             } else if (feature.geometry.type === 'Polygon') {
                 const polygon = turf.polygon(feature.geometry.coordinates);
                 const areaInSquareMeters = turf.area(polygon);
-                const areaFormatted = areaInSquareMeters >= 100000 
+                const areaFormatted = areaInSquareMeters >= 100000
                     ? `${(areaInSquareMeters / 1000000).toFixed(2)} km²`
                     : `${areaInSquareMeters.toFixed(2)} m²`;
                 const centroid = turf.centroid(polygon);
@@ -177,11 +202,14 @@ class DrawControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.changeButtonColors()
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
+        $('input[name="base-layer"]').off('change', this.changeButtonColors);
+        this.changeButtonColors()
     }
 
     handleMapClick = () => {
@@ -206,7 +234,7 @@ class DrawControl {
             const feat = this.draw.get(feature.id);
             this.draw.add(feat);
             const type = feat.geometry.type.toLowerCase() + 's';
-            if(save){
+            if (save) {
                 updateFeature(type, feat);
             }
         });
