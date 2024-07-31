@@ -5,23 +5,30 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
 
     const feature = selectedFeatures[0]; // Use the first selected feature to populate the form.
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
-    
+
     const commonAttributes = findCommonAttributes(selectedFeatures);
 
     commonAttributes.forEach(attr => {
+        const container = $("<div>", { class: "attr-container-row" });
         const attrLabel = document.createElement('label');
         attrLabel.textContent = getLabel(attr, selectedFeatures);
-        const attrInput = createInput(attr, selectedFeatures[0].properties[attr]);
-        attrInput.oninput = (e) => {
-            let value = attrInput.type === 'range' || attrInput.type === 'number' ? parseFloat(e.target.value) : e.target.value;
-            value = attrInput.type === 'checkbox' ? e.target.checked : value;
-            featureControl.updateFeaturesProperty(selectedFeatures, attr, value);
-        };
-        panel.appendChild(attrLabel);
-        panel.appendChild(attrInput);
+        const elInput = createInput(
+            attr,
+            selectedFeatures[0].properties[attr],
+            (input, e) => {
+                console.log(input, e)
+                let value = input.type === 'range' || input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+                value = input.type === 'checkbox' ? e.target.checked : value;
+                featureControl.updateFeaturesProperty(selectedFeatures, attr, value);
+            }
+        );
+        container.append(attrLabel)
+        container.append(elInput)
+        $(panel).append(container);
     });
 
     const saveButton = document.createElement('button');
+    saveButton.classList.add('tutorial-button', 'pure-material-button-contained')
     saveButton.textContent = 'Salvar';
     saveButton.type = 'submit';
     saveButton.onclick = () => {
@@ -33,6 +40,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
+    discardButton.classList.add('tutorial-button', 'pure-material-button-contained')
     discardButton.onclick = () => {
         featureControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap)
         selectionManager.deselectAllFeatures(true);
@@ -43,6 +51,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     if (selectedFeatures.length === 1) {
         const setDefaultButton = document.createElement('button');
         setDefaultButton.textContent = 'Definir padrão';
+        setDefaultButton.classList.add('tutorial-button', 'pure-material-button-contained')
         setDefaultButton.onclick = () => {
             featureControl.setDefaultProperties(feature.properties, commonAttributes);
             selectionManager.deselectAllFeatures(true);
@@ -87,7 +96,7 @@ function getLabel(attr, features) {
     return labels[attr] || attr;
 }
 
-function createInput(attr, value) {
+function createInput(attr, value, inputCallback) {
     let input;
     if (attr === 'color' || attr === 'outlinecolor') {
         input = document.createElement('input');
@@ -95,19 +104,37 @@ function createInput(attr, value) {
         input.value = value || '#000000';
     } else if (attr === 'opacity') {
         input = document.createElement('input');
+        input.classList.add("slider");
         input.type = 'range';
         input.min = 0.1;
         input.max = 1;
         input.step = 0.1;
         input.value = value !== undefined ? value : 1;
-    } else if (attr === 'measure' || attr === 'profile') {
+    } else if (attr === 'size') {
+        console.log(value)
         input = document.createElement('input');
+        input.classList.add("slider");
+        input.type = 'range';
+        input.min = 1
+        input.max = 30;
+        input.step = 1;
+        input.value = value !== undefined ? value : 1;
+    }
+    else if (attr === 'measure' || attr === 'profile') {
+        let label = $("<label>", { class: "switch" })
+        input = document.createElement('input');
+        input.classList.add("slider-check-input");
         input.type = 'checkbox';
         input.checked = value === true;
+        label.append(input)
+        label.append($("<div>", { class: "slider-check round" }))
+        input.oninput = (e) => inputCallback(input, e)
+        return label
     } else {
         input = document.createElement('input');
         input.type = 'number';
         input.value = value !== undefined ? value : 1;
     }
+    input.oninput = (e) => inputCallback(input, e)
     return input;
 }
