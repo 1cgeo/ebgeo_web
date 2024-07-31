@@ -135,6 +135,7 @@ class UIManager {
         }
 
         const deleteButton = document.createElement('button');
+        deleteButton.classList.add('tutorial-button', 'pure-material-button-contained')
         deleteButton.textContent = 'Delete';
         deleteButton.onclick = () => this.selectionManager.deleteSelectedFeatures();
 
