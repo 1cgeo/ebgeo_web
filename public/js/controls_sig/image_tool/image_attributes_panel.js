@@ -5,16 +5,20 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     const sizeLabel = document.createElement('label');
     sizeLabel.textContent = 'Tamanho:';
     const sizeInput = document.createElement('input');
-    sizeInput.type = 'number';
-    sizeInput.step = '0.1';
-    sizeInput.min = '0.1';
+    sizeInput.classList.add("slider");
+    sizeInput.type = 'range';
+    sizeInput.step = 0.1;
+    sizeInput.min = 0.1;
     sizeInput.value = feature.properties.size;
     sizeInput.oninput = (e) => {
         imageControl.updateFeaturesProperty(selectedFeatures, 'size', parseFloat(e.target.value));
         uiManager.updateSelectionHighlight();
     };
-    panel.appendChild(sizeLabel);
-    panel.appendChild(sizeInput);
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append($("<div>", { class: "attr-name" }).append(sizeLabel))
+            .append($("<div>", { class: "attr-input" }).append(sizeInput))
+    )
 
     const rotationLabel = document.createElement('label');
     rotationLabel.textContent = 'Rotação:';
@@ -28,12 +32,16 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         imageControl.updateFeaturesProperty(selectedFeatures, 'rotation', parseFloat(e.target.value));
         uiManager.updateSelectionHighlight();
     };
-    panel.appendChild(rotationLabel);
-    panel.appendChild(rotationInput);
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append($("<div>", { class: "attr-name" }).append(rotationLabel))
+            .append($("<div>", { class: "attr-input" }).append(rotationInput))
+    )
 
     const opacityLabel = document.createElement('label');
     opacityLabel.textContent = 'Opacidade:';
     const opacityInput = document.createElement('input');
+    opacityInput.classList.add("slider");
     opacityInput.type = 'range';
     opacityInput.min = 0;
     opacityInput.max = 1;
@@ -43,10 +51,14 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         imageControl.updateFeaturesProperty(selectedFeatures, 'opacity', parseFloat(e.target.value));
         uiManager.updateSelectionHighlight();
     };
-    panel.appendChild(opacityLabel);
-    panel.appendChild(opacityInput);
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append($("<div>", { class: "attr-name" }).append(opacityLabel))
+            .append($("<div>", { class: "attr-input" }).append(opacityInput))
+    )
 
     const saveButton = document.createElement('button');
+    saveButton.classList.add('tool-button', 'pure-material-tool-button-contained')
     saveButton.textContent = 'Salvar';
     saveButton.type = 'submit';
     saveButton.onclick = () => {
@@ -54,16 +66,20 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         selectionManager.deselectAllFeatures();
         selectionManager.updateUI();
     };
-    panel.appendChild(saveButton);
 
     const discardButton = document.createElement('button');
+    discardButton.classList.add('tool-button', 'pure-material-tool-button-contained')
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
         imageControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
         selectionManager.updateUI();
     };
-    panel.appendChild(discardButton);
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append(saveButton)
+            .append(discardButton)
+    )
 
     document.body.appendChild(panel);
 }

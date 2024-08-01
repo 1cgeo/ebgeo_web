@@ -16,19 +16,24 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
             attr,
             selectedFeatures[0].properties[attr],
             (input, e) => {
-                console.log(input, e)
+                if (attr === 'color' || attr === 'outlinecolor') {
+                    featureControl.updateFeaturesProperty(selectedFeatures, attr, `#${e.toHex()}`)
+                    return
+                }
                 let value = input.type === 'range' || input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
                 value = input.type === 'checkbox' ? e.target.checked : value;
                 featureControl.updateFeaturesProperty(selectedFeatures, attr, value);
             }
         );
-        container.append(attrLabel)
-        container.append(elInput)
+        container.append($("<div>", { class: "attr-name" }).append(attrLabel))
+        container.append($("<div>", { class: "attr-input" }).append(elInput))
         $(panel).append(container);
+
     });
 
+    const container = $("<div>", { class: "attr-container-row" });
     const saveButton = document.createElement('button');
-    saveButton.classList.add('tutorial-button', 'pure-material-button-contained')
+    saveButton.classList.add('tool-button', 'pure-material-tool-button-contained')
     saveButton.textContent = 'Salvar';
     saveButton.type = 'submit';
     saveButton.onclick = () => {
@@ -36,29 +41,31 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
         selectionManager.deselectAllFeatures(true);
         selectionManager.updateUI();
     };
-    panel.appendChild(saveButton);
+    container.append(saveButton)
 
     const discardButton = document.createElement('button');
     discardButton.textContent = 'Descartar';
-    discardButton.classList.add('tutorial-button', 'pure-material-button-contained')
+    discardButton.classList.add('tool-button', 'pure-material-tool-button-contained')
     discardButton.onclick = () => {
         featureControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap)
         selectionManager.deselectAllFeatures(true);
         selectionManager.updateUI();
     };
-    panel.appendChild(discardButton);
+    container.append(discardButton)
 
     if (selectedFeatures.length === 1) {
         const setDefaultButton = document.createElement('button');
         setDefaultButton.textContent = 'Definir padrão';
-        setDefaultButton.classList.add('tutorial-button', 'pure-material-button-contained')
+        setDefaultButton.classList.add('tool-button', 'pure-material-tool-button-contained')
         setDefaultButton.onclick = () => {
             featureControl.setDefaultProperties(feature.properties, commonAttributes);
             selectionManager.deselectAllFeatures(true);
             selectionManager.updateUI();
         };
-        panel.appendChild(setDefaultButton);
+        container.append(setDefaultButton)
+
     }
+    $(panel).append(container);
 }
 
 function findCommonAttributes(features) {
@@ -100,7 +107,8 @@ function createInput(attr, value, inputCallback) {
     let input;
     if (attr === 'color' || attr === 'outlinecolor') {
         input = document.createElement('input');
-        input.type = 'color';
+        input.classList.add("picker-color");
+        input.type = 'text';
         input.value = value || '#000000';
     } else if (attr === 'opacity') {
         input = document.createElement('input');
@@ -111,7 +119,6 @@ function createInput(attr, value, inputCallback) {
         input.step = 0.1;
         input.value = value !== undefined ? value : 1;
     } else if (attr === 'size') {
-        console.log(value)
         input = document.createElement('input');
         input.classList.add("slider");
         input.type = 'range';
