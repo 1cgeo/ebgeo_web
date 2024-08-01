@@ -86,7 +86,7 @@ $('.button-tool-3d').on('click', function () {
 });
 
 
-$('#locate-3d-container button').click(function () {
+function handleClickGoTo () {
     let text = $(this).attr('id')
     if (text) {
         removeAllTools()
@@ -106,7 +106,10 @@ $('#locate-3d-container button').click(function () {
             destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
         });
     }
-});
+}
+
+$('#locate-3d-container button').click(handleClickGoTo);
+$('#locate-3d-container-mobile button').click(handleClickGoTo);
 
 
 var handler = new Cesium.ScreenSpaceEventHandler(map.canvas);

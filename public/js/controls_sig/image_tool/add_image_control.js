@@ -33,6 +33,9 @@ class AddImageControl {
 
         this.setupEventListeners();
 
+        $('input[name="base-layer"]').on('change', this.changeButtonColor);
+        this.changeButtonColor()
+
         return this.container;
     }
 
