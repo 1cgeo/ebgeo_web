@@ -57,8 +57,8 @@ class SelectionManager {
                     }
                 }
             }
+            this.updateUI();
         }
-        this.updateUI();
     }
 
     getClickedDrawFeature(point) {

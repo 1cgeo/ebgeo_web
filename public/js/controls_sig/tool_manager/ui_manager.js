@@ -152,16 +152,35 @@ class UIManager {
 
     addVectorTileInfoToPanel(panel, feature) {
         const title = document.createElement('h3');
-        title.textContent = `Atributos: (${feature.source})`;
+        title.textContent = `Atributos ${feature.source}:`;
         panel.appendChild(title);
 
         const propertiesList = document.createElement('ul');
+
+        const blacklist = ['id', 'vector_type', 'tilequery', 'mapbox_clip_start', 'mapbox_clip_end'];
+        const blacklistSuffixes = ['_code'];
+
         for (const [key, value] of Object.entries(feature.properties)) {
+            if (blacklist.includes(key) || blacklistSuffixes.some(suffix => key.endsWith(suffix))) {
+                continue;
+            }
+
+            let displayKey = key.endsWith('_value') ? key.slice(0, -6) : key;
+
+            displayKey = displayKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
             const listItem = document.createElement('li');
-            listItem.textContent = `${key}: ${value}`;
+            listItem.innerHTML = `<strong>${displayKey}:</strong> ${value}`;
             propertiesList.appendChild(listItem);
         }
-        panel.appendChild(propertiesList);
+
+        if (propertiesList.children.length > 0) {
+            panel.appendChild(propertiesList);
+        } else {
+            const noPropertiesMsg = document.createElement('p');
+            noPropertiesMsg.textContent = 'Feição sem atributos';
+            panel.appendChild(noPropertiesMsg);
+        }
 
         const closeButton = document.createElement('button');
         closeButton.textContent = 'Fechar';
@@ -169,16 +188,6 @@ class UIManager {
             this.saveChangesAndClosePanel();
         };
         panel.appendChild(closeButton);
-    }
-
-    updatePanels() {
-        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
-
-        if (allSelectedFeatures.length > 0) {
-            this.createUnifiedAttributesPanel(allSelectedFeatures);
-        } else {
-            this.saveChangesAndClosePanel();
-        }
     }
 
     saveChangesAndClosePanel = () => {
