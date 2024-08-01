@@ -34,6 +34,13 @@ class AddTextControl {
 
         return this.container;
     }
+
+    changeButtonColor = () => {
+        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
+        $("#text-tool").html(`<img class="icon-sig-tool" src="./images/icon_text_${color}.svg" alt="TEXT" />`);
+        if (!this.isActive) return
+        $("#text-tool").html('<img class="icon-sig-tool" src="./images/icon_text_red.svg" alt="TEXT" />');
+    }
     
     onRemove = () => {
         try {

@@ -397,9 +397,14 @@
                             outlineColor: Cesium.Color.BLUE,
                             outlineWidth: 5
                         }
-                        const area = +$this.getPositionsArea($this.transformCartesianArrayToWGS84Array(positions))
+                        var polygon = turf.polygon([
+                            $this.transformCartesianArrayToWGS84Array(positions).map(i => [i.lng, i.lat])
+                        ]);
+
+                        const area = +turf.area(polygon)
+                        console.log(area)
                         _labelEntity.label = {
-                            text: `${(area / 1000000.0 < 1 ? area : area / 1000000.0).toFixed(1)} ${area / 1000000.0 < 1 ? 'm²' : 'km²'}`.replace('.', ','),
+                            text: `${(area / 1000 < 1 ? area : area / 1000).toFixed(1)} ${area / 1000 < 1 ? 'm²' : 'km²'}`.replace('.', ','),
                             show: true,
                             showBackground: true,
                             font: '14px monospace',

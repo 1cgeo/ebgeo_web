@@ -2,7 +2,7 @@ import { addFeature, updateFeature, removeFeature } from '../store.js';
 class AddLOSControl {
     static DEFAULT_PROPERTIES = {
         opacity: 1,
-        wdith: 2,
+        width: 5,
         profile: true,
         measure: false,
         visibleColor: '#00FF00',

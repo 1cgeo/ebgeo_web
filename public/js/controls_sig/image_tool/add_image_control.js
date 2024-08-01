@@ -33,7 +33,17 @@ class AddImageControl {
 
         this.setupEventListeners();
 
+        $('input[name="base-layer"]').on('change', this.changeButtonColor);
+        this.changeButtonColor()
+
         return this.container;
+    }
+
+    changeButtonColor = () => {
+        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
+        $("#photo-tool").html(`<img class="icon-sig-tool" src="./images/icon_photo_${color}.svg" alt="PHOTO" />`);
+        if (!this.isActive) return
+        $("#photo-tool").html('<img class="icon-sig-tool" src="./images/icon_photo_red.svg" alt="PHOTO" />');
     }
 
     onRemove() {

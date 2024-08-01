@@ -66,6 +66,11 @@ class SelectionManager {
         return features.find(f => f.source === 'mapbox-gl-draw-cold' || f.source === 'mapbox-gl-draw-hot');
     }
 
+    getClickedDrawFeature(point) {
+        const features = this.map.queryRenderedFeatures(point);
+        return features.find(f => f.source === 'mapbox-gl-draw-cold' || f.source === 'mapbox-gl-draw-hot');
+    }
+
     handleElementClick = (e) => {
         e.preventDefault();
         if (!e.originalEvent.shiftKey) {

@@ -42,7 +42,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
     panel.appendChild(mostrarPerfilCheckbox);
 
     const saveButton = document.createElement('button');
-    saveButton.textContent = 'Save';
+    saveButton.textContent = 'Salvar';
     saveButton.type = 'submit';
     saveButton.onclick = () => {
         losControl.saveFeatures(selectedFeatures, initialPropertiesMap);

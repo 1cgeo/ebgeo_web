@@ -5,7 +5,7 @@ class MoveHandler {
         this.uiManager = uiManager;
         this.isDragging = false;
         this.lastPos = null;
-        this.debounceTime = 16;
+        this.debounceTime = 30;
         this.lastUpdateTime = 0;
         this.map.on('mousedown', this.onMouseDown.bind(this));
     }
