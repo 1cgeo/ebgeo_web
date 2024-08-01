@@ -130,8 +130,8 @@ class AddLOSControl {
             geometry: {
                 type: 'MultiLineString',
                 coordinates: [
-                    losResult.visibleLine.geometry.coordinates,
-                    losResult.obstructedLine ? losResult.obstructedLine.geometry.coordinates : []
+                    losResult.visible.geometry.coordinates,
+                    losResult.obstructed ? losResult.obstructed.geometry.coordinates : []
                 ]
             }
         };
@@ -139,7 +139,7 @@ class AddLOSControl {
         addFeature('los', losFeature);
 
         const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-        data.features.push(losFeature.toGeoJSON());
+        data.features.push(losFeature);
         this.map.getSource('los').setData(data);
     }
 
@@ -152,8 +152,8 @@ class AddLOSControl {
         // Get start and end elevations
         const startCoordinates = line.geometry.coordinates[0];
         const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
-        const startElevation = await map.queryTerrainElevation(startCoordinates, { exaggerated: false });
-        const endElevation = await map.queryTerrainElevation(endCoordinates, { exaggerated: false });
+        const startElevation = await this.map.queryTerrainElevation(startCoordinates, { exaggerated: false });
+        const endElevation = await this.map.queryTerrainElevation(endCoordinates, { exaggerated: false });
       
         let firstObstructedPoint = null;
       
@@ -165,7 +165,7 @@ class AddLOSControl {
           const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
       
           // Query terrain elevation
-          const actualElevation = await map.queryTerrainElevation(segmentCoordinates, { exaggerated: false });
+          const actualElevation = await this.map.queryTerrainElevation(segmentCoordinates, { exaggerated: false });
       
           if (actualElevation > expectedElevation) {
             firstObstructedPoint = segmentCoordinates;
