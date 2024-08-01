@@ -20,6 +20,10 @@ class SelectionManager {
         this.uiManager = uiManager;
     }
 
+    setvectorTileInfoControl(vectorTileInfoControl) {
+        this.vectorTileInfoControl = vectorTileInfoControl;
+    }
+
     setupEventListeners = () => {
         this.map.on('click', this.handleMapClick);
         this.map.on('click', 'text-layer', this.handleElementClick);
@@ -149,6 +153,7 @@ class SelectionManager {
         if (this.imageControl.isActive) return this.imageControl;
         if (this.losControl.isActive) return this.losControl;
         if (this.visibilityControl.isActive) return this.visibilityControl;
+        if (this.vectorTileInfoControl.isActive) return this.vectorTileInfoControl;
         if (this.drawControl.isActive) return this.drawControl;
         return null;
     }

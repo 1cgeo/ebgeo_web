@@ -101,10 +101,7 @@ class UIManager {
         if (allSelectedFeatures.length > 0) {
             this.createUnifiedAttributesPanel(allSelectedFeatures);
         } else {
-            let panel = document.querySelector('.unified-attributes-panel');
-            if (panel) {
-                panel.remove();
-            }
+            this.saveChangesAndClosePanel();
         }
     }
 
@@ -140,6 +137,48 @@ class UIManager {
 
         panel.appendChild(deleteButton);
         document.body.appendChild(panel);
+    }
+
+    showVectorTileInfoPanel(feature) {
+        this.saveChangesAndClosePanel();
+
+        const panel = document.createElement('div');
+        panel.className = 'unified-attributes-panel';
+
+        this.addVectorTileInfoToPanel(panel, feature);
+
+        document.body.appendChild(panel);
+    }
+
+    addVectorTileInfoToPanel(panel, feature) {
+        const title = document.createElement('h3');
+        title.textContent = `Atributos: (${feature.source})`;
+        panel.appendChild(title);
+
+        const propertiesList = document.createElement('ul');
+        for (const [key, value] of Object.entries(feature.properties)) {
+            const listItem = document.createElement('li');
+            listItem.textContent = `${key}: ${value}`;
+            propertiesList.appendChild(listItem);
+        }
+        panel.appendChild(propertiesList);
+
+        const closeButton = document.createElement('button');
+        closeButton.textContent = 'Fechar';
+        closeButton.onclick = () => {
+            this.saveChangesAndClosePanel();
+        };
+        panel.appendChild(closeButton);
+    }
+
+    updatePanels() {
+        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
+
+        if (allSelectedFeatures.length > 0) {
+            this.createUnifiedAttributesPanel(allSelectedFeatures);
+        } else {
+            this.saveChangesAndClosePanel();
+        }
     }
 
     saveChangesAndClosePanel = () => {

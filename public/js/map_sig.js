@@ -12,6 +12,7 @@ import UIManager from './controls_sig/tool_manager/ui_manager.js';
 import MoveHandler from './controls_sig/tool_manager/move_handler.js';
 import MapControl from './controls_sig/map_control.js';
 import AddStreetViewControl from './controls_sig/street_view_tool/add_street_view_control.js';
+import VectorTileInfoControl from './controls_sig/vector_info_control.js'
 //import ResetNorthControl from './controls_sig/reset_north_control.js';
 //import ResetOrthogonalControl from './controls_sig/reset_otho_control.js';
 //import FlyToCoordinatesControl from './controls_sig/fly_coordinates_control.js';
@@ -58,6 +59,12 @@ const uiManager = new UIManager(map, selectionManager);
 selectionManager.setUIManager(uiManager);
 
 new MoveHandler(map, selectionManager, uiManager);
+
+const vectorTileInfoControl = new VectorTileInfoControl(toolManager,uiManager);
+map.addControl(vectorTileInfoControl, 'top-right');
+
+selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
+
 
 const scale = new maplibregl.ScaleControl({
     maxWidth: 80,
