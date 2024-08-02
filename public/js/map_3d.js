@@ -7,7 +7,7 @@ for (let tilesetSetup of [
     {
         url: "/3d/AMAN/tileset.json",
 
-        heightOffset: -360, //-360 para elipsoide 40 para terreno,
+        heightOffset: 50, //-360 para elipsoide 40 para terreno,
         id: "AMAN",
         default: true,
         locate: {
@@ -18,7 +18,7 @@ for (let tilesetSetup of [
     },
     {
         url: "/3d/ESA/tileset.json",
-        heightOffset: -770,
+        heightOffset: 75,
         id: "ESA",
         locate: {
             lon: -45.25666459926732,
@@ -29,12 +29,12 @@ for (let tilesetSetup of [
     },
     {
         url: "/3d/PCL/tileset.json",
-        heightOffset: -387,
+        heightOffset: 35,
         id: "PCL",
         locate: {
             lon: -44.47332385414955,
             lat: -22.43976556982974,
-            height: 300
+            height: 1000
         }
 
     },

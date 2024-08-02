@@ -5,8 +5,17 @@ import baseStyle from './base_map_styles.js'
 const map = new maplibregl.Map({
     container: 'map-sig',
     style: baseStyle,
-    attributionControl: false
+    attributionControl: false,
+    minZoom: 11,
+    maxZoom: 18
 });
+
+const bounds = [
+    [-45.82515,-22.69950],
+    [-43.92333,-21.30216]
+];
+
+map.setMaxBounds(bounds);
 
 map.addControl(new maplibregl.AttributionControl({
     customAttribution: 'Diretoria de Serviço Geográfico - Exército Brasileiro',

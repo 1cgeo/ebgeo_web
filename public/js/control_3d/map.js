@@ -1,33 +1,53 @@
-
-// var { west, south, east, north } = {
-//     "west": -0.7760082380444313,
-//     "south": -0.39205563332555876,
-//     "east": -0.7755774242078299,
-//     "north": -0.39180386548072876
-// }
-// var extent = new Cesium.Rectangle.fromDegrees(west, south, east, north)
-// Cesium.Camera.DEFAULT_VIEW_RECTANGLE = extent;
-// Cesium.Camera.DEFAULT_VIEW_FACTOR = 0;
-
-
-Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkMzViMDllOS0zMDNhLTRlNjgtODRmYi1iYzQyNmY3ZmEyYWIiLCJpZCI6MjA1ODQ1LCJpYXQiOjE3MTE5ODI0Mzd9.BhKXygD0YSiMuUVD1o7AfOmWKCOlS3lCMQuQMViPQac';
+var { west, south, east, north } = {
+    "west": -44.449656,
+    "south": -22.455922,
+    "east": -44.449654,
+    "north": -22.455920
+}
+var extent = new Cesium.Rectangle.fromDegrees(west, south, east, north)
+Cesium.Camera.DEFAULT_VIEW_RECTANGLE = extent;
+Cesium.Camera.DEFAULT_VIEW_FACTOR = 0;
+// Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkMzViMDllOS0zMDNhLTRlNjgtODRmYi1iYzQyNmY3ZmEyYWIiLCJpZCI6MjA1ODQ1LCJpYXQiOjE3MTE5ODI0Mzd9.BhKXygD0YSiMuUVD1o7AfOmWKCOlS3lCMQuQMViPQac';
 var map = new Cesium.Viewer("map-3d", {
-    infoBox: true,
-    shouldAnimate: true,
-    vrButton: true,
+    infoBox: false,
+    shouldAnimate: false,
+    vrButton: false,
     geocoder: false,
     homeButton: false,
     sceneModePicker: false,
-    baseLayerPicker: true,
+    baseLayerPicker: false,
     navigationHelpButton: false,
     animation: false,
     timeline: false,
     fullscreenButton: false,
-    globe: false
+    // globe: false
 });
-
-map.scene.skyAtmosphere.show = false;
-map.scene.skyBox.show = false;
+map.scene.globe.baseColor=Cesium.Color.BLACK;
+map.scene.skyAtmosphere.show = true;
+map.scene.skyBox.show = true;
 map.bottomContainer.style.display = "none";
+
+const position = Cesium.Cartesian3.fromDegrees(
+    -44.4481491,
+    -22.4546061,
+    424.7
+);
+const heading = Cesium.Math.toRadians(164);
+const pitch =  Cesium.Math.toRadians(-2);
+const roll = Cesium.Math.toRadians(-1);
+const hpr = new Cesium.HeadingPitchRoll(heading, pitch, roll);
+const orientation = Cesium.Transforms.headingPitchRollQuaternion(
+    position,
+    hpr
+);
+
+const entity = map.entities.add({
+    name: '3d/estatua.glb',
+    position: position,
+    orientation: orientation,
+    model: {
+    uri: '3d/estatua.glb',
+    },
+});
 
 export { map };

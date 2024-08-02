@@ -233,7 +233,7 @@ class AddStreetViewControl {
             this.raycaster.setFromCamera(this.mouse, this.camera);
             var intersects = this.raycaster.intersectObjects(this.arrows.filter(i => i.arrow.visible).map(i => i.arrow));
             if (intersects.length > 0) {
-                console.log(intersects[0].object.imgId())
+                //console.log(intersects[0].object.imgId())
             }
         }, false);
 
@@ -249,7 +249,7 @@ class AddStreetViewControl {
         geometry.scale(- 1, 1, 1);
         this.setCurrentPhotoName(info.camera.img)
         let texture = new THREE.TextureLoader().load(
-            `${this.IMAGES_LOCATION}/${info.camera.img}.webp`
+            `${this.IMAGES_LOCATION}/${info.camera.img}.jpg`
         );
         texture.colorSpace = THREE.SRGBColorSpace
         this.material = new THREE.MeshBasicMaterial({ map: texture });
@@ -447,7 +447,7 @@ class AddStreetViewControl {
             this.setCurrentMouse()
             this.setCurrentPhotoName(data.camera.img)
             let texture = new THREE.TextureLoader().load(
-                `${this.IMAGES_LOCATION}/${data.camera.img}.webp`,
+                `${this.IMAGES_LOCATION}/${data.camera.img}.jpg`,
                 (texture) => {
                     texture.colorSpace = THREE.SRGBColorSpace
                     this.material.map = texture
