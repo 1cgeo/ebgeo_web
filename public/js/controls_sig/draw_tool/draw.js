@@ -19,7 +19,7 @@ class DrawControl {
             linestring: {
                 color: '#fbb03b',
                 opacity: 0.7,
-                size: 2,
+                size: 5,
                 outlinecolor: '#fbb03b',
                 measure: false,
                 profile: false,
@@ -134,7 +134,7 @@ class DrawControl {
                 const lengthFormatted = lengthInMeters >= 1000 
                     ? `${(lengthInMeters / 1000).toFixed(2)} km`
                     : `${lengthInMeters.toFixed(2)} m`;
-                const midpoint = turf.midpoint(line.geometry.coordinates[0], line.geometry.coordinates[line.geometry.coordinates.length - 1]);
+                const midpoint = turf.along(line, lengthInMeters / 2, { units: 'meters' });
                 this.displayMeasurement(midpoint.geometry.coordinates, lengthFormatted, feature.id);
             } else if (feature.geometry.type === 'Polygon') {
                 const polygon = turf.polygon(feature.geometry.coordinates);

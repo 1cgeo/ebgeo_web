@@ -17,7 +17,7 @@ class MoveHandler {
     }
 
     startDrag(e) {
-        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
+        const allSelectedFeatures = this.selectionManager.getAllSelectedMovableFeatures();
         
         if (allSelectedFeatures.length > 0) {
             const clickedFeature = this.map.queryRenderedFeatures(e.point)[0];
@@ -92,8 +92,6 @@ class MoveHandler {
         let updatedFeature;
         switch (source) {
             case 'draw':
-            case 'los':
-            case 'visibility':
                 updatedFeature = this.translateFeature(feature, dx, dy);
                 break;
             case 'text':
@@ -184,8 +182,6 @@ class MoveHandler {
         const newSelectedFeatures = new Map();
         const newSelectedTextFeatures = new Map();
         const newSelectedImageFeatures = new Map();
-        const newSelectedLOSFeatures = new Map();
-        const newSelectedVisibilityFeatures = new Map();
 
         updatedFeatures.forEach(feature => {
             switch (feature.properties.source) {
@@ -198,20 +194,12 @@ class MoveHandler {
                 case 'image':
                     newSelectedImageFeatures.set(feature.id, feature);
                     break;
-                case 'los':
-                    newSelectedLOSFeatures.set(feature.id, feature);
-                    break;
-                case 'visibility':
-                    newSelectedVisibilityFeatures.set(feature.id, feature);
-                    break;
             }
         });
 
         this.selectionManager.selectedDrawFeatures = newSelectedFeatures;
         this.selectionManager.selectedTextFeatures = newSelectedTextFeatures;
         this.selectionManager.selectedImageFeatures = newSelectedImageFeatures;
-        this.selectionManager.selectedLOSFeatures = newSelectedLOSFeatures;
-        this.selectionManager.selectedVisibilityFeatures = newSelectedVisibilityFeatures;
     }
 
     setCursorStyle(style) {

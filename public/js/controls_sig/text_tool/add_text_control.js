@@ -32,6 +32,9 @@ class AddTextControl {
 
         this.setupEventListeners();
 
+        this.changeButtonColor()
+        $('input[name="base-layer"]').on('change', this.changeButtonColor);
+
         return this.container;
     }
 
@@ -66,11 +69,14 @@ class AddTextControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.changeButtonColor()
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
+        $('input[name="base-layer"]').off('change', this.changeButtonColor);
+        this.changeButtonColor()
     }
 
     handleMapClick = (e) => {

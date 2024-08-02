@@ -9,7 +9,9 @@ const store = {
                 texts: [],
                 images: [],
                 los: [],
-                visibility: []
+                visibility: [],
+                processed_los: [],
+                processed_visibility: []
             },
             undoStack: [],
             redoStack: [],
@@ -78,7 +80,9 @@ export const addMap = (mapName, mapData = null) => {
             texts: [],
             images: [],
             los: [],
-            visibility: []
+            visibility: [],
+            processed_los: [],
+            processed_visibility: []
         },
         undoStack: [],
         redoStack: [],

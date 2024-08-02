@@ -148,6 +148,14 @@ class SelectionManager {
         ];
     }
 
+    getAllSelectedMovableFeatures() {
+        return [
+            ...[...this.selectedDrawFeatures.values()],
+            ...[...this.selectedTextFeatures.values()],
+            ...[...this.selectedImageFeatures.values()]
+        ];
+    }
+
     updateUI = () => {
         this.uiManager.updateSelectionHighlight();
         this.uiManager.updatePanels();
@@ -177,8 +185,6 @@ class SelectionManager {
     updateSelectedFeatures(save = false) {
         this.textControl.updateFeatures([...this.selectedTextFeatures.values()], save);
         this.imageControl.updateFeatures([...this.selectedImageFeatures.values()], save);
-        this.losControl.updateFeatures([...this.selectedLOSFeatures.values()], save);
-        this.visibilityControl.updateFeatures([...this.selectedVisibilityFeatures.values()], save);
         this.drawControl.updateFeatures([...this.selectedDrawFeatures.values()], save);
     }
 }

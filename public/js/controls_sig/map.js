@@ -55,7 +55,8 @@ map.on('styledata', () => {
                 'text-justify': ['get', 'justify'],
                 'text-anchor': 'center',
                 'text-rotate': ['get', 'rotation'],
-                'text-ignore-placement': true
+                'text-ignore-placement': true,
+                "text-font": ["Noto Sans Regular"],
             },
             paint: {
                 'text-color': ['get', 'color'],
@@ -119,7 +120,30 @@ map.on('styledata', () => {
             'type': 'line',
             'source': 'los',
             'paint': {
-                'line-color': ['get', 'visibleColor'],
+                'line-color': '#D3D3D3',
+                'line-opacity': 0,
+                'line-width': ['get', 'width']
+            }
+        });
+    }
+
+    if (!map.getSource('processed-los')) {
+        map.addSource('processed-los', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.processed_los
+            }
+        });
+    }
+
+    if (!map.getLayer('processed-los-layer')) {
+        map.addLayer({
+            'id': 'processed-los-layer',
+            'type': 'line',
+            'source': 'processed-los',
+            'paint': {
+                'line-color': ['get', 'color'],
                 'line-opacity': ['get', 'opacity'],
                 'line-width': ['get', 'width']
             }
@@ -141,6 +165,29 @@ map.on('styledata', () => {
             id: 'visibility-layer',
             type: 'fill',
             source: 'visibility',
+            layout: {},
+            paint: {
+                'fill-color': '#D3D3D3',
+                'fill-opacity': 0.1
+            }
+        });
+    }
+
+    if (!map.getSource('processed-visibility')) {
+        map.addSource('processed-visibility', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.processed_visibility
+            }
+        });
+    }
+
+    if (!map.getLayer('processed-visibility-layer')) {
+        map.addLayer({
+            id: 'processed-visibility-layer',
+            type: 'fill',
+            source: 'processed-visibility',
             layout: {},
             paint: {
                 'fill-color': ['get', 'color'],

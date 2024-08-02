@@ -14,7 +14,7 @@ class UIManager {
     }
 
     setupEventListeners = () => {
-        this.map.on('move', this.updateSelectionHighlight);
+        //this.map.on('move', this.updateSelectionHighlight);
         this.map.on('draw.render', this.updateSelectionHighlight);
     }
 
@@ -185,6 +185,7 @@ class UIManager {
                     "rgb(12, 52, 61)", "rgb(28, 69, 135)", "rgb(7, 55, 99)", "rgb(32, 18, 77)", "rgb(76, 17, 48)"]
             ]
         });
+
     }
 
     showVectorTileInfoPanel(feature) {
@@ -205,7 +206,7 @@ class UIManager {
 
         const propertiesList = document.createElement('ul');
 
-        const blacklist = ['id', 'vector_type', 'tilequery', 'mapbox_clip_start', 'mapbox_clip_end'];
+        const blacklist = ['id', 'vector_type', 'tilequery', 'mapbox_clip_start', 'mapbox_clip_end', 'justificativa_txt_value', 'visivel_value', 'exibir_linha_rotulo_value', 'suprimir_bandeira_value', 'posicao_rotulo_value', 'direcao_fixada_value'];
         const blacklistSuffixes = ['_code'];
 
         for (const [key, value] of Object.entries(feature.properties)) {
@@ -214,8 +215,6 @@ class UIManager {
             }
 
             let displayKey = key.endsWith('_value') ? key.slice(0, -6) : key;
-
-            displayKey = displayKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
             const listItem = document.createElement('li');
             listItem.innerHTML = `<strong>${displayKey}:</strong> ${value}`;

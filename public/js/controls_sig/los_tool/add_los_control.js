@@ -1,18 +1,21 @@
 import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { getTerrainElevation } from '../terrain_control.js';
 class AddLOSControl {
     static DEFAULT_PROPERTIES = {
         opacity: 1,
         width: 5,
         profile: true,
         measure: false,
-        visibleColor: '#00FF00',
-        obstructedColor: '#FF0000',
         source: 'los'
     };
 
+    static VISIBLE_COLOR = '#00FF00';
+
+    static OBSTRUCTED_COLOR = '#FF0000';
+
     constructor(toolManager) {
         this.toolManager = toolManager;
-        this.toolManager.textControl = this;
+        this.toolManager.losControl = this;
         this.isActive = false;
         this.startPoint = null;
         this.endPoint = null;
@@ -48,13 +51,13 @@ class AddLOSControl {
     }
 
     setupEventListeners = () => {
-        this.map.on('mouseenter', 'text-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'text-layer', this.handleMouseLeave);
+        this.map.on('mouseenter', 'los-layer', this.handleMouseEnter);
+        this.map.on('mouseleave', 'los-layer', this.handleMouseLeave);
     }
 
     removeEventListeners = () => {
-        this.map.off('mouseenter', 'text-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'text-layer', this.handleMouseLeave);
+        this.map.off('mouseenter', 'los-layer', this.handleMouseEnter);
+        this.map.off('mouseleave', 'los-layer', this.handleMouseLeave);
     }
 
     activate = () => {
@@ -122,25 +125,91 @@ class AddLOSControl {
         };
 
         const losResult = await this.calculateLOS(linestring);
-
-        const losFeature = {
-            type: 'Feature',
-            id: Date.now().toString(),
-            properties: { ...AddLOSControl.DEFAULT_PROPERTIES },
-            geometry: {
-                type: 'MultiLineString',
-                coordinates: [
-                    losResult.visible.geometry.coordinates,
-                    losResult.obstructed ? losResult.obstructed.geometry.coordinates : []
-                ]
-            }
-        };
+        let losFeature
+        if (losResult.obstructed) {
+            losFeature = {
+                type: 'Feature',
+                id: Date.now().toString(),
+                properties: { ...AddLOSControl.DEFAULT_PROPERTIES },
+                geometry: {
+                    type: 'MultiLineString',
+                    coordinates: [
+                        losResult.visible.geometry.coordinates,
+                        losResult.obstructed.geometry.coordinates
+                    ]
+                }
+            };
+        } else {
+            losFeature = {
+                type: 'Feature',
+                id: Date.now().toString(),
+                properties: { ...AddLOSControl.DEFAULT_PROPERTIES },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: losResult.visible.geometry.coordinates
+                }
+            };
+        }
         
         addFeature('los', losFeature);
+        this.updateFeatureMeasurement(losFeature);
 
         const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
         data.features.push(losFeature);
         this.map.getSource('los').setData(data);
+
+        const processedLosFeatures = this.preprocessLosFeature(losFeature);
+        processedLosFeatures.forEach(processedFeature => {
+            addFeature('processed_los', processedFeature);
+        });
+        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+        processedData.features.push(...processedLosFeatures);
+        this.map.getSource('processed-los').setData(processedData);
+    }
+
+    preprocessLosFeature(feature) {
+        const properties = feature.properties;
+        let processedFeatures = [];
+
+        if (feature.geometry.type === 'MultiLineString') {
+            processedFeatures.push({
+                type: 'Feature',
+                id: feature.id + '-visible',
+                properties: {
+                    ...properties,
+                    color: AddLOSControl.VISIBLE_COLOR
+                },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: feature.geometry.coordinates[0]
+                }
+            });
+
+            processedFeatures.push({
+                type: 'Feature',
+                id: feature.id + '-obstructed',
+                properties: {
+                    ...properties,
+                    color: AddLOSControl.OBSTRUCTED_COLOR
+                },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: feature.geometry.coordinates[1]
+                }
+            });
+        } else {
+            processedFeatures.push({
+                type: 'Feature',
+                id: feature.id + '-visible',
+                properties: {
+                    ...properties,
+                    color: AddLOSControl.VISIBLE_COLOR
+                },
+                geometry: feature.geometry
+            });
+        }
+
+        return processedFeatures;
     }
 
     async calculateLOS(linestring) {
@@ -152,8 +221,8 @@ class AddLOSControl {
         // Get start and end elevations
         const startCoordinates = line.geometry.coordinates[0];
         const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
-        const startElevation = await this.map.queryTerrainElevation(startCoordinates, { exaggerated: false });
-        const endElevation = await this.map.queryTerrainElevation(endCoordinates, { exaggerated: false });
+        const startElevation = await getTerrainElevation(this.map, startCoordinates);
+        const endElevation = await getTerrainElevation(this.map, endCoordinates);
       
         let firstObstructedPoint = null;
       
@@ -165,7 +234,7 @@ class AddLOSControl {
           const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
       
           // Query terrain elevation
-          const actualElevation = await this.map.queryTerrainElevation(segmentCoordinates, { exaggerated: false });
+          const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
       
           if (actualElevation > expectedElevation) {
             firstObstructedPoint = segmentCoordinates;
@@ -180,7 +249,7 @@ class AddLOSControl {
         const obstructedLine = firstObstructedPoint 
           ? turf.lineString([firstObstructedPoint, endCoordinates]) 
           : null; // Empty line if no obstruction
-      
+
         return {
           visible: visibleLine,
           obstructed: obstructedLine
@@ -196,21 +265,33 @@ class AddLOSControl {
     }
     
     updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+        const losData = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+    
         features.forEach(feature => {
-            const f = data.features.find(f => f.id == feature.id);
-            if (f) {
-                f.properties[property] = value;
+            // Update los source
+            const losFeature = losData.features.find(f => f.id == feature.id);
+            if (losFeature) {
+                losFeature.properties[property] = value;
                 feature.properties[property] = value;
+                this.updateFeatureMeasurement(feature);
+
+                // Update processed-los source
+                const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                processedFeatures.forEach(processedFeature => {
+                    processedFeature.properties[property] = value;
+                });
             }
         });
-        this.map.getSource('los').setData(data);
+    
+        this.map.getSource('los').setData(losData);
+        this.map.getSource('processed-los').setData(processedData);
     }
 
-    updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if(features.length > 0){
             const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-            features.forEach(feature => {
+            for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
@@ -221,10 +302,11 @@ class AddLOSControl {
         
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
+                        this.updateFeatureMeasurement(featureToUpdate);
                         updateFeature('los', featureToUpdate);
                     }
                 }
-            });
+            };
             this.map.getSource('los').setData(data);
         }
     }
@@ -249,13 +331,18 @@ class AddLOSControl {
             return;
         }
         const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
         const idsToDelete = new Set(Array.from(features).map(f => f.id));
         data.features = data.features.filter(f => !idsToDelete.has(f.id));
+        processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
         this.map.getSource('los').setData(data);
+        this.map.getSource('processed-los').setData(processedData);
 
         features.forEach(f => {
             removeFeature('los', f.id);
-
+            removeFeature('processed_los', f.id + '-obstructed');
+            removeFeature('processed_los', f.id + '-visible');
+            this.removeFeatureMeasurement(f.id);
         });
     }
 
@@ -267,6 +354,65 @@ class AddLOSControl {
         return (
             feature.properties.profile !== initialProperties.profile
         );
+    }
+
+    updateFeatureMeasurement = (feature) => {
+        this.removeFeatureMeasurement(feature.id);
+        if (feature.properties.measure) {
+            let combinedLine;
+
+            // Check if the feature is a MultiLineString
+            if (feature.geometry.type === 'MultiLineString') {
+                combinedLine = {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [
+                            feature.geometry.coordinates[0][0],
+                            feature.geometry.coordinates[1][1]
+                        ]
+                    }
+                };
+            } else if (feature.geometry.type === 'LineString') {
+                combinedLine = {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: feature.geometry.coordinates
+                    }
+                };
+            }
+
+            const line = turf.lineString(combinedLine.geometry.coordinates);
+            const lengthInMeters = turf.length(line, { units: 'meters' });
+            const lengthFormatted = lengthInMeters >= 1000 
+                ? `${(lengthInMeters / 1000).toFixed(2)} km`
+                : `${lengthInMeters.toFixed(2)} m`;
+            const midpoint = turf.along(line, lengthInMeters / 2, { units: 'meters' });
+            this.displayMeasurement(midpoint.geometry.coordinates, lengthFormatted, feature.id);
+        }
+    }
+
+    removeFeatureMeasurement = (featureId) => {
+        const measurementLabel = document.querySelector(`.measurement-label[data-feature-id="${featureId}"]`);
+        if (measurementLabel) {
+            measurementLabel.remove();
+        }
+    }
+
+    displayMeasurement = (coordinates, measurement, featureId) => {
+        const markerElement = this.createMeasurementLabel(measurement, featureId);
+        new maplibregl.Marker({ element: markerElement })
+            .setLngLat(coordinates)
+            .addTo(this.map);
+    }
+
+    createMeasurementLabel = (measurement, featureId) => {
+        const label = document.createElement('div');
+        label.className = 'measurement-label';
+        label.innerText = measurement;
+        label.dataset.featureId = featureId;
+        return label;
     }
 }
 
