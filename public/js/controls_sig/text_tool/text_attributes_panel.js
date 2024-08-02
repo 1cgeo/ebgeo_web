@@ -157,7 +157,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     if (selectedFeatures.length === 1) {
         const setDefaultButton = document.createElement('button');
         setDefaultButton.classList.add('tool-button', 'pure-material-tool-button-contained')
-        setDefaultButton.textContent = 'Set as Default';
+        setDefaultButton.textContent = 'Definir padrão';
         setDefaultButton.onclick = () => {
             textControl.setDefaultProperties(feature.properties);
             selectionManager.deselectAllFeatures();

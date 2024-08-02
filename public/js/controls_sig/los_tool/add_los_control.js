@@ -130,7 +130,9 @@ class AddLOSControl {
             losFeature = {
                 type: 'Feature',
                 id: Date.now().toString(),
-                properties: { ...AddLOSControl.DEFAULT_PROPERTIES },
+                properties: { ...AddLOSControl.DEFAULT_PROPERTIES,
+                    profileData: await this.calculateProfile([this.startPoint, this.endPoint])
+                 },
                 geometry: {
                     type: 'MultiLineString',
                     coordinates: [
@@ -143,7 +145,9 @@ class AddLOSControl {
             losFeature = {
                 type: 'Feature',
                 id: Date.now().toString(),
-                properties: { ...AddLOSControl.DEFAULT_PROPERTIES },
+                properties: { ...AddLOSControl.DEFAULT_PROPERTIES,
+                    profileData: await this.calculateProfile([this.startPoint, this.endPoint])
+                 },
                 geometry: {
                     type: 'LineString',
                     coordinates: losResult.visible.geometry.coordinates
@@ -413,6 +417,26 @@ class AddLOSControl {
         label.innerText = measurement;
         label.dataset.featureId = featureId;
         return label;
+    }
+
+    async calculateProfile(coordinates) {
+        const line = turf.lineString(coordinates);
+        const length = turf.length(line, { units: 'meters' });
+        const steps = 25;
+        const stepLength = length / steps;
+
+        let profileData = [];
+
+        for (let i = 0; i <= steps; i++) {
+            const point = turf.along(line, i * stepLength, { units: 'meters' });
+            const elevation = await getTerrainElevation(this.map, point.geometry.coordinates);
+            profileData.push({
+                distance: i * stepLength,
+                elevation: elevation
+            });
+        }
+
+        return profileData;
     }
 }
 

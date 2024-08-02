@@ -105,6 +105,7 @@ class UIManager {
 
         if (allSelectedFeatures.length > 0) {
             this.createUnifiedAttributesPanel(allSelectedFeatures);
+            this.showProfilePanel(allSelectedFeatures);
         } else {
             this.saveChangesAndClosePanel();
         }
@@ -247,6 +248,7 @@ class UIManager {
 
             panel.remove();
         }
+        this.hideProfilePanel();
     }
 
     addTextAttributes = (panel, features) => {
@@ -343,6 +345,77 @@ class UIManager {
         const width = Math.max(...lines.map(line => context.measureText(line).width));
         const height = (adjustedFontSize - 8) * lines.length;
         return { width, height };
+    }
+
+    showProfilePanel(selectedFeatures) {
+        const losFeatures = selectedFeatures.filter(f => f.properties.source === 'los' && f.properties.profile);
+        
+        if (losFeatures.length === 1) {
+            const feature = losFeatures[0];
+            if (feature.properties.profileData) {
+                this.createProfilePanel(feature.properties.profileData);
+            }
+        } else {
+            this.hideProfilePanel();
+        }
+    }
+
+    createProfilePanel(profileData) {
+        let panel = document.querySelector('.profile-panel');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'profile-panel';
+            document.body.appendChild(panel);
+        }
+
+        // Clear existing content
+        panel.innerHTML = '';
+
+        // Create chart using a library like Chart.js
+        const canvas = document.createElement('canvas');
+        panel.appendChild(canvas);
+
+        const profileDataParsed = JSON.parse(profileData)
+
+        const labels = profileDataParsed.map(d => d.distance.toFixed(0))
+        const elevation = profileDataParsed.map(d => d.elevation)
+
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Elevação',
+                    data: elevation,
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Distância (m)'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Altitude (m)'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    hideProfilePanel() {
+        const panel = document.querySelector('.profile-panel');
+        if (panel) {
+            panel.remove();
+        }
     }
 }
 
