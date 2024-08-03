@@ -5,8 +5,9 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
     const opacityLabel = document.createElement('label');
     opacityLabel.textContent = 'Opacidade:';
     const opacityInput = document.createElement('input');
+    opacityInput.classList.add("slider");
     opacityInput.type = 'range';
-    opacityInput.min = 0;
+    opacityInput.min = 0.1;
     opacityInput.max = 1;
     opacityInput.step = 0.1;
     opacityInput.value = feature.properties.opacity;
@@ -14,23 +15,33 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         visibilityControl.updateFeaturesProperty(selectedFeatures, 'opacity', parseFloat(e.target.value));
         uiManager.updateSelectionHighlight();
     };
-    panel.appendChild(opacityLabel);
-    panel.appendChild(opacityInput);
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append($("<div>", { class: "attr-name" }).append(opacityLabel))
+            .append($("<div>", { class: "attr-input" }).append(opacityInput))
+    )
 
     const saveButton = document.createElement('button');
-    saveButton.textContent = 'Save';
+    saveButton.classList.add('tool-button', 'pure-material-tool-button-contained')
+    saveButton.textContent = 'Salvar';
     saveButton.type = 'submit';
     saveButton.onclick = () => {
         visibilityControl.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
     };
-    panel.appendChild(saveButton);
 
     const discardButton = document.createElement('button');
+    discardButton.classList.add('tool-button', 'pure-material-tool-button-contained')
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
         visibilityControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
     };
-    panel.appendChild(discardButton);
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append(saveButton)
+            .append(discardButton)
+    )
+
+    document.body.appendChild(panel);
 }

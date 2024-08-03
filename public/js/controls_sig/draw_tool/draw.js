@@ -191,7 +191,6 @@ class DrawControl {
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
-        $('input[name="base-layer"]').off('change', this.changeButtonColor);
         this.changeButtonColors()
     }
 

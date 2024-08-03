@@ -84,7 +84,6 @@ class AddVisibilityControl {
             features: []
         });
         this.map.off('mousemove', this.handleMouseMove);
-        $('input[name="base-layer"]').off('change', this.changeButtonColor);
         this.changeButtonColor()
     }
 

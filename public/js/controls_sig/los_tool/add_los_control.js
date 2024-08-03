@@ -87,7 +87,6 @@ class AddLOSControl {
             features: []
         });
         this.map.off('mousemove', this.handleMouseMove);
-        $('input[name="base-layer"]').off('change', this.changeButtonColor);
         this.changeButtonColor()
     }
 
@@ -177,11 +176,12 @@ class AddLOSControl {
         this.map.getSource('los').setData(data);
 
         const processedLosFeatures = this.preprocessLosFeature(losFeature);
+        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
         processedLosFeatures.forEach(processedFeature => {
             addFeature('processed_los', processedFeature);
+            processedData.features.push(processedFeature);
         });
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-        processedData.features.push(...processedLosFeatures);
+        
         this.map.getSource('processed-los').setData(processedData);
     }
 
@@ -285,7 +285,7 @@ class AddLOSControl {
     updateFeaturesProperty = (features, property, value) => {
         const losData = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-    
+
         features.forEach(feature => {
             // Update los source
             const losFeature = losData.features.find(f => f.id == feature.id);
@@ -306,40 +306,27 @@ class AddLOSControl {
         this.map.getSource('processed-los').setData(processedData);
     }
 
-    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
+    updateFeatures = async (features) => {
         if(features.length > 0){
             const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
             const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
-                    if (onlyUpdateProperties) {
-                        Object.assign(data.features[featureIndex].properties, feature.properties);
-                    } else {
-                        data.features[featureIndex] = feature;
-                    }
+                    Object.assign(data.features[featureIndex].properties, feature.properties);
     
-                    // Update processed features
                     const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
                     processedFeatures.forEach(processedFeature => {
-                        if (onlyUpdateProperties) {
-                            Object.assign(processedFeature.properties, feature.properties);
-                        } else {
-                            Object.assign(processedFeature, feature, {id: processedFeature.id});
-                        }
-                        if (processedFeature.id.endsWith('-visible')) {
-                            processedFeature.properties.color = AddLOSControl.VISIBLE_COLOR;
-                        } else if (processedFeature.id.endsWith('-obstructed')) {
-                            processedFeature.properties.color = AddLOSControl.OBSTRUCTED_COLOR;
-                        }
+                        Object.keys(feature.properties).forEach(key => {
+                            if (key !== 'color') {
+                                processedFeature.properties[key] = feature.properties[key];
+                            }
+                        });
                     });
     
-                    if (save) {
-                        const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
-                        this.updateFeatureMeasurement(featureToUpdate);
-                        updateFeature('los', featureToUpdate);
-                        processedFeatures.forEach(pf => updateFeature('processed_los', pf));
-                    }
+                    this.updateFeatureMeasurement(data.features[featureIndex]);
+                    processedFeatures.forEach(pf => updateFeature('processed_los', pf));
                 }
             };
             this.map.getSource('los').setData(data);
@@ -348,13 +335,23 @@ class AddLOSControl {
     }
 
     saveFeatures = (features, initialPropertiesMap) => {
+        const processedData = this.map.getSource('processed-los')._data;
+
         features.forEach(f => {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
                 updateFeature('los', f);
-                const visibleFeature = {...f, id: f.id + '-visible', properties: {...f.properties, color: AddLOSControl.VISIBLE_COLOR}};
-                const obstructedFeature = {...f, id: f.id + '-obstructed', properties: {...f.properties, color: AddLOSControl.OBSTRUCTED_COLOR}};
-                updateFeature('processed_los', visibleFeature);
-                updateFeature('processed_los', obstructedFeature);
+                
+                const processedFeatures = processedData.features.filter(pf => pf.id.startsWith(f.id));
+                processedFeatures.forEach(pf => {
+                    const updatedProcessedFeature = {
+                        ...pf,
+                        properties: {
+                            ...f.properties,
+                            color: pf.properties.color
+                        }
+                    };
+                    updateFeature('processed_los', updatedProcessedFeature);
+                });
             }
         });
     }
@@ -363,7 +360,7 @@ class AddLOSControl {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features, true, true);
+        this.updateFeatures(features);
     }
 
     deleteFeatures = (features) => {

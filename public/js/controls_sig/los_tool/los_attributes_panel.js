@@ -2,17 +2,43 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
     const feature = selectedFeatures[0]; // Use the first selected feature to populate the form
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
 
-    const createInput = (type, value, min, max, step, onChange) => {
-        const input = document.createElement('input');
-        input.type = type;
-        input.value = value;
-        input.min = min;
-        input.max = max;
-        input.step = step;
-        input.classList.add("slider");
-        input.oninput = onChange;
-        return input;
+    const opacityLabel = document.createElement('label');
+    opacityLabel.textContent = 'Opacidade:';
+    const opacityInput = document.createElement('input');
+    opacityInput.classList.add("slider");
+    opacityInput.type = 'range';
+    opacityInput.min = 0.1;
+    opacityInput.max = 1;
+    opacityInput.step = 0.1;
+    opacityInput.value = feature.properties.opacity;
+    opacityInput.oninput = (e) => {
+        losControl.updateFeaturesProperty(selectedFeatures, 'opacity', parseFloat(e.target.value));
+        uiManager.updateSelectionHighlight();
     };
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append($("<div>", { class: "attr-name" }).append(opacityLabel))
+            .append($("<div>", { class: "attr-input" }).append(opacityInput))
+    )
+
+    const widthLabel = document.createElement('label');
+    widthLabel.textContent = 'Largura:';
+    const widthInput = document.createElement('input');
+    widthInput.classList.add("slider");
+    widthInput.type = 'range';
+    widthInput.min = 1;
+    widthInput.max = 30;
+    widthInput.step = 1;
+    widthInput.value = feature.properties.width;
+    widthInput.oninput = (e) => {
+        losControl.updateFeaturesProperty(selectedFeatures, 'width', parseFloat(e.target.value));
+        uiManager.updateSelectionHighlight();
+    };
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append($("<div>", { class: "attr-name" }).append(widthLabel))
+            .append($("<div>", { class: "attr-input" }).append(widthInput))
+    )
 
     const addAttributeRow = (labelText, inputElement) => {
         const container = $("<div>", { class: "attr-container-row" });
@@ -22,17 +48,6 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
         container.append($("<div>", { class: "attr-input" }).append(inputElement));
         $(panel).append(container);
     };
-
-    const opacityInput = createInput('range', feature.properties.opacity, 0, 1, 0.1, (e) => {
-        losControl.updateFeaturesProperty(selectedFeatures, 'opacity', parseFloat(e.target.value));
-    });
-    addAttributeRow('Opacidade:', opacityInput);
-
-    const widthInput = createInput('range', feature.properties.width || 1, 1, 30, 1, (e) => {
-        losControl.updateFeaturesProperty(selectedFeatures, 'width', parseFloat(e.target.value));
-        uiManager.updateSelectionHighlight();
-    });
-    addAttributeRow('Largura:', widthInput);
 
     const createCheckbox = (checked, onChange) => {
         const label = $("<label>", { class: "switch" });
@@ -57,27 +72,27 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
     });
     addAttributeRow('Mostrar perfil:', mostrarPerfilCheckbox);
 
-    const createButton = (text, onClick) => {
-        const button = document.createElement('button');
-        button.textContent = text;
-        button.classList.add('tool-button', 'pure-material-tool-button-contained');
-        button.onclick = onClick;
-        return button;
-    };
-
-    const buttonContainer = $("<div>", { class: "attr-container-row" });
-
-    const saveButton = createButton('Salvar', () => {
+    const saveButton = document.createElement('button');
+    saveButton.classList.add('tool-button', 'pure-material-tool-button-contained')
+    saveButton.textContent = 'Salvar';
+    saveButton.type = 'submit';
+    saveButton.onclick = () => {
         losControl.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
-    });
-    buttonContainer.append(saveButton);
+    };
 
-    const discardButton = createButton('Descartar', () => {
+    const discardButton = document.createElement('button');
+    discardButton.classList.add('tool-button', 'pure-material-tool-button-contained')
+    discardButton.textContent = 'Descartar';
+    discardButton.onclick = () => {
         losControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
-    });
-    buttonContainer.append(discardButton);
+    };
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append(saveButton)
+            .append(discardButton)
+    )
 
-    $(panel).append(buttonContainer);
+    document.body.appendChild(panel);
 }
