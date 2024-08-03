@@ -9,12 +9,13 @@ class AddImageControl {
         source: 'image'
     };
 
+    static MAX_IMAGE_DIMENSION = 800;
+    static IMAGE_QUALITY = 0.7;
+
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.toolManager.imageControl = this;
         this.isActive = false;
-        this.maxImageSize = 800;
-        this.imageQuality = 0.7;
     }
 
     onAdd(map) {
@@ -87,72 +88,78 @@ class AddImageControl {
             input.accept = 'image/*';
             input.onchange = (event) => {
                 const file = event.target.files[0];
-                this.compressAndAddImage(file, e.lngLat);
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const imageBase64 = reader.result;
+                    this.addImageFeature(e.lngLat, imageBase64);
+                };
+                reader.readAsDataURL(file);
             };
             input.click();
             this.toolManager.deactivateCurrentTool();
         }
     }
 
-    compressAndAddImage = (file, lngLat) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => {
-                const compressedImageData = this.compressImage(img);
-                this.addImageFeature(lngLat, compressedImageData);
-            };
-            img.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
-    }
-
-    compressImage = (img) => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-            if (width > this.maxImageSize) {
-                height *= this.maxImageSize / width;
-                width = this.maxImageSize;
-            }
-        } else {
-            if (height > this.maxImageSize) {
-                width *= this.maxImageSize / height;
-                height = this.maxImageSize;
-            }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-
-        return canvas.toDataURL('image/jpeg', this.imageQuality);
-    }
-
     addImageFeature = (lngLat, imageBase64) => {
         const imageId = Date.now().toString();
 
-        const imageElement = new Image();
-        imageElement.src = imageBase64;
-        imageElement.onload = () => {
-            const width = imageElement.width;
-            const height = imageElement.height;
-
+        this.resizeImage(imageBase64, (resizedImageBase64, width, height) => {
             if (!this.map.hasImage(imageId)) {
-                this.map.addImage(imageId, imageElement);
+                const img = new Image();
+                img.onload = () => {
+                    this.map.addImage(imageId, img);
+                    const feature = this.createImageFeature(lngLat, imageId, resizedImageBase64, width, height);
+                    addFeature('images', feature);
+
+                    const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
+                    data.features.push(feature);
+                    this.map.getSource('images').setData(data);
+                };
+                img.src = resizedImageBase64;
+            }
+        });
+    }
+
+    resizeImage = (imageBase64, callback) => {
+        const img = new Image();
+        img.onload = () => {
+            let { width, height } = img;
+            const aspectRatio = width / height;
+
+            if (width > AddImageControl.MAX_IMAGE_DIMENSION || height > AddImageControl.MAX_IMAGE_DIMENSION) {
+                if (width > height) {
+                    width = AddImageControl.MAX_IMAGE_DIMENSION;
+                    height = Math.round(width / aspectRatio);
+                } else {
+                    height = AddImageControl.MAX_IMAGE_DIMENSION;
+                    width = Math.round(height * aspectRatio);
+                }
             }
 
-            const feature = this.createImageFeature(lngLat, imageId, imageBase64, width, height);
-            addFeature('images', feature);
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            // Set the background to transparent
+            ctx.clearRect(0, 0, width, height);
+            
+            // Draw the image
+            ctx.drawImage(img, 0, 0, width, height);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-            data.features.push(feature);
-            this.map.getSource('images').setData(data);
+            // Determine the image type
+            let imageType = 'image/png';  // Default to PNG to support transparency
+            if (imageBase64.startsWith('data:image/jpeg')) {
+                imageType = 'image/jpeg';
+            } else if (imageBase64.startsWith('data:image/gif')) {
+                imageType = 'image/gif';
+            }
+
+            // Use the original image type, defaulting to PNG for other formats
+            const resizedImageBase64 = canvas.toDataURL(imageType, AddImageControl.IMAGE_QUALITY);
+            callback(resizedImageBase64, width, height);
         };
+        img.src = imageBase64;
     }
 
     createImageFeature = (lngLat, imageId, imageBase64, width, height) => {

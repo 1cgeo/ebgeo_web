@@ -14,7 +14,7 @@ class UIManager {
     }
 
     setupEventListeners = () => {
-        //this.map.on('move', this.updateSelectionHighlight);
+        this.map.on('move', this.updateSelectionHighlight);
         this.map.on('draw.render', this.updateSelectionHighlight);
     }
 

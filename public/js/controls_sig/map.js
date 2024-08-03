@@ -56,7 +56,7 @@ map.on('styledata', () => {
                 'text-anchor': 'center',
                 'text-rotate': ['get', 'rotation'],
                 'text-ignore-placement': true,
-                "text-font": ["Noto Sans Regular"],
+                "text-font": ["Noto Sans Regular"]
             },
             paint: {
                 'text-color': ['get', 'color'],
