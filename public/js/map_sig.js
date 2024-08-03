@@ -22,13 +22,10 @@ import { undoLastAction, redoLastAction, hasUnsavedData } from './controls_sig/s
 // CONTROLES
 //-----------------------------------------------
 const baseLayerControl = new BaseLayerControl();
-map.addControl(baseLayerControl, 'top-left');
 
 const mapControl = new MapControl(baseLayerControl);
-map.addControl(mapControl, 'top-left');
 
 const saveLoadControl = new SaveLoadControl(mapControl, baseLayerControl);
-map.addControl(saveLoadControl, 'top-left');
 
 //map.addControl(new ResetNorthControl(), 'top-right');
 //map.addControl(new ResetOrthogonalControl(), 'top-right');
@@ -37,24 +34,17 @@ map.addControl(saveLoadControl, 'top-left');
 const toolManager = new ToolManager(map);
 
 const drawControl = new DrawControl(toolManager);
-map.addControl(drawControl, 'top-right');
 
 toolManager.setDrawControl(drawControl);
 
 const textControl = new AddTextControl(toolManager);
-map.addControl(textControl, 'top-right');
 
 const imageControl = new AddImageControl(toolManager);
-map.addControl(imageControl, 'top-right');
 
 const losControl = new AddLOSControl(toolManager);
-map.addControl(losControl, 'top-right');
 
 const visibilityControl = new AddVisibilityControl(toolManager);
-map.addControl(visibilityControl, 'top-right');
-
 const addStreetViewControl = new AddStreetViewControl(toolManager);
-map.addControl(addStreetViewControl, 'top-right');
 
 const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
 const uiManager = new UIManager(map, selectionManager);
@@ -65,15 +55,25 @@ toolManager.setSelectionManager(selectionManager);
 new MoveHandler(map, selectionManager, uiManager);
 
 const vectorTileInfoControl = new VectorTileInfoControl(toolManager,uiManager);
-map.addControl(vectorTileInfoControl, 'top-right');
 
 selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
-
 
 const scale = new maplibregl.ScaleControl({
     maxWidth: 80,
     unit: 'metric'
 });
+
+
+map.addControl(baseLayerControl, 'top-left');
+map.addControl(mapControl, 'top-left');
+map.addControl(saveLoadControl, 'top-left');
+map.addControl(addStreetViewControl, 'top-right');
+map.addControl(vectorTileInfoControl, 'top-right');
+map.addControl(drawControl, 'top-right');
+map.addControl(textControl, 'top-right');
+map.addControl(imageControl, 'top-right');
+map.addControl(losControl, 'top-right');
+map.addControl(visibilityControl, 'top-right');
 map.addControl(scale, 'bottom-left');
 
 //-----------------------------------------------
