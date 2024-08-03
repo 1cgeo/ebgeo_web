@@ -19,6 +19,8 @@ class AddLOSControl {
         this.isActive = false;
         this.startPoint = null;
         this.endPoint = null;
+        this.debounceTime = 30;
+        this.lastUpdateTime = 0;
     }
 
     onAdd = (map) => {
@@ -107,6 +109,12 @@ class AddLOSControl {
 
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
+
+        const currentTime = performance.now();
+        if (currentTime - this.lastUpdateTime < this.debounceTime) {
+            return;
+        }
+        this.lastUpdateTime = currentTime;
 
         const { lng, lat } = e.lngLat;
         const endPoint = [lng, lat];
@@ -325,6 +333,7 @@ class AddLOSControl {
                         });
                     });
     
+                    updateFeature('los', data.features[featureIndex])
                     this.updateFeatureMeasurement(data.features[featureIndex]);
                     processedFeatures.forEach(pf => updateFeature('processed_los', pf));
                 }

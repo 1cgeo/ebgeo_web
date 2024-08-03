@@ -168,7 +168,7 @@ map.on('styledata', () => {
             layout: {},
             paint: {
                 'fill-color': '#D3D3D3',
-                'fill-opacity': 0.1
+                'fill-opacity': 0
             }
         });
     }

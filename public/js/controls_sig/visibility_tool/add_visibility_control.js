@@ -3,9 +3,7 @@ import { getTerrainElevation } from '../terrain_control.js';
 class AddVisibilityControl {
     static DEFAULT_PROPERTIES = {
         opacity: 0.5,
-        source: 'visibility',
-        radius: 0,
-        angle: 0
+        source: 'visibility'
     };
 
     static VISIBLE_COLOR = '#00FF00';
@@ -17,6 +15,8 @@ class AddVisibilityControl {
         this.toolManager.visibilityControl = this;
         this.isActive = false;
         this.startPoint = null;
+        this.debounceTime = 30;
+        this.lastUpdateTime = 0;
     }
 
     onAdd = (map) => {
@@ -98,12 +98,18 @@ class AddVisibilityControl {
         } else {
             const endPoint = [lng, lat];
             await this.addVisibilityFeature(this.startPoint, endPoint);
-            this.deactivate();
+            this.toolManager.deactivateCurrentTool();
         }
     }
 
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
+
+        const currentTime = performance.now();
+        if (currentTime - this.lastUpdateTime < this.debounceTime) {
+            return;
+        }
+        this.lastUpdateTime = currentTime;
 
         const { lng, lat } = e.lngLat;
         const endPoint = [lng, lat];
@@ -131,7 +137,7 @@ class AddVisibilityControl {
         const angle = turf.bearing(startPoint, endPoint);
 
         const viewshedResult = await this.calculateViewshed(center, radius, angle);
-        const feature = this.createViewshedFeature(viewshedResult, radius, angle);
+        const feature = this.createViewshedFeature(viewshedResult.visible, viewshedResult.obstructed);
         addFeature('visibility', feature);
 
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
@@ -148,7 +154,6 @@ class AddVisibilityControl {
     }
 
     preprocessVisibilityFeature(feature) {
-        const properties = feature.properties;
         let processedFeatures = [];
     
         feature.geometry.coordinates.forEach((coordinates, index) => {
@@ -156,7 +161,7 @@ class AddVisibilityControl {
                 type: 'Feature',
                 id: `${feature.id}-${index === 0 ? 'visible' : 'obstructed'}`,
                 properties: {
-                    ...properties,
+                    ...feature.properties,
                     color: index === 0 ? AddVisibilityControl.VISIBLE_COLOR : AddVisibilityControl.OBSTRUCTED_COLOR
                 },
                 geometry: {
@@ -169,22 +174,18 @@ class AddVisibilityControl {
         return processedFeatures;
     }
 
-    createViewshedFeature = (viewshedResult, radius, angle) => {
-        const { visible, obstructed } = viewshedResult;
-
+    createViewshedFeature = (visible, obstructed) => {
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
             properties: { 
-                ...AddVisibilityControl.DEFAULT_PROPERTIES,
-                radius: radius,
-                angle: angle
+                ...AddVisibilityControl.DEFAULT_PROPERTIES
             },
             geometry: {
                 type: 'MultiPolygon',
                 coordinates: [
-                    ...visible.geometry.coordinates,
-                    ...obstructed.geometry.coordinates
+                    visible.geometry.coordinates,
+                    obstructed.geometry.coordinates
                 ]
             }
         };
@@ -240,30 +241,52 @@ class AddVisibilityControl {
         this.map.getSource('processed-visibility').setData(processedData);
     }
 
-    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
-        for (const feature of features) {
-            const featureIndex = data.features.findIndex(f => f.id == feature.id);
-            if (featureIndex !== -1) {
-                if (onlyUpdateProperties) {
+    updateFeatures = async (features) => {
+        if(features.length > 0){
+            const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
+            const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
+            for (const feature of features) {
+                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                if (featureIndex !== -1) {
                     Object.assign(data.features[featureIndex].properties, feature.properties);
-                } else {
-                    data.features[featureIndex] = feature;
-                }
     
-                if (save) {
-                    const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
-                    updateFeature('visibility', featureToUpdate);
+                    const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                    processedFeatures.forEach(processedFeature => {
+                        Object.keys(feature.properties).forEach(key => {
+                            if (key !== 'color') {
+                                processedFeature.properties[key] = feature.properties[key];
+                            }
+                        });
+                    });
+    
+                    updateFeature('visibility', data.features[featureIndex])
+                    processedFeatures.forEach(pf => updateFeature('processed_visibility', pf));
                 }
-            }
+            };
+            this.map.getSource('visibility').setData(data);
+            this.map.getSource('processed-visibility').setData(processedData);
         }
-        this.map.getSource('visibility').setData(data);
     }
 
     saveFeatures = (features, initialPropertiesMap) => {
+        const processedData = this.map.getSource('processed-visibility')._data;
+
         features.forEach(f => {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
                 updateFeature('visibility', f);
+
+                const processedFeatures = processedData.features.filter(pf => pf.id.startsWith(f.id));
+                processedFeatures.forEach(pf => {
+                    const updatedProcessedFeature = {
+                        ...pf,
+                        properties: {
+                            ...f.properties,
+                            color: pf.properties.color
+                        }
+                    };
+                    updateFeature('processed_visibility', updatedProcessedFeature);
+                });
+
             }
         });
     }
@@ -281,8 +304,8 @@ class AddVisibilityControl {
         }
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
-        const idsToDelete = new Set(Array.from(features).map(f => f.id));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id));
+        const idsToDelete = new Set(features.map(f => f.id.toString()));
+        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
         processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
         this.map.getSource('visibility').setData(data);
         this.map.getSource('processed-visibility').setData(processedData);
@@ -294,13 +317,9 @@ class AddVisibilityControl {
         });
     }
 
-    setDefaultProperties = (properties) => {
-        Object.assign(AddVisibilityControl.DEFAULT_PROPERTIES, properties);
-    }
-
     hasFeatureChanged = (feature, initialProperties) => {
         return (
-            feature.properties.profile !== initialProperties.profile
+            feature.properties.opacity !== initialProperties.opacity
         );
     }
 
