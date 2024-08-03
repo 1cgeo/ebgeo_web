@@ -120,11 +120,6 @@ handler.setInputAction(function (event) {
         var carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(pickedPosition);
         var lon = Cesium.Math.toDegrees(carto.longitude);
         var lat = Cesium.Math.toDegrees(carto.latitude);
-        console.log(lon, lat)
     }
-    console.log(
-        map.camera.computeViewRectangle(Cesium.Ellipsoid.default,
-            scratchRectangle)
-    )
 }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
