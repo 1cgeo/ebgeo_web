@@ -49,6 +49,7 @@ const addStreetViewControl = new AddStreetViewControl(toolManager);
 const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
 const uiManager = new UIManager(map, selectionManager);
 selectionManager.setUIManager(uiManager);
+drawControl.setSelectionManager(selectionManager);
 
 toolManager.setSelectionManager(selectionManager);
 

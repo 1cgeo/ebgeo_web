@@ -29,6 +29,7 @@ class MoveHandler {
             if (allSelectedFeatures.some(f => f.id == clickedFeature.id)) {
                 this.isDragging = true;
                 this.map.dragPan.disable();
+                this.uiManager.setDragging(true);
                 this.initialCoordinates = e.lngLat;
                 this.setCursorStyle('grabbing');
 
@@ -58,16 +59,7 @@ class MoveHandler {
         const dx = newPos.lng - this.initialCoordinates.lng;
         const dy = newPos.lat - this.initialCoordinates.lat;
 
-        const updatedFeatures = this.selectedFeatures.map(feature => {
-            const { offset } = this.offsets.get(feature.id);
-            const newCoords = {
-                lng: newPos.lng + offset[0],
-                lat: newPos.lat + offset[1]
-            };
-            return this.calculateUpdatedFeature(feature, feature.properties.source, dx, dy, newCoords);
-        });
-
-        this.updateSelectionManagerFeatures(updatedFeatures);
+        this.uiManager.shiftSelectionBoxes(dx, dy);
     }
 
     onMouseUp(e) {
@@ -77,14 +69,27 @@ class MoveHandler {
         this.map.dragPan.enable();
         this.setCursorStyle('');
 
-        const dx = e.lngLat.lng - this.initialCoordinates.lng;
-        const dy = e.lngLat.lat - this.initialCoordinates.lat;
+        const newPos = e.lngLat;
+        const dx = newPos.lng - this.initialCoordinates.lng;
+        const dy = newPos.lat - this.initialCoordinates.lat;
         const distanceMoved = Math.sqrt(dx * dx + dy * dy);
         const tolerance = 2 / Math.pow(2, this.map.getZoom());
         if (distanceMoved > tolerance) {
+
+            const updatedFeatures = this.selectedFeatures.map(feature => {
+                const { offset } = this.offsets.get(feature.id);
+                const newCoords = {
+                    lng: newPos.lng + offset[0],
+                    lat: newPos.lat + offset[1]
+                };
+                return this.calculateUpdatedFeature(feature, feature.properties.source, dx, dy, newCoords);
+            });
+    
+            this.updateSelectionManagerFeatures(updatedFeatures);
+
             this.selectionManager.updateSelectedFeatures(true);
         }
-
+        this.uiManager.setDragging(false);
         this.map.off('mousemove', this.onMouseMove);
     }
 
@@ -92,7 +97,7 @@ class MoveHandler {
         let updatedFeature;
         switch (source) {
             case 'draw':
-                updatedFeature = this.translateFeature(feature, dx, dy);
+                updatedFeature = this.uiManager.translateFeature(feature, dx, dy);
                 break;
             case 'text':
             case 'image':
@@ -141,41 +146,6 @@ class MoveHandler {
         } else {
             throw new Error("Unsupported geometry type: " + feature.geometry.type);
         }
-    }
-
-    translateFeature(feature, dx, dy) {
-        const translatedFeature = JSON.parse(JSON.stringify(feature));
-    
-        const translateCoords = (coords) => {
-            if (typeof coords[0] === 'number') {
-                return [coords[0] + dx, coords[1] + dy];
-            }
-            return coords.map(translateCoords);
-        };
-    
-        const { type, coordinates } = feature.geometry;
-    
-        switch (type) {
-            case 'Point':
-                translatedFeature.geometry.coordinates = translateCoords(coordinates);
-                break;
-            case 'LineString':
-                translatedFeature.geometry.coordinates = coordinates.map(translateCoords);
-                break;
-            case 'Polygon':
-                translatedFeature.geometry.coordinates = coordinates.map(ring => ring.map(translateCoords));
-                break;
-            case 'MultiLineString':
-                translatedFeature.geometry.coordinates = coordinates.map(line => line.map(translateCoords));
-                break;
-            case 'MultiPolygon':
-                translatedFeature.geometry.coordinates = coordinates.map(polygon => polygon.map(ring => ring.map(translateCoords)));
-                break;
-            default:
-                throw new Error(`Unsupported geometry type: ${type}`);
-        }
-    
-        return translatedFeature;
     }
 
     updateSelectionManagerFeatures(updatedFeatures) {

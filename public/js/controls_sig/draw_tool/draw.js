@@ -5,6 +5,7 @@ import { addFeature, updateFeature, removeFeature } from '../store.js';
 class DrawControl {
     constructor(toolManager) {
         this.toolManager = toolManager;
+        this.selectionManager = null;
         this.isActive = false;
         this.defaultProperties = {
             polygon: {
@@ -33,6 +34,10 @@ class DrawControl {
             }
         };
         this.controlPosition = 'top-right';
+    }
+
+    setSelectionManager(selectionManager) {
+        this.selectionManager = selectionManager;
     }
 
     onAdd = (map) => {
@@ -119,6 +124,7 @@ class DrawControl {
             updateFeature(type, f);
             this.updateFeatureMeasurement(f);
         });
+        this.selectionManager.handleDrawSelectionChange()
     }
 
     updateFeatureMeasurement = (feature) => {

@@ -49,7 +49,7 @@ class SelectionManager {
                     this.deselectAllFeatures();
                 }
             } else {
-                if (this.selectedDrawFeatures.has(clickedFeature.properties.id)) {
+                if (this.selectedDrawFeatures.has(clickedFeature.properties.id) && clickedFeature.geometry.type !== 'Point') {
                     this.drawControl.draw.changeMode('direct_select', { featureId: clickedFeature.properties.id });
                 } else {
                     if (!e.originalEvent.shiftKey) {
@@ -137,19 +137,19 @@ class SelectionManager {
 
     getAllSelectedFeatures() {
         return [
-            ...[...this.selectedDrawFeatures.values()],
-            ...[...this.selectedTextFeatures.values()],
-            ...[...this.selectedImageFeatures.values()],
-            ...[...this.selectedLOSFeatures.values()],
-            ...[...this.selectedVisibilityFeatures.values()]
+            ...this.selectedDrawFeatures.values(),
+            ...this.selectedTextFeatures.values(),
+            ...this.selectedImageFeatures.values(),
+            ...this.selectedLOSFeatures.values(),
+            ...this.selectedVisibilityFeatures.values()
         ];
     }
 
     getAllSelectedMovableFeatures() {
         return [
-            ...[...this.selectedDrawFeatures.values()],
-            ...[...this.selectedTextFeatures.values()],
-            ...[...this.selectedImageFeatures.values()]
+            ...this.selectedDrawFeatures.values(),
+            ...this.selectedTextFeatures.values(),
+            ...this.selectedImageFeatures.values()
         ];
     }
 

@@ -9,32 +9,48 @@ class UIManager {
         this.map = map;
         this.selectionManager = selectionManager;
         this.drawControl = selectionManager.drawControl;
-
+        this.selectionBoxesSource = null;
+        this.selectionBoxes = [];
+        this.isDragging = false;
         this.setupEventListeners();
     }
 
     setupEventListeners = () => {
         this.map.on('move', this.updateSelectionHighlight);
         this.map.on('draw.render', this.updateSelectionHighlight);
+
+    }
+
+    setDragging = (isDragging) => {
+        this.isDragging = isDragging;
     }
 
     updateSelectionHighlight = () => {
-        const features = [];
+        if(this.isDragging) {
+            return;
+        }
+        if (!this.selectionBoxesSource) {
+            this.selectionBoxesSource = this.map.getSource('selection-boxes');
+            if (!this.selectionBoxesSource) {
+                console.error('Selection boxes source not found');
+                return;
+            }
+        }
 
-        const textFeatures = this.createSelectionBoxesForTextFeatures();
-        const imageFeatures = this.createSelectionBoxesForImageFeatures();
-        const drawFeatures = this.createSelectionBoxesForDrawFeatures();
-        const losFeatures = this.createSelectionBoxesForLOSFeatures();
-        const visibilityFeatures = this.createSelectionBoxesForVisibilityFeatures();
+        const features = [
+            ...this.createSelectionBoxesForTextFeatures(),
+            ...this.createSelectionBoxesForImageFeatures(),
+            ...this.createSelectionBoxesForDrawFeatures(),
+            ...this.createSelectionBoxesForLOSFeatures(),
+            ...this.createSelectionBoxesForVisibilityFeatures()
+        ];
 
-        features.push(...textFeatures, ...imageFeatures, ...drawFeatures, ...losFeatures, ...visibilityFeatures);
+        this.selectionBoxes = features;
 
-        const data = {
+        this.selectionBoxesSource.setData({
             type: 'FeatureCollection',
             features: features
-        };
-
-        this.map.getSource('selection-boxes').setData(data);
+        });
     }
 
     createSelectionBoxesForTextFeatures = () => {
@@ -65,39 +81,68 @@ class UIManager {
     }
 
     createSelectionBoxesForDrawFeatures = () => {
-        const zoom = this.map.getZoom();
-        const center = this.map.getCenter();
-        const latitude = center.lat;
-        const pixelBuffer = 10;
-        const bufferSize = this.pixelsToDegrees(pixelBuffer, latitude, zoom);
-
-        return Array.from(this.selectionManager.selectedDrawFeatures.values()).map(feature =>
-            this.calculateBuffer(feature, bufferSize)
-        );
+        return this.createBufferedFeatures(this.selectionManager.selectedDrawFeatures);
     }
 
     createSelectionBoxesForLOSFeatures = () => {
-        const zoom = this.map.getZoom();
-        const center = this.map.getCenter();
-        const latitude = center.lat;
-        const pixelBuffer = 10;
-        const bufferSize = this.pixelsToDegrees(pixelBuffer, latitude, zoom);
-
-        return Array.from(this.selectionManager.selectedLOSFeatures.values()).map(feature => {
-            return this.calculateBuffer(feature, bufferSize);
-        });
+        return this.createBufferedFeatures(this.selectionManager.selectedLOSFeatures);
     }
 
     createSelectionBoxesForVisibilityFeatures = () => {
+        return this.createBufferedFeatures(this.selectionManager.selectedVisibilityFeatures);
+    }
+
+    createBufferedFeatures = (featureSet) => {
         const zoom = this.map.getZoom();
         const center = this.map.getCenter();
-        const latitude = center.lat;
-        const pixelBuffer = 10;
-        const bufferSize = this.pixelsToDegrees(pixelBuffer, latitude, zoom);
+        const bufferSize = this.pixelsToDegrees(10, center.lat, zoom);
+        return Array.from(featureSet.values()).map(feature => this.calculateBuffer(feature, bufferSize));
+    }
 
-        const x = Array.from(this.selectionManager.selectedVisibilityFeatures.values()).map(feature =>
-            this.calculateBuffer(feature, bufferSize));
-        return x
+    shiftSelectionBoxes(dx, dy) {
+        const shiftedFeatures = this.selectionBoxes.map(feature => {
+            return this.translateFeature(feature, dx, dy);
+        });
+
+        this.selectionBoxesSource.setData({
+            type: 'FeatureCollection',
+            features: shiftedFeatures
+        });
+    }
+
+    translateFeature(feature, dx, dy) {
+        const translatedFeature = JSON.parse(JSON.stringify(feature));
+    
+        const translateCoords = (coords) => {
+            if (typeof coords[0] === 'number') {
+                return [coords[0] + dx, coords[1] + dy];
+            }
+            return coords.map(translateCoords);
+        };
+    
+        const { type, coordinates } = feature.geometry;
+    
+        switch (type) {
+            case 'Point':
+                translatedFeature.geometry.coordinates = translateCoords(coordinates);
+                break;
+            case 'LineString':
+                translatedFeature.geometry.coordinates = coordinates.map(translateCoords);
+                break;
+            case 'Polygon':
+                translatedFeature.geometry.coordinates = coordinates.map(ring => ring.map(translateCoords));
+                break;
+            case 'MultiLineString':
+                translatedFeature.geometry.coordinates = coordinates.map(line => line.map(translateCoords));
+                break;
+            case 'MultiPolygon':
+                translatedFeature.geometry.coordinates = coordinates.map(polygon => polygon.map(ring => ring.map(translateCoords)));
+                break;
+            default:
+                throw new Error(`Unsupported geometry type: ${type}`);
+        }
+    
+        return translatedFeature;
     }
 
     updatePanels = () => {
@@ -298,11 +343,6 @@ class UIManager {
         return turf.bboxPolygon(bbox);
     }
 
-    calculateBoundingBox = (feature) => {
-        const bbox = turf.bbox(feature);
-        return turf.bboxPolygon(bbox);
-    }
-
     calculateBuffer = (feature, bufferSize) => {
         const buffered = turf.buffer(feature, bufferSize, { units: 'degrees' });
         return buffered;
@@ -327,10 +367,7 @@ class UIManager {
         return {
             type: 'Polygon',
             coordinates: [[
-                [rotatedPoints[0].lng, rotatedPoints[0].lat],
-                [rotatedPoints[1].lng, rotatedPoints[1].lat],
-                [rotatedPoints[2].lng, rotatedPoints[2].lat],
-                [rotatedPoints[3].lng, rotatedPoints[3].lat],
+                ...rotatedPoints.map(p => [p.lng, p.lat]),
                 [rotatedPoints[0].lng, rotatedPoints[0].lat]
             ]]
         }
