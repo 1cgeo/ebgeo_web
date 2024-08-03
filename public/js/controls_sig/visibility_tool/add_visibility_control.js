@@ -152,9 +152,7 @@ class AddVisibilityControl {
                 }
             });
         });
-
-        console.log(processedFeatures)
-    
+            
         return processedFeatures;
     }
 

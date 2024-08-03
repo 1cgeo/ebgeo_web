@@ -40,17 +40,17 @@ class SelectionManager {
         if (activeTool) {
             activeTool.handleMapClick(e);
         } else {
-
             const clickedFeature = this.getClickedDrawFeature(e.point);
 
             if (!clickedFeature) {
+
                 if (!e.originalEvent.shiftKey) {
                     this.uiManager.saveChangesAndClosePanel();
                     this.deselectAllFeatures();
                 }
             } else {
-                if (this.selectedDrawFeatures.has(clickedFeature.id)) {
-                    this.drawControl.draw.changeMode('direct_select', { featureId: clickedFeature.id });
+                if (this.selectedDrawFeatures.has(clickedFeature.properties.id)) {
+                    this.drawControl.draw.changeMode('direct_select', { featureId: clickedFeature.properties.id });
                 } else {
                     if (!e.originalEvent.shiftKey) {
                         this.deselectAllFeatures();
@@ -59,11 +59,6 @@ class SelectionManager {
             }
             this.updateUI();
         }
-    }
-
-    getClickedDrawFeature(point) {
-        const features = this.map.queryRenderedFeatures(point);
-        return features.find(f => f.source === 'mapbox-gl-draw-cold' || f.source === 'mapbox-gl-draw-hot');
     }
 
     getClickedDrawFeature(point) {
@@ -131,11 +126,13 @@ class SelectionManager {
         this.selectedImageFeatures.clear();
         this.selectedLOSFeatures.clear();
         this.selectedVisibilityFeatures.clear();
+        this.selectedDrawFeatures.clear();
 
-        if(forceDraw) {
+        if(forceDraw && !this.drawControl.isActive) {
             this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
-            this.selectedDrawFeatures.clear();
         }
+
+        this.updateUI();
     }
 
     getAllSelectedFeatures() {
@@ -179,7 +176,6 @@ class SelectionManager {
         this.drawControl.deleteFeatures([...this.selectedDrawFeatures.values()]);
 
         this.deselectAllFeatures(true);
-        this.updateUI();
     }
 
     updateSelectedFeatures(save = false) {

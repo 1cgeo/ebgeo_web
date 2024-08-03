@@ -39,7 +39,6 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     saveButton.onclick = () => {
         featureControl.saveFeatures(selectedFeatures, initialPropertiesMap)
         selectionManager.deselectAllFeatures(true);
-        selectionManager.updateUI();
     };
     container.append(saveButton)
 
@@ -49,7 +48,6 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     discardButton.onclick = () => {
         featureControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap)
         selectionManager.deselectAllFeatures(true);
-        selectionManager.updateUI();
     };
     container.append(discardButton)
 
@@ -60,7 +58,6 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
         setDefaultButton.onclick = () => {
             featureControl.setDefaultProperties(feature.properties, commonAttributes);
             selectionManager.deselectAllFeatures(true);
-            selectionManager.updateUI();
         };
         container.append(setDefaultButton)
 
@@ -71,7 +68,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
 function findCommonAttributes(features) {
     const attributeSets = {
         Point: ['size', 'color', 'opacity'],
-        LineString: ['size', 'color', 'opacity', 'measure', 'profile'],
+        LineString: ['size', 'color', 'opacity', 'measure'],
         Polygon: ['color', 'opacity', 'outlinecolor', 'size', 'measure']
     };
 
@@ -89,8 +86,7 @@ function getLabel(attr, features) {
         color: 'Cor',
         opacity: 'Opacidade',
         outlinecolor: 'Cor da borda',
-        measure: 'Medir',
-        profile: 'Perfil do terreno'
+        measure: 'Medir'
     };
 
     if (attr === 'size') {
@@ -127,7 +123,7 @@ function createInput(attr, value, inputCallback) {
         input.step = 1;
         input.value = value !== undefined ? value : 1;
     }
-    else if (attr === 'measure' || attr === 'profile') {
+    else if (attr === 'measure') {
         let label = $("<label>", { class: "switch" })
         input = document.createElement('input');
         input.classList.add("slider-check-input");

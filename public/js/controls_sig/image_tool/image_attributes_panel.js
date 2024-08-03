@@ -65,7 +65,6 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     saveButton.onclick = () => {
         imageControl.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
     };
 
     const discardButton = document.createElement('button');
@@ -74,7 +73,6 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     discardButton.onclick = () => {
         imageControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
     };
     $(panel).append(
         $("<div>", { class: "attr-container-row" })

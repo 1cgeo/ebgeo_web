@@ -15,7 +15,7 @@ class VectorTileInfoControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "vector-tile-info-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_info_black.svg" alt="INFO" />';
-        button.title = 'Informação';
+        button.title = 'Informação da carta';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);

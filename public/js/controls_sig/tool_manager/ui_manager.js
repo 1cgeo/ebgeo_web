@@ -139,7 +139,7 @@ class UIManager {
 
         const deleteButton = document.createElement('button');
         deleteButton.classList.add('tutorial-button', 'pure-material-button-contained')
-        deleteButton.textContent = 'Delete';
+        deleteButton.textContent = 'Deletar';
         deleteButton.onclick = () => this.selectionManager.deleteSelectedFeatures();
 
         panel.appendChild(deleteButton);
@@ -348,48 +348,92 @@ class UIManager {
     }
 
     showProfilePanel(selectedFeatures) {
-        const losFeatures = selectedFeatures.filter(f => f.properties.source === 'los' && f.properties.profile);
-        
-        if (losFeatures.length === 1) {
-            const feature = losFeatures[0];
-            if (feature.properties.profileData) {
-                this.createProfilePanel(feature.properties.profileData);
-            }
+        if (selectedFeatures.length !== 1) {
+            this.hideProfilePanel();
+            return;
+        }
+    
+        const feature = selectedFeatures[0];
+        const { source } = feature.properties;
+        //const isLineFeature = feature.geometry.type === 'LineString';
+        const hasProfileData = feature.properties.profileData && feature.properties.profile;
+    
+        if (source === 'los' && hasProfileData) {
+            this.createProfilePanel(feature.properties.profileData, true);
+        //} else if (source === 'draw' && isLineFeature && hasProfileData) {
+        //    this.createProfilePanel(feature.properties.profileData, false);
         } else {
             this.hideProfilePanel();
         }
     }
 
-    createProfilePanel(profileData) {
+    createProfilePanel(profileData, linkFirstLast = false) {
         let panel = document.querySelector('.profile-panel');
         if (!panel) {
             panel = document.createElement('div');
             panel.className = 'profile-panel';
             document.body.appendChild(panel);
         }
-
+    
         // Clear existing content
         panel.innerHTML = '';
-
+    
         // Create chart using a library like Chart.js
         const canvas = document.createElement('canvas');
         panel.appendChild(canvas);
+    
+        const profileDataParsed = JSON.parse(profileData);
+    
+        const labels = profileDataParsed.map(d => d.distance.toFixed(0));
+        const elevation = profileDataParsed.map(d => d.elevation);
+    
+        const datasets = [{
+            label: 'Elevação',
+            data: elevation,
+            borderColor: 'rgb(75, 192, 192)',
+            backgroundColor: 'rgb(75, 192, 192)',
+            fill: false,
+            tension: 0.1
+        }];
+    
+        if (linkFirstLast) {
+            const firstElevation = elevation[0];
+            const lastElevation = elevation[elevation.length - 1];
+            const firstDistance = parseFloat(labels[0]);
+            const lastDistance = parseFloat(labels[labels.length - 1]);
 
-        const profileDataParsed = JSON.parse(profileData)
-
-        const labels = profileDataParsed.map(d => d.distance.toFixed(0))
-        const elevation = profileDataParsed.map(d => d.elevation)
-
+            const slopeLine = (lastElevation - firstElevation) / (lastDistance - firstDistance);
+    
+            let intersectionIndex = -1;
+        
+            const lineElevations = labels.map((distance, i) => {
+                const dist = parseFloat(distance);
+                const lineElevation = slopeLine * (dist - firstDistance) + firstElevation;
+                
+                // Find the first intersection point
+                if (i !=0 && i != labels.length - 1 && intersectionIndex === -1 && elevation[i] >= lineElevation) {
+                    intersectionIndex = i;
+                }
+        
+                return lineElevation;
+            });
+            
+            datasets.push({
+                label: 'Linha de visada',
+                data: lineElevations,
+                fill: false,
+                tension: 0.1,
+                segment: {
+                    borderColor: ctx => ctx.p0DataIndex < intersectionIndex || intersectionIndex == -1 ? 'rgb(0, 255, 0)' : 'rgb(255, 0, 0)'
+                }
+            });
+        }
+    
         new Chart(canvas, {
             type: 'line',
             data: {
                 labels: labels,
-                datasets: [{
-                    label: 'Elevação',
-                    data: elevation,
-                    borderColor: 'rgb(75, 192, 192)',
-                    tension: 0.1
-                }]
+                datasets: datasets
             },
             options: {
                 responsive: true,

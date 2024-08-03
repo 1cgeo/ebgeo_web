@@ -39,6 +39,8 @@ const toolManager = new ToolManager(map);
 const drawControl = new DrawControl(toolManager);
 map.addControl(drawControl, 'top-right');
 
+toolManager.setDrawControl(drawControl);
+
 const textControl = new AddTextControl(toolManager);
 map.addControl(textControl, 'top-right');
 
@@ -57,6 +59,8 @@ map.addControl(addStreetViewControl, 'top-right');
 const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
 const uiManager = new UIManager(map, selectionManager);
 selectionManager.setUIManager(uiManager);
+
+toolManager.setSelectionManager(selectionManager);
 
 new MoveHandler(map, selectionManager, uiManager);
 

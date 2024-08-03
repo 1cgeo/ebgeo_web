@@ -1,18 +1,38 @@
 class ToolManager {
-    constructor(map, draw, selectionManager) {
+    constructor(map) {
         this.map = map;
-        this.draw = draw;
-        this.selectionManager = selectionManager;
         this.activeTool = null;
+        this.drawControl = null;
+        this.selectionManager = null;
+    }
+
+    setDrawControl(drawControl) {
+        this.drawControl = drawControl;
+    }
+
+    setSelectionManager(selectionManager) {
+        this.selectionManager = selectionManager;
     }
 
     setActiveTool(tool) {
-        if (this.activeTool && this.activeTool !== tool) {
+        if(!tool) {
+            return
+        }
+        
+        if (this.activeTool && this.activeTool === tool && tool !== this.drawControl) {
+            this.deactivateCurrentTool();
+            return
+        }
+
+        if (this.activeTool) {
             this.activeTool.deactivate();
         }
+
         this.activeTool = tool;
-        if (tool) {
-            tool.activate();
+        tool.activate();
+
+        if (this.drawControl && this.activeTool !== this.drawControl && this.selectionManager) {
+            this.selectionManager.deselectAllFeatures(true);
         }
     }
 

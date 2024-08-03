@@ -23,7 +23,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
     saveButton.onclick = () => {
         visibilityControl.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
     };
     panel.appendChild(saveButton);
 
@@ -32,7 +31,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
     discardButton.onclick = () => {
         visibilityControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
     };
     panel.appendChild(discardButton);
 }

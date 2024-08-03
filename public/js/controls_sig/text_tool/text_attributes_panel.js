@@ -140,7 +140,6 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     saveButton.onclick = () => {
         textControl.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
     };
     buttonsContainer.append(saveButton);
 
@@ -150,7 +149,6 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     discardButton.onclick = () => {
         textControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
-        selectionManager.updateUI();
     };
     buttonsContainer.append(discardButton);
 
@@ -161,7 +159,6 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         setDefaultButton.onclick = () => {
             textControl.setDefaultProperties(feature.properties);
             selectionManager.deselectAllFeatures();
-            selectionManager.updateUI();
         };
         buttonsContainer.append(setDefaultButton);
     }

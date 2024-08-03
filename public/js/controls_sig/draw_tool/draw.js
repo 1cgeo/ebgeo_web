@@ -13,7 +13,6 @@ class DrawControl {
                 size: 3,
                 outlinecolor: '#fbb03b',
                 measure: false,
-                profile: false,
                 source: 'draw'
             },
             linestring: {
@@ -22,7 +21,6 @@ class DrawControl {
                 size: 5,
                 outlinecolor: '#fbb03b',
                 measure: false,
-                profile: false,
                 source: 'draw'
             },
             point: {
@@ -31,7 +29,6 @@ class DrawControl {
                 size: 10,
                 outlinecolor: '#fbb03b',
                 measure: false,
-                profile: false,
                 source: 'draw'
             }
         };
@@ -194,7 +191,6 @@ class DrawControl {
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
-        $('input[name="base-layer"]').off('change', this.changeButtonColors);
         this.changeButtonColors()
     }
 
@@ -212,47 +208,12 @@ class DrawControl {
         });
     }
 
-    updateFeatures = (features, save = false) => {
-        features.forEach(feature => {
-            Object.keys(feature.properties).forEach(key => {
-                this.draw.setFeatureProperty(feature.id, key, feature.properties[key]);
-            });
-            const feat = this.draw.get(feature.id);
-            this.draw.add(feat);
-            const type = feat.geometry.type.toLowerCase() + 's';
-            if (save) {
-                updateFeature(type, feat);
-            }
-        });
-    }
-
-    saveFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                const type = f.geometry.type.toLowerCase() + 's';
-                updateFeature(type, f);
-            }
-        });
-    }
-
-    discardChangeFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
-        });
-        this.updateFeatures(features);
-    }
-
     deleteFeatures = (features) => {
         features.forEach(f => {
+            this.removeFeatureMeasurement(f.id);
             this.draw.delete(f.id);
             const type = f.geometry.type.toLowerCase() + 's';
             removeFeature(type, f.id);
-        });
-    }
-
-    setDefaultProperties = (properties, commonAttributes) => {
-        commonAttributes.forEach(attr => {
-            this.defaultProperties[attr] = properties[attr];
         });
     }
 
@@ -263,20 +224,6 @@ class DrawControl {
             feature.properties.size !== initialProperties.size ||
             feature.properties.outlinecolor !== initialProperties.outlinecolor
         );
-    }
-
-    handleMapClick = () => {
-        //nothing to do here
-    }
-
-    updateFeaturesProperty = (features, property, value) => {
-        features.forEach(feature => {
-            feature.properties[property] = value;
-            this.draw.setFeatureProperty(feature.id, property, value);
-            const feat = this.draw.get(feature.id);
-            this.draw.add(feat);
-            this.updateFeatureMeasurement(feature);
-        });
     }
 
     updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
@@ -316,20 +263,6 @@ class DrawControl {
         this.updateFeatures(features, true, true);
     }
 
-    deleteFeatures = (features) => {
-        features.forEach(f => {
-            this.draw.delete(f.id);
-            const type = f.geometry.type.toLowerCase() + 's';
-            removeFeature(type, f.id);
-        });
-    }
-
-    setDefaultProperties = (properties, commonAttributes) => {
-        commonAttributes.forEach(attr => {
-            this.defaultProperties[attr] = properties[attr];
-        });
-    }
-
     setDefaultProperties = (properties, commonAttributes) => {
         Object.keys(this.defaultProperties).forEach(geometryType => {
             commonAttributes.forEach(attr => {
@@ -338,32 +271,23 @@ class DrawControl {
         });
     }
 
-    hasFeatureChanged = (feature, initialProperties) => {
-        return (
-            feature.properties.color !== initialProperties.color ||
-            feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.size !== initialProperties.size ||
-            feature.properties.outlinecolor !== initialProperties.outlinecolor
-        );
-    }
-
     changeButtonColors = () => {
         const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
         $('.mapbox-gl-draw_point').html(
             `
-                <img src="./images/icon_point_${color}.svg" alt="POINT" />
+            <img src="./images/icon_point_${color}.svg" alt="Adicionar ponto" title="Adicionar ponto" />
             `
         )
 
         $('.mapbox-gl-draw_line').html(
             `
-                <img src="./images/icon_line_${color}.svg" alt="LINE" />
+            <img src="./images/icon_line_${color}.svg" alt="Adicionar linha" title="Adicionar linha" />
             `
         )
 
         $('.mapbox-gl-draw_polygon').html(
             `
-                <img src="./images/icon_polygon_${color}.svg" alt="POLYGON" />
+            <img src="./images/icon_polygon_${color}.svg" alt="Adicionar polígono" title="Adicionar polígono" />
             `
         )
 
@@ -382,7 +306,7 @@ class DrawControl {
 
         $(currentBtn).html(
             `
-                <img src="./images/${imageName}red.svg" />
+            <img src="./images/${imageName}red.svg" alt="Ferramenta ativa" title="Ferramenta ativa" />
             `
         )
     }

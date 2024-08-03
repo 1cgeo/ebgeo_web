@@ -26,7 +26,7 @@ class MapControl {
             if (mapName) {
                 addMap(mapName);
                 setCurrentMap(mapName);
-                switchMap()
+                this.switchMap()
                 this.updateMapList();
             }
         };
@@ -67,7 +67,7 @@ class MapControl {
             changeButton.onclick = (e) => {
                 e.stopPropagation();
                 setCurrentMap(mapName);
-                switchMap()
+                this.switchMap()
                 this.updateMapList();
             };
 
@@ -83,7 +83,7 @@ class MapControl {
                     const copiedMap = JSON.parse(JSON.stringify(store.maps[mapName]));
                     addMap(newMapName, copiedMap);
                     setCurrentMap(newMapName);
-                    switchMap()
+                    this.switchMap()
                     this.updateMapList();
                 }
             };
@@ -101,7 +101,7 @@ class MapControl {
                         if (store.currentMap === mapName) {
                             const remainingMaps = Object.keys(store.maps);
                             setCurrentMap(remainingMaps[0]);
-                            switchMap()
+                            this.switchMap()
                         }
 
                         this.updateMapList();
