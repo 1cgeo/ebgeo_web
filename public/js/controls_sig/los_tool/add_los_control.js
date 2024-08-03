@@ -28,7 +28,8 @@ class AddLOSControl {
 
         const button = document.createElement('button');
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.innerHTML = 'V1';
+        button.setAttribute("id", "los-tool");
+        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_los_black.svg" alt="LOS" />';
         button.title = 'Adicionar linha de visada';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
@@ -36,7 +37,17 @@ class AddLOSControl {
 
         this.setupEventListeners();
 
+        $('input[name="base-layer"]').on('change', this.changeButtonColor);
+        this.changeButtonColor()
+
         return this.container;
+    }
+
+    changeButtonColor = () => {
+        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
+        $("#los-tool").html(`<img class="icon-sig-tool" src="./images/icon_los_${color}.svg" alt="LOS" />`);
+        if (!this.isActive) return
+        $("#los-tool").html('<img class="icon-sig-tool" src="./images/icon_los_red.svg" alt="LOS" />');
     }
     
     onRemove = () => {
@@ -63,6 +74,7 @@ class AddLOSControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.changeButtonColor()
     }
 
     deactivate = () => {
@@ -75,6 +87,8 @@ class AddLOSControl {
             features: []
         });
         this.map.off('mousemove', this.handleMouseMove);
+        $('input[name="base-layer"]').off('change', this.changeButtonColor);
+        this.changeButtonColor()
     }
 
     handleMapClick = async (e) => {
@@ -295,6 +309,7 @@ class AddLOSControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if(features.length > 0){
             const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+            const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
@@ -303,15 +318,32 @@ class AddLOSControl {
                     } else {
                         data.features[featureIndex] = feature;
                     }
-        
+    
+                    // Update processed features
+                    const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                    processedFeatures.forEach(processedFeature => {
+                        if (onlyUpdateProperties) {
+                            Object.assign(processedFeature.properties, feature.properties);
+                        } else {
+                            Object.assign(processedFeature, feature, {id: processedFeature.id});
+                        }
+                        if (processedFeature.id.endsWith('-visible')) {
+                            processedFeature.properties.color = AddLOSControl.VISIBLE_COLOR;
+                        } else if (processedFeature.id.endsWith('-obstructed')) {
+                            processedFeature.properties.color = AddLOSControl.OBSTRUCTED_COLOR;
+                        }
+                    });
+    
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
                         this.updateFeatureMeasurement(featureToUpdate);
                         updateFeature('los', featureToUpdate);
+                        processedFeatures.forEach(pf => updateFeature('processed_los', pf));
                     }
                 }
             };
             this.map.getSource('los').setData(data);
+            this.map.getSource('processed-los').setData(processedData);
         }
     }
 
@@ -319,6 +351,10 @@ class AddLOSControl {
         features.forEach(f => {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
                 updateFeature('los', f);
+                const visibleFeature = {...f, id: f.id + '-visible', properties: {...f.properties, color: AddLOSControl.VISIBLE_COLOR}};
+                const obstructedFeature = {...f, id: f.id + '-obstructed', properties: {...f.properties, color: AddLOSControl.OBSTRUCTED_COLOR}};
+                updateFeature('processed_los', visibleFeature);
+                updateFeature('processed_los', obstructedFeature);
             }
         });
     }
@@ -336,9 +372,10 @@ class AddLOSControl {
         }
         const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-        const idsToDelete = new Set(Array.from(features).map(f => f.id));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id));
+        const idsToDelete = new Set(features.map(f => f.id.toString()));
+        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
         processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
+        
         this.map.getSource('los').setData(data);
         this.map.getSource('processed-los').setData(processedData);
 
@@ -350,13 +387,12 @@ class AddLOSControl {
         });
     }
 
-    setDefaultProperties = (properties) => {
-        Object.assign(AddLOSControl.DEFAULT_PROPERTIES, properties);
-    }
-
     hasFeatureChanged = (feature, initialProperties) => {
         return (
-            feature.properties.profile !== initialProperties.profile
+            feature.properties.profile !== initialProperties.profile ||
+            feature.properties.opacity !== initialProperties.opacity ||
+            feature.properties.width !== initialProperties.width ||
+            feature.properties.measure !== initialProperties.measure
         );
     }
 

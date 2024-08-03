@@ -26,7 +26,8 @@ class AddVisibilityControl {
 
         const button = document.createElement('button');
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.innerHTML = 'V2';
+        button.setAttribute("id", "visibility-tool");
+        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_visibility_black.svg" alt="VISIBILITY" />';
         button.title = 'Adicionar análise de visibilidade';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
@@ -34,7 +35,17 @@ class AddVisibilityControl {
 
         this.setupEventListeners();
 
+        $('input[name="base-layer"]').on('change', this.changeButtonColor);
+        this.changeButtonColor()
+
         return this.container;
+    }
+
+    changeButtonColor = () => {
+        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
+        $("#visibility-tool").html(`<img class="icon-sig-tool" src="./images/icon_visibility_${color}.svg" alt="VISIBILITY" />`);
+        if (!this.isActive) return
+        $("#visibility-tool").html('<img class="icon-sig-tool" src="./images/icon_visibility_red.svg" alt="VISIBILITY" />');
     }
     
     onRemove = () => {
@@ -61,6 +72,7 @@ class AddVisibilityControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.changeButtonColor()
     }
 
     deactivate = () => {
@@ -72,6 +84,8 @@ class AddVisibilityControl {
             features: []
         });
         this.map.off('mousemove', this.handleMouseMove);
+        $('input[name="base-layer"]').off('change', this.changeButtonColor);
+        this.changeButtonColor()
     }
 
     handleMapClick = async (e) => {
