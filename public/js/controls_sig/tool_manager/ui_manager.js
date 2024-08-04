@@ -148,6 +148,16 @@ class UIManager {
         }
     }
 
+    updateProfile = () => {
+        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
+
+        if (allSelectedFeatures.length > 0) {
+            this.showProfilePanel(allSelectedFeatures);
+        } else {
+            this.saveChangesAndClosePanel();
+        }
+    }
+
     createUnifiedAttributesPanel = (selectedFeatures) => {
         let panel = document.querySelector('.unified-attributes-panel');
         if (panel) {

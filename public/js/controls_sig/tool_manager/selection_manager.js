@@ -158,6 +158,10 @@ class SelectionManager {
         this.uiManager.updatePanels();
     }
 
+    updateProfile= () => {
+        this.uiManager.updateProfile();
+    }
+
     getActiveTool = () => {
         if (this.textControl.isActive) return this.textControl;
         if (this.imageControl.isActive) return this.imageControl;

@@ -19,7 +19,7 @@ class DrawControl {
             linestring: {
                 color: '#fbb03b',
                 opacity: 0.7,
-                size: 5,
+                size: 7,
                 outlinecolor: '#fbb03b',
                 measure: false,
                 source: 'draw'

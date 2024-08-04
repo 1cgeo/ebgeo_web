@@ -68,7 +68,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
 
     const mostrarPerfilCheckbox = createCheckbox(feature.properties.profile || false, (e) => {
         losControl.updateFeaturesProperty(selectedFeatures, 'profile', e.target.checked);
-        selectionManager.updateUI();
+        selectionManager.updateProfile();
     });
     addAttributeRow('Mostrar perfil:', mostrarPerfilCheckbox);
 
