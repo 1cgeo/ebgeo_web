@@ -171,7 +171,8 @@ class AddTextControl {
         }
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         const idsToDelete = new Set(Array.from(features).map(f => String(f.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id));
+        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
+
         this.map.getSource('texts').setData(data);
 
         features.forEach(f => {

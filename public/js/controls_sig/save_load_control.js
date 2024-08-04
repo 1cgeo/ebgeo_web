@@ -23,9 +23,14 @@ class SaveLoadControl {
 
         this.container.querySelector('#save-btn').addEventListener('click', () => {
             const allData = {
-                maps: store.maps,
+                maps: {},
                 currentMap: store.currentMap,
             };
+        
+            Object.keys(store.maps).forEach(key => {
+                const { undoStack, redoStack, ...mapData } = store.maps[key];
+                allData.maps[key] = mapData;
+            });
             saveToFile(allData, 'maps_data.json');
         });
 
@@ -34,6 +39,7 @@ class SaveLoadControl {
         });
 
         this.container.querySelector('#load-file').addEventListener('change', (event) => {
+            const fileInput = event.target;
             const file = event.target.files[0];
             if (file) {
                 loadFromFile(file, (data) => {
@@ -41,12 +47,18 @@ class SaveLoadControl {
                     store.maps = data.maps;
                     store.currentMap = data.currentMap;
 
+                    Object.keys(store.maps).forEach(key => {
+                        store.maps[key].undoStack = [];
+                        store.maps[key].redoStack = [];
+                    });
+
                     // Atualize o mapa para refletir os dados carregados
                     const baseLayer = getCurrentBaseLayer();
                     this.baseLayerControl.switchLayer(baseLayer);     
 
                     // Atualize a lista de mapas no mapControl
                     this.mapControl.updateMapList();
+                    fileInput.value = '';
                 });
             }
         });

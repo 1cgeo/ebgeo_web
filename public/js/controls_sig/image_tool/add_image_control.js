@@ -237,8 +237,8 @@ class AddImageControl {
             return;
         }
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-        const idsToDelete = new Set(Array.from(features).map(f => f.id));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id));
+        const idsToDelete = new Set(Array.from(features).map(f => String(f.id)));
+        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
         this.map.getSource('images').setData(data);
 
         features.forEach(f => {

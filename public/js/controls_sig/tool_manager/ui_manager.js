@@ -9,7 +9,6 @@ class UIManager {
         this.map = map;
         this.selectionManager = selectionManager;
         this.drawControl = selectionManager.drawControl;
-        this.selectionBoxesSource = null;
         this.selectionBoxes = [];
         this.isDragging = false;
         this.setupEventListeners();
@@ -29,13 +28,6 @@ class UIManager {
         if(this.isDragging) {
             return;
         }
-        if (!this.selectionBoxesSource) {
-            this.selectionBoxesSource = this.map.getSource('selection-boxes');
-            if (!this.selectionBoxesSource) {
-                console.error('Selection boxes source not found');
-                return;
-            }
-        }
 
         const features = [
             ...this.createSelectionBoxesForTextFeatures(),
@@ -47,7 +39,7 @@ class UIManager {
 
         this.selectionBoxes = features;
 
-        this.selectionBoxesSource.setData({
+        this.map.getSource('selection-boxes').setData({
             type: 'FeatureCollection',
             features: features
         });
@@ -104,7 +96,7 @@ class UIManager {
             return this.translateFeature(feature, dx, dy);
         });
 
-        this.selectionBoxesSource.setData({
+        this.map.getSource('selection-boxes').setData({
             type: 'FeatureCollection',
             features: shiftedFeatures
         });
