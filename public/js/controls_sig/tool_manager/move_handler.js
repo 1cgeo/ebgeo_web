@@ -17,16 +17,23 @@ class MoveHandler {
     }
 
     startDrag(e) {
-        const allSelectedFeatures = this.selectionManager.getAllSelectedMovableFeatures();
-        
+        const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
         if (allSelectedFeatures.length > 0) {
-            const clickedFeature = this.map.queryRenderedFeatures(e.point)[0];
-            if(!clickedFeature){
-                return
+            const clickedFeatures = this.map.queryRenderedFeatures(e.point);
+            const sources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images'];
+            
+            const filteredFeatures = clickedFeatures.filter(feature => sources.includes(feature.source));
+            
+            if (filteredFeatures.length === 0) {
+                return;
             }
-            clickedFeature.id = clickedFeature.id || clickedFeature.properties.id
 
-            if (allSelectedFeatures.some(f => f.id == clickedFeature.id)) {
+            const isFeatureSelected = filteredFeatures.some(clickedFeature => {
+                clickedFeature.id = clickedFeature.id || clickedFeature.properties.id;
+                return allSelectedFeatures.some(f => f.id === clickedFeature.id);
+            });
+
+            if (isFeatureSelected) {
                 this.isDragging = true;
                 this.map.dragPan.disable();
                 this.uiManager.setDragging(true);
@@ -84,10 +91,11 @@ class MoveHandler {
                 };
                 return this.calculateUpdatedFeature(feature, feature.properties.source, dx, dy, newCoords);
             });
-    
+            this.uiManager.shiftSelectionBoxes(dx, dy, true);
+
             this.updateSelectionManagerFeatures(updatedFeatures);
 
-            this.selectionManager.updateSelectedFeatures(true);
+            this.selectionManager.updateSelectedFeatures();
         }
         this.uiManager.setDragging(false);
         this.map.off('mousemove', this.onMouseMove);
@@ -97,6 +105,8 @@ class MoveHandler {
         let updatedFeature;
         switch (source) {
             case 'draw':
+            case 'los':
+            case 'visibility':
                 updatedFeature = this.uiManager.translateFeature(feature, dx, dy);
                 break;
             case 'text':
@@ -152,6 +162,8 @@ class MoveHandler {
         const newSelectedFeatures = new Map();
         const newSelectedTextFeatures = new Map();
         const newSelectedImageFeatures = new Map();
+        const newSelectedLOSFeatures = new Map();
+        const newSelectedVisibilityFeatures = new Map();
 
         updatedFeatures.forEach(feature => {
             switch (feature.properties.source) {
@@ -164,12 +176,21 @@ class MoveHandler {
                 case 'image':
                     newSelectedImageFeatures.set(feature.id, feature);
                     break;
+                case 'los':
+                    newSelectedLOSFeatures.set(feature.id, feature);
+                case 'visibility':
+                    newSelectedVisibilityFeatures.set(feature.id, feature);
+                    break;
             }
         });
 
         this.selectionManager.selectedDrawFeatures = newSelectedFeatures;
         this.selectionManager.selectedTextFeatures = newSelectedTextFeatures;
         this.selectionManager.selectedImageFeatures = newSelectedImageFeatures;
+        this.selectionManager.selectedLOSFeatures = newSelectedLOSFeatures;
+        this.selectionManager.selectedVisibilityFeatures = newSelectedVisibilityFeatures;
+
+
     }
 
     setCursorStyle(style) {

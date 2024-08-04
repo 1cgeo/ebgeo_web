@@ -44,7 +44,7 @@ const imageControl = new AddImageControl(toolManager);
 const losControl = new AddLOSControl(toolManager);
 
 const visibilityControl = new AddVisibilityControl(toolManager);
-const addStreetViewControl = new AddStreetViewControl(toolManager);
+const addStreetViewControl = new AddStreetViewControl();
 
 const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
 const uiManager = new UIManager(map, selectionManager);

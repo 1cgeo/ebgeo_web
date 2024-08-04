@@ -5,8 +5,7 @@ import { DragControls } from 'DragControls';
 
 class AddStreetViewControl {
 
-    constructor(toolManager) {
-        this.toolManager = toolManager;
+    constructor() {
         this.isActive = false;
         this.IMAGES_LOCATION = "/street_view/IMG"
         this.METADATA_LOCATION = "/street_view/METADATA"
@@ -73,7 +72,7 @@ class AddStreetViewControl {
         button.className = 'custom-tool-sig-button';
         button.title = 'Adicionar street view';
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
-        button.onclick = () => this.toolManager.setActiveTool(this);
+        button.onclick = () => this.activate()
 
         this.container.appendChild(button);
         this.changeButtonColor()
@@ -100,7 +99,7 @@ class AddStreetViewControl {
 
     async activate() {
         if (this.isActive) {
-            this.deactivate()
+            this.deactivate();
             return
         }
         this.isActive = true;

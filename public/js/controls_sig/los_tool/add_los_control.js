@@ -103,7 +103,7 @@ class AddLOSControl {
         } else {
             this.endPoint = [lng, lat];
             await this.addLOSFeature();
-            this.deactivate();
+            this.toolManager.deactivateCurrentTool();
         }
     }
 
@@ -167,7 +167,7 @@ class AddLOSControl {
                 type: 'Feature',
                 id: Date.now().toString(),
                 properties: { ...AddLOSControl.DEFAULT_PROPERTIES,
-                    profileData: await this.calculateProfile([this.startPoint, this.endPoint])
+                    profileData: JSON.stringify(await this.calculateProfile([this.startPoint, this.endPoint]))
                  },
                 geometry: {
                     type: 'LineString',
@@ -314,28 +314,43 @@ class AddLOSControl {
         this.map.getSource('processed-los').setData(processedData);
     }
 
-    updateFeatures = async (features) => {
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if(features.length > 0){
             const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
             const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
-                    Object.assign(data.features[featureIndex].properties, feature.properties);
-    
-                    const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
-                    processedFeatures.forEach(processedFeature => {
-                        Object.keys(feature.properties).forEach(key => {
-                            if (key !== 'color') {
-                                processedFeature.properties[key] = feature.properties[key];
-                            }
+                    if (onlyUpdateProperties) {
+                        Object.assign(data.features[featureIndex].properties, feature.properties);
+                        
+                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                        processedFeatures.forEach(processedFeature => {
+                            Object.keys(feature.properties).forEach(key => {
+                                if (key !== 'color') {
+                                    processedFeature.properties[key] = feature.properties[key];
+                                }
+                            });
                         });
-                    });
+                    } else {
+                        // Recalculate LOS and update both 'los' and 'processed-los' sources
+                        const updatedFeature = await this.recalculateLOS(feature);
+                        data.features[featureIndex] = updatedFeature;
+                        
+                        // Remove old processed features
+                        processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
+                        
+                        // Add new processed features
+                        const newProcessedFeatures = this.preprocessLosFeature(updatedFeature);
+                        processedData.features.push(...newProcessedFeatures);
+                    }
+
     
-                    updateFeature('los', data.features[featureIndex])
-                    this.updateFeatureMeasurement(data.features[featureIndex]);
-                    processedFeatures.forEach(pf => updateFeature('processed_los', pf));
+                    if(save){
+                        updateFeature('los', data.features[featureIndex])
+                        this.updateFeatureMeasurement(data.features[featureIndex]);
+                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                        processedFeatures.forEach(pf => updateFeature('processed_los', pf));                    }
                 }
             };
             this.map.getSource('los').setData(data);
@@ -369,7 +384,7 @@ class AddLOSControl {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features);
+        this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = (features) => {
@@ -479,6 +494,43 @@ class AddLOSControl {
         }
 
         return profileData;
+    }
+
+    async recalculateLOS(feature) {
+        const linestring = {
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: [feature.geometry.coordinates[0], feature.geometry.coordinates[feature.geometry.coordinates.length - 1]]
+            }
+        };
+
+        const losResult = await this.calculateLOS(linestring);
+        let updatedFeature;
+
+        if (losResult.obstructed) {
+            updatedFeature = {
+                ...feature,
+                geometry: {
+                    type: 'MultiLineString',
+                    coordinates: [
+                        losResult.visible.geometry.coordinates,
+                        losResult.obstructed.geometry.coordinates
+                    ]
+                }
+            };
+        } else {
+            updatedFeature = {
+                ...feature,
+                geometry: {
+                    type: 'LineString',
+                    coordinates: losResult.visible.geometry.coordinates
+                }
+            };
+        }
+
+        updatedFeature.properties.profileData = JSON.stringify(await this.calculateProfile(linestring.geometry.coordinates));
+        return updatedFeature;
     }
 }
 

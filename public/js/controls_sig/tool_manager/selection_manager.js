@@ -145,14 +145,6 @@ class SelectionManager {
         ];
     }
 
-    getAllSelectedMovableFeatures() {
-        return [
-            ...this.selectedDrawFeatures.values(),
-            ...this.selectedTextFeatures.values(),
-            ...this.selectedImageFeatures.values()
-        ];
-    }
-
     updateUI = () => {
         this.uiManager.updateSelectionHighlight();
         this.uiManager.updatePanels();
@@ -182,10 +174,12 @@ class SelectionManager {
         this.deselectAllFeatures(true);
     }
 
-    updateSelectedFeatures(save = false) {
-        this.textControl.updateFeatures([...this.selectedTextFeatures.values()], save);
-        this.imageControl.updateFeatures([...this.selectedImageFeatures.values()], save);
-        this.drawControl.updateFeatures([...this.selectedDrawFeatures.values()], save);
+    updateSelectedFeatures() {
+        this.textControl.updateFeatures([...this.selectedTextFeatures.values()], true);
+        this.imageControl.updateFeatures([...this.selectedImageFeatures.values()], true);
+        this.drawControl.updateFeatures([...this.selectedDrawFeatures.values()], true);
+        this.losControl.updateFeatures([...this.selectedLOSFeatures.values()], true);
+        this.visibilityControl.updateFeatures([...this.selectedVisibilityFeatures.values()], true);
     }
 }
 

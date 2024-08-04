@@ -16,8 +16,7 @@ class UIManager {
 
     setupEventListeners = () => {
         this.map.on('move', this.updateSelectionHighlight);
-        this.map.on('draw.render', this.updateSelectionHighlight);
-
+        //this.map.on('draw.render', this.updateSelectionHighlight); //não é necessário
     }
 
     setDragging = (isDragging) => {
@@ -91,7 +90,7 @@ class UIManager {
         return Array.from(featureSet.values()).map(feature => this.calculateBuffer(feature, bufferSize));
     }
 
-    shiftSelectionBoxes(dx, dy) {
+    shiftSelectionBoxes(dx, dy, save = false) {
         const shiftedFeatures = this.selectionBoxes.map(feature => {
             return this.translateFeature(feature, dx, dy);
         });
@@ -100,6 +99,10 @@ class UIManager {
             type: 'FeatureCollection',
             features: shiftedFeatures
         });
+
+        if(save){
+            this.selectionBoxes = shiftedFeatures;
+        }
     }
 
     translateFeature(feature, dx, dy) {
