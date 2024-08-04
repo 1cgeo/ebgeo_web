@@ -20,11 +20,17 @@ class MoveHandler {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
         if (allSelectedFeatures.length > 0) {
             const clickedFeatures = this.map.queryRenderedFeatures(e.point);
+
             const sources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images'];
             
             const filteredFeatures = clickedFeatures.filter(feature => sources.includes(feature.source));
-            
-            if (filteredFeatures.length === 0) {
+
+            // Check if any filtered feature has properties.meta equal to 'midpoint' or 'vertex'
+            const hasMidpointOrVertex = filteredFeatures.some(feature => 
+                feature.properties.mode === 'direct_select' || feature.properties.meta === 'midpoint' || feature.properties.meta === 'vertex'
+            );
+
+            if (filteredFeatures.length === 0 || hasMidpointOrVertex) {
                 return;
             }
 
@@ -74,6 +80,8 @@ class MoveHandler {
 
         this.isDragging = false;
         this.map.dragPan.enable();
+        this.uiManager.setDragging(false);
+        this.map.off('mousemove', this.onMouseMove);
         this.setCursorStyle('');
 
         const newPos = e.lngLat;
@@ -97,8 +105,6 @@ class MoveHandler {
 
             this.selectionManager.updateSelectedFeatures();
         }
-        this.uiManager.setDragging(false);
-        this.map.off('mousemove', this.onMouseMove);
     }
 
     calculateUpdatedFeature(feature, source, dx, dy, newCoords) {
