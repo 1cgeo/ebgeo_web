@@ -23,6 +23,9 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
                 let value = input.type === 'range' || input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
                 value = input.type === 'checkbox' ? e.target.checked : value;
                 featureControl.updateFeaturesProperty(selectedFeatures, attr, value);
+                if(attr === 'profile') {
+                    selectionManager.updateProfile();
+                }
             }
         );
         container.append($("<div>", { class: "attr-name" }).append(attrLabel))
@@ -68,7 +71,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
 function findCommonAttributes(features) {
     const attributeSets = {
         Point: ['size', 'color', 'opacity'],
-        LineString: ['size', 'color', 'opacity', 'measure'],
+        LineString: ['size', 'color', 'opacity', 'measure', 'profile'],
         Polygon: ['color', 'opacity', 'outlinecolor', 'size', 'measure']
     };
 
@@ -86,7 +89,8 @@ function getLabel(attr, features) {
         color: 'Cor',
         opacity: 'Opacidade',
         outlinecolor: 'Cor da borda',
-        measure: 'Medir'
+        measure: 'Medir',
+        profile: 'Perfil do terreno'
     };
 
     if (attr === 'size') {
@@ -123,7 +127,7 @@ function createInput(attr, value, inputCallback) {
         input.step = 1;
         input.value = value !== undefined ? value : 1;
     }
-    else if (attr === 'measure') {
+    else if (attr === 'measure' || attr === 'profile') {
         let label = $("<label>", { class: "switch" })
         input = document.createElement('input');
         input.classList.add("slider-check-input");

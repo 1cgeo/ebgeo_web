@@ -1,5 +1,6 @@
 import drawStyles from './draw_styles.js';
 import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { getTerrainElevation } from '../terrain_control.js';
 
 class DrawControl {
     constructor(toolManager) {
@@ -14,6 +15,7 @@ class DrawControl {
                 outlinecolor: '#fbb03b',
                 measure: false,
                 profile: false,
+                profileData: null,
                 source: 'draw'
             },
             linestring: {
@@ -23,6 +25,7 @@ class DrawControl {
                 outlinecolor: '#fbb03b',
                 measure: false,
                 profile: false,
+                profileData: null,
                 source: 'draw'
             },
             point: {
@@ -32,6 +35,7 @@ class DrawControl {
                 outlinecolor: '#fbb03b',
                 measure: false,
                 profile: false,
+                profileData: null,
                 source: 'draw'
             }
         };
@@ -104,29 +108,42 @@ class DrawControl {
         this.map.off('draw.modechange', this.handleDrawModeChange);
     }
 
-    handleDrawCreate = (e) => {
-        e.features.forEach(f => {
+    handleDrawCreate = async (e) => {
+        for (const f of e.features) {
             const geomtype = f.geometry.type.toLowerCase();
             const properties = { ...this.defaultProperties[geomtype], ...f.properties };
             f.properties = properties
+
+            if (geomtype === 'linestring') {
+                f.properties.profileData = JSON.stringify(await this.calculateProfile(f.geometry.coordinates));
+            }
+
             Object.keys(properties).forEach(key => {
                 this.draw.setFeatureProperty(f.id, key, properties[key]);
             });
             const type = geomtype + 's';
+
+
+
             addFeature(type, f);
             this.updateFeatureMeasurement(f);
-        });
+        };
 
         this.toolManager.deactivateCurrentTool();
     }
 
-    handleDrawUpdate = (e) => {
-        e.features.forEach(f => {
+    handleDrawUpdate = async (e) => {
+        for (const f of e.features) {
             const type = f.geometry.type.toLowerCase() + 's';
+            
+            if (f.geometry.type === 'LineString') {
+                f.properties.profileData = JSON.stringify(await this.calculateProfile(f.geometry.coordinates));
+            }
+            
             updateFeature(type, f);
             this.updateFeatureMeasurement(f);
-        });
-        this.selectionManager.handleDrawSelectionChange()
+        }
+        this.selectionManager.handleDrawSelectionChange();
     }
 
     updateFeatureMeasurement = (feature) => {
@@ -317,6 +334,26 @@ class DrawControl {
             <img src="./images/${imageName}red.svg" alt="Ferramenta ativa" title="Ferramenta ativa" />
             `
         )
+    }
+
+    async calculateProfile(coordinates) {
+        const line = turf.lineString(coordinates);
+        const length = turf.length(line, { units: 'meters' });
+        const steps = 25;
+        const stepLength = length / steps;
+
+        let profileData = [];
+
+        for (let i = 0; i <= steps; i++) {
+            const point = turf.along(line, i * stepLength, { units: 'meters' });
+            const elevation = await getTerrainElevation(this.map, point.geometry.coordinates);
+            profileData.push({
+                distance: i * stepLength,
+                elevation: elevation
+            });
+        }
+
+        return profileData;
     }
 };
 export default DrawControl;

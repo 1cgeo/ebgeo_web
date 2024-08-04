@@ -397,13 +397,13 @@ class UIManager {
     
         const feature = selectedFeatures[0];
         const { source } = feature.properties;
-        //const isLineFeature = feature.geometry.type === 'LineString';
+        const isLineFeature = feature.geometry.type === 'LineString';
         const hasProfileData = feature.properties.profileData && feature.properties.profile;
     
         if (source === 'los' && hasProfileData) {
             this.createProfilePanel(feature.properties.profileData, true);
-        //} else if (source === 'draw' && isLineFeature && hasProfileData) {
-        //    this.createProfilePanel(feature.properties.profileData, false);
+        } else if (source === 'draw' && isLineFeature && hasProfileData) {
+            this.createProfilePanel(feature.properties.profileData, false);
         } else {
             this.hideProfilePanel();
         }
