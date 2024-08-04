@@ -1,4 +1,3 @@
-import 'https://unpkg.com/@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.js';
 import drawStyles from './draw_styles.js';
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 
@@ -14,6 +13,7 @@ class DrawControl {
                 size: 3,
                 outlinecolor: '#fbb03b',
                 measure: false,
+                profile: false,
                 source: 'draw'
             },
             linestring: {
@@ -22,6 +22,7 @@ class DrawControl {
                 size: 7,
                 outlinecolor: '#fbb03b',
                 measure: false,
+                profile: false,
                 source: 'draw'
             },
             point: {
@@ -30,6 +31,7 @@ class DrawControl {
                 size: 10,
                 outlinecolor: '#fbb03b',
                 measure: false,
+                profile: false,
                 source: 'draw'
             }
         };

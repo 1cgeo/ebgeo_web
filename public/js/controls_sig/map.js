@@ -1,5 +1,4 @@
 import { getCurrentMapFeatures } from './store.js';
-import '../../vendors/maplibre-gl.js';
 import baseStyle from './base_map_styles.js'
 
 const map = new maplibregl.Map({
