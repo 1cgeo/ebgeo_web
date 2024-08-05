@@ -8,10 +8,34 @@ import {
 var queryMobile = window.matchMedia("(max-width: 650px)")
 
 
-/* 3D MOBILE */
-function openMobileMenu3D(query) {
+$('#open-close-form').on('click', () => {
+    if (!$('#attributes-panel').length) return
+    $('#attributes-panel').is(":visible") ? $('#attributes-panel').hide() : $('#attributes-panel').show()
+})
+
+var sigParents = {}
+function openMobileMenu(query) {
     $('.button-tool-3d').off('click', activeTool);
-    if (query.matches && $('#map-3d-container').is(":visible")) {
+
+    if (query.matches && $('#map-sig').is(":visible")) {
+        $('#sidebarMenu').empty()
+
+        sigParents['map-list'] = $('#map-list').parent()
+        $('#map-list').appendTo('#sidebarMenu');
+
+        $('.extra-bar-buttons button').css('display', 'none');
+        $('.sidebarIconToggle').css('display', 'block');
+        if ($('#attributes-panel').length) {
+            $('#open-close-form').css('display', 'flex')
+            $('#attributes-panel').hide()
+        }
+    } else if (query.matches && $('#map-3d-container').is(":visible")) {
+        if (sigParents['map-list']) {
+            $('#map-list').appendTo(sigParents['map-list']);
+            delete sigParents['map-list']
+        }
+
+        $('#sidebarMenu').empty()
         $('#sidebarMenu').append(`
         <div id="model-3d-container">
         <p><b>Modelos 3D</b></p>
@@ -66,44 +90,27 @@ function openMobileMenu3D(query) {
     } else {
         $('.extra-bar-buttons button').css('display', 'block');
         $('.sidebarIconToggle').css('display', 'none');
-        $('#map-3d-tool-bar').css('display', 'block');
         $("#openSidebarMenu").prop("checked", false);
-    }
-    $('.button-tool-3d').on('click', activeTool);
-}
 
+        if ($('#map-3d-container').is(":visible")) {
+            $('#map-3d-tool-bar').css('display', 'block');
 
-/* SIG MOBILE */
-
-$('#open-close-form').on('click', () => {
-    if (!$('#attributes-panel').length) return
-    $('#attributes-panel').is(":visible") ? $('#attributes-panel').hide() : $('#attributes-panel').show()
-})
-
-var sigParents = {}
-function openMobileMenuSIG(query) {
-    $('.button-tool-3d').off('click', activeTool);
-    if (query.matches && $('#map-sig').is(":visible")) {
-        sigParents['map-list'] = $('#map-list').parent()
-        $('#map-list').appendTo('#sidebarMenu');
-        $('.extra-bar-buttons button').css('display', 'none');
-        $('.sidebarIconToggle').css('display', 'block');
-        if ($('#attributes-panel').length) {
-            $('#open-close-form').css('display', 'flex')
-            $('#attributes-panel').hide()
+        } else {
+            $('#map-list').appendTo(sigParents['map-list']);
+            delete sigParents['map-list']
         }
-    } else {
-        $('.extra-bar-buttons button').css('display', 'block');
-        $('.sidebarIconToggle').css('display', 'none');
-        $("#openSidebarMenu").prop("checked", false);
-        $('#map-list').appendTo(sigParents['map-list']);
-        delete sigParents['map-list']
+
+
+
     }
+
+
     $('.button-tool-3d').on('click', activeTool);
 }
 
 var observer = new MutationObserver((mutations) => {
     $('#open-close-form').css('display', 'none')
+    if (!$('#map-sig').is(":visible")) return
     if ($('#attributes-panel').length && queryMobile.matches) {
         $('#open-close-form').css('display', 'flex')
         $('#attributes-panel').hide()
@@ -116,12 +123,10 @@ var observer = new MutationObserver((mutations) => {
 observer.observe(document, { attributes: false, childList: true, characterData: false, subtree: true });
 
 
-openMobileMenu3D(queryMobile);
-openMobileMenuSIG(queryMobile);
+openMobileMenu(queryMobile);
 
 queryMobile.addEventListener("change", function () {
-    openMobileMenu3D(queryMobile);
-    openMobileMenuSIG(queryMobile);
+    openMobileMenu(queryMobile);
 });
 
 $(".bar-center-buttons a").click(function () {
@@ -138,7 +143,7 @@ $(".bar-center-buttons a").click(function () {
             $('#map-sig').show();
             $('.unified-attributes-panel').show()
     }
-    openMobileMenu3D(queryMobile);
+    openMobileMenu(queryMobile);
 });
 
 
