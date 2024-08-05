@@ -24,20 +24,21 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     const rotationLabel = document.createElement('label');
     rotationLabel.textContent = 'Rotação:';
     const rotationInput = document.createElement('input');
-    rotationInput.type = 'number';
+    rotationInput.classList.add("slider");
+    rotationInput.type = 'range';
     rotationInput.step = 1;
     rotationInput.min = -180;
     rotationInput.max = 180;
-    rotationInput.value = feature.properties.rotation;
+    rotationInput.value = feature.properties.rotation || 0;
     rotationInput.oninput = (e) => {
-        imageControl.updateFeaturesProperty(selectedFeatures, 'rotation', parseFloat(e.target.value));
+        imageControl.updateFeaturesProperty(selectedFeatures, 'rotation', parseInt(e.target.value, 10));
         uiManager.updateSelectionHighlight();
     };
     $(panel).append(
         $("<div>", { class: "attr-container-row" })
             .append($("<div>", { class: "attr-name" }).append(rotationLabel))
             .append($("<div>", { class: "attr-input" }).append(rotationInput))
-    )
+    );
 
     const opacityLabel = document.createElement('label');
     opacityLabel.textContent = 'Opacidade:';

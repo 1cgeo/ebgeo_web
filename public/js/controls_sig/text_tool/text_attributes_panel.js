@@ -43,7 +43,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     colorLabel.textContent = 'Cor:';
     const colorInput = document.createElement('input');
     colorInput.classList.add("picker-color");
-    colorInput.type = 'text';
+    colorInput.type = 'color';
     colorInput.value = feature.properties.color;
     colorInput.oninput = (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'color', `#${e.toHex()}`)
@@ -58,7 +58,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     backgroundColorLabel.textContent = 'Cor da borda:';
     const backgroundColorInput = document.createElement('input');
     backgroundColorInput.classList.add("picker-color");
-    backgroundColorInput.type = 'text';
+    backgroundColorInput.type = 'color';
     backgroundColorInput.value = feature.properties.backgroundColor;
     backgroundColorInput.oninput = (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'backgroundColor', `#${e.toHex()}`)
@@ -72,17 +72,21 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     const rotateLabel = document.createElement('label');
     rotateLabel.textContent = 'Rotação:';
     const rotateInput = document.createElement('input');
-    rotateInput.type = 'number';
-    rotateInput.value = feature.properties.rotation;
+    rotateInput.classList.add("slider");
+    rotateInput.type = 'range';
+    rotateInput.step = 1;
+    rotateInput.min = -180;
+    rotateInput.max = 180;
+    rotateInput.value = feature.properties.rotation || 0;
     rotateInput.oninput = (e) => {
-        textControl.updateFeaturesProperty(selectedFeatures, 'rotation', parseFloat(e.target.value));
+        textControl.updateFeaturesProperty(selectedFeatures, 'rotation', parseInt(e.target.value, 10));
         uiManager.updateSelectionHighlight();
     };
     $(panel).append(
         $("<div>", { class: "attr-container-row" })
             .append($("<div>", { class: "attr-name" }).append(rotateLabel))
             .append($("<div>", { class: "attr-input" }).append(rotateInput))
-    )
+    );
 
     const justifyLabel = document.createElement('label');
     justifyLabel.textContent = 'Justificativa:';
@@ -135,7 +139,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
 
     const saveButton = document.createElement('button');
     saveButton.classList.add('tool-button', 'pure-material-tool-button-contained')
-    saveButton.textContent = 'Save';
+    saveButton.textContent = 'Salvar';
     saveButton.type = 'submit';
     saveButton.onclick = () => {
         textControl.saveFeatures(selectedFeatures, initialPropertiesMap);

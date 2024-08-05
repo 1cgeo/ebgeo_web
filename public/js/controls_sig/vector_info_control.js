@@ -48,17 +48,23 @@ class VectorTileInfoControl {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
         this.changeButtonColor()
+        this.uiManager.saveChangesAndClosePanel();
     }
 
     handleMapClick(e) {
         if (this.isActive) {
             const features = this.map.queryRenderedFeatures(e.point);
             if (features.length > 0) {
+                const preferenceOrder = ['Point', 'LineString', 'Polygon'];
+    
+                features.sort((a, b) => {
+                    return preferenceOrder.indexOf(a.geometry.type) - preferenceOrder.indexOf(b.geometry.type);
+                });
+    
                 this.uiManager.showVectorTileInfoPanel(features[0]);
             } else {
                 this.uiManager.saveChangesAndClosePanel();
             }
-            this.toolManager.deactivateCurrentTool();
         }
     }
 }

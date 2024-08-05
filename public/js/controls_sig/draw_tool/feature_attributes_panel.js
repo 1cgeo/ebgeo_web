@@ -9,6 +9,9 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     const commonAttributes = findCommonAttributes(selectedFeatures);
 
     commonAttributes.forEach(attr => {
+        if (attr === 'profile' && selectedFeatures.length !== 1) {
+            return;
+        }
         const container = $("<div>", { class: "attr-container-row" });
         const attrLabel = document.createElement('label');
         attrLabel.textContent = getLabel(attr, selectedFeatures);
@@ -16,17 +19,14 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
             attr,
             selectedFeatures[0].properties[attr],
             (input, e) => {
-                if (attr === 'color' || attr === 'outlinecolor') {
-                    featureControl.updateFeaturesProperty(selectedFeatures, attr, `#${e.toHex()}`)
-                    return
-                }
                 let value = input.type === 'range' || input.type === 'number' ? parseFloat(e.target.value) : e.target.value;
                 value = input.type === 'checkbox' ? e.target.checked : value;
                 featureControl.updateFeaturesProperty(selectedFeatures, attr, value);
                 if(attr === 'profile') {
                     selectionManager.updateProfile();
                 }
-            }
+            },
+            feature.geometry.type
         );
         container.append($("<div>", { class: "attr-name" }).append(attrLabel))
         container.append($("<div>", { class: "attr-input" }).append(elInput))
@@ -94,21 +94,23 @@ function getLabel(attr, features) {
     };
 
     if (attr === 'size') {
-        const hasPolygon = features.some(feature => feature.geometry.type === 'Polygon');
-        if (hasPolygon) {
-            return features.length === 1 ? 'Largura da borda' : 'Tamanho';
+        const allPolygons = features.every(feature => feature.geometry.type === 'Polygon');
+        if (allPolygons) {
+            return 'Largura da borda';
+        } else {
+            return 'Tamanho';
         }
     }
 
     return labels[attr] || attr;
 }
 
-function createInput(attr, value, inputCallback) {
+function createInput(attr, value, inputCallback, geometryType) {
     let input;
     if (attr === 'color' || attr === 'outlinecolor') {
         input = document.createElement('input');
         input.classList.add("picker-color");
-        input.type = 'text';
+        input.type = 'color';
         input.value = value || '#000000';
     } else if (attr === 'opacity') {
         input = document.createElement('input');
@@ -122,8 +124,8 @@ function createInput(attr, value, inputCallback) {
         input = document.createElement('input');
         input.classList.add("slider");
         input.type = 'range';
-        input.min = 1
-        input.max = 30;
+        input.min = geometryType === 'Point' ? 6 : 2;
+        input.max = geometryType === 'Point' ? 16 : 30;
         input.step = 1;
         input.value = value !== undefined ? value : 1;
     }

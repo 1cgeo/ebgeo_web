@@ -12,8 +12,13 @@ class AddTextControl {
 
     constructor(toolManager) {
         this.toolManager = toolManager;
+        this.selectionManager = null;
         this.toolManager.textControl = this;
         this.isActive = false;
+    }
+
+    setSelectionManager(selectionManager) {
+        this.selectionManager = selectionManager;
     }
 
     onAdd = (map) => {
@@ -92,6 +97,9 @@ class AddTextControl {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         data.features.push(feature);
         this.map.getSource('texts').setData(data);
+
+        this.selectionManager.toggleFeatureSelection('text', feature.id, feature)
+        this.selectionManager.updateUI()
     }
 
     createTextFeature = (lngLat, text) => {

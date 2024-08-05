@@ -66,11 +66,13 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
     });
     addAttributeRow('Mostrar tamanho:', mostrarTamanhoCheckbox);
 
-    const mostrarPerfilCheckbox = createCheckbox(feature.properties.profile || false, (e) => {
-        losControl.updateFeaturesProperty(selectedFeatures, 'profile', e.target.checked);
-        selectionManager.updateProfile();
-    });
-    addAttributeRow('Mostrar perfil:', mostrarPerfilCheckbox);
+    if (selectedFeatures.length === 1) {
+        const mostrarPerfilCheckbox = createCheckbox(feature.properties.profile || false, (e) => {
+            losControl.updateFeaturesProperty(selectedFeatures, 'profile', e.target.checked);
+            selectionManager.updateProfile();
+        });
+        addAttributeRow('Mostrar perfil:', mostrarPerfilCheckbox);
+    }
 
     const saveButton = document.createElement('button');
     saveButton.classList.add('tool-button', 'pure-material-tool-button-contained')

@@ -13,22 +13,13 @@ import MoveHandler from './controls_sig/tool_manager/move_handler.js';
 import MapControl from './controls_sig/map_control.js';
 import AddStreetViewControl from './controls_sig/street_view_tool/add_street_view_control.js';
 import VectorTileInfoControl from './controls_sig/vector_info_control.js'
-//import ResetNorthControl from './controls_sig/reset_north_control.js';
-//import ResetOrthogonalControl from './controls_sig/reset_otho_control.js';
+import ResetNorthControl from './controls_sig/reset_north_control.js';
 //import FlyToCoordinatesControl from './controls_sig/fly_coordinates_control.js';
 import { undoLastAction, redoLastAction, hasUnsavedData } from './controls_sig/store.js';
 
 //-----------------------------------------------
 // CONTROLES
 //-----------------------------------------------
-const baseLayerControl = new BaseLayerControl();
-
-const mapControl = new MapControl(baseLayerControl);
-
-const saveLoadControl = new SaveLoadControl(mapControl, baseLayerControl);
-//map.addControl(new ResetNorthControl(), 'top-right');
-//map.addControl(new ResetOrthogonalControl(), 'top-right');
-//map.addControl(new FlyToCoordinatesControl(), 'top-right');
 
 const toolManager = new ToolManager(map);
 
@@ -46,9 +37,10 @@ const visibilityControl = new AddVisibilityControl(toolManager);
 const addStreetViewControl = new AddStreetViewControl();
 
 const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
-const uiManager = new UIManager(map, selectionManager);
+const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
 drawControl.setSelectionManager(selectionManager);
+textControl.setSelectionManager(selectionManager);
 
 toolManager.setSelectionManager(selectionManager);
 
@@ -58,24 +50,31 @@ const vectorTileInfoControl = new VectorTileInfoControl(toolManager,uiManager);
 
 selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
 
+const baseLayerControl = new BaseLayerControl(uiManager);
+
+const mapControl = new MapControl(baseLayerControl);
+
+const saveLoadControl = new SaveLoadControl(mapControl, baseLayerControl);
+
 const scale = new maplibregl.ScaleControl({
     maxWidth: 80,
     unit: 'metric'
 });
 
-
 map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
 map.addControl(saveLoadControl, 'top-left');
-map.addControl(addStreetViewControl, 'top-right');
+map.addControl(new ResetNorthControl(), 'top-right');
 map.addControl(vectorTileInfoControl, 'top-right');
 map.addControl(drawControl, 'top-right');
 map.addControl(textControl, 'top-right');
 map.addControl(imageControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
+map.addControl(addStreetViewControl, 'top-right');
 map.addControl(scale, 'bottom-left');
 mapControl.loadMenu()
+
 
 
 //-----------------------------------------------
