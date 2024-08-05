@@ -45,16 +45,7 @@ class AddStreetViewControl {
         this.centroid = turf.centroid(this.photosGeojson)
 
         try {
-            this.map.addSource('points-street-view', {
-                'type': 'geojson',
-                'data': this.photosGeojson
-            });
-        } catch (error) {
-
-        }
-
-        try {
-            this.map.addSource('lines-street-view', {
+            this.map.getSource('lines-street-view').setData({
                 'type': 'geojson',
                 'data': this.photosLinhasGeoJson
             });
@@ -113,27 +104,8 @@ class AddStreetViewControl {
 
     showPhotos = async () => {
 
-        if (this.map.getLayer('street-view')) {
-            this.map.off('click', 'street-view', this.loadPoint);
-            this.map.off('mouseenter', 'street-view', this.showHoverCursor);
-            this.map.off('mouseleave', 'street-view', this.hideHoverCursor);
-            this.map.removeLayer('street-view')
-        }
-        this.map.addLayer({
-            'id': 'street-view',
-            'type': 'line',
-            'source': 'lines-street-view',
-            'layout': {
-                'line-join': 'round',
-                'line-cap': 'round'
-            },
-            'paint': {
-                'line-color': '#0d6efd',
-                'line-width': this.queryMobile.matches ? 8 : 4
-            }
-        });
-
         this.map.on('click', 'street-view', this.loadPoint);
+
         this.map.on('touchend', 'street-view', this.loadPoint);
 
         this.map.on('mouseenter', 'street-view', this.showHoverCursor);
@@ -385,7 +357,7 @@ class AddStreetViewControl {
 
     }
 
-    createControll = () => {
+    createControl = () => {
         this.cleanArrows(this.arrows.map(i => i.arrow))
         this.arrows = []
         for (let target of this.currentInfo.targets) {
@@ -457,7 +429,7 @@ class AddStreetViewControl {
         $.getJSON(`${this.METADATA_LOCATION}/${name}.json`, (data) => {
             this.currentInfo = data
             this.setCurrentMiniMap()
-            this.createControll()
+            this.createControl()
             this.setCurrentMouse()
             this.drawControl()
             this.setCurrentMouse()
@@ -663,7 +635,14 @@ class AddStreetViewControl {
 
         this.map.off('mouseleave', 'street-view', this.hideHoverCursor);
 
-        if (this.map.getLayer('street-view')) this.map.removeLayer('street-view')
+
+        this.map.getSource('lines-street-view').setData({
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
     }
 
     handleMapClick(e) {

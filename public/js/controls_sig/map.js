@@ -264,6 +264,32 @@ map.on('styledata', () => {
             }
         });
     }
+
+    if (!map.getSource('lines-street-view')) {
+        map.addSource('lines-street-view', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+    }
+
+    if (!map.getLayer('street-view')) {
+        map.addLayer({
+            'id': 'street-view',
+            'type': 'line',
+            'source': 'lines-street-view',
+            'layout': {
+                'line-join': 'round',
+                'line-cap': 'round'
+            },
+            'paint': {
+                'line-color': '#0d6efd',
+                'line-width': 4
+            }
+        });
+    }
 });
 
 //FIT AMAN
