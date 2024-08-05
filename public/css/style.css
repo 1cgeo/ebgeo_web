@@ -109,7 +109,7 @@ html {
 .base-layer-control {
     position: absolute;
     top: 10px;
-    left: 10px;
+    left: 15px;
     display: flex;
     gap: 10px;
     z-index: 10;
@@ -1090,7 +1090,7 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 
 .list-map-container {
     width: 250px;
-    border-bottom: 20px solid #508D4E;
+    border-bottom: 20px solid white;
     border-bottom-left-radius: 10px;
     border-bottom-right-radius: 10px;
     position: absolute;
@@ -1102,8 +1102,8 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 .list-map-container .attr-container-row {
     width: 210px;
     height: 30px;
-    color: #fff;
-    background: #508D4E;
+    color: black;
+    background: white;
     padding: 10px 20px;
     font-size: 18px;
     border-top-left-radius: 10px;
@@ -1133,7 +1133,7 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 .list-map-container ul li {
     height: 30px;
     padding: 10px;
-    background: #fff;
+    background: white;
     box-shadow: 0 5px 25px rgba(0, 0, 0, 0.1);
     transition: transform 0.5s;
 }
@@ -1142,7 +1142,7 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
     cursor: pointer !important;
     transform: scale(1.05);
     z-index: 5;
-    background: #B4E380;
+    background: #508D4E;
     box-shadow: 0 5px 25px rgba(0, 0, 0, 0.2);
     color: #fff;
     opacity: 1;

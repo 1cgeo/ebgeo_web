@@ -22,7 +22,8 @@ function openMobileMenu(query) {
 
         sigParents['map-list'] = $('#map-list').parent()
         $('#map-list').appendTo('#sidebarMenu');
-
+        sigParents['base-layer-control'] = $('.base-layer-control').parent()
+        $('.base-layer-control').appendTo('#sidebarMenu');
         $('.extra-bar-buttons button').css('display', 'none');
         $('.sidebarIconToggle').css('display', 'block');
         if ($('#attributes-panel').length) {
@@ -98,6 +99,8 @@ function openMobileMenu(query) {
         } else {
             $('#map-list').appendTo(sigParents['map-list']);
             delete sigParents['map-list']
+            $('.base-layer-control').appendTo(sigParents['base-layer-control']);
+            delete sigParents['base-layer-control']
         }
 
 

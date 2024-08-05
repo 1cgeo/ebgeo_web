@@ -26,10 +26,6 @@ const baseLayerControl = new BaseLayerControl();
 const mapControl = new MapControl(baseLayerControl);
 
 const saveLoadControl = new SaveLoadControl(mapControl, baseLayerControl);
-
-mapControl.loadMenu()
-
-
 //map.addControl(new ResetNorthControl(), 'top-right');
 //map.addControl(new ResetOrthogonalControl(), 'top-right');
 //map.addControl(new FlyToCoordinatesControl(), 'top-right');
@@ -79,6 +75,7 @@ map.addControl(imageControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
 map.addControl(scale, 'bottom-left');
+mapControl.loadMenu()
 
 
 //-----------------------------------------------
