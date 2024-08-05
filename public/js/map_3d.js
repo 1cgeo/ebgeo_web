@@ -64,7 +64,7 @@ const removeAllTools = () => {
 
 let clampToGround = true
 const measure = new Cesium.Measure(map)
-$('.button-tool-3d').on('click', function () {
+export function activeTool() {
     let text = $(this).attr('id')
     if (text) {
         removeAllTools()
@@ -83,10 +83,11 @@ $('.button-tool-3d').on('click', function () {
                 break;
         }
     }
-});
+}
 
 
-function handleClickGoTo () {
+
+export function handleClickGoTo() {
     let text = $(this).attr('id')
     if (text) {
         removeAllTools()
@@ -109,8 +110,6 @@ function handleClickGoTo () {
 }
 
 $('#locate-3d-container button').click(handleClickGoTo);
-$('#locate-3d-container-mobile button').click(handleClickGoTo);
-
 
 var handler = new Cesium.ScreenSpaceEventHandler(map.canvas);
 handler.setInputAction(function (event) {
@@ -127,4 +126,5 @@ handler.setInputAction(function (event) {
             scratchRectangle)
     )
 }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
 
