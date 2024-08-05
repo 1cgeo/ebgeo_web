@@ -103,7 +103,7 @@ html {
 }
 
 .save-load-icon img {
-    height: 30px;
+    height: 20px;
 }
 
 .base-layer-control {
@@ -227,86 +227,32 @@ html {
     margin-right: 5px;
 }
 
-.map-control-panel {
+.unified-attributes-panel-mobile {
+    min-width: 320px;
     position: absolute;
-    top: 110px;
-    left: 10px;
+    bottom: 10px;
+    right: 10px;
     padding: 10px;
-    background-color: #f8f8f8F2;
+    background-color: white;
     border: 1px solid #ccc;
     border-radius: 5px;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
     z-index: 10;
-    color: black;
-    width: 200px;
 }
 
-.map-control-title-container {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+.unified-attributes-panel-mobile label {
+    display: block;
+    margin-top: 5px;
 }
 
-.map-control-title {
-    margin: 0;
+.unified-attributes-panel-mobile input {
+    width: 100%;
+    margin-top: 5px;
 }
 
-.add-map-button {
-    background-color: transparent;
-    border: 1px solid black;
-    color: black;
-    cursor: pointer;
-    padding: 5px;
-    font-size: 16px;
-    pointer-events: auto !important;
-    /* Ensure they can be clicked */
-}
-
-.map-list {
+.unified-attributes-panel-mobile button {
     margin-top: 10px;
-    list-style-type: none;
-    padding: 0;
-}
-
-.map-list li {
-    margin-bottom: 5px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 5px;
-    border: 1px solid black;
-    border-radius: 3px;
-}
-
-.map-list li.current-map {
-    background-color: rgba(255, 255, 255, 0.2);
-}
-
-.button-container {
-    display: flex;
-    gap: 5px;
-}
-
-.change-map-button,
-.remove-map-button,
-.copy-map-button {
-    background-color: transparent;
-    border: 1px solid black;
-    color: black;
-    cursor: pointer;
-    padding: 5px;
-    font-size: 12px;
-    pointer-events: auto !important; /* Ensure they can be clicked */
-}
-
-.measurement-label {
-    background-color: white;
-    padding: 2px 5px;
-    border-radius: 3px;
-    font-size: 12px;
-    box-shadow: 0 0 2px rgba(0,0,0,0.5);
-    pointer-events: auto !important;
-    /* Ensure they can be clicked */
+    margin-right: 5px;
 }
 
 .measurement-label {
@@ -782,7 +728,7 @@ hr.solid {
     height: 100%;
     position: fixed;
     right: 0;
-    width: 250px;
+    width: 270px;
     margin-top: 60px;
     transform: translateX(-250px);
     transition: transform 250ms ease-in-out;
@@ -910,6 +856,7 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 .attr-input textarea {
     width: 320px;
 }
+
 .attr-container-row {
     display: flex;
     flex-direction: row;
@@ -1067,4 +1014,273 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
     border: 1px solid #ccc;
     padding: 10px;
     box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+/* control map */
+.map-control-panel {
+    /* position: absolute;
+    top: 110px;
+    left: 10px; */
+    /* padding: 10px;
+    background-color: #f8f8f8F2;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); */
+    /* z-index: 10; */
+    /* color: black;
+    width: 200px; */
+}
+
+.map-control-title-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.map-control-title {
+    margin: 0;
+}
+
+/* .add-map-button {
+    background-color: transparent;
+    border: 1px solid black;
+    color: black;
+    cursor: pointer;
+    padding: 5px;
+    font-size: 16px;
+    pointer-events: auto !important;
+} */
+
+/* .map-list {
+    margin-top: 10px;
+    list-style-type: none;
+    padding: 0;
+}
+
+.map-list li {
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px;
+    border: 1px solid black;
+    border-radius: 3px;
+}
+
+.map-list li.current-map {
+    background-color: rgba(255, 255, 255, 0.2);
+} */
+
+.button-container {
+    display: flex;
+    gap: 5px;
+}
+
+.change-map-button,
+.remove-map-button,
+.copy-map-button {
+    background-color: transparent;
+    border: 1px solid black;
+    color: black;
+    cursor: pointer;
+    padding: 5px;
+    font-size: 12px;
+    pointer-events: auto !important;
+    /* Ensure they can be clicked */
+}
+
+.list-map-container {
+    width: 250px;
+    border-bottom: 20px solid #508D4E;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    position: absolute;
+    top: 50px;
+    left: 15px;
+    z-index: 10;
+}
+
+.list-map-container .attr-container-row {
+    width: 210px;
+    height: 30px;
+    color: #fff;
+    background: #508D4E;
+    padding: 10px 20px;
+    font-size: 18px;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+}
+
+.list-map-container ul {
+    padding-inline-start: 0px;
+    padding-inline-end: 0px;
+    margin-block-start: 0em;
+    margin-block-end: 0em;
+}
+
+
+.list-map-container li {
+    display: flex;
+    flex-direction: row;
+    gap: 5px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.list-map-container .current-map {
+    opacity: 0.2;
+}
+
+.list-map-container ul li {
+    height: 30px;
+    padding: 10px;
+    background: #fff;
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.1);
+    transition: transform 0.5s;
+}
+
+.list-map-container .current-map {
+    cursor: pointer !important;
+    transform: scale(1.05);
+    z-index: 5;
+    background: #B4E380;
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.2);
+    color: #fff;
+    opacity: 1;
+}
+
+.list-map-container ul li span {
+    width: 20px;
+    height: 20px;
+    text-align: center;
+    line-height: 20px;
+    background: #508D4E;
+    color: #fff;
+    display: inline-block;
+    border-radius: 50%;
+    margin-right: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    transform: translateY(-2px);
+}
+
+.list-map-container .current-map span {
+    background: #fff;
+    color: #B4E380;
+}
+
+.more-info-icon,
+.add-map-button {
+    background-color: transparent;
+    color: white;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+    margin: 2px;
+    font-size: 18px;
+    display: block;
+    /* Ensure the input file button looks like a block element */
+    width: 40px;
+    /* Ensure it has a standard width */
+    z-index: 10;
+    /* Ensure they are above other elements */
+    pointer-events: auto;
+    /* Ensure they can be clicked */
+}
+
+.more-info-icon img,
+.add-map-button img {
+    height: 20px;
+}
+
+.map-name-button {
+    background-color: transparent;
+    color: black;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+    margin: 2px;
+    display: block;
+    /* Ensure the input file button looks like a block element */
+    width: 40px;
+    /* Ensure it has a standard width */
+    z-index: 10;
+    /* Ensure they are above other elements */
+    pointer-events: auto;
+    /* Ensure they can be clicked */
+}
+
+.current-map .map-name-button {
+    color: #fff;
+}
+
+/* menu map name */
+.dropdown-content {
+    display: none;
+    position: absolute;
+    background-color: #f9f9f9;
+    min-width: 160px;
+    box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+    z-index: 1;
+}
+
+.dropdown-content a {
+    float: none;
+    color: black;
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+    text-align: left;
+}
+
+.dropdown-content a:hover {
+    background-color: #ddd;
+}
+
+.dropdown {
+    float: left;
+    overflow: hidden;
+}
+
+.active-buton {
+    background-color: #508D4E;
+}
+
+.menu-button {
+    background-color: transparent;
+    color: black;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+    margin: 2px;
+    font-size: 18px;
+    display: block;
+    /* Ensure the input file button looks like a block element */
+    width: 40px;
+    /* Ensure it has a standard width */
+    z-index: 10;
+    /* Ensure they are above other elements */
+    pointer-events: auto;
+    /* Ensure they can be clicked */
+}
+
+
+.panel-icon-float {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    width: 60px;
+    height: 60px;
+    bottom: 40px;
+    left: 10px;
+    background-color: #508D4E;
+    color: #FFF;
+    border-radius: 50px;
+    text-align: center;
+    box-shadow: 2px 2px 3px #999;
+    z-index: 10;
+}
+
+#attributes-panel {
+    bottom: 50px;
 }

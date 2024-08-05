@@ -168,6 +168,7 @@ class UIManager {
         }
 
         panel = document.createElement('div');
+        panel.id = 'attributes-panel'
         panel.className = 'unified-attributes-panel';
 
         const featureTypes = new Set(selectedFeatures.map(f => f.properties.source));

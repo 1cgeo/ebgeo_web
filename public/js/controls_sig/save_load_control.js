@@ -70,9 +70,9 @@ class SaveLoadControl {
     }
 
     changeButtonColors = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
-        $("#load-btn").html(`<img src="./images/icon_load_${color}.svg" alt="LOAD" />`);
-        $("#save-btn").html(`<img src="./images/icon_save_${color}.svg" alt="SAVE" />`);
+        // const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
+        // $("#load-btn").html(`<img src="./images/icon_load_${color}.svg" alt="LOAD" />`);
+        // $("#save-btn").html(`<img src="./images/icon_save_${color}.svg" alt="SAVE" />`);
     }
 
     onRemove() {

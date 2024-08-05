@@ -27,6 +27,9 @@ const mapControl = new MapControl(baseLayerControl);
 
 const saveLoadControl = new SaveLoadControl(mapControl, baseLayerControl);
 
+mapControl.loadMenu()
+
+
 //map.addControl(new ResetNorthControl(), 'top-right');
 //map.addControl(new ResetOrthogonalControl(), 'top-right');
 //map.addControl(new FlyToCoordinatesControl(), 'top-right');
@@ -77,6 +80,7 @@ map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
 map.addControl(scale, 'bottom-left');
 
+
 //-----------------------------------------------
 // ATALHOS
 //-----------------------------------------------
@@ -100,7 +104,7 @@ document.addEventListener('keydown', (event) => {
 window.addEventListener('beforeunload', function (e) {
     if (hasUnsavedData()) {
         e.preventDefault();
-        
+
         // Para navegadores mais antigos que precisam de um valor retornado.
         return 'Ao fechar perderá todos os dados. Tem certeza de que deseja sair?'
     }
