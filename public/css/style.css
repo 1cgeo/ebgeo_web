@@ -560,9 +560,9 @@ hr.solid {
     background-color: transparent;
     font-weight: bold;
     border: none !important;
-    padding: 5px !important;
+    padding: 0px !important;
     cursor: pointer !important;
-    margin: 2px !important;
+    margin: 0px !important;
     font-size: 18px !important;
     z-index: 10 !important;
     /* Ensure they are above other elements */
@@ -1284,3 +1284,17 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 #attributes-panel {
     bottom: 50px;
 }
+
+.maplibregl-ctrl-top-right {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 10px
+}
+@media only screen and (max-width: 650px) {
+    .mapbox-gl-draw_ctrl-draw-btn img,
+    .icon-sig-tool {
+        width: 50px;
+    }
+  }

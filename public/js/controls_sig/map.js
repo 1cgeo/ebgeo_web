@@ -6,7 +6,7 @@ const map = new maplibregl.Map({
     style: baseStyle,
     attributionControl: false,
     minZoom: 11,
-    maxZoom: 18
+    maxZoom: 17.9
 });
 
 const bounds = [

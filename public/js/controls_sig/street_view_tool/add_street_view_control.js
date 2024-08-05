@@ -2,10 +2,12 @@
 
 import * as THREE from 'three';
 import { DragControls } from 'DragControls';
-
+import vectorMultiescala from '../vector_multiescala.js';
 class AddStreetViewControl {
 
     constructor() {
+        this.queryMobile = window.matchMedia("(max-width: 650px)")
+
         this.isActive = false;
         this.IMAGES_LOCATION = "/street_view/IMG"
         this.METADATA_LOCATION = "/street_view/METADATA"
@@ -102,6 +104,7 @@ class AddStreetViewControl {
             this.deactivate();
             return
         }
+        $('#close-street-view-button').on('click', this.closeStreetView)
         this.isActive = true;
         $("#street-view-tool").empty().append('<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />');
         await this.loadData()
@@ -126,11 +129,12 @@ class AddStreetViewControl {
             },
             'paint': {
                 'line-color': '#0d6efd',
-                'line-width': 4
+                'line-width': this.queryMobile.matches ? 8 : 4
             }
         });
 
         this.map.on('click', 'street-view', this.loadPoint);
+        this.map.on('touchend', 'street-view', this.loadPoint);
 
         this.map.on('mouseenter', 'street-view', this.showHoverCursor);
 
@@ -144,11 +148,12 @@ class AddStreetViewControl {
             container: 'mini-map-street-view',
             style: '/street_view/street-view-map-style.json',
             center: this.centroid.geometry.coordinates,
+            attributionControl: false,
             zoom: 12.5
         });
 
         let pointImage = await this.miniMap.loadImage('/street_view/point.png')
-        this.miniMap.addImage('point', pointImage.data);
+        await this.miniMap.addImage('point', pointImage.data);
         this.miniMap.addSource('points', {
             'type': 'geojson',
             'data': this.photosGeojson
@@ -222,7 +227,7 @@ class AddStreetViewControl {
 
     loadStreetView = (info) => {
         this.isOpen = true
-        $('#close-street-view-button').on('click', this.closeStreetView)
+        //$('#close-street-view-button').on('click', this.closeStreetView)
         const container = document.getElementById('street-view-container');
         document.addEventListener('pointermove', this.setCurrentMouse);
         document.addEventListener('mousemove', (event) => {
@@ -403,18 +408,30 @@ class AddStreetViewControl {
         if (this.controls) this.controls.deactivate()
         this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
         this.controls.addEventListener('drag', (event) => {
+            //alert('drag')
             this.isDrag = true
 
         });
         this.controls.addEventListener('dragstart', (event) => {
-            this.isDrag = false
-        });
-        this.controls.addEventListener('dragend', (event) => {
-            if (!this.isDrag) {
+            setTimeout(() => {
+                if(this.isDrag) {
+                    this.isDrag =false
+                    return
+                }
                 this.clickObj()
-            }
-
+            }, 500)
         });
+        // this.controls.addEventListener('dragend', (event) => {
+        //     console.log('dragend')
+        //     if (!this.isDrag) {
+        //         this.clickObj()
+        //     }
+
+        // });
+        // window.addEventListener("touchend", () => {
+        //     alert(this.isDrag)
+        //     !this.isDrag? this.clickObj(): null});
+
 
     }
 
@@ -478,8 +495,9 @@ class AddStreetViewControl {
 
     onPointerMove = (event) => {
         if (event.isPrimary === false || !this.isUserInteracting) return;
-        this.mouse.x = (this.onPointerDownMouseX - event.clientX) * 0.00005
-        this.mouse.y = (event.clientY - this.onPointerDownMouseY) * 0.00005
+        let factor = (0.00005 * 1768) / window.innerWidth
+        this.mouse.x = (this.onPointerDownMouseX - event.clientX) * factor
+        this.mouse.y = (event.clientY - this.onPointerDownMouseY) * factor * 0.8
         this.raycaster.setFromCamera(this.mouse, this.camera);
         var intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
         if (intersects.length > 0) {
@@ -512,7 +530,7 @@ class AddStreetViewControl {
             this.setCurrentMouse()
             this.drawControl()
             this.setCurrentMouse()
-            this.camera.lookAt(target.x, target.y, target.z);
+            this.camera.lookAt(target.x, target.y > 250 ? 250: target.y < -360? -360: target.y , target.z);
             this.nextTarget = null
             this.currentLookAt = null
         }
@@ -588,7 +606,7 @@ class AddStreetViewControl {
             var point2 = turf.point([item.lon, item.lat])
             var bearing = (turf.rhumbBearing(point1, point2) + degrees + 360) % 360
             let center = turf.point([0, -0.4])
-            var distance = 35
+            var distance = this.queryMobile.matches ? 55 : 35
             var destination = turf.rhumbDestination(center, distance, bearing)
             var vector = new THREE.Vector3(
                 destination.geometry.coordinates[0],

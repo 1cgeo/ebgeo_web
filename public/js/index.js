@@ -35,52 +35,30 @@ function openMobileMenu(query) {
             $('#map-list').appendTo(sigParents['map-list']);
             delete sigParents['map-list']
         }
+        if (sigParents['base-layer-control']) {
+            $('.base-layer-control').appendTo(sigParents['base-layer-control']);
+            delete sigParents['base-layer-control']
+        }
 
         $('#sidebarMenu').empty()
         $('#sidebarMenu').append(`
         <div id="model-3d-container">
-        <p><b>Modelos 3D</b></p>
-        <hr class="solid">
-        <!-- <button id="btnAMAN" class="tools">AMAN</button>
-    <button id="btnPCL" class="tools">PCL</button>
-    <button id="btnESA" class="tools">ESA</button> -->
-        <div id="locate-3d-container-mobile">
-            <button id="aman" class="tutorial-button pure-material-button-contained">AMAN</button>
-            <button id="aman-pcl" class="tutorial-button pure-material-button-contained">AMAN PCL</button>
-            <button id="esa" class="tutorial-button pure-material-button-contained">ESA</button>
-        </div>
-    </div>
-    <div id="tool-3d-container">
-        <p><b>Ferramentas</b></p>
-        <hr class="solid">
-        <div class="tools-3d-bar">
-            <div>
-                <a id="visualizacao" class="button-tool-3d icon-tool-3d">
-                    <img src="./images/viewshed_icon.svg" alt="Viewshed" />
-                </a>
+                <p><b>Modelos 3D</b></p>
+                <hr class="solid">
+                <!-- <button id="btnAMAN" class="tools">AMAN</button>
+            <button id="btnPCL" class="tools">PCL</button>
+            <button id="btnESA" class="tools">ESA</button> -->
+                <div id="locate-3d-container-mobile">
+                    <button id="aman" class="tutorial-button pure-material-button-contained">AMAN</button>
+                    <button id="aman-pcl" class="tutorial-button pure-material-button-contained">AMAN PCL</button>
+                    <button id="esa" class="tutorial-button pure-material-button-contained">ESA</button>
+                </div>
             </div>
-            <div>
-                <a id="distancia" class="button-tool-3d icon-tool-3d">
-                    <img src="./images/distance_icon.svg" alt="distance" />
-                </a>
-            </div>
-            <div>
-                <a id="area" class="button-tool-3d icon-tool-3d">
-                    <img src="./images/area_icon.svg" alt="area" />
-                </a>
-            </div>
-            <div>
-                <a id="limpar" href="javascript:;" class="button-tool-3d icon-tool-3d">
-                    <img src="./images/clear_icon.svg" alt="clear" />
-                </a>
-            </div>
-        </div>
-    </div>
-    <hr class="solid">
-    <button onclick="window.open(
-        'doc.html',
-        '_blank' // <- This is what makes it open in a new window.
-      );" class="tutorial-button pure-material-button-contained">Tutorial</button>
+            <hr class="solid">
+            <button onclick="window.open(
+                'doc.html',
+                '_blank' // <- This is what makes it open in a new window.
+            );" class="tutorial-button pure-material-button-contained">Tutorial</button>
         `)
         $('#locate-3d-container-mobile button').off('click', handleClickGoTo);
         $('#locate-3d-container-mobile button').on('click', handleClickGoTo);
