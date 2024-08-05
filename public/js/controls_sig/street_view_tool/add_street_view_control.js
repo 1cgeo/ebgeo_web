@@ -5,9 +5,9 @@ import { DragControls } from 'DragControls';
 import vectorMultiescala from '../vector_multiescala.js';
 class AddStreetViewControl {
 
-    constructor() {
+    constructor(toolManager) {
         this.queryMobile = window.matchMedia("(max-width: 650px)")
-
+        this.toolManager = toolManager;
         this.isActive = false;
         this.IMAGES_LOCATION = "/street_view/IMG"
         this.METADATA_LOCATION = "/street_view/METADATA"
@@ -74,7 +74,7 @@ class AddStreetViewControl {
         button.className = 'custom-tool-sig-button';
         button.title = 'Adicionar street view';
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
-        button.onclick = () => this.activate()
+        button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
         this.changeButtonColor()
@@ -101,7 +101,7 @@ class AddStreetViewControl {
 
     async activate() {
         if (this.isActive) {
-            this.deactivate();
+            this.toolManager.deactivateCurrentTool();
             return
         }
         $('#close-street-view-button').on('click', this.closeStreetView)
