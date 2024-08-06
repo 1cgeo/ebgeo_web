@@ -1,4 +1,4 @@
-import store, { addMap, removeMap, setCurrentMap, getCurrentMapFeatures, getCurrentBaseLayer } from './store.js';
+import store, { addMap, removeMap, renameMap, setCurrentMap, getCurrentMapFeatures, getCurrentBaseLayer } from './store.js';
 
 class MapControl {
     constructor(baseLayerControl) {
@@ -35,12 +35,16 @@ class MapControl {
         `
         addButton.title = 'Adicionar mapa';
         addButton.onclick = () => {
-            const mapName = prompt("Digite o nome do mapa:");
-            if (mapName) {
-                addMap(mapName);
-                setCurrentMap(mapName);
-                this.switchMap()
-                this.updateMapList();
+            if (Object.keys(store.maps).length < 10) {
+                const mapName = prompt("Digite o nome do mapa:");
+                if (mapName) {
+                    addMap(mapName);
+                    setCurrentMap(mapName);
+                    this.switchMap()
+                    this.updateMapList();
+                }
+            } else {
+                alert("Você não pode adicionar mais de 10 mapas.");
             }
         };
         $('#menu-map-list').append(addButton)
@@ -55,7 +59,10 @@ class MapControl {
     updateMapList() {
 
         this.mapList.innerHTML = '';
-        Object.keys(store.maps).forEach((mapName, i) => {
+
+        const sortedMapNames = Object.keys(store.maps).sort();
+
+        sortedMapNames.forEach((mapName, i) => {
             const listItem = $("<li>")
             if (mapName === store.currentMap) listItem.addClass('current-map')
             // $(listItem).append($('<span>').text(i+1))
@@ -89,10 +96,29 @@ class MapControl {
                                     .append('Copiar')
                                     .click((e) => {
                                         e.preventDefault();
-                                        const newMapName = prompt("Digite o nome para o novo mapa:");
+                                        if (Object.keys(store.maps).length < 10) {
+                                            const newMapName = prompt("Digite o nome para o novo mapa:");
+                                            if (newMapName) {
+                                                const copiedMap = JSON.parse(JSON.stringify(store.maps[mapName]));
+                                                addMap(newMapName, copiedMap);
+                                                setCurrentMap(newMapName);
+                                                this.switchMap()
+                                                this.updateMapList();
+                                            }
+                                        } else {
+                                            alert("Você não pode adicionar mais de 10 mapas.");
+                                        }
+                                    })
+                            )
+                            .append(
+                                $("<button>", { class: "menu-button" })
+                                    .append('Renomear')
+                                    .click((e) => {
+                                        e.preventDefault();
+                                        const newMapName = prompt("Digite o novo nome do mapa:");
                                         if (newMapName) {
-                                            const copiedMap = JSON.parse(JSON.stringify(store.maps[mapName]));
-                                            addMap(newMapName, copiedMap);
+                                            const oldMapName = mapName;
+                                            renameMap(oldMapName, newMapName);
                                             setCurrentMap(newMapName);
                                             this.switchMap()
                                             this.updateMapList();

@@ -93,6 +93,16 @@ export const removeMap = (mapName) => {
     delete store.maps[mapName];
 };
 
+export const renameMap = (oldName, newName) => {
+    if (store.maps[oldName]) {
+        store.maps[newName] = store.maps[oldName];
+        delete store.maps[oldName];
+        if (store.currentMap === oldName) {
+            store.currentMap = newName;
+        }
+    }
+};
+
 export const setCurrentMap = (mapName) => {
     store.currentMap = mapName;
 };
