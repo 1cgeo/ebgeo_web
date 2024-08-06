@@ -1070,18 +1070,18 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 }
 
 .list-map-container {
-    width: 250px;
+    width: 270px;
     border-bottom: 20px solid white;
     border-bottom-left-radius: 10px;
     border-bottom-right-radius: 10px;
     position: absolute;
-    top: 50px;
+    top: 20px;
     left: 15px;
     z-index: 10;
 }
 
 .list-map-container .header-container-row {
-    width: 210px;
+    width: 230px;
     height: 90px;
     color: black;
     background: white;
@@ -1381,6 +1381,7 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
     padding: 5px;
     border-radius: 5px;
     width: 100%;
+    justify-content: right;
 }
 
 
