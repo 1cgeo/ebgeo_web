@@ -20,7 +20,7 @@ if (cluster.isMaster) {
   });
 } else {
   const server = restify.createServer({
-    name: 'EBGIS',
+    name: 'EBGEO',
     version: '1.0.0'
   });
 
