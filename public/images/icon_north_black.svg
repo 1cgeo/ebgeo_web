@@ -1,2 +1,6 @@
-<?xml version="1.0" encoding="utf-8"?><!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
-<svg width="800px" height="800px" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--gis" preserveAspectRatio="xMidYMid meet"><path d="M42.066 0v20h3.752V6.957L53.881 20h4.053V0h-3.752v13.355L45.996 0zm5.57 26.688l-25.77 69.949c-.823 2.238 1.658 4.248 3.677 2.978L50 84.195l24.455 15.42c2.02 1.273 4.504-.738 3.68-2.978l-25.79-70c-.472-1.096-1.283-1.632-2.384-1.635c-1.1-.003-2.017.856-2.324 1.686zm-.136 14.83V79.86L29.1 91.463z" fill="#000000" fill-rule="evenodd"></path></svg>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="40" viewBox="0 0 40 40" version="1.1">
+<g id="surface1">
+<path style=" stroke:none;fill-rule:evenodd;fill:rgb(0%,0%,0%);fill-opacity:1;" d="M 16.828125 0 L 16.828125 8 L 18.328125 8 L 18.328125 2.78125 L 21.550781 8 L 23.171875 8 L 23.171875 0 L 21.671875 0 L 21.671875 5.34375 L 18.398438 0 Z M 19.054688 10.675781 L 8.746094 38.65625 C 8.417969 39.550781 9.410156 40.355469 10.21875 39.847656 L 20 33.679688 L 29.78125 39.847656 C 30.589844 40.355469 31.582031 39.550781 31.253906 38.65625 L 20.9375 10.65625 C 20.75 10.214844 20.425781 10.003906 19.984375 10 C 19.542969 10 19.175781 10.34375 19.054688 10.675781 Z M 19 16.605469 L 19 31.945312 L 11.640625 36.585938 Z M 19 16.605469 "/>
+</g>
+</svg>

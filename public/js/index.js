@@ -22,8 +22,6 @@ function openMobileMenu(query) {
 
         sigParents['map-list'] = $('#map-list').parent()
         $('#map-list').appendTo('#sidebarMenu');
-        sigParents['base-layer-control'] = $('.base-layer-control').parent()
-        $('.base-layer-control').appendTo('#sidebarMenu');
         $('.extra-bar-buttons button').css('display', 'none');
         $('.sidebarIconToggle').css('display', 'block');
         if ($('#attributes-panel').length) {
@@ -35,11 +33,6 @@ function openMobileMenu(query) {
             $('#map-list').appendTo(sigParents['map-list']);
             delete sigParents['map-list']
         }
-        if (sigParents['base-layer-control']) {
-            $('.base-layer-control').appendTo(sigParents['base-layer-control']);
-            delete sigParents['base-layer-control']
-        }
-
         $('#sidebarMenu').empty()
         $('#sidebarMenu').append(`
         <div id="model-3d-container">
@@ -77,8 +70,6 @@ function openMobileMenu(query) {
         } else {
             $('#map-list').appendTo(sigParents['map-list']);
             delete sigParents['map-list']
-            $('.base-layer-control').appendTo(sigParents['base-layer-control']);
-            delete sigParents['base-layer-control']
         }
 
 
@@ -137,3 +128,6 @@ $('#mini-map-street-view').css({
 
 
 
+$(document).ready(() => {
+    setTimeout(()=> $('.loading-background').css('display', 'none'), 3000)
+})

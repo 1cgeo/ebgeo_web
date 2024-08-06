@@ -11,11 +11,14 @@ class MapControl {
         this.container.id = 'map-list'
         this.container.className = 'list-map-container';
 
+        const col = $("<div>", { id: 'header-map-list', class: "header-container-column" })
+        const headerContainer = $("<div>", { class: "header-container-row" }).append(col)
         const titleContainer = $("<div>", { id: 'menu-map-list', class: "attr-container-row" });
         const title = document.createElement('h2');
         title.textContent = 'Mapas';
         titleContainer.append(title)
-        $(this.container).append(titleContainer);
+        col.append(titleContainer)
+        $(this.container).append(headerContainer);
 
         this.mapList = document.createElement('ul');
         this.mapList.className = 'map-list';
@@ -26,6 +29,8 @@ class MapControl {
     }
 
     loadMenu() {
+
+
         $('#save-btn').appendTo('#menu-map-list');
         $('#load-btn').appendTo('#menu-map-list');
         const addButton = document.createElement('button');
@@ -48,6 +53,7 @@ class MapControl {
             }
         };
         $('#menu-map-list').append(addButton)
+        $('.base-layer-control').appendTo('#header-map-list');
 
     }
 
