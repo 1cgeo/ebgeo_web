@@ -1297,4 +1297,47 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
     .icon-sig-tool {
         width: 50px;
     }
-  }
+}
+
+.feature-search-control {
+    position: absolute;
+    top: 10px;
+    right: 55px;
+}
+
+.feature-search-input {
+width: 200px;
+padding: 5px;
+border: 1px solid #ccc;
+border-radius: 3px;
+}
+
+.feature-search-suggestions {
+display: none;
+position: absolute;
+left: -220px;
+top: 0;
+width: 200px;
+max-height: 200px;
+overflow-y: auto;
+background-color: white;
+list-style-type: none;
+padding: 0;
+margin: 0;
+border: 1px solid #ccc;
+border-radius: 3px;
+box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.feature-search-suggestions li {
+padding: 5px 10px;
+cursor: pointer;
+}
+
+.feature-search-suggestions li:hover {
+background-color: #f0f0f0;
+}
+
+.mapboxgl-ctrl-top-right {
+    margin-top: 50px;
+}

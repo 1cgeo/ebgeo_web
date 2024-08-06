@@ -14,7 +14,7 @@ import MapControl from './controls_sig/map_control.js';
 import AddStreetViewControl from './controls_sig/street_view_tool/add_street_view_control.js';
 import VectorTileInfoControl from './controls_sig/vector_info_control.js'
 import ResetNorthControl from './controls_sig/reset_north_control.js';
-//import FlyToCoordinatesControl from './controls_sig/fly_coordinates_control.js';
+import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import { undoLastAction, redoLastAction, hasUnsavedData } from './controls_sig/store.js';
 
 //-----------------------------------------------
@@ -34,13 +34,16 @@ const imageControl = new AddImageControl(toolManager);
 const losControl = new AddLOSControl(toolManager);
 
 const visibilityControl = new AddVisibilityControl(toolManager);
-const addStreetViewControl = new AddStreetViewControl();
+const addStreetViewControl = new AddStreetViewControl(toolManager);
 
 const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
 drawControl.setSelectionManager(selectionManager);
 textControl.setSelectionManager(selectionManager);
+
+const featureSearchControl = new FeatureSearchControl(uiManager);
+uiManager.setFeatureSearchControl(featureSearchControl);
 
 toolManager.setSelectionManager(selectionManager);
 
@@ -64,6 +67,7 @@ const scale = new maplibregl.ScaleControl({
 map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
 map.addControl(saveLoadControl, 'top-left');
+map.addControl(featureSearchControl, 'top-right');
 map.addControl(new ResetNorthControl(), 'top-right');
 map.addControl(vectorTileInfoControl, 'top-right');
 map.addControl(drawControl, 'top-right');

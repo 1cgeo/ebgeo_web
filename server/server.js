@@ -3,7 +3,7 @@ const os = require('os');
 const restify = require('restify');
 const path = require('path');
 
-const numCPUs = Math.min(16, os.cpus().length);
+const numCPUs = Math.min(16, Math.ceil(os.cpus().length / 2));
 
 if (cluster.isMaster) {
   console.log(`Master ${process.pid} is running`);

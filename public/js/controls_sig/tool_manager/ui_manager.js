@@ -12,7 +12,12 @@ class UIManager {
         this.selectionBoxes = [];
         this.isDragging = false;
         this.toolManager = toolManager
+        this.featureSearchControl = null;
         this.setupEventListeners();
+    }
+
+    setFeatureSearchControl(featureSearchControl) {
+        this.featureSearchControl = featureSearchControl;
     }
 
     setupEventListeners = () => {
@@ -251,6 +256,9 @@ class UIManager {
     }
 
     saveChangesAndClosePanel = () => {
+        this.hideFeatureSearchPanel();
+        this.hideProfilePanel();
+
         const panel = document.querySelector('.unified-attributes-panel');
         if (panel) {
             const saveButton = panel.querySelector('button[type="submit"]');
@@ -260,7 +268,6 @@ class UIManager {
 
             panel.remove();
         }
-        this.hideProfilePanel();
     }
 
     addTextAttributes = (panel, features) => {
@@ -464,6 +471,50 @@ class UIManager {
         if (panel) {
             panel.remove();
         }
+    }
+
+    hideFeatureSearchPanel() {
+        const panel = document.querySelector('.feature-search-panel');
+        if (panel) {
+            panel.remove();
+            this.featureSearchControl.removeMarker();
+        }
+    }
+    
+    showFeatureSearchPanel(feature) {
+        this.saveChangesAndClosePanel();
+
+        const panel = document.createElement('div');
+        panel.className = 'unified-attributes-panel feature-search-panel';
+
+        const title = document.createElement('h3');
+        title.textContent = 'Resultado da busca';
+        panel.appendChild(title);
+
+        const infoList = document.createElement('ul');
+        const infoItems = [
+            { label: 'Nome', value: feature.nome },
+            { label: 'Latitude', value: feature.latitude },
+            { label: 'Longitude', value: feature.longitude },
+            { label: 'Classe', value: feature.tipo },
+            { label: 'Município', value: feature.municipio },
+            { label: 'Estado', value: feature.estado }
+        ];
+
+        infoItems.forEach(item => {
+            const listItem = document.createElement('li');
+            listItem.innerHTML = `<strong>${item.label}:</strong> ${item.value}`;
+            infoList.appendChild(listItem);
+        });
+
+        panel.appendChild(infoList);
+
+        const closeButton = document.createElement('button');
+        closeButton.textContent = 'Fechar';
+        closeButton.onclick = () => this.hideFeatureSearchPanel();
+        panel.appendChild(closeButton);
+
+        document.body.appendChild(panel);
     }
 }
 
