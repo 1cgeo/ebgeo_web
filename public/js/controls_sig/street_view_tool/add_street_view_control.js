@@ -85,8 +85,10 @@ class AddStreetViewControl {
     }
 
     reload = async () => {
-        await this.loadData()
-        if (this.isActive) this.showPhotos()
+        if (this.isActive) {
+            await this.loadData()
+            this.showPhotos()
+        } 
     }
 
     onRemove() {
@@ -377,21 +379,31 @@ class AddStreetViewControl {
         }
 
         if (this.controls) this.controls.deactivate()
-        this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
-        this.controls.addEventListener('drag', (event) => {
-            //alert('drag')
-            this.isDrag = true
-
-        });
-        this.controls.addEventListener('dragstart', (event) => {
-            setTimeout(() => {
-                if(this.isDrag) {
-                    this.isDrag =false
-                    return
+            this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
+            this.controls.addEventListener('drag', (event) => {
+                this.isDrag = true
+            });
+            this.controls.addEventListener('dragstart', (event) => {
+                this.dragStartTime = Date.now();
+                this.dragStartPosition = { x: event.object.position.x, y: event.object.position.y };
+            });
+            this.controls.addEventListener('dragend', (event) => {
+                const dragEndTime = Date.now();
+                const dragDuration = dragEndTime - this.dragStartTime;
+                const dragDistance = Math.sqrt(
+                    Math.pow(event.object.position.x - this.dragStartPosition.x, 2) +
+                    Math.pow(event.object.position.y - this.dragStartPosition.y, 2)
+                );
+    
+                if (dragDuration < 200 && dragDistance < 5) {
+                    // This was likely intended as a click, not a drag
+                    this.clickObj(event.object);
                 }
-                this.clickObj()
-            }, 500)
-        });
+                
+                this.isDrag = false;
+                this.dragStartTime = null;
+                this.dragStartPosition = null;
+            });
     }
 
     clickObj = (event) => {
