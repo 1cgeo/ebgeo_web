@@ -2,7 +2,6 @@
 
 import * as THREE from 'three';
 import { DragControls } from 'DragControls';
-import vectorMultiescala from '../vector_multiescala.js';
 class AddStreetViewControl {
 
     constructor(toolManager) {
