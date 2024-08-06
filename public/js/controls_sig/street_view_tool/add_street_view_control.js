@@ -36,6 +36,13 @@ class AddStreetViewControl {
         this.isDrag = false
         this.miniMap = null
         this.isOpen = false
+
+        this.animate = this.animate.bind(this);
+        this.update = this.update.bind(this);
+        this.onPointerMove = this.onPointerMove.bind(this);
+        this.onPointerUp = this.onPointerUp.bind(this);
+        this.onDocumentMouseWheel = this.onDocumentMouseWheel.bind(this);
+        this.setCurrentMouse = this.setCurrentMouse.bind(this);
     }
 
     loadData = async () => {
@@ -44,10 +51,7 @@ class AddStreetViewControl {
         this.centroid = turf.centroid(this.photosGeojson)
 
         try {
-            this.map.getSource('lines-street-view').setData({
-                'type': 'geojson',
-                'data': this.photosLinhasGeoJson
-            });
+            this.map.getSource('lines-street-view').setData(this.photosLinhasGeoJson);
 
         } catch (error) {
 
@@ -198,9 +202,9 @@ class AddStreetViewControl {
 
     loadStreetView = (info) => {
         this.isOpen = true
-        //$('#close-street-view-button').on('click', this.closeStreetView)
         const container = document.getElementById('street-view-container');
-        document.addEventListener('pointermove', this.setCurrentMouse);
+
+        document.addEventListener('pointermove', this.setCurrentMouse, { passive: true });
         document.addEventListener('mousemove', (event) => {
             event.preventDefault();
             this.mouse.x = (event.clientX / this.renderer.domElement.clientWidth) * 2 - 1;
@@ -246,13 +250,13 @@ class AddStreetViewControl {
         container.appendChild(this.renderer.domElement);
 
         ///
-        this.createControll()
+        this.createControl()
 
         container.style.touchAction = 'none';
         container.addEventListener('pointerdown', this.onPointerDown);
         //container.addEventListener('pointerdown', clickObj);
 
-        document.addEventListener('wheel', this.onDocumentMouseWheel);
+        document.addEventListener('wheel', this.onDocumentMouseWheel, { passive: true });
 
         //
 
@@ -359,23 +363,19 @@ class AddStreetViewControl {
     createControl = () => {
         this.cleanArrows(this.arrows.map(i => i.arrow))
         this.arrows = []
+
+        const geometry = new THREE.CircleGeometry(0.5, 70);
+        const texture = new THREE.TextureLoader().load("/street_view/arrow.png");
+        const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, transparent: true });
+
         for (let target of this.currentInfo.targets) {
-            const geom = new THREE.CircleGeometry(0.5, 70)
-            let texture = new THREE.TextureLoader().load(
-                `/street_view/arrow.png`
-            );
-            let material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide })
-            material.transparent = true
-            const control = new THREE.Mesh(geom, material);
-            //control.rotation.x = Math.PI / 2;
-            control.imgId = () => target.id
-            this.arrows.push({
-                ...target,
-                arrow: control
-            })
-            control.callback = () => { this.loadTarget(target.id); }
-            this.scene.add(control)
+            const control = new THREE.Mesh(geometry, material);
+            control.imgId = () => target.id;
+            control.callback = () => this.loadTarget(target.id);
+            this.arrows.push({ ...target, arrow: control });
+            this.scene.add(control);
         }
+
         if (this.controls) this.controls.deactivate()
         this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
         this.controls.addEventListener('drag', (event) => {
@@ -392,18 +392,6 @@ class AddStreetViewControl {
                 this.clickObj()
             }, 500)
         });
-        // this.controls.addEventListener('dragend', (event) => {
-        //     console.log('dragend')
-        //     if (!this.isDrag) {
-        //         this.clickObj()
-        //     }
-
-        // });
-        // window.addEventListener("touchend", () => {
-        //     alert(this.isDrag)
-        //     !this.isDrag? this.clickObj(): null});
-
-
     }
 
     clickObj = (event) => {
@@ -496,15 +484,16 @@ class AddStreetViewControl {
     }
 
     update = () => {
-        let target = this.nextTarget ? this.nextTarget : this.currentLookAt ? this.currentLookAt : null
+        let target = this.nextTarget || this.currentLookAt;
         if (target) {
             this.setCurrentMouse()
             this.drawControl()
             this.setCurrentMouse()
-            this.camera.lookAt(target.x, target.y > 250 ? 250: target.y < -360? -360: target.y , target.z);
-            this.nextTarget = null
-            this.currentLookAt = null
+            this.camera.lookAt(target.x, THREE.MathUtils.clamp(target.y, -360, 250), target.z);
+            
         }
+        this.nextTarget = null
+        this.currentLookAt = null
         this.renderer.render(this.scene, this.camera);
     }
 
@@ -636,11 +625,8 @@ class AddStreetViewControl {
 
 
         this.map.getSource('lines-street-view').setData({
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: []
-            }
+            type: 'FeatureCollection',
+            features: []
         });
     }
 
