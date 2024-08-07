@@ -18,7 +18,7 @@ class BaseLayerControl {
         this.container.innerHTML = `
             <label class="layer-switch">
                 <input type="radio" name="base-layer" value="Carta" checked>
-                Carta
+                Topográficia
             </label>
             <label class="layer-switch">
                 <input type="radio" name="base-layer" value="Ortoimagem">

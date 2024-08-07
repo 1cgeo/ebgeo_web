@@ -1,6 +1,6 @@
 # Tutorial
 
-Esta página tem como objetivo explicar as funcionalidades do EBGIS, bem como oferecer diretrizes para a sua utilização.
+Esta página tem como objetivo explicar as funcionalidades do EBGEO, bem como oferecer diretrizes para a sua utilização.
 
 ## SIG
 
