@@ -1235,10 +1235,10 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
     padding: 5px;
     cursor: pointer;
     margin: 2px;
-    font-size: 18px;
+    font-size: 14px;
     display: block;
     /* Ensure the input file button looks like a block element */
-    width: 40px;
+    min-width: 60px;
     /* Ensure it has a standard width */
     z-index: 10;
     /* Ensure they are above other elements */

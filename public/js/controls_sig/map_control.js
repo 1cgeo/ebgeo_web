@@ -1,4 +1,4 @@
-import store, { addMap, removeMap, renameMap, setCurrentMap, getCurrentMapFeatures, getCurrentBaseLayer } from './store.js';
+import store, { addMap, removeMap, renameMap, setCurrentMap, updateMapPosition, getCurrentBaseLayer, getMapPosition } from './store.js';
 
 class MapControl {
     constructor(baseLayerControl) {
@@ -99,6 +99,21 @@ class MapControl {
                         $("<div>", { class: `dropdown-content more-info-${i}` })
                             .append(
                                 $("<button>", { class: "menu-button" })
+                                    .append('Salvar posição')
+                                    .click((e) => {
+                                        e.preventDefault();
+                                        alert(`Posição salva do mapa ${mapName}`);
+                                        const center = this.map.getCenter();
+                                        const zoom = this.map.getZoom();
+                                        
+                                        const center_lat = center.lat;
+                                        const center_long = center.lng;
+                                        updateMapPosition(center_lat, center_long, zoom)
+                                        this.updateMapList();
+                                    })
+                            )
+                            .append(
+                                $("<button>", { class: "menu-button" })
                                     .append('Copiar')
                                     .click((e) => {
                                         e.preventDefault();
@@ -162,7 +177,16 @@ class MapControl {
 
     switchMap() {
         const baseLayer = getCurrentBaseLayer();
+        let {center_lat, center_long, zoom} = getMapPosition()
+        this.setMapCenterAndZoom(center_lat, center_long, zoom)
         this.baseLayerControl.switchLayer(baseLayer);
+    }
+
+    setMapCenterAndZoom(center_lat, center_long, zoom) {
+        if (center_lat !== null && center_long !== null && zoom !== null) {
+            this.map.setCenter([center_long, center_lat]);
+            this.map.setZoom(zoom);
+        }
     }
 }
 

@@ -15,12 +15,27 @@ const store = {
             },
             undoStack: [],
             redoStack: [],
+            zoom: null,
+            center_lat: null,
+            center_long: null
         }
     },
     currentMap: 'Principal',
     isUndoing: false,
     isRedoing: false,
 };
+
+export const updateMapPosition = (center_lat, center_long, zoom) => {
+    const currentMap = store.maps[store.currentMap];
+    currentMap.center_lat = center_lat
+    currentMap.center_long = center_long
+    currentMap.zoom = zoom
+}
+
+export const getMapPosition = () => {
+    const currentMap = store.maps[store.currentMap];
+    return {center_lat: currentMap.center_lat, center_long: currentMap.center_long, zoom: currentMap.zoom}
+}
 
 const recordAction = (action) => {
     const currentMap = store.maps[store.currentMap];
@@ -86,6 +101,9 @@ export const addMap = (mapName, mapData = null) => {
         },
         undoStack: [],
         redoStack: [],
+        zoom: null,
+        center_lat: null,
+        center_long: null
     };
 };
 
