@@ -2,8 +2,13 @@
 const load3dTileset = (map, tilesetSetup) => {
     var tileset = new Cesium.Cesium3DTileset({
         url: tilesetSetup.url,
-        maximumScreenSpaceError: 0,
-        maximumMemoryUsage: 0
+        maximumScreenSpaceError: 16,
+        maximumMemoryUsage: 512,
+        preferLeaves: true,
+        dynamicScreenSpaceError: true,
+        dynamicScreenSpaceErrorDensity: 0.00278,
+        dynamicScreenSpaceErrorFactor: 4.0,
+        dynamicScreenSpaceErrorHeightFalloff: 0.25
     })
     var tilesets = map.scene.primitives.add(tileset);
 
@@ -34,6 +39,8 @@ const load3dTileset = (map, tilesetSetup) => {
     });
     return tileset
 }
+
+Cesium.RequestScheduler.maximumRequestsPerServer = 36;
 
 
 export { load3dTileset };
