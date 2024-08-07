@@ -7,7 +7,7 @@ const map = new maplibregl.Map({
     attributionControl: false,
     minZoom: 11,
     maxZoom: 17.9,
-    maxPitch: 75
+    maxPitch: 65
 });
 
 const bounds = [
