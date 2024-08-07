@@ -18,7 +18,7 @@ class SaveLoadControl {
             <button id="load-btn" class="save-load-icon">
                 <img src="./images/icon_load_black.svg" alt="LOAD" />
             </button>
-            <input type="file" id="load-file" style="display: none;" />
+            <input type="file" id="load-file" accept=".ebgeo" style="display: none;" />
         `;
 
         this.container.querySelector('#save-btn').addEventListener('click', () => {
@@ -31,7 +31,7 @@ class SaveLoadControl {
                 const { undoStack, redoStack, ...mapData } = store.maps[key];
                 allData.maps[key] = mapData;
             });
-            saveToFile(allData, 'maps_data.json');
+            saveToFile(allData, 'maps_data.ebgeo');
         });
 
         this.container.querySelector('#load-btn').addEventListener('click', () => {
