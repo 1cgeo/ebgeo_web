@@ -63,7 +63,6 @@ class VectorTileInfoControl {
                     
                     return aPriority - bPriority;
                 });
-                console.log(features[0].source)
 
                 this.uiManager.showVectorTileInfoPanel(features[0]);
             } else {

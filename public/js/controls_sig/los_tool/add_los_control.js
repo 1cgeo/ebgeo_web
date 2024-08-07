@@ -336,7 +336,6 @@ class AddLOSControl {
                         // Recalculate LOS and update both 'los' and 'processed-los' sources
                         const updatedFeature = await this.recalculateLOS(feature);
                         data.features[featureIndex] = updatedFeature;
-                        
                         // Remove old processed features
                         processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
                         
@@ -497,14 +496,27 @@ class AddLOSControl {
     }
 
     async recalculateLOS(feature) {
-        const linestring = {
-            type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: [feature.geometry.coordinates[0], feature.geometry.coordinates[feature.geometry.coordinates.length - 1]]
-            }
-        };
-
+        let linestring
+        if (feature.geometry.type === 'MultiLineString') {
+            linestring = {
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        feature.geometry.coordinates[0][0],
+                        feature.geometry.coordinates[1][1]
+                    ]
+                }
+            };
+        } else if (feature.geometry.type === 'LineString') {
+            linestring = {
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: feature.geometry.coordinates
+                }
+            };
+        }
         const losResult = await this.calculateLOS(linestring);
         let updatedFeature;
 

@@ -268,7 +268,6 @@ class AddVisibilityControl {
                         // Recalculate visibility and update both 'visibility' and 'processed-visibility' sources
                         const updatedFeature = await this.recalculateVisibility(feature);
                         data.features[featureIndex] = updatedFeature;
-
                         // Remove old processed features
                         processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
 
@@ -410,8 +409,16 @@ class AddVisibilityControl {
     }
 
     async recalculateVisibility(feature) {
+        let centerCoord
+        if (feature.geometry.type === 'MultiPolygon') {
+            centerCoord = feature.geometry.coordinates[0][0][0]
+        } else if (feature.geometry.type === 'Polygon') {
+            centerCoord = feature.geometry.coordinates[0][0]
+
+        }
+
         const { radius, angle } = feature.properties;
-        const center = turf.point(feature.geometry.coordinates[0][0]);
+        const center = turf.point(centerCoord);
 
         const viewshedResult = await this.calculateViewshed(center, radius, angle);
         const updatedFeature = this.createViewshedFeature(viewshedResult.visible, viewshedResult.obstructed, radius, angle);
