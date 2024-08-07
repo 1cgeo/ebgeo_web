@@ -482,8 +482,6 @@ class UIManager {
     }
     
     showFeatureSearchPanel(feature) {
-        this.saveChangesAndClosePanel();
-
         const panel = document.createElement('div');
         panel.className = 'unified-attributes-panel feature-search-panel';
 

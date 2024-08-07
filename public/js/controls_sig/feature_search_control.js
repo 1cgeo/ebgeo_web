@@ -77,9 +77,7 @@ class FeatureSearchControl {
       this._input.value = '';
       this._suggestionsList.style.display = 'none';
   
-      if (this._marker) {
-        this._marker.remove();
-      }
+      this._uiManager.saveChangesAndClosePanel();
   
       this._marker = new maplibregl.Marker()
       .setLngLat([feature.longitude, feature.latitude])
