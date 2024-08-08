@@ -24,7 +24,7 @@ Nessa aba é possível visualizar um mapa digital e realizar algumas análises c
 
 > Obs.: Ao clicar em <img src="../images/icon_north_black.svg" alt="Icone Norte" width="30"/> o mapa é orientado para o norte e retorna à visão 2D.
 
-[Exemplo de Uso Controles](images/Controles_SIG_cliques.mp4 ':include :type=video controls width=100%')
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/j-RMf5LTX4c" title="EBGEO Web #1 - Controles do SIG" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ### Ferramentas
 
@@ -38,7 +38,7 @@ Salva os mapas carregados e feições em um arquivo.
 
 > Obs.: Ao exportar, todos os mapas são salvos no arquivo. É possível salvar a posição atual para, quando importar, reenquadrar o mapa na posição salva.
 
-[Exemplo de Uso Exportar Dados](images/Exportar.mp4 ':include :type=video controls width=100%')
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/1nlQID48P-Y" title="EBGEO Web #2 - Exportar Dados" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -52,7 +52,7 @@ Carrega os mapas e feições salvas a partir de um arquivo gerado por "Exportar 
 
 <a href='http://localhost:8080/docs/exemplos/exemplo-tutorial.ebgeo' download style='font-size:25px'>Arquivo exemplo</a>
 
-[Exemplo de Uso Importar Dados](images/Importar.mp4 ':include :type=video controls width=100%')
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/xhPxX0nR8LM" title="EBGEO Web #3 - Importar Dados" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -64,7 +64,7 @@ Permite Criar, alterar, copiar, excluir e renomear mapas, além de salvar posiç
 
 Nesse contexto, os mapas são conjunto de feições criadas pelo usuário e o tipo (Carta ou Ortoimagem) associados àquele mapa.
 
-[Exemplo de Uso Gerenciador](images/Gerenciador.mp4 ':include :type=video controls width=100%')
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/qtymCKc986U" title="EBGEO Web #4 - Gerenciador de mapas" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -125,7 +125,7 @@ Exclui o mapa selecionado.
 
 Na caixa de pesquisa é possível buscar por feições no mapa. Digitando o nome da feição, irá mostrar as feições correspondente ao termo pesquisado. Ao lado do nome da feição tem o tipo da feição, exemplo: Morro, Rio, Público militar, etc. Ao escolher a feição, o mapa é reenquadrado para a feição selecionada e um marcador indica o local da feição.
 
-[Exemplo de Uso Busca](images/Buscar.mp4 ':include :type=video controls width=100%')
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/wmfCbX7h2tM" title="EBGEO Web #5 - Buscar Feição" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 #### Inspecionar feição do mapa base
@@ -156,7 +156,7 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 - Definir padrão: define o estilo padrão para as próximas linhas adquiridas
 - Deletar: exclui as feições selecionadas
 
-[Exemplo de Uso Linha](images/Linhas.mp4 ':include :type=video controls width=100%')
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/s_VMEUmNFuM" title="EBGEO Web #6 - Adicionar linha" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -178,7 +178,7 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 - Definir padrão: define o estilo padrão para os próximos polígonos adquiridas
 - Deletar: exclui as feições selecionadas
 
-[Exemplo de Uso Polígono](images/Poligono.mp4 ':include :type=video controls width=100%')
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/wWi1J33ROPU" title="EBGEO Web #7 - Adicionar polígono" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -198,7 +198,7 @@ Ao adquirir o ponto ou ao clicar novamente na feição, a feição é selecionad
 - Definir padrão: define o estilo padrão para os próximos pontos adquiridas
 - Deletar: exclui as feições selecionadas
 
-[Exemplo de Uso Pontos](images/Pontos.mp4 ':include :type=video controls width=100%')
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/yn9RbCugcx4" title="EBGEO Web #8 - Adicionar ponto" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -234,7 +234,7 @@ Para editar o texto adicionado, clique no texto.
 - Definir padrão: define o estilo e texto padrão para os próximos textos adquiridas
 - Deletar: exclui as feições selecionadas
 
-[Exemplo de Uso Texto](images/Texto.mp4 ':include :type=video controls width=100%')
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/90ePWb5JbC4" title="EBGEO Web #9 - Adicionar texto" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -255,7 +255,6 @@ Ao selecionar a imagem será aberta a caixa de opções onde é possível altera
 
 > Obs.: Para montar um símbolo militar acesse o [Portal de Simbologia Militar](https://simbologia.eb.mil.br/)
 
-[Exemplo de Uso Imagem](images/Imagens.mp4 ':include :type=video controls width=100%')
 
 ---
 
@@ -277,7 +276,6 @@ Ao selecionar a linha será aberta a caixa de opções onde é possível alterar
 - Descartar: descarta as alterações
 - Deletar: exclui as feições selecionadas
 
-[Exemplo de Uso Linha de Visada](images/LOS_cliques.mp4 ':include :type=video controls width=100%')
 
 ---
 
@@ -296,7 +294,6 @@ Ao selecionar o setor será aberta a caixa de opções onde é possível alterar
 - Descartar: descarta as alterações
 - Deletar: exclui as feições selecionadas
 
-[Exemplo de Uso Analise de Visibilidade](images/ViewshedSIG.mp4 ':include :type=video controls width=100%')
 
 ---
 
@@ -311,7 +308,6 @@ Para navegar nas imagens 360°:
 - Clique com o botão esquerdo do mouse em qualquer lugar da imagem para arrasta-la.
 - Clique nas setas de navegação para ir para a próxima imagem ou para a imagem anterior.
 
-[Exemplo de Uso StreetView](images/StreetView.mp4 ':include :type=video controls width=100%')
 
 ---
 
@@ -350,7 +346,6 @@ São disponibilizadas as seguintes ferramentas:
 Clicar com o botão esquerdo uma vez no ponto inicial (ponto simulando o observador), clicar com o botão esquerdo outra vez no ponto final. Será gerado um setor esférico e o modelo 3D será colorido dentro do setor com <span style="color:red;">vermelho</span> onde não puder ser visto pelo observador e <span style="color:green;">verde</span> onde é possível ser visualizado pelo observador. Apertar Limpar para limpar o setor já criado, inicializar a ferramenta novamente para criar outro setor.
 
 
-[Exemplo de Uso Viewshed](images/Viewshed_cliques.mp4 ':include :type=video controls width=100%')
 
 ---
 
@@ -360,7 +355,6 @@ Clicar com o botão esquerdo uma vez no ponto inicial (ponto simulando o observa
 
 Clicar com o botão esquerdo uma vez no ponto inicial, clicar com o botão esquerdo outras vezes para verificar a distancia em linha reta com relação ao ponto anterior. Clicar com o botão direito do mouse para finalizar a medição. Apertar Limpar para limpar as medições em tela, inicializar a ferramenta novamente para outras medições.
 
-[Exemplo de Uso Medidor de Distancia](images/Distance_cliques.mp4 ':include :type=video controls width=100%')
 
 ---
 
@@ -370,7 +364,6 @@ Clicar com o botão esquerdo uma vez no ponto inicial, clicar com o botão esque
 
 Clicar com o botão esquerdo uma vez no ponto inicial, clicar com o botão esquerdo outras vezes para construir o polígono cuja áre será calculada, clicar com o botão direito para encerrar a construção do polígono e calcular a área. Apertar Limpar para limpar as medições em tela, inicializar a ferramenta novamente para medir novamente.
 
-[Exemplo de Uso Medidor de Área](images/Area_cliques.mp4 ':include :type=video controls width=100%')
 
 ---
 
