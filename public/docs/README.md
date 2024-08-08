@@ -8,7 +8,7 @@ Nessa aba é possível visualizar um mapa digital e realizar algumas análises c
 
 ### Controles para Navegação
 
-É possível navegar pelos mapa da seguinte forma (nenhuma ferramenta selecionada):
+É possível navegar pelos mapa da seguinte forma no computador (nenhuma ferramenta selecionada):
 
 - Botão esquerdo do mouse: ao pressionar e arrastar é possível mover o mapa.
 - Botão direito do mouse: ao pressionar e arrastar é possível mudar a perspectiva e rotacionar o mapa.
@@ -22,22 +22,23 @@ Nessa aba é possível visualizar um mapa digital e realizar algumas análises c
 - Ctrl+Z: Desfazer.
 - Ctrl+Y: Refazer.
 
+> Obs.: Ao clicar em <img src="../images/icon_north_black.svg" alt="Icone Norte" width="30"/> o mapa é orientado para o norte e retorna à visão 2D.
+
+[Exemplo de Uso Controles](images/Controles_SIG_cliques.mp4 ':include :type=video controls width=100%')
+
 ### Ferramentas
 
 As ferramentas não estão disponíveis na versão para celular.
-
-#### Alterar camada base
-
-- Carta: visualização estilo carta topográfica
-- Ortoimagem: visualização estilo carta ortoimagem
-
----
 
 #### Exportar dados
 
 <img src="../images/icon_save_black.svg" alt="Icone Salvar" width="70"/>
 
 Salva os mapas carregados e feições em um arquivo.
+
+> Obs.: Ao exportar, todos os mapas são salvos no arquivo. É possível salvar a posição atual para, quando importar, reenquadrar o mapa na posição salva.
+
+[Exemplo de Uso Exportar Dados](images/Exportar.mp4 ':include :type=video controls width=100%')
 
 ---
 
@@ -47,15 +48,30 @@ Salva os mapas carregados e feições em um arquivo.
 
 Carrega os mapas e feições salvas a partir de um arquivo gerado por "Exportar dados".
 
+> Obs.: Arquivo de exemplo para importação:
+
+<a href='http://localhost:8080/docs/exemplos/exemplo-tutorial.ebgeo' download style='font-size:25px'>Arquivo exemplo</a>
+
+[Exemplo de Uso Importar Dados](images/Importar.mp4 ':include :type=video controls width=100%')
+
 ---
 
 #### Gerenciador de mapas
 
 <img src="../images/exemplo_gerenciador_mapas.png" alt="Gerenciador de Mapas" width="280"/>
 
-Permite Criar, alterar, copiar ou excluir mapas.
+Permite Criar, alterar, copiar, excluir e renomear mapas, além de salvar posição atual do mapa e alterar visualização entre carta Topográfica e Ortoimagem.
 
 Nesse contexto, os mapas são conjunto de feições criadas pelo usuário e o tipo (Carta ou Ortoimagem) associados àquele mapa.
+
+[Exemplo de Uso Gerenciador](images/Gerenciador.mp4 ':include :type=video controls width=100%')
+
+---
+
+##### Alterar camada base
+
+- Topográfica: visualização estilo carta topográfica
+- Ortoimagem: visualização estilo carta ortoimagem
 
 ---
 
@@ -73,6 +89,14 @@ Ao clicar no nome do mapa, será alterado o mapa, incluindo o tipo (Carta ou Ort
 
 ---
 
+##### Salvar posição
+
+Opção disponível ao clicar nos 3 pontos verticais ao lado do nome do mapa.
+
+Salva a posição atual do mapa para quando alterar novamente para o mapa cuja posição foi salva, ele será reenquadrado. Essa informação também é exportada com os mapas.
+
+---
+
 ##### Copiar mapa
 
 Opção disponível ao clicar nos 3 pontos verticais ao lado do nome do mapa.
@@ -81,6 +105,14 @@ Copia o mapa selecionado.
 
 ---
 
+
+##### Renomear
+
+Opção disponível ao clicar nos 3 pontos verticais ao lado do nome do mapa.
+
+Permite renomear o mapa selecionado.
+
+---
 ##### Excluir mapa
 
 Opção disponível ao clicar nos 3 pontos verticais ao lado do nome do mapa.
@@ -89,6 +121,13 @@ Exclui o mapa selecionado.
 
 ---
 
+#### Buscar feição
+
+Na caixa de pesquisa é possível buscar por feições no mapa. Digitando o nome da feição, irá mostrar as feições correspondente ao termo pesquisado. Ao lado do nome da feição tem o tipo da feição, exemplo: Morro, Rio, Público militar, etc. Ao escolher a feição, o mapa é reenquadrado para a feição selecionada e um marcador indica o local da feição.
+
+[Exemplo de Uso Busca](images/Buscar.mp4 ':include :type=video controls width=100%')
+
+---
 #### Inspecionar feição do mapa base
 
 <img src="../images/icon_info_black.svg" alt="Icone Inspecionar" width="70"/>
@@ -117,6 +156,8 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 - Definir padrão: define o estilo padrão para as próximas linhas adquiridas
 - Deletar: exclui as feições selecionadas
 
+[Exemplo de Uso Linha](images/Linhas.mp4 ':include :type=video controls width=100%')
+
 ---
 
 ##### Polígono
@@ -137,6 +178,8 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 - Definir padrão: define o estilo padrão para os próximos polígonos adquiridas
 - Deletar: exclui as feições selecionadas
 
+[Exemplo de Uso Polígono](images/Poligono.mp4 ':include :type=video controls width=100%')
+
 ---
 
 ##### Ponto
@@ -154,6 +197,8 @@ Ao adquirir o ponto ou ao clicar novamente na feição, a feição é selecionad
 - Descartar: descarta as alterações
 - Definir padrão: define o estilo padrão para os próximos pontos adquiridas
 - Deletar: exclui as feições selecionadas
+
+[Exemplo de Uso Pontos](images/Pontos.mp4 ':include :type=video controls width=100%')
 
 ---
 
@@ -189,6 +234,8 @@ Para editar o texto adicionado, clique no texto.
 - Definir padrão: define o estilo e texto padrão para os próximos textos adquiridas
 - Deletar: exclui as feições selecionadas
 
+[Exemplo de Uso Texto](images/Texto.mp4 ':include :type=video controls width=100%')
+
 ---
 
 #### Adicionar imagem
@@ -207,6 +254,8 @@ Ao selecionar a imagem será aberta a caixa de opções onde é possível altera
 - Deletar: exclui as feições selecionadas
 
 > Obs.: Para montar um símbolo militar acesse o [Portal de Simbologia Militar](https://simbologia.eb.mil.br/)
+
+[Exemplo de Uso Imagem](images/Imagens.mp4 ':include :type=video controls width=100%')
 
 ---
 
@@ -228,6 +277,8 @@ Ao selecionar a linha será aberta a caixa de opções onde é possível alterar
 - Descartar: descarta as alterações
 - Deletar: exclui as feições selecionadas
 
+[Exemplo de Uso Linha de Visada](images/LOS_cliques.mp4 ':include :type=video controls width=100%')
+
 ---
 
 #### Adicionar análise de visibilidade
@@ -245,6 +296,8 @@ Ao selecionar o setor será aberta a caixa de opções onde é possível alterar
 - Descartar: descarta as alterações
 - Deletar: exclui as feições selecionadas
 
+[Exemplo de Uso Analise de Visibilidade](images/ViewshedSIG.mp4 ':include :type=video controls width=100%')
+
 ---
 
 #### Adicionar street view
@@ -258,6 +311,8 @@ Para navegar nas imagens 360°:
 - Clique com o botão esquerdo do mouse em qualquer lugar da imagem para arrasta-la.
 - Clique nas setas de navegação para ir para a próxima imagem ou para a imagem anterior.
 
+[Exemplo de Uso StreetView](images/StreetView.mp4 ':include :type=video controls width=100%')
+
 ---
 
 ## 3D
@@ -269,9 +324,8 @@ Nessa aba é possível visualizar os modelos 3D disponibilizados. Além disso h�
 É possível navegar pelos modelos 3D da seguinte forma (nenhuma ferramenta selecionada):
 
 - Botão esquerdo do mouse: ao pressionar e arrastar é possível mover o mapa.
-- Botão do meio do mouse: 
-    - Rolar: Zoom.
-    - Pressionar e arrastar: mudar perspectiva e rotacionar o mapa.
+- Botão direito do mouse: ao pressionar e arrastar é possível mudar a perspectiva e rotacionar o mapa.
+- Botão do meio do mouse: ao rolar o botão do meio do mouse, é possível mudar o zoom do mapa.
 
 ### Modelos 3D
 
