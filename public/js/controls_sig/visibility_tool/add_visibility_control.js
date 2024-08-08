@@ -384,7 +384,7 @@ class AddVisibilityControl {
         // Get start and end elevations
         const startCoordinates = line.geometry.coordinates[0];
         const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
-        const startElevation = await getTerrainElevation(this.map, startCoordinates);
+        const startElevation = await getTerrainElevation(this.map, startCoordinates)+2;
         const endElevation = await getTerrainElevation(this.map, endCoordinates);
       
         let firstObstructedPoint = endCoordinates;

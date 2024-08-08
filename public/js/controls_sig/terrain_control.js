@@ -7,5 +7,5 @@ export async function getTerrainElevation(map, coordinates, options = { exaggera
     const sceneElevation = await map.queryTerrainElevation(coordinates, options) || 0;
     const altitude = sceneElevation - fixedPointElevation;
 
-    return altitude;
+    return altitude/1.5;
 }
