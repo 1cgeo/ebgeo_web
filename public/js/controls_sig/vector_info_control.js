@@ -58,8 +58,8 @@ class VectorTileInfoControl {
                 const preferenceOrder = ['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'];
     
                 features.sort((a, b) => {
-                    const aPriority = a.source.startsWith('cobter_') && a.geometry.type === 'Polygon' ? 3 : preferenceOrder.indexOf(a.geometry.type);
-                    const bPriority = b.source.startsWith('cobter_') && b.geometry.type === 'Polygon' ? 3 : preferenceOrder.indexOf(b.geometry.type);
+                    const aPriority = a.source.startsWith('cobter_') ? 6 : preferenceOrder.indexOf(a.geometry.type);
+                    const bPriority = b.source.startsWith('cobter_') ? 6 : preferenceOrder.indexOf(b.geometry.type);
                     
                     return aPriority - bPriority;
                 });
