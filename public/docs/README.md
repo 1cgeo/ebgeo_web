@@ -255,6 +255,7 @@ Ao selecionar a imagem será aberta a caixa de opções onde é possível altera
 
 > Obs.: Para montar um símbolo militar acesse o [Portal de Simbologia Militar](https://simbologia.eb.mil.br/)
 
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/WMNXl1AOdeA" title="EBGEO Web #10 - Adicionar Imagens" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -276,6 +277,8 @@ Ao selecionar a linha será aberta a caixa de opções onde é possível alterar
 - Descartar: descarta as alterações
 - Deletar: exclui as feições selecionadas
 
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/AKBMFXQsapA" title="EBGEO Web #11 - Adicionar linha de visada" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
 
 ---
 
@@ -294,6 +297,7 @@ Ao selecionar o setor será aberta a caixa de opções onde é possível alterar
 - Descartar: descarta as alterações
 - Deletar: exclui as feições selecionadas
 
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/JzTCZ0uldNE" title="EBGEO Web #12 - Adicionar análise de visibilidade" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -308,6 +312,7 @@ Para navegar nas imagens 360°:
 - Clique com o botão esquerdo do mouse em qualquer lugar da imagem para arrasta-la.
 - Clique nas setas de navegação para ir para a próxima imagem ou para a imagem anterior.
 
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/tlL6gLOAe1Q" title="EBGEO Web #13 - Adicionar street view" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -345,7 +350,7 @@ São disponibilizadas as seguintes ferramentas:
 
 Clicar com o botão esquerdo uma vez no ponto inicial (ponto simulando o observador), clicar com o botão esquerdo outra vez no ponto final. Será gerado um setor esférico e o modelo 3D será colorido dentro do setor com <span style="color:red;">vermelho</span> onde não puder ser visto pelo observador e <span style="color:green;">verde</span> onde é possível ser visualizado pelo observador. Apertar Limpar para limpar o setor já criado, inicializar a ferramenta novamente para criar outro setor.
 
-
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/xpHFoQk_ywQ" title="EBGEO Web #14 - Viewshed" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -355,6 +360,7 @@ Clicar com o botão esquerdo uma vez no ponto inicial (ponto simulando o observa
 
 Clicar com o botão esquerdo uma vez no ponto inicial, clicar com o botão esquerdo outras vezes para verificar a distancia em linha reta com relação ao ponto anterior. Clicar com o botão direito do mouse para finalizar a medição. Apertar Limpar para limpar as medições em tela, inicializar a ferramenta novamente para outras medições.
 
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/qx5Bdavvj_0" title="EBGEO Web #15 - Medição de Distância" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -364,6 +370,7 @@ Clicar com o botão esquerdo uma vez no ponto inicial, clicar com o botão esque
 
 Clicar com o botão esquerdo uma vez no ponto inicial, clicar com o botão esquerdo outras vezes para construir o polígono cuja áre será calculada, clicar com o botão direito para encerrar a construção do polígono e calcular a área. Apertar Limpar para limpar as medições em tela, inicializar a ferramenta novamente para medir novamente.
 
+<iframe width="1280" height="548" src="https://www.youtube.com/embed/QqWvk5e0X0A" title="EBGEO Web #16 - Medição de Área" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
