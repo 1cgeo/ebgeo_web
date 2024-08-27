@@ -1,6 +1,7 @@
 import { map } from './control_3d/map.js'
 import { load3dTileset } from './control_3d/3d_tileset.js'
 import { addViewField, clearAllViewField } from './control_3d/viewshed.js';
+import { initIdentifyTool, toggleIdentifyTool } from './control_3d/identify_tool.js';
 
 //MODELOS 3D
 for (let tilesetSetup of [
@@ -64,12 +65,13 @@ const removeAllTools = () => {
 
 let clampToGround = true
 const measure = new Cesium.Measure(map)
+
+initIdentifyTool();
+
 export function activeTool() {
     let text = $(this).attr('id')
     if (text) {
         removeAllTools()
-        // $(".tools-3d-bar a").removeClass('active-tool-3d')
-        // $(this).addClass('active-tool-3d')
         switch (text) {
             case 'distancia':
                 measure.drawLineMeasureGraphics({ clampToGround: clampToGround, callback: () => { } });
@@ -77,14 +79,15 @@ export function activeTool() {
             case 'area':
                 measure.drawAreaMeasureGraphics({ clampToGround: clampToGround, callback: () => { } });
                 break;
-            // case '三角量测': measure.drawTrianglesMeasureGraphics({ callback: () => { } }); break;
             case 'visualizacao':
                 addViewField(map)
+                break;
+            case 'identify-tool':
+                toggleIdentifyTool();
                 break;
         }
     }
 }
-
 
 
 export function handleClickGoTo() {
@@ -121,5 +124,3 @@ handler.setInputAction(function (event) {
         var lat = Cesium.Math.toDegrees(carto.latitude);
     }
 }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-
-

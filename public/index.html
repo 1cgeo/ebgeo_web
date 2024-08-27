@@ -86,6 +86,9 @@
                 <hr class="solid">
                 <div class="tools-3d-bar">
                     <div>
+                        <img src="./images/viewshed_icon.svg" id="identify-tool" class="button-tool-3d icon-tool-3d" alt="Identify">
+                    </div>
+                    <div>
                         <a id="visualizacao" class="button-tool-3d icon-tool-3d">
                             <img src="./images/viewshed_icon.svg" alt="Viewshed" />
                         </a>
@@ -111,6 +114,11 @@
             <button id="distancia" class="tools">Distância Espacial</button>
             <button id="area" class="tools">Área Espacial</button>
             <button id="limpar" class="tools">Limpar</button> -->
+        </div>
+        <div id="feature-info" class="card" style="display: none;">
+            <button id="close-feature-info" class="close-button">&times;</button>
+            <h3>Informações da Feição</h3>
+            <div id="feature-info-content"></div>
         </div>
     </div>
     <a id="open-close-form" href="#" class="panel-icon-float">
