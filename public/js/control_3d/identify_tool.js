@@ -4,6 +4,10 @@ let isIdentifyActive = false;
 
 function toggleIdentifyTool() {
     isIdentifyActive = !isIdentifyActive;
+    updateIdentifyButtonState();
+}
+
+function updateIdentifyButtonState() {
     const identifyButton = document.getElementById('identify-tool');
     if (isIdentifyActive) {
         identifyButton.classList.add('active-tool-3d');
@@ -38,6 +42,7 @@ function handleFeatureClick(event) {
 }
 
 function fetchFeatureInfo(lon, lat, z) {
+    console.log(lat,lon,z)
     return fetch(`http://localhost:3000/feicoes?lat=${lat}&lon=${lon}&z=${z}`)
         .then(response => {
             if (!response.ok) {
@@ -76,6 +81,8 @@ function displayFeatureInfo(featureData) {
 function closeFeatureInfo() {
     const featureInfoElement = document.getElementById('feature-info');
     featureInfoElement.style.display = 'none';
+    isIdentifyActive = false;
+    updateIdentifyButtonState();
 }
 
 function initIdentifyTool() {
