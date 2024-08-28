@@ -15,10 +15,17 @@ function toggleIdentifyTool() {
 function handleFeatureClick(event) {
     if (!isIdentifyActive) return;
 
+    const canvas = map.scene.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const position = new Cesium.Cartesian2(
+        event.clientX - rect.left,
+        event.clientY - rect.top
+    );
+
     var scene = map.scene;
-    var pickedFeature = scene.pick(event.position);
+    var pickedFeature = scene.pick(position);
     if (Cesium.defined(pickedFeature)) {
-        var cartesian = scene.pickPosition(event.position);
+        var cartesian = scene.pickPosition(position);
         if (Cesium.defined(cartesian)) {
             var cartographic = Cesium.Cartographic.fromCartesian(cartesian);
             var longitude = Cesium.Math.toDegrees(cartographic.longitude);
@@ -31,7 +38,7 @@ function handleFeatureClick(event) {
 }
 
 function fetchFeatureInfo(lon, lat, z) {
-    return fetch(`/feicoes?lat=${lat}&lon=${lon}&z=${z}`)
+    return fetch(`http://localhost:3000/feicoes?lat=${lat}&lon=${lon}&z=${z}`)
         .then(response => {
             if (!response.ok) {
                 throw new Error('Erro na resposta do servidor');
@@ -74,7 +81,6 @@ function closeFeatureInfo() {
 function initIdentifyTool() {
     map.scene.canvas.addEventListener('click', handleFeatureClick);
     document.getElementById('close-feature-info').addEventListener('click', closeFeatureInfo);
-    document.getElementById('identify-tool').addEventListener('click', toggleIdentifyTool);
 }
 
 export { initIdentifyTool, toggleIdentifyTool, closeFeatureInfo };
