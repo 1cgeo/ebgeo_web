@@ -126,7 +126,9 @@ class AddStreetViewControl {
             style: '/street_view/street-view-map-style.json',
             center: this.centroid.geometry.coordinates,
             attributionControl: false,
-            zoom: 12.5
+            zoom: 12.5,
+            minZoom: 11,
+            maxZoom: 17.9
         });
 
         let pointImage = await this.miniMap.loadImage('/street_view/point.png')
@@ -142,18 +144,6 @@ class AddStreetViewControl {
             'layout': {
                 'icon-image': 'point'
             }
-        });
-        this.miniMap.on('click', 'points', (e) => {
-            this.loadTarget(e.features[0].properties.nome_img, () => {
-                this.setIconDirection(this.currentInfo.camera.heading)
-            })
-        });
-        this.miniMap.on('mouseenter', 'points', () => {
-            this.miniMap.getCanvas().style.cursor = 'pointer';
-        });
-
-        this.miniMap.on('mouseleave', 'points', () => {
-            this.miniMap.getCanvas().style.cursor = '';
         });
 
         let pointSelectedImage = await this.miniMap.loadImage('/street_view/point-selected-v2.png')
@@ -177,6 +167,19 @@ class AddStreetViewControl {
             'layout': {
                 'icon-image': 'point-selected'
             }
+        });
+
+        this.miniMap.on('click', 'points', (e) => {
+            this.loadTarget(e.features[0].properties.nome_img, () => {
+                this.setIconDirection(this.currentInfo.camera.heading)
+            })
+        });
+        this.miniMap.on('mouseenter', 'points', () => {
+            this.miniMap.getCanvas().style.cursor = 'pointer';
+        });
+
+        this.miniMap.on('mouseleave', 'points', () => {
+            this.miniMap.getCanvas().style.cursor = '';
         });
     }
 
