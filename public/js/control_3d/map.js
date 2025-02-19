@@ -40,13 +40,13 @@ const orientation = Cesium.Transforms.headingPitchRollQuaternion(
     hpr
 );
 
-const entity = map.entities.add({
-    name: '3d/estatua.glb',
-    position: position,
-    orientation: orientation,
-    model: {
-    uri: '3d/estatua.glb',
-    },
-});
+// const entity = map.entities.add({
+//     name: '3d/estatua.glb',
+//     position: position,
+//     orientation: orientation,
+//     model: {
+//     uri: '3d/estatua.glb',
+//     },
+// });
 
 export { map };
