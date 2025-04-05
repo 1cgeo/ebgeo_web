@@ -58,6 +58,30 @@ export const addFeature = (type, feature) => {
     });
 };
 
+export const addFeatures = (featuresByType) => {
+    const recordData = {};
+    
+    // Para cada tipo de feature (points, linestrings, polygons, etc.)
+    Object.keys(featuresByType).forEach(type => {
+        const features = featuresByType[type];
+        if (features && features.length > 0) {
+            // Adiciona as features no store
+            store.maps[store.currentMap].features[type].push(...features);
+            
+            // Guarda cópias para o histórico
+            recordData[type] = JSON.parse(JSON.stringify(features));
+        }
+    });
+    
+    // Registra uma única ação no histórico para todas as features
+    if (Object.keys(recordData).length > 0) {
+        recordAction({
+            type: 'addMultiple',
+            features: recordData
+        });
+    }
+};
+
 export const updateFeature = (type, feature) => {
     const index = store.maps[store.currentMap].features[type].findIndex(f => f.id == feature.id);
     if (index !== -1) {
@@ -82,6 +106,36 @@ export const removeFeature = (type, id) => {
             type: 'remove',
             featureType: type,
             feature: JSON.parse(JSON.stringify(feature))
+        });
+    }
+};
+
+// Nova função para remover múltiplas features com uma única entrada no histórico
+export const removeFeatures = (featureIds) => {
+    const removedFeatures = {};
+    
+    // Para cada tipo de feature e seus IDs a serem removidos
+    Object.keys(featureIds).forEach(type => {
+        const ids = featureIds[type];
+        if (ids && ids.length > 0) {
+            removedFeatures[type] = [];
+            
+            // Remove cada feature e guarda para o histórico
+            ids.forEach(id => {
+                const featureIndex = store.maps[store.currentMap].features[type].findIndex(f => f.id == id);
+                if (featureIndex !== -1) {
+                    const feature = store.maps[store.currentMap].features[type].splice(featureIndex, 1)[0];
+                    removedFeatures[type].push(JSON.parse(JSON.stringify(feature)));
+                }
+            });
+        }
+    });
+    
+    // Registra uma única ação no histórico
+    if (Object.keys(removedFeatures).some(type => removedFeatures[type].length > 0)) {
+        recordAction({
+            type: 'removeMultiple',
+            features: removedFeatures
         });
     }
 };
@@ -156,13 +210,35 @@ export const undoLastAction = () => {
         case 'remove':
             addFeature(lastAction.featureType, lastAction.feature);
             break;
+        case 'addMultiple':
+            // Para desfazer addMultiple, removemos todas as features que foram adicionadas
+            const featureIdsToRemove = {};
+            Object.keys(lastAction.features).forEach(type => {
+                featureIdsToRemove[type] = lastAction.features[type].map(f => f.id);
+            });
+            
+            // Removemos sem registrar no histórico (isUndoing = true)
+            Object.keys(featureIdsToRemove).forEach(type => {
+                featureIdsToRemove[type].forEach(id => {
+                    const featureIndex = currentMap.features[type].findIndex(f => f.id == id);
+                    if (featureIndex !== -1) {
+                        currentMap.features[type].splice(featureIndex, 1);
+                    }
+                });
+            });
+            break;
+        case 'removeMultiple':
+            // Para desfazer removeMultiple, adicionamos de volta todas as features que foram removidas
+            Object.keys(lastAction.features).forEach(type => {
+                currentMap.features[type].push(...lastAction.features[type]);
+            });
+            break;
         default:
             break;
     }
 
     store.isUndoing = false;
     return true;
-
 };
 
 export const redoLastAction = () => {
@@ -183,13 +259,29 @@ export const redoLastAction = () => {
         case 'remove':
             removeFeature(lastUndoneAction.featureType, lastUndoneAction.feature.id);
             break;
+        case 'addMultiple':
+            // Para refazer addMultiple, adicionamos novamente todas as features
+            Object.keys(lastUndoneAction.features).forEach(type => {
+                currentMap.features[type].push(...lastUndoneAction.features[type]);
+            });
+            break;
+        case 'removeMultiple':
+            // Para refazer removeMultiple, removemos novamente todas as features
+            Object.keys(lastUndoneAction.features).forEach(type => {
+                lastUndoneAction.features[type].forEach(feature => {
+                    const featureIndex = currentMap.features[type].findIndex(f => f.id == feature.id);
+                    if (featureIndex !== -1) {
+                        currentMap.features[type].splice(featureIndex, 1);
+                    }
+                });
+            });
+            break;
         default:
             break;
     }
 
     store.isRedoing = false;
     return true;
-
 };
 
 export const hasUnsavedData = () => {
