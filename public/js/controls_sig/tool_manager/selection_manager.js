@@ -1,3 +1,4 @@
+// Path: js\controls_sig\tool_manager\selection_manager.js
 class SelectionManager {
     constructor(map, drawControl, textControl, imageControl, losControl, visibilityControl) {
         this.map = map;

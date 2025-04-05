@@ -1,3 +1,4 @@
+// Path: js\controls_sig\map_control.js
 import store, { addMap, removeMap, renameMap, setCurrentMap, updateMapPosition, getCurrentBaseLayer, getMapPosition } from './store.js';
 
 class MapControl {

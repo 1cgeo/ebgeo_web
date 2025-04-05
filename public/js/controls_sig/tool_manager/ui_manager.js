@@ -1,3 +1,4 @@
+// Path: js\controls_sig\tool_manager\ui_manager.js
 import { addImageAttributesToPanel } from '../image_tool/image_attributes_panel.js';
 import { addTextAttributesToPanel } from '../text_tool/text_attributes_panel.js';
 import { addFeatureAttributesToPanel } from '../draw_tool/feature_attributes_panel.js';

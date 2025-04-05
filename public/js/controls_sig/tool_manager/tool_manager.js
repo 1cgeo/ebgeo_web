@@ -1,3 +1,4 @@
+// Path: js\controls_sig\tool_manager\tool_manager.js
 class ToolManager {
     constructor(map) {
         this.map = map;

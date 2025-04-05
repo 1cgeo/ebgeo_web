@@ -1,3 +1,4 @@
+// Path: js\controls_sig\fly_coordinates_control.js
 class FlyToCoordinatesControl {
     onAdd(map) {
       this._map = map;

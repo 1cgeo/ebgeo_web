@@ -1,3 +1,4 @@
+// Path: js\controls_sig\base_layer_control.js
 import { setBaseLayer } from './store.js';
 import baseStyle from './base_map_styles.js'
 class BaseLayerControl {

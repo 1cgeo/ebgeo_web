@@ -1,3 +1,4 @@
+// Path: js\controls_sig\draw_tool\draw.js
 import drawStyles from './draw_styles.js';
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';

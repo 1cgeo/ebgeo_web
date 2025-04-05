@@ -1,3 +1,4 @@
+// Path: js\controls_sig\draw_tool\feature_attributes_panel.js
 export function addFeatureAttributesToPanel(panel, selectedFeatures, featureControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) {
         return;

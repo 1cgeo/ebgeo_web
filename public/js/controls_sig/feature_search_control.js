@@ -1,3 +1,4 @@
+// Path: js\controls_sig\feature_search_control.js
 class FeatureSearchControl {
     constructor(uiManager) {
       this._apiUrl = 'http://localhost:3000/busca';

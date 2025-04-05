@@ -1,3 +1,4 @@
+// Path: js\control_3d\3d_tileset.js
 
 const load3dTileset = (map, tilesetSetup) => {
     var tileset = new Cesium.Cesium3DTileset({

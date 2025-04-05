@@ -1,3 +1,4 @@
+// Path: js\map_3d.js
 import { map } from './control_3d/map.js'
 import { load3dTileset } from './control_3d/3d_tileset.js'
 import { addViewField, clearAllViewField } from './control_3d/viewshed.js';

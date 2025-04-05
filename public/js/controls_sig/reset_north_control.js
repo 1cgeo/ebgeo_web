@@ -1,3 +1,4 @@
+// Path: js\controls_sig\reset_north_control.js
 class ResetNorthControl {
     onAdd(map) {
       this._map = map;

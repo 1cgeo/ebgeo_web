@@ -1,3 +1,4 @@
+// Path: js\controls_sig\map.js
 import { getCurrentMapFeatures } from './store.js';
 import baseStyle from './base_map_styles.js'
 

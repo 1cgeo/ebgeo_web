@@ -1,3 +1,4 @@
+// Path: js\controls_sig\vector_info_control.js
 class VectorTileInfoControl {
     constructor(toolManager, uiManager) {
         this.toolManager = toolManager;

@@ -1,3 +1,4 @@
+// Path: js\controls_sig\text_tool\add_text_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 class AddTextControl {
     static DEFAULT_PROPERTIES = {

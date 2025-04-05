@@ -1,3 +1,4 @@
+// Path: js\control_3d\map.js
 var { west, south, east, north } = {
     "west": -44.449656,
     "south": -22.455922,

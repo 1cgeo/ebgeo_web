@@ -1,3 +1,4 @@
+// Path: js\controls_sig\terrain_control.js
 export async function getTerrainElevation(map, coordinates, options = { exaggerated: false }) {
     // Fixed reference point outside the DEM
     const fixedPoint = [0, 0];

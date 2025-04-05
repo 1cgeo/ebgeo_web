@@ -1,3 +1,4 @@
+// Path: js\controls_sig\save_load_control.js
 import { saveToFile, loadFromFile } from './utils.js';
 import store, { getCurrentBaseLayer } from './store.js';
 

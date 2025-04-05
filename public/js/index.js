@@ -1,3 +1,4 @@
+// Path: js\index.js
 import { } from './map_sig.js'
 import {
     handleClickGoTo,

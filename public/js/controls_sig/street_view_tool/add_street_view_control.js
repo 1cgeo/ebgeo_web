@@ -1,3 +1,4 @@
+// Path: js\controls_sig\street_view_tool\add_street_view_control.js
 
 
 import * as THREE from 'three';

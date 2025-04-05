@@ -1,3 +1,4 @@
+// Path: js\controls_sig\text_tool\text_attributes_panel.js
 export function addTextAttributesToPanel(panel, selectedFeatures, textControl, selectionManager, uiManager) {
     const feature = selectedFeatures[0]; // Use the first selected feature to populate the form
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));

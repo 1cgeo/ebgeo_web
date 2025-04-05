@@ -1,3 +1,4 @@
+// Path: js\control_3d\viewshed.js
 var arrViewField = [];
 var viewModel = { verticalAngle: 120, horizontalAngle: 150, distance: 10 };
 

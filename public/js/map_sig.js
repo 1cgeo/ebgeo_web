@@ -1,3 +1,4 @@
+// Path: js\map_sig.js
 import { map } from './controls_sig/map.js';
 import BaseLayerControl from './controls_sig/base_layer_control.js';
 import DrawControl from './controls_sig/draw_tool/draw.js';

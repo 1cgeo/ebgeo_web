@@ -1,3 +1,4 @@
+// Path: js\control_3d\identify_tool.js
 import { map } from './map.js';
 
 let isIdentifyActive = false;

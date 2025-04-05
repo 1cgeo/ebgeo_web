@@ -1,3 +1,4 @@
+// Path: js\controls_sig\los_tool\add_los_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 class AddLOSControl {

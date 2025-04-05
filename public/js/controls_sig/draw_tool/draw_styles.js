@@ -1,3 +1,4 @@
+// Path: js\controls_sig\draw_tool\draw_styles.js
 export default [
     // PONTO ATIVO
     {

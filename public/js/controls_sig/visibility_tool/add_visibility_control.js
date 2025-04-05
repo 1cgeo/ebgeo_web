@@ -1,3 +1,4 @@
+// Path: js\controls_sig\visibility_tool\add_visibility_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 class AddVisibilityControl {

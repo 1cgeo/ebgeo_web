@@ -1,3 +1,4 @@
+// Path: js\controls_sig\store.js
 const store = {
     maps: {
         'Principal': {

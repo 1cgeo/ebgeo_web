@@ -10,6 +10,7 @@
     "restify": "^11.1.0"
   },
   "devDependencies": {
+    "ignore": "^5.2.4"
   },
   "author": "",
   "license": "ISC"
