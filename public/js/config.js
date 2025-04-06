@@ -1,5 +1,5 @@
+// Path: js\config.js
 // Main configuration file for EBGEO application
-
 const config = {
     // 3D Map Configuration
     map3d: {

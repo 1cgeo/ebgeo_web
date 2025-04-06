@@ -1,3 +1,4 @@
+// Path: js\controls_sig\mouse_coordinates.js
 class MouseCoordinatesControl {
     onAdd(map) {
         this._map = map;

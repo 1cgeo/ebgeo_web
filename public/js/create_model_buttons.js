@@ -1,4 +1,4 @@
-// Path: js\utils\create_model_buttons.js
+// Path: js\create_model_buttons.js
 import config from './config.js';
 
 /**
