@@ -18,6 +18,7 @@ import VectorTileInfoControl from './controls_sig/vector_info_control.js'
 import ResetNorthControl from './controls_sig/reset_north_control.js';
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import { undoLastAction, redoLastAction, hasUnsavedData } from './controls_sig/store.js';
+import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
 
 //-----------------------------------------------
 // CONTROLES
@@ -65,11 +66,6 @@ const importControl = new AddImportControl(toolManager);
 importControl.setDrawControl(drawControl);
 importControl.setBaseLayerControl(baseLayerControl);
 
-const scale = new maplibregl.ScaleControl({
-    maxWidth: 80,
-    unit: 'metric'
-});
-
 map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
 map.addControl(saveLoadControl, 'top-left');
@@ -83,7 +79,7 @@ map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
 map.addControl(importControl, 'top-right');
 map.addControl(addStreetViewControl, 'top-right');
-map.addControl(scale, 'bottom-left');
+map.addControl(new MouseCoordinatesControl(), 'bottom-left');
 mapControl.loadMenu()
 
 
