@@ -1,6 +1,12 @@
 // Path: js\control_3d\viewshed.js
+import config from '../config.js';
+
 var arrViewField = [];
-var viewModel = { verticalAngle: 120, horizontalAngle: 150, distance: 10 };
+var viewModel = { 
+    verticalAngle: config.map3d.viewshed.verticalAngle, 
+    horizontalAngle: config.map3d.viewshed.horizontalAngle, 
+    distance: config.map3d.viewshed.distance 
+};
 
 const addViewField = (map) => {
     var e = new Cesium.ViewShed3D(map, {

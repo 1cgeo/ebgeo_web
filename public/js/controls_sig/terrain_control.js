@@ -1,4 +1,6 @@
 // Path: js\controls_sig\terrain_control.js
+import config from '../config.js';
+
 export async function getTerrainElevation(map, coordinates, options = { exaggerated: false }) {
     // Fixed reference point outside the DEM
     const fixedPoint = [0, 0];
@@ -8,5 +10,5 @@ export async function getTerrainElevation(map, coordinates, options = { exaggera
     const sceneElevation = await map.queryTerrainElevation(coordinates, options) || 0;
     const altitude = sceneElevation - fixedPointElevation;
 
-    return altitude/1.5;
+    return altitude / config.mapSig.terrain.elevationAdjustmentFactor;
 }

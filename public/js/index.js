@@ -4,10 +4,18 @@ import {
     handleClickGoTo,
     activeTool
 } from './map_3d.js'
-
+import { createModelButtons } from './create_model_buttons.js';
 
 var queryMobile = window.matchMedia("(max-width: 650px)")
 
+// Initialize model buttons when the document is ready
+document.addEventListener('DOMContentLoaded', () => {
+    // Create model buttons in the desktop and mobile containers
+    createModelButtons('locate-3d-container');
+    
+    // Attach click handlers after creating buttons
+    $('#locate-3d-container button').on('click', handleClickGoTo);
+});
 
 $('#open-close-form').on('click', () => {
     if (!$('#attributes-panel').length) return
@@ -35,25 +43,31 @@ function openMobileMenu(query) {
             delete sigParents['map-list']
         }
         $('#sidebarMenu').empty()
+        
+        // Create mobile model list container
+        const mobileContainer = document.createElement('div');
+        mobileContainer.id = 'model-3d-container';
+        mobileContainer.innerHTML = `
+            <p><b>Modelos 3D</b></p>
+            <hr class="solid">
+            <div id="locate-3d-container-mobile"></div>
+        `;
+        
+        $('#sidebarMenu').append(mobileContainer);
+        
+        // Create model buttons in the mobile container
+        createModelButtons('locate-3d-container-mobile');
+        
+        // Add tutorial button
         $('#sidebarMenu').append(`
-        <div id="model-3d-container">
-                <p><b>Modelos 3D</b></p>
-                <hr class="solid">
-                <!-- <button id="btnAMAN" class="tools">AMAN</button>
-            <button id="btnPCL" class="tools">PCL</button>
-            <button id="btnESA" class="tools">ESA</button> -->
-                <div id="locate-3d-container-mobile">
-                    <button id="aman" class="tutorial-button pure-material-button-contained">AMAN</button>
-                    <button id="aman-pcl" class="tutorial-button pure-material-button-contained">AMAN PCL</button>
-                    <button id="esa" class="tutorial-button pure-material-button-contained">ESA</button>
-                </div>
-            </div>
             <hr class="solid">
             <button onclick="window.open(
                 'doc.html',
                 '_blank' // <- This is what makes it open in a new window.
             );" class="tutorial-button pure-material-button-contained">Tutorial</button>
-        `)
+        `);
+        
+        // Attach click handlers for mobile buttons
         $('#locate-3d-container-mobile button').off('click', handleClickGoTo);
         $('#locate-3d-container-mobile button').on('click', handleClickGoTo);
 
@@ -72,11 +86,7 @@ function openMobileMenu(query) {
             $('#map-list').appendTo(sigParents['map-list']);
             delete sigParents['map-list']
         }
-
-
-
     }
-
 
     $('.button-tool-3d').on('click', activeTool);
 }
@@ -123,11 +133,6 @@ $(".bar-center-buttons a").click(function () {
 $('#mini-map-street-view').css({
     display: 'none'
 });
-
-
-
-
-
 
 $(document).ready(() => {
     setTimeout(()=> $('.loading-background').css('display', 'none'), 3000)

@@ -1,7 +1,9 @@
 // Path: js\controls_sig\feature_search_control.js
+import config from '../config.js';
+
 class FeatureSearchControl {
     constructor(uiManager) {
-      this._apiUrl = 'http://localhost:3000/busca';
+      this._apiUrl = config.mapSig.featureSearch.apiUrl;
       this._marker = null;
       this._uiManager = uiManager;
     }

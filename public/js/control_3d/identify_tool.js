@@ -1,5 +1,6 @@
 // Path: js\control_3d\identify_tool.js
 import { map } from './map.js';
+import config from '../config.js';
 
 let isIdentifyActive = false;
 
@@ -43,8 +44,9 @@ function handleFeatureClick(event) {
 }
 
 function fetchFeatureInfo(lon, lat, z) {
-    console.log(lat,lon,z)
-    return fetch(`http://localhost:3000/feicoes?lat=${lat}&lon=${lon}&z=${z}`)
+    const apiUrl = config.map3d.identifyTool.apiUrl;
+    
+    return fetch(`${apiUrl}?lat=${lat}&lon=${lon}&z=${z}`)
         .then(response => {
             if (!response.ok) {
                 throw new Error('Erro na resposta do servidor');

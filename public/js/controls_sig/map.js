@@ -1,22 +1,18 @@
 // Path: js\controls_sig\map.js
 import { getCurrentMapFeatures } from './store.js';
-import baseStyle from './base_map_styles.js'
+import baseStyle from './base_map_styles.js';
+import config from '../config.js';
 
 const map = new maplibregl.Map({
     container: 'map-sig',
     style: baseStyle,
     attributionControl: false,
-    minZoom: 11,
-    maxZoom: 17.9,
-    maxPitch: 65
+    minZoom: config.mapSig.mapInit.minZoom,
+    maxZoom: config.mapSig.mapInit.maxZoom,
+    maxPitch: config.mapSig.mapInit.maxPitch
 });
 
-const bounds = [
-    [-45.82515,-22.69950],
-    [-43.92333,-21.30216]
-];
-
-map.setMaxBounds(bounds);
+map.setMaxBounds(config.mapSig.mapInit.bounds);
 
 map.addControl(new maplibregl.AttributionControl({
     customAttribution: 'Diretoria de Serviço Geográfico - Exército Brasileiro',
@@ -293,10 +289,7 @@ map.on('styledata', () => {
     }
 });
 
-//FIT AMAN
-map.fitBounds([
-    [-44.4633992903047, -22.46265178239199],
-    [-44.439695820515325, -22.444666254876367]
-]);
+// Set initial view based on configuration
+map.fitBounds(config.mapSig.mapInit.initialView.bounds);
 
 export { map };
