@@ -1,10 +1,9 @@
 // Path: js\controls_sig\street_view_tool\add_street_view_control.js
 
-
 import * as THREE from 'three';
 import { DragControls } from 'DragControls';
-class AddStreetViewControl {
 
+class AddStreetViewControl {
     constructor(toolManager) {
         this.queryMobile = window.matchMedia("(max-width: 650px)")
         this.toolManager = toolManager;
@@ -37,6 +36,14 @@ class AddStreetViewControl {
         this.isDrag = false
         this.miniMap = null
         this.isOpen = false
+        this.animationFrameId = null
+        this.eventListeners = []
+        this.mapListeners = []
+
+        // Reutilize geometrias e materiais para evitar criação repetida
+        this.arrowGeometry = null;
+        this.arrowTexture = null;
+        this.arrowMaterial = null;
 
         this.animate = this.animate.bind(this);
         this.update = this.update.bind(this);
@@ -44,18 +51,24 @@ class AddStreetViewControl {
         this.onPointerUp = this.onPointerUp.bind(this);
         this.onDocumentMouseWheel = this.onDocumentMouseWheel.bind(this);
         this.setCurrentMouse = this.setCurrentMouse.bind(this);
+        this.loadPoint = this.loadPoint.bind(this);
+        this.showHoverCursor = this.showHoverCursor.bind(this);
+        this.hideHoverCursor = this.hideHoverCursor.bind(this);
+        this.closeStreetView = this.closeStreetView.bind(this);
     }
 
     loadData = async () => {
-        this.photosGeojson = await $.getJSON("/street_view/fotos.geojson")
-        this.photosLinhasGeoJson = await $.getJSON("/street_view/fotos_linha.geojson")
-        this.centroid = turf.centroid(this.photosGeojson)
-
         try {
-            this.map.getSource('lines-street-view').setData(this.photosLinhasGeoJson);
+            this.photosGeojson = await $.getJSON("/street_view/fotos.geojson")
+            this.photosLinhasGeoJson = await $.getJSON("/street_view/fotos_linha.geojson")
+            this.centroid = turf.centroid(this.photosGeojson)
 
+            // Tentar configurar a fonte apenas se estiver pronta
+            if (this.map && this.map.getSource('lines-street-view')) {
+                this.map.getSource('lines-street-view').setData(this.photosLinhasGeoJson);
+            }
         } catch (error) {
-
+            console.error("Erro ao carregar dados do street view:", error);
         }
     }
 
@@ -73,9 +86,36 @@ class AddStreetViewControl {
 
         this.container.appendChild(button);
         this.changeButtonColor()
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
-        $('input[name="base-layer"]').on('change', this.reload);
+        
+        // Registrar os event listeners para atualização posterior
+        this.addJQueryListener($('input[name="base-layer"]'), 'change', this.changeButtonColor);
+        this.addJQueryListener($('input[name="base-layer"]'), 'change', this.reload);
+        
         return this.container;
+    }
+    
+    // Método para adicionar event listeners e rastreá-los para remoção posterior
+    addEventListenerWithTracking(element, event, handler) {
+        element.addEventListener(event, handler);
+        this.eventListeners.push({ element, event, handler });
+    }
+    
+    // Método para adicionar jQuery event listeners
+    addJQueryListener(jqElement, event, handler) {
+        jqElement.on(event, handler);
+        this.eventListeners.push({ type: 'jquery', jqElement, event, handler });
+    }
+    
+    // Método para remover todos os event listeners rastreados
+    removeAllEventListeners() {
+        this.eventListeners.forEach(listener => {
+            if (listener.type === 'jquery') {
+                listener.jqElement.off(listener.event, listener.handler);
+            } else if (listener.element) {
+                listener.element.removeEventListener(listener.event, listener.handler);
+            }
+        });
+        this.eventListeners = [];
     }
 
     changeButtonColor = () => {
@@ -93,7 +133,14 @@ class AddStreetViewControl {
     }
 
     onRemove() {
-        this.container.parentNode.removeChild(this.container);
+        this.deactivate();
+        if (this.container && this.container.parentNode) {
+            this.container.parentNode.removeChild(this.container);
+        }
+        
+        // Garantir limpeza total de recursos
+        this.cleanupResources();
+        this.map = undefined;
     }
 
     async activate() {
@@ -101,7 +148,8 @@ class AddStreetViewControl {
             this.toolManager.deactivateCurrentTool();
             return
         }
-        $('#close-street-view-button').on('click', this.closeStreetView)
+        
+        this.addJQueryListener($('#close-street-view-button'), 'click', this.closeStreetView);
         this.isActive = true;
         $("#street-view-tool").empty().append('<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />');
         await this.loadData()
@@ -109,19 +157,37 @@ class AddStreetViewControl {
     }
 
     showPhotos = async () => {
+        // Adicionar listeners ao mapa e rastreá-los para remoção posterior
+        this.addMapListener('click', 'street-view', this.loadPoint);
+        this.addMapListener('touchend', 'street-view', this.loadPoint);
+        this.addMapListener('mouseenter', 'street-view', this.showHoverCursor);
+        this.addMapListener('mouseleave', 'street-view', this.hideHoverCursor);
 
-        this.map.on('click', 'street-view', this.loadPoint);
+        // Criar minimap
+        this.createMiniMap();
+    }
+    
+    // Método para adicionar listeners do mapa e rastreá-los
+    addMapListener(event, layer, handler) {
+        this.map.on(event, layer, handler);
+        this.mapListeners.push({ event, layer, handler });
+    }
+    
+    // Método para remover todos os listeners do mapa
+    removeMapListeners() {
+        this.mapListeners.forEach(listener => {
+            this.map.off(listener.event, listener.layer, listener.handler);
+        });
+        this.mapListeners = [];
+    }
 
-        this.map.on('touchend', 'street-view', this.loadPoint);
-
-        this.map.on('mouseenter', 'street-view', this.showHoverCursor);
-
-        this.map.on('mouseleave', 'street-view', this.hideHoverCursor);
-
-        // this.map.flyTo({
-        //     center: centroid.geometry.coordinates
-        // });
-
+    createMiniMap() {
+        // Se já existe um minimap, limpe-o primeiro
+        if (this.miniMap) {
+            this.miniMap.remove();
+            this.miniMap = null;
+        }
+        
         this.miniMap = new maplibregl.Map({
             container: 'mini-map-street-view',
             style: '/street_view/street-view-map-style.json',
@@ -132,55 +198,64 @@ class AddStreetViewControl {
             maxZoom: 17.9
         });
 
-        let pointImage = await this.miniMap.loadImage('/street_view/point.png')
-        await this.miniMap.addImage('point', pointImage.data);
-        this.miniMap.addSource('points', {
-            'type': 'geojson',
-            'data': this.photosGeojson
-        });
-        this.miniMap.addLayer({
-            'id': 'points',
-            'type': 'symbol',
-            'source': 'points',
-            'layout': {
-                'icon-image': 'point'
+        // Carregar imagens e configurar camadas
+        this.miniMap.on('load', async () => {
+            try {
+                let pointImage = await this.miniMap.loadImage('/street_view/point.png');
+                await this.miniMap.addImage('point', pointImage.data);
+                this.miniMap.addSource('points', {
+                    'type': 'geojson',
+                    'data': this.photosGeojson
+                });
+                this.miniMap.addLayer({
+                    'id': 'points',
+                    'type': 'symbol',
+                    'source': 'points',
+                    'layout': {
+                        'icon-image': 'point'
+                    }
+                });
+                
+                let pointSelectedImage = await this.miniMap.loadImage('/street_view/point-selected-v2.png');
+                this.miniMap.addImage('point-selected', pointSelectedImage.data);
+                this.miniMap.addSource('selected', {
+                    'type': 'geojson',
+                    'data': this.photosGeojson
+                });
+                this.miniMap.addLayer({
+                    'id': 'selected',
+                    'type': 'symbol',
+                    'source': 'selected',
+                    "filter": [
+                        "all",
+                        [
+                            "==",
+                            "nome_img",
+                            this.currentPhotoName
+                        ]
+                    ],
+                    'layout': {
+                        'icon-image': 'point-selected'
+                    }
+                });
+                
+                // Adicionar event listeners do minimapa
+                this.miniMap.on('click', 'points', (e) => {
+                    this.loadTarget(e.features[0].properties.nome_img, () => {
+                        this.setIconDirection(this.currentInfo.camera.heading)
+                    })
+                });
+                
+                this.miniMap.on('mouseenter', 'points', () => {
+                    this.miniMap.getCanvas().style.cursor = 'pointer';
+                });
+                
+                this.miniMap.on('mouseleave', 'points', () => {
+                    this.miniMap.getCanvas().style.cursor = '';
+                });
+            } catch (error) {
+                console.error("Erro ao configurar o minimap:", error);
             }
-        });
-
-        let pointSelectedImage = await this.miniMap.loadImage('/street_view/point-selected-v2.png')
-        this.miniMap.addImage('point-selected', pointSelectedImage.data);
-        this.miniMap.addSource('selected', {
-            'type': 'geojson',
-            'data': this.photosGeojson
-        });
-        this.miniMap.addLayer({
-            'id': 'selected',
-            'type': 'symbol',
-            'source': 'selected',
-            "filter": [
-                "all",
-                [
-                    "==",
-                    "nome_img",
-                    this.currentPhotoName
-                ]
-            ],
-            'layout': {
-                'icon-image': 'point-selected'
-            }
-        });
-
-        this.miniMap.on('click', 'points', (e) => {
-            this.loadTarget(e.features[0].properties.nome_img, () => {
-                this.setIconDirection(this.currentInfo.camera.heading)
-            })
-        });
-        this.miniMap.on('mouseenter', 'points', () => {
-            this.miniMap.getCanvas().style.cursor = 'pointer';
-        });
-
-        this.miniMap.on('mouseleave', 'points', () => {
-            this.miniMap.getCanvas().style.cursor = '';
         });
     }
 
@@ -202,42 +277,89 @@ class AddStreetViewControl {
         $.getJSON(`${this.METADATA_LOCATION}/${name}.json`, (data) => {
             this.currentInfo = data
             this.loadStreetView(data)
-            this.animate()
+            this.startAnimationLoop()
         });
     }
 
     loadStreetView = (info) => {
         this.isOpen = true
         const container = document.getElementById('street-view-container');
+        
+        // Limpar listeners anteriores e recursos se necessário
+        this.cleanupResources();
 
-        document.addEventListener('pointermove', this.setCurrentMouse, { passive: true });
-        document.addEventListener('mousemove', (event) => {
+        // Configurar o raycaster uma única vez em vez de recriá-lo
+        if (!this.raycaster) {
+            this.raycaster = new THREE.Raycaster();
+        }
+
+        this.addEventListenerWithTracking(document, 'pointermove', this.setCurrentMouse);
+        this.addEventListenerWithTracking(document, 'mousemove', (event) => {
             event.preventDefault();
-            this.mouse.x = (event.clientX / this.renderer.domElement.clientWidth) * 2 - 1;
-            this.mouse.y = - (event.clientY / this.renderer.domElement.clientHeight) * 2 + 1;
-            this.raycaster.setFromCamera(this.mouse, this.camera);
-            var intersects = this.raycaster.intersectObjects(this.arrows.filter(i => i.arrow.visible).map(i => i.arrow));
-            if (intersects.length > 0) {
-                //console.log(intersects[0].object.imgId())
+            this.mouse.x = (event.clientX / this.renderer?.domElement.clientWidth) * 2 - 1 || 0;
+            this.mouse.y = -(event.clientY / this.renderer?.domElement.clientHeight) * 2 + 1 || 0;
+            
+            if (this.raycaster && this.camera) {
+                this.raycaster.setFromCamera(this.mouse, this.camera);
+                if (this.arrows && this.arrows.length > 0) {
+                    var intersects = this.raycaster.intersectObjects(this.arrows.filter(i => i.arrow.visible).map(i => i.arrow));
+                    if (intersects.length > 0) {
+                        // Interseção encontrada
+                    }
+                }
             }
-        }, false);
+        });
 
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        //camera.rotation.reorder("YXZ");
         this.camera.position.set(0, -0.1, 0)
         this.camera.rotation.order = 'YXZ';
 
+        // Limpar cena anterior se existir
+        if (this.scene) {
+            this.disposeSceneObjects(this.scene);
+        }
+        
         this.scene = new THREE.Scene();
         this.scene.add(this.camera)
 
+        // Reutilizar geometria se possível
         const geometry = new THREE.SphereGeometry(500, 60, 40);
         geometry.scale(- 1, 1, 1);
         this.setCurrentPhotoName(info.camera.img)
+        
+        // Gerenciar texturas - disposar texturas antigas
+        if (this.material && this.material.map) {
+            this.material.map.dispose();
+        }
+        
         let texture = new THREE.TextureLoader().load(
-            `${this.IMAGES_LOCATION}/${info.camera.img}.jpg`
+            `${this.IMAGES_LOCATION}/${info.camera.img}.jpg`,
+            (loadedTexture) => {
+                loadedTexture.colorSpace = THREE.SRGBColorSpace;
+                // Callback para garantir que a textura seja carregada antes de ser usada
+                if (this.material) {
+                    this.material.map = loadedTexture;
+                    this.material.needsUpdate = true;
+                }
+            }
         );
-        texture.colorSpace = THREE.SRGBColorSpace
+        
+        // Disposar material anterior se existir
+        if (this.material) {
+            this.material.dispose();
+        }
+        
         this.material = new THREE.MeshBasicMaterial({ map: texture });
+        
+        // Disposar mesh anterior se existir
+        if (this.mesh) {
+            this.scene.remove(this.mesh);
+            if (this.mesh.geometry && this.mesh.geometry !== geometry) {
+                this.mesh.geometry.dispose();
+            }
+            // Material será limpo acima
+        }
+        
         this.mesh = new THREE.Mesh(geometry, this.material);
         this.mesh.name = 'IMAGE_360';
 
@@ -247,67 +369,29 @@ class AddStreetViewControl {
 
         this.scene.add(this.mesh);
 
-        this.renderer = new THREE.WebGLRenderer({
-            antialias: true,
-            alpha: true
-        });
-        this.renderer.setPixelRatio(window.devicePixelRatio);
+        // Criar ou reutilizar renderer
+        if (!this.renderer) {
+            this.renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true,
+                powerPreference: 'high-performance'
+            });
+            this.renderer.setPixelRatio(window.devicePixelRatio);
+        }
+        
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        container.appendChild(this.renderer.domElement);
+        if (!container.contains(this.renderer.domElement)) {
+            container.appendChild(this.renderer.domElement);
+        }
 
-        ///
         this.createControl()
 
         container.style.touchAction = 'none';
-        container.addEventListener('pointerdown', this.onPointerDown);
-        //container.addEventListener('pointerdown', clickObj);
+        this.addEventListenerWithTracking(container, 'pointerdown', this.onPointerDown);
 
-        document.addEventListener('wheel', this.onDocumentMouseWheel, { passive: true });
+        this.addEventListenerWithTracking(document, 'wheel', this.onDocumentMouseWheel, { passive: true });
 
-        //
-
-        document.addEventListener('dragover', function (event) {
-
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'copy';
-
-        });
-
-        document.addEventListener('dragenter', function () {
-
-            document.body.style.opacity = 0.5;
-
-        });
-
-        document.addEventListener('dragleave', function () {
-
-            document.body.style.opacity = 1;
-
-        });
-
-        document.addEventListener('drop', function (event) {
-
-            event.preventDefault();
-
-            const reader = new FileReader();
-            reader.addEventListener('load', function (event) {
-
-                material.map.image.src = event.target.result;
-                material.map.needsUpdate = true;
-
-            });
-            reader.readAsDataURL(event.dataTransfer.files[0]);
-
-            document.body.style.opacity = 1;
-
-        });
-
-        //
-        window.addEventListener('resize', this.onWindowResize);
-
-
-        /////
-        //addCube(info)
+        this.addEventListenerWithTracking(window, 'resize', this.onWindowResize);
 
         var pt = turf.point([info.camera.lon, info.camera.lat])
         var distance = 50
@@ -329,7 +413,24 @@ class AddStreetViewControl {
         this.setCurrentMouse()
         this.drawControl()
         this.setCurrentMouse()
+    }
 
+    // Iniciar o loop de animação
+    startAnimationLoop() {
+        // Cancelar qualquer loop existente para evitar múltiplos loops
+        if (this.animationFrameId !== null) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+        this.animate();
+    }
+    
+    // Parar o loop de animação
+    stopAnimationLoop() {
+        if (this.animationFrameId !== null) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
     }
 
     setCurrentMouse = (event) => {
@@ -348,82 +449,102 @@ class AddStreetViewControl {
 
     setCurrentPhotoName = (name) => {
         this.currentPhotoName = name
-        this.miniMap.setFilter(
-            'selected',
-            [
-                "all",
+        if (this.miniMap) {
+            this.miniMap.setFilter(
+                'selected',
                 [
-                    "==",
-                    "nome_img",
-                    this.currentPhotoName
-                ]
-            ],
-        );
-        let found = this.photosGeojson.features.find(item => item.properties.nome_img == this.currentPhotoName)
-        let long = found.geometry.coordinates[0]
-        let lat = found.geometry.coordinates[1]
-        this.miniMap.setCenter([long, lat]);
-
+                    "all",
+                    [
+                        "==",
+                        "nome_img",
+                        this.currentPhotoName
+                    ]
+                ],
+            );
+            let found = this.photosGeojson.features.find(item => item.properties.nome_img == this.currentPhotoName)
+            if (found) {
+                let long = found.geometry.coordinates[0]
+                let lat = found.geometry.coordinates[1]
+                this.miniMap.setCenter([long, lat]);
+            }
+        }
     }
 
     createControl = () => {
         this.cleanArrows(this.arrows.map(i => i.arrow))
         this.arrows = []
 
-        const geometry = new THREE.CircleGeometry(0.5, 70);
-        const texture = new THREE.TextureLoader().load("/street_view/arrow.png");
-        const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, transparent: true });
+        // Reutilizar geometria e material para as setas
+        if (!this.arrowGeometry) {
+            this.arrowGeometry = new THREE.CircleGeometry(0.5, 70);
+        }
+        
+        if (!this.arrowTexture) {
+            this.arrowTexture = new THREE.TextureLoader().load("/street_view/arrow.png");
+        }
+        
+        if (!this.arrowMaterial) {
+            this.arrowMaterial = new THREE.MeshBasicMaterial({ 
+                map: this.arrowTexture, 
+                side: THREE.DoubleSide, 
+                transparent: true 
+            });
+        }
 
         for (let target of this.currentInfo.targets) {
-            const control = new THREE.Mesh(geometry, material);
+            const control = new THREE.Mesh(this.arrowGeometry, this.arrowMaterial);
             control.imgId = () => target.id;
             control.callback = () => this.loadTarget(target.id);
             this.arrows.push({ ...target, arrow: control });
             this.scene.add(control);
         }
 
-        if (this.controls) this.controls.deactivate()
-            this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
-            this.controls.addEventListener('drag', (event) => {
-                this.isDrag = true
-            });
-            this.controls.addEventListener('dragstart', (event) => {
-                this.dragStartTime = Date.now();
-                this.dragStartPosition = { x: event.object.position.x, y: event.object.position.y };
-            });
-            this.controls.addEventListener('dragend', (event) => {
-                const dragEndTime = Date.now();
-                const dragDuration = dragEndTime - this.dragStartTime;
-                const dragDistance = Math.sqrt(
-                    Math.pow(event.object.position.x - this.dragStartPosition.x, 2) +
-                    Math.pow(event.object.position.y - this.dragStartPosition.y, 2)
-                );
-    
-                if (dragDuration < 200 && dragDistance < 5) {
-                    // This was likely intended as a click, not a drag
-                    this.clickObj(event.object);
-                }
-                
-                this.isDrag = false;
-                this.dragStartTime = null;
-                this.dragStartPosition = null;
-            });
+        if (this.controls) {
+            this.controls.deactivate();
+            this.controls.dispose();
+        }
+        
+        this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
+        this.controls.addEventListener('drag', (event) => {
+            this.isDrag = true
+        });
+        this.controls.addEventListener('dragstart', (event) => {
+            this.dragStartTime = Date.now();
+            this.dragStartPosition = { x: event.object.position.x, y: event.object.position.y };
+        });
+        this.controls.addEventListener('dragend', (event) => {
+            const dragEndTime = Date.now();
+            const dragDuration = dragEndTime - this.dragStartTime;
+            const dragDistance = Math.sqrt(
+                Math.pow(event.object.position.x - this.dragStartPosition.x, 2) +
+                Math.pow(event.object.position.y - this.dragStartPosition.y, 2)
+            );
+
+            if (dragDuration < 200 && dragDistance < 5) {
+                // This was likely intended as a click, not a drag
+                this.clickObj(event.object);
+            }
+            
+            this.isDrag = false;
+            this.dragStartTime = null;
+            this.dragStartPosition = null;
+        });
     }
 
-    clickObj = (event) => {
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        var intersects = this.raycaster.intersectObjects(this.arrows.filter(i => i.arrow.visible).map(i => i.arrow));
-        if (intersects.length > 0) {
-            intersects[0].object.callback();
+    clickObj = (object) => {
+        if (object && typeof object.callback === 'function') {
+            object.callback();
         }
     }
 
+    // Método melhorado para limpeza eficiente de setas
     cleanArrows = (objects) => {
         for (let mesh of objects) {
-            const object = this.scene.getObjectByProperty('uuid', mesh.uuid);
-            if (!object) continue
-            object.geometry.dispose();
-            object.material.dispose();
+            const object = this.scene?.getObjectByProperty('uuid', mesh.uuid);
+            if (!object) continue;
+            
+            // Não dispose de geometrias e materiais compartilhados
+            // Apenas remova o objeto da cena
             this.scene.remove(object);
         }
     }
@@ -437,19 +558,28 @@ class AddStreetViewControl {
             this.drawControl()
             this.setCurrentMouse()
             this.setCurrentPhotoName(data.camera.img)
+            
+            // Gerenciar texturas corretamente
+            if (this.material && this.material.map) {
+                this.material.map.dispose();
+            }
+            
             let texture = new THREE.TextureLoader().load(
                 `${this.IMAGES_LOCATION}/${data.camera.img}.jpg`,
                 (texture) => {
                     texture.colorSpace = THREE.SRGBColorSpace
-                    this.material.map = texture
+                    if (this.material) {
+                        this.material.map = texture
+                        this.material.needsUpdate = true
+                    }
                     this.offsetRad = THREE.MathUtils.degToRad(data.camera.fix_heading);
-                    this.mesh.rotation.y = this.offsetRad
+                    if (this.mesh) {
+                        this.mesh.rotation.y = this.offsetRad
+                    }
                     cb()
                 },
             );
-
         });
-
     }
 
     onPointerDown = (event) => {
@@ -459,13 +589,15 @@ class AddStreetViewControl {
         this.onPointerDownMouseY = event.clientY;
         this.mouse.x = event.clientX / window.innerWidth * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        var intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
-        if (intersects.length > 0) {
-            this.lastClickAt = intersects[0].point
+        if (this.raycaster && this.camera && this.scene) {
+            this.raycaster.setFromCamera(this.mouse, this.camera);
+            var intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
+            if (intersects.length > 0) {
+                this.lastClickAt = intersects[0].point
+            }
         }
-        document.addEventListener('pointermove', this.onPointerMove);
-        document.addEventListener('pointerup', this.onPointerUp);
+        this.addEventListenerWithTracking(document, 'pointermove', this.onPointerMove);
+        this.addEventListenerWithTracking(document, 'pointerup', this.onPointerUp);
     }
 
     onPointerMove = (event) => {
@@ -473,10 +605,12 @@ class AddStreetViewControl {
         let factor = (0.00005 * 1768) / window.innerWidth
         this.mouse.x = (this.onPointerDownMouseX - event.clientX) * factor
         this.mouse.y = (event.clientY - this.onPointerDownMouseY) * factor * 0.8
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        var intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
-        if (intersects.length > 0) {
-            this.currentLookAt = intersects[0].point
+        if (this.raycaster && this.camera && this.scene) {
+            this.raycaster.setFromCamera(this.mouse, this.camera);
+            var intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
+            if (intersects.length > 0) {
+                this.currentLookAt = intersects[0].point
+            }
         }
     }
 
@@ -488,28 +622,34 @@ class AddStreetViewControl {
     }
 
     onDocumentMouseWheel = (event) => {
-        if ($('#mini-map-street-view:hover').length == 1 || !this.isOpen) return
+        if ($('#mini-map-street-view:hover').length == 1 || !this.isOpen || !this.camera) return
         const fov = this.camera.fov + event.deltaY * 0.05;
         this.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
         this.camera.updateProjectionMatrix();
     }
 
     animate = () => {
-        requestAnimationFrame(this.animate)
-        this.update()
+        if (!this.isOpen) {
+            this.stopAnimationLoop();
+            return;
+        }
+        
+        this.animationFrameId = requestAnimationFrame(this.animate);
+        this.update();
     }
 
     update = () => {
+        if (!this.camera || !this.renderer || !this.scene) return;
+        
         let target = this.nextTarget || this.currentLookAt;
         if (target) {
-            this.setCurrentMouse()
-            this.drawControl()
-            this.setCurrentMouse()
+            this.setCurrentMouse();
+            this.drawControl();
+            this.setCurrentMouse();
             this.camera.lookAt(target.x, THREE.MathUtils.clamp(target.y, -360, 250), target.z);
-            
         }
-        this.nextTarget = null
-        this.currentLookAt = null
+        this.nextTarget = null;
+        this.currentLookAt = null;
         this.renderer.render(this.scene, this.camera);
     }
 
@@ -532,6 +672,8 @@ class AddStreetViewControl {
     }
 
     onWindowResize = () => {
+        if (!this.camera || !this.renderer) return;
+        
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -565,14 +707,17 @@ class AddStreetViewControl {
     };
 
     setCurrentMiniMap = () => {
+        if (!this.miniMap || !this.currentInfo) return;
+        
         var pt = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat])
         var buffered = turf.buffer(pt, 0.04)
         var bbox = turf.bbox(buffered)
         this.miniMap.fitBounds(bbox)
-        //miniMap2.zoomTo(19, {duration: 2000})
     }
 
     drawControl = () => {
+        if (!this.camera || !this.currentInfo || !this.arrows || this.arrows.length === 0) return;
+        
         for (let [idx, item] of this.arrows.entries()) {
             let arrow = item.arrow
             const heading = this.camera.rotation.y;
@@ -600,7 +745,6 @@ class AddStreetViewControl {
         }
     }
 
-
     loadPoint = (e) => {
         let f = this.getNeighbor(e.lngLat, this.photosGeojson.features)
         this.setFullMap(false)
@@ -612,46 +756,161 @@ class AddStreetViewControl {
     }
 
     showHoverCursor = () => {
-        this.map.getCanvas().style.cursor = 'pointer';
+        if (this.map) this.map.getCanvas().style.cursor = 'pointer';
     }
 
     hideHoverCursor = () => {
-        this.map.getCanvas().style.cursor = '';
+        if (this.map) this.map.getCanvas().style.cursor = '';
     }
 
     deactivate = () => {
         this.isActive = false;
-        this.changeButtonColor()
-        this.map.getCanvas().style.cursor = '';
-        this.hidePhotos()
-        $('#close-street-view-button').off('click', this.closeStreetView)
+        this.changeButtonColor();
+        if (this.map) this.map.getCanvas().style.cursor = '';
+        this.hidePhotos();
+        this.closeStreetView();
+        this.cleanupResources();
+        this.removeAllEventListeners();
+        this.removeMapListeners();
+    }
+
+    // Método para limpar todos os recursos
+    cleanupResources() {
+        // Parar o loop de animação
+        this.stopAnimationLoop();
+        
+        // Disposar objetos da cena
+        if (this.scene) {
+            this.disposeSceneObjects(this.scene);
+        }
+        
+        // Disposar texturas e materiais compartilhados
+        if (this.arrowTexture) {
+            this.arrowTexture.dispose();
+            this.arrowTexture = null;
+        }
+        
+        if (this.arrowMaterial) {
+            this.arrowMaterial.dispose();
+            this.arrowMaterial = null;
+        }
+        
+        if (this.arrowGeometry) {
+            this.arrowGeometry.dispose();
+            this.arrowGeometry = null;
+        }
+        
+        // Limpar controles
+        if (this.controls) {
+            this.controls.deactivate();
+            this.controls.dispose();
+            this.controls = null;
+        }
+        
+        // Limpar o renderer
+        if (this.renderer) {
+            // Não destrua o renderer completamente para reutilizá-lo
+            if (this.renderer.domElement && this.renderer.domElement.parentNode) {
+                this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+            }
+            // Optionally: this.renderer.dispose();
+            // this.renderer = null;
+        }
+        
+        // Remover event listeners
+        this.removeAllEventListeners();
+    }
+    
+    // Método para disposar objetos da cena
+    disposeSceneObjects(scene) {
+        if (!scene) return;
+        
+        // Primeiro limpe as arrows que são objetos específicos
+        this.cleanArrows(this.arrows.map(i => i.arrow));
+        this.arrows = [];
+        
+        // Remova mesh principal
+        if (this.mesh) {
+            scene.remove(this.mesh);
+            if (this.mesh.geometry) {
+                // Não destrua a geometria se estiver sendo reutilizada
+                // this.mesh.geometry.dispose();
+            }
+            
+            if (this.mesh.material) {
+                if (this.mesh.material.map) {
+                    this.mesh.material.map.dispose();
+                }
+                this.mesh.material.dispose();
+            }
+            this.mesh = null;
+        }
+        
+        // Percorra outros objetos da cena
+        scene.traverse((object) => {
+            if (object.isMesh) {
+                if (object.geometry && object.geometry !== this.arrowGeometry) {
+                    object.geometry.dispose();
+                }
+                
+                if (object.material) {
+                    if (Array.isArray(object.material)) {
+                        object.material.forEach(material => {
+                            if (material.map) material.map.dispose();
+                            if (material !== this.arrowMaterial) {
+                                material.dispose();
+                            }
+                        });
+                    } else {
+                        if (object.material.map) object.material.map.dispose();
+                        if (object.material !== this.arrowMaterial) {
+                            object.material.dispose();
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Limpar a cena
+        while (scene.children.length > 0) {
+            scene.remove(scene.children[0]);
+        }
     }
 
     closeStreetView = () => {
-        this.setFullMap(true)
-        this.isOpen = false
+        this.isOpen = false;
+        this.setFullMap(true);
+        this.stopAnimationLoop();
     }
 
     hidePhotos = () => {
-        this.map.off('click', 'street-view', this.loadPoint);
-
-        this.map.off('mouseenter', 'street-view', this.showHoverCursor);
-
-        this.map.off('mouseleave', 'street-view', this.hideHoverCursor);
-
-
-        this.map.getSource('lines-street-view').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
+        // Remover listeners de mapa
+        this.removeMapListeners();
+        
+        // Remover o minimap
+        if (this.miniMap) {
+            this.miniMap.remove();
+            this.miniMap = null;
+        }
+        
+        // Limpar dados do mapa
+        if (this.map && this.map.getSource('lines-street-view')) {
+            this.map.getSource('lines-street-view').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
+        
+        // Esconder elementos visuais
+        $('#mini-map-street-view').css({ display: 'none' });
     }
 
     handleMapClick(e) {
-
+        // Método vazio para compatibilidade com interface
     }
 
     handleMouseDown(e) {
-
+        // Método vazio para compatibilidade com interface
     }
 }
 

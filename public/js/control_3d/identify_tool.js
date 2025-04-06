@@ -3,6 +3,8 @@ import { map } from './map.js';
 import config from '../config.js';
 
 let isIdentifyActive = false;
+let clickListener = null;
+let closeButtonListener = null;
 
 function toggleIdentifyTool() {
     isIdentifyActive = !isIdentifyActive;
@@ -11,10 +13,12 @@ function toggleIdentifyTool() {
 
 function updateIdentifyButtonState() {
     const identifyButton = document.getElementById('identify-tool');
-    if (isIdentifyActive) {
-        identifyButton.classList.add('active-tool-3d');
-    } else {
-        identifyButton.classList.remove('active-tool-3d');
+    if (identifyButton) {
+        if (isIdentifyActive) {
+            identifyButton.classList.add('active-tool-3d');
+        } else {
+            identifyButton.classList.remove('active-tool-3d');
+        }
     }
 }
 
@@ -62,6 +66,9 @@ function fetchFeatureInfo(lon, lat, z) {
 }
 
 function displayFeatureInfo(featureData) {
+    // Primeiro, vamos limpar qualquer info existente
+    closeFeatureInfo();
+    
     const featureInfoElement = document.getElementById('feature-info');
     const featureInfoContent = document.getElementById('feature-info-content');
     
@@ -83,14 +90,65 @@ function displayFeatureInfo(featureData) {
 
 function closeFeatureInfo() {
     const featureInfoElement = document.getElementById('feature-info');
-    featureInfoElement.style.display = 'none';
+    if (featureInfoElement) {
+        featureInfoElement.style.display = 'none';
+        // Limpar o conteúdo para liberar memória
+        const featureInfoContent = document.getElementById('feature-info-content');
+        if (featureInfoContent) {
+            featureInfoContent.innerHTML = '';
+        }
+    }
     isIdentifyActive = false;
     updateIdentifyButtonState();
 }
 
 function initIdentifyTool() {
-    map.scene.canvas.addEventListener('click', handleFeatureClick);
-    document.getElementById('close-feature-info').addEventListener('click', closeFeatureInfo);
+    // Remover event listeners anteriores, se existirem
+    if (clickListener) {
+        map.scene.canvas.removeEventListener('click', clickListener);
+    }
+    
+    if (closeButtonListener) {
+        const closeButton = document.getElementById('close-feature-info');
+        if (closeButton) {
+            closeButton.removeEventListener('click', closeButtonListener);
+        }
+    }
+    
+    // Criar novos listeners e armazenar referências
+    clickListener = handleFeatureClick;
+    closeButtonListener = closeFeatureInfo;
+    
+    map.scene.canvas.addEventListener('click', clickListener);
+    
+    const closeButton = document.getElementById('close-feature-info');
+    if (closeButton) {
+        closeButton.addEventListener('click', closeButtonListener);
+    }
 }
 
-export { initIdentifyTool, toggleIdentifyTool, closeFeatureInfo };
+// Função para limpeza completa de recursos
+function cleanupIdentifyTool() {
+    // Desativar ferramenta
+    isIdentifyActive = false;
+    updateIdentifyButtonState();
+    
+    // Fechar e limpar informações
+    closeFeatureInfo();
+    
+    // Remover event listeners
+    if (clickListener) {
+        map.scene.canvas.removeEventListener('click', clickListener);
+        clickListener = null;
+    }
+    
+    if (closeButtonListener) {
+        const closeButton = document.getElementById('close-feature-info');
+        if (closeButton) {
+            closeButton.removeEventListener('click', closeButtonListener);
+        }
+        closeButtonListener = null;
+    }
+}
+
+export { initIdentifyTool, toggleIdentifyTool, closeFeatureInfo, cleanupIdentifyTool };

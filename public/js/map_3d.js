@@ -5,6 +5,9 @@ import { addViewField, clearAllViewField } from './control_3d/viewshed.js';
 import { initIdentifyTool, toggleIdentifyTool } from './control_3d/identify_tool.js';
 import config from './config.js';
 
+// Controle de renderização
+let renderingActive = false;
+
 // Load 3D models from configuration
 const tilesetLocations = {};
 for (let tilesetSetup of config.map3d.tilesets) {
@@ -14,6 +17,18 @@ for (let tilesetSetup of config.map3d.tilesets) {
 }
 
 const scene = map.scene;
+
+// Configuração de renderização otimizada
+map.scene.postRender.addEventListener(function() {
+    if (!renderingActive) {
+        // Se a renderização estiver desativada, defina uma taxa de atualização mínima
+        map.scene.requestRenderMode = true;
+        map.scene.maximumRenderTimeChange = Infinity;
+    } else {
+        // Quando ativo, permita renderização normal
+        map.scene.requestRenderMode = false;
+    }
+});
 
 // TOOLS
 const removeAllTools = () => {
@@ -64,11 +79,37 @@ export function handleClickGoTo() {
     }
 }
 
+// Funções de controle de renderização
+export function stopRendering() {
+    renderingActive = false;
+    // Remove event handler quando não estiver ativo
+    if (handler) {
+        handler.destroy();
+        handler = undefined;
+    }
+}
+
+export function resumeRendering() {
+    renderingActive = true;
+    
+    // Recria o handler de eventos se foi destruído
+    if (!handler) {
+        handler = new Cesium.ScreenSpaceEventHandler(map.canvas);
+        handler.setInputAction(function (event) {
+            var pickedPosition = map.scene.pickPosition(event.position);
+            if (Cesium.defined(pickedPosition)) {
+                var carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(pickedPosition);
+                var lon = Cesium.Math.toDegrees(carto.longitude);
+                var lat = Cesium.Math.toDegrees(carto.latitude);
+            }
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    }
+}
+
 $('#locate-3d-container button').click(handleClickGoTo);
 
 var handler = new Cesium.ScreenSpaceEventHandler(map.canvas);
 handler.setInputAction(function (event) {
-    var scratchRectangle = new Cesium.Rectangle();
     var pickedPosition = map.scene.pickPosition(event.position);
     if (Cesium.defined(pickedPosition)) {
         var carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(pickedPosition);
@@ -76,3 +117,10 @@ handler.setInputAction(function (event) {
         var lat = Cesium.Math.toDegrees(carto.latitude);
     }
 }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+// Por padrão, comece com renderização desativada se o modo 3D não estiver visível inicialmente
+if (document.getElementById('map-3d-container').style.display === 'none') {
+    stopRendering();
+} else {
+    resumeRendering();
+}
