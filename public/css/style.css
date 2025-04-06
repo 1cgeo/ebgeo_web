@@ -1658,3 +1658,58 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 .coordinates-cancel-button:hover {
     background-color: #e0e0e0;
 }
+
+/* Custom attributes styles */
+.custom-attributes-section {
+    margin-top: 15px;
+    border-top: 1px solid #eee;
+    padding-top: 10px;
+}
+
+.attributes-table-container {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+}
+
+.attributes-table-container table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.attributes-table-container th {
+    background-color: #f8f8f8;
+    text-align: left;
+    padding: 8px 5px;
+    font-weight: bold;
+    border-bottom: 2px solid #ddd;
+}
+
+.attributes-table-container td {
+    padding: 6px 5px;
+    border-bottom: 1px solid #eee;
+    word-break: break-word;
+}
+
+.attributes-table-container tr:hover {
+    background-color: #f5f5f5;
+}
+
+.visual-attributes-section {
+    margin-bottom: 15px;
+}
+
+/* Button styles for attribute actions */
+.attr-action-btn {
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px;
+    margin: 0 2px;
+}
+
+.attr-action-btn:hover {
+    opacity: 0.7;
+}

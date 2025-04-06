@@ -1,4 +1,6 @@
 // Path: js\controls_sig\draw_tool\feature_attributes_panel.js
+import { createCustomAttributesPanel } from './custom_attributes_editor.js';
+
 export function addFeatureAttributesToPanel(panel, selectedFeatures, featureControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) {
         return;
@@ -8,6 +10,16 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
 
     const commonAttributes = findCommonAttributes(selectedFeatures);
+
+    // Visual attributes section
+    const visualAttributesSection = document.createElement('div');
+    visualAttributesSection.className = 'visual-attributes-section';
+
+    const visualTitle = document.createElement('h4');
+    visualTitle.textContent = 'Atributos visuais';
+    visualTitle.style.marginTop = '5px';
+    visualTitle.style.marginBottom = '10px';
+    visualAttributesSection.appendChild(visualTitle);
 
     commonAttributes.forEach(attr => {
         if (attr === 'profile' && selectedFeatures.length !== 1) {
@@ -31,11 +43,20 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
         );
         container.append($("<div>", { class: "attr-name" }).append(attrLabel))
         container.append($("<div>", { class: "attr-input" }).append(elInput))
-        $(panel).append(container);
-
+        $(visualAttributesSection).append(container);
     });
 
+    panel.appendChild(visualAttributesSection);
+
+    // Add custom attributes section only for single feature selection
+    if (selectedFeatures.length === 1) {
+        createCustomAttributesPanel(panel, feature, featureControl);
+    }
+
+    // Button container
     const container = $("<div>", { class: "attr-container-row" });
+    container.css('margin-top', '15px');
+
     const saveButton = document.createElement('button');
     saveButton.classList.add('tool-button', 'pure-material-tool-button-contained')
     saveButton.textContent = 'Salvar';
@@ -64,8 +85,8 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
             selectionManager.deselectAllFeatures(true);
         };
         container.append(setDefaultButton)
-
     }
+    
     $(panel).append(container);
 }
 

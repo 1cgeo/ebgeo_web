@@ -17,7 +17,8 @@ class DrawControl {
                 measure: false,
                 profile: false,
                 profileData: null,
-                source: 'draw'
+                source: 'draw',
+                customAttributes: {}
             },
             linestring: {
                 color: '#fbb03b',
@@ -27,7 +28,8 @@ class DrawControl {
                 measure: false,
                 profile: false,
                 profileData: null,
-                source: 'draw'
+                source: 'draw',
+                customAttributes: {}
             },
             point: {
                 color: '#fbb03b',
@@ -37,7 +39,8 @@ class DrawControl {
                 measure: false,
                 profile: false,
                 profileData: null,
-                source: 'draw'
+                source: 'draw',
+                customAttributes: {}
             }
         };
         this.controlPosition = 'top-right';
@@ -248,7 +251,8 @@ class DrawControl {
             feature.properties.color !== initialProperties.color ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.size !== initialProperties.size ||
-            feature.properties.outlinecolor !== initialProperties.outlinecolor
+            feature.properties.outlinecolor !== initialProperties.outlinecolor ||
+            JSON.stringify(feature.properties.customAttributes) !== JSON.stringify(initialProperties.customAttributes)
         );
     }
 

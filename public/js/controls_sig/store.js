@@ -50,6 +50,11 @@ const recordAction = (action) => {
 };
 
 export const addFeature = (type, feature) => {
+    // Ensure feature has customAttributes if not already present
+    if (feature.properties && !feature.properties.customAttributes) {
+        feature.properties.customAttributes = {};
+    }
+    
     store.maps[store.currentMap].features[type].push(feature);
     recordAction({
         type: 'add',
@@ -65,6 +70,13 @@ export const addFeatures = (featuresByType) => {
     Object.keys(featuresByType).forEach(type => {
         const features = featuresByType[type];
         if (features && features.length > 0) {
+            // Ensure each feature has customAttributes
+            features.forEach(feature => {
+                if (feature.properties && !feature.properties.customAttributes) {
+                    feature.properties.customAttributes = {};
+                }
+            });
+            
             // Adiciona as features no store
             store.maps[store.currentMap].features[type].push(...features);
             
@@ -86,6 +98,14 @@ export const updateFeature = (type, feature) => {
     const index = store.maps[store.currentMap].features[type].findIndex(f => f.id == feature.id);
     if (index !== -1) {
         const oldFeature = store.maps[store.currentMap].features[type][index];
+        
+        // Ensure feature has customAttributes
+        if (feature.properties && !feature.properties.customAttributes && oldFeature.properties && oldFeature.properties.customAttributes) {
+            feature.properties.customAttributes = oldFeature.properties.customAttributes;
+        } else if (feature.properties && !feature.properties.customAttributes) {
+            feature.properties.customAttributes = {};
+        }
+        
         if (JSON.stringify(oldFeature) !== JSON.stringify(feature)) {
             store.maps[store.currentMap].features[type][index] = feature;
             recordAction({

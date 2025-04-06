@@ -13,21 +13,24 @@ class AddImportControl {
                 opacity: 1,
                 size: 10,
                 outlinecolor: '#fbb03b',
-                source: 'draw'
+                source: 'draw',
+                customAttributes: {}
             },
             linestring: {
                 color: '#fbb03b',
                 opacity: 0.7,
                 size: 7,
                 outlinecolor: '#fbb03b',
-                source: 'draw'
+                source: 'draw',
+                customAttributes: {}
             },
             polygon: {
                 color: '#fbb03b',
                 opacity: 0.5,
                 size: 3,
                 outlinecolor: '#fbb03b',
-                source: 'draw'
+                source: 'draw',
+                customAttributes: {}
             }
         };
     }
@@ -283,23 +286,45 @@ class AddImportControl {
             
             // Identificar tipo de geometria e aplicar propriedades apropriadas
             let geomType = feature.geometry.type.toLowerCase();
+            
+            // Extract custom attributes from the feature properties
+            const customAttributes = {};
+            if (feature.properties) {
+                // Filter out internal MapLibre properties
+                const excludeProps = ['id', 'mode', 'meta', 'active', 'user_color', 'user_opacity', 
+                                      'user_size', 'user_outlinecolor', 'source'];
+                
+                Object.entries(feature.properties).forEach(([key, value]) => {
+                    // Skip null values, standard properties we handle separately, and maplibre internal props
+                    if (value !== null && 
+                        !excludeProps.includes(key) && 
+                        key !== 'customAttributes' &&
+                        !key.startsWith('_') && 
+                        !key.startsWith('mapbox')) {
+                        customAttributes[key] = String(value); // Convert all values to strings
+                    }
+                });
+            }
 
             if (geomType === 'point' || geomType === 'multipoint') {
                 feature.properties = { 
                     ...this.defaultProperties.point,
-                    ...feature.properties 
+                    ...feature.properties,
+                    customAttributes
                 };
                 points.push(feature);
             } else if (geomType === 'linestring' || geomType === 'multilinestring') {
                 feature.properties = { 
                     ...this.defaultProperties.linestring,
-                    ...feature.properties 
+                    ...feature.properties,
+                    customAttributes
                 };
                 linestrings.push(feature);
             } else if (geomType === 'polygon' || geomType === 'multipolygon') {
                 feature.properties = { 
                     ...this.defaultProperties.polygon,
-                    ...feature.properties 
+                    ...feature.properties,
+                    customAttributes
                 };
                 polygons.push(feature);
             }

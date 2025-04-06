@@ -30,8 +30,21 @@ class SaveLoadControl {
         
             Object.keys(store.maps).forEach(key => {
                 const { undoStack, redoStack, ...mapData } = store.maps[key];
+                
+                // Ensure all features have customAttributes
+                if (mapData.features) {
+                    Object.keys(mapData.features).forEach(featureType => {
+                        mapData.features[featureType].forEach(feature => {
+                            if (feature.properties && !feature.properties.customAttributes) {
+                                feature.properties.customAttributes = {};
+                            }
+                        });
+                    });
+                }
+                
                 allData.maps[key] = mapData;
             });
+            
             saveToFile(allData, 'maps_data.ebgeo');
         });
 
@@ -44,6 +57,22 @@ class SaveLoadControl {
             const file = event.target.files[0];
             if (file) {
                 loadFromFile(file, (data) => {
+                    // Ensure all features have customAttributes property for backward compatibility
+                    Object.keys(data.maps).forEach(mapName => {
+                        const mapData = data.maps[mapName];
+                        if (mapData.features) {
+                            Object.keys(mapData.features).forEach(featureType => {
+                                mapData.features[featureType].forEach(feature => {
+                                    if (feature.properties) {
+                                        if (!feature.properties.customAttributes) {
+                                            feature.properties.customAttributes = {};
+                                        }
+                                    }
+                                });
+                            });
+                        }
+                    });
+                    
                     // Atualize o store com os dados carregados
                     store.maps = data.maps;
                     store.currentMap = data.currentMap;
