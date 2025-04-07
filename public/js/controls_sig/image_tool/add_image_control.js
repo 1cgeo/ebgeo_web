@@ -1,5 +1,6 @@
 // Path: js\controls_sig\image_tool\add_image_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { processImageFile } from '../utilities/image_processor.js';
 
 class AddImageControl {
     static DEFAULT_PROPERTIES = {
@@ -10,18 +11,11 @@ class AddImageControl {
         source: 'image'
     };
 
-    // Reduzir limites para melhorar performance
-    static MAX_IMAGE_DIMENSION = 600; // Reduzido de 800px para 600px
-    static MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024; // 5MB limite máximo de arquivo
-    static IMAGE_QUALITY = 0.5; // Reduzido de 0.7 para 0.5 (50% de qualidade)
-    static MOBILE_IMAGE_DIMENSION = 400; // Limite ainda menor para dispositivos móveis
-
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.toolManager.imageControl = this;
         this.isActive = false;
         this.processingImage = false; // Flag para evitar processamentos simultâneos
-        this.isMobile = window.matchMedia("(max-width: 768px)").matches;
         this.objectURLs = []; // Armazenar URLs de objetos para liberação posterior
     }
 
@@ -44,16 +38,7 @@ class AddImageControl {
         $('input[name="base-layer"]').on('change', this.changeButtonColor);
         this.changeButtonColor();
 
-        // Adicionar listener para detecção de mudança em dispositivos móveis
-        this.mediaQueryList = window.matchMedia("(max-width: 768px)");
-        this.mediaQueryList.addEventListener('change', this.handleDeviceChange);
-
         return this.container;
-    }
-
-    // Detectar mudanças de tipo de dispositivo
-    handleDeviceChange = (e) => {
-        this.isMobile = e.matches;
     }
 
     changeButtonColor = () => {
@@ -69,8 +54,6 @@ class AddImageControl {
             this.removeEventListeners();
             // Limpar todos os objectURLs criados
             this.revokeAllObjectURLs();
-            // Remover listener de media query
-            this.mediaQueryList.removeEventListener('change', this.handleDeviceChange);
             this.map = undefined;
         } catch (error) {
             console.error('Error removing AddImageControl:', error);
@@ -113,72 +96,28 @@ class AddImageControl {
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = 'image/*';
-            input.onchange = (event) => {
+            input.onchange = async (event) => {
                 const file = event.target.files[0];
-                
-                // Verificar tamanho do arquivo antes de processar
-                if (file.size > AddImageControl.MAX_IMAGE_FILE_SIZE) {
-                    alert(`A imagem é muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). O tamanho máximo é ${AddImageControl.MAX_IMAGE_FILE_SIZE / 1024 / 1024}MB.`);
-                    return;
-                }
+                if (!file) return;
                 
                 this.processingImage = true;
-                
-                // Mostrar indicador de carregamento (opcional)
                 this.map.getCanvas().style.cursor = 'wait';
                 
-                // Criar URL do objeto para preview
-                const objectURL = URL.createObjectURL(file);
-                this.objectURLs.push(objectURL);
-                
-                // Verificar dimensões antes do processamento completo
-                const img = new Image();
-                img.onload = () => {
-                    // Revogar o objectURL após o carregamento
-                    URL.revokeObjectURL(objectURL);
-                    this.objectURLs = this.objectURLs.filter(url => url !== objectURL);
-                    
-                    const { width, height } = img;
-                    const isVeryLarge = width > 2000 || height > 2000;
-                    
-                    // Ajustar qualidade baseado no tamanho da imagem
-                    const quality = isVeryLarge ? 0.4 : AddImageControl.IMAGE_QUALITY;
-                    
-                    // Processar a imagem com FileReader
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        this.processAndAddImage(e.lngLat, reader.result, quality);
-                    };
-                    reader.onerror = () => {
-                        console.error('Erro ao ler arquivo de imagem:', reader.error);
-                        this.processingImage = false;
-                        this.map.getCanvas().style.cursor = 'crosshair';
-                    };
-                    reader.readAsDataURL(file);
-                };
-                img.onerror = () => {
-                    URL.revokeObjectURL(objectURL);
-                    this.objectURLs = this.objectURLs.filter(url => url !== objectURL);
-                    console.error('Erro ao carregar imagem para verificação');
+                try {
+                    // Usar o utilitário de processamento de imagens
+                    const processedImage = await processImageFile(file);
+                    this.addImageFeature(e.lngLat, processedImage.imageBase64, processedImage.width, processedImage.height);
+                } catch (error) {
+                    console.error('Erro ao processar imagem:', error);
+                    alert(`Erro ao processar imagem: ${error.message}`);
+                } finally {
                     this.processingImage = false;
                     this.map.getCanvas().style.cursor = 'crosshair';
-                };
-                img.src = objectURL;
+                }
             };
             input.click();
             this.toolManager.deactivateCurrentTool();
         }
-    }
-
-    processAndAddImage = (lngLat, imageBase64, quality = AddImageControl.IMAGE_QUALITY) => {
-        // Usar setTimeout para não bloquear a thread principal
-        setTimeout(() => {
-            this.resizeImage(imageBase64, quality, (resizedImageBase64, width, height) => {
-                this.addImageFeature(lngLat, resizedImageBase64, width, height);
-                this.processingImage = false;
-                this.map.getCanvas().style.cursor = '';
-            });
-        }, 50);
     }
 
     addImageFeature = (lngLat, imageBase64, width, height) => {
@@ -197,71 +136,6 @@ class AddImageControl {
             };
             img.src = imageBase64;
         }
-    }
-
-    resizeImage = (imageBase64, quality = AddImageControl.IMAGE_QUALITY, callback) => {
-        // Determinar tamanho máximo com base no dispositivo
-        const maxDimension = this.isMobile ? 
-            AddImageControl.MOBILE_IMAGE_DIMENSION : AddImageControl.MAX_IMAGE_DIMENSION;
-            
-        const img = new Image();
-        img.onload = () => {
-            let { width, height } = img;
-            const aspectRatio = width / height;
-
-            // Verificar se redimensionamento é necessário
-            if (width > maxDimension || height > maxDimension) {
-                if (width > height) {
-                    width = maxDimension;
-                    height = Math.round(width / aspectRatio);
-                } else {
-                    height = maxDimension;
-                    width = Math.round(height * aspectRatio);
-                }
-            }
-
-            const canvas = document.createElement('canvas');
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            
-            // Limpar o canvas para fundo transparente
-            ctx.clearRect(0, 0, width, height);
-            
-            // Desenhar a imagem
-            ctx.drawImage(img, 0, 0, width, height);
-
-            // Determinar o tipo de imagem
-            let imageType = 'image/png';  // Default para PNG que suporta transparência
-            if (imageBase64.startsWith('data:image/jpeg')) {
-                imageType = 'image/jpeg';
-            } else if (imageBase64.startsWith('data:image/gif')) {
-                imageType = 'image/gif';
-            }
-            
-            // Usar menor qualidade para JPEGs para reduzir tamanho
-            const finalQuality = imageType === 'image/jpeg' ? quality : 0.8;
-            
-            // Usar o tipo original, defaulting para PNG
-            const resizedImageBase64 = canvas.toDataURL(imageType, finalQuality);
-            
-            // Liberar memória
-            canvas.width = 1;
-            canvas.height = 1;
-            ctx.clearRect(0, 0, 1, 1);
-            
-            callback(resizedImageBase64, width, height);
-        };
-        
-        // Tratamento de erro
-        img.onerror = () => {
-            console.error('Erro ao carregar imagem para redimensionamento');
-            this.processingImage = false;
-            this.map.getCanvas().style.cursor = '';
-            callback(imageBase64, 100, 100); // Fallback para evitar quebra da aplicação
-        };
-        
-        img.src = imageBase64;
     }
 
     createImageFeature = (lngLat, imageId, imageBase64, width, height) => {

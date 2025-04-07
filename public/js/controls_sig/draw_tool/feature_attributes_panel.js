@@ -1,5 +1,6 @@
 // Path: js\controls_sig\draw_tool\feature_attributes_panel.js
 import { createCustomAttributesPanel } from './custom_attributes_editor.js';
+import { processImageFile } from '../utilities/image_processor.js';
 
 export function addFeatureAttributesToPanel(panel, selectedFeatures, featureControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) {
@@ -10,6 +11,31 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
 
     const commonAttributes = findCommonAttributes(selectedFeatures);
+
+    // Nome da feição (apenas para seleção única)
+    if (selectedFeatures.length === 1) {
+        const nameSection = document.createElement('div');
+        nameSection.className = 'feature-name-section';
+        
+        const nameTitle = document.createElement('h4');
+        nameTitle.textContent = 'Nome da feição';
+        nameTitle.style.marginTop = '5px';
+        nameTitle.style.marginBottom = '10px';
+        nameSection.appendChild(nameTitle);
+        
+        const nameContainer = $("<div>", { class: "attr-container-row" });
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.value = feature.properties.name || '';
+        nameInput.placeholder = 'Nome da feição';
+        nameInput.oninput = (e) => {
+            featureControl.updateFeaturesProperty(selectedFeatures, 'name', e.target.value);
+        };
+        
+        nameContainer.append($("<div>", { class: "attr-input", style: "width: 100%" }).append(nameInput));
+        nameSection.appendChild(nameContainer[0]);
+        panel.appendChild(nameSection);
+    }
 
     // Visual attributes section
     const visualAttributesSection = document.createElement('div');
@@ -48,8 +74,118 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
 
     panel.appendChild(visualAttributesSection);
 
-    // Add custom attributes section only for single feature selection
+    // Add feature images section (only for single feature selection)
     if (selectedFeatures.length === 1) {
+        const imagesSection = document.createElement('div');
+        imagesSection.className = 'feature-images-section';
+        
+        const imagesTitle = document.createElement('h4');
+        imagesTitle.textContent = 'Imagens associadas';
+        imagesTitle.style.marginTop = '15px';
+        imagesTitle.style.marginBottom = '10px';
+        imagesSection.appendChild(imagesTitle);
+        
+        // Container para mostrar as imagens
+        const imagesContainer = document.createElement('div');
+        imagesContainer.className = 'feature-images-container';
+        imagesContainer.style.display = 'flex';
+        imagesContainer.style.flexWrap = 'wrap';
+        imagesContainer.style.gap = '10px';
+        imagesContainer.style.marginBottom = '10px';
+        
+        // Verificar se já existem imagens
+        if (feature.properties.images && feature.properties.images.length > 0) {
+            feature.properties.images.forEach((image, index) => {
+                const imageWrapper = document.createElement('div');
+                imageWrapper.className = 'image-thumbnail-wrapper';
+                imageWrapper.style.position = 'relative';
+                imageWrapper.style.width = '80px';
+                imageWrapper.style.height = '80px';
+                
+                const img = document.createElement('img');
+                img.src = image.imageBase64;
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'cover';
+                img.style.borderRadius = '4px';
+                
+                const removeButton = document.createElement('button');
+                removeButton.innerHTML = '&times;';
+                removeButton.className = 'image-remove-button';
+                removeButton.style.position = 'absolute';
+                removeButton.style.top = '2px';
+                removeButton.style.right = '2px';
+                removeButton.style.background = 'rgba(255, 0, 0, 0.7)';
+                removeButton.style.color = 'white';
+                removeButton.style.border = 'none';
+                removeButton.style.borderRadius = '50%';
+                removeButton.style.width = '20px';
+                removeButton.style.height = '20px';
+                removeButton.style.cursor = 'pointer';
+                removeButton.style.display = 'flex';
+                removeButton.style.justifyContent = 'center';
+                removeButton.style.alignItems = 'center';
+                removeButton.style.padding = '0';
+                
+                removeButton.onclick = () => {
+                    const updatedImages = [...feature.properties.images];
+                    updatedImages.splice(index, 1);
+                    featureControl.updateFeaturesProperty(selectedFeatures, 'images', updatedImages);
+                    imageWrapper.remove();
+                };
+                
+                imageWrapper.appendChild(img);
+                imageWrapper.appendChild(removeButton);
+                imagesContainer.appendChild(imageWrapper);
+            });
+        } else {
+            const noImagesMsg = document.createElement('p');
+            noImagesMsg.textContent = 'Nenhuma imagem associada';
+            noImagesMsg.style.fontStyle = 'italic';
+            noImagesMsg.style.opacity = '0.7';
+            imagesContainer.appendChild(noImagesMsg);
+        }
+        
+        imagesSection.appendChild(imagesContainer);
+        
+        // Botão para adicionar imagem
+        const addImageButton = document.createElement('button');
+        addImageButton.classList.add('tool-button', 'pure-material-tool-button-contained');
+        addImageButton.textContent = 'Adicionar imagem';
+        addImageButton.onclick = () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.onchange = async (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                
+                try {
+                    // Usar o utilitário de processamento de imagens
+                    const processedImage = await processImageFile(file);
+                    
+                    // Adicionar à lista de imagens da feição
+                    const updatedImages = [...(feature.properties.images || [])];
+                    updatedImages.push({ 
+                        id: Date.now().toString(),
+                        ...processedImage
+                    });
+                    
+                    featureControl.updateFeaturesProperty(selectedFeatures, 'images', updatedImages);
+                    
+                    // Atualizar UI
+                    addFeatureAttributesToPanel(panel, selectedFeatures, featureControl, selectionManager, uiManager);
+                } catch (error) {
+                    alert(`Erro ao processar imagem: ${error.message}`);
+                }
+            };
+            input.click();
+        };
+        
+        imagesSection.appendChild(addImageButton);
+        panel.appendChild(imagesSection);
+        
+        // Add custom attributes section
         createCustomAttributesPanel(panel, feature, featureControl);
     }
 
