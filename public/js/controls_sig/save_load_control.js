@@ -7,7 +7,7 @@ class SaveLoadControl {
         this.mapControl = mapControl;
         this.baseLayerControl = baseLayerControl;
     }
-
+    
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
@@ -31,12 +31,21 @@ class SaveLoadControl {
             Object.keys(store.maps).forEach(key => {
                 const { undoStack, redoStack, ...mapData } = store.maps[key];
                 
-                // Ensure all features have customAttributes
+                // Ensure all features have required properties
                 if (mapData.features) {
                     Object.keys(mapData.features).forEach(featureType => {
                         mapData.features[featureType].forEach(feature => {
-                            if (feature.properties && !feature.properties.customAttributes) {
-                                feature.properties.customAttributes = {};
+                            if (feature.properties) {
+                                if (!feature.properties.customAttributes) {
+                                    feature.properties.customAttributes = {};
+                                }
+                                // Garantir que name e images existam
+                                if (feature.properties.name === undefined) {
+                                    feature.properties.name = '';
+                                }
+                                if (!feature.properties.images) {
+                                    feature.properties.images = [];
+                                }
                             }
                         });
                     });
@@ -57,7 +66,7 @@ class SaveLoadControl {
             const file = event.target.files[0];
             if (file) {
                 loadFromFile(file, (data) => {
-                    // Ensure all features have customAttributes property for backward compatibility
+                    // Ensure all features have required properties for backward compatibility
                     Object.keys(data.maps).forEach(mapName => {
                         const mapData = data.maps[mapName];
                         if (mapData.features) {
@@ -66,6 +75,13 @@ class SaveLoadControl {
                                     if (feature.properties) {
                                         if (!feature.properties.customAttributes) {
                                             feature.properties.customAttributes = {};
+                                        }
+                                        // Garantir que name e images existam
+                                        if (feature.properties.name === undefined) {
+                                            feature.properties.name = '';
+                                        }
+                                        if (!feature.properties.images) {
+                                            feature.properties.images = [];
                                         }
                                     }
                                 });

@@ -14,7 +14,9 @@ class AddImportControl {
                 size: 10,
                 outlinecolor: '#fbb03b',
                 source: 'draw',
-                customAttributes: {}
+                customAttributes: {},
+                name: '',
+                images: []
             },
             linestring: {
                 color: '#fbb03b',
@@ -22,7 +24,9 @@ class AddImportControl {
                 size: 7,
                 outlinecolor: '#fbb03b',
                 source: 'draw',
-                customAttributes: {}
+                customAttributes: {},
+                name: '',
+                images: []
             },
             polygon: {
                 color: '#fbb03b',
@@ -30,7 +34,9 @@ class AddImportControl {
                 size: 3,
                 outlinecolor: '#fbb03b',
                 source: 'draw',
-                customAttributes: {}
+                customAttributes: {},
+                name: '',
+                images: []
             }
         };
     }
@@ -310,21 +316,27 @@ class AddImportControl {
                 feature.properties = { 
                     ...this.defaultProperties.point,
                     ...feature.properties,
-                    customAttributes
+                    customAttributes,
+                    name: '',
+                    images: []
                 };
                 points.push(feature);
             } else if (geomType === 'linestring' || geomType === 'multilinestring') {
                 feature.properties = { 
                     ...this.defaultProperties.linestring,
                     ...feature.properties,
-                    customAttributes
+                    customAttributes,
+                    name: '',
+                    images: []
                 };
                 linestrings.push(feature);
             } else if (geomType === 'polygon' || geomType === 'multipolygon') {
                 feature.properties = { 
                     ...this.defaultProperties.polygon,
                     ...feature.properties,
-                    customAttributes
+                    customAttributes,
+                    name: '',
+                    images: []
                 };
                 polygons.push(feature);
             }
