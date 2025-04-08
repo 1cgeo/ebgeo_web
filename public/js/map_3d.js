@@ -8,6 +8,31 @@ import config from './config.js';
 // Controle de renderização
 let renderingActive = false;
 
+// Configurações de desempenho recomendadas
+function applyPerformanceSettings(active) {
+    if (active) {
+        // Quando ativo - balancear desempenho e qualidade visual
+        map.scene.requestRenderMode = true;
+        map.scene.maximumRenderTimeChange = 0.1; // Renderização periódica moderada
+        
+        // Antialiasing para melhor qualidade visual
+        map.scene.postProcessStages.fxaa.enabled = true;
+        
+        // Iluminação para melhor percepção 3D
+        map.scene.globe.enableLighting = true;
+        
+        // Névoa para melhor integração com o horizonte
+        map.scene.fog.enabled = true;
+        
+        // Sombras desativadas por padrão para melhor desempenho
+        map.shadows = false;
+    } else {
+        // Quando inativo - minimizar uso de recursos
+        map.scene.requestRenderMode = true;
+        map.scene.maximumRenderTimeChange = Infinity; // Renderização apenas quando necessário
+    }
+}
+
 // Load 3D models from configuration
 const tilesetLocations = {};
 for (let tilesetSetup of config.map3d.tilesets) {
@@ -17,18 +42,6 @@ for (let tilesetSetup of config.map3d.tilesets) {
 }
 
 const scene = map.scene;
-
-// Configuração de renderização otimizada
-map.scene.postRender.addEventListener(function() {
-    if (!renderingActive) {
-        // Se a renderização estiver desativada, defina uma taxa de atualização mínima
-        map.scene.requestRenderMode = true;
-        map.scene.maximumRenderTimeChange = Infinity;
-    } else {
-        // Quando ativo, permita renderização normal
-        map.scene.requestRenderMode = false;
-    }
-});
 
 // TOOLS
 const removeAllTools = () => {
@@ -60,6 +73,9 @@ export function activeTool() {
             case 'identify-tool':
                 toggleIdentifyTool();
                 break;
+            case 'limpar':
+                removeAllTools();
+                break;
         }
     }
 }
@@ -82,6 +98,8 @@ export function handleClickGoTo() {
 // Funções de controle de renderização
 export function stopRendering() {
     renderingActive = false;
+    applyPerformanceSettings(false);
+    
     // Remove event handler quando não estiver ativo
     if (handler) {
         handler.destroy();
@@ -91,6 +109,7 @@ export function stopRendering() {
 
 export function resumeRendering() {
     renderingActive = true;
+    applyPerformanceSettings(true);
     
     // Recria o handler de eventos se foi destruído
     if (!handler) {
@@ -107,6 +126,7 @@ export function resumeRendering() {
 }
 
 $('#locate-3d-container button').click(handleClickGoTo);
+$('#limpar').click(removeAllTools);
 
 var handler = new Cesium.ScreenSpaceEventHandler(map.canvas);
 handler.setInputAction(function (event) {
@@ -124,3 +144,6 @@ if (document.getElementById('map-3d-container').style.display === 'none') {
 } else {
     resumeRendering();
 }
+
+// Aplicar configurações iniciais
+applyPerformanceSettings(renderingActive);
