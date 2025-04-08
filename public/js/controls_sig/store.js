@@ -1,91 +1,130 @@
 // Path: js\controls_sig\store.js
+// Versão otimizada com melhor gerenciamento de memória
+
+// Constantes para tipos de features
+const FEATURE_TYPES = {
+    POLYGON: 'polygons',
+    LINESTRING: 'linestrings',
+    POINT: 'points',
+    TEXT: 'texts',
+    IMAGE: 'images',
+    LOS: 'los',
+    VISIBILITY: 'visibility',
+    PROCESSED_LOS: 'processed_los',
+    PROCESSED_VISIBILITY: 'processed_visibility'
+};
+
+// Limite para o histórico de ações
+const MAX_HISTORY_SIZE = 20;
+
+// Store principal otimizado
 const store = {
     maps: {
-        'Principal': {
-            baseLayer: 'Carta',
-            features: {
-                polygons: [],
-                linestrings: [],
-                points: [],
-                texts: [],
-                images: [],
-                los: [],
-                visibility: [],
-                processed_los: [],
-                processed_visibility: []
-            },
-            undoStack: [],
-            redoStack: [],
-            zoom: null,
-            center_lat: null,
-            center_long: null
-        }
+        'Principal': createDefaultMap()
     },
     currentMap: 'Principal',
     isUndoing: false,
     isRedoing: false,
 };
 
+// Criar mapa padrão
+function createDefaultMap() {
+    return {
+        baseLayer: 'Carta',
+        features: initializeFeatureContainers(),
+        undoStack: [],
+        redoStack: [],
+        zoom: null,
+        center_lat: null,
+        center_long: null
+    };
+}
+
+// Inicializar contêineres para cada tipo de feature
+function initializeFeatureContainers() {
+    const containers = {};
+    Object.values(FEATURE_TYPES).forEach(type => {
+        containers[type] = [];
+    });
+    return containers;
+}
+
+// API Pública
 export const updateMapPosition = (center_lat, center_long, zoom) => {
     const currentMap = store.maps[store.currentMap];
-    currentMap.center_lat = center_lat
-    currentMap.center_long = center_long
-    currentMap.zoom = zoom
-}
+    currentMap.center_lat = center_lat;
+    currentMap.center_long = center_long;
+    currentMap.zoom = zoom;
+};
 
 export const getMapPosition = () => {
     const currentMap = store.maps[store.currentMap];
-    return {center_lat: currentMap.center_lat, center_long: currentMap.center_long, zoom: currentMap.zoom}
-}
+    return {
+        center_lat: currentMap.center_lat, 
+        center_long: currentMap.center_long, 
+        zoom: currentMap.zoom
+    };
+};
 
+// Registrar ação no histórico com limite de tamanho
 const recordAction = (action) => {
     const currentMap = store.maps[store.currentMap];
+    
     if (!store.isUndoing && !store.isRedoing) {
         currentMap.undoStack.push(action);
-        if (currentMap.undoStack.length > 20) {
-            currentMap.undoStack.shift(); // Remove the oldest action if stack exceeds 20
+        
+        // Limitar tamanho do histórico
+        if (currentMap.undoStack.length > MAX_HISTORY_SIZE) {
+            currentMap.undoStack.shift();
         }
-        currentMap.redoStack = []; // Clear the redo stack when a new action is performed
+        
+        // Limpar pilha de refazer
+        currentMap.redoStack = [];
     }
 };
 
-export const addFeature = (type, feature) => {
-    // Ensure feature has customAttributes if not already present
-    if (feature.properties && !feature.properties.customAttributes) {
-        feature.properties.customAttributes = {};
+// Garantir que features tenham customAttributes
+const ensureCustomAttributes = (feature) => {
+    if (feature.properties) {
+        if (!feature.properties.customAttributes) {
+            feature.properties.customAttributes = {};
+        }
     }
+    return feature;
+};
+
+// Adição de feature com validação
+export const addFeature = (type, feature) => {
+    feature = ensureCustomAttributes(feature);
     
-    store.maps[store.currentMap].features[type].push(feature);
+    const features = store.maps[store.currentMap].features[type];
+    features.push(feature);
+    
     recordAction({
         type: 'add',
         featureType: type,
-        feature: JSON.parse(JSON.stringify(feature))
+        feature: structuredClone(feature) // Usar structuredClone para cópia profunda
     });
 };
 
+// Adição de múltiplas features em batch
 export const addFeatures = (featuresByType) => {
     const recordData = {};
     
-    // Para cada tipo de feature (points, linestrings, polygons, etc.)
-    Object.keys(featuresByType).forEach(type => {
-        const features = featuresByType[type];
-        if (features && features.length > 0) {
-            // Ensure each feature has customAttributes
-            features.forEach(feature => {
-                if (feature.properties && !feature.properties.customAttributes) {
-                    feature.properties.customAttributes = {};
-                }
-            });
-            
-            // Adiciona as features no store
-            store.maps[store.currentMap].features[type].push(...features);
-            
-            // Guarda cópias para o histórico
-            recordData[type] = JSON.parse(JSON.stringify(features));
-        }
+    Object.entries(featuresByType).forEach(([type, features]) => {
+        if (!features || features.length === 0) return;
+        
+        // Garantir customAttributes em todas as features
+        features.forEach(ensureCustomAttributes);
+        
+        // Adicionar ao store
+        store.maps[store.currentMap].features[type].push(...features);
+        
+        // Clonar para histórico
+        recordData[type] = structuredClone(features);
     });
     
-    // Registra uma única ação no histórico para todas as features
+    // Registrar ação única para todas as features
     if (Object.keys(recordData).length > 0) {
         recordAction({
             type: 'addMultiple',
@@ -94,65 +133,80 @@ export const addFeatures = (featuresByType) => {
     }
 };
 
+// Atualização de feature com comparação de igualdade
 export const updateFeature = (type, feature) => {
-    const index = store.maps[store.currentMap].features[type].findIndex(f => f.id == feature.id);
-    if (index !== -1) {
-        const oldFeature = store.maps[store.currentMap].features[type][index];
+    const features = store.maps[store.currentMap].features[type];
+    const index = features.findIndex(f => f.id == feature.id);
+    
+    if (index === -1) return;
+    
+    const oldFeature = features[index];
+    
+    // Garantir customAttributes
+    feature = ensureCustomAttributes(feature);
+    
+    // Verificar se houve mudança real
+    if (JSON.stringify(oldFeature) !== JSON.stringify(feature)) {
+        // Armazenar cópia do estado antigo e novo
+        const oldFeatureCopy = structuredClone(oldFeature);
+        const newFeatureCopy = structuredClone(feature);
         
-        // Ensure feature has customAttributes
-        if (feature.properties && !feature.properties.customAttributes && oldFeature.properties && oldFeature.properties.customAttributes) {
-            feature.properties.customAttributes = oldFeature.properties.customAttributes;
-        } else if (feature.properties && !feature.properties.customAttributes) {
-            feature.properties.customAttributes = {};
-        }
+        // Atualizar feature
+        features[index] = feature;
         
-        if (JSON.stringify(oldFeature) !== JSON.stringify(feature)) {
-            store.maps[store.currentMap].features[type][index] = feature;
-            recordAction({
-                type: 'update',
-                featureType: type,
-                oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                newFeature: JSON.parse(JSON.stringify(feature))
-            });
-        }
-    }
-};
-
-export const removeFeature = (type, id) => {
-    const featureIndex = store.maps[store.currentMap].features[type].findIndex(f => f.id == id);
-    if (featureIndex !== -1) {
-        const feature = store.maps[store.currentMap].features[type].splice(featureIndex, 1)[0];
+        // Registrar ação
         recordAction({
-            type: 'remove',
+            type: 'update',
             featureType: type,
-            feature: JSON.parse(JSON.stringify(feature))
+            oldFeature: oldFeatureCopy,
+            newFeature: newFeatureCopy
         });
     }
 };
 
-// Nova função para remover múltiplas features com uma única entrada no histórico
+// Remoção de feature
+export const removeFeature = (type, id) => {
+    const features = store.maps[store.currentMap].features[type];
+    const index = features.findIndex(f => f.id == id);
+    
+    if (index === -1) return;
+    
+    // Armazenar cópia da feature removida
+    const feature = structuredClone(features[index]);
+    
+    // Remover feature
+    features.splice(index, 1);
+    
+    // Registrar ação
+    recordAction({
+        type: 'remove',
+        featureType: type,
+        feature: feature
+    });
+};
+
+// Remoção de múltiplas features em batch
 export const removeFeatures = (featureIds) => {
     const removedFeatures = {};
     
-    // Para cada tipo de feature e seus IDs a serem removidos
-    Object.keys(featureIds).forEach(type => {
-        const ids = featureIds[type];
-        if (ids && ids.length > 0) {
-            removedFeatures[type] = [];
-            
-            // Remove cada feature e guarda para o histórico
-            ids.forEach(id => {
-                const featureIndex = store.maps[store.currentMap].features[type].findIndex(f => f.id == id);
-                if (featureIndex !== -1) {
-                    const feature = store.maps[store.currentMap].features[type].splice(featureIndex, 1)[0];
-                    removedFeatures[type].push(JSON.parse(JSON.stringify(feature)));
-                }
-            });
-        }
+    Object.entries(featureIds).forEach(([type, ids]) => {
+        if (!ids || ids.length === 0) return;
+        
+        const features = store.maps[store.currentMap].features[type];
+        removedFeatures[type] = [];
+        
+        ids.forEach(id => {
+            const index = features.findIndex(f => f.id == id);
+            if (index !== -1) {
+                const feature = structuredClone(features[index]);
+                features.splice(index, 1);
+                removedFeatures[type].push(feature);
+            }
+        });
     });
     
-    // Registra uma única ação no histórico
-    if (Object.keys(removedFeatures).some(type => removedFeatures[type].length > 0)) {
+    // Registrar ação única para todas as remoções
+    if (Object.values(removedFeatures).some(arr => arr.length > 0)) {
         recordAction({
             type: 'removeMultiple',
             features: removedFeatures
@@ -160,26 +214,9 @@ export const removeFeatures = (featureIds) => {
     }
 };
 
+// Gerenciamento de mapas
 export const addMap = (mapName, mapData = null) => {
-    store.maps[mapName] = mapData || {
-        baseLayer: 'Carta',
-        features: {
-            polygons: [],
-            linestrings: [],
-            points: [],
-            texts: [],
-            images: [],
-            los: [],
-            visibility: [],
-            processed_los: [],
-            processed_visibility: []
-        },
-        undoStack: [],
-        redoStack: [],
-        zoom: null,
-        center_lat: null,
-        center_long: null
-    };
+    store.maps[mapName] = mapData || createDefaultMap();
 };
 
 export const removeMap = (mapName) => {
@@ -200,8 +237,21 @@ export const setCurrentMap = (mapName) => {
     store.currentMap = mapName;
 };
 
+// Memoizar o resultado para evitar cópias desnecessárias
+let cachedMapFeatures = null;
+let cachedMapName = null;
+
 export const getCurrentMapFeatures = () => {
-    return JSON.parse(JSON.stringify(store.maps[store.currentMap].features));
+    // Verificar se já existe um cache válido
+    if (cachedMapName === store.currentMap && cachedMapFeatures) {
+        return cachedMapFeatures;
+    }
+    
+    // Criar uma cópia profunda das features
+    cachedMapFeatures = structuredClone(store.maps[store.currentMap].features);
+    cachedMapName = store.currentMap;
+    
+    return cachedMapFeatures;
 };
 
 export const getCurrentBaseLayer = () => {
@@ -212,6 +262,7 @@ export const setBaseLayer = (layer) => {
     store.maps[store.currentMap].baseLayer = layer;
 };
 
+// Desfazer ação
 export const undoLastAction = () => {
     const currentMap = store.maps[store.currentMap];
     const lastAction = currentMap.undoStack.pop();
@@ -231,36 +282,39 @@ export const undoLastAction = () => {
             addFeature(lastAction.featureType, lastAction.feature);
             break;
         case 'addMultiple':
-            // Para desfazer addMultiple, removemos todas as features que foram adicionadas
+            // Desfazer adição múltipla
             const featureIdsToRemove = {};
-            Object.keys(lastAction.features).forEach(type => {
-                featureIdsToRemove[type] = lastAction.features[type].map(f => f.id);
+            Object.entries(lastAction.features).forEach(([type, features]) => {
+                featureIdsToRemove[type] = features.map(f => f.id);
             });
             
-            // Removemos sem registrar no histórico (isUndoing = true)
-            Object.keys(featureIdsToRemove).forEach(type => {
-                featureIdsToRemove[type].forEach(id => {
-                    const featureIndex = currentMap.features[type].findIndex(f => f.id == id);
-                    if (featureIndex !== -1) {
-                        currentMap.features[type].splice(featureIndex, 1);
+            // Remover sem registrar histórico
+            Object.entries(featureIdsToRemove).forEach(([type, ids]) => {
+                const features = currentMap.features[type];
+                for (let i = features.length - 1; i >= 0; i--) {
+                    if (ids.includes(features[i].id)) {
+                        features.splice(i, 1);
                     }
-                });
+                }
             });
             break;
         case 'removeMultiple':
-            // Para desfazer removeMultiple, adicionamos de volta todas as features que foram removidas
-            Object.keys(lastAction.features).forEach(type => {
-                currentMap.features[type].push(...lastAction.features[type]);
+            // Desfazer remoção múltipla
+            Object.entries(lastAction.features).forEach(([type, features]) => {
+                currentMap.features[type].push(...features);
             });
             break;
-        default:
-            break;
     }
+
+    // Limpar cache para forçar recriação
+    cachedMapName = null;
+    cachedMapFeatures = null;
 
     store.isUndoing = false;
     return true;
 };
 
+// Refazer ação
 export const redoLastAction = () => {
     const currentMap = store.maps[store.currentMap];
     const lastUndoneAction = currentMap.redoStack.pop();
@@ -280,40 +334,44 @@ export const redoLastAction = () => {
             removeFeature(lastUndoneAction.featureType, lastUndoneAction.feature.id);
             break;
         case 'addMultiple':
-            // Para refazer addMultiple, adicionamos novamente todas as features
-            Object.keys(lastUndoneAction.features).forEach(type => {
-                currentMap.features[type].push(...lastUndoneAction.features[type]);
+            // Refazer adição múltipla
+            Object.entries(lastUndoneAction.features).forEach(([type, features]) => {
+                currentMap.features[type].push(...features);
             });
             break;
         case 'removeMultiple':
-            // Para refazer removeMultiple, removemos novamente todas as features
-            Object.keys(lastUndoneAction.features).forEach(type => {
-                lastUndoneAction.features[type].forEach(feature => {
-                    const featureIndex = currentMap.features[type].findIndex(f => f.id == feature.id);
-                    if (featureIndex !== -1) {
-                        currentMap.features[type].splice(featureIndex, 1);
+            // Refazer remoção múltipla
+            Object.entries(lastUndoneAction.features).forEach(([type, features]) => {
+                features.forEach(feature => {
+                    const index = currentMap.features[type].findIndex(f => f.id == feature.id);
+                    if (index !== -1) {
+                        currentMap.features[type].splice(index, 1);
                     }
                 });
             });
             break;
-        default:
-            break;
     }
+
+    // Limpar cache para forçar recriação
+    cachedMapName = null;
+    cachedMapFeatures = null;
 
     store.isRedoing = false;
     return true;
 };
 
 export const hasUnsavedData = () => {
-    const maps = store.maps;
-    for (const mapName in maps) {
-        const features = maps[mapName].features;
-        for (const featureType in features) {
-            if (features[featureType].length > 0) {
-                return true;
-            }
-        }
+    for (const mapName in store.maps) {
+        const features = store.maps[mapName].features;
+        
+        // Verificar se há features em qualquer contêiner
+        const hasFeatures = Object.values(features).some(
+            container => container.length > 0
+        );
+        
+        if (hasFeatures) return true;
     }
+    
     return false;
 };
 
