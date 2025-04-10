@@ -1713,3 +1713,56 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 .attr-action-btn:hover {
     opacity: 0.7;
 }
+
+.save-options-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 220px;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    padding: 8px 0;
+}
+
+.save-options-menu .menu-button {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.save-options-menu .menu-button:hover {
+    background-color: #f0f0f0;
+}
+
+.save-load-buttons {
+    display: flex;
+    flex-direction: row;
+}
+
+.menu-divider {
+    border: none;
+    border-top: 1px solid #eee;
+    margin: 4px 0;
+}
+
+.storage-info {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #666;
+    text-align: center;
+}
+
+#autosave-status-icon {
+    margin-right: 5px;
+    display: inline-block;
+    width: 12px;
+}

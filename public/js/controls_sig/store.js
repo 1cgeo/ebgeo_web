@@ -1,5 +1,4 @@
 // Path: js\controls_sig\store.js
-// Versão otimizada com melhor gerenciamento de memória
 
 // Constantes para tipos de features
 const FEATURE_TYPES = {
@@ -17,6 +16,11 @@ const FEATURE_TYPES = {
 // Limite para o histórico de ações
 const MAX_HISTORY_SIZE = 20;
 
+// Chaves para localStorage
+const STORAGE_KEY = 'ebgeo_data';
+const STORAGE_VERSION = '1.0'; // Para gerenciar versões de formato de dados
+const AUTOSAVE_ENABLED_KEY = 'ebgeo_autosave_enabled';
+
 // Store principal otimizado
 const store = {
     maps: {
@@ -25,6 +29,8 @@ const store = {
     currentMap: 'Principal',
     isUndoing: false,
     isRedoing: false,
+    autoSaveEnabled: true,
+    lastSaveTime: null,
 };
 
 // Criar mapa padrão
@@ -49,12 +55,238 @@ function initializeFeatureContainers() {
     return containers;
 }
 
+// Carregar dados do localStorage
+function loadFromLocalStorage() {
+    try {
+        // Verificar se o localStorage está disponível
+        if (!isLocalStorageAvailable()) {
+            console.warn('localStorage não está disponível neste navegador');
+            return false;
+        }
+
+        // Tentar carregar o estado do autosave
+        const autoSaveEnabled = localStorage.getItem(AUTOSAVE_ENABLED_KEY);
+        if (autoSaveEnabled !== null) {
+            store.autoSaveEnabled = autoSaveEnabled === 'true';
+        }
+
+        // Se autosave estiver desativado, não carregamos os dados
+        if (!store.autoSaveEnabled) {
+            return false;
+        }
+
+        const savedDataString = localStorage.getItem(STORAGE_KEY);
+        if (!savedDataString) {
+            return false;
+        }
+
+        const savedData = JSON.parse(savedDataString);
+        
+        // Verificar versão dos dados
+        if (savedData.version !== STORAGE_VERSION) {
+            console.warn(`Versão de dados incompatível: ${savedData.version}. Esperado: ${STORAGE_VERSION}`);
+            return false;
+        }
+
+        // Reconstruir o estado completo
+        if (savedData.maps && Object.keys(savedData.maps).length > 0) {
+            // Garantir que todas as features tenham as propriedades necessárias
+            Object.keys(savedData.maps).forEach(mapName => {
+                const mapData = savedData.maps[mapName];
+                // Adicionar undoStack e redoStack (não são salvos no localStorage)
+                mapData.undoStack = [];
+                mapData.redoStack = [];
+                
+                // Processar features para garantir propriedades necessárias
+                if (mapData.features) {
+                    Object.keys(mapData.features).forEach(featureType => {
+                        if (Array.isArray(mapData.features[featureType])) {
+                            mapData.features[featureType].forEach(feature => {
+                                if (feature.properties) {
+                                    if (!feature.properties.customAttributes) {
+                                        feature.properties.customAttributes = {};
+                                    }
+                                    if (feature.properties.name === undefined) {
+                                        feature.properties.name = '';
+                                    }
+                                    if (!feature.properties.images) {
+                                        feature.properties.images = [];
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
+            store.maps = savedData.maps;
+            store.currentMap = savedData.currentMap || 'Principal';
+            
+            // Se o mapa atual não existe, selecionar o primeiro disponível
+            if (!store.maps[store.currentMap]) {
+                store.currentMap = Object.keys(store.maps)[0];
+            }
+
+            store.lastSaveTime = savedData.saveTime;
+            
+            console.log('Dados carregados do localStorage:', 
+                `${Object.keys(store.maps).length} mapas, ` +
+                `último salvamento: ${new Date(store.lastSaveTime).toLocaleString()}`);
+            
+            return true;
+        }
+        
+        return false;
+    } catch (error) {
+        console.error('Erro ao carregar dados do localStorage:', error);
+        return false;
+    }
+}
+
+// Salvar dados para localStorage
+function saveToLocalStorage() {
+    try {
+        // Verificar se o localStorage está disponível
+        if (!isLocalStorageAvailable()) {
+            console.warn('localStorage não está disponível neste navegador');
+            return false;
+        }
+
+        // Se autosave estiver desativado, não salvamos os dados
+        if (!store.autoSaveEnabled) {
+            return false;
+        }
+
+        // Preparar uma versão limpa do estado para salvar
+        const dataToSave = {
+            version: STORAGE_VERSION,
+            saveTime: Date.now(),
+            currentMap: store.currentMap,
+            maps: {}
+        };
+
+        // Copiar mapas sem undoStack e redoStack (que são grandes e não necessários para restauração)
+        Object.keys(store.maps).forEach(key => {
+            const { undoStack, redoStack, ...mapData } = store.maps[key];
+            
+            // Garantir que todas as features tenham propriedades necessárias
+            if (mapData.features) {
+                Object.keys(mapData.features).forEach(featureType => {
+                    mapData.features[featureType].forEach(feature => {
+                        if (feature.properties) {
+                            if (!feature.properties.customAttributes) {
+                                feature.properties.customAttributes = {};
+                            }
+                            if (feature.properties.name === undefined) {
+                                feature.properties.name = '';
+                            }
+                            if (!feature.properties.images) {
+                                feature.properties.images = [];
+                            }
+                        }
+                    });
+                });
+            }
+            
+            dataToSave.maps[key] = mapData;
+        });
+
+        // Verificar o tamanho dos dados
+        const dataString = JSON.stringify(dataToSave);
+        const dataSize = new Blob([dataString]).size;
+        const maxSize = 5 * 1024 * 1024; // 5MB
+        
+        if (dataSize > maxSize) {
+            console.error(`Dados excedem o limite de tamanho do localStorage (${(dataSize / 1024 / 1024).toFixed(2)}MB / 5MB)`);
+            return false;
+        }
+
+        // Salvar no localStorage
+        localStorage.setItem(STORAGE_KEY, dataString);
+        localStorage.setItem(AUTOSAVE_ENABLED_KEY, store.autoSaveEnabled.toString());
+        
+        store.lastSaveTime = dataToSave.saveTime;
+        
+        console.log(`Dados salvos no localStorage (${(dataSize / 1024).toFixed(2)}KB)`);
+        return true;
+    } catch (error) {
+        console.error('Erro ao salvar dados no localStorage:', error);
+        return false;
+    }
+}
+
+// Limpar dados do localStorage
+function clearLocalStorage() {
+    try {
+        if (!isLocalStorageAvailable()) {
+            console.warn('localStorage não está disponível neste navegador');
+            return false;
+        }
+        
+        localStorage.removeItem(STORAGE_KEY);
+        console.log('Dados removidos do localStorage');
+        return true;
+    } catch (error) {
+        console.error('Erro ao limpar dados do localStorage:', error);
+        return false;
+    }
+}
+
+// Verificar se localStorage está disponível
+function isLocalStorageAvailable() {
+    try {
+        const test = '__storage_test__';
+        localStorage.setItem(test, test);
+        localStorage.removeItem(test);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Autosalvar após alterações (com debounce)
+let autoSaveTimeout = null;
+function scheduleAutoSave() {
+    if (!store.autoSaveEnabled) return;
+    
+    if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+    }
+    
+    autoSaveTimeout = setTimeout(() => {
+        saveToLocalStorage();
+        autoSaveTimeout = null;
+    }, 2000); // Debounce de 2 segundos
+}
+
 // API Pública
+export const toggleAutoSave = (enabled) => {
+    if (enabled !== undefined) {
+        store.autoSaveEnabled = enabled;
+    } else {
+        store.autoSaveEnabled = !store.autoSaveEnabled;
+    }
+    
+    localStorage.setItem(AUTOSAVE_ENABLED_KEY, store.autoSaveEnabled.toString());
+    
+    if (store.autoSaveEnabled) {
+        scheduleAutoSave();
+    }
+    
+    return store.autoSaveEnabled;
+};
+
+export const getAutoSaveStatus = () => ({
+    enabled: store.autoSaveEnabled,
+    lastSave: store.lastSaveTime ? new Date(store.lastSaveTime) : null
+});
+
 export const updateMapPosition = (center_lat, center_long, zoom) => {
     const currentMap = store.maps[store.currentMap];
     currentMap.center_lat = center_lat;
     currentMap.center_long = center_long;
     currentMap.zoom = zoom;
+    scheduleAutoSave();
 };
 
 export const getMapPosition = () => {
@@ -81,6 +313,9 @@ const recordAction = (action) => {
         // Limpar pilha de refazer
         currentMap.redoStack = [];
     }
+    
+    // Agendar autosave após qualquer ação
+    scheduleAutoSave();
 };
 
 // Garantir que features tenham customAttributes
@@ -217,10 +452,12 @@ export const removeFeatures = (featureIds) => {
 // Gerenciamento de mapas
 export const addMap = (mapName, mapData = null) => {
     store.maps[mapName] = mapData || createDefaultMap();
+    scheduleAutoSave();
 };
 
 export const removeMap = (mapName) => {
     delete store.maps[mapName];
+    scheduleAutoSave();
 };
 
 export const renameMap = (oldName, newName) => {
@@ -230,11 +467,13 @@ export const renameMap = (oldName, newName) => {
         if (store.currentMap === oldName) {
             store.currentMap = newName;
         }
+        scheduleAutoSave();
     }
 };
 
 export const setCurrentMap = (mapName) => {
     store.currentMap = mapName;
+    scheduleAutoSave();
 };
 
 // Memoizar o resultado para evitar cópias desnecessárias
@@ -260,6 +499,7 @@ export const getCurrentBaseLayer = () => {
 
 export const setBaseLayer = (layer) => {
     store.maps[store.currentMap].baseLayer = layer;
+    scheduleAutoSave();
 };
 
 // Desfazer ação
@@ -311,6 +551,7 @@ export const undoLastAction = () => {
     cachedMapFeatures = null;
 
     store.isUndoing = false;
+    scheduleAutoSave();
     return true;
 };
 
@@ -357,6 +598,7 @@ export const redoLastAction = () => {
     cachedMapFeatures = null;
 
     store.isRedoing = false;
+    scheduleAutoSave();
     return true;
 };
 
@@ -374,5 +616,23 @@ export const hasUnsavedData = () => {
     
     return false;
 };
+
+// Operações de localStorage como parte da API pública
+export const saveToLocalStorageManually = () => {
+    return saveToLocalStorage();
+};
+
+export const loadFromLocalStorageManually = () => {
+    return loadFromLocalStorage();
+};
+
+export const clearLocalStorageManually = () => {
+    return clearLocalStorage();
+};
+
+// Inicialização: tentar carregar do localStorage ao iniciar
+(function initialize() {
+    loadFromLocalStorage();
+})();
 
 export default store;
