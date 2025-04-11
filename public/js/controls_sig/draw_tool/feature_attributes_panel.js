@@ -35,6 +35,11 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
         nameContainer.append($("<div>", { class: "attr-input", style: "width: 100%" }).append(nameInput));
         nameSection.appendChild(nameContainer[0]);
         panel.appendChild(nameSection);
+        
+        if (feature.geometry.type === 'Point') {
+            const coordsSection = createCoordinatesSection(feature, selectedFeatures, featureControl);
+            panel.appendChild(coordsSection);
+        }
     }
 
     // Visual attributes section
@@ -224,6 +229,148 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     }
     
     $(panel).append(container);
+}
+
+function createCoordinatesSection(feature, selectedFeatures, featureControl) {
+    const section = document.createElement('div');
+    section.className = 'coordinates-section';
+    
+    const title = document.createElement('h4');
+    title.textContent = 'Coordenadas do ponto';
+    title.style.marginTop = '15px';
+    title.style.marginBottom = '10px';
+    section.appendChild(title);
+    
+    // Obter coordenadas atuais
+    const [lng, lat] = feature.geometry.coordinates;
+    
+    // Container para as coordenadas
+    const coordsContainer = document.createElement('div');
+    coordsContainer.className = 'coordinates-inputs';
+    
+    // Latitude
+    const latContainer = document.createElement('div');
+    latContainer.className = 'attr-container-row';
+    
+    const latLabel = document.createElement('label');
+    latLabel.textContent = 'Latitude:';
+    latLabel.className = 'attr-name';
+    
+    const latInput = document.createElement('input');
+    latInput.type = 'text';
+    latInput.value = lat.toFixed(6);
+    latInput.className = 'attr-input';
+    
+    latContainer.appendChild(latLabel);
+    latContainer.appendChild(latInput);
+    
+    // Longitude
+    const lngContainer = document.createElement('div');
+    lngContainer.className = 'attr-container-row';
+    
+    const lngLabel = document.createElement('label');
+    lngLabel.textContent = 'Longitude:';
+    lngLabel.className = 'attr-name';
+    
+    const lngInput = document.createElement('input');
+    lngInput.type = 'text';
+    lngInput.value = lng.toFixed(6);
+    lngInput.className = 'attr-input';
+    
+    lngContainer.appendChild(lngLabel);
+    lngContainer.appendChild(lngInput);
+    
+    // Adicionar os campos ao container
+    coordsContainer.appendChild(latContainer);
+    coordsContainer.appendChild(lngContainer);
+    
+    // Formato de coordenadas
+    const formatContainer = document.createElement('div');
+    formatContainer.className = 'attr-container-row';
+    
+    const formatLabel = document.createElement('label');
+    formatLabel.textContent = 'Formato:';
+    formatLabel.className = 'attr-name';
+    
+    const formatSelect = document.createElement('select');
+    formatSelect.className = 'attr-input';
+    
+    const formats = [
+        { id: 'latlong', label: 'Lat/Long (graus)' },
+        { id: 'utm', label: 'UTM (metros)' },
+        { id: 'mgrs', label: 'MGRS' }
+    ];
+    
+    formats.forEach(format => {
+        const option = document.createElement('option');
+        option.value = format.id;
+        option.textContent = format.label;
+        formatSelect.appendChild(option);
+    });
+    
+    formatContainer.appendChild(formatLabel);
+    formatContainer.appendChild(formatSelect);
+    
+    coordsContainer.appendChild(formatContainer);
+    
+    // Botão para atualizar coordenadas
+    const updateButton = document.createElement('button');
+    updateButton.classList.add('tool-button', 'pure-material-tool-button-contained');
+    updateButton.textContent = 'Atualizar coordenadas';
+    updateButton.style.marginTop = '10px';
+    
+    updateButton.onclick = () => {
+        try {
+            let newCoords;
+            
+            // Obter valores dos inputs
+            const formatType = formatSelect.value;
+            const latValue = parseFloat(latInput.value);
+            const lngValue = parseFloat(lngInput.value);
+            
+            // Validar e converter coordenadas
+            if (formatType === 'latlong') {
+                if (isNaN(latValue) || isNaN(lngValue) || 
+                    latValue < -90 || latValue > 90 || 
+                    lngValue < -180 || lngValue > 180) {
+                    throw new Error('Coordenadas Lat/Long inválidas.');
+                }
+                
+                newCoords = { lng: lngValue, lat: latValue };
+            } else if (formatType === 'utm') {
+                // Código UTM - implementar conversão
+                if (typeof proj4 === 'undefined') {
+                    throw new Error('Biblioteca proj4 não disponível para conversão UTM.');
+                }
+                
+                // TODO: Implementar conversão UTM
+                throw new Error('Conversão UTM não implementada nesta versão.');
+                
+            } else if (formatType === 'mgrs') {
+                // Código MGRS - implementar conversão
+                if (typeof mgrs === 'undefined') {
+                    throw new Error('Biblioteca MGRS não disponível para conversão.');
+                }
+                
+                // TODO: Implementar conversão MGRS
+                throw new Error('Conversão MGRS não implementada nesta versão.');
+            }
+            
+            // Atualizar as coordenadas do ponto
+            if (newCoords) {
+                featureControl.updatePointCoordinates(feature, newCoords.lng, newCoords.lat);
+                alert('Coordenadas atualizadas com sucesso.');
+            }
+            
+        } catch (error) {
+            alert(`Erro ao atualizar coordenadas: ${error.message}`);
+        }
+    };
+    
+    coordsContainer.appendChild(updateButton);
+    section.appendChild(coordsContainer);
+    
+    return section;
 }
 
 function findCommonAttributes(features) {

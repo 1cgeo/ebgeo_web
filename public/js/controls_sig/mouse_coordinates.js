@@ -1,6 +1,6 @@
 // Path: js\controls_sig\mouse_coordinates.js
 class MouseCoordinatesControl {
-    constructor() {
+    constructor(drawControl) {
         this._map = null;
         this._container = null;
         this._innerContainer = null;
@@ -14,6 +14,7 @@ class MouseCoordinatesControl {
         ];
         this._modal = null;
         this._currentCoordinates = { lat: 0, lng: 0 };
+        this._drawControl = drawControl; // Referência ao DrawControl para criar pontos
     }
 
     onAdd(map) {
@@ -182,6 +183,26 @@ class MouseCoordinatesControl {
                 validationMessage.className = 'coordinates-validation-message error';
             }
         });
+
+        const createPointButton = document.createElement('button');
+        createPointButton.textContent = 'Criar ponto';
+        createPointButton.className = 'coordinates-create-point-button';
+        createPointButton.addEventListener('click', () => {
+            const formatId = formatSelect.value;
+            const inputValue = input.value.trim();
+            const coordinates = this._parseCoordinates(inputValue, formatId);
+            
+            if (coordinates) {
+                this._createPointAtCoordinates(coordinates.lng, coordinates.lat);
+                this._modal.style.display = 'none';
+                input.value = '';
+                validationMessage.textContent = '';
+                validationMessage.className = 'coordinates-validation-message';
+            } else {
+                validationMessage.textContent = 'Coordenadas inválidas para o formato selecionado';
+                validationMessage.className = 'coordinates-validation-message error';
+            }
+        });
         
         const cancelButton = document.createElement('button');
         cancelButton.textContent = 'Cancelar';
@@ -194,6 +215,7 @@ class MouseCoordinatesControl {
         });
         
         buttonContainer.appendChild(flyButton);
+        buttonContainer.appendChild(createPointButton); // Adiciona o novo botão
         buttonContainer.appendChild(cancelButton);
         
         // Assemble modal content
@@ -212,6 +234,15 @@ class MouseCoordinatesControl {
                 this._modal.style.display = 'none';
             }
         });
+    }
+    
+    _createPointAtCoordinates(lng, lat) {
+        if (this._drawControl) {
+            const lngLat = { lng, lat };
+            this._drawControl.addPointFeatureAtCoordinates(lngLat);
+        } else {
+            console.warn('DrawControl não está disponível para criar pontos');
+        }
     }
     
     _getPlaceholderForFormat(formatId) {

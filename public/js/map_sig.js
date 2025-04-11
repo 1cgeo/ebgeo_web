@@ -66,6 +66,8 @@ const importControl = new AddImportControl(toolManager);
 importControl.setDrawControl(drawControl);
 importControl.setBaseLayerControl(baseLayerControl);
 
+const mouseCoordinatesControl = new MouseCoordinatesControl(drawControl);
+
 map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
 map.addControl(saveLoadControl, 'top-left');
@@ -79,7 +81,7 @@ map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
 map.addControl(importControl, 'top-right');
 map.addControl(addStreetViewControl, 'top-right');
-map.addControl(new MouseCoordinatesControl(), 'bottom-left');
+map.addControl(mouseCoordinatesControl, 'bottom-left');
 mapControl.loadMenu()
 
 

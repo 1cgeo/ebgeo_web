@@ -233,6 +233,43 @@ class DrawControl {
         //nothing to do here
     }
 
+    addPointFeatureAtCoordinates = (lngLat) => {
+        // Cria um ponto no MapboxDraw
+        const feature = {
+            type: 'Feature',
+            properties: this.defaultProperties.point,
+            geometry: {
+                type: 'Point',
+                coordinates: [lngLat.lng, lngLat.lat]
+            }
+        };
+        
+        // Adiciona o ponto ao draw
+        const ids = this.draw.add(feature);
+        
+        if (ids.length > 0) {
+            // Obtém a feature com ID gerado
+            const addedFeature = this.draw.get(ids[0]);
+            
+            // Sinaliza manualmente o evento de criação para processar as propriedades
+            this.handleDrawCreate({
+                features: [addedFeature]
+            });
+            
+            // Seleciona o ponto recém-criado
+            this.draw.changeMode('simple_select', { featureIds: [ids[0]] });
+            
+            // Atualiza a seleção no selectionManager
+            if (this.selectionManager) {
+                this.selectionManager.handleDrawSelectionChange();
+            }
+            
+            return addedFeature;
+        }
+        
+        return null;
+    }
+
     updateFeaturesProperty = (features, property, value) => {
         features.forEach(feature => {
             feature.properties[property] = value;
@@ -241,6 +278,24 @@ class DrawControl {
             this.draw.add(feat);
             this.updateFeatureMeasurement(feature);
         });
+    }
+
+    updatePointCoordinates = (feature, lng, lat) => {
+        if (feature.geometry.type !== 'Point') {
+            console.warn('Tentativa de atualizar coordenadas de uma feição que não é ponto');
+            return;
+        }
+        
+        // Atualiza as coordenadas
+        feature.geometry.coordinates = [lng, lat];
+        
+        // Adiciona a feature atualizada ao draw
+        this.draw.add(feature);
+        
+        // Atualiza o armazenamento
+        updateFeature('points', feature);
+        
+        return feature;
     }
 
     deleteFeatures = (features) => {
@@ -333,7 +388,7 @@ class DrawControl {
             'draw_point': '.mapbox-gl-draw_point',
             'draw_line_string': '.mapbox-gl-draw_line',
             'draw_polygon': '.mapbox-gl-draw_polygon'
-        }[this.draw.getMode()]
+        }[this.draw?.getMode()]
 
         if (!(currentBtn && this.isActive)) return
         const imageName = {
