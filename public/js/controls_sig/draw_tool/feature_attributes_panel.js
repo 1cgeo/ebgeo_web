@@ -1,6 +1,7 @@
 // Path: js\controls_sig\draw_tool\feature_attributes_panel.js
 import { createCustomAttributesPanel } from './custom_attributes_editor.js';
 import { processImageFile } from '../utilities/image_processor.js';
+import { getTerrainElevation } from '../terrain_control.js';
 
 export function addFeatureAttributesToPanel(panel, selectedFeatures, featureControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) {
@@ -37,7 +38,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
         panel.appendChild(nameSection);
         
         if (feature.geometry.type === 'Point') {
-            const coordsSection = createCoordinatesSection(feature, selectedFeatures, featureControl);
+            const coordsSection = createCoordinatesSection(feature, selectedFeatures, featureControl, uiManager.map);
             panel.appendChild(coordsSection);
         }
     }
@@ -231,7 +232,7 @@ export function addFeatureAttributesToPanel(panel, selectedFeatures, featureCont
     $(panel).append(container);
 }
 
-function createCoordinatesSection(feature, selectedFeatures, featureControl) {
+function createCoordinatesSection(feature, selectedFeatures, featureControl, map) {
     const section = document.createElement('div');
     section.className = 'coordinates-section';
     
@@ -280,9 +281,77 @@ function createCoordinatesSection(feature, selectedFeatures, featureControl) {
     lngContainer.appendChild(lngLabel);
     lngContainer.appendChild(lngInput);
     
+    // Nova seção para Altitude
+    const altContainer = document.createElement('div');
+    altContainer.className = 'attr-container-row';
+    
+    const altLabel = document.createElement('label');
+    altLabel.textContent = 'Altitude:';
+    altLabel.className = 'attr-name';
+    
+    const altInputContainer = document.createElement('div');
+    altInputContainer.className = 'attr-input';
+    altInputContainer.style.display = 'flex';
+    altInputContainer.style.alignItems = 'center';
+    altInputContainer.style.gap = '5px';
+    
+    const altInput = document.createElement('input');
+    altInput.type = 'text';
+    altInput.value = feature.properties.altitude ? feature.properties.altitude.toFixed(2) : '';
+    altInput.placeholder = 'Altitude (m)';
+    altInput.style.width = 'calc(100% - 40px)';
+    
+    const getAltButton = document.createElement('button');
+    getAltButton.textContent = '📡';
+    getAltButton.title = 'Obter altitude do terreno';
+    getAltButton.style.padding = '4px 8px';
+    getAltButton.style.borderRadius = '4px';
+    getAltButton.style.border = '1px solid #ccc';
+    getAltButton.style.backgroundColor = '#f0f0f0';
+    getAltButton.style.cursor = 'pointer';
+    
+    getAltButton.onclick = async () => {
+        try {
+            // Mostrar indicador de carregamento
+            getAltButton.textContent = '⏳';
+            getAltButton.disabled = true;
+            
+            // Buscar a altitude do terreno
+            const altitude = await getTerrainElevation(map, [lng, lat]);
+            
+            // Atualizar o campo e a propriedade
+            altInput.value = altitude.toFixed(2);
+            featureControl.updateFeaturesProperty(selectedFeatures, 'altitude', altitude);
+            
+            // Restaurar o botão
+            getAltButton.textContent = '📡';
+            getAltButton.disabled = false;
+        } catch (error) {
+            console.error('Erro ao obter altitude:', error);
+            alert('Não foi possível obter a altitude do terreno');
+            getAltButton.textContent = '📡';
+            getAltButton.disabled = false;
+        }
+    };
+    
+    // Salvar valor digitado manualmente
+    altInput.onchange = (e) => {
+        const value = parseFloat(e.target.value);
+        if (!isNaN(value)) {
+            featureControl.updateFeaturesProperty(selectedFeatures, 'altitude', value);
+        }
+    };
+    
+    altInputContainer.appendChild(altInput);
+    altInputContainer.appendChild(getAltButton);
+    
+    altContainer.appendChild(altLabel);
+    altContainer.appendChild(altInputContainer);
+    
     // Adicionar os campos ao container
     coordsContainer.appendChild(latContainer);
     coordsContainer.appendChild(lngContainer);
+    coordsContainer.appendChild(altContainer);
     
     // Formato de coordenadas
     const formatContainer = document.createElement('div');
