@@ -3,6 +3,7 @@ import { map } from './control_3d/map.js';
 import { load3dTileset } from './control_3d/3d_tileset.js';
 import { addViewField, clearAllViewField } from './control_3d/viewshed.js';
 import { initIdentifyTool, toggleIdentifyTool } from './control_3d/identify_tool.js';
+import { takeScreenshot } from './control_3d/screenshot_tool.js';
 import config from './config.js';
 
 // Controle de renderização
@@ -76,6 +77,9 @@ export function activeTool() {
             case 'limpar':
                 removeAllTools();
                 break;
+            case 'screenshot-tool-3d':
+                takeScreenshot();
+                break;
         }
     }
 }
@@ -127,6 +131,7 @@ export function resumeRendering() {
 
 $('#locate-3d-container button').click(handleClickGoTo);
 $('#limpar').click(removeAllTools);
+$('.tools-3d-bar .button-tool-3d').click(activeTool);
 
 var handler = new Cesium.ScreenSpaceEventHandler(map.canvas);
 handler.setInputAction(function (event) {
