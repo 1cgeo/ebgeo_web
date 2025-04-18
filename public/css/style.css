@@ -313,22 +313,31 @@ html {
     min-width: 130px !important;
     justify-content: center;
     color: inherit;
-    /* blue colors for links too */
     text-decoration: inherit;
-    /* no underline */
     display: flex;
     flex-direction: row;
     align-items: center;
     flex-grow: 0;
-    gap: 5px
+    gap: 5px;
 }
 
 .logo img {
     height: 50px;
 }
 
+.title-container {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+}
 
-/* turoial */
+.subtitle {
+    font-size: 16px;
+    color: #555;
+    font-weight: 500;
+}
+
 .extra-bar-buttons {
     padding: 5px;
     display: flex;
@@ -996,21 +1005,6 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 }
 
-/* control map */
-.map-control-panel {
-    /* position: absolute;
-    top: 110px;
-    left: 10px; */
-    /* padding: 10px;
-    background-color: #f8f8f8F2;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); */
-    /* z-index: 10; */
-    /* color: black;
-    width: 200px; */
-}
-
 .map-control-title-container {
     display: flex;
     justify-content: space-between;
@@ -1020,36 +1014,6 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 .map-control-title {
     margin: 0;
 }
-
-/* .add-map-button {
-    background-color: transparent;
-    border: 1px solid black;
-    color: black;
-    cursor: pointer;
-    padding: 5px;
-    font-size: 16px;
-    pointer-events: auto !important;
-} */
-
-/* .map-list {
-    margin-top: 10px;
-    list-style-type: none;
-    padding: 0;
-}
-
-.map-list li {
-    margin-bottom: 5px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 5px;
-    border: 1px solid black;
-    border-radius: 3px;
-}
-
-.map-list li.current-map {
-    background-color: rgba(255, 255, 255, 0.2);
-} */
 
 .button-container {
     display: flex;
@@ -1289,7 +1253,17 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 }
 
 @media only screen and (max-width: 650px) {
-
+    .title-container {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0;
+    }
+    
+    .subtitle {
+        font-size: 12px;
+        margin-top: -5px;
+    }
+    
     .mapbox-gl-draw_ctrl-draw-btn img,
     .icon-sig-tool {
         width: 50px;

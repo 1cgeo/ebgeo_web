@@ -7,6 +7,7 @@ import {
     resumeRendering
 } from './map_3d.js'
 import { createModelButtons } from './create_model_buttons.js';
+import config from './config.js';
 
 var queryMobile = window.matchMedia("(max-width: 650px)")
 
@@ -17,8 +18,23 @@ let $mapSig;
 let $loadingBackground;
 let loadingTimer;
 
+// Function to apply application configuration
+function applyAppConfig() {
+    // Set the browser tab title
+    document.title = config.app.title || 'EBGeo';
+    
+    // Set the subtitle
+    const subtitleElement = document.getElementById('app-subtitle');
+    if (subtitleElement && config.app.subtitle) {
+        subtitleElement.textContent = config.app.subtitle;
+    }
+}
+
 // Initialize model buttons when the document is ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Apply application configuration
+    applyAppConfig();
+    
     // Create model buttons in the desktop and mobile containers
     createModelButtons('locate-3d-container');
     

@@ -1,6 +1,11 @@
 // Path: js\config.js
 // Main configuration file for EBGEO application
 const config = {
+    // Application settings
+    app: {
+        title: "EBGeo Op Fogo",
+        subtitle: "Op Fogo",
+    },
     // 3D Map Configuration
     map3d: {
         // Initial map extent
