@@ -5,6 +5,10 @@ const config = {
     app: {
         title: "EBGeo Op Fogo",
         subtitle: "Op Fogo",
+        enableMapSig: true,    // Enable/disable 2D mode
+        enable3D: true,        // Enable/disable 3D mode
+        enableStreetView: true, // Enable/disable StreetView
+        defaultMode: "2d"      // Default mode when both are enabled ("2d" or "3d")
     },
     // 3D Map Configuration
     map3d: {

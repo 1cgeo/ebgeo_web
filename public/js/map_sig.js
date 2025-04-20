@@ -19,7 +19,8 @@ import ResetNorthControl from './controls_sig/reset_north_control.js';
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import { undoLastAction, redoLastAction, hasUnsavedData } from './controls_sig/store.js';
 import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
-import ScreenshotControl from './screenshot_control.js';
+import ScreenshotControl from './controls_sig/screenshot_control.js';
+import config from './config.js';
 
 //-----------------------------------------------
 // CONTROLES
@@ -38,7 +39,6 @@ const imageControl = new AddImageControl(toolManager);
 const losControl = new AddLOSControl(toolManager);
 
 const visibilityControl = new AddVisibilityControl(toolManager);
-const addStreetViewControl = new AddStreetViewControl(toolManager);
 
 const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
 const uiManager = new UIManager(map, selectionManager, toolManager);
@@ -81,7 +81,16 @@ map.addControl(imageControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
 map.addControl(importControl, 'top-right');
-map.addControl(addStreetViewControl, 'top-right');
+
+
+// Read configuration for StreetView
+const enableStreetView = config.app.enableStreetView !== false; // Default to true if not set// Create StreetView control but only add it if enabled
+// Only add StreetView control if enabled
+if (enableStreetView) {
+    const addStreetViewControl = new AddStreetViewControl(toolManager);
+    map.addControl(addStreetViewControl, 'top-right');
+}
+
 map.addControl(new ScreenshotControl(), 'top-right');
 map.addControl(mouseCoordinatesControl, 'bottom-left');
 mapControl.loadMenu()
