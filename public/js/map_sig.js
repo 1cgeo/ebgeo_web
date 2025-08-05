@@ -84,6 +84,7 @@ map.addControl(mapControl, 'top-left');
 map.addControl(saveLoadControl, 'top-left');
 map.addControl(featureSearchControl, 'top-right');
 map.addControl(new ResetNorthControl(), 'top-right');
+map.addControl(importControl, 'top-right');
 map.addControl(screenshotControl, 'top-right');
 map.addControl(vectorTileInfoControl, 'top-right');
 map.addControl(drawControl, 'top-right');
@@ -91,7 +92,6 @@ map.addControl(textControl, 'top-right');
 map.addControl(imageControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
-map.addControl(importControl, 'top-right');
 map.addControl(addStreetViewControl, 'top-right');
 map.addControl(scale, 'bottom-left');
 map.addControl(mouseCoordinatesControl);
@@ -110,18 +110,5 @@ document.addEventListener('keydown', (event) => {
         if (redoLastAction()) {
             mapControl.switchMap(false);
         }
-    }
-});
-
-//-----------------------------------------------
-// OUTROS
-//-----------------------------------------------
-
-window.addEventListener('beforeunload', function (e) {
-    if (hasUnsavedData()) {
-        e.preventDefault();
-
-        // Para navegadores mais antigos que precisam de um valor retornado.
-        return 'Ao fechar perderá todos os dados. Tem certeza de que deseja sair?'
     }
 });

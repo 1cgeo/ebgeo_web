@@ -1271,21 +1271,9 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
 .maplibregl-ctrl-top-right {
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 10px
-}
-
-.maplibregl-ctrl-top-right {
-    display: flex;
-    flex-direction: column;
     gap: 10px !important;
     justify-content: center;
     align-items: center;
-}
-
-.mapboxgl-ctrl-group.mapboxgl-ctrl {
-    gap: 10px
 }
 
 @media only screen and (max-width: 650px) {
