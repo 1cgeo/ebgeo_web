@@ -2,7 +2,9 @@
 import { } from './map_sig.js'
 import {
     handleClickGoTo,
-    activeTool
+    activeTool,
+    init3DFeatures,
+    cleanup3DFeatures
 } from './map_3d.js'
 
 
@@ -110,8 +112,14 @@ $(".bar-center-buttons a").click(function () {
             $('#map-sig').hide();
             $('.unified-attributes-panel').hide()
             $('#map-3d-container').show();
+            // Inicializar funcionalidades 3D
+            setTimeout(() => {
+                init3DFeatures();
+            }, 100); // Pequeno delay para garantir que o container está visível
             break;
         default:
+            // Limpar funcionalidades 3D antes de esconder
+            cleanup3DFeatures();
             $('#map-3d-container').hide();
             $('#map-sig').show();
             $('.unified-attributes-panel').show()

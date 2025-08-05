@@ -4,11 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EBGEO</title>
+    <title>EBGeo</title>
     <link rel="icon" type="image/x-icon" href="./images/favicon.ico">
-    <link href="./vendors/maplibre-gl.css" rel="stylesheet" />
-    <link href="./vendors/mapbox-gl-draw.css" rel="stylesheet" />
-    <link href="./vendors/cesium/Widgets/widgets.css" rel="stylesheet" />
     <link href="./vendors/maplibre-gl.css" rel="stylesheet" />
     <link href="./vendors/mapbox-gl-draw.css" rel="stylesheet" />
     <link href="./vendors/cesium/Widgets/widgets.css" rel="stylesheet" />
@@ -86,9 +83,6 @@
                 <hr class="solid">
                 <div class="tools-3d-bar">
                     <div>
-                        <img src="./images/information_circle.svg" id="identify-tool" class="button-tool-3d icon-tool-3d" alt="Identify">
-                    </div>
-                    <div>
                         <a id="visualizacao" class="button-tool-3d icon-tool-3d">
                             <img src="./images/viewshed_icon.svg" alt="Viewshed" />
                         </a>
@@ -104,6 +98,11 @@
                         </a>
                     </div>
                     <div>
+                        <a id="screenshot-3d" class="button-tool-3d icon-tool-3d" title="Capturar Screenshot">
+                            <img src="./images/icon_screenshot_black.svg" alt="Screenshot" />
+                        </a>
+                    </div>
+                    <div>
                         <a id="limpar" href="javascript:;" class="button-tool-3d icon-tool-3d">
                             <img src="./images/clear_icon.svg" alt="clear" />
                         </a>
@@ -114,11 +113,6 @@
             <button id="distancia" class="tools">Distância Espacial</button>
             <button id="area" class="tools">Área Espacial</button>
             <button id="limpar" class="tools">Limpar</button> -->
-        </div>
-        <div id="feature-info" class="card" style="display: none;">
-            <button id="close-feature-info" class="close-button">&times;</button>
-            <h3>Informações da Feição</h3>
-            <div id="feature-info-content"></div>
         </div>
     </div>
     <a id="open-close-form" href="#" class="panel-icon-float">
@@ -145,6 +139,11 @@
     <script>
         feather.replace();
     </script>
+    <script src="./vendors/jszip.min.js"></script>
+    <script src="./vendors/shp.min.js"></script>
+    <script src="./vendors/togeojson.js"></script>
+    <script src="./vendors/proj4.min.js"></script>
+    <script src="./vendors/mgrs.min.js"></script>
     <script type="module" src="./js/index.js"></script>
 </body>
 

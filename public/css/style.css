@@ -1461,17 +1461,6 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
     }
 }
 
-#feature-info {
-    position: absolute;
-    bottom: 10px;
-    right: 10px;
-    background-color: white;
-    padding: 10px;
-    border-radius: 5px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    max-width: 300px;
-}
-
 .close-button {
     position: absolute;
     top: 5px;
@@ -1480,4 +1469,274 @@ input[type=checkbox]:checked~.sidebarIconToggle>.diagonal.part-2 {
     border: none;
     font-size: 20px;
     cursor: pointer;
+}
+
+/* Coordinates control styles */
+.coordinates-control {
+    position: relative;
+}
+
+.coordinates-display {
+    min-width: 220px;
+    padding: 6px 10px;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: nowrap;
+    background: rgba(255, 255, 255, 0.9);
+    display: flex;
+    align-items: center;
+}
+
+.coordinates-text {
+    flex-grow: 1;
+    display: flex;
+    gap: 10px;
+}
+
+.coordinates-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 8px;
+}
+
+.coordinates-button {
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.coordinates-button:hover {
+    opacity: 1;
+}
+
+.coordinates-format-selector {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    padding: 5px 0;
+    display: none;
+    z-index: 1000;
+}
+
+.coordinates-format-option {
+    padding: 5px 15px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.coordinates-format-option:hover {
+    background-color: #f0f0f0;
+}
+
+.coordinates-format-option.active {
+    background-color: #f0f0f0;
+    font-weight: bold;
+}
+
+/* Modal styles */
+.coordinates-modal {
+    display: none;
+    position: fixed;
+    z-index: 1001;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
+.coordinates-modal-content {
+    background-color: white;
+    margin: 10% auto;
+    padding: 20px;
+    border: 1px solid #888;
+    border-radius: 4px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.coordinates-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.coordinates-modal-header h3 {
+    margin: 0;
+    font-size: 1.2em;
+}
+
+.coordinates-modal-close {
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.coordinates-modal-close:hover {
+    color: black;
+}
+
+.coordinates-modal-format,
+.coordinates-modal-input {
+    margin-bottom: 15px;
+}
+
+.coordinates-modal-format label,
+.coordinates-modal-input label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.coordinates-modal-format select,
+.coordinates-modal-input input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.coordinates-validation-message {
+    min-height: 20px;
+    margin-bottom: 15px;
+}
+
+.coordinates-validation-message.error {
+    color: #d32f2f;
+}
+
+.coordinates-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.coordinates-fly-button,
+.coordinates-cancel-button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.coordinates-fly-button {
+    background-color: #508D4E;
+    color: white;
+}
+
+.coordinates-fly-button:hover {
+    background-color: #427842;
+}
+
+.coordinates-cancel-button {
+    background-color: #f0f0f0;
+    color: #333;
+}
+
+.coordinates-cancel-button:hover {
+    background-color: #e0e0e0;
+}
+/* CSS adicional para funcionalidades 3D - Adicionar ao arquivo CSS principal */
+
+/* Coordinates control 3D specific styles */
+.coordinates-control-3d {
+    font-family: 'Courier New', monospace !important;
+    user-select: none;
+    pointer-events: auto;
+}
+
+.coordinates-control-3d span {
+    font-weight: 500;
+    color: #333;
+}
+
+/* 3D Screenshot button in toolbar */
+#screenshot-3d {
+    position: relative;
+    overflow: hidden;
+}
+
+#screenshot-3d img {
+    width: 30px;
+    height: 30px;
+    transition: transform 0.2s ease;
+}
+
+#screenshot-3d:hover img {
+    transform: scale(1.1);
+}
+
+#screenshot-3d:active {
+    transform: scale(0.95);
+}
+
+/* Success feedback for screenshot */
+#screenshot-3d.success {
+    background-color: #28a745 !important;
+    transition: background-color 0.3s ease;
+}
+
+/* Modal styles for 3D (ensure they work in 3D context) */
+.coordinates-control-3d + div[style*="position: fixed"] {
+    z-index: 1002 !important;
+}
+
+/* Ensure 3D controls are above Cesium */
+.coordinates-control-3d,
+.coordinates-control-3d * {
+    z-index: 1000 !important;
+}
+
+/* Responsive adjustments for 3D coordinates */
+@media (max-width: 650px) {
+    .coordinates-control-3d {
+        bottom: 60px !important;
+        left: 10px !important;
+        right: 10px !important;
+        transform: none !important;
+        width: auto !important;
+        min-width: auto !important;
+    }
+    
+    .coordinates-control-3d div[style*="flex-grow"] {
+        min-width: 120px !important;
+    }
+    
+    .coordinates-control-3d span {
+        font-size: 11px !important;
+    }
+}
+
+/* Ensure format selector dropdown works in 3D */
+.coordinates-control-3d div[style*="position: absolute"] {
+    z-index: 1001 !important;
+}
+
+/* 3D button hover effects */
+.coordinates-control-3d div[style*="cursor: pointer"]:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 2px;
+}
+
+/* Success animation for copy */
+.coordinates-control-3d .coordinates-copy-button.copied {
+    animation: copySuccess 0.3s ease;
+}
+
+@keyframes copySuccess {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
 }

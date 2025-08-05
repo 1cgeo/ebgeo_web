@@ -2,9 +2,13 @@
 import { map } from './control_3d/map.js'
 import { load3dTileset } from './control_3d/3d_tileset.js'
 import { addViewField, clearAllViewField } from './control_3d/viewshed.js';
-import { initIdentifyTool, toggleIdentifyTool } from './control_3d/identify_tool.js';
+import { initMouseCoordinates3D, cleanupMouseCoordinates3D } from './control_3d/mouse_coordinates_3d.js';
+import { takeScreenshot } from './control_3d/screenshot_tool.js';
+import { flyToAndOrbit, stopOrbit, initOrbitControl, cleanupOrbitControl } from './control_3d/orbit_control.js';
 
 //MODELOS 3D
+const loadedTilesets = {}; // Armazenar referências dos tilesets para órbita
+
 for (let tilesetSetup of [
     {
         url: "/3d/AMAN/tileset.json",
@@ -43,6 +47,13 @@ for (let tilesetSetup of [
 
 ]) {
     let tileset = load3dTileset(map, tilesetSetup)
+    
+    // Armazenar tileset e localização para órbita
+    loadedTilesets[tilesetSetup.id.toLowerCase()] = {
+        tileset: tileset,
+        location: tilesetSetup.locate
+    };
+    
     // Nome das imagens para o Fly To
     if (tilesetSetup.id === "AMAN") {
         var tilesetAMAN = tilesetSetup.locate;
@@ -62,12 +73,39 @@ const removeAllTools = () => {
     measure.removeDrawLineMeasureGraphics()
     measure.removeDrawAreaMeasureGraphics()
     clearAllViewField()
+    stopOrbit() // Para a órbita ao limpar ferramentas
 }
 
 let clampToGround = true
 const measure = new Cesium.Measure(map)
 
-initIdentifyTool();
+// Inicializar funcionalidades 3D
+function init3DFeatures() {
+    initMouseCoordinates3D();
+    initOrbitControl(); // Inicializar controle de órbita
+}
+
+// Cleanup quando sair do modo 3D
+function cleanup3DFeatures() {
+    cleanupMouseCoordinates3D();
+    cleanupOrbitControl(); // Limpar controle de órbita
+}
+
+// Handler para screenshot
+function handleScreenshot() {
+    const success = takeScreenshot();
+    if (success) {
+        // Feedback visual breve
+        const button = document.getElementById('screenshot-3d');
+        if (button) {
+            const originalBg = button.style.backgroundColor;
+            button.style.backgroundColor = '#28a745';
+            setTimeout(() => {
+                button.style.backgroundColor = originalBg;
+            }, 500);
+        }
+    }
+}
 
 export function activeTool() {
     let text = $(this).attr('id')
@@ -83,8 +121,8 @@ export function activeTool() {
             case 'visualizacao':
                 addViewField(map)
                 break;
-            case 'identify-tool':
-                toggleIdentifyTool();
+            case 'screenshot-3d':  // ID correto do botão no HTML
+                handleScreenshot();
                 break;
         }
     }
@@ -95,23 +133,38 @@ export function handleClickGoTo() {
     let text = $(this).attr('id')
     if (text) {
         removeAllTools()
-        switch (text) {
-            case 'aman':
-                var { lat, lon, height } = tilesetAMAN
-                break;
-            case 'esa':
-                var { lat, lon, height } = tilesetESA
-                break;
-            case 'aman-pcl':
-                var { lat, lon, height } = tilesetPCL
-
-                break;
+        
+        // Busca o tileset e localização correspondentes
+        const tilesetData = loadedTilesets[text];
+        if (tilesetData) {
+            const { tileset, location } = tilesetData;
+            // Voa para a localização e inicia órbita automaticamente
+            flyToAndOrbit(location, tileset);
+        } else {
+            // Fallback para o método antigo se não encontrar no mapeamento
+            let location;
+            switch (text) {
+                case 'aman':
+                    location = tilesetAMAN;
+                    break;
+                case 'esa':
+                    location = tilesetESA;
+                    break;
+                case 'aman-pcl':
+                    location = tilesetPCL;
+                    break;
+            }
+            if (location) {
+                map.camera.flyTo({
+                    destination: Cesium.Cartesian3.fromDegrees(location.lon, location.lat, location.height),
+                });
+            }
         }
-        map.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
-        });
     }
 }
+
+// Exportar funções de inicialização e limpeza
+export { init3DFeatures, cleanup3DFeatures };
 
 $('#locate-3d-container button').click(handleClickGoTo);
 

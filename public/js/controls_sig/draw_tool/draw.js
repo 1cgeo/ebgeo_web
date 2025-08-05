@@ -356,5 +356,42 @@ class DrawControl {
 
         return profileData;
     }
+
+    addPointFeatureAtCoordinates = (lngLat) => {
+        // Cria um ponto no MapboxDraw
+        const feature = {
+            type: 'Feature',
+            properties: this.defaultProperties.point,
+            geometry: {
+                type: 'Point',
+                coordinates: [lngLat.lng, lngLat.lat]
+            }
+        };
+        
+        // Adiciona o ponto ao draw
+        const ids = this.draw.add(feature);
+        
+        if (ids.length > 0) {
+            // Obtém a feature com ID gerado
+            const addedFeature = this.draw.get(ids[0]);
+            
+            // Sinaliza manualmente o evento de criação para processar as propriedades
+            this.handleDrawCreate({
+                features: [addedFeature]
+            });
+            
+            // Seleciona o ponto recém-criado
+            this.draw.changeMode('simple_select', { featureIds: [ids[0]] });
+            
+            // Atualiza a seleção no selectionManager
+            if (this.selectionManager) {
+                this.selectionManager.handleDrawSelectionChange();
+            }
+            
+            return addedFeature;
+        }
+        
+        return null;
+    }
 };
 export default DrawControl;

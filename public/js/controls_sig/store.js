@@ -205,4 +205,28 @@ export const hasUnsavedData = () => {
     return false;
 };
 
+export const addFeatures = (featuresMap) => {
+    const currentMap = store.maps[store.currentMap];
+    
+    // Criar uma única ação para o histórico
+    const action = {
+        type: 'addMultiple',
+        features: {}
+    };
+    
+    // Adicionar cada tipo de feature
+    Object.keys(featuresMap).forEach(type => {
+        const features = featuresMap[type] || [];
+        if (features.length > 0) {
+            currentMap.features[type].push(...features);
+            action.features[type] = JSON.parse(JSON.stringify(features));
+        }
+    });
+    
+    // Registrar ação no histórico apenas se houve alterações
+    if (Object.keys(action.features).length > 0) {
+        recordAction(action);
+    }
+};
+
 export default store;

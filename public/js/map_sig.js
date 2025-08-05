@@ -7,6 +7,7 @@ import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
 import AddLOSControl from './controls_sig/los_tool/add_los_control.js';
 import AddVisibilityControl from './controls_sig/visibility_tool/add_visibility_control.js';
+import AddImportControl from './controls_sig/import_tool/add_import_control.js'; // NOVA IMPORTAÇÃO
 import ToolManager from './controls_sig/tool_manager/tool_manager.js';
 import SelectionManager from './controls_sig/tool_manager/selection_manager.js';
 import UIManager from './controls_sig/tool_manager/ui_manager.js';
@@ -16,6 +17,8 @@ import AddStreetViewControl from './controls_sig/street_view_tool/add_street_vie
 import VectorTileInfoControl from './controls_sig/vector_info_control.js'
 import ResetNorthControl from './controls_sig/reset_north_control.js';
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
+import ScreenshotControl from './controls_sig/screenshot_control.js';
+import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
 import { undoLastAction, redoLastAction, hasUnsavedData } from './controls_sig/store.js';
 
 //-----------------------------------------------
@@ -35,6 +38,9 @@ const imageControl = new AddImageControl(toolManager);
 const losControl = new AddLOSControl(toolManager);
 
 const visibilityControl = new AddVisibilityControl(toolManager);
+
+const importControl = new AddImportControl(toolManager);
+
 const addStreetViewControl = new AddStreetViewControl(toolManager);
 
 const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
@@ -42,6 +48,8 @@ const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
 drawControl.setSelectionManager(selectionManager);
 textControl.setSelectionManager(selectionManager);
+
+importControl.setDrawControl(drawControl);
 
 const featureSearchControl = new FeatureSearchControl(uiManager);
 uiManager.setFeatureSearchControl(featureSearchControl);
@@ -58,7 +66,13 @@ const baseLayerControl = new BaseLayerControl(uiManager);
 
 const mapControl = new MapControl(baseLayerControl);
 
+importControl.setBaseLayerControl(baseLayerControl);
+
 const saveLoadControl = new SaveLoadControl(mapControl, baseLayerControl);
+
+const screenshotControl = new ScreenshotControl();
+
+const mouseCoordinatesControl = new MouseCoordinatesControl(drawControl);
 
 const scale = new maplibregl.ScaleControl({
     maxWidth: 80,
@@ -70,17 +84,18 @@ map.addControl(mapControl, 'top-left');
 map.addControl(saveLoadControl, 'top-left');
 map.addControl(featureSearchControl, 'top-right');
 map.addControl(new ResetNorthControl(), 'top-right');
+map.addControl(screenshotControl, 'top-right');
 map.addControl(vectorTileInfoControl, 'top-right');
 map.addControl(drawControl, 'top-right');
 map.addControl(textControl, 'top-right');
 map.addControl(imageControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
+map.addControl(importControl, 'top-right');
 map.addControl(addStreetViewControl, 'top-right');
 map.addControl(scale, 'bottom-left');
+map.addControl(mouseCoordinatesControl);
 mapControl.loadMenu()
-
-
 
 //-----------------------------------------------
 // ATALHOS
