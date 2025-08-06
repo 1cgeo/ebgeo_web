@@ -124,9 +124,8 @@ class DrawControl {
             });
             const type = geomtype + 's';
 
-
-
-            addFeature(type, f);
+            // Salvar no IndexedDB
+            await addFeature(type, f);
             this.updateFeatureMeasurement(f);
         };
 
@@ -141,7 +140,8 @@ class DrawControl {
                 f.properties.profileData = JSON.stringify(await this.calculateProfile(f.geometry.coordinates));
             }
             
-            updateFeature(type, f);
+            // Atualizar no IndexedDB
+            await updateFeature(type, f);
             this.updateFeatureMeasurement(f);
         }
         this.selectionManager.handleDrawSelectionChange();
@@ -193,12 +193,14 @@ class DrawControl {
         return label;
     }
 
-    handleDrawDelete = (e) => {
-        e.features.forEach(f => {
+    handleDrawDelete = async (e) => {
+        for (const f of e.features) {
             this.removeFeatureMeasurement(f.id);
             const type = f.geometry.type.toLowerCase() + 's';
-            removeFeature(type, f.id);
-        });
+            
+            // Remover do IndexedDB
+            await removeFeature(type, f.id);
+        }
     }
 
     handleDrawModeChange = (e) => {
@@ -224,23 +226,29 @@ class DrawControl {
         //nothing to do here
     }
 
-    updateFeaturesProperty = (features, property, value) => {
-        features.forEach(feature => {
+    updateFeaturesProperty = async (features, property, value) => {
+        for (const feature of features) {
             feature.properties[property] = value;
             this.draw.setFeatureProperty(feature.id, property, value);
             const feat = this.draw.get(feature.id);
             this.draw.add(feat);
             this.updateFeatureMeasurement(feature);
-        });
+            
+            // Atualizar no IndexedDB
+            const type = feature.geometry.type.toLowerCase() + 's';
+            await updateFeature(type, feature);
+        }
     }
 
-    deleteFeatures = (features) => {
-        features.forEach(f => {
+    deleteFeatures = async (features) => {
+        for (const f of features) {
             this.removeFeatureMeasurement(f.id);
             this.draw.delete(f.id);
             const type = f.geometry.type.toLowerCase() + 's';
-            removeFeature(type, f.id);
-        });
+            
+            // Remover do IndexedDB
+            await removeFeature(type, f.id);
+        }
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
@@ -252,8 +260,8 @@ class DrawControl {
         );
     }
 
-    updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
-        features.forEach(feature => {
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
+        for (const feature of features) {
             const existingFeature = this.draw.get(feature.id);
             if (existingFeature) {
                 if (!onlyUpdateProperties) {
@@ -266,27 +274,27 @@ class DrawControl {
                 if (save) {
                     const featureToUpdate = onlyUpdateProperties ? existingFeature : feature;
                     const type = featureToUpdate.geometry.type.toLowerCase() + 's';
-                    updateFeature(type, featureToUpdate);
+                    await updateFeature(type, featureToUpdate);
                 }
             }
             this.updateFeatureMeasurement(feature);
-        });
+        }
     }
 
-    saveFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
+    saveFeatures = async (features, initialPropertiesMap) => {
+        for (const f of features) {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
                 const type = f.geometry.type.toLowerCase() + 's';
-                updateFeature(type, f);
+                await updateFeature(type, f);
             }
-        });
+        }
     }
 
-    discardChangeFeatures = (features, initialPropertiesMap) => {
+    discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features, true, true);
+        await this.updateFeatures(features, true, true);
     }
 
     setDefaultProperties = (properties, commonAttributes) => {
@@ -357,7 +365,7 @@ class DrawControl {
         return profileData;
     }
 
-    addPointFeatureAtCoordinates = (lngLat) => {
+    addPointFeatureAtCoordinates = async (lngLat) => {
         // Cria um ponto no MapboxDraw
         const feature = {
             type: 'Feature',
@@ -375,10 +383,8 @@ class DrawControl {
             // Obtém a feature com ID gerado
             const addedFeature = this.draw.get(ids[0]);
             
-            // Sinaliza manualmente o evento de criação para processar as propriedades
-            this.handleDrawCreate({
-                features: [addedFeature]
-            });
+            // Salvar no IndexedDB
+            await addFeature('points', addedFeature);
             
             // Seleciona o ponto recém-criado
             this.draw.changeMode('simple_select', { featureIds: [ids[0]] });

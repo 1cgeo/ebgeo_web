@@ -1,5 +1,6 @@
 // Path: js\controls_sig\map.js
 import { getCurrentMapFeatures } from './store.js';
+import { imageStore } from './store.js';
 import baseStyle from './base_map_styles.js'
 
 const map = new maplibregl.Map({
@@ -23,9 +24,11 @@ map.addControl(new maplibregl.AttributionControl({
     compact: true
 }), 'bottom-right');
 
-map.on('styledata', () => { 
-    const features = getCurrentMapFeatures();
+map.on('styledata', async () => { 
+    // Carregar dados do IndexedDB
+    const features = await getCurrentMapFeatures();
 
+    // Configurar draw com dados do IndexedDB
     const draw = map._controls.find(control => control instanceof MapboxDraw);
     if (draw) {
         draw.deleteAll();
@@ -35,6 +38,7 @@ map.on('styledata', () => {
         });
     }
 
+    // Texts source
     if (!map.getSource('texts')) {
         map.addSource('texts', {
             type: 'geojson',
@@ -42,6 +46,11 @@ map.on('styledata', () => {
                 type: 'FeatureCollection',
                 features: features.texts
             }
+        });
+    } else {
+        map.getSource('texts').setData({
+            type: 'FeatureCollection',
+            features: features.texts
         });
     }
 
@@ -67,6 +76,7 @@ map.on('styledata', () => {
         });
     }
 
+    // Images source
     if (!map.getSource('images')) {
         map.addSource('images', {
             type: 'geojson',
@@ -74,6 +84,11 @@ map.on('styledata', () => {
                 type: 'FeatureCollection',
                 features: features.images
             }
+        });
+    } else {
+        map.getSource('images').setData({
+            type: 'FeatureCollection',
+            features: features.images
         });
     }
 
@@ -95,16 +110,28 @@ map.on('styledata', () => {
         });
     }
 
-    features.images.forEach(feature => {
-        const image = new Image();
-        image.src = feature.properties.imageBase64;
-        image.onload = () => {
-            if (!map.hasImage(feature.properties.imageId)) {
-                map.addImage(feature.properties.imageId, image);
+    // Carregar blobs das imagens do IndexedDB
+    for (const feature of features.images) {
+        const imageId = feature.properties.imageId;
+        try {
+            const blob = await imageStore.getItem(imageId);
+            if (blob) {
+                const url = URL.createObjectURL(blob);
+                const image = new Image();
+                image.onload = () => {
+                    if (!map.hasImage(imageId)) {
+                        map.addImage(imageId, image);
+                    }
+                    URL.revokeObjectURL(url);
+                };
+                image.src = url;
             }
-        };
-    });
+        } catch (error) {
+            console.warn(`Erro ao carregar imagem ${imageId}:`, error);
+        }
+    }
 
+    // LOS source
     if (!map.getSource('los')) {
         map.addSource('los', {
             type: 'geojson',
@@ -112,6 +139,11 @@ map.on('styledata', () => {
                 type: 'FeatureCollection',
                 features: features.los
             }
+        });
+    } else {
+        map.getSource('los').setData({
+            type: 'FeatureCollection',
+            features: features.los
         });
     }
 
@@ -128,6 +160,7 @@ map.on('styledata', () => {
         });
     }
 
+    // Processed LOS source
     if (!map.getSource('processed-los')) {
         map.addSource('processed-los', {
             type: 'geojson',
@@ -135,6 +168,11 @@ map.on('styledata', () => {
                 type: 'FeatureCollection',
                 features: features.processed_los
             }
+        });
+    } else {
+        map.getSource('processed-los').setData({
+            type: 'FeatureCollection',
+            features: features.processed_los
         });
     }
 
@@ -151,6 +189,7 @@ map.on('styledata', () => {
         });
     }
 
+    // Visibility source
     if (!map.getSource('visibility')) {
         map.addSource('visibility', {
             type: 'geojson',
@@ -158,6 +197,11 @@ map.on('styledata', () => {
                 type: 'FeatureCollection',
                 features: features.visibility
             }
+        });
+    } else {
+        map.getSource('visibility').setData({
+            type: 'FeatureCollection',
+            features: features.visibility
         });
     }
 
@@ -174,6 +218,7 @@ map.on('styledata', () => {
         });
     }
 
+    // Processed visibility source
     if (!map.getSource('processed-visibility')) {
         map.addSource('processed-visibility', {
             type: 'geojson',
@@ -181,6 +226,11 @@ map.on('styledata', () => {
                 type: 'FeatureCollection',
                 features: features.processed_visibility
             }
+        });
+    } else {
+        map.getSource('processed-visibility').setData({
+            type: 'FeatureCollection',
+            features: features.processed_visibility
         });
     }
 
@@ -197,6 +247,7 @@ map.on('styledata', () => {
         });
     }
 
+    // Selection boxes source
     if (!map.getSource('selection-boxes')) {
         map.addSource('selection-boxes', {
             type: 'geojson',
@@ -220,6 +271,7 @@ map.on('styledata', () => {
         });
     }
 
+    // Temp line source
     if (!map.getSource('temp-line')) {
         map.addSource('temp-line', {
             type: 'geojson',
@@ -243,6 +295,7 @@ map.on('styledata', () => {
         });
     }
 
+    // Temp polygon source
     if (!map.getSource('temp-polygon')) {
         map.addSource('temp-polygon', {
             type: 'geojson',
@@ -266,6 +319,7 @@ map.on('styledata', () => {
         });
     }
 
+    // Street view source
     if (!map.getSource('lines-street-view')) {
         map.addSource('lines-street-view', {
             type: 'geojson',

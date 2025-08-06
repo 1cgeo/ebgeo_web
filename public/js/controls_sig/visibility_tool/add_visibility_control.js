@@ -1,6 +1,7 @@
 // Path: js\controls_sig\visibility_tool\add_visibility_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
+
 class AddVisibilityControl {
     static DEFAULT_PROPERTIES = {
         opacity: 0.5,
@@ -139,7 +140,9 @@ class AddVisibilityControl {
 
         const viewshedResult = await this.calculateViewshed(center, radius, angle);
         const feature = this.createViewshedFeature(viewshedResult.visible, viewshedResult.obstructed, radius, angle);
-        addFeature('visibility', feature);
+        
+        // Salvar no IndexedDB
+        await addFeature('visibility', feature);
 
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         data.features.push(feature);
@@ -147,10 +150,11 @@ class AddVisibilityControl {
 
         const processedVisibilityFeatures = this.preprocessVisibilityFeature(feature);
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
-        processedVisibilityFeatures.forEach(processedFeature => {
-            addFeature('processed_visibility', processedFeature);
+        
+        for (const processedFeature of processedVisibilityFeatures) {
+            await addFeature('processed_visibility', processedFeature);
             processedData.features.push(processedFeature);
-        });
+        }
         this.map.getSource('processed-visibility').setData(processedData);
     }
 
@@ -224,11 +228,11 @@ class AddVisibilityControl {
         this.map.getCanvas().style.cursor = '';
     }
     
-    updateFeaturesProperty = (features, property, value) => {
+    updateFeaturesProperty = async (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
-        features.forEach(feature => {
+        for (const feature of features) {
             const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
@@ -238,8 +242,11 @@ class AddVisibilityControl {
                 processedFeatures.forEach(processedFeature => {
                     processedFeature.properties[property] = value;
                 });
+
+                // Salvar no IndexedDB
+                await updateFeature('visibility', feature);
             }
-        });
+        }
         this.map.getSource('visibility').setData(data);
         this.map.getSource('processed-visibility').setData(processedData);
     }
@@ -278,26 +285,28 @@ class AddVisibilityControl {
                     }
 
                     if(save){
-                        updateFeature('visibility', data.features[featureIndex]);
+                        await updateFeature('visibility', data.features[featureIndex]);
                         const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
-                        processedFeatures.forEach(pf => updateFeature('processed_visibility', pf));
+                        for (const pf of processedFeatures) {
+                            await updateFeature('processed_visibility', pf);
+                        }
                     }
                 }
-            };
+            }
             this.map.getSource('visibility').setData(data);
             this.map.getSource('processed-visibility').setData(processedData);
         }
     }
 
-    saveFeatures = (features, initialPropertiesMap) => {
+    saveFeatures = async (features, initialPropertiesMap) => {
         const processedData = this.map.getSource('processed-visibility')._data;
 
-        features.forEach(f => {
+        for (const f of features) {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                updateFeature('visibility', f);
+                await updateFeature('visibility', f);
 
                 const processedFeatures = processedData.features.filter(pf => pf.id.startsWith(f.id));
-                processedFeatures.forEach(pf => {
+                for (const pf of processedFeatures) {
                     const updatedProcessedFeature = {
                         ...pf,
                         properties: {
@@ -305,21 +314,20 @@ class AddVisibilityControl {
                             color: pf.properties.color
                         }
                     };
-                    updateFeature('processed_visibility', updatedProcessedFeature);
-                });
-
+                    await updateFeature('processed_visibility', updatedProcessedFeature);
+                }
             }
-        });
+        }
     }
 
-    discardChangeFeatures = (features, initialPropertiesMap) => {
+    discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features, true, true);
+        await this.updateFeatures(features, true, true);
     }
 
-    deleteFeatures = (features) => {
+    deleteFeatures = async (features) => {
         if (features.length === 0) {
             return;
         }
@@ -331,11 +339,11 @@ class AddVisibilityControl {
         this.map.getSource('visibility').setData(data);
         this.map.getSource('processed-visibility').setData(processedData);
 
-        features.forEach(f => {
-            removeFeature('visibility', f.id);
-            removeFeature('processed_visibility', f.id + '-obstructed');
-            removeFeature('processed_visibility', f.id + '-visible');
-        });
+        for (const f of features) {
+            await removeFeature('visibility', f.id);
+            await removeFeature('processed_visibility', f.id + '-obstructed');
+            await removeFeature('processed_visibility', f.id + '-visible');
+        }
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
@@ -375,7 +383,7 @@ class AddVisibilityControl {
           visible: visiblePolygon,
           obstructed: obstructedPolygon
         };
-      }
+    }
     
     calculateLOSForViewShed = async(line) => {
         const length = turf.length(line, { units: 'meters' });
@@ -410,12 +418,11 @@ class AddVisibilityControl {
     }
 
     async recalculateVisibility(feature) {
-        let centerCoord
+        let centerCoord;
         if (feature.geometry.type === 'MultiPolygon') {
-            centerCoord = feature.geometry.coordinates[0][0][0]
+            centerCoord = feature.geometry.coordinates[0][0][0];
         } else if (feature.geometry.type === 'Polygon') {
-            centerCoord = feature.geometry.coordinates[0][0]
-
+            centerCoord = feature.geometry.coordinates[0][0];
         }
 
         const { radius, angle } = feature.properties;

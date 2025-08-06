@@ -1,11 +1,10 @@
 // Path: js\controls_sig\image_tool\add_image_control.js
-import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { addFeature, updateFeature, removeFeature, imageStore } from '../store.js';
 
 class AddImageControl {
     static DEFAULT_PROPERTIES = {
         size: 1,
         rotation: 0,
-        imageBase64: '',
         opacity: 1,
         source: 'image'
     };
@@ -100,23 +99,32 @@ class AddImageControl {
         }
     }
 
-    addImageFeature = (lngLat, imageBase64) => {
+    addImageFeature = async (lngLat, imageBase64) => {
         const imageId = Date.now().toString();
 
-        this.resizeImage(imageBase64, (resizedImageBase64, width, height) => {
-            if (!this.map.hasImage(imageId)) {
-                const img = new Image();
-                img.onload = () => {
-                    this.map.addImage(imageId, img);
-                    const feature = this.createImageFeature(lngLat, imageId, resizedImageBase64, width, height);
-                    addFeature('images', feature);
+        this.resizeImage(imageBase64, async (resizedImageBase64, width, height) => {
+            // Converter para blob e salvar no imageStore
+            const response = await fetch(resizedImageBase64);
+            const blob = await response.blob();
+            await imageStore.setItem(imageId, blob);
+            
+            // Criar feature sem base64
+            const feature = this.createImageFeature(lngLat, imageId, width, height);
+            
+            // Salvar no IndexedDB
+            await addFeature('images', feature);
 
-                    const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-                    data.features.push(feature);
-                    this.map.getSource('images').setData(data);
-                };
-                img.src = resizedImageBase64;
-            }
+            // Atualizar layer do MapLibre
+            const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
+            data.features.push(feature);
+            this.map.getSource('images').setData(data);
+
+            // Adicionar imagem ao mapa
+            const img = new Image();
+            img.onload = () => {
+                this.map.addImage(imageId, img);
+            };
+            img.src = resizedImageBase64;
         });
     }
 
@@ -162,11 +170,11 @@ class AddImageControl {
         img.src = imageBase64;
     }
 
-    createImageFeature = (lngLat, imageId, imageBase64, width, height) => {
+    createImageFeature = (lngLat, imageId, width, height) => {
         return {
             type: 'Feature',
             id: imageId,
-            properties: { ...AddImageControl.DEFAULT_PROPERTIES, imageBase64, width, height, imageId },
+            properties: { ...AddImageControl.DEFAULT_PROPERTIES, width, height, imageId },
             geometry: {
                 type: 'Point',
                 coordinates: [lngLat.lng, lngLat.lat]
@@ -182,22 +190,25 @@ class AddImageControl {
         this.map.getCanvas().style.cursor = '';
     }
 
-    updateFeaturesProperty = (features, property, value) => {
+    updateFeaturesProperty = async (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-        features.forEach(feature => {
+        for (const feature of features) {
             const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
+                
+                // Atualizar no IndexedDB
+                await updateFeature('images', feature);
             }
-        });
+        }
         this.map.getSource('images').setData(data);
     }
     
-    updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if(features.length > 0){
             const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-            features.forEach(feature => {
+            for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
@@ -210,30 +221,30 @@ class AddImageControl {
         
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
-                        updateFeature('images', featureToUpdate);
+                        await updateFeature('images', featureToUpdate);
                     }
                 }
-            });
+            }
             this.map.getSource('images').setData(data);
         }
     }
 
-    saveFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
+    saveFeatures = async (features, initialPropertiesMap) => {
+        for (const f of features) {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                updateFeature('images', f);
+                await updateFeature('images', f);
             }
-        });
+        }
     }
 
-    discardChangeFeatures = (features, initialPropertiesMap) => {
+    discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features, true, true);
+        await this.updateFeatures(features, true, true);
     }
 
-    deleteFeatures = (features) => {
+    deleteFeatures = async (features) => {
         if (features.length === 0) {
             return;
         }
@@ -242,17 +253,19 @@ class AddImageControl {
         data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
         this.map.getSource('images').setData(data);
 
-        features.forEach(f => {
-            removeFeature('images', f.id);
-        });
+        for (const f of features) {
+            // Remover imagem do imageStore
+            await imageStore.removeItem(f.id);
+            // Remover do IndexedDB
+            await removeFeature('images', f.id);
+        }
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
         return (
             feature.properties.size !== initialProperties.size ||
             feature.properties.rotation !== initialProperties.rotation ||
-            feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.imageBase64 !== initialProperties.imageBase64
+            feature.properties.opacity !== initialProperties.opacity
         );
     }
 }

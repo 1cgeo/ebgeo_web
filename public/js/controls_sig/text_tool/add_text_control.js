@@ -1,5 +1,6 @@
 // Path: js\controls_sig\text_tool\add_text_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
+
 class AddTextControl {
     static DEFAULT_PROPERTIES = {
         text: '',
@@ -91,9 +92,11 @@ class AddTextControl {
         }
     }
 
-    addTextFeature = (lngLat, text) => {
+    addTextFeature = async (lngLat, text) => {
         const feature = this.createTextFeature(lngLat, text);
-        addFeature('texts', feature);
+        
+        // Salvar no IndexedDB
+        await addFeature('texts', feature);
 
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         data.features.push(feature);
@@ -123,22 +126,25 @@ class AddTextControl {
         this.map.getCanvas().style.cursor = '';
     }
     
-    updateFeaturesProperty = (features, property, value) => {
+    updateFeaturesProperty = async (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-        features.forEach(feature => {
+        for (const feature of features) {
             const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
+                
+                // Atualizar no IndexedDB
+                await updateFeature('texts', feature);
             }
-        });
+        }
         this.map.getSource('texts').setData(data);
     }
 
-    updateFeatures = (features, save = false, onlyUpdateProperties = false) => {
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if(features.length > 0){
             const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-            features.forEach(feature => {
+            for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
@@ -151,30 +157,30 @@ class AddTextControl {
         
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
-                        updateFeature('texts', featureToUpdate);
+                        await updateFeature('texts', featureToUpdate);
                     }
                 }
-            });
+            }
             this.map.getSource('texts').setData(data);
         }
     }
 
-    saveFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
+    saveFeatures = async (features, initialPropertiesMap) => {
+        for (const f of features) {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                updateFeature('texts', f);
+                await updateFeature('texts', f);
             }
-        });
+        }
     }
 
-    discardChangeFeatures = (features, initialPropertiesMap) => {
+    discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        this.updateFeatures(features, true, true);
+        await this.updateFeatures(features, true, true);
     }
 
-    deleteFeatures = (features) => {
+    deleteFeatures = async (features) => {
         if (features.size === 0) {
             return;
         }
@@ -184,10 +190,10 @@ class AddTextControl {
 
         this.map.getSource('texts').setData(data);
 
-        features.forEach(f => {
-            removeFeature('texts', f.id);
-
-        });
+        for (const f of features) {
+            // Remover do IndexedDB
+            await removeFeature('texts', f.id);
+        }
     }
 
     setDefaultProperties = (properties) => {

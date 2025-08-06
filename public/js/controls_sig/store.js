@@ -1,24 +1,14 @@
 // Path: js\controls_sig\store.js
-const store = {
+
+const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
+const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
+
+// APENAS em memória - não persiste
+const memoryStore = {
     maps: {
         'Principal': {
-            baseLayer: 'Carta',
-            features: {
-                polygons: [],
-                linestrings: [],
-                points: [],
-                texts: [],
-                images: [],
-                los: [],
-                visibility: [],
-                processed_los: [],
-                processed_visibility: []
-            },
             undoStack: [],
-            redoStack: [],
-            zoom: null,
-            center_lat: null,
-            center_long: null
+            redoStack: []
         }
     },
     currentMap: 'Principal',
@@ -26,31 +16,43 @@ const store = {
     isRedoing: false,
 };
 
-export const updateMapPosition = (center_lat, center_long, zoom) => {
-    const currentMap = store.maps[store.currentMap];
-    currentMap.center_lat = center_lat
-    currentMap.center_long = center_long
-    currentMap.zoom = zoom
-}
-
-export const getMapPosition = () => {
-    const currentMap = store.maps[store.currentMap];
-    return {center_lat: currentMap.center_lat, center_long: currentMap.center_long, zoom: currentMap.zoom}
-}
+// Função para estrutura vazia
+const getEmptyMapData = () => ({
+    baseLayer: 'Carta',
+    features: {
+        polygons: [],
+        linestrings: [],
+        points: [],
+        texts: [],
+        images: [],
+        los: [],
+        visibility: [],
+        processed_los: [],
+        processed_visibility: []
+    },
+    zoom: null,
+    center_lat: null,
+    center_long: null
+});
 
 const recordAction = (action) => {
-    const currentMap = store.maps[store.currentMap];
-    if (!store.isUndoing && !store.isRedoing) {
+    const currentMap = memoryStore.maps[memoryStore.currentMap];
+    if (!memoryStore.isUndoing && !memoryStore.isRedoing) {
         currentMap.undoStack.push(action);
         if (currentMap.undoStack.length > 20) {
-            currentMap.undoStack.shift(); // Remove the oldest action if stack exceeds 20
+            currentMap.undoStack.shift();
         }
-        currentMap.redoStack = []; // Clear the redo stack when a new action is performed
+        currentMap.redoStack = [];
     }
 };
 
-export const addFeature = (type, feature) => {
-    store.maps[store.currentMap].features[type].push(feature);
+// Funções que trabalham direto com IndexedDB
+export const addFeature = async (type, feature) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    currentMapData.features[type].push(feature);
+    await mapStore.setItem(memoryStore.currentMap, currentMapData);
+    
+    // Apenas undo em memória
     recordAction({
         type: 'add',
         featureType: type,
@@ -58,12 +60,15 @@ export const addFeature = (type, feature) => {
     });
 };
 
-export const updateFeature = (type, feature) => {
-    const index = store.maps[store.currentMap].features[type].findIndex(f => f.id == feature.id);
+export const updateFeature = async (type, feature) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    const index = currentMapData.features[type].findIndex(f => f.id == feature.id);
     if (index !== -1) {
-        const oldFeature = store.maps[store.currentMap].features[type][index];
+        const oldFeature = currentMapData.features[type][index];
         if (JSON.stringify(oldFeature) !== JSON.stringify(feature)) {
-            store.maps[store.currentMap].features[type][index] = feature;
+            currentMapData.features[type][index] = feature;
+            await mapStore.setItem(memoryStore.currentMap, currentMapData);
+            
             recordAction({
                 type: 'update',
                 featureType: type,
@@ -74,10 +79,13 @@ export const updateFeature = (type, feature) => {
     }
 };
 
-export const removeFeature = (type, id) => {
-    const featureIndex = store.maps[store.currentMap].features[type].findIndex(f => f.id == id);
+export const removeFeature = async (type, id) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    const featureIndex = currentMapData.features[type].findIndex(f => f.id == id);
     if (featureIndex !== -1) {
-        const feature = store.maps[store.currentMap].features[type].splice(featureIndex, 1)[0];
+        const feature = currentMapData.features[type].splice(featureIndex, 1)[0];
+        await mapStore.setItem(memoryStore.currentMap, currentMapData);
+        
         recordAction({
             type: 'remove',
             featureType: type,
@@ -86,127 +94,169 @@ export const removeFeature = (type, id) => {
     }
 };
 
-export const addMap = (mapName, mapData = null) => {
-    store.maps[mapName] = mapData || {
-        baseLayer: 'Carta',
-        features: {
-            polygons: [],
-            linestrings: [],
-            points: [],
-            texts: [],
-            images: [],
-            los: [],
-            visibility: [],
-            processed_los: [],
-            processed_visibility: []
-        },
+export const addMap = async (mapName, mapData = null) => {
+    const newMapData = mapData || getEmptyMapData();
+    await mapStore.setItem(mapName, newMapData);
+    
+    // Adicionar stack em memória
+    memoryStore.maps[mapName] = {
         undoStack: [],
-        redoStack: [],
-        zoom: null,
-        center_lat: null,
-        center_long: null
+        redoStack: []
     };
 };
 
-export const removeMap = (mapName) => {
-    delete store.maps[mapName];
+export const removeMap = async (mapName) => {
+    await mapStore.removeItem(mapName);
+    delete memoryStore.maps[mapName];
 };
 
-export const renameMap = (oldName, newName) => {
-    if (store.maps[oldName]) {
-        store.maps[newName] = store.maps[oldName];
-        delete store.maps[oldName];
-        if (store.currentMap === oldName) {
-            store.currentMap = newName;
+export const renameMap = async (oldName, newName) => {
+    const mapData = await mapStore.getItem(oldName);
+    if (mapData) {
+        await mapStore.setItem(newName, mapData);
+        await mapStore.removeItem(oldName);
+        
+        // Atualizar memória
+        memoryStore.maps[newName] = memoryStore.maps[oldName];
+        delete memoryStore.maps[oldName];
+        
+        if (memoryStore.currentMap === oldName) {
+            memoryStore.currentMap = newName;
         }
     }
 };
 
 export const setCurrentMap = (mapName) => {
-    store.currentMap = mapName;
+    memoryStore.currentMap = mapName;
+    
+    // Criar stack em memória se não existir
+    if (!memoryStore.maps[mapName]) {
+        memoryStore.maps[mapName] = {
+            undoStack: [],
+            redoStack: []
+        };
+    }
 };
 
-export const getCurrentMapFeatures = () => {
-    return JSON.parse(JSON.stringify(store.maps[store.currentMap].features));
+// Carregar dados do IndexedDB para as layers
+export const getCurrentMapFeatures = async () => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    return JSON.parse(JSON.stringify(currentMapData.features));
 };
 
-export const getCurrentBaseLayer = () => {
-    return store.maps[store.currentMap].baseLayer;
+export const getCurrentBaseLayer = async () => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    return currentMapData.baseLayer;
 };
 
-export const setBaseLayer = (layer) => {
-    store.maps[store.currentMap].baseLayer = layer;
+export const setBaseLayer = async (layer) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    currentMapData.baseLayer = layer;
+    await mapStore.setItem(memoryStore.currentMap, currentMapData);
 };
 
-export const undoLastAction = () => {
-    const currentMap = store.maps[store.currentMap];
+export const updateMapPosition = async (center_lat, center_long, zoom) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    currentMapData.center_lat = center_lat;
+    currentMapData.center_long = center_long;
+    currentMapData.zoom = zoom;
+    await mapStore.setItem(memoryStore.currentMap, currentMapData);
+};
+
+export const getMapPosition = async () => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    return {
+        center_lat: currentMapData.center_lat,
+        center_long: currentMapData.center_long,
+        zoom: currentMapData.zoom
+    };
+};
+
+// Funções para listar mapas
+export const getAllMapNames = async () => {
+    return await mapStore.keys();
+};
+
+export const getCurrentMapName = () => {
+    return memoryStore.currentMap;
+};
+
+// Undo/Redo functions
+export const undoLastAction = async () => {
+    const currentMap = memoryStore.maps[memoryStore.currentMap];
     const lastAction = currentMap.undoStack.pop();
     if (!lastAction) return false;
 
-    store.isUndoing = true;
+    memoryStore.isUndoing = true;
     currentMap.redoStack.push(lastAction);
 
-    switch (lastAction.type) {
-        case 'add':
-            removeFeature(lastAction.featureType, lastAction.feature.id);
-            break;
-        case 'update':
-            updateFeature(lastAction.featureType, lastAction.oldFeature);
-            break;
-        case 'remove':
-            addFeature(lastAction.featureType, lastAction.feature);
-            break;
-        default:
-            break;
+    try {
+        switch (lastAction.type) {
+            case 'add':
+                await removeFeature(lastAction.featureType, lastAction.feature.id);
+                break;
+            case 'update':
+                await updateFeature(lastAction.featureType, lastAction.oldFeature);
+                break;
+            case 'remove':
+                await addFeature(lastAction.featureType, lastAction.feature);
+                break;
+            default:
+                break;
+        }
+    } finally {
+        memoryStore.isUndoing = false;
     }
 
-    store.isUndoing = false;
     return true;
-
 };
 
-export const redoLastAction = () => {
-    const currentMap = store.maps[store.currentMap];
+export const redoLastAction = async () => {
+    const currentMap = memoryStore.maps[memoryStore.currentMap];
     const lastUndoneAction = currentMap.redoStack.pop();
     if (!lastUndoneAction) return false;
 
-    store.isRedoing = true;
+    memoryStore.isRedoing = true;
     currentMap.undoStack.push(lastUndoneAction);
 
-    switch (lastUndoneAction.type) {
-        case 'add':
-            addFeature(lastUndoneAction.featureType, lastUndoneAction.feature);
-            break;
-        case 'update':
-            updateFeature(lastUndoneAction.featureType, lastUndoneAction.newFeature);
-            break;
-        case 'remove':
-            removeFeature(lastUndoneAction.featureType, lastUndoneAction.feature.id);
-            break;
-        default:
-            break;
+    try {
+        switch (lastUndoneAction.type) {
+            case 'add':
+                await addFeature(lastUndoneAction.featureType, lastUndoneAction.feature);
+                break;
+            case 'update':
+                await updateFeature(lastUndoneAction.featureType, lastUndoneAction.newFeature);
+                break;
+            case 'remove':
+                await removeFeature(lastUndoneAction.featureType, lastUndoneAction.feature.id);
+                break;
+            default:
+                break;
+        }
+    } finally {
+        memoryStore.isRedoing = false;
     }
 
-    store.isRedoing = false;
     return true;
-
 };
 
-export const hasUnsavedData = () => {
-    const maps = store.maps;
-    for (const mapName in maps) {
-        const features = maps[mapName].features;
-        for (const featureType in features) {
-            if (features[featureType].length > 0) {
-                return true;
+export const hasUnsavedData = async () => {
+    const allMapKeys = await mapStore.keys();
+    for (const mapName of allMapKeys) {
+        const mapData = await mapStore.getItem(mapName);
+        if (mapData && mapData.features) {
+            for (const featureType in mapData.features) {
+                if (mapData.features[featureType].length > 0) {
+                    return true;
+                }
             }
         }
     }
     return false;
 };
 
-export const addFeatures = (featuresMap) => {
-    const currentMap = store.maps[store.currentMap];
+export const addFeatures = async (featuresMap) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
     
     // Criar uma única ação para o histórico
     const action = {
@@ -218,10 +268,13 @@ export const addFeatures = (featuresMap) => {
     Object.keys(featuresMap).forEach(type => {
         const features = featuresMap[type] || [];
         if (features.length > 0) {
-            currentMap.features[type].push(...features);
+            currentMapData.features[type].push(...features);
             action.features[type] = JSON.parse(JSON.stringify(features));
         }
     });
+    
+    // Salvar no IndexedDB
+    await mapStore.setItem(memoryStore.currentMap, currentMapData);
     
     // Registrar ação no histórico apenas se houve alterações
     if (Object.keys(action.features).length > 0) {
@@ -229,4 +282,9 @@ export const addFeatures = (featuresMap) => {
     }
 };
 
+// Exportar stores para uso direto quando necessário
+export { mapStore, imageStore };
+
+// Manter compatibilidade com código existente
+const store = memoryStore;
 export default store;

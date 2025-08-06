@@ -7,7 +7,7 @@ import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
 import AddLOSControl from './controls_sig/los_tool/add_los_control.js';
 import AddVisibilityControl from './controls_sig/visibility_tool/add_visibility_control.js';
-import AddImportControl from './controls_sig/import_tool/add_import_control.js'; // NOVA IMPORTAÇÃO
+import AddImportControl from './controls_sig/import_tool/add_import_control.js';
 import ToolManager from './controls_sig/tool_manager/tool_manager.js';
 import SelectionManager from './controls_sig/tool_manager/selection_manager.js';
 import UIManager from './controls_sig/tool_manager/ui_manager.js';
@@ -98,17 +98,19 @@ map.addControl(mouseCoordinatesControl);
 mapControl.loadMenu()
 
 //-----------------------------------------------
-// ATALHOS
+// ATALHOS - USANDO INDEXEDDB UNDO/REDO
 //-----------------------------------------------
-document.addEventListener('keydown', (event) => {
+document.addEventListener('keydown', async (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
-        if (undoLastAction()) {
-            mapControl.switchMap(false);
+        event.preventDefault();
+        if (await undoLastAction()) {
+            await mapControl.switchMap();
         }
     }
     if ((event.ctrlKey || event.metaKey) && event.key === 'y') {
-        if (redoLastAction()) {
-            mapControl.switchMap(false);
+        event.preventDefault();
+        if (await redoLastAction()) {
+            await mapControl.switchMap();
         }
     }
 });

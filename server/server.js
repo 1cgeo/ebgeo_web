@@ -34,7 +34,7 @@ if (cluster.isMaster) {
     default: 'index.html'
   }));
 
-  const port = process.env.PORT || 8080;
+  const port = process.env.PORT || 8082;
   server.listen(port, () => {
     console.log('%s listening at %s', server.name, server.url);
   });

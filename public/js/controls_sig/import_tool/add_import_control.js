@@ -14,9 +14,7 @@ class AddImportControl {
     }
 
     setBaseLayerControl(baseLayerControl) {
-
         this.baseLayerControl = baseLayerControl;
-
     }
 
     onAdd(map) {
@@ -85,8 +83,8 @@ class AddImportControl {
         try {
             const geoJSON = await this.processFile(file);
             if (geoJSON) {
-                this.importGeoJSON(geoJSON);
-                this.showImportSuccess(geoJSON.features.length);
+                const importedCount = await this.importGeoJSON(geoJSON);
+                this.showImportSuccess(importedCount);
             }
         } catch (error) {
             console.error('Erro ao importar arquivo:', error);
@@ -225,12 +223,12 @@ class AddImportControl {
         });
     }
 
-    importGeoJSON(geoJSON) {
+    async importGeoJSON(geoJSON) {
         const validFeatures = [];
 
-        geoJSON.features.forEach(feature => {
+        for (const feature of geoJSON.features) {
             if (!feature.geometry || !feature.geometry.type) {
-                return; // Ignorar features sem geometria
+                continue; // Ignorar features sem geometria
             }
 
             const geomType = feature.geometry.type.toLowerCase();
@@ -244,7 +242,7 @@ class AddImportControl {
             } else if (geomType.includes('polygon')) {
                 targetType = 'polygons';
             } else {
-                return; // Ignorar tipos não suportados
+                continue; // Ignorar tipos não suportados
             }
 
             // Criar feature com propriedades padrões do DrawControl
@@ -257,12 +255,12 @@ class AddImportControl {
                 }
             };
 
-            // Adicionar ao DrawControl e store
+            // Adicionar ao DrawControl e IndexedDB
             this.drawControl.draw.add(processedFeature);
-            addFeature(targetType, processedFeature);
+            await addFeature(targetType, processedFeature);
             
             validFeatures.push(processedFeature);
-        });
+        }
 
         // Zoom para as features importadas
         if (validFeatures.length > 0) {

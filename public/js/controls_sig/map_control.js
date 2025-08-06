@@ -1,5 +1,16 @@
 // Path: js\controls_sig\map_control.js
-import store, { addMap, removeMap, renameMap, setCurrentMap, updateMapPosition, getCurrentBaseLayer, getMapPosition } from './store.js';
+import { 
+    addMap, 
+    removeMap, 
+    renameMap, 
+    setCurrentMap, 
+    updateMapPosition, 
+    getCurrentBaseLayer, 
+    getMapPosition,
+    getAllMapNames,
+    getCurrentMapName,
+    mapStore
+} from './store.js';
 
 class MapControl {
     constructor(baseLayerControl) {
@@ -30,8 +41,6 @@ class MapControl {
     }
 
     loadMenu() {
-
-
         $('#save-btn').appendTo('#menu-map-list');
         $('#load-btn').appendTo('#menu-map-list');
         const addButton = document.createElement('button');
@@ -40,14 +49,15 @@ class MapControl {
             <img src="./images/icon_add.svg" alt="ADD" />
         `
         addButton.title = 'Adicionar mapa';
-        addButton.onclick = () => {
-            if (Object.keys(store.maps).length < 10) {
+        addButton.onclick = async () => {
+            const allMapNames = await getAllMapNames();
+            if (allMapNames.length < 10) {
                 const mapName = prompt("Digite o nome do mapa:");
                 if (mapName) {
-                    addMap(mapName);
+                    await addMap(mapName);
                     setCurrentMap(mapName);
-                    this.switchMap()
-                    this.updateMapList();
+                    await this.switchMap();
+                    await this.updateMapList();
                 }
             } else {
                 alert("Você não pode adicionar mais de 10 mapas.");
@@ -55,7 +65,6 @@ class MapControl {
         };
         $('#menu-map-list').append(addButton)
         $('.base-layer-control').appendTo('#header-map-list');
-
     }
 
     onRemove() {
@@ -63,28 +72,30 @@ class MapControl {
         this.map = undefined;
     }
 
-    updateMapList() {
-
+    async updateMapList() {
         this.mapList.innerHTML = '';
 
-        const sortedMapNames = Object.keys(store.maps).sort();
+        const allMapNames = await getAllMapNames();
+        const currentMapName = getCurrentMapName();
+        const sortedMapNames = allMapNames.sort();
 
-        sortedMapNames.forEach((mapName, i) => {
-            const listItem = $("<li>")
-            if (mapName === store.currentMap) listItem.addClass('current-map')
-            // $(listItem).append($('<span>').text(i+1))
+        for (let i = 0; i < sortedMapNames.length; i++) {
+            const mapName = sortedMapNames[i];
+            const listItem = $("<li>");
+            
+            if (mapName === currentMapName) listItem.addClass('current-map');
+            
             $(listItem).append(
                 $('<button>', { class: "map-name-button" })
                     .append(mapName)
-                    .click(
-                        (e) => {
-                            e.preventDefault()
-                            setCurrentMap(mapName);
-                            this.switchMap()
-                            this.updateMapList();
-                        }
-                    )
-            )
+                    .click(async (e) => {
+                        e.preventDefault();
+                        setCurrentMap(mapName);
+                        await this.switchMap();
+                        await this.updateMapList();
+                    })
+            );
+            
             $(listItem).append(
                 $("<div>", { class: "dropdown" })
                     .append(
@@ -101,7 +112,7 @@ class MapControl {
                             .append(
                                 $("<button>", { class: "menu-button" })
                                     .append('Salvar posição')
-                                    .click((e) => {
+                                    .click(async (e) => {
                                         e.preventDefault();
                                         alert(`Posição salva do mapa ${mapName}`);
                                         const center = this.map.getCenter();
@@ -109,23 +120,24 @@ class MapControl {
                                         
                                         const center_lat = center.lat;
                                         const center_long = center.lng;
-                                        updateMapPosition(center_lat, center_long, zoom)
-                                        this.updateMapList();
+                                        await updateMapPosition(center_lat, center_long, zoom);
+                                        await this.updateMapList();
                                     })
                             )
                             .append(
                                 $("<button>", { class: "menu-button" })
                                     .append('Copiar')
-                                    .click((e) => {
+                                    .click(async (e) => {
                                         e.preventDefault();
-                                        if (Object.keys(store.maps).length < 10) {
+                                        const allMapNames = await getAllMapNames();
+                                        if (allMapNames.length < 10) {
                                             const newMapName = prompt("Digite o nome para o novo mapa:");
                                             if (newMapName) {
-                                                const copiedMap = JSON.parse(JSON.stringify(store.maps[mapName]));
-                                                addMap(newMapName, copiedMap);
+                                                const copiedMapData = await mapStore.getItem(mapName);
+                                                await addMap(newMapName, copiedMapData);
                                                 setCurrentMap(newMapName);
-                                                this.switchMap()
-                                                this.updateMapList();
+                                                await this.switchMap();
+                                                await this.updateMapList();
                                             }
                                         } else {
                                             alert("Você não pode adicionar mais de 10 mapas.");
@@ -135,34 +147,35 @@ class MapControl {
                             .append(
                                 $("<button>", { class: "menu-button" })
                                     .append('Renomear')
-                                    .click((e) => {
+                                    .click(async (e) => {
                                         e.preventDefault();
                                         const newMapName = prompt("Digite o novo nome do mapa:");
                                         if (newMapName) {
                                             const oldMapName = mapName;
-                                            renameMap(oldMapName, newMapName);
+                                            await renameMap(oldMapName, newMapName);
                                             setCurrentMap(newMapName);
-                                            this.switchMap()
-                                            this.updateMapList();
+                                            await this.switchMap();
+                                            await this.updateMapList();
                                         }
                                     })
                             )
                             .append(
                                 $("<button>", { class: "menu-button" })
                                     .append('Excluir')
-                                    .click((e) => {
+                                    .click(async (e) => {
                                         e.preventDefault();
-                                        if (Object.keys(store.maps).length > 1) {
+                                        const allMapNames = await getAllMapNames();
+                                        if (allMapNames.length > 1) {
                                             if (confirm("Você tem certeza que deseja deletar este mapa?")) {
-                                                removeMap(mapName);
+                                                await removeMap(mapName);
 
-                                                if (store.currentMap === mapName) {
-                                                    const remainingMaps = Object.keys(store.maps);
+                                                if (currentMapName === mapName) {
+                                                    const remainingMaps = await getAllMapNames();
                                                     setCurrentMap(remainingMaps[0]);
-                                                    this.switchMap()
+                                                    await this.switchMap();
                                                 }
 
-                                                this.updateMapList();
+                                                await this.updateMapList();
                                             }
                                         } else {
                                             alert("Deve haver pelo menos um mapa.");
@@ -170,16 +183,16 @@ class MapControl {
                                     })
                             )
                     )
-
-            )
+            );
+            
             $(this.mapList).append(listItem);
-        });
+        }
     }
 
-    switchMap() {
-        const baseLayer = getCurrentBaseLayer();
-        let {center_lat, center_long, zoom} = getMapPosition()
-        this.setMapCenterAndZoom(center_lat, center_long, zoom)
+    async switchMap() {
+        const baseLayer = await getCurrentBaseLayer();
+        const { center_lat, center_long, zoom } = await getMapPosition();
+        this.setMapCenterAndZoom(center_lat, center_long, zoom);
         this.baseLayerControl.switchLayer(baseLayer);
     }
 

@@ -132,11 +132,6 @@ $('#mini-map-street-view').css({
     display: 'none'
 });
 
-
-
-
-
-
 $(document).ready(() => {
     setTimeout(()=> $('.loading-background').css('display', 'none'), 3000)
 })

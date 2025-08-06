@@ -35,6 +35,12 @@ class UIManager {
             return;
         }
 
+        // Verificar se a source existe antes de tentar usá-la
+        const selectionBoxesSource = this.map.getSource('selection-boxes');
+        if (!selectionBoxesSource) {
+            return; // Source ainda não foi criada, aguardar
+        }
+
         const features = [
             ...this.createSelectionBoxesForTextFeatures(),
             ...this.createSelectionBoxesForImageFeatures(),
@@ -45,7 +51,7 @@ class UIManager {
 
         this.selectionBoxes = features;
 
-        this.map.getSource('selection-boxes').setData({
+        selectionBoxesSource.setData({
             type: 'FeatureCollection',
             features: features
         });
@@ -102,10 +108,14 @@ class UIManager {
             return this.translateFeature(feature, dx, dy);
         });
 
-        this.map.getSource('selection-boxes').setData({
-            type: 'FeatureCollection',
-            features: shiftedFeatures
-        });
+        // Verificar se a source existe antes de tentar usá-la
+        const selectionBoxesSource = this.map.getSource('selection-boxes');
+        if (selectionBoxesSource) {
+            selectionBoxesSource.setData({
+                type: 'FeatureCollection',
+                features: shiftedFeatures
+            });
+        }
 
         if(save){
             this.selectionBoxes = shiftedFeatures;

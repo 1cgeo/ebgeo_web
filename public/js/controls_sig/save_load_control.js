@@ -1,6 +1,5 @@
 // Path: js\controls_sig\save_load_control.js
-import { saveToFile, loadFromFile } from './utils.js';
-import store, { getCurrentBaseLayer } from './store.js';
+import { mapStore, imageStore, getAllMapNames, getCurrentMapName, setCurrentMap, addMap } from './store.js';
 
 class SaveLoadControl {
     constructor(mapControl, baseLayerControl) {
@@ -22,46 +21,119 @@ class SaveLoadControl {
             <input type="file" id="load-file" accept=".ebgeo" style="display: none;" />
         `;
 
-        this.container.querySelector('#save-btn').addEventListener('click', () => {
-            const allData = {
-                maps: {},
-                currentMap: store.currentMap,
-            };
-        
-            Object.keys(store.maps).forEach(key => {
-                const { undoStack, redoStack, ...mapData } = store.maps[key];
-                allData.maps[key] = mapData;
-            });
-            saveToFile(allData, 'maps_data.ebgeo');
+        // Export - IndexedDB para ZIP
+        this.container.querySelector('#save-btn').addEventListener('click', async () => {
+            try {
+                const zip = new JSZip();
+                
+                // Dados de todos os mapas do IndexedDB
+                const allMapKeys = await getAllMapNames();
+                const allData = {
+                    maps: {},
+                    currentMap: getCurrentMapName(),
+                };
+                
+                for (const mapName of allMapKeys) {
+                    const mapData = await mapStore.getItem(mapName);
+                    if (mapData) {
+                        allData.maps[mapName] = mapData;
+                    }
+                }
+                
+                zip.file('data.json', JSON.stringify(allData));
+                
+                // Todas as imagens do imageStore
+                const imgFolder = zip.folder('images');
+                const imageKeys = await imageStore.keys();
+                
+                for (const key of imageKeys) {
+                    const blob = await imageStore.getItem(key);
+                    if (blob) {
+                        imgFolder.file(`${key}.png`, blob);
+                    }
+                }
+                
+                // Download
+                const content = await zip.generateAsync({ type: 'blob' });
+                const url = URL.createObjectURL(content);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'maps_data.ebgeo';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Erro ao exportar dados:', error);
+                alert('Erro ao exportar arquivo .ebgeo');
+            }
         });
 
         this.container.querySelector('#load-btn').addEventListener('click', () => {
             this.container.querySelector('#load-file').click();
         });
 
-        this.container.querySelector('#load-file').addEventListener('change', (event) => {
-            const fileInput = event.target;
+        // Import - ZIP para IndexedDB + MapLibre
+        this.container.querySelector('#load-file').addEventListener('change', async (event) => {
             const file = event.target.files[0];
-            if (file) {
-                loadFromFile(file, (data) => {
-                    // Atualize o store com os dados carregados
-                    store.maps = data.maps;
-                    store.currentMap = data.currentMap;
-
-                    Object.keys(store.maps).forEach(key => {
-                        store.maps[key].undoStack = [];
-                        store.maps[key].redoStack = [];
-                    });
-
-                    // Atualize o mapa para refletir os dados carregados
-                    const baseLayer = getCurrentBaseLayer();
-                    this.baseLayerControl.switchLayer(baseLayer);     
-
-                    // Atualize a lista de mapas no mapControl
-                    this.mapControl.updateMapList();
-                    fileInput.value = '';
-                });
+            if (!file) return;
+            
+            try {
+                const zip = await JSZip.loadAsync(file);
+                
+                // Limpar IndexedDB
+                await mapStore.clear();
+                await imageStore.clear();
+                
+                // Buscar arquivo data.json (com diferentes possibilidades)
+                let dataFile = zip.file('data.json');
+                
+                if (!dataFile) {
+                    throw new Error('Arquivo data.json não encontrado no .ebgeo');
+                }
+                
+                const dataJson = await dataFile.async('string');
+                const data = JSON.parse(dataJson);
+                
+                // Salvar cada mapa no IndexedDB
+                for (const [mapName, mapData] of Object.entries(data.maps)) {
+                    await mapStore.setItem(mapName, mapData);
+                    await addMap(mapName, mapData);
+                }
+                
+                // Atualizar mapa atual
+                setCurrentMap(data.currentMap);
+                
+                // Carregar imagens para imageStore
+                const imageFiles = Object.keys(zip.files).filter(name => 
+                    name.startsWith('images/') && name.endsWith('.png')
+                );
+                                
+                for (const fileName of imageFiles) {
+                    try {
+                        const imageId = fileName.replace('images/', '').replace('.png', '');
+                        const blob = await zip.file(fileName).async('blob');
+                        await imageStore.setItem(imageId, blob);
+                    } catch (imgError) {
+                        console.warn('Erro ao carregar imagem:', fileName, imgError);
+                    }
+                }
+                
+                // Recarregar MapLibre (trigger styledata)
+                const currentMapData = await mapStore.getItem(data.currentMap);
+                const baseLayer = currentMapData ? currentMapData.baseLayer : 'Carta';
+                this.baseLayerControl.switchLayer(baseLayer);
+                this.mapControl.updateMapList();
+                
+                alert('Arquivo .ebgeo carregado com sucesso!');
+                
+            } catch (error) {
+                console.error('Erro ao importar arquivo:', error);
+                alert('Erro ao carregar arquivo .ebgeo: ' + error.message);
             }
+            
+            event.target.value = '';
         });
 
         $('input[name="base-layer"]').on('change', this.changeButtonColors);
