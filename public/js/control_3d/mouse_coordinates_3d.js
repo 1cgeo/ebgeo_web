@@ -1,5 +1,4 @@
 // Path: js\control_3d\mouse_coordinates_3d.js
-import { map } from './map.js';
 import { 
     COORDINATE_FORMATS, 
     getPlaceholderForFormat, 
@@ -7,6 +6,8 @@ import {
     formatCoordinates, 
     getDisplayFormat 
 } from '../controls_sig/utilities/coordinate_converter.js';
+
+let viewerInstance = null;
 
 let coordinatesContainer = null;
 let coordinatesText = null;
@@ -16,7 +17,10 @@ let currentCoordinates = { lat: 0, lng: 0 };
 let mouseMoveHandler = null;
 let flyToModal = null;
 
-function initMouseCoordinates3D() {
+function initMouseCoordinates3D(viewer) {
+    if (!viewer) return;
+    viewerInstance = viewer;
+    
     // Remove existing if any
     cleanupMouseCoordinates3D();
     
@@ -166,7 +170,7 @@ function initMouseCoordinates3D() {
     
     // Setup mouse move listener
     mouseMoveHandler = onMouseMove;
-    map.scene.canvas.addEventListener('mousemove', mouseMoveHandler);
+    viewerInstance.scene.canvas.addEventListener('mousemove', mouseMoveHandler);
     
     // Setup click outside listener for format selector
     document.addEventListener('click', closeFormatSelector);
@@ -176,8 +180,8 @@ function initMouseCoordinates3D() {
 }
 
 function cleanupMouseCoordinates3D() {
-    if (mouseMoveHandler) {
-        map.scene.canvas.removeEventListener('mousemove', mouseMoveHandler);
+    if (mouseMoveHandler && viewerInstance) {
+        viewerInstance.scene.canvas.removeEventListener('mousemove', mouseMoveHandler);
         mouseMoveHandler = null;
     }
     
@@ -195,14 +199,16 @@ function cleanupMouseCoordinates3D() {
 }
 
 function onMouseMove(e) {
-    const canvas = map.scene.canvas;
+    if (!viewerInstance) return;
+
+    const canvas = viewerInstance.scene.canvas;
     const rect = canvas.getBoundingClientRect();
     const position = new Cesium.Cartesian2(
         e.clientX - rect.left,
         e.clientY - rect.top
     );
     
-    const cartesian = map.camera.pickEllipsoid(position, map.scene.globe.ellipsoid);
+    const cartesian = viewerInstance.camera.pickEllipsoid(position, viewerInstance.scene.globe.ellipsoid);
     
     if (cartesian) {
         const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
@@ -411,6 +417,8 @@ function closeFlyToModal() {
 }
 
 function handleFlyTo() {
+    if (!viewerInstance || !flyToModal) return;
+
     const formatSelect = flyToModal.querySelector('#format-select');
     const coordsInput = flyToModal.querySelector('#coords-input');
     const validationMsg = flyToModal.querySelector('#validation-msg');
@@ -418,7 +426,7 @@ function handleFlyTo() {
     const coordinates = parseCoordinates(coordsInput.value.trim(), formatSelect.value);
     
     if (coordinates) {
-        map.camera.flyTo({
+        viewerInstance.camera.flyTo({
             destination: Cesium.Cartesian3.fromDegrees(coordinates.lng, coordinates.lat, 1000),
             duration: 2.0
         });

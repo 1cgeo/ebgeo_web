@@ -9,7 +9,11 @@ const map = new maplibregl.Map({
     attributionControl: false,
     minZoom: 11,
     maxZoom: 17.9,
-    maxPitch: 65
+    maxPitch: 65,
+    bounds: [
+    [-44.4633992903047, -22.46265178239199],
+    [-44.439695820515325, -22.444666254876367]
+    ],
 });
 
 const bounds = [
@@ -346,11 +350,5 @@ map.on('styledata', async () => {
         });
     }
 });
-
-//FIT AMAN
-map.fitBounds([
-    [-44.4633992903047, -22.46265178239199],
-    [-44.439695820515325, -22.444666254876367]
-]);
 
 export { map };

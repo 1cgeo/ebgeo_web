@@ -1,77 +1,186 @@
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EBGeo</title>
     <link rel="icon" type="image/x-icon" href="./images/favicon.ico">
-    <link href="./vendors/maplibre-gl.css" rel="stylesheet" />
-    <link href="./vendors/mapbox-gl-draw.css" rel="stylesheet" />
-    <link href="./vendors/cesium/Widgets/widgets.css" rel="stylesheet" />
-    <link rel="stylesheet" href="./css/style.css">
+    
+    <!-- PRELOAD CRÍTICO PARA PERFORMANCE -->
+    <link rel="stylesheet" href="./vendors/cesium/Widgets/widgets.css" media="print" onload="this.media='all'; this.onload=null;">
+    <link rel="preload" href="./vendors/maplibre-gl.js" as="script">
+    <link rel="preload" href="./css/style.css" as="style">
+    <link rel="preload" href="./images/dsg_symbol.svg" as="image">
+
+    <!-- CSS CRÍTICO INLINE (apenas o essencial para above-the-fold) -->
+    <style>
+        /* Critical CSS - apenas o necessário para carregamento inicial */
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            width: 100%; 
+            display: flex; 
+            flex-direction: column; 
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        #top-bar { 
+            background-color: #fbfbfa; 
+            display: flex; 
+            flex-direction: row; 
+            width: 100%; 
+            border-bottom: 0.5mm solid #EEEEEE;
+            min-height: 60px;
+        }
+        
+        #map-sig { 
+            position: relative; 
+            bottom: 0; 
+            width: 100%; 
+            height: 100%; 
+            cursor: default; 
+        }
+        
+        .loading-background {
+            position: fixed;
+            background-color: #508D4E;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            top: 0;
+            left: 0;
+        }
+        
+        .lds-ripple {
+            display: inline-block;
+            position: relative;
+            width: 80px;
+            height: 80px;
+        }
+        
+        .lds-ripple div {
+            position: absolute;
+            border: 4px solid #B4E380;
+            opacity: 1;
+            border-radius: 50%;
+            animation: lds-ripple 1s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+        }
+        
+        .lds-ripple div:nth-child(2) {
+            animation-delay: -0.5s;
+        }
+        
+        @keyframes lds-ripple {
+            0% { top: 36px; left: 36px; width: 8px; height: 8px; opacity: 0; }
+            4.9% { top: 36px; left: 36px; width: 8px; height: 8px; opacity: 0; }
+            5% { top: 36px; left: 36px; width: 8px; height: 8px; opacity: 1; }
+            100% { top: 0; left: 0; width: 80px; height: 80px; opacity: 0; }
+        }
+        
+        /* Hide elementos não críticos durante carregamento */
+        #map-3d-container {
+            display: none;
+        }
+        
+        /* Elementos que aparecem após carregamento inicial */
+        .loading-hidden {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .loading-hidden.loaded {
+            opacity: 1;
+        }
+    </style>
+    
+    <link rel="stylesheet" href="./vendors/maplibre-gl.css" media="print" onload="this.media='all'; this.onload=null;">
+    <link rel="stylesheet" href="./vendors/mapbox-gl-draw.css" media="print" onload="this.media='all'; this.onload=null;">
+    <link rel="stylesheet" href="./css/style.css" media="print" onload="this.media='all'; this.onload=null;">
+    
+    <!-- META TAGS PARA PERFORMANCE -->
+    <meta name="theme-color" content="#508D4E">
+    <meta name="color-scheme" content="light">
+    <meta name="robots" content="noindex, nofollow">
+    
+    <!-- RESOURCE HINTS -->
+    <link rel="prefetch" href="./vendors/cesium/Cesium.js"> <!-- Carrega quando idle -->
+    <link rel="prefetch" href="./street_view/build/three.min.js">
+    
+    <!-- PWA/MOBILE OPTIMIZATIONS -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="EBGeo">
 </head>
 
-<div class="loading-background">
-    <div class="lds-ripple">
-        <div></div>
-        <div></div>
-    </div>
-</div>
-
 <body>
+    <!-- LOADING SCREEN OTIMIZADA -->
+    <div class="loading-background" id="initial-loader">
+        <div class="loading-content">
+            <div class="lds-ripple">
+                <div></div>
+                <div></div>
+            </div>
+            <h2 style="color: #B4E380; margin-top: 20px; text-align: center;">EBGeo</h2>
+            <p style="color: #B4E380; opacity: 0.8; text-align: center;">Carregando...</p>
+        </div>
+    </div>
 
-    <div id="top-bar">
-        <a href="https://geoportal.eb.mil.br/portal/" class="logo" target="_blank">
+    <!-- TOP BAR OTIMIZADA -->
+    <div id="top-bar" class="loading-hidden">
+        <a href="https://geoportal.eb.mil.br/portal/" class="logo" target="_blank" rel="noopener">
             <img src="./images/dsg_symbol.svg" />
             <h2><span style="color:#80AF81;">EB</span><span style="color: black;">Geo</span></h2>
         </a>
+        
         <div class="bar-center-buttons">
             <div>
-                <a id="sig-button" class="button icon-button active-button">
-                    <img src="./images/icon_sig.svg" alt="SIG" />
+                <a id="sig-button" class="button icon-button active-button" aria-label="Modo SIG">
+                    <img src="./images/icon_sig.svg" alt="SIG" width="50" height="50" loading="eager">
                 </a>
             </div>
             <div>
-                <a id="3d-button" class="button icon-button">
-                    <img src="./images/icon_3d.svg" alt="3D" />
+                <a id="3d-button" class="button icon-button" aria-label="Modo 3D">
+                    <img src="./images/icon_3d.svg" alt="3D" width="50" height="50" loading="lazy">
                 </a>
             </div>
         </div>
+        
         <div class="extra-bar-buttons">
-            <button onclick="window.open(
-                './docs/doc.html',
-                '_blank' // <- This is what makes it open in a new window.
-              );" class="tutorial-button pure-material-button-contained">Tutorial</button>
+            <button onclick="window.open('./docs/doc.html', '_blank')" 
+                    class="tutorial-button pure-material-button-contained"
+                    aria-label="Abrir tutorial">
+                Tutorial
+            </button>
         </div>
-        <!-- 3d sidebar -->
+        
+        <!-- MOBILE SIDEBAR -->
         <div>
-            <input type="checkbox" class="openSidebarMenu" id="openSidebarMenu">
-            <label for="openSidebarMenu" class="sidebarIconToggle">
+            <input type="checkbox" class="openSidebarMenu" id="openSidebarMenu" aria-label="Abrir menu mobile">
+            <label for="openSidebarMenu" class="sidebarIconToggle" aria-label="Toggle menu">
                 <div class="spinner diagonal part-1"></div>
                 <div class="spinner horizontal"></div>
                 <div class="spinner diagonal part-2"></div>
             </label>
-            <div id="sidebarMenu">
-            </div>
+            <div id="sidebarMenu" role="navigation"></div>
         </div>
-
     </div>
-    <div id="map-sig"></div>
-    <div id="mini-map-street-view"></div>
-    <div id="street-view-container"></div>
-    <a id="close-street-view-button" href="#" class="float">
-        <i data-feather="x-circle"></i>
-    </a>
-    <div id="map-3d-container">
+
+    <!-- CONTENT AREAS -->
+    <div id="map-sig" class="loading-hidden" role="application" aria-label="Mapa 2D"></div>
+    
+    <!-- 3D CONTAINER - LAZY LOADED -->
+    <div id="map-3d-container" style="display: none;" role="application" aria-label="Mapa 3D">
         <div id="map-3d"></div>
-        <div id="map-3d-tool-bar" class="card">
+        <div id="map-3d-tool-bar" class="card" role="toolbar">
             <div id="model-3d-container">
                 <p><b>Modelos 3D</b></p>
                 <hr class="solid">
-                <!-- <button id="btnAMAN" class="tools">AMAN</button>
-            <button id="btnPCL" class="tools">PCL</button>
-            <button id="btnESA" class="tools">ESA</button> -->
                 <div id="locate-3d-container">
                     <button id="aman" class="tutorial-button pure-material-button-contained">AMAN</button>
                     <button id="aman-pcl" class="tutorial-button pure-material-button-contained">AMAN PCL</button>
@@ -83,69 +192,120 @@
                 <hr class="solid">
                 <div class="tools-3d-bar">
                     <div>
-                        <a id="visualizacao" class="button-tool-3d icon-tool-3d">
-                            <img src="./images/viewshed_icon.svg" alt="Viewshed" />
+                        <a id="visualizacao" class="button-tool-3d icon-tool-3d" aria-label="Análise de visibilidade">
+                            <img src="./images/viewshed_icon.svg" alt="Viewshed" width="30" height="30" loading="lazy">
                         </a>
                     </div>
                     <div>
-                        <a id="distancia" class="button-tool-3d icon-tool-3d">
-                            <img src="./images/distance_icon.svg" alt="distance" />
+                        <a id="distancia" class="button-tool-3d icon-tool-3d" aria-label="Medir distância">
+                            <img src="./images/distance_icon.svg" alt="distance" width="30" height="30" loading="lazy">
                         </a>
                     </div>
                     <div>
-                        <a id="area" class="button-tool-3d icon-tool-3d">
-                            <img src="./images/area_icon.svg" alt="area" />
+                        <a id="area" class="button-tool-3d icon-tool-3d" aria-label="Medir área">
+                            <img src="./images/area_icon.svg" alt="area" width="30" height="30" loading="lazy">
                         </a>
                     </div>
                     <div>
-                        <a id="screenshot-3d" class="button-tool-3d icon-tool-3d" title="Capturar Screenshot">
-                            <img src="./images/icon_screenshot_black.svg" alt="Screenshot" />
+                        <a id="screenshot-3d" class="button-tool-3d icon-tool-3d" title="Capturar Screenshot" aria-label="Capturar screenshot">
+                            <img src="./images/icon_screenshot_black.svg" alt="Screenshot" width="30" height="30" loading="lazy">
                         </a>
                     </div>
                     <div>
-                        <a id="limpar" href="javascript:;" class="button-tool-3d icon-tool-3d">
-                            <img src="./images/clear_icon.svg" alt="clear" />
+                        <a id="limpar" class="button-tool-3d icon-tool-3d" aria-label="Limpar ferramentas">
+                            <img src="./images/clear_icon.svg" alt="clear" width="30" height="30" loading="lazy">
                         </a>
                     </div>
                 </div>
             </div>
-            <!-- <button id="visualizacao" class="tools">Visualização</button>
-            <button id="distancia" class="tools">Distância Espacial</button>
-            <button id="area" class="tools">Área Espacial</button>
-            <button id="limpar" class="tools">Limpar</button> -->
         </div>
     </div>
-    <a id="open-close-form" href="#" class="panel-icon-float">
-        <i data-feather="edit"></i>
+
+    <!-- FLOATING ACTION BUTTONS -->
+    <a id="open-close-form" href="#" class="panel-icon-float" aria-label="Alternar painel de atributos" style="display: none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
     </a>
-    <script src="./vendors/feather.min.js"></script>
+    
+    <a id="close-street-view-button" href="#" class="float" style="display: none;" aria-label="Fechar street view">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M15 9l-6 6M9 9l6 6"/>
+        </svg>
+    </a>
+
+    <!-- LAZY LOADED CONTAINERS -->
+    <div id="mini-map-street-view" style="display: none;" role="application" aria-label="Mini mapa street view"></div>
+    <div id="street-view-container" style="display: none;" role="application" aria-label="Street view"></div>
+
+    <!-- Utilitários essenciais primeiro -->
     <script src="./vendors/localforage.min.js"></script>
+    <script src="./vendors/jquery.min.3.7.1.js"></script>
+    
+    <!-- Mapas 2D - crítico para funcionamento inicial -->
     <script src="./vendors/maplibre-gl.js"></script>
     <script src="./vendors/mapbox-gl-draw.js"></script>
     <script src="./vendors/turf.min.js"></script>
-    <script src="./vendors/jquery.min.3.7.1.js"></script>
-    <script src="./vendors/chart.js"></script>
+    
+    <!-- Bibliotecas de apoio -->
+    <script src="./vendors/chart.js" defer></script>
+    <script src="./vendors/feather.min.js" defer></script>
+    
+    <!-- Bibliotecas para import/export - lazy load -->
+    <script src="./vendors/jszip.min.js" defer></script>
+    <script src="./vendors/shp.min.js" defer></script>
+    <script src="./vendors/togeojson.js" defer></script>
+    <script src="./vendors/proj4.min.js" defer></script>
+    <script src="./vendors/mgrs.min.js" defer></script>
+    
+    <!-- Three.js import map para Street View -->
     <script type="importmap">
-        {
-            "imports": {
-                "three": "/street_view/build/three.module.js",
-                "OrbitControls": "/street_view/build/addons/controls/OrbitControls.js",
-                "DragControls": "/street_view/build/addons/controls/DragControls.js"
-            }
+    {
+        "imports": {
+            "three": "/street_view/build/three.module.js",
+            "OrbitControls": "/street_view/build/addons/controls/OrbitControls.js",
+            "DragControls": "/street_view/build/addons/controls/DragControls.js"
         }
+    }
     </script>
-    <script src="./vendors/cesium/Cesium.js"></script>
-    <script src="./vendors/cesium/cesium-measure.js"></script>
-    <script src="./vendors/cesium/cesium-viewshed.js"></script>
-    <script>
-        feather.replace();
-    </script>
-    <script src="./vendors/jszip.min.js"></script>
-    <script src="./vendors/shp.min.js"></script>
-    <script src="./vendors/togeojson.js"></script>
-    <script src="./vendors/proj4.min.js"></script>
-    <script src="./vendors/mgrs.min.js"></script>
+    
+    <!-- SCRIPT PRINCIPAL - MODULE -->
     <script type="module" src="./js/index.js"></script>
-</body>
+    
+    <!-- INICIALIZAÇÃO OTIMIZADA -->
+    <script>
+        // Remove loading screen quando DOM estiver pronto
+        document.addEventListener('DOMContentLoaded', function() {
+            // Mostra elementos após carregamento inicial
+            setTimeout(function() {
+                document.querySelectorAll('.loading-hidden').forEach(function(el) {
+                    el.classList.add('loaded');
+                });
+                
+                // Remove loader
+                var loader = document.getElementById('initial-loader');
+                if (loader) {
+                    loader.style.opacity = '0';
+                    setTimeout(function() {
+                        loader.remove();
+                    }, 500);
+                }
+                
+                // Inicializa ícones
+                if (window.feather) {
+                    feather.replace();
+                }
+            }, 100);
+        });
 
+    </script>
+    
+    <!-- FALLBACK PARA BROWSERS ANTIGOS -->
+    <script nomodule>
+        document.getElementById('initial-loader').innerHTML = 
+            '<h2>Browser não suportado</h2><p>Por favor, use um browser mais recente.</p>';
+    </script>
+</body>
 </html>

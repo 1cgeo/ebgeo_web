@@ -1,10 +1,10 @@
 // Path: js\control_3d\orbit_control.js
-import { map } from './map.js';
 
 // Orbit control variables
 let isOrbiting = false;
 let orbitRemoveCallback = null;
 let currentTileset = null;
+let viewerInstance = null;
 
 /**
  * Inicia a órbita ao redor do tileset especificado
@@ -37,7 +37,7 @@ function startOrbit(tileset) {
         }
         
         // Configura parâmetros da órbita
-        const camera = map.camera;
+        const camera = viewerInstance.camera;
         const range = radius * 2.5; // Distância do alvo
         const orbitSpeed = 0.4; // Graus por frame
         const pitch = -25; // Ângulo de visão (olhando ligeiramente para baixo)
@@ -52,7 +52,7 @@ function startOrbit(tileset) {
         ));
         
         // Inicia a animação da órbita usando clock tick
-        orbitRemoveCallback = map.clock.onTick.addEventListener(function(clock) {
+        orbitRemoveCallback = viewerInstance.clock.onTick.addEventListener(function(clock) {
             if (!isOrbiting) return;
             
             // Incrementa o heading
@@ -107,7 +107,7 @@ function cancelOrbitOnUserInteraction() {
  * Configura listeners para detectar interações do usuário e cancelar a órbita
  */
 function setupUserInteractionListeners() {
-    const canvas = map.canvas;
+    const canvas = viewerInstance.canvas;
     
     // Interações do mouse
     canvas.addEventListener('mousedown', cancelOrbitOnUserInteraction);
@@ -141,7 +141,7 @@ function flyToAndOrbit(location, tileset) {
     stopOrbit();
     
     // Voa para a localização
-    map.camera.flyTo({
+    viewerInstance.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
         duration: 2.0, // Duração do voo em segundos
         complete: function() {
@@ -164,7 +164,8 @@ function isCurrentlyOrbiting() {
 /**
  * Inicializa os listeners de interação do usuário
  */
-function initOrbitControl() {
+function initOrbitControl(viewer) {
+    viewerInstance = viewer
     setupUserInteractionListeners();
 }
 

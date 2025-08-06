@@ -1,14 +1,15 @@
 // Path: js\control_3d\screenshot_tool.js
-import { map } from './map.js';
+let viewerInstance = null;
 
 // Função para capturar screenshot
-function takeScreenshot() {
+function takeScreenshot(viewer) {
+    viewerInstance = viewer
     try {
         // Garantir que a cena seja renderizada
-        map.render();
+        viewerInstance.render();
         
         // Capturar o canvas
-        const canvas = map.scene.canvas;
+        const canvas = viewerInstance.scene.canvas;
         const dataURL = canvas.toDataURL('image/png');
         
         // Criar link para download
