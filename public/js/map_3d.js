@@ -146,7 +146,7 @@ async function initCesiumMap() {
     }
     
     // Gerenciamento de requests
-    Cesium.RequestScheduler.maximumRequestsPerServer = 18; // Reduzido de 36
+    Cesium.RequestScheduler.maximumRequestsPerServer = 18;
     
     cesiumState.viewer = viewer;
     
@@ -218,20 +218,22 @@ async function loadTilesets(viewer) {
 async function createOptimizedTileset(viewer, config) {
     const tileset = new Cesium.Cesium3DTileset({
         url: config.url,
-        maximumScreenSpaceError: 24, // Aumentado para melhor performance
-        maximumMemoryUsage: 256, // Reduzido para economizar memória
+        maximumScreenSpaceError: 16,
+        maximumMemoryUsage: 512,
         preferLeaves: false, // Melhor para tilesets grandes
         skipLevelOfDetail: true,
         baseScreenSpaceError: 1024,
         skipScreenSpaceErrorFactor: 16,
         skipLevels: 1,
+        cacheBytes: 1073741824, // 1 GB
         dynamicScreenSpaceError: true,
         dynamicScreenSpaceErrorDensity: 0.00278,
-        dynamicScreenSpaceErrorFactor: 2.0, // Reduzido
+        dynamicScreenSpaceErrorFactor: 2.0, // Reduzido de 4
         dynamicScreenSpaceErrorHeightFalloff: 0.25,
         cullWithChildrenBounds: true,
         cullRequestsWhileMoving: true,
-        cullRequestsWhileMovingMultiplier: 60.0
+        cullRequestsWhileMovingMultiplier: 60.0,
+        foveatedScreenSpaceError: true,
     });
     
     viewer.scene.primitives.add(tileset);

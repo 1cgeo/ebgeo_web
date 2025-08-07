@@ -247,7 +247,7 @@ class AddLOSControl {
     async calculateLOS(linestring) {
         const line = turf.lineString(linestring.geometry.coordinates);
         const length = turf.length(line, { units: 'meters' });
-        const steps = 20; // Number of steps to check elevation along the line
+        const steps = Math.ceil(length / 60); // 1 passo por ~60m (2x resolução do DEM)
         const stepLength = length / steps;
       
         // Get start and end elevations
