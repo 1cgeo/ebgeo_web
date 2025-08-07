@@ -1,4 +1,5 @@
 // Path: js\controls_sig\draw_tool\feature_attributes_panel.js
+
 export function addFeatureAttributesToPanel(panel, selectedFeatures, featureControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) {
         return;
@@ -113,24 +114,93 @@ function createInput(attr, value, inputCallback, geometryType) {
         input.classList.add("picker-color");
         input.type = 'color';
         input.value = value || '#000000';
+        input.oninput = (e) => inputCallback(input, e);
     } else if (attr === 'opacity') {
-        input = document.createElement('input');
-        input.classList.add("slider");
-        input.type = 'range';
-        input.min = 0.1;
-        input.max = 1;
-        input.step = 0.1;
-        input.value = value !== undefined ? value : 1;
+        // Use enhanced slider with numeric input for opacity
+        const container = document.createElement('div');
+        container.className = 'slider-numeric-container';
+        container.style.cssText = 'display: flex; gap: 8px; align-items: center; width: 100%;';
+        
+        const slider = document.createElement('input');
+        slider.classList.add("slider");
+        slider.type = 'range';
+        slider.min = 0.1;
+        slider.max = 1;
+        slider.step = 0.1;
+        slider.value = value !== undefined ? value : 1;
+        slider.style.cssText = 'flex-grow: 1;';
+        
+        const numericInput = document.createElement('input');
+        numericInput.type = 'number';
+        numericInput.min = 0.1;
+        numericInput.max = 1;
+        numericInput.step = 0.1;
+        numericInput.value = value !== undefined ? value : 1;
+        numericInput.style.cssText = 'width: 60px; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; text-align: center;';
+        
+        // Sync slider and input
+        slider.oninput = (e) => {
+            numericInput.value = e.target.value;
+            inputCallback({ type: 'range' }, e);
+        };
+        
+        numericInput.oninput = (e) => {
+            let val = parseFloat(e.target.value);
+            val = Math.max(0.1, Math.min(1, val));
+            slider.value = val;
+            numericInput.value = val;
+            const fakeEvent = { target: { value: val } };
+            inputCallback({ type: 'range' }, fakeEvent);
+        };
+        
+        container.appendChild(slider);
+        container.appendChild(numericInput);
+        return container;
     } else if (attr === 'size') {
-        input = document.createElement('input');
-        input.classList.add("slider");
-        input.type = 'range';
-        input.min = geometryType === 'Point' ? 6 : 2;
-        input.max = geometryType === 'Point' ? 16 : 30;
-        input.step = 1;
-        input.value = value !== undefined ? value : 1;
-    }
-    else if (attr === 'measure' || attr === 'profile') {
+        // Use enhanced slider with numeric input for size
+        const minValue = geometryType === 'Point' ? 6 : 2;
+        const maxValue = geometryType === 'Point' ? 16 : 30;
+        
+        const container = document.createElement('div');
+        container.className = 'slider-numeric-container';
+        container.style.cssText = 'display: flex; gap: 8px; align-items: center; width: 100%;';
+        
+        const slider = document.createElement('input');
+        slider.classList.add("slider");
+        slider.type = 'range';
+        slider.min = minValue;
+        slider.max = maxValue;
+        slider.step = 1;
+        slider.value = value !== undefined ? value : 1;
+        slider.style.cssText = 'flex-grow: 1;';
+        
+        const numericInput = document.createElement('input');
+        numericInput.type = 'number';
+        numericInput.min = minValue;
+        numericInput.max = maxValue;
+        numericInput.step = 1;
+        numericInput.value = value !== undefined ? value : 1;
+        numericInput.style.cssText = 'width: 60px; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; text-align: center;';
+        
+        // Sync slider and input
+        slider.oninput = (e) => {
+            numericInput.value = e.target.value;
+            inputCallback({ type: 'range' }, e);
+        };
+        
+        numericInput.oninput = (e) => {
+            let val = parseFloat(e.target.value);
+            val = Math.max(minValue, Math.min(maxValue, val));
+            slider.value = val;
+            numericInput.value = val;
+            const fakeEvent = { target: { value: val } };
+            inputCallback({ type: 'range' }, fakeEvent);
+        };
+        
+        container.appendChild(slider);
+        container.appendChild(numericInput);
+        return container;
+    } else if (attr === 'measure' || attr === 'profile') {
         let label = $("<label>", { class: "switch" })
         input = document.createElement('input');
         input.classList.add("slider-check-input");
@@ -144,7 +214,8 @@ function createInput(attr, value, inputCallback, geometryType) {
         input = document.createElement('input');
         input.type = 'number';
         input.value = value !== undefined ? value : 1;
+        input.oninput = (e) => inputCallback(input, e);
     }
-    input.oninput = (e) => inputCallback(input, e)
+    
     return input;
 }
