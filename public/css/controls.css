@@ -1,0 +1,291 @@
+/* css/controls.css - Map controls (MapLibre, Cesium, Draw tools) */
+
+/* MapBox/MapLibre Draw Controls */
+.mapbox-gl-draw_polygon,
+.mapbox-gl-draw_line,
+.mapbox-gl-draw_point,
+.mapbox-gl-draw_trash,
+.mapbox-gl-draw_ctrl-draw-btn {
+    background-image: none !important;
+    background-color: transparent !important;
+    color: black !important;
+    font-weight: bold;
+    border: none !important;
+    padding: 5px !important;
+    cursor: pointer !important;
+    margin: 2px !important;
+    font-size: 18px !important;
+    z-index: 10 !important;
+    pointer-events: auto !important;
+    width: 50px;
+}
+
+.mapbox-gl-draw_polygon:hover,
+.mapbox-gl-draw_line:hover,
+.mapbox-gl-draw_point:hover,
+.mapbox-gl-draw_trash:hover,
+.mapbox-gl-draw_ctrl-draw-btn:hover {
+    background-color: transparent !important;
+}
+
+.mapbox-gl-draw_ctrl-draw-btn img,
+.icon-sig-tool {
+    width: 30px;
+}
+
+/* Save/Load Controls */
+.save-load-icon {
+    background-color: transparent;
+    color: white;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+    margin: 2px;
+    font-size: 18px;
+    display: block;
+    width: 40px;
+    z-index: 10;
+    pointer-events: auto;
+}
+
+.save-load-icon img {
+    height: 20px;
+}
+
+/* BASE LAYER CONTROL MELHORADO - ÁREA TOTALMENTE CLICÁVEL E CENTRALIZADA */
+.base-layer-control {
+    display: flex !important;
+    z-index: 10 !important;
+    pointer-events: auto !important;
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(4px) !important;
+    color: #333 !important;
+    padding: 12px !important;
+    border-radius: 8px !important;
+    width: 100% !important;
+    justify-content: center !important;
+    gap: 16px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    margin: 8px 0 !important;
+}
+
+/* 3D Tool Buttons */
+.button-tool-3d {
+    text-decoration: none;
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: start;
+    font-size: 1.5rem;
+    color: #fff;
+    text-align: center;
+    line-height: 1.1;
+    transition: 220ms all ease-in-out;
+}
+
+.button-tool-3d:not(.icon-button) {
+    padding: 0.25em 0.75em;
+    min-width: 30px;
+    min-height: 30px;
+}
+
+.button-tool-3d:hover,
+.button-tool-3d:active {
+    background-color: var(--primary-light);
+}
+
+.coordinates-button {
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.coordinates-button:hover {
+    opacity: 1;
+}
+
+.coordinates-format-selector {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    padding: 5px 0;
+    display: none;
+    z-index: 1000;
+}
+
+.coordinates-format-option {
+    padding: 5px 15px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.coordinates-format-option:hover {
+    background-color: #f0f0f0;
+}
+
+.coordinates-format-option.active {
+    background-color: #f0f0f0;
+    font-weight: bold;
+}
+
+/* 3D Coordinates Control */
+.coordinates-control-3d {
+    font-family: 'Courier New', monospace !important;
+    user-select: none;
+    pointer-events: auto;
+}
+
+.coordinates-control-3d span {
+    font-weight: 500;
+    color: #333;
+}
+
+.coordinates-control-3d + div[style*="position: fixed"] {
+    z-index: 1002 !important;
+}
+
+.coordinates-control-3d,
+.coordinates-control-3d * {
+    z-index: 1000 !important;
+}
+
+.coordinates-control-3d div[style*="position: absolute"] {
+    z-index: 1001 !important;
+}
+
+.coordinates-control-3d div[style*="cursor: pointer"]:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 2px;
+}
+
+.coordinates-control-3d .coordinates-copy-button.copied {
+    animation: copySuccess 0.3s ease;
+}
+
+/* Map action buttons */
+.more-info-icon,
+.add-map-button,
+.destructive-action {
+    background-color: transparent;
+    color: white;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+    margin: 2px;
+    font-size: 18px;
+    display: block;
+    width: 40px;
+    z-index: 10;
+    pointer-events: auto;
+}
+
+.more-info-icon img,
+.add-map-button img,
+.destructive-action img {
+    height: 20px;
+}
+
+.map-name-button {
+    background-color: transparent;
+    color: black;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+    margin: 2px;
+    display: block;
+    width: 100%;
+    flex-grow: 1;
+    text-align: start;
+    z-index: 10;
+    pointer-events: auto;
+}
+
+.current-map .map-name-button {
+    color: #fff;
+}
+
+.change-map-button,
+.remove-map-button,
+.copy-map-button {
+    background-color: transparent;
+    border: 1px solid black;
+    color: black;
+    cursor: pointer;
+    padding: 5px;
+    font-size: 12px;
+    pointer-events: auto !important;
+}
+
+/* Map list states */
+.list-map-container .current-map {
+    background: linear-gradient(135deg, var(--primary-color) 0%, #6ba56b 100%) !important;
+    color: white !important;
+    transform: none !important;
+    z-index: auto !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+}
+
+.list-map-container .current-map .map-item-main:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.list-map-container ul li span {
+    width: 24px !important;
+    height: 24px !important;
+    text-align: center !important;
+    line-height: 24px !important;
+    background: var(--primary-color) !important;
+    color: white !important;
+    display: inline-block !important;
+    border-radius: 50% !important;
+    margin: 0 !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    flex-shrink: 0 !important;
+    pointer-events: none !important;
+}
+
+.list-map-container .current-map span {
+    background: rgba(255, 255, 255, 0.2) !important;
+    color: white !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+.active-buton {
+    background-color: var(--primary-color);
+}
+
+/* Screenshot specific */
+#screenshot-3d {
+    position: relative;
+    overflow: hidden;
+}
+
+#screenshot-3d img {
+    width: 30px;
+    height: 30px;
+    transition: transform 0.2s ease;
+}
+
+#screenshot-3d:hover img {
+    transform: scale(1.1);
+}
+
+#screenshot-3d:active {
+    transform: scale(0.95);
+}
+
+#screenshot-3d.success {
+    background-color: var(--success-color) !important;
+    transition: background-color 0.3s ease;
+}

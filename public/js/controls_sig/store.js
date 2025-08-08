@@ -35,6 +35,19 @@ const getEmptyMapData = () => ({
     center_long: null
 });
 
+// Função para resetar o estado da memória
+export const resetMemoryStore = () => {
+    memoryStore.maps = {
+        'Principal': {
+            undoStack: [],
+            redoStack: []
+        }
+    };
+    memoryStore.currentMap = 'Principal';
+    memoryStore.isUndoing = false;
+    memoryStore.isRedoing = false;
+};
+
 const recordAction = (action) => {
     const currentMap = memoryStore.maps[memoryStore.currentMap];
     if (!memoryStore.isUndoing && !memoryStore.isRedoing) {
@@ -43,6 +56,72 @@ const recordAction = (action) => {
             currentMap.undoStack.shift();
         }
         currentMap.redoStack = [];
+    }
+};
+
+// Função auxiliar para determinar o tipo de feição
+function getFeatureType(feature) {
+    const source = feature.properties?.source;
+    switch (source) {
+        case 'draw':
+            return feature.geometry.type.toLowerCase() + 's';
+        case 'text':
+            return 'texts';
+        case 'image':
+            return 'images';
+        case 'los':
+            return 'los';
+        case 'visibility':
+            return 'visibility';
+        default:
+            return feature.geometry.type.toLowerCase() + 's';
+    }
+}
+
+// Função para mover feições entre mapas
+export const moveFeaturesToMap = async (features, targetMapName) => {
+    if (!features || features.length === 0) {
+        return;
+    }
+
+    const currentMapName = getCurrentMapName();
+    
+    if (currentMapName === targetMapName) {
+        console.warn('Tentativa de mover feições para o mesmo mapa');
+        return;
+    }
+
+    // Verificar se o mapa de destino existe
+    const targetMapData = await mapStore.getItem(targetMapName);
+    if (!targetMapData) {
+        throw new Error(`Mapa de destino "${targetMapName}" não encontrado`);
+    }
+
+    // Agrupar feições por tipo
+    const featuresByType = features.reduce((acc, feature) => {
+        const type = getFeatureType(feature);
+        if (!acc[type]) acc[type] = [];
+        acc[type].push(feature);
+        return acc;
+    }, {});
+
+    try {
+        // Para cada tipo de feição
+        for (const [type, featuresOfType] of Object.entries(featuresByType)) {
+            for (const feature of featuresOfType) {
+                // Remover do mapa atual
+                await removeFeature(type, feature.id);
+                
+                // Adicionar ao mapa de destino
+                const oldCurrentMap = memoryStore.currentMap;
+                setCurrentMap(targetMapName);
+                await addFeature(type, feature);
+                setCurrentMap(oldCurrentMap);
+            }
+        }
+    } catch (error) {
+        console.error('Erro ao mover feições:', error);
+        throw error;
     }
 };
 
@@ -238,21 +317,6 @@ export const redoLastAction = async () => {
     }
 
     return true;
-};
-
-export const hasUnsavedData = async () => {
-    const allMapKeys = await mapStore.keys();
-    for (const mapName of allMapKeys) {
-        const mapData = await mapStore.getItem(mapName);
-        if (mapData && mapData.features) {
-            for (const featureType in mapData.features) {
-                if (mapData.features[featureType].length > 0) {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
 };
 
 export const addFeatures = async (featuresMap) => {

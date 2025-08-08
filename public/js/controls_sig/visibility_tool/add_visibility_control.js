@@ -158,6 +158,290 @@ class AddVisibilityControl {
         this.map.getSource('processed-visibility').setData(processedData);
     }
 
+    // Método para encontrar pontos de transição em um raio
+    calculateTransitionPointsInRay = async(line) => {
+        const length = turf.length(line, { units: 'meters' });
+        const steps = Math.ceil(length / 60); // Passos dinâmicos baseados na distância
+        const stepLength = length / steps;
+      
+        const startCoordinates = line.geometry.coordinates[0];
+        const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
+        const startElevation = await getTerrainElevation(this.map, startCoordinates) + 2;
+        const endElevation = await getTerrainElevation(this.map, endCoordinates);
+      
+        let transitions = [];
+        let isCurrentlyVisible = true; // Começa sempre visível do observador
+        
+        for (let i = 1; i <= steps; i++) {
+            const segment = turf.along(line, i * stepLength, { units: 'meters' });
+            const segmentCoordinates = segment.geometry.coordinates;
+            const distance = i * stepLength;
+            
+            // Calculate expected elevation on the line
+            const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
+            
+            // Query terrain elevation
+            const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
+            
+            const pointIsVisible = actualElevation <= expectedElevation;
+            
+            if (pointIsVisible !== isCurrentlyVisible) {
+                // Mudança de estado - ponto de transição
+                transitions.push({
+                    point: segmentCoordinates,
+                    type: pointIsVisible ? 'visible' : 'obstructed',
+                    distance: distance
+                });
+                isCurrentlyVisible = pointIsVisible;
+            }
+        }
+        
+        // Se não houve nenhuma transição, toda a linha é visível até o final
+        if (transitions.length === 0) {
+            transitions.push({
+                point: endCoordinates,
+                type: 'visible',
+                distance: length
+            });
+        }
+        
+        return transitions;
+    }
+
+    // Método principal do viewshed com algoritmo esperto
+    calculateViewshed = async (center, radius, angle, numRays = 20) => {
+        const sectorStart = angle - 22.5;
+        const sectorEnd = angle + 22.5;
+      
+        let rayTransitions = [];
+        
+        for (let i = 0; i <= numRays; i++) {
+            const bearing = sectorStart + (i * (sectorEnd - sectorStart)) / numRays;
+            const endpoint = turf.destination(center, radius, bearing, { units: 'meters' });
+            
+            const line = turf.lineString([center.geometry.coordinates, endpoint.geometry.coordinates]);
+            const transitions = await this.calculateTransitionPointsInRay(line);
+            
+            rayTransitions.push({
+                bearing: bearing,
+                transitions: transitions
+            });
+        }
+        
+        // Reconstrói polígonos baseado nas transições
+        return this.reconstructPolygonsFromTransitions(center.geometry.coordinates, rayTransitions);
+    }
+
+    // Método principal de reconstrução
+    reconstructPolygonsFromTransitions = (centerCoords, rayTransitions, distanceTolerance = 50) => {
+        const visiblePolygons = [];
+        const obstructedPolygons = [];
+        
+        // Separa transições por tipo e posição na sequência
+        const transitionsByTypeAndIndex = this.groupTransitionsByTypeAndIndex(rayTransitions);
+        
+        // Para cada tipo (visible/obstructed)
+        ['visible', 'obstructed'].forEach(type => {
+            const polygons = this.buildPolygonsForType(
+                centerCoords, 
+                transitionsByTypeAndIndex[type], 
+                distanceTolerance
+            );
+            
+            if (type === 'visible') {
+                visiblePolygons.push(...polygons);
+            } else {
+                obstructedPolygons.push(...polygons);
+            }
+        });
+        
+        return {
+            visible: this.mergePolygons(visiblePolygons),
+            obstructed: this.mergePolygons(obstructedPolygons)
+        };
+    }
+
+    // Agrupa transições por tipo e posição na sequência
+    groupTransitionsByTypeAndIndex = (rayTransitions) => {
+        const grouped = {
+            visible: {},    // indexed by position in sequence (0, 1, 2...)
+            obstructed: {}
+        };
+        
+        rayTransitions.forEach((rayData, rayIndex) => {
+            rayData.transitions.forEach((transition, transIndex) => {
+                const type = transition.type;
+                
+                if (!grouped[type][transIndex]) {
+                    grouped[type][transIndex] = [];
+                }
+                
+                grouped[type][transIndex].push({
+                    ...transition,
+                    rayIndex: rayIndex,
+                    bearing: rayData.bearing
+                });
+            });
+        });
+        
+        return grouped;
+    }
+
+    // Constrói polígonos para um tipo específico
+    buildPolygonsForType = (centerCoords, transitionsByIndex, distanceTolerance) => {
+        const polygons = [];
+        
+        // Para cada índice de transição (1ª transição, 2ª transição, etc.)
+        Object.keys(transitionsByIndex).forEach(transIndex => {
+            const transitions = transitionsByIndex[transIndex];
+            
+            if (transitions.length === 0) return;
+            
+            // Ordena por bearing
+            transitions.sort((a, b) => a.bearing - b.bearing);
+            
+            // Agrupa transições contínuas (dentro da tolerância)
+            const continuousGroups = this.groupContinuousTransitions(transitions, distanceTolerance);
+            
+            // Cada grupo vira um polígono
+            continuousGroups.forEach(group => {
+                if (group.length >= 2) { // Precisa de pelo menos 2 pontos
+                    const polygonCoords = [centerCoords];
+                    group.forEach(t => polygonCoords.push(t.point));
+                    polygonCoords.push(centerCoords);
+                    
+                    try {
+                        const polygon = turf.polygon([polygonCoords]);
+                        polygons.push(polygon);
+                    } catch (error) {
+                        console.warn('Erro ao criar polígono:', error);
+                    }
+                }
+            });
+        });
+        
+        return polygons;
+    }
+
+    // Agrupa transições que estão próximas (contínuas)
+    groupContinuousTransitions = (transitions, distanceTolerance) => {
+        if (transitions.length === 0) return [];
+        
+        const groups = [];
+        let currentGroup = [transitions[0]];
+        
+        for (let i = 1; i < transitions.length; i++) {
+            const current = transitions[i];
+            const previous = transitions[i-1];
+            
+            // Calcula distância entre pontos consecutivos
+            const distance = turf.distance(
+                turf.point(previous.point), 
+                turf.point(current.point), 
+                {units: 'meters'}
+            );
+            
+            if (distance <= distanceTolerance) {
+                // Dentro da tolerância - adiciona ao grupo atual
+                currentGroup.push(current);
+            } else {
+                // Fora da tolerância - fecha grupo atual e inicia novo
+                if (currentGroup.length >= 2) {
+                    groups.push([...currentGroup]);
+                }
+                currentGroup = [current];
+            }
+        }
+        
+        // Adiciona o último grupo
+        if (currentGroup.length >= 2) {
+            groups.push(currentGroup);
+        }
+        
+        return groups;
+    }
+
+    // Merge múltiplos polígonos em um só usando union
+    mergePolygons = (polygons) => {
+        if (polygons.length === 0) {
+            // Retorna polígono vazio válido
+            return turf.polygon([[[0,0],[0,0.001],[0.001,0],[0,0]]]);
+        }
+        
+        if (polygons.length === 1) {
+            return polygons[0];
+        }
+        
+        // Merge real usando turf.union() - une todos os polígonos
+        try {
+            let mergedPolygon = polygons[0];
+            
+            for (let i = 1; i < polygons.length; i++) {
+                try {
+                    // Union com o polígono atual
+                    const unionResult = turf.union(mergedPolygon, polygons[i]);
+                    if (unionResult) {
+                        mergedPolygon = unionResult;
+                    }
+                } catch (unionError) {
+                    console.warn('Erro ao fazer union de polígono:', unionError);
+                    // Se union falhar, mantém o polígono atual
+                }
+            }
+            
+            return mergedPolygon;
+            
+        } catch (error) {
+            console.warn('Erro no merge de polígonos, usando fallback:', error);
+            
+            // Fallback: retorna o maior polígono se union falhar
+            let largest = polygons[0];
+            let largestArea = 0;
+            
+            try {
+                largestArea = turf.area(largest);
+            } catch (error) {
+                console.warn('Erro ao calcular área:', error);
+            }
+            
+            polygons.forEach(polygon => {
+                try {
+                    const area = turf.area(polygon);
+                    if (area > largestArea) {
+                        largest = polygon;
+                        largestArea = area;
+                    }
+                } catch (error) {
+                    console.warn('Erro ao calcular área do polígono:', error);
+                }
+            });
+            
+            return largest;
+        }
+    }
+
+    // ===== MÉTODOS UTILITÁRIOS =====
+
+    calculateSectorCoordinates = (center, edgePoint) => {
+        const [cx, cy] = center;
+        const radius = Math.sqrt((edgePoint[0] - cx) ** 2 + (edgePoint[1] - cy) ** 2);
+        const sectorAngle = Math.PI / 4; // 45 degrees in radians
+        const angleStep = sectorAngle / 45; // Angle step to cover 45 points in the sector
+        const startAngle = Math.atan2(edgePoint[1] - cy, edgePoint[0] - cx) - sectorAngle / 2;
+    
+        const coordinates = [center];
+        for (let i = 0; i <= 45; i++) {
+            const angle = startAngle + angleStep * i;
+            coordinates.push([
+                cx + radius * Math.cos(angle),
+                cy + radius * Math.sin(angle)
+            ]);
+        }
+        coordinates.push(center); 
+    
+        return coordinates;
+    };
+
     preprocessVisibilityFeature(feature) {
         let processedFeatures = [];
     
@@ -200,25 +484,7 @@ class AddVisibilityControl {
         return feature;
     };
 
-    calculateSectorCoordinates = (center, edgePoint) => {
-        const [cx, cy] = center;
-        const radius = Math.sqrt((edgePoint[0] - cx) ** 2 + (edgePoint[1] - cy) ** 2);
-        const sectorAngle = Math.PI / 4; // 45 degrees in radians
-        const angleStep = sectorAngle / 45; // Angle step to cover 45 points in the sector
-        const startAngle = Math.atan2(edgePoint[1] - cy, edgePoint[0] - cx) - sectorAngle / 2;
-    
-        const coordinates = [center];
-        for (let i = 0; i <= 45; i++) {
-            const angle = startAngle + angleStep * i;
-            coordinates.push([
-                cx + radius * Math.cos(angle),
-                cy + radius * Math.sin(angle)
-            ]);
-        }
-        coordinates.push(center); 
-    
-        return coordinates;
-    };
+    // ===== MÉTODOS DE MANIPULAÇÃO DE FEATURES =====
 
     handleMouseEnter = (e) => {
         this.map.getCanvas().style.cursor = 'pointer';
@@ -350,71 +616,6 @@ class AddVisibilityControl {
         return (
             feature.properties.opacity !== initialProperties.opacity
         );
-    }
-
-    calculateViewshed = async (center, radius, angle, numRays = 20) => {
-        const sectorStart = angle - 22.5; // Sector starts at -22.5 degrees relative to the center angle
-        const sectorEnd = angle + 22.5; // Sector ends at +22.5 degrees relative to the center angle
-      
-        const visibleCoordinates = [center.geometry.coordinates];
-        const obstructedCoordinates = [];
-        const obstructedCoordinatesEnd = [];
-      
-        for (let i = 0; i <= numRays; i++) {
-          const bearing = sectorStart + (i * (sectorEnd - sectorStart)) / numRays;
-          const endpoint = turf.destination(center, radius, bearing, { units: 'meters' });
-            
-          const line = turf.lineString([center.geometry.coordinates, endpoint.geometry.coordinates]);
-          const lastVisibleCoordinate = await this.calculateLOSForViewShed(line);
-          visibleCoordinates.push(lastVisibleCoordinate);
-          obstructedCoordinates.push(lastVisibleCoordinate);
-          obstructedCoordinatesEnd.push(endpoint.geometry.coordinates);
-        }
-      
-        visibleCoordinates.push(center.geometry.coordinates);
-      
-        const visiblePolygon = turf.polygon([visibleCoordinates]);
-
-        const completeObstructed = [...obstructedCoordinates,...obstructedCoordinatesEnd.reverse(),obstructedCoordinates[0]]
-
-        const obstructedPolygon = turf.polygon([completeObstructed]);
-      
-        return {
-          visible: visiblePolygon,
-          obstructed: obstructedPolygon
-        };
-    }
-    
-    calculateLOSForViewShed = async(line) => {
-        const length = turf.length(line, { units: 'meters' });
-        const steps = 20; // Number of steps to check elevation along the line
-        const stepLength = length / steps;
-      
-        // Get start and end elevations
-        const startCoordinates = line.geometry.coordinates[0];
-        const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
-        const startElevation = await getTerrainElevation(this.map, startCoordinates)+2;
-        const endElevation = await getTerrainElevation(this.map, endCoordinates);
-      
-        let firstObstructedPoint = endCoordinates;
-
-        for (let i = 1; i <= steps; i++) {
-            const segment = turf.along(line, i * stepLength, { units: 'meters' });
-            const segmentCoordinates = segment.geometry.coordinates;
-        
-            // Calculate expected elevation on the line
-            const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
-        
-            // Query terrain elevation
-            const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
-        
-            if (actualElevation > expectedElevation) {
-              firstObstructedPoint = segmentCoordinates;
-              break;
-            }
-        }
-      
-        return firstObstructedPoint;
     }
 
     async recalculateVisibility(feature) {

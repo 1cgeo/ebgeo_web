@@ -1,6 +1,7 @@
 // Path: js\controls_sig\base_layer_control.js
 import { setBaseLayer } from './store.js';
 import baseStyle from './base_map_styles.js'
+
 class BaseLayerControl {
     constructor(uiManager) {
         this.map = null;
@@ -16,14 +17,16 @@ class BaseLayerControl {
         this.map = map;
         this.container = document.createElement('div');
         this.container.className = 'mapboxgl-ctrl base-layer-control';
+        
+        // HTML corrigido com <span> para permitir estilo ativo
         this.container.innerHTML = `
             <label class="layer-switch">
                 <input type="radio" name="base-layer" value="Carta" checked>
-                Topográfica
+                <span>Topográfica</span>
             </label>
             <label class="layer-switch">
                 <input type="radio" name="base-layer" value="Ortoimagem">
-                Ortoimagem
+                <span>Ortoimagem</span>
             </label>
         `;
 
@@ -48,6 +51,26 @@ class BaseLayerControl {
         const styleUrl = this.styleUrls[layer];
         this.map.setStyle(styleUrl);
         this.container.querySelector(`input[value="${layer}"]`).checked = true;
+        
+        // Forçar atualização visual (caso necessário)
+        this.updateActiveState(layer);
+    }
+    
+    // Método adicional para garantir que o estado ativo seja aplicado
+    updateActiveState(activeLayer) {
+        // Remove estado ativo de todos
+        this.container.querySelectorAll('.layer-switch span').forEach(span => {
+            span.classList.remove('active-layer');
+        });
+        
+        // Adiciona estado ativo ao selecionado
+        const activeInput = this.container.querySelector(`input[value="${activeLayer}"]`);
+        if (activeInput) {
+            const activeSpan = activeInput.nextElementSibling;
+            if (activeSpan) {
+                activeSpan.classList.add('active-layer');
+            }
+        }
     }
 }
 

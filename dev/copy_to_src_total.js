@@ -4,11 +4,14 @@ const ignorePackage = require('ignore');
 
 // Define folder names
 const SRC_FOLDER_NAME = 'public';
-const JS_SUBFOLDER = 'js';
+const SUBFOLDERS_AND_FILES = ['js', 'css', 'index.html']; // Added css folder and index.html file
 const DEST_FOLDER_NAME = 'src_total';
 
 // List of folders to ignore
 const FOLDERS_TO_IGNORE = ['.git', 'node_modules', 'vendors', 'images', 'assets'];
+
+// File extensions to process
+const EXTENSIONS_TO_PROCESS = ['.js', '.css', '.html'];
 
 function readGitignore(projectRoot) {
     const gitignorePath = path.join(projectRoot, '.gitignore');
@@ -28,8 +31,13 @@ function shouldIgnore(item, relativePath, ig) {
     return ig.ignores(relativePath);
 }
 
+// Function to check if file has a valid extension
+function hasValidExtension(filename) {
+    return EXTENSIONS_TO_PROCESS.some(ext => filename.endsWith(ext));
+}
+
 // Function to copy and rename files from src to src_total
-function copyFilesToDestination(srcDir, destDir, currentDir, ig) {
+function copyFilesToDestination(srcDir, destDir, currentDir, ig, pathPrefix = '') {
     const items = fs.readdirSync(currentDir);
 
     for (const item of items) {
@@ -42,10 +50,11 @@ function copyFilesToDestination(srcDir, destDir, currentDir, ig) {
 
         if (stats.isDirectory()) {
             // Recursive call for directories
-            copyFilesToDestination(srcDir, destDir, fullPath, ig);
+            const newPrefix = pathPrefix ? `${pathPrefix}_${item}` : item;
+            copyFilesToDestination(srcDir, destDir, fullPath, ig, newPrefix);
         } else {
-            if (item.endsWith('.js')) {
-                // Process only .js files
+            if (hasValidExtension(item)) {
+                // Process files with valid extensions
                 const pathParts = relativePath.split(path.sep);
                 const newFileName = pathParts.join('_');
                 const destPath = path.join(destDir, newFileName);
@@ -55,6 +64,28 @@ function copyFilesToDestination(srcDir, destDir, currentDir, ig) {
                 console.log(`Copied: ${relativePath} -> ${newFileName}`);
             }
         }
+    }
+}
+
+// Function to copy a single file
+function copySingleFile(srcDir, destDir, filename, ig) {
+    const fullPath = path.join(srcDir, filename);
+    
+    if (!fs.existsSync(fullPath)) {
+        console.log(`File not found: ${fullPath}`);
+        return;
+    }
+
+    if (shouldIgnore(filename, filename, ig)) {
+        console.log(`Ignored: ${filename}`);
+        return;
+    }
+
+    const stats = fs.statSync(fullPath);
+    if (stats.isFile() && hasValidExtension(filename)) {
+        const destPath = path.join(destDir, filename);
+        fs.copyFileSync(fullPath, destPath);
+        console.log(`Copied: ${filename} -> ${filename}`);
     }
 }
 
@@ -69,23 +100,42 @@ function main() {
     const scriptDirPath = __dirname;
     const projectRoot = path.dirname(scriptDirPath); // Go up one level to project root
     const srcDirPath = path.join(projectRoot, SRC_FOLDER_NAME);
-    const jsDirPath = path.join(srcDirPath, JS_SUBFOLDER);
     const destDirPath = path.join(projectRoot, DEST_FOLDER_NAME);
 
-    if (!fs.existsSync(jsDirPath)) {
-        console.error(`Error: Source folder '${SRC_FOLDER_NAME}/${JS_SUBFOLDER}' not found at: ${jsDirPath}`);
+    if (!fs.existsSync(srcDirPath)) {
+        console.error(`Error: Source folder '${SRC_FOLDER_NAME}' not found at: ${srcDirPath}`);
         return;
     }
 
     // Ensure destination directory exists
     ensureDirectoryExists(destDirPath);
 
-    console.log(`Copying files from ${jsDirPath} to ${destDirPath}`);
-
     const ig = readGitignore(projectRoot); // Gitignore from project root
-    copyFilesToDestination(srcDirPath, destDirPath, jsDirPath, ig);
 
-    console.log("Finished copying and renaming files.");
+    console.log(`Processing files from ${srcDirPath} to ${destDirPath}`);
+
+    // Process each subfolder and file
+    for (const item of SUBFOLDERS_AND_FILES) {
+        const itemPath = path.join(srcDirPath, item);
+        
+        if (fs.existsSync(itemPath)) {
+            const stats = fs.statSync(itemPath);
+            
+            if (stats.isDirectory()) {
+                // Process directory
+                console.log(`\nProcessing directory: ${item}/`);
+                copyFilesToDestination(srcDirPath, destDirPath, itemPath, ig);
+            } else if (stats.isFile()) {
+                // Process single file
+                console.log(`\nProcessing file: ${item}`);
+                copySingleFile(srcDirPath, destDirPath, item, ig);
+            }
+        } else {
+            console.log(`\nPath not found: ${itemPath}`);
+        }
+    }
+
+    console.log("\nFinished copying and renaming files.");
 }
 
 main();

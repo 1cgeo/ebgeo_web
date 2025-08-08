@@ -19,7 +19,7 @@ import ResetNorthControl from './controls_sig/reset_north_control.js';
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import ScreenshotControl from './controls_sig/screenshot_control.js';
 import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
-import { undoLastAction, redoLastAction, hasUnsavedData } from './controls_sig/store.js';
+import { undoLastAction, redoLastAction } from './controls_sig/store.js';
 
 //-----------------------------------------------
 // CONTROLES
