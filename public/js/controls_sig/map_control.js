@@ -20,12 +20,10 @@ class MapControl {
         this.baseLayerControl = baseLayerControl;
         this.selectionManager = null;
         this.setupDropdownPositionListeners();
-        console.log('MapControl inicializado'); // Debug
     }
 
     setSelectionManager(selectionManager) {
         this.selectionManager = selectionManager;
-        console.log('SelectionManager definido no MapControl:', !!selectionManager); // Debug
     }
 
     onAdd(map) {

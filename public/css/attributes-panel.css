@@ -1,0 +1,790 @@
+/* css/attributes-panel.css - Sistema de Atributos Melhorado */
+
+/* ===== VARIÁVEIS PARA CORES ===== */
+:root {
+    --error-color: #dc3545;
+    --error-dark: #c82333;
+    --error-light: #f5c6cb;
+    --success-color: #28a745;
+    --success-dark: #218838;
+    --warning-color: #ffc107;
+    --primary-color: #508d4e;
+    --primary-dark: #3d6e3a;
+    --primary-light: #6ba068;
+}
+
+/* ===== ESTRUTURA BASE DO PAINEL ===== */
+.unified-attributes-panel {
+    min-width: 320px;
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    padding: 15px;
+    background-color: rgba(248, 248, 248, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    width: 300px;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+}
+
+.unified-attributes-panel-mobile {
+    min-width: 320px;
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    padding: 10px;
+    background-color: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+}
+
+#attributes-panel {
+    bottom: 50px;
+}
+
+/* ===== TÍTULOS E HEADERS ===== */
+.unified-attributes-panel h3,
+.unified-attributes-panel-mobile h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-size: 16px;
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 5px;
+}
+
+/* ===== LAYOUTS DE ATRIBUTOS ===== */
+.attr-container-row {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.attr-container-column {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+    width: 100%;
+    justify-content: start;
+    margin-bottom: 12px;
+}
+
+.attr-name {
+    width: 35%;
+    font-weight: 500;
+    color: #333;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+}
+
+.attr-input {
+    width: 65%;
+    display: flex;
+    align-items: center;
+}
+
+.attr-input-full {
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
+
+
+/* ===== LABELS E INPUTS BÁSICOS ===== */
+.unified-attributes-panel label,
+.unified-attributes-panel-mobile label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #333;
+    font-size: 14px;
+}
+
+#text-area {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 8px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background-color: white;
+    color: #333;
+    font-family: inherit;
+}
+
+.unified-attributes-panel input:focus,
+.unified-attributes-panel textarea:focus,
+.unified-attributes-panel-mobile input:focus,
+.unified-attributes-panel-mobile textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.2);
+}
+
+
+
+/* ===== SLIDERS MELHORADOS ===== */
+.slider {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: #ddd;
+    outline: none;
+    opacity: 0.8;
+    transition: opacity 0.2s ease;
+    cursor: pointer;
+}
+
+.slider:hover {
+    opacity: 1;
+}
+
+.slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    cursor: pointer;
+    border: 2px solid white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s ease;
+}
+
+.slider::-webkit-slider-thumb:hover {
+    background: var(--primary-dark);
+    transform: scale(1.1);
+}
+
+.slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    cursor: pointer;
+    border: 2px solid white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s ease;
+}
+
+.slider::-moz-range-thumb:hover {
+    background: var(--primary-dark);
+    transform: scale(1.1);
+}
+
+/* ===== INPUT NUMÉRICO ALINHADO ===== */
+.unified-attributes-panel input[type="number"],
+.unified-attributes-panel-mobile input[type="number"] {
+    width: 60px !important;
+    padding: 6px 8px !important;
+    margin-left: 8px !important;
+    text-align: center !important;
+    flex-shrink: 0;
+}
+
+/* ===== COLOR PICKER EXPANDIDO ===== */
+.picker-color {
+    width: 100% !important; /* MUDANÇA: de 50px para 100% */
+    min-width: 100px !important; /* MUDANÇA: largura mínima maior */
+    height: 32px !important;
+    padding: 2px !important;
+    border: 1px solid #ddd !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    transition: border-color 0.2s ease, transform 0.1s ease !important;
+    background: none !important;
+    flex-grow: 1; /* MUDANÇA: permite crescer no container */
+}
+
+.picker-color:hover {
+    border-color: var(--primary-color) !important;
+    transform: scale(1.02) !important; /* MUDANÇA: escala menor para não quebrar layout */
+}
+
+.picker-color:active {
+    transform: scale(0.98) !important; /* MUDANÇA: escala menor */
+}
+
+/* ===== CONTAINER PARA COLOR PICKER ===== */
+.attr-input .picker-color {
+    margin-right: 8px; /* Espaço para input numérico quando houver */
+}
+
+/* ===== LAYOUT ESPECIAL PARA JUSTIFICATIVA ===== */
+.justify-container {
+    display: flex !important;
+    flex-direction: row !important;
+    width: 100% !important;
+    gap: 8px !important;
+}
+
+.justify-label {
+    flex-shrink: 0 !important;
+    width: auto !important;
+    margin-right: 12px !important;
+    font-weight: 500 !important;
+    color: #333 !important;
+    font-size: 14px !important;
+}
+
+.justify-buttons {
+    display: flex !important;
+    gap: 4px !important;
+    align-items: center !important;
+}
+
+.justify-buttons button {
+    width: 32px !important;
+    height: 32px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 1px solid #ddd !important;
+    border-radius: 4px !important;
+    background-color: white !important;
+    color: #333 !important;
+    font-size: 12px !important;
+    font-weight: bold !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: auto !important;
+}
+
+.justify-buttons button:hover {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+    transform: translateY(-1px) !important;
+}
+
+.justify-buttons button:active {
+    transform: translateY(0) !important;
+}
+
+.justify-buttons button:disabled {
+    background-color: #f5f5f5 !important;
+    color: #999 !important;
+    border-color: #e0e0e0 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+}
+
+/* ===== SWITCHES E CHECKBOXES ===== */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 28px;
+    cursor: pointer;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider-check {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.3s ease;
+    border-radius: 14px;
+}
+
+.slider-check:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: 0.3s ease;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.slider-check-input:checked + .slider-check {
+    background-color: var(--primary-color);
+}
+
+.slider-check-input:focus + .slider-check {
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.2);
+}
+
+.slider-check-input:checked + .slider-check:before {
+    transform: translateX(22px);
+}
+
+.slider-check:hover {
+    background-color: #bbb;
+}
+
+.slider-check-input:checked + .slider-check:hover {
+    background-color: var(--primary-dark);
+}
+
+/* ===== BOTÕES DO PAINEL - MELHORADOS ===== */
+.unified-attributes-panel button,
+.unified-attributes-panel-mobile button {
+    margin-top: 10px;
+    margin-right: 8px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    min-height: 36px;
+    
+    /* MUDANÇA: Melhor centralização do texto */
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    line-height: 1 !important; /* MUDANÇA: Remove line-height problemático */
+}
+
+.tutorial-button,
+.tool-button {
+    background-color: var(--primary-color);
+    color: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tutorial-button:hover,
+.tool-button:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.tutorial-button:active,
+.tool-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ===== BOTÃO DELETE VERMELHO - NOVO ===== */
+.delete-button,
+.unified-attributes-panel .delete-button,
+.unified-attributes-panel-mobile .delete-button {
+    background-color: var(--error-color) !important;
+    color: white !important;
+    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2) !important;
+    border: none !important;
+    
+    /* Centralização igual aos outros botões */
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    line-height: 1 !important;
+}
+
+.delete-button:hover,
+.unified-attributes-panel .delete-button:hover,
+.unified-attributes-panel-mobile .delete-button:hover {
+    background-color: var(--error-dark) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3) !important;
+}
+
+.delete-button:active,
+.unified-attributes-panel .delete-button:active,
+.unified-attributes-panel-mobile .delete-button:active {
+    transform: translateY(0) !important;
+    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2) !important;
+}
+
+/* ===== MATERIAL DESIGN BUTTONS MELHORADOS ===== */
+.pure-material-button-contained,
+.pure-material-tool-button-contained {
+    position: relative;
+    display: inline-flex !important; /* MUDANÇA: flex para melhor alinhamento */
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box;
+    border: none;
+    border-radius: 4px;
+    padding: 0 16px;
+    min-width: 64px;
+    height: 36px;
+    vertical-align: middle;
+    text-align: center;
+    text-overflow: ellipsis;
+    color: rgb(var(--pure-material-onprimary-rgb, 255, 255, 255));
+    background-color: var(--primary-color);
+    box-shadow: 0 3px 1px -2px rgba(0, 0, 0, 0.2), 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 1px 5px 0 rgba(0, 0, 0, 0.12);
+    font-family: var(--pure-material-font, "Roboto", "Segoe UI", BlinkMacSystemFont, system-ui, -apple-system);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1 !important; /* MUDANÇA: Remove line-height problemático */
+    overflow: hidden;
+    outline: none;
+    cursor: pointer;
+    transition: box-shadow 0.2s, background-color 0.2s, transform 0.1s;
+}
+
+.pure-material-button-contained:hover,
+.pure-material-tool-button-contained:hover {
+    box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.2), 0 4px 5px 0 rgba(0, 0, 0, 0.14), 0 1px 10px 0 rgba(0, 0, 0, 0.12);
+    background-color: var(--primary-dark);
+    transform: translateY(-1px);
+}
+
+.pure-material-button-contained:active,
+.pure-material-tool-button-contained:active {
+    transform: translateY(0);
+}
+
+/* ===== MATERIAL DESIGN DELETE BUTTON ===== */
+.pure-material-button-contained.delete-button,
+.pure-material-tool-button-contained.delete-button {
+    background-color: var(--error-color) !important;
+    box-shadow: 0 3px 1px -2px rgba(220, 53, 69, 0.2), 0 2px 2px 0 rgba(220, 53, 69, 0.14), 0 1px 5px 0 rgba(220, 53, 69, 0.12) !important;
+}
+
+.pure-material-button-contained.delete-button:hover,
+.pure-material-tool-button-contained.delete-button:hover {
+    background-color: var(--error-dark) !important;
+    box-shadow: 0 2px 4px -1px rgba(220, 53, 69, 0.2), 0 4px 5px 0 rgba(220, 53, 69, 0.14), 0 1px 10px 0 rgba(220, 53, 69, 0.12) !important;
+}
+
+.pure-material-button-contained::before,
+.pure-material-tool-button-contained::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.pure-material-button-contained:hover::before,
+.pure-material-tool-button-contained:hover::before {
+    opacity: 0.08;
+}
+
+/* ===== CONTAINER DE BOTÕES MELHORADO ===== */
+.attr-container-row:last-child {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    justify-content: center !important; /* MUDANÇA: centraliza os botões */
+    gap: 8px;
+    flex-wrap: nowrap !important; /* MUDANÇA: não permite quebra de linha */
+    display: flex !important;
+    flex-direction: row !important;
+}
+
+.attr-container-row button:last-child {
+    margin-right: 0;
+}
+
+/* ===== BOTÕES DE AÇÃO - SEMPRE NA MESMA LINHA ===== */
+.attr-container-row:last-child button {
+    flex: 1 !important; /* MUDANÇA: cada botão ocupa espaço igual */
+    max-width: 120px !important; /* MUDANÇA: largura máxima para não ficarem muito largos */
+    min-width: 80px !important; /* MUDANÇA: largura mínima para legibilidade */
+    white-space: nowrap !important; /* MUDANÇA: evita quebra de texto */
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* ===== RADIO ITEMS ===== */
+.radio-item {
+    color: #333;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    border-radius: 4px;
+    padding: 6px 8px;
+}
+
+.radio-item:hover {
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+.radio-item input[type="radio"] {
+    margin: 0;
+    cursor: pointer;
+}
+
+.radio-item label {
+    margin: 0;
+    cursor: pointer;
+    font-weight: normal;
+}
+
+/* ===== BOTÃO FLUTUANTE MOBILE ===== */
+#open-close-form {
+    position: fixed;
+    width: 60px;
+    height: 60px;
+    bottom: 40px;
+    left: 10px;
+    color: #FFF;
+    background-color: var(--primary-color);
+    border-radius: 50px;
+    text-align: center;
+    box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(8px);
+    text-decoration: none;
+}
+
+#open-close-form:hover {
+    background-color: var(--primary-dark);
+    transform: scale(1.1);
+    box-shadow: 2px 2px 12px rgba(0, 0, 0, 0.5);
+}
+
+#open-close-form:active {
+    transform: scale(0.95);
+}
+
+#open-close-form svg {
+    stroke-width: 2;
+    transition: stroke-width 0.2s ease;
+}
+
+#open-close-form:hover svg {
+    stroke-width: 2.5;
+}
+
+/* ===== ANIMAÇÕES ===== */
+@keyframes slideInFromRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOutToRight {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* ===== VALIDAÇÃO E FEEDBACK ===== */
+.attr-input input.error,
+.attr-input textarea.error {
+    border-color: var(--error-color);
+    box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.2);
+}
+
+.attr-input input.success,
+.attr-input textarea.success {
+    border-color: var(--success-color);
+    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+}
+
+.error-message {
+    color: var(--error-color);
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+.success-message {
+    color: var(--success-color);
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+/* ===== LOADING STATES ===== */
+.button-loading {
+    position: relative;
+    color: transparent !important;
+    pointer-events: none;
+}
+
+.button-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 18px;
+    height: 18px;
+    margin: -9px 0 0 -9px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top: 2px solid white;
+    border-radius: 50%;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ===== RESPONSIVIDADE MOBILE ===== */
+@media (max-width: 768px) {
+    /* Panel mobile adjustments */
+    .unified-attributes-panel {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        width: auto;
+        min-width: auto;
+        padding: 12px;
+        max-height: calc(100vh - 60px);
+    }
+
+    .unified-attributes-panel-mobile {
+        left: 10px;
+        right: 10px;
+        width: auto;
+        min-width: auto;
+        max-height: calc(100vh - 60px);
+    }
+
+    /* Ajustes para attr-container-row em mobile - EXCETO botões */
+    .attr-container-row:not(:last-child) {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .attr-container-row:not(:last-child) .attr-name {
+        width: 100%;
+        margin-bottom: 4px;
+    }
+
+    .attr-container-row:not(:last-child) .attr-input {
+        width: 100%;
+    }
+
+    /* Container de botões em mobile - MANTER NA MESMA LINHA */
+    .attr-container-row:last-child {
+        flex-direction: row !important; /* MUDANÇA: força linha horizontal */
+        justify-content: center !important;
+        flex-wrap: nowrap !important;
+        gap: 6px !important; /* MUDANÇA: gap menor em mobile */
+    }
+
+    .attr-container-row:last-child button {
+        flex: 1 !important;
+        max-width: 100px !important; /* MUDANÇA: max-width menor em mobile */
+        min-width: 70px !important; /* MUDANÇA: min-width menor em mobile */
+        font-size: 12px !important; /* MUDANÇA: fonte menor em mobile */
+        padding: 8px 4px !important; /* MUDANÇA: padding menor em mobile */
+    }
+
+    /* Color picker em mobile */
+    .picker-color {
+        max-width: 100% !important;
+        min-width: 80px !important;
+    }
+
+    /* Justificativa em mobile */
+    .justify-container {
+        flex-direction: column !important;
+    }
+
+    .justify-label {
+        width: 100% !important;
+        margin-right: 0 !important;
+        margin-bottom: 4px !important;
+    }
+
+    .justify-buttons {
+        justify-content: center !important;
+    }
+}
+
+/* ===== ACESSIBILIDADE ===== */
+.unified-attributes-panel input:focus,
+.unified-attributes-panel button:focus,
+.unified-attributes-panel textarea:focus,
+.unified-attributes-panel-mobile input:focus,
+.unified-attributes-panel-mobile button:focus,
+.unified-attributes-panel-mobile textarea:focus,
+#open-close-form:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+.switch:focus-within {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+    border-radius: 14px;
+}
+
+/* ===== PERFORMANCE OPTIMIZATIONS ===== */
+.unified-attributes-panel,
+.unified-attributes-panel-mobile,
+#open-close-form,
+.slider,
+.picker-color,
+.tutorial-button,
+.tool-button,
+.delete-button {
+    will-change: transform, background-color, opacity;
+}
+
+/* ===== Z-INDEX MANAGEMENT ===== */
+.unified-attributes-panel,
+.unified-attributes-panel-mobile {
+    z-index: 100;
+}
+
+#open-close-form {
+    z-index: 100;
+}

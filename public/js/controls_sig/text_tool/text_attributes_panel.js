@@ -102,6 +102,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         const textLabel = document.createElement('label');
         textLabel.textContent = 'Texto:';
         const textInput = document.createElement('textarea');
+        textInput.id = 'text-area';
         textInput.value = feature.properties.text;
         textInput.rows = 3;
         textInput.oninput = (e) => {
@@ -112,7 +113,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         $(panel).append(
             $("<div>", { class: "attr-container-column" })
                 .append($("<div>", { class: "attr-name" }).append(textLabel))
-                .append($("<div>", { class: "attr-input" }).append(textInput))
+                .append($("<div>", { class: "attr-input-full" }).append(textInput))
         )
     }
 
@@ -180,7 +181,8 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
 
     const justifyLabel = document.createElement('label');
     justifyLabel.textContent = 'Justificativa:';
-    const justifyContainer = $("<div>", { class: "attr-container-row" })
+    justifyLabel.className = 'justify-label';
+    const justifyButtonsContainer = $("<div>", { class: "justify-buttons" })
     // Initialize button variables
     let justifyLeftButton, justifyCenterButton, justifyRightButton;
     const justifyOptions = ['left', 'center', 'right'];
@@ -191,7 +193,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         button.onclick = () => {
             textControl.updateFeaturesProperty(selectedFeatures, 'justify', option);
         };
-        justifyContainer.append(button);
+        justifyButtonsContainer.append(button);
 
         // Assign buttons to variables
         if (option === 'left') {
@@ -203,9 +205,9 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     });
     $(panel).append(
-        $("<div>", { class: "attr-container-column" })
-            .append($("<div>", { class: "attr-name" }).append(justifyLabel))
-            .append($("<div>", { class: "attr-input" }).append(justifyContainer))
+    $("<div>", { class: "justify-container" })
+            .append(justifyLabel)
+            .append(justifyButtonsContainer)
     );
 
     const updateJustifyButtons = (text) => {

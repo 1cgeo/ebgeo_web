@@ -1,19 +1,31 @@
+/* ===== 1. BASE COMPARTILHADA ===== */
+/* Variáveis CSS, reset, tipografia, utilitários globais */
 @import url('./base.css');
 
-/* 2. Layout - main structure, containers, positioning */
-@import url('./layout.css');
+/* ===== 2. SISTEMA DE COORDENADAS ===== */
+/* Painel de coordenadas (SIG/2D e 3D) com controles, modal, formato */
+@import url('./coordinates.css');
 
-/* 3. Components - reusable UI components */
-@import url('./components.css');
+/* ===== 3. BARRA SUPERIOR ===== */
+/* Logo, botões principais, tutorial, sidebar mobile */
+@import url('./topbar.css');
 
-/* 4. Controls - map-specific controls and tools */
-@import url('./controls.css');
+/* ===== 4. LISTA DE MAPAS ===== */
+/* Painel lateral, dropdown de ações, botões de mapa */
+@import url('./map-list.css');
 
-/* 5. UI Elements - modals, dropdowns, panels */
-@import url('./ui-elements.css');
+/* ===== 5. CONTROLES DO MAPA ===== */
+/* Ferramentas de desenho, save/load, screenshot, reset north, base layer */
+@import url('./map-controls.css');
 
-/* 6. Animations - keyframes, transitions, motion */
-@import url('./animations.css');
+/* ===== 6. PAINÉIS DO MODO 2D ===== */
+/* Street View, Profile Panel, Feature Search, Vector Tile Info */
+@import url('./panels-2d.css');
 
-/* 7. Mobile - responsive styles (loaded last to override) */
-@import url('./mobile.css');
+/* ===== 7. PAINÉIS DO MODO 3D ===== */
+/* Toolbar 3D, modelos, ferramentas, localização */
+@import url('./panels-3d.css');
+
+/* ===== 8. SISTEMA DE ATRIBUTOS ===== */
+/* Painéis de propriedades, formulários, sliders, color pickers */
+@import url('./attributes-panel.css');

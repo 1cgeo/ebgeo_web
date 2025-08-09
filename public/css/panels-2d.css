@@ -1,0 +1,656 @@
+/* css/panels-2d.css - Painéis do Modo SIG/2D */
+
+/* ===== STREET VIEW SYSTEM ===== */
+#mini-map-street-view {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 30%;
+    height: 30%;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    z-index: 50;
+    backdrop-filter: blur(4px);
+    transition: all 0.3s ease;
+}
+
+#mini-map-street-view:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+    transform: scale(1.02);
+}
+
+#street-view-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+    background-color: #000;
+    overflow: hidden;
+}
+
+/* ===== BOTÃO DE FECHAR STREET VIEW ===== */
+#close-street-view-button {
+    position: fixed;
+    width: 60px;
+    height: 60px;
+    bottom: 40px;
+    right: 40px;
+    color: #FFF;
+    background-color: rgba(0, 0, 0, 0.7);
+    border-radius: 50px;
+    text-align: center;
+    box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 1001;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(8px);
+}
+
+#close-street-view-button:hover {
+    background-color: rgba(0, 0, 0, 0.9);
+    transform: scale(1.1);
+    box-shadow: 2px 2px 12px rgba(0, 0, 0, 0.5);
+}
+
+#close-street-view-button:active {
+    transform: scale(0.95);
+}
+
+#close-street-view-button svg {
+    stroke-width: 2;
+    transition: stroke-width 0.2s ease;
+}
+
+#close-street-view-button:hover svg {
+    stroke-width: 3;
+}
+
+/* ===== PROFILE PANEL ===== */
+.profile-panel {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    width: 400px;
+    height: 250px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    animation: slideInFromLeft 0.3s ease;
+}
+
+.profile-panel h3 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 16px;
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 5px;
+}
+
+.profile-panel canvas {
+    width: 100% !important;
+    height: calc(100% - 50px) !important;
+    border-radius: 4px;
+}
+
+/* ===== BOTÃO DE FECHAR DO PROFILE PANEL ===== */
+.profile-panel .close-button {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #666;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.profile-panel .close-button:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+    color: #333;
+    transform: scale(1.1);
+}
+
+.profile-panel .close-button:active {
+    transform: scale(0.9);
+}
+
+/* ===== FEATURE SEARCH PANEL ===== */
+.feature-search-panel {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    min-width: 320px;
+    max-width: 400px;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    animation: slideInFromRight 0.3s ease;
+}
+
+.feature-search-panel h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-size: 16px;
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 5px;
+}
+
+.feature-search-panel ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.feature-search-panel li {
+    margin-bottom: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.feature-search-panel li:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.feature-search-panel strong {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* ===== BOTÃO DE FECHAR DO FEATURE SEARCH ===== */
+.feature-search-panel button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    margin-top: 15px;
+    transition: all 0.2s ease;
+    width: 100%;
+}
+
+.feature-search-panel button:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.feature-search-panel button:active {
+    transform: translateY(0);
+}
+
+/* ===== VECTOR TILE INFO PANEL ===== */
+.vector-tile-info-panel {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    min-width: 300px;
+    max-width: 450px;
+    max-height: 400px;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    overflow-y: auto;
+    animation: fadeInScale 0.3s ease;
+}
+
+.vector-tile-info-panel h3 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-size: 16px;
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 5px;
+    position: sticky;
+    top: 0;
+    background: inherit;
+    backdrop-filter: inherit;
+}
+
+.vector-tile-info-panel ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.vector-tile-info-panel li {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    background-color: rgba(0, 0, 0, 0.02);
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.vector-tile-info-panel li:nth-child(even) {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.vector-tile-info-panel strong {
+    color: var(--primary-color);
+    font-weight: 600;
+    display: inline-block;
+    min-width: 120px;
+}
+
+/* ===== FEATURE SEARCH CONTROL ===== */
+.feature-search-control {
+    position: fixed !important;
+    top: 80px !important;
+    right: 5% !important;
+    z-index: 1000 !important;
+    
+    /* Layout flexível */
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    
+    /* Visual aprimorado */
+    background: rgba(255, 255, 255, 0.98) !important;
+    backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(0, 0, 0, 0.08) !important;
+    border-radius: 12px !important;
+    padding: 3px 15px !important;
+    box-shadow: 
+        0 4px 20px rgba(0, 0, 0, 0.1),
+        0 1px 3px rgba(0, 0, 0, 0.08) !important;
+    
+    /* Animação suave */
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    
+    /* Largura máxima para não ocupar tela inteira */
+    max-width: 500px !important;
+    min-width: 320px !important;
+}
+
+/* Estado hover para melhor feedback visual */
+.feature-search-control:hover {
+    box-shadow: 
+        0 8px 30px rgba(0, 0, 0, 0.15),
+        0 2px 6px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Input da busca com design melhorado */
+.feature-search-input {
+    border: 1px solid #e1e5e9 !important;
+    border-radius: 8px !important;
+    font-size: 14px !important;
+    width: 100% !important;
+    outline: none !important;
+    background: white !important;
+    color: #2d3748 !important;
+    
+    /* Transições suaves */
+    transition: all 0.2s ease !important;
+    
+    /* Typography */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    font-weight: 400 !important;
+}
+
+/* Estados do input */
+.feature-search-input:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 
+        0 0 0 3px rgba(80, 141, 78, 0.1),
+        0 1px 3px rgba(0, 0, 0, 0.1) !important;
+    background: #ffffff !important;
+}
+
+.feature-search-input::placeholder {
+    color: #a0aec0 !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+}
+
+/* Botão de busca melhorado */
+.feature-search-button {
+    background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)) !important;
+    color: white !important;
+    border: none !important;
+    padding: 10px 16px !important;
+    border-radius: 8px !important;
+    cursor: pointer !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    white-space: nowrap !important;
+    
+    /* Animações */
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    
+    /* Typography */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+.feature-search-button:hover {
+    background: linear-gradient(135deg, var(--primary-dark), #2d5a2b) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(80, 141, 78, 0.3) !important;
+}
+
+.feature-search-button:active {
+    transform: translateY(0) !important;
+}
+
+/* Dropdown de sugestões com posicionamento relativo */
+.feature-search-suggestions {
+    position: absolute !important;
+    top: calc(100% + 8px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    background: white !important;
+    border: 1px solid rgba(0, 0, 0, 0.08) !important;
+    border-radius: 12px !important;
+    box-shadow: 
+        0 10px 40px rgba(0, 0, 0, 0.15),
+        0 4px 6px rgba(0, 0, 0, 0.05) !important;
+    max-height: 250px !important;
+    overflow-y: auto !important;
+    z-index: 1001 !important;
+    display: none !important;
+    
+    /* Animação de entrada */
+    animation: slideDown 0.2s ease !important;
+}
+
+/* Itens de sugestão melhorados */
+.feature-search-suggestion {
+    padding: 12px 16px !important;
+    cursor: pointer !important;
+    font-size: 14px !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04) !important;
+    transition: all 0.15s ease !important;
+    
+    /* Typography */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    line-height: 1.5 !important;
+}
+
+.feature-search-suggestion:hover {
+    background: linear-gradient(90deg, rgba(80, 141, 78, 0.05), rgba(80, 141, 78, 0.02)) !important;
+    transform: translateX(4px) !important;
+}
+
+.feature-search-suggestion:last-child {
+    border-bottom: none !important;
+}
+
+.feature-search-suggestion strong {
+    color: var(--primary-color) !important;
+    font-weight: 600 !important;
+}
+
+/* ===== ANIMAÇÕES ===== */
+@keyframes slideInFromLeft {
+    from {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideInFromRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeInScale {
+    from {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes pulse {
+    0%, 100% { 
+        opacity: 1; 
+        transform: scale(1);
+    }
+    50% { 
+        opacity: 0.8; 
+        transform: scale(0.98);
+    }
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.feature-search-control.searching .feature-search-button {
+    background: linear-gradient(135deg, #a0aec0, #718096) !important;
+    cursor: not-allowed !important;
+    animation: pulse 1.5s infinite !important;
+}
+
+/* ===== RESPONSIVIDADE MOBILE ===== */
+@media (max-width: 768px) {
+    /* Street View mobile */
+    #mini-map-street-view {
+        width: 40%;
+        height: 25%;
+        top: 5px;
+        right: 5px;
+        border-width: 1px;
+    }
+
+    #close-street-view-button {
+        width: 50px;
+        height: 50px;
+        bottom: 20px;
+        right: 20px;
+    }
+
+    /* Profile Panel mobile */
+    .profile-panel {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        width: auto;
+        height: 200px;
+        padding: 10px;
+    }
+
+    .profile-panel h3 {
+        font-size: 14px;
+    }
+
+    /* Feature Search Panel mobile */
+    .feature-search-panel {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        min-width: auto;
+        padding: 12px;
+    }
+
+    .feature-search-panel h3 {
+        font-size: 14px;
+    }
+
+    .feature-search-panel li {
+        font-size: 13px;
+    }
+
+    /* Vector Tile Info mobile */
+    .vector-tile-info-panel {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        min-width: auto;
+        max-height: 300px;
+        padding: 12px;
+    }
+
+    /* Feature Search Control mobile */
+    .feature-search-control {
+        top: 5px;
+        right: 5px;
+        left: 45px;
+        padding: 6px 8px;
+    }
+
+    .feature-search-input {
+        width: 100%;
+        font-size: 12px;
+        padding: 5px 8px;
+    }
+
+    .feature-search-button {
+        font-size: 12px;
+        padding: 5px 8px;
+    }
+
+    .feature-search-suggestions {
+        max-height: 150px;
+    }
+
+    .feature-search-suggestion {
+        padding: 6px 8px;
+        font-size: 12px;
+    }
+}
+
+/* ===== SCROLLBARS CUSTOMIZADOS ===== */
+.profile-panel::-webkit-scrollbar,
+.vector-tile-info-panel::-webkit-scrollbar,
+.feature-search-suggestions::-webkit-scrollbar {
+    width: 6px;
+}
+
+.profile-panel::-webkit-scrollbar-track,
+.vector-tile-info-panel::-webkit-scrollbar-track,
+.feature-search-suggestions::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 3px;
+}
+
+.profile-panel::-webkit-scrollbar-thumb,
+.vector-tile-info-panel::-webkit-scrollbar-thumb,
+.feature-search-suggestions::-webkit-scrollbar-thumb {
+    background-color: var(--primary-color);
+    border-radius: 3px;
+}
+
+.profile-panel::-webkit-scrollbar-thumb:hover,
+.vector-tile-info-panel::-webkit-scrollbar-thumb:hover,
+.feature-search-suggestions::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-dark);
+}
+
+/* ===== ESTADOS DE CARREGAMENTO ===== */
+.profile-panel.loading::after,
+.feature-search-panel.loading::after,
+.vector-tile-info-panel.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid var(--primary-light);
+    border-top: 2px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ===== ACESSIBILIDADE ===== */
+.feature-search-input:focus,
+.feature-search-button:focus {
+    outline: 2px solid var(--primary-color) !important;
+    outline-offset: 2px !important;
+}
+
+.profile-panel .close-button:focus,
+.feature-search-panel button:focus,
+#close-street-view-button:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* ===== Z-INDEX MANAGEMENT ===== */
+#street-view-container {
+    z-index: 1000;
+}
+
+#close-street-view-button {
+    z-index: 1001;
+}
+
+.profile-panel,
+.feature-search-panel,
+.vector-tile-info-panel {
+    z-index: 100;
+}
+
+.feature-search-control {
+    z-index: 50;
+}
+
+.feature-search-suggestions {
+    z-index: 1000;
+}
+
+#mini-map-street-view {
+    z-index: 50;
+}
