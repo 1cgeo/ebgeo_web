@@ -271,8 +271,8 @@
 /* ===== FEATURE SEARCH CONTROL ===== */
 .feature-search-control {
     position: fixed !important;
-    top: 80px !important;
-    right: 5% !important;
+    top: 60px !important;
+    right: 8% !important;
     z-index: 1000 !important;
     
     /* Layout flexível */

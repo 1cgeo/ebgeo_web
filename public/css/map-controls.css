@@ -1,6 +1,10 @@
 /* css/map-controls.css - Controles e Ferramentas do Mapa */
 
 /* ===== ESTRUTURA BASE DOS CONTROLES ===== */
+.maplibregl-ctrl-top-right {
+    margin-top: 20px;
+}
+
 .mapboxgl-ctrl-top-right {
     display: flex;
     flex-direction: column;
@@ -29,55 +33,6 @@
     pointer-events: auto;
 }
 
-/* ===== SAVE/LOAD CONTROL ===== */
-.save-load-control {
-    position: absolute;
-    display: flex !important;
-    flex-direction: row !important;
-    top: 60px;
-    left: 10px;
-    z-index: 10;
-    pointer-events: auto;
-    background-color: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    padding: 4px;
-    gap: 2px;
-}
-
-#save-btn,
-#load-btn,
-#load-additive-btn {
-    background-color: transparent !important;
-    border: 1px solid #d0d0d0 !important;
-    padding: 6px !important;
-    cursor: pointer !important;
-    border-radius: 6px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    transition: all 0.2s ease !important;
-    width: 28px !important;
-    height: 28px !important;
-    margin: 0 !important;
-}
-
-#save-btn:hover,
-#load-btn:hover,
-#load-additive-btn:hover {
-    background-color: #f8f8f8 !important;
-    border-color: #bbb !important;
-}
-
-#save-btn img,
-#load-btn img,
-#load-additive-btn img {
-    width: 14px !important;
-    height: 14px !important;
-}
-
 /* ===== MAPBOX DRAW CONTROLS ===== */
 .mapbox-gl-draw_polygon,
 .mapbox-gl-draw_line,
@@ -86,25 +41,22 @@
 .mapbox-gl-draw_ctrl-draw-btn {
     background-image: none !important;
     background-color: transparent !important;
-    color: black !important;
-    font-weight: bold;
-    border: none !important;
-    padding: 5px !important;
+    border: 1px solid #d0d0d0 !important;
     cursor: pointer !important;
+    border-radius: 6px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.2s ease !important;
+    width: 32px !important;
+    height: 32px !important;
     margin: 2px !important;
-    font-size: 18px !important;
-    z-index: 10 !important;
-    pointer-events: auto !important;
-    width: 50px;
-    transition: background-color 0.2s ease, transform 0.1s ease;
+    padding: 0 !important;
 }
 
-.mapbox-gl-draw_polygon:hover,
-.mapbox-gl-draw_line:hover,
-.mapbox-gl-draw_point:hover,
-.mapbox-gl-draw_trash:hover,
 .mapbox-gl-draw_ctrl-draw-btn:hover {
-    background-color: rgba(0, 0, 0, 0.05) !important;
+    background-color: #f8f8f8 !important;
+    border-color: #bbb !important;
     transform: scale(1.05);
 }
 
@@ -112,142 +64,141 @@
     transform: scale(0.95);
 }
 
-.mapbox-gl-draw_ctrl-draw-btn img,
+.mapbox-gl-draw_ctrl-draw-btn.active {
+    background-color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+    color: white !important;
+}
+
 .icon-sig-tool {
-    width: 30px;
-    height: 30px;
+    width: 18px !important;
+    height: 18px !important;
     transition: filter 0.2s ease;
 }
 
-/* ===== SCREENSHOT CONTROL ===== */
+.mapbox-gl-draw_ctrl-draw-btn.active .icon-sig-tool {
+    filter: brightness(0) invert(1);
+}
+
+/* ===== SCREENSHOT TOOL ===== */
 #screenshot-tool {
-    position: relative;
-    overflow: hidden;
-    transition: all 0.2s ease;
+    background-color: transparent !important;
+    border: 1px solid #d0d0d0 !important;
+    cursor: pointer !important;
+    border-radius: 6px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.2s ease !important;
+    width: 32px !important;
+    height: 32px !important;
+    padding: 0 !important;
+    margin: 2px !important;
 }
 
-#screenshot-tool img {
-    transition: transform 0.2s ease;
-}
-
-#screenshot-tool:hover img {
-    transform: scale(1.1);
+#screenshot-tool:hover {
+    background-color: #f8f8f8 !important;
+    border-color: #bbb !important;
+    transform: scale(1.05);
 }
 
 #screenshot-tool:active {
     transform: scale(0.95);
 }
 
-#screenshot-tool.success {
-    background-color: var(--success-color) !important;
-    transition: background-color 0.3s ease;
+#screenshot-tool img {
+    width: 18px !important;
+    height: 18px !important;
 }
 
-/* ===== RESET NORTH CONTROL ===== */
+/* ===== NORTH RESET TOOL ===== */
 #north-tool {
-    transition: all 0.2s ease;
+    background-color: transparent !important;
+    border: 1px solid #d0d0d0 !important;
+    cursor: pointer !important;
+    border-radius: 6px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.2s ease !important;
+    width: 32px !important;
+    height: 32px !important;
+    padding: 0 !important;
+    margin: 2px !important;
 }
 
 #north-tool:hover {
-    transform: rotate(15deg) scale(1.1);
+    background-color: #f8f8f8 !important;
+    border-color: #bbb !important;
+    transform: scale(1.05);
 }
 
 #north-tool:active {
-    transform: rotate(0deg) scale(0.95);
+    transform: scale(0.95);
+}
+
+#north-tool img {
+    width: 18px !important;
+    height: 18px !important;
 }
 
 /* ===== BASE LAYER CONTROL ===== */
 .base-layer-control {
     display: flex !important;
-    z-index: 10 !important;
-    pointer-events: auto !important;
-    background-color: rgba(255, 255, 255, 0.98) !important;
+    gap: 10px !important;
+    align-items: center !important;
+    padding: 8px !important;
+    background-color: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(8px) !important;
-    color: #333 !important;
-    padding: 12px !important;
-    border-radius: 8px !important;
-    width: 100% !important;
-    justify-content: center !important;
-    gap: 12px !important;
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
-    transition: border-color 0.3s ease !important;
+    border-radius: 8px !important;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
-}
-
-.base-layer-control:has(input[type="radio"]:checked) {
-    border-color: rgba(80, 141, 78, 0.3) !important;
-    box-shadow: 0 2px 8px rgba(80, 141, 78, 0.1) !important;
+    flex-wrap: nowrap !important;
 }
 
 .layer-switch {
-    position: relative !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    background: none !important;
+    border: none !important;
     cursor: pointer !important;
-    user-select: none !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    color: #333 !important;
-    padding: 8px 12px !important;
     border-radius: 6px !important;
+    transition: all 0.2s ease !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    position: relative !important;
     min-width: 80px !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    border: 1px solid transparent !important;
 }
 
 .layer-switch input[type="radio"] {
-    position: absolute !important;
     opacity: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    margin: 0 !important;
-    cursor: pointer !important;
+    position: absolute !important;
+    pointer-events: none !important;
+    z-index: -1 !important;
 }
 
 .layer-switch span {
+    display: block !important;
     padding: 6px 12px !important;
-    border-radius: 4px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    text-align: center !important;
+    color: #666 !important;
     background-color: transparent !important;
-    color: #333 !important;
+    border: 1px solid #ddd !important;
+    border-radius: 6px !important;
+    transition: all 0.2s ease !important;
     cursor: pointer !important;
-    user-select: none !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    display: inline-block !important;
-    position: relative !important;
-}
-
-/* Estado ativo do base layer */
-.layer-switch input[type="radio"]:checked + span {
-    background: linear-gradient(135deg, var(--primary-color) 0%, #6ba56b 100%) !important;
-    color: white !important;
-    font-weight: 600 !important;
-    box-shadow: 0 4px 12px rgba(80, 141, 78, 0.3) !important;
-    transform: translateY(-1px) !important;
 }
 
 .layer-switch:hover span {
-    background-color: rgba(80, 141, 78, 0.1) !important;
-    transform: translateY(-0.5px) !important;
+    background-color: #f8f8f8 !important;
+    border-color: #bbb !important;
 }
 
-.layer-switch input[type="radio"]:checked + span:hover {
-    background: linear-gradient(135deg, #6ba56b 0%, var(--primary-color) 100%) !important;
-    box-shadow: 0 3px 12px rgba(80, 141, 78, 0.5) !important;
-    transform: translateY(-2px) !important;
-}
-
-.layer-switch input[type="radio"]:checked + span::before {
-    content: '';
-    position: absolute;
-    top: -2px;
-    left: -2px;
-    right: -2px;
-    bottom: -2px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-radius: 6px;
-    pointer-events: none;
-    z-index: -1;
+.layer-switch input[type="radio"]:checked + span {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+    font-weight: 600 !important;
 }
 
 .layer-switch input[type="radio"]:focus + span {
@@ -327,10 +278,6 @@
     100% { background-color: transparent; }
 }
 
-.save-load-icon.success {
-    animation: successFeedback 0.6s ease;
-}
-
 /* ===== RESPONSIVIDADE MOBILE ===== */
 @media (max-width: 768px) {
     /* Controles mobile adjustments */
@@ -341,29 +288,6 @@
 
     .mapboxgl-ctrl-group {
         transform: scale(0.9);
-    }
-
-    /* Save/Load mobile */
-    .save-load-control {
-        top: 65px;
-        left: 8px;
-        padding: 2px;
-        gap: 1px;
-    }
-
-    #save-btn,
-    #load-btn,
-    #load-additive-btn {
-        width: 24px !important;
-        height: 24px !important;
-        padding: 4px !important;
-    }
-
-    #save-btn img,
-    #load-btn img,
-    #load-additive-btn img {
-        width: 12px !important;
-        height: 12px !important;
     }
 
     /* Draw controls mobile */
@@ -434,7 +358,6 @@
 
 /* ===== ACESSIBILIDADE ===== */
 .mapbox-gl-draw_ctrl-draw-btn:focus,
-.save-load-icon:focus,
 #screenshot-tool:focus,
 #north-tool:focus {
     outline: 2px solid var(--primary-color);

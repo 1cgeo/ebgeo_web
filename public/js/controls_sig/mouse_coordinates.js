@@ -83,15 +83,27 @@ class MouseCoordinatesControl {
             }
             option.textContent = format.label;
             option.dataset.format = format.id;
+            
+            // Event listeners for the option
             option.addEventListener('click', (e) => {
                 this._setFormat(format.id);
                 this._formatSelector.style.display = 'none';
                 e.stopPropagation();
             });
+            option.addEventListener('mouseenter', () => {
+                if (format.id !== this._currentFormat) {
+                    option.style.backgroundColor = '#f0f0f0';
+                }
+            });
+            option.addEventListener('mouseleave', () => {
+                if (format.id !== this._currentFormat) {
+                    option.style.backgroundColor = '';
+                }
+            });
+            
             this._formatSelector.appendChild(option);
         });
         
-        // Assemble the components
         controlsContainer.appendChild(copyButton);
         controlsContainer.appendChild(flyToButton);
         controlsContainer.appendChild(gearButton);
@@ -146,7 +158,7 @@ class MouseCoordinatesControl {
         formatLabel.textContent = 'Formato:';
         const formatSelect = document.createElement('select');
         formatSelect.id = 'coordinates-format-select';
-        
+     
         this._formatOptions.forEach(format => {
             const option = document.createElement('option');
             option.value = format.id;
@@ -202,7 +214,7 @@ class MouseCoordinatesControl {
                 validationMessage.textContent = '';
                 validationMessage.className = 'coordinates-validation-message';
             } else {
-                validationMessage.textContent = 'Invalid coordinates for the selected format';
+                validationMessage.textContent = 'Coordenadas inválidas para o formato selecionado';
                 validationMessage.className = 'coordinates-validation-message error';
             }
         });
@@ -241,18 +253,19 @@ class MouseCoordinatesControl {
         buttonContainer.appendChild(createPointButton);
         buttonContainer.appendChild(cancelButton);
         
-        // Assemble modal content
+        // Assemble modal
         modalContent.appendChild(modalHeader);
         modalContent.appendChild(formatContainer);
         modalContent.appendChild(inputContainer);
         modalContent.appendChild(validationMessage);
         modalContent.appendChild(buttonContainer);
-        
         this._modal.appendChild(modalContent);
+        
+        // Add modal to document body
         document.body.appendChild(this._modal);
         
-        // Close when clicking outside
-        window.addEventListener('click', (e) => {
+        // Close modal when clicking outside
+        this._modal.addEventListener('click', (e) => {
             if (e.target === this._modal) {
                 this._modal.style.display = 'none';
             }
@@ -261,10 +274,8 @@ class MouseCoordinatesControl {
     
     _createPointAtCoordinates(lng, lat) {
         if (this._drawControl) {
-            const lngLat = { lng, lat };
-            this._drawControl.addPointFeatureAtCoordinates(lngLat);
-        } else {
-            console.warn('DrawControl não está disponível para criar pontos');
+            // Use the draw control to create a point
+            this._drawControl.addPointFeatureAtCoordinates(lng, lat);
         }
     }
     
@@ -272,45 +283,17 @@ class MouseCoordinatesControl {
         const { lat, lng } = this._currentCoordinates;
         const textToCopy = formatCoordinates(lat, lng, this._currentFormat);
         
-        if (!textToCopy || textToCopy.trim() === '') {
-            return;
-        }
+        if (!textToCopy || textToCopy.trim() === '') return;
         
-        // Use modern clipboard API if available
+        // Try modern clipboard API first
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(textToCopy).then(() => {
                 this._showCopyFeedback();
-            }).catch(err => {
-                console.error('Erro ao copiar:', err);
+            }).catch(() => {
                 this._fallbackCopyTextToClipboard(textToCopy);
             });
         } else {
-            // Fallback for older browsers
-            this._fallbackCopyTextToClipboard(textToCopy);
         }
-    }
-    
-    _fallbackCopyTextToClipboard(text) {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.top = "0";
-        textArea.style.left = "0";
-        textArea.style.position = "fixed";
-        
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        
-        try {
-            const successful = document.execCommand('copy');
-            if (successful) {
-                this._showCopyFeedback();
-            }
-        } catch (err) {
-            console.error('Fallback: Oops, unable to copy', err);
-        }
-        
-        document.body.removeChild(textArea);
     }
     
     _showCopyFeedback() {
@@ -369,8 +352,13 @@ class MouseCoordinatesControl {
         this._formatSelector.style.display = isVisible ? 'none' : 'block';
     }
     
-    _closeFormatSelector() {
-        this._formatSelector.style.display = 'none';
+    _closeFormatSelector(e) {
+        // Check if the click is outside the format selector and gear button
+        if (this._formatSelector && 
+            !this._formatSelector.contains(e.target) && 
+            !e.target.closest('.coordinates-gear-button')) {
+            this._formatSelector.style.display = 'none';
+        }
     }
     
     _setFormat(formatId) {
@@ -383,8 +371,12 @@ class MouseCoordinatesControl {
         options.forEach(option => {
             if (option.dataset.format === formatId) {
                 option.classList.add('active');
+                option.style.backgroundColor = '#f0f0f0';
+                option.style.fontWeight = 'bold';
             } else {
                 option.classList.remove('active');
+                option.style.backgroundColor = '';
+                option.style.fontWeight = '';
             }
         });
         

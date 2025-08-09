@@ -131,7 +131,7 @@
     border-radius: 6px !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
     padding: 4px 0 !important;
-    display: none !important;
+    display: none;
     z-index: 1001 !important;
     margin-bottom: 8px !important;
 }
@@ -304,10 +304,6 @@
 .coordinates-control,
 .coordinates-control-3d {
     transition: opacity 0.3s ease, transform 0.3s ease;
-}
-
-.coordinates-format-selector {
-    animation: slideUp 0.2s ease;
 }
 
 @keyframes slideUp {

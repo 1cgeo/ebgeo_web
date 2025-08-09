@@ -2,7 +2,6 @@
 import { map } from './controls_sig/map.js';
 import BaseLayerControl from './controls_sig/base_layer_control.js';
 import DrawControl from './controls_sig/draw_tool/draw.js';
-import SaveLoadControl from './controls_sig/save_load_control.js';
 import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
 import AddLOSControl from './controls_sig/los_tool/add_los_control.js';
@@ -65,25 +64,28 @@ selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
 const baseLayerControl = new BaseLayerControl(uiManager);
 
 const mapControl = new MapControl(baseLayerControl);
+mapControl.setSelectionManager(selectionManager)
 
 importControl.setBaseLayerControl(baseLayerControl);
 
-const saveLoadControl = new SaveLoadControl(mapControl, baseLayerControl);
+const resetNorthControl = new ResetNorthControl();
 
 const screenshotControl = new ScreenshotControl();
 
-const mouseCoordinatesControl = new MouseCoordinatesControl(drawControl);
+const mouseCoordinatesControl = new MouseCoordinatesControl();
 
-const scale = new maplibregl.ScaleControl({
-    maxWidth: 80,
-    unit: 'metric'
-});
-
+//-----------------------------------------------
+// ADICIONAR CONTROLES AO MAPA
+//-----------------------------------------------
 map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
-map.addControl(saveLoadControl, 'top-left');
-map.addControl(featureSearchControl, 'top-right');
-map.addControl(new ResetNorthControl(), 'top-right');
+mapControl.loadMenu()
+
+map.addControl(featureSearchControl, 'bottom-left');
+
+map.addControl(mouseCoordinatesControl, 'bottom-right');
+
+map.addControl(resetNorthControl, 'top-right');
 map.addControl(importControl, 'top-right');
 map.addControl(screenshotControl, 'top-right');
 map.addControl(vectorTileInfoControl, 'top-right');
@@ -93,24 +95,55 @@ map.addControl(imageControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
 map.addControl(addStreetViewControl, 'top-right');
-map.addControl(scale, 'bottom-left');
-map.addControl(mouseCoordinatesControl);
-mapControl.loadMenu()
+
 
 //-----------------------------------------------
-// ATALHOS - USANDO INDEXEDDB UNDO/REDO
+// ATALHOS DE TECLADO
 //-----------------------------------------------
-document.addEventListener('keydown', async (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
-        event.preventDefault();
-        if (await undoLastAction()) {
-            await mapControl.switchMap();
-        }
+
+document.addEventListener('keydown', async (e) => {
+    // Verificar se não está em input/textarea
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
     }
-    if ((event.ctrlKey || event.metaKey) && event.key === 'y') {
-        event.preventDefault();
-        if (await redoLastAction()) {
-            await mapControl.switchMap();
-        }
+
+    // Ctrl+Z = Undo
+    if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        await undoLastAction();
+        return;
     }
+
+    // Ctrl+Y ou Ctrl+Shift+Z = Redo
+    if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'Z')) {
+        e.preventDefault();
+        await redoLastAction();
+        return;
+    }
+
+    // Delete = deletar selecionados
+    if (e.key === 'Delete') {
+        e.preventDefault();
+        selectionManager.deleteSelectedFeatures();
+        return;
+    }
+
+    // Escape = desselecionar tudo
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        selectionManager.deselectAllFeatures();
+        return;
+    }
+});
+
+//-----------------------------------------------
+// TRATAMENTO DE ERROS GLOBAIS
+//-----------------------------------------------
+
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('Erro não tratado:', event.reason);
+});
+
+window.addEventListener('error', (event) => {
+    console.error('Erro JavaScript:', event.error);
 });

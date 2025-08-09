@@ -1,5 +1,20 @@
 /* css/panels-3d.css - Painéis do Modo 3D */
 
+/* 
+NOTA IMPORTANTE:
+Este arquivo corrige os problemas de estilo do painel 3D:
+1. Background branco puro (igual ao painel SIG)
+2. Maior espaçamento entre "Modelos 3D" e "Ferramentas" 
+3. 5 botões de ferramentas em linha única
+4. Override da classe .card que pode estar interferindo
+
+PROBLEMAS RESOLVIDOS:
+- Background cinza → Background branco com !important
+- Gap pequeno (15px) → Gap maior (35px)  
+- Botões grandes → Botões compactos em grid de 5 colunas
+- Possível conflito com classe externa .card
+*/
+
 /* ===== CONTAINER PRINCIPAL DO 3D ===== */
 #map-3d-container {
     display: none;
@@ -7,6 +22,7 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+    margin-top: 42px;
 }
 
 #map-3d {
@@ -18,21 +34,32 @@
 
 /* ===== TOOLBAR PRINCIPAL 3D ===== */
 #map-3d-tool-bar {
-    padding: 15px;
-    position: absolute;
-    display: flex;
-    flex-direction: column;
-    top: 1px;
-    left: 1px;
-    background-color: rgba(248, 248, 248, 0.95);
-    backdrop-filter: blur(8px);
-    width: 300px;
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    z-index: 100;
-    gap: 15px;
-    transition: all 0.3s ease;
+    padding: 15px !important;
+    position: absolute !important;
+    display: flex !important;
+    flex-direction: column !important;
+    top: 20px !important;
+    left: 1px !important;
+    /* CORREÇÃO 1: Background branco puro forçado (importante para sobrescrever classe .card) */
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(8px) !important;
+    width: 300px !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    z-index: 100 !important;
+    /* CORREÇÃO 2: Reduzir o espaçamento entre seções */
+    gap: 20px !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Força override da classe .card se existir */
+#map-3d-tool-bar.card {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
 }
 
 #map-3d-tool-bar:hover {
@@ -46,11 +73,12 @@
 }
 
 #model-3d-container p {
-    margin: 0 0 10px 0;
-    font-weight: 600;
-    color: #333;
-    font-size: 16px;
-    text-align: center;
+    margin: 0 0 10px 0 !important;
+    font-weight: 600 !important;
+    /* CORREÇÃO: Texto preto forçado */
+    color: #000 !important;
+    font-size: 16px !important;
+    text-align: center !important;
 }
 
 /* ===== CONTAINER DE LOCALIZAÇÃO 3D ===== */
@@ -103,20 +131,22 @@
 }
 
 #tool-3d-container p {
-    margin: 0 0 10px 0;
-    font-weight: 600;
-    color: #333;
-    font-size: 16px;
-    text-align: center;
+    margin: 0 0 10px 0 !important;
+    font-weight: 600 !important;
+    /* CORREÇÃO: Texto preto forçado */
+    color: #000 !important;
+    font-size: 16px !important;
+    text-align: center !important;
 }
 
 /* ===== GRID DE FERRAMENTAS 3D ===== */
 .tools-3d-bar {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
-    gap: 8px;
+    /* CORREÇÃO 3: Forçar 5 colunas em uma linha */
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
     width: 100%;
-    padding: 8px 0;
+    padding: 4px 0;
 }
 
 /* ===== BOTÕES DE FERRAMENTAS 3D ===== */
@@ -136,9 +166,10 @@
     transition: all 0.2s ease;
     background-color: transparent;
     border-radius: 6px;
-    padding: 8px;
-    min-width: 60px;
-    min-height: 60px;
+    /* CORREÇÃO 3: Reduzir padding dos botões */
+    padding: 4px;
+    min-width: 50px;
+    min-height: 50px;
     position: relative;
     overflow: hidden;
 }
@@ -160,8 +191,8 @@
 }
 
 .button-tool-3d img {
-    width: 30px;
-    height: 30px;
+    width: 26px;
+    height: 26px;
     transition: filter 0.2s ease;
 }
 
@@ -176,8 +207,8 @@
 }
 
 #screenshot-3d img {
-    width: 30px;
-    height: 30px;
+    width: 26px;
+    height: 26px;
     transition: transform 0.2s ease;
 }
 
@@ -186,39 +217,33 @@
 }
 
 #screenshot-3d:active {
-    transform: scale(0.95);
+    transform: scale(0.9);
 }
 
-#screenshot-3d.success {
-    background-color: var(--success-color) !important;
-    animation: successPulse 0.6s ease;
-}
-
-/* ===== BOTÃO FLUTUANTE PARA ATRIBUTOS ===== */
+/* ===== PAINEL FLOAT PARA MOBILE ===== */
 .panel-icon-float {
     position: fixed;
-    width: 60px;
-    height: 60px;
-    bottom: 40px;
-    left: 10px;
-    color: #FFF;
+    bottom: 30px;
+    left: 30px;
+    width: 56px;
+    height: 56px;
     background-color: var(--primary-color);
-    border-radius: 50px;
-    text-align: center;
-    box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
-    z-index: 100;
-    display: none;
+    border-radius: 50%;
+    display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
     transition: all 0.3s ease;
-    backdrop-filter: blur(8px);
+    z-index: 100;
+    border: none;
+    outline: none;
 }
 
 .panel-icon-float:hover {
     background-color: var(--primary-dark);
     transform: scale(1.1);
-    box-shadow: 2px 2px 12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
 }
 
 .panel-icon-float:active {
@@ -226,99 +251,49 @@
 }
 
 .panel-icon-float svg {
-    stroke-width: 2;
-    transition: stroke-width 0.2s ease;
-}
-
-.panel-icon-float:hover svg {
-    stroke-width: 2.5;
-}
-
-/* ===== DIVIDERS ===== */
-hr.solid {
-    width: 100%;
-    border: none;
-    border-top: 1px solid rgba(162, 170, 185, 0.3);
-    margin: 10px 0;
-}
-
-/* ===== ANIMAÇÕES ===== */
-@keyframes successPulse {
-    0% { 
-        background-color: var(--primary-color);
-        transform: scale(1);
-    }
-    50% { 
-        background-color: var(--success-color);
-        transform: scale(1.05);
-    }
-    100% { 
-        background-color: var(--primary-color);
-        transform: scale(1);
-    }
-}
-
-@keyframes slideInFromLeft {
-    from {
-        transform: translateX(-100%);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-#map-3d-tool-bar {
-    animation: slideInFromLeft 0.4s ease;
-}
-
-.panel-icon-float {
-    animation: fadeIn 0.3s ease;
+    width: 24px;
+    height: 24px;
+    fill: white;
 }
 
 /* ===== RESPONSIVE DESIGN ===== */
 @media (max-width: 768px) {
     /* Toolbar mobile */
     #map-3d-tool-bar {
-        width: calc(100vw - 30px);
-        left: 15px;
-        right: 15px;
-        top: 15px;
-        padding: 10px;
-        gap: 10px;
+        width: calc(100vw - 30px) !important;
+        left: 15px !important;
+        right: 15px !important;
+        top: 50px !important;
+        padding: 10px !important;
+        /* CORREÇÃO: Espaçamento reduzido no mobile */
+        gap: 15px !important;
+        background-color: rgba(255, 255, 255, 0.95) !important;
+        background: rgba(255, 255, 255, 0.95) !important;
     }
 
     #model-3d-container p,
     #tool-3d-container p {
-        font-size: 14px;
+        font-size: 14px !important;
+        /* CORREÇÃO: Garantir texto preto no mobile */
+        color: #000 !important;
     }
 
-    /* Grid de ferramentas mobile */
+    /* Grid de ferramentas mobile - manter 5 colunas mas ajustar tamanhos */
     .tools-3d-bar {
-        grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
-        gap: 6px;
-        padding: 6px 0;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 4px;
+        padding: 4px 0;
     }
 
     .button-tool-3d {
-        min-width: 50px;
-        min-height: 50px;
-        padding: 6px;
+        min-width: 40px;
+        min-height: 40px;
+        padding: 3px;
     }
 
     .button-tool-3d img {
-        width: 24px;
-        height: 24px;
+        width: 22px;
+        height: 22px;
     }
 
     /* Localização mobile */
@@ -471,4 +446,8 @@ hr.solid {
 
 .button-tool-3d::after {
     z-index: 1000;
+}
+
+.cesium-navigationHelpButton-wrapper button[title*="Instruções de navegação"] {
+    margin-top: 20px !important;
 }
