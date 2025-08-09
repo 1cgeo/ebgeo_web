@@ -66,21 +66,19 @@ class AddStreetViewControl {
 
         const button = document.createElement('button');
         button.setAttribute("id", "street-view-tool");
-        button.className = 'custom-tool-sig-button';
+        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.title = 'Adicionar street view';
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
         this.changeButtonColor()
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
         $('input[name="base-layer"]').on('change', this.reload);
         return this.container;
     }
 
     changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
-        $("#street-view-tool").html(`<img class="icon-sig-tool" src="./images/icon_street_view_${color}.svg" />`);
+        $("#street-view-tool").html(`<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />`);
         if (!this.isActive) return
         $("#street-view-tool").html('<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />');
     }

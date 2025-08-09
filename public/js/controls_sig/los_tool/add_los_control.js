@@ -41,15 +41,13 @@ class AddLOSControl {
 
         this.setupEventListeners();
 
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
         this.changeButtonColor()
 
         return this.container;
     }
 
     changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
-        $("#los-tool").html(`<img class="icon-sig-tool" src="./images/icon_los_${color}.svg" alt="LOS" />`);
+        $("#los-tool").html(`<img class="icon-sig-tool" src="./images/icon_los_black.svg" alt="LOS" />`);
         if (!this.isActive) return
         $("#los-tool").html('<img class="icon-sig-tool" src="./images/icon_los_red.svg" alt="LOS" />');
     }

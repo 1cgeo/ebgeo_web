@@ -40,14 +40,12 @@ class AddTextControl {
         this.setupEventListeners();
 
         this.changeButtonColor()
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
 
         return this.container;
     }
 
     changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
-        $("#text-tool").html(`<img class="icon-sig-tool" src="./images/icon_text_${color}.svg" alt="TEXT" />`);
+        $("#text-tool").html(`<img class="icon-sig-tool" src="./images/icon_text_black.svg" alt="TEXT" />`);
         if (!this.isActive) return
         $("#text-tool").html('<img class="icon-sig-tool" src="./images/icon_text_red.svg" alt="TEXT" />');
     }

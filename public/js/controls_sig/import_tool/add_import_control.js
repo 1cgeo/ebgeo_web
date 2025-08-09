@@ -40,15 +40,13 @@ class AddImportControl {
         this.container.appendChild(this.fileInput);
 
         // Atualizar cor do botão baseado no layer atual
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
         this.changeButtonColor();
 
         return this.container;
     }
 
     changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white';
-        $("#import-tool").html(`<img class="icon-sig-tool" src="./images/icon_import_${color}.svg" alt="IMPORT" />`);
+        $("#import-tool").html(`<img class="icon-sig-tool" src="./images/icon_import_black.svg" alt="IMPORT" />`);
         if (!this.isActive) return;
         $("#import-tool").html('<img class="icon-sig-tool" src="./images/icon_import_red.svg" alt="IMPORT" />');
     }

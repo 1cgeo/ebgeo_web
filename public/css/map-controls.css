@@ -48,98 +48,20 @@
     align-items: center !important;
     justify-content: center !important;
     transition: all 0.2s ease !important;
-    width: 32px !important;
-    height: 32px !important;
+    width: 40px !important;
+    height: 40px !important;
     margin: 2px !important;
     padding: 0 !important;
 }
 
 .mapbox-gl-draw_ctrl-draw-btn:hover {
-    background-color: #f8f8f8 !important;
-    border-color: #bbb !important;
-    transform: scale(1.05);
-}
-
-.mapbox-gl-draw_ctrl-draw-btn:active {
-    transform: scale(0.95);
-}
-
-.mapbox-gl-draw_ctrl-draw-btn.active {
-    background-color: var(--primary-color) !important;
-    border-color: var(--primary-color) !important;
-    color: white !important;
+    background-color: #d6d6d6 !important;
 }
 
 .icon-sig-tool {
-    width: 18px !important;
-    height: 18px !important;
+    width: 35px !important;
+    height: 35px !important;
     transition: filter 0.2s ease;
-}
-
-.mapbox-gl-draw_ctrl-draw-btn.active .icon-sig-tool {
-    filter: brightness(0) invert(1);
-}
-
-/* ===== SCREENSHOT TOOL ===== */
-#screenshot-tool {
-    background-color: transparent !important;
-    border: 1px solid #d0d0d0 !important;
-    cursor: pointer !important;
-    border-radius: 6px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    transition: all 0.2s ease !important;
-    width: 32px !important;
-    height: 32px !important;
-    padding: 0 !important;
-    margin: 2px !important;
-}
-
-#screenshot-tool:hover {
-    background-color: #f8f8f8 !important;
-    border-color: #bbb !important;
-    transform: scale(1.05);
-}
-
-#screenshot-tool:active {
-    transform: scale(0.95);
-}
-
-#screenshot-tool img {
-    width: 18px !important;
-    height: 18px !important;
-}
-
-/* ===== NORTH RESET TOOL ===== */
-#north-tool {
-    background-color: transparent !important;
-    border: 1px solid #d0d0d0 !important;
-    cursor: pointer !important;
-    border-radius: 6px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    transition: all 0.2s ease !important;
-    width: 32px !important;
-    height: 32px !important;
-    padding: 0 !important;
-    margin: 2px !important;
-}
-
-#north-tool:hover {
-    background-color: #f8f8f8 !important;
-    border-color: #bbb !important;
-    transform: scale(1.05);
-}
-
-#north-tool:active {
-    transform: scale(0.95);
-}
-
-#north-tool img {
-    width: 18px !important;
-    height: 18px !important;
 }
 
 /* ===== BASE LAYER CONTROL ===== */
@@ -297,8 +219,8 @@
     }
 
     .icon-sig-tool {
-        width: 24px;
-        height: 24px;
+        width: 25px;
+        height: 25px;
     }
 
     /* Base layer control mobile */

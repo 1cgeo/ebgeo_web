@@ -22,14 +22,12 @@ class ScreenshotControl {
         
         // Atualizar o ícone baseado no layer atual
         this.changeButtonColor();
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
         
         return this.container;
     }
     
     changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white';
-        $("#screenshot-tool").html(`<img class="icon-sig-tool" src="./images/icon_screenshot_${color}.svg" alt="SCREENSHOT" />`);
+        $("#screenshot-tool").html(`<img class="icon-sig-tool" src="./images/icon_screenshot_black.svg" alt="SCREENSHOT" />`);
     }
 
     takeScreenshot() {

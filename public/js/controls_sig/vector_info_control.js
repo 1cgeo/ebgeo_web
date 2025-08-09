@@ -21,15 +21,13 @@ class VectorTileInfoControl {
 
         this.container.appendChild(button);
 
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
         this.changeButtonColor()
 
         return this.container;
     }
 
     changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
-        $("#vector-tile-info-tool").html(`<img class="icon-sig-tool" src="./images/icon_info_${color}.svg" alt="INFO" />`);
+        $("#vector-tile-info-tool").html(`<img class="icon-sig-tool" src="./images/icon_info_black.svg" alt="INFO" />`);
         if (!this.isActive) return
         $("#vector-tile-info-tool").html('<img class="icon-sig-tool" src="./images/icon_info_red.svg" alt="INFO" />');
     }

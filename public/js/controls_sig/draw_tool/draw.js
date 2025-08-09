@@ -75,7 +75,6 @@ class DrawControl {
             this.setupEventListeners();
 
             this.changeButtonColors()
-            $('input[name="base-layer"]').on('change', this.changeButtonColors);
 
             return this.container;
         } catch (error) {
@@ -327,22 +326,21 @@ class DrawControl {
     }
 
     changeButtonColors = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
         $('.mapbox-gl-draw_point').html(
             `
-            <img src="./images/icon_point_${color}.svg" alt="Adicionar ponto" title="Adicionar ponto" />
+            <img src="./images/icon_point_black.svg" alt="Adicionar ponto" title="Adicionar ponto" />
             `
         )
 
         $('.mapbox-gl-draw_line').html(
             `
-            <img src="./images/icon_line_${color}.svg" alt="Adicionar linha" title="Adicionar linha" />
+            <img src="./images/icon_line_black.svg" alt="Adicionar linha" title="Adicionar linha" />
             `
         )
 
         $('.mapbox-gl-draw_polygon').html(
             `
-            <img src="./images/icon_polygon_${color}.svg" alt="Adicionar polígono" title="Adicionar polígono" />
+            <img src="./images/icon_polygon_black.svg" alt="Adicionar polígono" title="Adicionar polígono" />
             `
         )
 

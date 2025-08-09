@@ -37,15 +37,13 @@ class AddVisibilityControl {
 
         this.setupEventListeners();
 
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
         this.changeButtonColor()
 
         return this.container;
     }
 
     changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
-        $("#visibility-tool").html(`<img class="icon-sig-tool" src="./images/icon_visibility_${color}.svg" alt="VISIBILITY" />`);
+        $("#visibility-tool").html(`<img class="icon-sig-tool" src="./images/icon_visibility_black.svg" alt="VISIBILITY" />`);
         if (!this.isActive) return
         $("#visibility-tool").html('<img class="icon-sig-tool" src="./images/icon_visibility_red.svg" alt="VISIBILITY" />');
     }

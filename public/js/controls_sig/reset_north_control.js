@@ -19,7 +19,6 @@ class ResetNorthControl {
       this._container.appendChild(this._button);
 
       this.changeButtonColor();
-      $('input[name="base-layer"]').on('change', this.changeButtonColor);
 
       return this._container;
     }
@@ -30,8 +29,7 @@ class ResetNorthControl {
     }
 
       changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white';
-        $("#north-tool").html(`<img class="icon-sig-tool" src="./images/icon_north_${color}.svg" alt="NORTH" />`);
+        $("#north-tool").html(`<img class="icon-sig-tool" src="./images/icon_north_black.svg" alt="NORTH" />`);
     }
   }
 
