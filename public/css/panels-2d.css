@@ -272,7 +272,7 @@
 .feature-search-control {
     position: fixed !important;
     top: 60px !important;
-    right: 8% !important;
+    right: 110px !important;
     z-index: 1000 !important;
     
     /* Layout flexível */

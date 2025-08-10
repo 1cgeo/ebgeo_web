@@ -62,7 +62,7 @@ class AddStreetViewControl {
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl';
+        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl street-view-control controls-column-left';
 
         const button = document.createElement('button');
         button.setAttribute("id", "street-view-tool");

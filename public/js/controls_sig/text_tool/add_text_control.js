@@ -26,7 +26,7 @@ class AddTextControl {
     onAdd = (map) => {
         this.map = map;
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl';
+        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl text-control controls-column-right';
 
         const button = document.createElement('button');
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';

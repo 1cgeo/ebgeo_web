@@ -8,7 +8,7 @@ class ScreenshotControl {
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl';
+        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl screenshot-control controls-column-left';
 
         const button = document.createElement('button');
         button.type = 'button';

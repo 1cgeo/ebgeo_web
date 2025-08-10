@@ -414,12 +414,20 @@ class MapControl {
     }
 
     onRemove() {
-        this.closeAllDropdowns();
-        this.container.parentNode.removeChild(this.container);
+        this.closeAllDropdowns(false);
+        
+        // Remover listeners globais se necessário
+        // (Os listeners são automaticamente removidos quando o elemento é removido)
+        
+        if (this.container && this.container.parentNode) {
+            this.container.parentNode.removeChild(this.container);
+        }
         this.map = undefined;
     }
 
     async updateMapList() {
+        this.closeAllDropdowns(false);
+        
         this.mapList.innerHTML = '';
 
         const allMapNames = await getAllMapNames();
@@ -473,15 +481,26 @@ class MapControl {
     }
 
     toggleDropdown(button, mapName) {
-        // Fechar outros dropdowns
-        this.closeAllDropdowns();
+        // Verificar se este botão já tem dropdown ativo
+        const isCurrentlyActive = button.classList.contains('dropdown-active');
         
-        // Criar dropdown
+        // Sempre fechar todos os dropdowns primeiro
+        this.closeAllDropdowns(false); // Com animação para UX melhor
+        
+        // Se o botão estava ativo, não reabrir (comportamento toggle)
+        if (isCurrentlyActive) {
+            return;
+        }
+        
+        // Criar novo dropdown
         const dropdown = document.createElement('div');
         dropdown.className = 'dropdown-content';
         dropdown.style.display = 'block';
+        dropdown.dataset.mapName = mapName; // Para identificar qual dropdown é
+        dropdown.dataset.buttonId = button.dataset.buttonId || Date.now().toString(); // ID único para o botão
         
-        button.appendChild(dropdown);
+        // Anexar ao body para evitar problemas de overflow
+        document.body.appendChild(dropdown);
         
         // Posicionar dropdown
         this.positionDropdown(dropdown, button);
@@ -491,6 +510,12 @@ class MapControl {
         
         // Marcar como ativo
         button.classList.add('dropdown-active');
+        button.dataset.dropdownOpen = 'true';
+        
+        // Adicionar ID único ao botão se não tiver
+        if (!button.dataset.buttonId) {
+            button.dataset.buttonId = Date.now().toString();
+        }
     }
 
     populateDropdown(dropdownContent, mapName) {
@@ -639,18 +664,93 @@ class MapControl {
     }
 
     positionDropdown(dropdown, button) {
-        const rect = button.getBoundingClientRect();
-        const containerRect = this.container.getBoundingClientRect();
-        
-        dropdown.style.position = 'absolute';
-        dropdown.style.top = '100%';
-        dropdown.style.right = '0';
-        dropdown.style.zIndex = '1000';
+        // Aguardar o dropdown ser renderizado para calcular tamanho real
+        requestAnimationFrame(() => {
+            const rect = button.getBoundingClientRect();
+            const dropdownRect = dropdown.getBoundingClientRect();
+            const dropdownWidth = dropdownRect.width || 180;
+            const dropdownHeight = dropdownRect.height || 200;
+            
+            // Posição inicial (abaixo e à direita do botão)
+            let top = rect.bottom + 4;
+            let left = rect.right - dropdownWidth;
+            
+            // Verificar espaço disponível
+            const viewport = {
+                width: window.innerWidth,
+                height: window.innerHeight
+            };
+            
+            const padding = 10; // Margem da borda da tela
+            
+            // Ajustar horizontalmente
+            if (left < padding) {
+                left = rect.left; // Alinhar com a esquerda do botão
+            }
+            if (left + dropdownWidth > viewport.width - padding) {
+                left = Math.max(padding, viewport.width - dropdownWidth - padding);
+            }
+            
+            // Ajustar verticalmente
+            if (top + dropdownHeight > viewport.height - padding) {
+                // Tentar mostrar acima do botão
+                const topAbove = rect.top - dropdownHeight - 4;
+                if (topAbove >= padding) {
+                    top = topAbove;
+                } else {
+                    // Se não couber acima nem abaixo, centralizar verticalmente visível
+                    top = Math.max(padding, Math.min(
+                        viewport.height - dropdownHeight - padding,
+                        rect.top - (dropdownHeight / 2)
+                    ));
+                }
+            }
+            
+            // Aplicar posicionamento final
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = `${Math.round(top)}px`;
+            dropdown.style.left = `${Math.round(left)}px`;
+            dropdown.style.zIndex = '9999';
+            dropdown.style.maxHeight = `${Math.min(300, viewport.height - top - padding)}px`;
+            dropdown.style.overflowY = 'auto';
+        });
     }
 
-    closeAllDropdowns() {
-        const dropdowns = this.container.querySelectorAll('.dropdown-content');
-        dropdowns.forEach(dropdown => {
+    closeAllDropdowns(animated = false) {
+        // Buscar dropdowns no body (não apenas no container)
+        const dropdowns = document.querySelectorAll('.dropdown-content');
+        
+        if (animated && dropdowns.length > 0) {
+            // Fechar com animação
+            dropdowns.forEach(dropdown => {
+                if (dropdown.parentElement === document.body) {
+                    dropdown.classList.add('closing');
+                    setTimeout(() => {
+                        if (dropdown.parentNode) {
+                            dropdown.remove();
+                        }
+                    }, 150); // Duração da animação slideUp
+                }
+            });
+        } else {
+            // Fechar imediatamente
+            dropdowns.forEach(dropdown => {
+                if (dropdown.parentElement === document.body) {
+                    dropdown.remove();
+                }
+            });
+        }
+        
+        // Limpar estado dos botões ativos
+        const activeButtons = this.container.querySelectorAll('.more-info-icon.dropdown-active');
+        activeButtons.forEach(button => {
+            button.classList.remove('dropdown-active');
+            delete button.dataset.dropdownOpen;
+        });
+        
+        // Também buscar dropdowns no container (fallback)
+        const containerDropdowns = this.container.querySelectorAll('.dropdown-content');
+        containerDropdowns.forEach(dropdown => {
             if (dropdown.parentElement) {
                 dropdown.parentElement.classList.remove('dropdown-active');
                 dropdown.remove();
@@ -658,20 +758,50 @@ class MapControl {
         });
     }
 
+    // Método para verificar se um dropdown específico está aberto
+    isDropdownOpen(button) {
+        return button && button.classList.contains('dropdown-active');
+    }
+
+    // Método para fechar dropdown específico de um botão
+    closeDropdownForButton(button) {
+        if (!button || !this.isDropdownOpen(button)) return;
+        
+        // Buscar dropdown relacionado a este botão
+        const buttonId = button.dataset.buttonId;
+        if (buttonId) {
+            const dropdown = document.querySelector(`.dropdown-content[data-button-id="${buttonId}"]`);
+            if (dropdown) {
+                dropdown.remove();
+            }
+        }
+        
+        // Limpar estado do botão
+        button.classList.remove('dropdown-active');
+        delete button.dataset.dropdownOpen;
+    }
+
     setupDropdownPositionListeners() {
+        // Fechar dropdown ao clicar fora
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('.list-map-container')) {
-                this.closeAllDropdowns();
+            // Não fechar se clicou no botão de menu (o toggle é tratado no toggleDropdown)
+            // Não fechar se clicou dentro do dropdown
+            if (!e.target.closest('.dropdown-content')) {
+                // Se clicou em um botão more-info-icon, deixar o toggleDropdown tratar
+                if (!e.target.closest('.more-info-icon')) {
+                    this.closeAllDropdowns(false); // Sem animação para clique fora
+                }
             }
         });
         
-        window.addEventListener('scroll', () => {
-            this.closeAllDropdowns();
-        });
+        // Fechar dropdown ao fazer scroll
+        document.addEventListener('scroll', () => {
+            this.closeAllDropdowns(false); // Sem animação para scroll
+        }, true); // true para capturar scroll em qualquer elemento
         
         // Fechar dropdown ao redimensionar janela
         window.addEventListener('resize', () => {
-            this.closeAllDropdowns();
+            this.closeAllDropdowns(false); // Sem animação para resize
         });
     }
 

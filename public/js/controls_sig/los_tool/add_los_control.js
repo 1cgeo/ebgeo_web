@@ -28,7 +28,7 @@ class AddLOSControl {
     onAdd = (map) => {
         this.map = map;
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl';
+        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl los-control controls-column-left';
 
         const button = document.createElement('button');
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';

@@ -51,7 +51,7 @@ class DrawControl {
         try {
             this.map = map;
             this.container = document.createElement('div');
-            this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl draw-control';
+            this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl draw-control controls-column-right';
 
             this.draw = new MapboxDraw({
                 displayControlsDefault: false,
@@ -72,6 +72,10 @@ class DrawControl {
 
             this.map.addControl(this.draw, this.controlPosition);
 
+            setTimeout(() => {
+                this.addClassesToMapboxDrawContainer();
+            }, 100);
+
             this.setupEventListeners();
 
             this.changeButtonColors()
@@ -80,6 +84,30 @@ class DrawControl {
         } catch (error) {
             console.error('Error adding DrawControl:', error);
             throw error;
+        }
+    }
+
+    addClassesToMapboxDrawContainer = () => {
+        try {
+            // Encontrar o container criado pelo MapboxDraw
+            const mapboxDrawContainers = document.querySelectorAll('.maplibregl-ctrl-top-right .mapboxgl-ctrl-group');
+            
+            // Procurar o container que contém os botões de draw (line, polygon, point)
+            for (let container of mapboxDrawContainers) {
+                const hasLineButton = container.querySelector('.mapbox-gl-draw_line');
+                const hasPolygonButton = container.querySelector('.mapbox-gl-draw_polygon');
+                const hasPointButton = container.querySelector('.mapbox-gl-draw_point');
+                
+                // Se tem os botões de draw, é o container que queremos modificar
+                if (hasLineButton && hasPolygonButton && hasPointButton) {
+                    // Adicionar nossas classes ao container do MapboxDraw
+                    container.classList.add('draw-control', 'controls-column-right');
+                    console.log('Classes adicionadas ao container do MapboxDraw:', container.className);
+                    break;
+                }
+            }
+        } catch (error) {
+            console.error('Erro ao adicionar classes ao container do MapboxDraw:', error);
         }
     }
 

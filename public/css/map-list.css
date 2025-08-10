@@ -325,51 +325,63 @@
     z-index: 16 !important;
 }
 
+.more-info-icon.dropdown-active {
+    background-color: #f0f9ff !important;
+    border-color: var(--primary-color) !important;
+    z-index: 17 !important;
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1) !important;
+}
+
+.more-info-icon.dropdown-active img {
+    filter: hue-rotate(25deg) brightness(0.8) !important;
+}
+
 .more-info-icon img {
     width: 16px !important;
     height: 16px !important;
     pointer-events: none !important;
 }
 
+/* Dropdown agora anexado ao body */
 .dropdown-content {
-    position: absolute !important;
-    top: 100% !important;
-    right: 0 !important;
+    position: fixed !important;
     background-color: white !important;
     border: 1px solid #ddd !important;
     border-radius: 8px !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
-    z-index: 1000 !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+    z-index: 9999 !important;
     min-width: 180px !important;
-    padding: 4px !important;
-    margin-top: 2px !important;
-    backdrop-filter: blur(8px) !important;
-    animation: slideDown 0.2s ease;
+    max-width: 250px !important;
+    padding: 8px !important;
+    backdrop-filter: blur(12px) !important;
     pointer-events: auto !important;
+    
+    /* Garantir que apareça acima de tudo */
+    transform: translateZ(0) !important;
+    isolation: isolate !important;
 }
 
 .menu-button {
     background: none !important;
     border: none !important;
-    padding: 8px 12px !important;
+    padding: 10px 14px !important;
     text-align: left !important;
     cursor: pointer !important;
     font-size: 14px !important;
     color: #333 !important;
-    min-width: 160px !important;
-    text-align: left !important;
-    z-index: 1001 !important;
+    z-index: 10000 !important;
     pointer-events: auto !important;
     transition: background-color 0.15s ease !important;
-    border-radius: 4px !important;
+    border-radius: 6px !important;
     width: 100% !important;
     box-sizing: border-box !important;
     display: block !important;
+    margin: 2px 0 !important;
 }
 
 .menu-button:hover {
     background-color: #f5f5f5 !important;
-    z-index: 1002 !important;
+    z-index: 10001 !important;
 }
 
 .menu-button-danger {
@@ -393,24 +405,6 @@
     transform: scale(1.1);
 }
 
-/* ===== ANIMAÇÕES ===== */
-@keyframes slideDown {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-@keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
-}
-
 .map-action-button.success {
     animation: pulse 0.3s ease;
     background-color: #28a745 !important;
@@ -419,6 +413,14 @@
 
 .map-action-button.success img {
     filter: brightness(0) invert(1);
+}
+
+/* Animação para dropdown */
+.dropdown-content {
+    /* Melhor sombra para destacar */
+    box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.15),
+        0 0 0 1px rgba(0, 0, 0, 0.05) !important;
 }
 
 /* ===== ESTADOS DE FEEDBACK ===== */
@@ -481,9 +483,13 @@
     }
 
     /* Containers mobile */
+    .all-actions-container {
+        gap: 4px !important;
+    }
+
     .primary-actions-container,
     .secondary-actions-container {
-        gap: 6px !important;
+        gap: 4px !important;
     }
 
     /* Items da lista mobile */
@@ -496,16 +502,16 @@
         font-size: 13px !important;
     }
 
-    /* Dropdown mobile */
+    /* Dropdown mobile - posicionamento inteligente */
     .dropdown-content {
         min-width: 160px !important;
-        right: -20px;
+        max-width: calc(100vw - 40px) !important;
+        font-size: 13px !important;
     }
 
     .menu-button {
-        padding: 6px 8px !important;
+        padding: 8px 12px !important;
         font-size: 13px !important;
-        min-width: 140px !important;
     }
 
     /* More info icon mobile */
@@ -518,6 +524,17 @@
     .more-info-icon img {
         width: 14px !important;
         height: 14px !important;
+    }
+
+    /* Base layer control mobile */
+    .base-layer-control .layer-switch {
+        min-width: 70px !important;
+        height: 28px !important;
+    }
+
+    .base-layer-control .layer-switch span {
+        font-size: 11px !important;
+        padding: 4px 8px !important;
     }
 }
 

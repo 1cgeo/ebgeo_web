@@ -3,7 +3,7 @@ class ResetNorthControl {
     onAdd(map) {
       this._map = map;
       this._container = document.createElement('div');
-      this._container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl';
+      this._container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl north-control controls-column-left';
       this._button = document.createElement('button');
       this._button.type = 'button';
       this._button.className = 'mapbox-gl-draw_ctrl-draw-btn';

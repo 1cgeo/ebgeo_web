@@ -1,20 +1,68 @@
 /* css/map-controls.css - Controles e Ferramentas do Mapa */
 
-/* ===== ESTRUTURA BASE DOS CONTROLES ===== */
-.maplibregl-ctrl-top-right {
-    margin-top: 20px;
+/* Posicionar controles da COLUNA ESQUERDA individualmente */
+.controls-column-left {
+    position: fixed !important;
+    top: 60px !important;
+    right: 50px !important;
+    z-index: 999 !important;
+    pointer-events: auto !important;
+    margin: 0 !important;
 }
 
-.mapboxgl-ctrl-top-right {
-    display: flex;
-    flex-direction: column;
-    gap: 10px !important;
-    justify-content: center;
-    align-items: center;
-    margin-top: 50px;
-    z-index: 10;
+/* Posicionar controles da COLUNA DIREITA individualmente */
+.controls-column-right {
+    position: fixed !important;
+    top: 60px !important;
+    right: 5px !important;
+    z-index: 999 !important;
+    pointer-events: auto !important;
+    margin: 0 !important;
 }
 
+/* Posicionamento vertical específico para COLUNA ESQUERDA */
+.north-control.controls-column-left {
+    top: 60px !important;
+}
+
+.import-control.controls-column-left {
+    top: 105px !important;
+}
+
+.screenshot-control.controls-column-left {
+    top: 150px !important;
+}
+
+.vector-info-control.controls-column-left {
+    top: 195px !important;
+}
+
+.los-control.controls-column-left {
+    top: 240px !important;
+}
+
+.visibility-control.controls-column-left {
+    top: 285px !important;
+}
+
+.street-view-control.controls-column-left {
+    top: 330px !important;
+}
+
+/* Posicionamento vertical específico para COLUNA DIREITA */
+.draw-control.controls-column-right {
+    top: 60px !important;
+}
+
+.text-control.controls-column-right {
+    top: 193px !important;
+}
+
+.image-control.controls-column-right {
+    top: 238px !important;
+}
+
+/* ===== ESTILOS BASE DOS CONTROLES ===== */
 .mapboxgl-ctrl-group {
     display: flex !important;
     flex-direction: column !important;
@@ -69,67 +117,35 @@
     display: flex !important;
     gap: 10px !important;
     align-items: center !important;
-    padding: 8px !important;
     background-color: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(8px) !important;
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
-    flex-wrap: nowrap !important;
+    padding: 8px !important;
+    z-index: 10 !important;
+    pointer-events: auto !important;
 }
 
 .layer-switch {
-    background: none !important;
-    border: none !important;
-    cursor: pointer !important;
-    border-radius: 6px !important;
-    transition: all 0.2s ease !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    position: relative !important;
-    min-width: 80px !important;
-}
-
-.layer-switch input[type="radio"] {
-    opacity: 0 !important;
-    position: absolute !important;
-    pointer-events: none !important;
-    z-index: -1 !important;
-}
-
-.layer-switch span {
-    display: block !important;
-    padding: 6px 12px !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    text-align: center !important;
-    color: #666 !important;
     background-color: transparent !important;
-    border: 1px solid #ddd !important;
+    border: 1px solid #d0d0d0 !important;
     border-radius: 6px !important;
-    transition: all 0.2s ease !important;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
     cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    min-width: 80px !important;
+    text-align: center !important;
 }
 
-.layer-switch:hover span {
-    background-color: #f8f8f8 !important;
-    border-color: #bbb !important;
+.layer-switch:hover {
+    background-color: #f0f0f0 !important;
+    border-color: #b0b0b0 !important;
 }
 
-.layer-switch input[type="radio"]:checked + span {
-    background-color: var(--primary-color) !important;
-    color: white !important;
-    border-color: var(--primary-color) !important;
-    font-weight: 600 !important;
-}
-
-.layer-switch input[type="radio"]:focus + span {
-    outline: 2px solid var(--primary-color) !important;
-    outline-offset: 2px !important;
-}
-
-/* ===== TOOL BUTTONS ATIVOS ===== */
-.active-buton {
+.layer-switch.active {
     background-color: var(--primary-color) !important;
     color: white !important;
 }
@@ -202,12 +218,56 @@
 
 /* ===== RESPONSIVIDADE MOBILE ===== */
 @media (max-width: 768px) {
-    /* Controles mobile adjustments */
-    .mapboxgl-ctrl-top-right {
-        margin-top: 60px;
-        gap: 8px;
+    /* Em mobile, voltar ao posicionamento vertical em coluna única */
+    .controls-column-left,
+    .controls-column-right {
+        right: 10px !important;
+        left: auto !important;
+    }
+    
+    /* Reposicionar verticalmente em mobile - ferramentas de desenho primeiro */
+    .draw-control.controls-column-right {
+        top: 60px !important;
+    }
+    
+    .text-control.controls-column-right {
+        top: 180px !important;
+    }
+    
+    .image-control.controls-column-right {
+        top: 240px !important;
+    }
+    
+    /* Outras ferramentas depois */
+    .north-control.controls-column-left {
+        top: 300px !important;
+    }
+    
+    .import-control.controls-column-left {
+        top: 360px !important;
+    }
+    
+    .screenshot-control.controls-column-left {
+        top: 420px !important;
+    }
+    
+    .vector-info-control.controls-column-left {
+        top: 480px !important;
+    }
+    
+    .los-control.controls-column-left {
+        top: 540px !important;
+    }
+    
+    .visibility-control.controls-column-left {
+        top: 600px !important;
+    }
+    
+    .street-view-control.controls-column-left {
+        top: 660px !important;
     }
 
+    /* Controles mobile adjustments */
     .mapboxgl-ctrl-group {
         transform: scale(0.9);
     }
