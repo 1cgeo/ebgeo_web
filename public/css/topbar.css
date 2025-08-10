@@ -40,9 +40,9 @@
     border: none;
 }
 
-.logo img {
-    height: 32px;
-    width: 32px;
+.logo-img {
+    height: 40px;
+    width: 40px;
 }
 
 .logo h2 {
