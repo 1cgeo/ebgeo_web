@@ -16,6 +16,11 @@ class AddImageControl {
         this.toolManager = toolManager;
         this.toolManager.imageControl = this;
         this.isActive = false;
+        this.selectionManager = null;
+    }
+
+    setSelectionManager(selectionManager) {
+        this.selectionManager = selectionManager;
     }
 
     onAdd(map) {
@@ -105,10 +110,10 @@ class AddImageControl {
             const response = await fetch(resizedImageBase64);
             const blob = await response.blob();
             await imageStore.setItem(imageId, blob);
-            
+
             // Criar feature sem base64
             const feature = this.createImageFeature(lngLat, imageId, width, height);
-            
+
             // Salvar no IndexedDB
             await addFeature('images', feature);
 
@@ -123,6 +128,9 @@ class AddImageControl {
                 this.map.addImage(imageId, img);
             };
             img.src = resizedImageBase64;
+
+            this.selectionManager.toggleFeatureSelection('image', feature.id, feature);
+            this.selectionManager.updateUI();
         });
     }
 
@@ -146,10 +154,10 @@ class AddImageControl {
             canvas.width = width;
             canvas.height = height;
             const ctx = canvas.getContext('2d');
-            
+
             // Set the background to transparent
             ctx.clearRect(0, 0, width, height);
-            
+
             // Draw the image
             ctx.drawImage(img, 0, 0, width, height);
 
@@ -195,16 +203,16 @@ class AddImageControl {
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
-                
+
                 // Atualizar no IndexedDB
                 await updateFeature('images', feature);
             }
         }
         this.map.getSource('images').setData(data);
     }
-    
+
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
-        if(features.length > 0){
+        if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
@@ -216,7 +224,7 @@ class AddImageControl {
                         // Replace the entire feature
                         data.features[featureIndex] = feature;
                     }
-        
+
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
                         await updateFeature('images', featureToUpdate);

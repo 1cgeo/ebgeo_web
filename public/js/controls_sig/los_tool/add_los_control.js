@@ -23,6 +23,11 @@ class AddLOSControl {
         this.endPoint = null;
         this.debounceTime = 30;
         this.lastUpdateTime = 0;
+        this.selectionManager = null;
+    }
+
+    setSelectionManager(selectionManager) {
+        this.selectionManager = selectionManager;
     }
 
     onAdd = (map) => {
@@ -51,7 +56,7 @@ class AddLOSControl {
         if (!this.isActive) return
         $("#los-tool").html('<img class="icon-sig-tool" src="./images/icon_los_red.svg" alt="LOS" />');
     }
-    
+
     onRemove = () => {
         try {
             this.uiManager.removeControl(this.container);
@@ -151,7 +156,7 @@ class AddLOSControl {
             losFeature = {
                 type: 'Feature',
                 id: Date.now().toString(),
-                properties: { 
+                properties: {
                     ...AddLOSControl.DEFAULT_PROPERTIES,
                     profileData: JSON.stringify(await this.calculateProfile([this.startPoint, this.endPoint]))
                 },
@@ -167,7 +172,7 @@ class AddLOSControl {
             losFeature = {
                 type: 'Feature',
                 id: Date.now().toString(),
-                properties: { 
+                properties: {
                     ...AddLOSControl.DEFAULT_PROPERTIES,
                     profileData: JSON.stringify(await this.calculateProfile([this.startPoint, this.endPoint]))
                 },
@@ -177,7 +182,7 @@ class AddLOSControl {
                 }
             };
         }
-        
+
         // Salvar no IndexedDB
         await addFeature('los', losFeature);
         this.updateFeatureMeasurement(losFeature);
@@ -188,13 +193,16 @@ class AddLOSControl {
 
         const processedLosFeatures = this.preprocessLosFeature(losFeature);
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-        
+
         for (const processedFeature of processedLosFeatures) {
             await addFeature('processed_los', processedFeature);
             processedData.features.push(processedFeature);
         }
-        
+
         this.map.getSource('processed-los').setData(processedData);
+
+        this.selectionManager.toggleFeatureSelection('los', losFeature.id, losFeature);
+        this.selectionManager.updateUI();
     }
 
     preprocessLosFeature(feature) {
@@ -247,42 +255,42 @@ class AddLOSControl {
         const length = turf.length(line, { units: 'meters' });
         const steps = Math.ceil(length / 60); // 1 passo por ~60m (2x resolução do DEM)
         const stepLength = length / steps;
-      
+
         // Get start and end elevations
         const startCoordinates = line.geometry.coordinates[0];
         const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
-        const startElevation = await getTerrainElevation(this.map, startCoordinates)+2;
+        const startElevation = await getTerrainElevation(this.map, startCoordinates) + 2;
         const endElevation = await getTerrainElevation(this.map, endCoordinates);
-      
+
         let firstObstructedPoint = null;
-      
+
         for (let i = 1; i <= steps; i++) {
-          const segment = turf.along(line, i * stepLength, { units: 'meters' });
-          const segmentCoordinates = segment.geometry.coordinates;
-      
-          // Calculate expected elevation on the line
-          const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
-      
-          // Query terrain elevation
-          const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
-      
-          if (actualElevation > expectedElevation) {
-            firstObstructedPoint = segmentCoordinates;
-            break;
-          }
+            const segment = turf.along(line, i * stepLength, { units: 'meters' });
+            const segmentCoordinates = segment.geometry.coordinates;
+
+            // Calculate expected elevation on the line
+            const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
+
+            // Query terrain elevation
+            const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
+
+            if (actualElevation > expectedElevation) {
+                firstObstructedPoint = segmentCoordinates;
+                break;
+            }
         }
-      
-        const visibleLine = firstObstructedPoint 
-          ? turf.lineString([startCoordinates, firstObstructedPoint]) 
-          : turf.lineString([startCoordinates, endCoordinates]);
-      
-        const obstructedLine = firstObstructedPoint 
-          ? turf.lineString([firstObstructedPoint, endCoordinates]) 
-          : null; // Empty line if no obstruction
+
+        const visibleLine = firstObstructedPoint
+            ? turf.lineString([startCoordinates, firstObstructedPoint])
+            : turf.lineString([startCoordinates, endCoordinates]);
+
+        const obstructedLine = firstObstructedPoint
+            ? turf.lineString([firstObstructedPoint, endCoordinates])
+            : null; // Empty line if no obstruction
 
         return {
-          visible: visibleLine,
-          obstructed: obstructedLine
+            visible: visibleLine,
+            obstructed: obstructedLine
         };
     }
 
@@ -293,7 +301,7 @@ class AddLOSControl {
     handleMouseLeave = (e) => {
         this.map.getCanvas().style.cursor = '';
     }
-    
+
     updateFeaturesProperty = async (features, property, value) => {
         const losData = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
@@ -316,22 +324,22 @@ class AddLOSControl {
                 await updateFeature('los', feature);
             }
         }
-    
+
         this.map.getSource('los').setData(losData);
         this.map.getSource('processed-los').setData(processedData);
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
-        if(features.length > 0){
+        if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
             const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-            
+
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
-                        
+
                         const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
                         processedFeatures.forEach(processedFeature => {
                             Object.keys(feature.properties).forEach(key => {
@@ -346,13 +354,13 @@ class AddLOSControl {
                         data.features[featureIndex] = updatedFeature;
                         // Remove old processed features
                         processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
-                        
+
                         // Add new processed features
                         const newProcessedFeatures = this.preprocessLosFeature(updatedFeature);
                         processedData.features.push(...newProcessedFeatures);
                     }
 
-                    if(save){
+                    if (save) {
                         await updateFeature('los', data.features[featureIndex]);
                         this.updateFeatureMeasurement(data.features[featureIndex]);
                         const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
@@ -373,7 +381,7 @@ class AddLOSControl {
         for (const f of features) {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
                 await updateFeature('los', f);
-                
+
                 const processedFeatures = processedData.features.filter(pf => pf.id.startsWith(f.id));
                 for (const pf of processedFeatures) {
                     const updatedProcessedFeature = {
@@ -405,7 +413,7 @@ class AddLOSControl {
         const idsToDelete = new Set(features.map(f => f.id.toString()));
         data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
         processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
-        
+
         this.map.getSource('los').setData(data);
         this.map.getSource('processed-los').setData(processedData);
 
@@ -455,7 +463,7 @@ class AddLOSControl {
 
             const line = turf.lineString(combinedLine.geometry.coordinates);
             const lengthInMeters = turf.length(line, { units: 'meters' });
-            const lengthFormatted = lengthInMeters >= 1000 
+            const lengthFormatted = lengthInMeters >= 1000
                 ? `${(lengthInMeters / 1000).toFixed(2)} km`
                 : `${lengthInMeters.toFixed(2)} m`;
             const midpoint = turf.along(line, lengthInMeters / 2, { units: 'meters' });
@@ -483,7 +491,7 @@ class AddLOSControl {
         label.className = 'measurement-label';
         label.innerText = measurement;
         label.dataset.featureId = featureId;
-        
+
         // Adicionar estilos para melhor legibilidade
         label.style.cssText = `
             background-color: rgba(255, 255, 255, 0.9);
@@ -502,7 +510,7 @@ class AddLOSControl {
             transform: translate(-50%, -50%);
             z-index: 1000;
         `;
-        
+
         return label;
     }
 

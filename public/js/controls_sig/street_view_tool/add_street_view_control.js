@@ -210,11 +210,7 @@ class AddStreetViewControl {
             this.mouse.x = (event.clientX / this.renderer.domElement.clientWidth) * 2 - 1;
             this.mouse.y = - (event.clientY / this.renderer.domElement.clientHeight) * 2 + 1;
             this.raycaster.setFromCamera(this.mouse, this.camera);
-            var intersects = this.raycaster.intersectObjects(this.arrows.filter(i => i.arrow.visible).map(i => i.arrow));
-            if (intersects.length > 0) {
-                //console.log(intersects[0].object.imgId())
-            }
-        }, false);
+       }, false);
 
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         //camera.rotation.reorder("YXZ");

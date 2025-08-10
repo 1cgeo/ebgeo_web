@@ -61,7 +61,6 @@ function handleModeSwitch(event) {
     
     if (targetMode === appState.currentMode) return;
     
-    console.log(`🔄 Switching from ${appState.currentMode} to ${targetMode}`);
     
     // Update UI state immediately
     $(".bar-center-buttons a").removeClass('active-button');
@@ -108,7 +107,6 @@ async function switchTo3D() {
 function switchTo2D() {
     if (appState.currentMode === 'sig') return;
     
-    console.log('📍 Alternando para modo 2D');
     
     // Pausa renderização 3D PRIMEIRO
     if (appState.cesiumState === 'loaded') {
@@ -151,7 +149,6 @@ async function initializeCesium() {
         resumeRendering();
         
         appState.cesiumState = 'loaded';
-        console.log('✅ Cesium inicializado com sucesso');
         
     } catch (error) {
         clearTimeout(appState.loadingTimeout);

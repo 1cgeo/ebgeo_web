@@ -60,6 +60,11 @@ const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
 drawControl.setSelectionManager(selectionManager);
 textControl.setSelectionManager(selectionManager);
+imageControl.setSelectionManager(selectionManager);
+losControl.setSelectionManager(selectionManager);
+visibilityControl.setSelectionManager(selectionManager);
+circleControl.setSelectionManager(selectionManager);
+ellipseControl.setSelectionManager(selectionManager);
 
 importControl.setDrawControl(drawControl);
 
@@ -70,7 +75,7 @@ toolManager.setSelectionManager(selectionManager);
 
 new MoveHandler(map, selectionManager, uiManager);
 
-const vectorTileInfoControl = new VectorTileInfoControl(toolManager,uiManager);
+const vectorTileInfoControl = new VectorTileInfoControl(toolManager, uiManager);
 
 selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
 const baseLayerControl = new BaseLayerControl(uiManager);
@@ -115,38 +120,82 @@ map.addControl(ellipseControl, 'top-right');
 // ATALHOS DE TECLADO
 //-----------------------------------------------
 
-document.addEventListener('keydown', async (e) => {
-    // Verificar se não está em input/textarea
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+document.addEventListener('keydown', (e) => {
+    // Verificar se não está digitando em um input/textarea
+    if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
         return;
     }
 
-    // Ctrl+Z = Undo
-    if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        await undoLastAction();
-        return;
-    }
+    switch (e.key) {
+        case 'Delete':
+        case 'Backspace':
+            e.preventDefault();
+            selectionManager.deleteSelectedFeatures();
+            break;
+        case 'Escape':
+            e.preventDefault();
+            toolManager.deactivateCurrentTool();
+            selectionManager.deselectAllFeatures(true);
+            break;
+        case 'z':
+        case 'Z':
+            if (e.ctrlKey && !e.shiftKey) {
+                e.preventDefault();
+                undoLastAction();
+            }
+            break;
+        case 'y':
+            if (e.ctrlKey) {
+                e.preventDefault();
+                redoLastAction();
+            }
+            break;
 
-    // Ctrl+Y ou Ctrl+Shift+Z = Redo
-    if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'Z')) {
-        e.preventDefault();
-        await redoLastAction();
-        return;
-    }
-
-    // Delete = deletar selecionados
-    if (e.key === 'Delete') {
-        e.preventDefault();
-        selectionManager.deleteSelectedFeatures();
-        return;
-    }
-
-    // Escape = desselecionar tudo
-    if (e.key === 'Escape') {
-        e.preventDefault();
-        selectionManager.deselectAllFeatures();
-        return;
+        // ✅ ATALHOS PARA ATIVAÇÃO DE FERRAMENTAS
+        case 'p':
+        case 'P':
+            e.preventDefault();
+            toolManager.setActiveTool(drawControl);
+            drawControl.draw.changeMode('draw_point');
+            break;
+        case 'a':
+        case 'A':
+            e.preventDefault();
+            toolManager.setActiveTool(drawControl);
+            drawControl.draw.changeMode('draw_polygon');
+            break;
+        case 'l':
+        case 'L':
+            e.preventDefault();
+            toolManager.setActiveTool(drawControl);
+            drawControl.draw.changeMode('draw_line_string');
+            break;
+        case 't':
+        case 'T':
+            e.preventDefault();
+            toolManager.setActiveTool(textControl);
+            break;
+        case 'i':
+        case 'I':
+            e.preventDefault();
+            toolManager.setActiveTool(imageControl);
+            break;
+        case 'c':
+        case 'C':
+            e.preventDefault();
+            toolManager.setActiveTool(circleControl);
+            break;
+        case 'v':
+        case 'V':
+            e.preventDefault();
+            toolManager.setActiveTool(visibilityControl);
+            break;
+        // 'o' para LOS (Line Of Sight)
+        case 'o':
+        case 'O':
+            e.preventDefault();
+            toolManager.setActiveTool(losControl);
+            break;
     }
 });
 

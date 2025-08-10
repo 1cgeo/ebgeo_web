@@ -19,7 +19,6 @@ function startOrbit(tileset) {
     currentTileset = tileset;
     isOrbiting = true;
     
-    console.log('Iniciando órbita...');
     
     // Aguarda o tileset estar carregado
     tileset.readyPromise.then(() => {
@@ -69,7 +68,6 @@ function startOrbit(tileset) {
             ));
         });
         
-        console.log(`Órbita iniciada ao redor do modelo (raio: ${radius.toFixed(2)}m)`);
     }).catch(error => {
         console.error('Erro ao iniciar órbita:', error);
         stopOrbit();
@@ -90,7 +88,6 @@ function stopOrbit() {
         orbitRemoveCallback = null;
     }
     
-    console.log('Órbita parada');
 }
 
 /**
@@ -98,7 +95,6 @@ function stopOrbit() {
  */
 function cancelOrbitOnUserInteraction() {
     if (isOrbiting) {
-        console.log('Órbita cancelada por interação do usuário');
         stopOrbit();
     }
 }

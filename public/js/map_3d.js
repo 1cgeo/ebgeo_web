@@ -37,7 +37,6 @@ export async function loadCesiumAndInit() {
     
     cesiumState.loadPromise = new Promise(async (resolve, reject) => {
         try {
-            console.log('🚀 Iniciando carregamento do Cesium...');
             
             // Carrega scripts em ordem correta
             await loadScript('./vendors/cesium/Cesium.js');
@@ -55,7 +54,6 @@ export async function loadCesiumAndInit() {
             await initCesiumMap();
             
             cesiumState.isLoaded = true;
-            console.log('✅ Cesium carregado com sucesso');
             resolve();
             
         } catch (error) {
@@ -288,7 +286,6 @@ async function setupTools(viewer) {
         const screenshotModule = await import('./control_3d/screenshot_tool.js');
         cesiumState.modules.screenshot = screenshotModule;
         
-        console.log('✅ Todos os módulos 3D carregados');
         
     } catch (error) {
         console.warn('⚠️ Alguns módulos 3D falharam ao carregar:', error);
@@ -299,7 +296,6 @@ async function setupTools(viewer) {
 export function pauseRendering() {
     if (!cesiumState.viewer || cesiumState.isPaused) return;
     
-    console.log('⏸️ Pausando renderização 3D...');
     cesiumState.isPaused = true;
     cesiumState.isVisible = false;
     
@@ -327,7 +323,6 @@ export function pauseRendering() {
 export function resumeRendering() {
     if (!cesiumState.viewer || !cesiumState.isPaused) return;
     
-    console.log('▶️ Retomando renderização 3D...');
     cesiumState.isPaused = false;
     cesiumState.isVisible = true;
     
@@ -352,7 +347,6 @@ export function resumeRendering() {
 
 // ===== LIMPEZA COMPLETA DE MEMÓRIA =====
 export function cleanup3DFeatures() {
-    console.log('🧹 Limpando recursos 3D...');
     
     // Para órbita e limpa ferramentas usando módulos carregados dinamicamente
     try {
@@ -435,7 +429,6 @@ export function cleanup3DFeatures() {
 export function init3DFeatures() {
     if (!cesiumState.viewer) return;
     
-    console.log('🔧 Inicializando ferramentas 3D...');
     
     try {
         if (cesiumState.modules.mouseCoordinates) {
@@ -454,7 +447,6 @@ export function activeTool() {
     const toolId = $(this).attr('id');
     if (!toolId || !cesiumState.viewer) return;
     
-    console.log(`🛠️ Ativando ferramenta: ${toolId}`);
     removeAllTools();
     
     switch (toolId) {
@@ -489,7 +481,6 @@ export function handleClickGoTo() {
     const targetId = $(this).attr('id');
     if (!targetId || !cesiumState.viewer) return;
     
-    console.log(`🎯 Indo para: ${targetId}`);
     removeAllTools();
     
     const tilesetData = cesiumState.loadedTilesets[targetId];
@@ -568,7 +559,6 @@ function initCesiumEventHandlers() {
                 const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(pickedPosition);
                 const lon = Cesium.Math.toDegrees(carto.longitude);
                 const lat = Cesium.Math.toDegrees(carto.latitude);
-                // console.log('Clicked at:', lat, lon);
             }
         }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
         

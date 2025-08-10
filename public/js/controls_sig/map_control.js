@@ -10,6 +10,7 @@ import {
     getCurrentBaseLayer,
     getAllMapNames,
     getCurrentMapName,
+    moveFeaturesToMap,
     mapStore,
     imageStore,
     resetMemoryStore,
@@ -443,7 +444,6 @@ class MapControl {
             mapNameDisplay.className = 'map-name-display';
 
             const hasSavedPosition = await hasMapSavedPosition(mapName);
-            console.log(mapName, hasSavedPosition)
             const positionIndicator = hasSavedPosition ? ' 📍' : '';
             mapNameDisplay.textContent = mapName + positionIndicator;
 
@@ -517,6 +517,7 @@ class MapControl {
 
     async populateDropdown(dropdownContent, mapName) {
         dropdownContent.innerHTML = '';
+        const currentMapName = await getCurrentMapName();
 
         // Verificar se tem posição salva
         const hasSavedPosition = await hasMapSavedPosition(mapName);
@@ -608,13 +609,13 @@ class MapControl {
         });
         dropdownContent.appendChild(combineBtn);
 
-        // Botão mover feições - sempre mostrar, mas verificar seleção no clique
-        let selectedCount = 0;
-        let buttonText = '↗️ Mover feições selecionadas';
-        let buttonDisabled = false;
+        if (mapName !== currentMapName) {
+            // Botão mover feições - sempre mostrar, mas verificar seleção no clique
+            let selectedCount = 0;
+            let buttonText = '↗️ Mover feições selecionadas';
+            let buttonDisabled = false;
 
-        // Verificar se há feições selecionadas
-        if (this.selectionManager) {
+            // Verificar se há feições selecionadas
             selectedCount = this.selectionManager.getAllSelectedFeatures().length;
             if (selectedCount === 0) {
                 buttonText = '↗️ Mover feições (nenhuma selecionada)';
@@ -622,34 +623,62 @@ class MapControl {
             } else {
                 buttonText = `↗️ Mover ${selectedCount} feição${selectedCount > 1 ? 'ões' : ''} selecionada${selectedCount > 1 ? 's' : ''}`;
             }
-        }
 
-        const moveBtn = document.createElement('button');
-        moveBtn.className = 'menu-button';
-        moveBtn.innerHTML = buttonText;
-        if (buttonDisabled) {
-            moveBtn.style.color = '#999';
-            moveBtn.style.cursor = 'not-allowed';
-        }
-        moveBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-
+            const moveBtn = document.createElement('button');
+            moveBtn.className = 'menu-button';
+            moveBtn.innerHTML = buttonText;
             if (buttonDisabled) {
-                alert('Selecione pelo menos uma feição para mover');
-                return;
+                moveBtn.style.color = '#999';
+                moveBtn.style.cursor = 'not-allowed';
             }
+            moveBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
 
-            if (this.selectionManager) {
-                const selectedFeatures = this.selectionManager.getAllSelectedFeatures();
-                if (selectedFeatures.length > 0) {
-                    await this.showMoveToMapModal(selectedFeatures, mapName);
+                if (buttonDisabled) {
+                    alert('Selecione pelo menos uma feição para mover');
+                    return;
                 }
-            }
 
-            this.closeAllDropdowns();
-        });
-        dropdownContent.appendChild(moveBtn);
+                if (this.selectionManager) {
+                    const selectedFeatures = this.selectionManager.getAllSelectedFeatures();
+                    if (selectedFeatures.length > 0) {
+                        try {
+                            const currentMapName = await getCurrentMapName();
+
+                            // Se tentar mover para o mesmo mapa
+                            if (currentMapName === mapName) {
+                                alert('As feições já estão neste mapa');
+                                return;
+                            }
+
+                            await moveFeaturesToMap(selectedFeatures, mapName);
+
+                            // Limpar seleção
+                            this.selectionManager.clearAllSelections();
+
+                            // Recarregar mapa atual para refletir as remoções
+                            await this.switchMap();
+
+                            // Atualizar lista de mapas
+                            await this.updateMapList();
+
+                            // Feedback de sucesso
+                            const featureCount = selectedFeatures.length;
+                            const featureText = featureCount === 1 ? 'feição' : 'feições';
+                            this.showToast(`${featureCount} ${featureText} movida(s) para "${mapName}"`, 'success');
+
+                        } catch (error) {
+                            console.error('Erro ao mover feições:', error);
+                            alert(`Erro ao mover feições: ${error.message}`);
+                        }
+                    }
+                }
+
+                this.closeAllDropdowns();
+            });
+            dropdownContent.appendChild(moveBtn);
+        }
 
         // Botão deletar (último e destacado)
         const deleteBtn = document.createElement('button');
@@ -851,7 +880,6 @@ class MapControl {
 
                 return true;
             } else {
-                console.log(`📍 Nenhuma posição salva para ${targetMapName}`);
                 return false;
             }
         } catch (error) {
@@ -938,17 +966,17 @@ class MapControl {
         // Criar checkboxes para mapas disponíveis
         availableMaps.forEach(mapName => {
             const mapItem = document.createElement('div');
-            mapItem.style.cssText = 'display: flex; align-items: center; padding: 8px; border: 1px solid #eee; margin-bottom: 5px; border-radius: 4px; cursor: pointer;';
+            mapItem.style.cssText = 'display: flex; align-items: center; padding: 8px; border: 1px solid #eee; margin-bottom: 5px; border-radius: 4px;';
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.id = `map-${mapName}`;
+            checkbox.style.cursor = 'pointer';
             checkbox.style.marginRight = '10px';
 
             const label = document.createElement('label');
             label.htmlFor = `map-${mapName}`;
             label.textContent = mapName;
-            label.style.cursor = 'pointer';
             label.style.flexGrow = '1';
 
             mapItem.appendChild(checkbox);
