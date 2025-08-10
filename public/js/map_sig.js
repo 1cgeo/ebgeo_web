@@ -185,6 +185,11 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             toolManager.setActiveTool(circleControl);
             break;
+        case 'e':
+        case 'E':
+            e.preventDefault();
+            toolManager.setActiveTool(ellipseControl);
+            break;
         case 'v':
         case 'V':
             e.preventDefault();
