@@ -73,7 +73,6 @@ new MoveHandler(map, selectionManager, uiManager);
 const vectorTileInfoControl = new VectorTileInfoControl(toolManager,uiManager);
 
 selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
-
 const baseLayerControl = new BaseLayerControl(uiManager);
 
 const mapControl = new MapControl(baseLayerControl);

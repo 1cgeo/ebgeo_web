@@ -335,10 +335,9 @@ class MouseCoordinatesControl {
     
     _flyToCoordinates(lng, lat) {
         if (this._map) {
-            this._map.flyTo({
+            this._map.jumpTo({
                 center: [lng, lat],
-                zoom: 14,
-                essential: true
+                zoom: 14
             });
         }
     }

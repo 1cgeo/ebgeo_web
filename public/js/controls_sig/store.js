@@ -2,6 +2,7 @@
 
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
+const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
 
 // APENAS em memória - não persiste
 const memoryStore = {
@@ -61,6 +62,48 @@ const recordAction = (action) => {
     }
 };
 
+export const setLastActiveMap = async (mapName) => {
+    try {
+        await appStore.setItem('lastActiveMap', mapName);
+    } catch (error) {
+        console.warn('Erro ao salvar último mapa ativo:', error);
+    }
+};
+
+export const getCurrentMapName = async () => {
+    const currentMapName = await appStore.getItem('lastActiveMap');
+    return currentMapName;
+};
+
+export const initializeWithLastActiveMap = async () => {
+    try {
+        // Verificar se há mapas salvos
+        const allMapNames = await getAllMapNames();
+        
+        if (allMapNames.length === 0) {
+            // Primeira execução - criar mapa Principal
+            await addMap('Principal');
+            await setCurrentMap('Principal');
+            return 'Principal';
+        }
+        
+        // Carregar último mapa ativo
+        const lastActiveMap = await getCurrentMapName();
+        
+        if (lastActiveMap && allMapNames.includes(lastActiveMap)) {
+            await setCurrentMap(lastActiveMap);
+        } else {
+            // Fallback para primeiro mapa disponível
+            const firstMap = allMapNames[0];
+            await setCurrentMap(firstMap);
+        }
+    } catch (error) {
+        console.error('Erro ao inicializar com último mapa ativo:', error);
+        // Fallback final
+        await setCurrentMap('Principal');
+    }
+};
+
 // Função auxiliar para determinar o tipo de feição
 function getFeatureType(feature) {
     const source = feature.properties?.source;
@@ -90,7 +133,7 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
         return;
     }
 
-    const currentMapName = getCurrentMapName();
+    const currentMapName = await getCurrentMapName();
     
     if (currentMapName === targetMapName) {
         console.warn('Tentativa de mover feições para o mesmo mapa');
@@ -211,10 +254,13 @@ export const renameMap = async (oldName, newName) => {
     }
 };
 
-export const setCurrentMap = (mapName) => {
+export const setCurrentMap = async (mapName) => {
     memoryStore.currentMap = mapName;
     
-    // Criar stack em memória se não existir
+    // Persistir último mapa ativo
+    await setLastActiveMap(mapName);
+    
+    // Criar entrada no memoryStore se não existir
     if (!memoryStore.maps[mapName]) {
         memoryStore.maps[mapName] = {
             undoStack: [],
@@ -248,8 +294,8 @@ export const updateMapPosition = async (center_lat, center_long, zoom) => {
     await mapStore.setItem(memoryStore.currentMap, currentMapData);
 };
 
-export const getMapPosition = async () => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+export const getMapPosition = async (mapName) => {
+    const currentMapData = await mapStore.getItem(mapName) || getEmptyMapData();
     return {
         center_lat: currentMapData.center_lat,
         center_long: currentMapData.center_long,
@@ -257,13 +303,16 @@ export const getMapPosition = async () => {
     };
 };
 
+export const hasMapSavedPosition = async (mapName = null) => {
+    const position = await getMapPosition(mapName);
+    return position.center_lat !== null && 
+           position.center_long !== null && 
+           position.zoom !== null;
+};
+
 // Funções para listar mapas
 export const getAllMapNames = async () => {
     return await mapStore.keys();
-};
-
-export const getCurrentMapName = () => {
-    return memoryStore.currentMap;
 };
 
 // Undo/Redo functions
@@ -353,7 +402,7 @@ export const addFeatures = async (featuresMap) => {
 };
 
 // Exportar stores para uso direto quando necessário
-export { mapStore, imageStore };
+export { mapStore, imageStore, appStore };
 
 // Manter compatibilidade com código existente
 const store = memoryStore;

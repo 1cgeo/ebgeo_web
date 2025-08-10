@@ -28,6 +28,8 @@ map.addControl(new maplibregl.AttributionControl({
     compact: true
 }), 'bottom-right');
 
+let isMapInitialized = false;
+
 map.on('styledata', async () => {
     // Carregar dados do IndexedDB
     const features = await getCurrentMapFeatures();

@@ -1,18 +1,19 @@
 // Path: js\controls_sig\map_control.js
-import { 
-    addMap, 
-    removeMap, 
-    renameMap, 
-    setCurrentMap, 
-    updateMapPosition, 
-    getCurrentBaseLayer, 
+import {
+    addMap,
+    removeMap,
+    renameMap,
+    setCurrentMap,
+    updateMapPosition,
     getMapPosition,
+    hasMapSavedPosition,
+    getCurrentBaseLayer,
     getAllMapNames,
     getCurrentMapName,
     mapStore,
     imageStore,
     resetMemoryStore,
-    moveFeaturesToMap
+    initializeWithLastActiveMap
 } from './store.js';
 
 class MapControl {
@@ -46,16 +47,18 @@ class MapControl {
         return this.container;
     }
 
-    loadMenu() {
+    async loadMenu() {
+        await initializeWithLastActiveMap();
+
         // Container único para todos os botões em uma fileira
         const allActionsContainer = document.createElement('div');
         allActionsContainer.className = 'all-actions-container';
-        
+
         // Criar botões save/load diretamente aqui (não mover de outro lugar)
         const saveButton = this.createSaveButton();
         const loadButton = this.createLoadButton();
         const loadAdditiveButton = this.createLoadAdditiveButton();
-        
+
         // Botão para adicionar mapa
         const addButton = document.createElement('button');
         addButton.className = 'map-action-button add-map-button';
@@ -75,31 +78,29 @@ class MapControl {
                 alert("Limite de 10 mapas atingido.");
             }
         };
-        
+
         // Botão para limpar todos os dados (ação destrutiva - separada)
         const clearButton = document.createElement('button');
         clearButton.className = 'map-action-button destructive-action';
         clearButton.innerHTML = `<img src="./images/icon_trash_red.svg" alt="Limpar tudo" />`;
         clearButton.title = 'Limpar todos os dados (irreversível)';
         clearButton.onclick = () => this.clearAllData();
-        
+
         // Adicionar todos os botões na mesma fileira
         allActionsContainer.appendChild(saveButton);
         allActionsContainer.appendChild(loadButton);
         allActionsContainer.appendChild(loadAdditiveButton);
         allActionsContainer.appendChild(addButton);
         allActionsContainer.appendChild(clearButton);
-        
+
         $('#menu-map-list').append(allActionsContainer);
-        
-        // Mover base-layer-control DEPOIS que foi criado pelo mapa
-        // Aguardar um frame para garantir que foi criado
-        requestAnimationFrame(() => {
-            const baseLayerControl = $('.base-layer-control');
-            if (baseLayerControl.length > 0) {
-                baseLayerControl.appendTo('#header-map-list');
-            }
-        });
+
+        const baseLayerControl = $('.base-layer-control');
+        if (baseLayerControl.length > 0) {
+            baseLayerControl.appendTo('#header-map-list');
+        }
+
+        await this.switchMap()
     }
 
     createSaveButton() {
@@ -107,26 +108,26 @@ class MapControl {
         saveButton.className = 'map-action-button save-action';
         saveButton.innerHTML = `<img src="./images/icon_save_black.svg" alt="Exportar projeto" />`;
         saveButton.title = 'Exportar projeto';
-        
+
         saveButton.onclick = async () => {
             try {
                 const zip = new JSZip();
-                
+
                 // Verificar se há mapas selecionados
                 const selectedMaps = this.getSelectedMapNames();
                 const mapsToExport = selectedMaps.length > 0 ? selectedMaps : await getAllMapNames();
-                
+
                 if (mapsToExport.length === 0) {
                     alert('Nenhum mapa para exportar');
                     return;
                 }
-                
+
                 const data = {
                     version: '1.0',
-                    currentMap: getCurrentMapName(),
+                    currentMap: await getCurrentMapName(),
                     maps: {}
                 };
-                
+
                 // Exportar dados dos mapas selecionados
                 for (const mapName of mapsToExport) {
                     const mapData = await mapStore.getItem(mapName);
@@ -134,10 +135,10 @@ class MapControl {
                         data.maps[mapName] = mapData;
                     }
                 }
-                
+
                 // Adicionar data.json ao ZIP
                 zip.file('data.json', JSON.stringify(data, null, 2));
-                
+
                 // Coletar e exportar imagens usadas nos mapas
                 const usedImages = new Set();
                 for (const mapName of mapsToExport) {
@@ -154,7 +155,7 @@ class MapControl {
                         }
                     }
                 }
-                
+
                 // Adicionar imagens ao ZIP
                 for (const imageId of usedImages) {
                     try {
@@ -166,7 +167,7 @@ class MapControl {
                         console.warn('Imagem não encontrada:', imageId);
                     }
                 }
-                
+
                 // Gerar e baixar arquivo
                 const blob = await zip.generateAsync({ type: 'blob' });
                 const url = URL.createObjectURL(blob);
@@ -177,15 +178,15 @@ class MapControl {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-                
+
                 this.showSaveSuccess(mapsToExport.length);
-                
+
             } catch (error) {
                 console.error('Erro ao exportar dados:', error);
                 alert('Erro ao exportar arquivo .ebgeo');
             }
         };
-        
+
         return saveButton;
     }
 
@@ -194,7 +195,7 @@ class MapControl {
         loadButton.className = 'map-action-button load-action';
         loadButton.innerHTML = `<img src="./images/icon_load_black.svg" alt="Importar projeto" />`;
         loadButton.title = 'Importar projeto (substitui atual)';
-        
+
         // Criar input file associado
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -203,14 +204,14 @@ class MapControl {
         fileInput.onchange = async (event) => {
             await this.handleImport(event, false);
         };
-        
+
         loadButton.onclick = () => {
             fileInput.click();
         };
-        
+
         // Anexar input ao container
         loadButton.appendChild(fileInput);
-        
+
         return loadButton;
     }
 
@@ -219,7 +220,7 @@ class MapControl {
         loadAdditiveButton.className = 'map-action-button load-action';
         loadAdditiveButton.innerHTML = `<img src="./images/icon_folder_plus_black.svg" alt="Adicionar ao projeto" />`;
         loadAdditiveButton.title = 'Adicionar ao projeto atual';
-        
+
         // Criar input file associado
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -228,55 +229,55 @@ class MapControl {
         fileInput.onchange = async (event) => {
             await this.handleImport(event, true);
         };
-        
+
         loadAdditiveButton.onclick = () => {
             fileInput.click();
         };
-        
+
         // Anexar input ao container
         loadAdditiveButton.appendChild(fileInput);
-        
+
         return loadAdditiveButton;
     }
 
     async handleImport(event, isAdditiveImport) {
         const file = event.target.files[0];
         if (!file) return;
-        
+
         try {
             const zip = await JSZip.loadAsync(file);
-            
+
             if (!isAdditiveImport) {
                 // Import normal - limpar tudo
                 await mapStore.clear();
                 await imageStore.clear();
             }
-            
+
             // Buscar arquivo data.json
             let dataFile = zip.file('data.json');
-            
+
             if (!dataFile) {
                 throw new Error('Arquivo data.json não encontrado no .ebgeo');
             }
-            
+
             const dataJson = await dataFile.async('string');
             const data = JSON.parse(dataJson);
-            
+
             // Processar mapas
             let importedMapsCount = 0;
             if (isAdditiveImport) {
                 const existingMapNames = await getAllMapNames();
-                
+
                 for (const [originalMapName, mapData] of Object.entries(data.maps)) {
                     let finalMapName = originalMapName;
                     let counter = 1;
-                    
+
                     // Gerar nome único se houver conflito
                     while (existingMapNames.includes(finalMapName)) {
                         finalMapName = `${originalMapName}_importado${counter > 1 ? counter : ''}`;
                         counter++;
                     }
-                    
+
                     await mapStore.setItem(finalMapName, mapData);
                     await addMap(finalMapName, mapData);
                     existingMapNames.push(finalMapName);
@@ -289,16 +290,16 @@ class MapControl {
                     await addMap(mapName, mapData);
                     importedMapsCount++;
                 }
-                
+
                 // Atualizar mapa atual
                 setCurrentMap(data.currentMap);
             }
-            
+
             // Carregar imagens para imageStore
-            const imageFiles = Object.keys(zip.files).filter(name => 
+            const imageFiles = Object.keys(zip.files).filter(name =>
                 name.startsWith('images/') && name.endsWith('.png')
             );
-                            
+
             for (const fileName of imageFiles) {
                 try {
                     const imageId = fileName.replace('images/', '').replace('.png', '');
@@ -308,26 +309,26 @@ class MapControl {
                     console.warn('Erro ao carregar imagem:', fileName, imgError);
                 }
             }
-            
+
             // Recarregar MapLibre (trigger styledata)
             let baseLayer = 'Carta';
             if (!isAdditiveImport) {
                 const currentMapData = await mapStore.getItem(data.currentMap);
                 baseLayer = currentMapData ? currentMapData.baseLayer : 'Carta';
             }
-            
+
             this.baseLayerControl.switchLayer(baseLayer);
             this.updateMapList();
-            
+
             // Feedback personalizado baseado no tipo de importação
             const importType = isAdditiveImport ? 'adicionados' : 'carregados';
             this.showLoadSuccess(importedMapsCount, importType);
-            
+
         } catch (error) {
             console.error('Erro ao importar arquivo:', error);
             alert('Erro ao carregar arquivo .ebgeo: ' + error.message);
         }
-        
+
         // Limpar input
         event.target.value = '';
     }
@@ -336,10 +337,10 @@ class MapControl {
         const saveBtn = this.container?.querySelector('.save-action');
         if (saveBtn) {
             const originalContent = saveBtn.innerHTML;
-            
+
             saveBtn.classList.add('success');
             saveBtn.innerHTML = '<img src="./images/icon_check_green.svg" alt="SUCCESS" />';
-            
+
             setTimeout(() => {
                 saveBtn.classList.remove('success');
                 saveBtn.innerHTML = originalContent;
@@ -347,9 +348,9 @@ class MapControl {
         }
 
         this.showToast(
-            mapCount === 1 ? 
-            `1 mapa exportado!` : 
-            `${mapCount} mapas exportados!`, 
+            mapCount === 1 ?
+                `1 mapa exportado!` :
+                `${mapCount} mapas exportados!`,
             'success'
         );
     }
@@ -358,10 +359,10 @@ class MapControl {
         const loadBtn = this.container?.querySelector('.load-action');
         if (loadBtn) {
             const originalContent = loadBtn.innerHTML;
-            
+
             loadBtn.classList.add('success');
             loadBtn.innerHTML = '<img src="./images/icon_check_green.svg" alt="SUCCESS" />';
-            
+
             setTimeout(() => {
                 loadBtn.classList.remove('success');
                 loadBtn.innerHTML = originalContent;
@@ -369,9 +370,9 @@ class MapControl {
         }
 
         this.showToast(
-            mapCount === 1 ? 
-            `1 mapa ${importType}!` : 
-            `${mapCount} mapas ${importType}!`, 
+            mapCount === 1 ?
+                `1 mapa ${importType}!` :
+                `${mapCount} mapas ${importType}!`,
             'success'
         );
     }
@@ -396,13 +397,13 @@ class MapControl {
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             background-color: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#17a2b8'};
         `;
-        
+
         document.body.appendChild(toast);
-        
+
         requestAnimationFrame(() => {
             toast.style.opacity = '1';
         });
-        
+
         setTimeout(() => {
             toast.style.opacity = '0';
             setTimeout(() => {
@@ -415,10 +416,10 @@ class MapControl {
 
     onRemove() {
         this.closeAllDropdowns(false);
-        
+
         // Remover listeners globais se necessário
         // (Os listeners são automaticamente removidos quando o elemento é removido)
-        
+
         if (this.container && this.container.parentNode) {
             this.container.parentNode.removeChild(this.container);
         }
@@ -426,44 +427,40 @@ class MapControl {
     }
 
     async updateMapList() {
-        this.closeAllDropdowns(false);
-        
         this.mapList.innerHTML = '';
 
-        const allMapNames = await getAllMapNames();
-        const currentMapName = getCurrentMapName();
-        const sortedMapNames = allMapNames.sort();
+        const mapNames = await getAllMapNames();
+        const currentMapName = await getCurrentMapName();
 
-        for (let i = 0; i < sortedMapNames.length; i++) {
-            const mapName = sortedMapNames[i];
+        for (const mapName of mapNames) {
             const listItem = document.createElement('li');
-            
-            if (mapName === currentMapName) {
-                listItem.classList.add('current-map');
-            }
-            
-            // Container principal do item - CLICÁVEL EM TODA ÁREA
+            listItem.className = mapName === currentMapName ? 'current-map' : '';
+
             const itemContent = document.createElement('div');
             itemContent.className = 'map-item-main clickable-area';
-            
+
             const mapNameDisplay = document.createElement('div');
             mapNameDisplay.className = 'map-name-display';
-            mapNameDisplay.textContent = mapName;
-            
+
+            const hasSavedPosition = await hasMapSavedPosition(mapName);
+            console.log(mapName, hasSavedPosition)
+            const positionIndicator = hasSavedPosition ? ' 📍' : '';
+            mapNameDisplay.textContent = mapName + positionIndicator;
+
             itemContent.appendChild(mapNameDisplay);
-            
+
             // Adicionar click em toda a área
             itemContent.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                
+
                 if (mapName !== currentMapName) {
-                    setCurrentMap(mapName);
+                    await setCurrentMap(mapName);
                     await this.switchMap();
                     await this.updateMapList();
                 }
             });
-            
+
             // Botão "mais opções" (separado da área clicável)
             const moreInfo = document.createElement('button');
             moreInfo.className = 'more-info-icon';
@@ -473,7 +470,7 @@ class MapControl {
                 e.stopPropagation();
                 this.toggleDropdown(moreInfo, mapName);
             });
-            
+
             listItem.appendChild(itemContent);
             listItem.appendChild(moreInfo);
             this.mapList.appendChild(listItem);
@@ -483,63 +480,78 @@ class MapControl {
     toggleDropdown(button, mapName) {
         // Verificar se este botão já tem dropdown ativo
         const isCurrentlyActive = button.classList.contains('dropdown-active');
-        
+
         // Sempre fechar todos os dropdowns primeiro
         this.closeAllDropdowns(false); // Com animação para UX melhor
-        
+
         // Se o botão estava ativo, não reabrir (comportamento toggle)
         if (isCurrentlyActive) {
             return;
         }
-        
+
         // Criar novo dropdown
         const dropdown = document.createElement('div');
         dropdown.className = 'dropdown-content';
         dropdown.style.display = 'block';
         dropdown.dataset.mapName = mapName; // Para identificar qual dropdown é
         dropdown.dataset.buttonId = button.dataset.buttonId || Date.now().toString(); // ID único para o botão
-        
+
         // Anexar ao body para evitar problemas de overflow
         document.body.appendChild(dropdown);
-        
+
         // Posicionar dropdown
         this.positionDropdown(dropdown, button);
-        
+
         // Popular dropdown com opções
         this.populateDropdown(dropdown, mapName);
-        
+
         // Marcar como ativo
         button.classList.add('dropdown-active');
         button.dataset.dropdownOpen = 'true';
-        
+
         // Adicionar ID único ao botão se não tiver
         if (!button.dataset.buttonId) {
             button.dataset.buttonId = Date.now().toString();
         }
     }
 
-    populateDropdown(dropdownContent, mapName) {
+    async populateDropdown(dropdownContent, mapName) {
         dropdownContent.innerHTML = '';
-        
+
+        // Verificar se tem posição salva
+        const hasSavedPosition = await hasMapSavedPosition(mapName);
+
         // Botão salvar posição
         const savePositionBtn = document.createElement('button');
         savePositionBtn.className = 'menu-button';
-        savePositionBtn.innerHTML = '📍 Salvar posição';
+
+        if (hasSavedPosition) {
+            savePositionBtn.innerHTML = '📍 Atualizar posição salva';
+        } else {
+            savePositionBtn.innerHTML = '📍 Salvar posição';
+        }
+
         savePositionBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
             const center = this.map.getCenter();
             const zoom = this.map.getZoom();
-            
+
             const center_lat = center.lat;
             const center_long = center.lng;
             await updateMapPosition(center_lat, center_long, zoom);
             this.closeAllDropdowns();
-            
-            this.showToast(`Posição salva para ${mapName}`, 'success');
+
+            const message = hasSavedPosition ?
+                `Posição atualizada para ${mapName}` :
+                `Posição salva para ${mapName}`;
+            this.showToast(message, 'success');
+
+            // Atualizar lista para mostrar novo indicador
+            await this.updateMapList();
         });
         dropdownContent.appendChild(savePositionBtn);
-        
+
         // Botão copiar
         const copyBtn = document.createElement('button');
         copyBtn.className = 'menu-button';
@@ -563,7 +575,7 @@ class MapControl {
             }
         });
         dropdownContent.appendChild(copyBtn);
-        
+
         // Botão renomear
         const renameBtn = document.createElement('button');
         renameBtn.className = 'menu-button';
@@ -591,7 +603,7 @@ class MapControl {
             e.preventDefault();
             e.stopPropagation();
             this.closeAllDropdowns();
-            
+
             await this.showCombineMapsModal(mapName);
         });
         dropdownContent.appendChild(combineBtn);
@@ -600,7 +612,7 @@ class MapControl {
         let selectedCount = 0;
         let buttonText = '↗️ Mover feições selecionadas';
         let buttonDisabled = false;
-        
+
         // Verificar se há feições selecionadas
         if (this.selectionManager) {
             selectedCount = this.selectionManager.getAllSelectedFeatures().length;
@@ -622,19 +634,19 @@ class MapControl {
         moveBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            
+
             if (buttonDisabled) {
                 alert('Selecione pelo menos uma feição para mover');
                 return;
             }
-            
+
             if (this.selectionManager) {
                 const selectedFeatures = this.selectionManager.getAllSelectedFeatures();
                 if (selectedFeatures.length > 0) {
                     await this.showMoveToMapModal(selectedFeatures, mapName);
                 }
             }
-            
+
             this.closeAllDropdowns();
         });
         dropdownContent.appendChild(moveBtn);
@@ -670,19 +682,19 @@ class MapControl {
             const dropdownRect = dropdown.getBoundingClientRect();
             const dropdownWidth = dropdownRect.width || 180;
             const dropdownHeight = dropdownRect.height || 200;
-            
+
             // Posição inicial (abaixo e à direita do botão)
             let top = rect.bottom + 4;
             let left = rect.right - dropdownWidth;
-            
+
             // Verificar espaço disponível
             const viewport = {
                 width: window.innerWidth,
                 height: window.innerHeight
             };
-            
+
             const padding = 10; // Margem da borda da tela
-            
+
             // Ajustar horizontalmente
             if (left < padding) {
                 left = rect.left; // Alinhar com a esquerda do botão
@@ -690,7 +702,7 @@ class MapControl {
             if (left + dropdownWidth > viewport.width - padding) {
                 left = Math.max(padding, viewport.width - dropdownWidth - padding);
             }
-            
+
             // Ajustar verticalmente
             if (top + dropdownHeight > viewport.height - padding) {
                 // Tentar mostrar acima do botão
@@ -705,7 +717,7 @@ class MapControl {
                     ));
                 }
             }
-            
+
             // Aplicar posicionamento final
             dropdown.style.position = 'fixed';
             dropdown.style.top = `${Math.round(top)}px`;
@@ -719,7 +731,7 @@ class MapControl {
     closeAllDropdowns(animated = false) {
         // Buscar dropdowns no body (não apenas no container)
         const dropdowns = document.querySelectorAll('.dropdown-content');
-        
+
         if (animated && dropdowns.length > 0) {
             // Fechar com animação
             dropdowns.forEach(dropdown => {
@@ -740,14 +752,14 @@ class MapControl {
                 }
             });
         }
-        
+
         // Limpar estado dos botões ativos
         const activeButtons = this.container.querySelectorAll('.more-info-icon.dropdown-active');
         activeButtons.forEach(button => {
             button.classList.remove('dropdown-active');
             delete button.dataset.dropdownOpen;
         });
-        
+
         // Também buscar dropdowns no container (fallback)
         const containerDropdowns = this.container.querySelectorAll('.dropdown-content');
         containerDropdowns.forEach(dropdown => {
@@ -766,7 +778,7 @@ class MapControl {
     // Método para fechar dropdown específico de um botão
     closeDropdownForButton(button) {
         if (!button || !this.isDropdownOpen(button)) return;
-        
+
         // Buscar dropdown relacionado a este botão
         const buttonId = button.dataset.buttonId;
         if (buttonId) {
@@ -775,7 +787,7 @@ class MapControl {
                 dropdown.remove();
             }
         }
-        
+
         // Limpar estado do botão
         button.classList.remove('dropdown-active');
         delete button.dataset.dropdownOpen;
@@ -793,12 +805,12 @@ class MapControl {
                 }
             }
         });
-        
+
         // Fechar dropdown ao fazer scroll
         document.addEventListener('scroll', () => {
             this.closeAllDropdowns(false); // Sem animação para scroll
         }, true); // true para capturar scroll em qualquer elemento
-        
+
         // Fechar dropdown ao redimensionar janela
         window.addEventListener('resize', () => {
             this.closeAllDropdowns(false); // Sem animação para resize
@@ -811,13 +823,40 @@ class MapControl {
     }
 
     async switchMap() {
+        const currentMapName = await getCurrentMapName();
+
         if (this.baseLayerControl && this.baseLayerControl.switchLayer) {
-            const currentMapData = await mapStore.getItem(getCurrentMapName());
-            const baseLayer = currentMapData ? currentMapData.baseLayer : 'Carta';
+            const baseLayer = await getCurrentBaseLayer()
             this.baseLayerControl.switchLayer(baseLayer);
-            
-            // Aguardar um frame para garantir que a mudança foi aplicada
-            await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+
+        await this.applyMapSavedPosition(currentMapName);
+    }
+
+    async applyMapSavedPosition(mapName = null) {
+        try {
+            const targetMapName = mapName || await getCurrentMapName();
+
+            // Verificar se há posição salva para este mapa
+            const hasSavedPosition = await hasMapSavedPosition(targetMapName);
+
+            if (hasSavedPosition) {
+                const position = await getMapPosition(targetMapName);
+
+                // Aplicar a posição com jumpTo
+                this.map.jumpTo({
+                    center: [position.center_long, position.center_lat],
+                    zoom: position.zoom
+                });
+
+                return true;
+            } else {
+                console.log(`📍 Nenhuma posição salva para ${targetMapName}`);
+                return false;
+            }
+        } catch (error) {
+            console.error('Erro ao aplicar posição salva:', error);
+            return false;
         }
     }
 
@@ -827,13 +866,13 @@ class MapControl {
                 await mapStore.clear();
                 await imageStore.clear();
                 await resetMemoryStore();
-                
+
                 // Criar novo mapa padrão
                 await addMap('Principal');
                 setCurrentMap('Principal');
                 await this.switchMap();
                 await this.updateMapList();
-                
+
                 this.showToast('Todos os dados foram limpos', 'success');
             } catch (error) {
                 console.error('Erro ao limpar dados:', error);
@@ -845,7 +884,7 @@ class MapControl {
     async showCombineMapsModal(targetMapName) {
         const allMapNames = await getAllMapNames();
         const availableMaps = allMapNames.filter(name => name !== targetMapName);
-        
+
         if (availableMaps.length === 0) {
             alert("Não há outros mapas para combinar.");
             return;
@@ -900,27 +939,27 @@ class MapControl {
         availableMaps.forEach(mapName => {
             const mapItem = document.createElement('div');
             mapItem.style.cssText = 'display: flex; align-items: center; padding: 8px; border: 1px solid #eee; margin-bottom: 5px; border-radius: 4px; cursor: pointer;';
-            
+
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.id = `map-${mapName}`;
             checkbox.style.marginRight = '10px';
-            
+
             const label = document.createElement('label');
             label.htmlFor = `map-${mapName}`;
             label.textContent = mapName;
             label.style.cursor = 'pointer';
             label.style.flexGrow = '1';
-            
+
             mapItem.appendChild(checkbox);
             mapItem.appendChild(label);
-            
+
             // Tornar todo o item clicável
             mapItem.addEventListener('click', (e) => {
                 if (e.target !== checkbox) {
                     checkbox.checked = !checkbox.checked;
                 }
-                
+
                 if (checkbox.checked) {
                     selectedMaps.add(mapName);
                     mapItem.style.backgroundColor = '#f0f8f0';
@@ -928,11 +967,11 @@ class MapControl {
                     selectedMaps.delete(mapName);
                     mapItem.style.backgroundColor = '';
                 }
-                
+
                 confirmBtn.disabled = selectedMaps.size === 0;
                 confirmBtn.style.opacity = selectedMaps.size === 0 ? '0.5' : '1';
             });
-            
+
             mapsSelection.appendChild(mapItem);
         });
 
@@ -970,15 +1009,15 @@ class MapControl {
     }
 
     async combineSelectedMapsIntoTarget(selectedMapNames, targetMapName) {
-        const originalCurrentMap = getCurrentMapName();
-        
+        const originalCurrentMap = await getCurrentMapName();
+
         try {
             let totalFeatures = 0;
-            
+
             for (const mapName of selectedMapNames) {
                 const mapData = await mapStore.getItem(mapName);
                 if (mapData && mapData.features) {
-                    
+
                     for (const [featureType, features] of Object.entries(mapData.features)) {
                         if (Array.isArray(features)) {
                             for (const feature of features) {
@@ -986,9 +1025,9 @@ class MapControl {
                                     ...JSON.parse(JSON.stringify(feature)),
                                     id: Date.now().toString() + Math.random().toString(36).substr(2, 9)
                                 };
-                                
+
                                 setCurrentMap(targetMapName);
-                                
+
                                 const { addFeature } = await import('./store.js');
                                 await addFeature(featureType, featureCopy);
                                 totalFeatures++;
@@ -997,16 +1036,16 @@ class MapControl {
                     }
                 }
             }
-            
+
             setCurrentMap(originalCurrentMap);
-            
+
             // Recarregar o mapa se estivermos visualizando o mapa de destino
             if (originalCurrentMap === targetMapName) {
                 await this.switchMap();
             }
-            
+
             await this.updateMapList();
-            
+
         } catch (error) {
             setCurrentMap(originalCurrentMap);
             throw error;

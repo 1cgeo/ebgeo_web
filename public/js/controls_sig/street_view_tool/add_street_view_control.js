@@ -116,10 +116,6 @@ class AddStreetViewControl {
 
         this.map.on('mouseleave', 'street-view', this.hideHoverCursor);
 
-        // this.map.flyTo({
-        //     center: centroid.geometry.coordinates
-        // });
-
         this.miniMap = new maplibregl.Map({
             container: 'mini-map-street-view',
             style: '/street_view/street-view-map-style.json',
