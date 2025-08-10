@@ -273,10 +273,7 @@ class MouseCoordinatesControl {
     }
     
     _createPointAtCoordinates(lng, lat) {
-        if (this._drawControl) {
-            // Use the draw control to create a point
-            this._drawControl.addPointFeatureAtCoordinates(lng, lat);
-        }
+        this._drawControl.addPointFeatureAtCoordinates(lng, lat);
     }
     
     _copyCoordinates() {

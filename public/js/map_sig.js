@@ -19,6 +19,8 @@ import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import ScreenshotControl from './controls_sig/screenshot_control.js';
 import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
 import { undoLastAction, redoLastAction } from './controls_sig/store.js';
+import AddCircleControl from './controls_sig/circle_tool/add_circle_control.js';
+import AddEllipseControl from './controls_sig/ellipse_tool/add_ellipse_control.js';
 
 //-----------------------------------------------
 // CONTROLES
@@ -42,7 +44,18 @@ const importControl = new AddImportControl(toolManager);
 
 const addStreetViewControl = new AddStreetViewControl(toolManager);
 
-const selectionManager = new SelectionManager(map, drawControl, textControl, imageControl, losControl, visibilityControl);
+const circleControl = new AddCircleControl(toolManager);
+const ellipseControl = new AddEllipseControl(toolManager);
+
+const selectionManager = new SelectionManager(map);
+selectionManager.setDrawControl(drawControl);
+selectionManager.setTextControl(textControl);
+selectionManager.setImageControl(imageControl);
+selectionManager.setLosControl(losControl);
+selectionManager.setVisibilityControl(visibilityControl);
+selectionManager.setCircleControl(circleControl);
+selectionManager.setEllipseControl(ellipseControl);
+
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
 drawControl.setSelectionManager(selectionManager);
@@ -72,7 +85,7 @@ const resetNorthControl = new ResetNorthControl();
 
 const screenshotControl = new ScreenshotControl();
 
-const mouseCoordinatesControl = new MouseCoordinatesControl();
+const mouseCoordinatesControl = new MouseCoordinatesControl(drawControl);
 
 //-----------------------------------------------
 // ADICIONAR CONTROLES AO MAPA
@@ -95,6 +108,8 @@ map.addControl(imageControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
 map.addControl(addStreetViewControl, 'top-right');
+map.addControl(circleControl, 'top-right');
+map.addControl(ellipseControl, 'top-right');
 
 
 //-----------------------------------------------

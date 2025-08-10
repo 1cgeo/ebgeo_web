@@ -28,7 +28,9 @@ const getEmptyMapData = () => ({
         los: [],
         visibility: [],
         processed_los: [],
-        processed_visibility: []
+        processed_visibility: [],
+        circles: [],
+        ellipses: [],
     },
     zoom: null,
     center_lat: null,
@@ -73,6 +75,10 @@ function getFeatureType(feature) {
             return 'los';
         case 'visibility':
             return 'visibility';
+        case 'circles':
+            return 'circle';
+        case 'ellipses':
+            return 'ellipse';
         default:
             return feature.geometry.type.toLowerCase() + 's';
     }

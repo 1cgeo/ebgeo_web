@@ -62,6 +62,14 @@
     top: 238px !important;
 }
 
+.circle-control.controls-column-right {
+    top: 283px !important;
+}
+
+.ellipse-control.controls-column-right {
+    top: 328px !important;
+}
+
 /* ===== ESTILOS BASE DOS CONTROLES ===== */
 .mapboxgl-ctrl-group {
     display: flex !important;
@@ -236,6 +244,14 @@
     
     .image-control.controls-column-right {
         top: 240px !important;
+    }
+
+    .circle-control.controls-column-right {
+        top: 300px !important;
+    }
+    
+    .ellipse-control.controls-column-right {
+        top: 360px !important;
     }
     
     /* Outras ferramentas depois */

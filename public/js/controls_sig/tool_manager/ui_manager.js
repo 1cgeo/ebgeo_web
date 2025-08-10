@@ -4,6 +4,8 @@ import { addTextAttributesToPanel } from '../text_tool/text_attributes_panel.js'
 import { addFeatureAttributesToPanel } from '../draw_tool/feature_attributes_panel.js';
 import { addLOSAttributesToPanel } from '../los_tool/los_attributes_panel.js';
 import { addVisibilityAttributesToPanel } from '../visibility_tool/visibility_attributes_panel.js';
+import { addCircleAttributesToPanel } from '../circle_tool/circle_attributes_panel.js';
+import { addEllipseAttributesToPanel } from '../ellipse_tool/ellipse_attributes_panel.js';
 
 class UIManager {
     constructor(map, selectionManager, toolManager) {
@@ -31,7 +33,7 @@ class UIManager {
     }
 
     updateSelectionHighlight = () => {
-        if(this.isDragging) {
+        if (this.isDragging) {
             return;
         }
 
@@ -46,7 +48,9 @@ class UIManager {
             ...this.createSelectionBoxesForImageFeatures(),
             ...this.createSelectionBoxesForDrawFeatures(),
             ...this.createSelectionBoxesForLOSFeatures(),
-            ...this.createSelectionBoxesForVisibilityFeatures()
+            ...this.createSelectionBoxesForVisibilityFeatures(),
+            ...this.createSelectionBoxesForCircleFeatures(),
+            ...this.createSelectionBoxesForEllipseFeatures()
         ];
 
         this.selectionBoxes = features;
@@ -55,6 +59,48 @@ class UIManager {
             type: 'FeatureCollection',
             features: features
         });
+    }
+
+    createSelectionBoxesForCircleFeatures = () => {
+        const boxes = [];
+        if (this.selectionManager.selectedCircleFeatures.size === 0) return boxes;
+
+        for (const feature of this.selectionManager.selectedCircleFeatures.values()) {
+            try {
+                const bbox = turf.bbox(feature);
+                const boxFeature = turf.bboxPolygon(bbox);
+                boxFeature.properties = {
+                    type: 'selection-box',
+                    source: 'circle',
+                    featureId: feature.properties.id
+                };
+                boxes.push(boxFeature);
+            } catch (error) {
+                console.warn('Erro ao criar selection box para círculo:', error);
+            }
+        }
+        return boxes;
+    }
+
+    createSelectionBoxesForEllipseFeatures = () => {
+        const boxes = [];
+        if (this.selectionManager.selectedEllipseFeatures.size === 0) return boxes;
+
+        for (const feature of this.selectionManager.selectedEllipseFeatures.values()) {
+            try {
+                const bbox = turf.bbox(feature);
+                const boxFeature = turf.bboxPolygon(bbox);
+                boxFeature.properties = {
+                    type: 'selection-box',
+                    source: 'ellipse',
+                    featureId: feature.properties.id
+                };
+                boxes.push(boxFeature);
+            } catch (error) {
+                console.warn('Erro ao criar selection box para elipse:', error);
+            }
+        }
+        return boxes;
     }
 
     createSelectionBoxesForTextFeatures = () => {
@@ -117,23 +163,23 @@ class UIManager {
             });
         }
 
-        if(save){
+        if (save) {
             this.selectionBoxes = shiftedFeatures;
         }
     }
 
     translateFeature(feature, dx, dy) {
         const translatedFeature = JSON.parse(JSON.stringify(feature));
-    
+
         const translateCoords = (coords) => {
             if (typeof coords[0] === 'number') {
                 return [coords[0] + dx, coords[1] + dy];
             }
             return coords.map(translateCoords);
         };
-    
+
         const { type, coordinates } = feature.geometry;
-    
+
         switch (type) {
             case 'Point':
                 translatedFeature.geometry.coordinates = translateCoords(coordinates);
@@ -153,7 +199,7 @@ class UIManager {
             default:
                 throw new Error(`Unsupported geometry type: ${type}`);
         }
-    
+
         return translatedFeature;
     }
 
@@ -202,6 +248,10 @@ class UIManager {
                 this.addLOSAttributes(panel, selectedFeatures);
             } else if (featureType === 'visibility') {
                 this.addVisibilityAttributes(panel, selectedFeatures);
+            } else if (featureType === 'circle') {
+                this.addCircleAttributes(panel, selectedFeatures);
+            } else if (featureType === 'ellipse') {
+                this.addEllipseAttributes(panel, selectedFeatures);
             }
         }
 
@@ -281,6 +331,20 @@ class UIManager {
         }
     }
 
+    addCircleAttributes = (panel, features) => {
+        const circlePanel = document.createElement('div');
+        circlePanel.className = 'circle-attributes-section';
+        addCircleAttributesToPanel(circlePanel, features, this.selectionManager.circleControl, this.selectionManager, this);
+        panel.appendChild(circlePanel);
+    }
+
+    addEllipseAttributes = (panel, features) => {
+        const ellipsePanel = document.createElement('div');
+        ellipsePanel.className = 'ellipse-attributes-section';
+        addEllipseAttributesToPanel(ellipsePanel, features, this.selectionManager.ellipseControl, this.selectionManager, this);
+        panel.appendChild(ellipsePanel);
+    }
+
     addTextAttributes = (panel, features) => {
         const textPanel = document.createElement('div');
         textPanel.className = 'text-attributes-section';
@@ -322,7 +386,7 @@ class UIManager {
         const degreesPerMeter = 360 / earthCircumference;
         return pixels * metersPerPixel * degreesPerMeter;
     }
-    
+
     calculateBoundingBox = (feature) => {
         const bbox = turf.bbox(feature);
         return turf.bboxPolygon(bbox);
@@ -374,12 +438,12 @@ class UIManager {
             this.hideProfilePanel();
             return;
         }
-    
+
         const feature = selectedFeatures[0];
         const { source } = feature.properties;
         const isLineFeature = feature.geometry.type === 'LineString';
         const hasProfileData = feature.properties.profileData && feature.properties.profile;
-    
+
         if (source === 'los' && hasProfileData) {
             this.createProfilePanel(feature.properties.profileData, true);
         } else if (source === 'draw' && isLineFeature && hasProfileData) {
@@ -396,19 +460,19 @@ class UIManager {
             panel.className = 'profile-panel';
             document.body.appendChild(panel);
         }
-    
+
         // Clear existing content
         panel.innerHTML = '';
-    
+
         // Create chart using a library like Chart.js
         const canvas = document.createElement('canvas');
         panel.appendChild(canvas);
-    
+
         const profileDataParsed = JSON.parse(profileData);
-    
+
         const labels = profileDataParsed.map(d => d.distance.toFixed(0));
         const elevation = profileDataParsed.map(d => d.elevation);
-    
+
         const datasets = [{
             label: 'Elevação',
             data: elevation,
@@ -417,7 +481,7 @@ class UIManager {
             fill: false,
             tension: 0.1
         }];
-    
+
         if (linkFirstLast) {
             const firstElevation = elevation[0];
             const lastElevation = elevation[elevation.length - 1];
@@ -425,21 +489,21 @@ class UIManager {
             const lastDistance = parseFloat(labels[labels.length - 1]);
 
             const slopeLine = (lastElevation - firstElevation) / (lastDistance - firstDistance);
-    
+
             let intersectionIndex = -1;
-        
+
             const lineElevations = labels.map((distance, i) => {
                 const dist = parseFloat(distance);
                 const lineElevation = slopeLine * (dist - firstDistance) + firstElevation;
-                
+
                 // Find the first intersection point
-                if (i !=0 && i != labels.length - 1 && intersectionIndex === -1 && elevation[i] >= lineElevation) {
+                if (i != 0 && i != labels.length - 1 && intersectionIndex === -1 && elevation[i] >= lineElevation) {
                     intersectionIndex = i;
                 }
-        
+
                 return lineElevation;
             });
-            
+
             datasets.push({
                 label: 'Linha de visada',
                 data: lineElevations,
@@ -450,7 +514,7 @@ class UIManager {
                 }
             });
         }
-    
+
         new Chart(canvas, {
             type: 'line',
             data: {
@@ -491,7 +555,7 @@ class UIManager {
             this.featureSearchControl.removeMarker();
         }
     }
-    
+
     showFeatureSearchPanel(feature) {
         const panel = document.createElement('div');
         panel.className = 'unified-attributes-panel feature-search-panel';

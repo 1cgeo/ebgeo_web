@@ -22,12 +22,12 @@ class MoveHandler {
         if (allSelectedFeatures.length > 0) {
             const clickedFeatures = this.map.queryRenderedFeatures(e.point);
 
-            const sources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images'];
-            
+            const sources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses'];
+
             const filteredFeatures = clickedFeatures.filter(feature => sources.includes(feature.source));
 
             // Check if any filtered feature has properties.meta equal to 'midpoint' or 'vertex'
-            const hasMidpointOrVertex = filteredFeatures.some(feature => 
+            const hasMidpointOrVertex = filteredFeatures.some(feature =>
                 feature.properties.mode === 'direct_select' || feature.properties.meta === 'midpoint' || feature.properties.meta === 'vertex'
             );
 
@@ -120,6 +120,38 @@ class MoveHandler {
             case 'image':
                 updatedFeature = { ...feature, geometry: { ...feature.geometry, coordinates: [newCoords.lng, newCoords.lat] } };
                 break;
+            case 'circle':
+                // Para círculos - mover o centro e recalcular geometria
+                const newCenter = [newCoords.lng, newCoords.lat];
+                updatedFeature = {
+                    ...feature,
+                    properties: {
+                        ...feature.properties,
+                        center: newCenter
+                    },
+                    geometry: this.selectionManager.circleControl.generateCircleGeometry(
+                        newCenter,
+                        feature.properties.radius
+                    )
+                };
+                break;
+            case 'ellipse':
+                // Para elipses - mover o centro e recalcular geometria
+                const newEllipseCenter = [newCoords.lng, newCoords.lat];
+                updatedFeature = {
+                    ...feature,
+                    properties: {
+                        ...feature.properties,
+                        center: newEllipseCenter
+                    },
+                    geometry: this.selectionManager.ellipseControl.generateEllipseGeometry(
+                        newEllipseCenter,
+                        feature.properties.majorRadius,
+                        feature.properties.minorRadius,
+                        feature.properties.bearing
+                    )
+                };
+                break;
             default:
                 console.error('Unknown source type:', source);
                 return feature;
@@ -129,7 +161,7 @@ class MoveHandler {
 
     calculateOffset(feature, referencePoint) {
         const coords = feature.geometry.coordinates;
-    
+
         if (feature.geometry.type === "Point") {
             // For Point geometry
             return [
@@ -171,6 +203,8 @@ class MoveHandler {
         const newSelectedImageFeatures = new Map();
         const newSelectedLOSFeatures = new Map();
         const newSelectedVisibilityFeatures = new Map();
+        const newSelectedCircleFeatures = new Map();
+        const newSelectedEllipseFeatures = new Map();
 
         updatedFeatures.forEach(feature => {
             switch (feature.properties.source) {
@@ -188,6 +222,12 @@ class MoveHandler {
                 case 'visibility':
                     newSelectedVisibilityFeatures.set(feature.id, feature);
                     break;
+                case 'circle':
+                    newSelectedCircleFeatures.set(feature.id, feature);
+                    break;
+                case 'ellipse':
+                    newSelectedEllipseFeatures.set(feature.id, feature);
+                    break;
             }
         });
 
@@ -196,6 +236,8 @@ class MoveHandler {
         this.selectionManager.selectedImageFeatures = newSelectedImageFeatures;
         this.selectionManager.selectedLOSFeatures = newSelectedLOSFeatures;
         this.selectionManager.selectedVisibilityFeatures = newSelectedVisibilityFeatures;
+        this.selectionManager.selectedCircleFeatures = newSelectedCircleFeatures;
+        this.selectionManager.selectedEllipseFeatures = newSelectedEllipseFeatures;
 
 
     }

@@ -1,20 +1,52 @@
 // Path: js\controls_sig\tool_manager\selection_manager.js
 class SelectionManager {
-    constructor(map, drawControl, textControl, imageControl, losControl, visibilityControl) {
+    constructor(map) {
         this.map = map;
         this.uiControl = null;
-        this.drawControl = drawControl;
-        this.textControl = textControl;
-        this.imageControl = imageControl;
-        this.losControl = losControl;
-        this.visibilityControl = visibilityControl;
+        this.drawControl = null;
+        this.textControl = null;
+        this.imageControl = null;
+        this.losControl = null;
+        this.visibilityControl = null;
+        this.circleControl = null;
+        this.ellipseControl = null;
         this.selectedDrawFeatures = new Map();
         this.selectedTextFeatures = new Map();
         this.selectedImageFeatures = new Map();
         this.selectedLOSFeatures = new Map();
         this.selectedVisibilityFeatures = new Map();
+        this.selectedCircleFeatures = new Map();
+        this.selectedEllipseFeatures = new Map();
 
         this.setupEventListeners();
+    }
+
+    setDrawControl(drawControl) {
+        this.drawControl = drawControl;
+    }
+
+    setTextControl(textControl) {
+        this.textControl = textControl;
+    }
+
+    setImageControl(imageControl) {
+        this.imageControl = imageControl;
+    }
+
+    setLosControl(losControl) {
+        this.losControl = losControl;
+    }
+
+    setVisibilityControl(visibilityControl) {
+        this.visibilityControl = visibilityControl;
+    }
+
+    setCircleControl(circleControl) {
+        this.circleControl = circleControl;
+    }
+
+    setEllipseControl(ellipseControl) {
+        this.ellipseControl = ellipseControl;
     }
 
     setUIManager(uiManager) {
@@ -31,6 +63,8 @@ class SelectionManager {
         this.map.on('click', 'image-layer', this.handleElementClick);
         this.map.on('click', 'los-layer', this.handleElementClick);
         this.map.on('click', 'visibility-layer', this.handleElementClick);
+        this.map.on('click', 'circle-layer', this.handleElementClick);
+        this.map.on('click', 'ellipse-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
     }
 
@@ -103,6 +137,12 @@ class SelectionManager {
             case 'draw':
                 targetMap = this.selectedDrawFeatures;
                 break;
+            case 'circle':
+                targetMap = this.selectedCircleFeatures;
+                break;
+            case 'ellipse':
+                targetMap = this.selectedEllipseFeatures;
+                break;
             default:
                 console.error('Invalid source');
         }
@@ -128,8 +168,10 @@ class SelectionManager {
         this.selectedLOSFeatures.clear();
         this.selectedVisibilityFeatures.clear();
         this.selectedDrawFeatures.clear();
+        this.selectedCircleFeatures.clear();
+        this.selectedEllipseFeatures.clear();
 
-        if(forceDraw && !this.drawControl.isActive) {
+        if (forceDraw && !this.drawControl.isActive) {
             this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
         }
 
@@ -142,7 +184,9 @@ class SelectionManager {
             ...this.selectedTextFeatures.values(),
             ...this.selectedImageFeatures.values(),
             ...this.selectedLOSFeatures.values(),
-            ...this.selectedVisibilityFeatures.values()
+            ...this.selectedVisibilityFeatures.values(),
+            ...this.selectedCircleFeatures.values(),
+            ...this.selectedEllipseFeatures.values()
         ];
     }
 
@@ -151,7 +195,7 @@ class SelectionManager {
         this.uiManager.updatePanels();
     }
 
-    updateProfile= () => {
+    updateProfile = () => {
         this.uiManager.updateProfile();
     }
 
@@ -162,6 +206,8 @@ class SelectionManager {
         if (this.visibilityControl.isActive) return this.visibilityControl;
         if (this.vectorTileInfoControl.isActive) return this.vectorTileInfoControl;
         if (this.drawControl.isActive) return this.drawControl;
+        if (this.circleControl.isActive) return this.circleControl;
+        if (this.ellipseControl.isActive) return this.ellipseControl;
         return null;
     }
 
@@ -171,6 +217,8 @@ class SelectionManager {
         this.losControl.deleteFeatures([...this.selectedLOSFeatures.values()]);
         this.visibilityControl.deleteFeatures([...this.selectedVisibilityFeatures.values()]);
         this.drawControl.deleteFeatures([...this.selectedDrawFeatures.values()]);
+        this.circleControl.deleteFeatures([...this.selectedCircleFeatures.values()]);
+        this.ellipseControl.deleteFeatures([...this.selectedEllipseFeatures.values()]);
 
         this.deselectAllFeatures(true);
     }
@@ -181,6 +229,8 @@ class SelectionManager {
         this.drawControl.updateFeatures([...this.selectedDrawFeatures.values()], true);
         this.losControl.updateFeatures([...this.selectedLOSFeatures.values()], true);
         this.visibilityControl.updateFeatures([...this.selectedVisibilityFeatures.values()], true);
+        this.circleControl.updateFeatures([...this.selectedCircleFeatures.values()], true);
+        this.ellipseControl.updateFeatures([...this.selectedEllipseFeatures.values()], true);
     }
 }
 

@@ -102,7 +102,6 @@ class DrawControl {
                 if (hasLineButton && hasPolygonButton && hasPointButton) {
                     // Adicionar nossas classes ao container do MapboxDraw
                     container.classList.add('draw-control', 'controls-column-right');
-                    console.log('Classes adicionadas ao container do MapboxDraw:', container.className);
                     break;
                 }
             }
@@ -412,14 +411,14 @@ class DrawControl {
         return profileData;
     }
 
-    addPointFeatureAtCoordinates = async (lngLat) => {
+    addPointFeatureAtCoordinates = async (lng, lat) => {
         // Cria um ponto no MapboxDraw
         const feature = {
             type: 'Feature',
             properties: this.defaultProperties.point,
             geometry: {
                 type: 'Point',
-                coordinates: [lngLat.lng, lngLat.lat]
+                coordinates: [lng, lat]
             }
         };
         
