@@ -38,6 +38,69 @@ const getEmptyMapData = () => ({
     center_long: null
 });
 
+/**
+ * Remove metadados internos do Mapbox e mantém apenas dados GeoJSON essenciais
+ */
+function cleanFeature(feature) {
+    if (!feature || !feature.type) {
+        console.warn('Feature inválida fornecida para limpeza:', feature);
+        return null;
+    }
+
+    // Extrair geometria correta
+    let geometry = feature.geometry;
+    if (!geometry && feature._geometry) {
+        geometry = feature._geometry;
+    }
+
+    // Limpar propriedades removendo metadados internos do Mapbox
+    const cleanedProperties = {};
+    if (feature.properties) {
+        Object.keys(feature.properties).forEach(key => {
+            // Manter apenas propriedades que não são metadados internos
+            if (!isInternalProperty(key)) {
+                cleanedProperties[key] = feature.properties[key];
+            }
+        });
+    }
+
+    // Retornar feature limpa no formato GeoJSON padrão
+    return {
+        type: feature.type,
+        id: feature.id,
+        properties: cleanedProperties,
+        geometry: geometry
+    };
+}
+
+/**
+ * Verifica se uma propriedade é metadado interno do Mapbox
+ */
+function isInternalProperty(key) {
+    const internalProps = [
+        // Metadados do vector tile
+        '_vectorTileFeature',
+        '_pbf',
+        '_geometry',
+        '_keys',
+        '_values',
+        
+        // Coordenadas de tile
+        '_z', '_x', '_y',
+        
+        // Informações de renderização
+        'layer',
+        'state',
+        
+        // Outros metadados internos
+        'extent',
+        'type' // quando é propriedade interna, não o type do GeoJSON
+    ];
+
+    // Verificar se é propriedade interna ou começa com underscore
+    return internalProps.includes(key) || key.startsWith('_');
+}
+
 // Função para resetar o estado da memória
 export const resetMemoryStore = () => {
     memoryStore.maps = {
@@ -176,32 +239,46 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
 
 // Funções que trabalham direto com IndexedDB
 export const addFeature = async (type, feature) => {
+    const cleanedFeature = cleanFeature(feature);
+    
+    if (!cleanedFeature) {
+        console.warn('Feature ignorada após limpeza:', feature);
+        return;
+    }
+
     const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    currentMapData.features[type].push(feature);
+    currentMapData.features[type].push(cleanedFeature);
     await mapStore.setItem(memoryStore.currentMap, currentMapData);
     
     // Apenas undo em memória
     recordAction({
         type: 'add',
         featureType: type,
-        feature: JSON.parse(JSON.stringify(feature))
+        feature: JSON.parse(JSON.stringify(cleanedFeature))
     });
 };
 
 export const updateFeature = async (type, feature) => {
+    const cleanedFeature = cleanFeature(feature);
+    
+    if (!cleanedFeature) {
+        console.warn('Feature ignorada após limpeza:', feature);
+        return;
+    }
+
     const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    const index = currentMapData.features[type].findIndex(f => f.id == feature.id);
+    const index = currentMapData.features[type].findIndex(f => f.id == cleanedFeature.id);
     if (index !== -1) {
         const oldFeature = currentMapData.features[type][index];
-        if (JSON.stringify(oldFeature) !== JSON.stringify(feature)) {
-            currentMapData.features[type][index] = feature;
+        if (JSON.stringify(oldFeature) !== JSON.stringify(cleanedFeature)) {
+            currentMapData.features[type][index] = cleanedFeature;
             await mapStore.setItem(memoryStore.currentMap, currentMapData);
             
             recordAction({
                 type: 'update',
                 featureType: type,
                 oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                newFeature: JSON.parse(JSON.stringify(feature))
+                newFeature: JSON.parse(JSON.stringify(cleanedFeature))
             });
         }
     }

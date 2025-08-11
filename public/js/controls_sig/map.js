@@ -28,8 +28,6 @@ map.addControl(new maplibregl.AttributionControl({
     compact: true
 }), 'bottom-right');
 
-let isMapInitialized = false;
-
 map.on('styledata', async () => {
     // Carregar dados do IndexedDB
     const features = await getCurrentMapFeatures();
@@ -521,6 +519,62 @@ map.on('styledata', async () => {
             }
         });
     }
+
+    requestAnimationFrame(() => {
+        clearAllMeasurements();
+        restoreMeasurements(features);
+    });
 });
+
+function clearAllMeasurements() {
+    try {
+        // Remover todos os elementos de medição do DOM
+        const measurementLabels = document.querySelectorAll('.measurement-label');
+        measurementLabels.forEach(label => {
+            // Remover o marker do Mapbox que contém o label
+            const parentMarker = label.closest('.maplibregl-marker');
+            if (parentMarker) {
+                parentMarker.remove();
+            } else {
+                // Fallback: remover apenas o label
+                label.remove();
+            }
+        });
+        
+    } catch (error) {
+        console.warn('⚠️ Erro ao limpar medições antigas:', error);
+    }
+}
+
+function restoreMeasurements(features) {
+    try {
+        const drawControl = map._controls.find(control => 
+            control.constructor.name === 'DrawControl'
+        );
+        const losControl = map._controls.find(control => 
+            control.constructor.name === 'AddLOSControl'
+        );
+
+        // Restaurar medições do Draw
+        if (drawControl) {
+            [...features.linestrings, ...features.polygons].forEach(feature => {
+                if (feature.properties?.measure) {
+                    drawControl.updateFeatureMeasurement(feature);
+                }
+            });
+        }
+
+        // Restaurar medições do LOS
+        if (losControl) {
+            features.los.forEach(feature => {
+                if (feature.properties?.measure) {
+                    losControl.updateFeatureMeasurement(feature);
+                }
+            });
+        }
+    } catch (error) {
+        console.warn('Erro ao restaurar medições:', error);
+    }
+}
 
 export { map };
