@@ -540,6 +540,18 @@ export const addFeatures = async (featuresMap) => {
     }
 };
 
+export const clearMapPosition = async (mapName = null) => {
+    const targetMapName = mapName || memoryStore.currentMap;
+    const currentMapData = await mapStore.getItem(targetMapName) || getEmptyMapData();
+    
+    // Limpar a posição salva definindo como null
+    currentMapData.center_lat = null;
+    currentMapData.center_long = null;
+    currentMapData.zoom = null;
+    
+    await mapStore.setItem(targetMapName, currentMapData);
+};
+
 // Exportar stores para uso direto quando necessário
 export { mapStore, imageStore, appStore };
 

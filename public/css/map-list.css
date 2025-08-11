@@ -392,6 +392,14 @@
     background-color: #fef2f2 !important;
 }
 
+/* Estilo específico para o botão de limpar posição */
+.clear-position {
+    color: #dc3545 !important; /* Cor vermelha para indicar ação de remoção */
+}
+.clear-position:hover {
+    background-color: #fef2f2 !important;
+}
+
 /* ===== CHECKBOX DOS MAPAS ===== */
 .map-checkbox {
     margin-right: 8px;

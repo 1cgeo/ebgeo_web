@@ -8,6 +8,7 @@ import {
     getMapPosition,
     hasMapSavedPosition,
     getCurrentBaseLayer,
+    clearMapPosition,
     getAllMapNames,
     getCurrentMapName,
     moveFeaturesToMap,
@@ -553,6 +554,26 @@ class MapControl {
         });
         dropdownContent.appendChild(savePositionBtn);
 
+        if (hasSavedPosition) {
+            const clearPositionBtn = document.createElement('button');
+            clearPositionBtn.className = 'menu-button clear-position';
+            clearPositionBtn.innerHTML = '🗑️ Limpar posição salva';
+            clearPositionBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (confirm(`Tem certeza que deseja limpar a posição salva do mapa "${mapName}"?`)) {
+                    await clearMapPosition(mapName);
+                    this.closeAllDropdowns();
+                    this.showToast(`Posição salva removida de "${mapName}"`, 'success');
+
+                    // Atualizar lista para remover o indicador 📍
+                    await this.updateMapList();
+                }
+            });
+            dropdownContent.appendChild(clearPositionBtn);
+        }
+
         // Botão copiar
         const copyBtn = document.createElement('button');
         copyBtn.className = 'menu-button';
@@ -752,7 +773,7 @@ class MapControl {
             dropdown.style.top = `${Math.round(top)}px`;
             dropdown.style.left = `${Math.round(left)}px`;
             dropdown.style.zIndex = '9999';
-            dropdown.style.maxHeight = `${Math.min(300, viewport.height - top - padding)}px`;
+            dropdown.style.maxHeight = `${Math.min(320, viewport.height - top - padding)}px`;
             dropdown.style.overflowY = 'auto';
         });
     }
