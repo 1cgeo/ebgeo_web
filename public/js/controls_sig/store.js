@@ -181,10 +181,10 @@ function getFeatureType(feature) {
             return 'los';
         case 'visibility':
             return 'visibility';
-        case 'circles':
-            return 'circle';
-        case 'ellipses':
-            return 'ellipse';
+        case 'circle':
+            return 'circles';
+        case 'ellipse':
+            return 'ellipses';
         default:
             return feature.geometry.type.toLowerCase() + 's';
     }
@@ -224,6 +224,12 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
                 // Remover do mapa atual
                 await removeFeature(type, feature.id);
                 
+                if (type === 'los') {
+                    await moveProcessedLOSFeatures(feature.id, targetMapName);
+                } else if (type === 'visibility') {
+                    await moveProcessedVisibilityFeatures(feature.id, targetMapName);
+                }
+                
                 // Adicionar ao mapa de destino
                 const oldCurrentMap = memoryStore.currentMap;
                 setCurrentMap(targetMapName);
@@ -234,6 +240,64 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
     } catch (error) {
         console.error('Erro ao mover feições:', error);
         throw error;
+    }
+};
+
+const moveProcessedLOSFeatures = async (losFeatureId, targetMapName) => {
+    try {
+        // Buscar features processadas relacionadas
+        const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+        const processedFeatures = currentMapData.features.processed_los.filter(
+            pf => pf.id.startsWith(losFeatureId + '-')
+        );
+
+        if (processedFeatures.length === 0) return;
+
+        // Remover do mapa atual
+        for (const pf of processedFeatures) {
+            await removeFeature('processed_los', pf.id);
+        }
+
+        // Adicionar ao mapa de destino
+        const oldCurrentMap = memoryStore.currentMap;
+        setCurrentMap(targetMapName);
+        for (const pf of processedFeatures) {
+            await addFeature('processed_los', pf);
+        }
+        setCurrentMap(oldCurrentMap);
+
+        console.log(`Movidas ${processedFeatures.length} features processadas de LOS`);
+    } catch (error) {
+        console.error('Erro ao mover features processadas de LOS:', error);
+    }
+};
+
+const moveProcessedVisibilityFeatures = async (visibilityFeatureId, targetMapName) => {
+    try {
+        // Buscar features processadas relacionadas  
+        const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+        const processedFeatures = currentMapData.features.processed_visibility.filter(
+            pf => pf.id.startsWith(visibilityFeatureId + '-')
+        );
+
+        if (processedFeatures.length === 0) return;
+
+        // Remover do mapa atual
+        for (const pf of processedFeatures) {
+            await removeFeature('processed_visibility', pf.id);
+        }
+
+        // Adicionar ao mapa de destino
+        const oldCurrentMap = memoryStore.currentMap;
+        setCurrentMap(targetMapName);
+        for (const pf of processedFeatures) {
+            await addFeature('processed_visibility', pf);
+        }
+        setCurrentMap(oldCurrentMap);
+
+        console.log(`Movidas ${processedFeatures.length} features processadas de Visibility`);
+    } catch (error) {
+        console.error('Erro ao mover features processadas de Visibility:', error);
     }
 };
 

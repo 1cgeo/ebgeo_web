@@ -90,13 +90,13 @@
     border: 1px solid #d0d0d0 !important;
     padding: 8px !important;
     cursor: pointer !important;
-    border-radius: 6px !important;
+    border-radius: 8px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     transition: all 0.2s ease !important;
-    width: 32px !important;
-    height: 32px !important;
+    width: 40px !important;
+    height: 40px !important;
     position: relative !important;
     z-index: 10 !important;
     pointer-events: auto !important;
@@ -114,8 +114,8 @@
 }
 
 .map-action-button img {
-    width: 16px !important;
-    height: 16px !important;
+    width: 20px !important;
+    height: 20x !important;
     transition: filter 0.2s ease;
     pointer-events: none !important;
 }

@@ -621,7 +621,7 @@ class MapControl {
                 buttonText = '↗️ Mover feições (nenhuma selecionada)';
                 buttonDisabled = true;
             } else {
-                buttonText = `↗️ Mover ${selectedCount} feição${selectedCount > 1 ? 'ões' : ''} selecionada${selectedCount > 1 ? 's' : ''}`;
+                buttonText = `↗️ Mover ${selectedCount} ${selectedCount > 1 ? 'feições' : 'feição'} selecionada${selectedCount > 1 ? 's' : ''}`;
             }
 
             const moveBtn = document.createElement('button');
@@ -655,7 +655,7 @@ class MapControl {
                             await moveFeaturesToMap(selectedFeatures, mapName);
 
                             // Limpar seleção
-                            this.selectionManager.clearAllSelections();
+                            this.selectionManager.deselectAllFeatures();
 
                             // Recarregar mapa atual para refletir as remoções
                             await this.switchMap();

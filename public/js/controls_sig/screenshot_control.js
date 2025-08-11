@@ -14,7 +14,7 @@ class ScreenshotControl {
         button.type = 'button';
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "screenshot-tool");
-        button.title = 'Capturar Screenshot';
+        button.title = 'Salvar tela';
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_screenshot_black.svg" alt="SCREENSHOT" />';
         button.onclick = this.takeScreenshot.bind(this);
         

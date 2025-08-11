@@ -67,7 +67,7 @@ class AddStreetViewControl {
         const button = document.createElement('button');
         button.setAttribute("id", "street-view-tool");
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.title = 'Adicionar street view';
+        button.title = 'Adicionar imagens panorâmicas';
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
