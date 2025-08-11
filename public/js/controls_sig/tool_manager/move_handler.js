@@ -4,165 +4,228 @@ class MoveHandler {
         this.map = map;
         this.selectionManager = selectionManager;
         this.uiManager = uiManager;
+        
+        // Core state
         this.isDragging = false;
-        this.lastPos = null;
-        this.debounceTime = 30;
-        this.lastUpdateTime = 0;
+        this.selectedFeatures = null;
+        this.offsets = null;
+        this.initialCoordinates = null;
+        
+        // Performance optimization properties
+        this.rafId = null;
+        this.pendingUpdate = false;
+        this.mouseMoveHandler = null;
+        this.mouseUpHandler = null;
+        
+        // Coordinate caching and pooling
+        this.cachedPosition = { lng: 0, lat: 0 };
+        this.cachedDelta = { dx: 0, dy: 0 };
+        this.coordsPool = { lng: 0, lat: 0 };
+        this.tempCoords = { lng: 0, lat: 0 };
+        
+        // Feature type strategies lookup
+        this.featureUpdateStrategies = this.initializeFeatureStrategies();
+        this.featureManagersMap = this.initializeFeatureManagers();
+        
+        this.setupEventListeners();
+    }
+
+    initializeFeatureStrategies() {
+        return {
+            'draw': this.updateDrawFeature.bind(this),
+            'los': this.updateDrawFeature.bind(this),
+            'visibility': this.updateDrawFeature.bind(this),
+            'text': this.updatePointFeature.bind(this),
+            'image': this.updatePointFeature.bind(this),
+            'circle': this.updateCircleFeature.bind(this),
+            'ellipse': this.updateEllipseFeature.bind(this)
+        };
+    }
+
+    initializeFeatureManagers() {
+        return {
+            'draw': 'selectedDrawFeatures',
+            'text': 'selectedTextFeatures', 
+            'image': 'selectedImageFeatures',
+            'los': 'selectedLOSFeatures',
+            'visibility': 'selectedVisibilityFeatures',
+            'circle': 'selectedCircleFeatures',
+            'ellipse': 'selectedEllipseFeatures'
+        };
+    }
+
+    setupEventListeners() {
         this.map.on('mousedown', this.onMouseDown.bind(this));
     }
 
     onMouseDown(e) {
         this.startDrag(e);
-        this.map.on('mousemove', this.onMouseMove.bind(this));
-        this.map.once('mouseup', this.onMouseUp.bind(this));
+        
+        // Setup drag event listeners - clean previous ones if any
+        this.cleanupDragListeners();
+        
+        // Create bound handlers for proper cleanup
+        this.mouseMoveHandler = this.onMouseMove.bind(this);
+        this.mouseUpHandler = this.onMouseUp.bind(this);
+        
+        this.map.on('mousemove', this.mouseMoveHandler);
+        this.map.once('mouseup', this.mouseUpHandler);
+    }
+
+    cleanupDragListeners() {
+        if (this.mouseMoveHandler) {
+            this.map.off('mousemove', this.mouseMoveHandler);
+            this.mouseMoveHandler = null;
+        }
+        if (this.mouseUpHandler) {
+            this.map.off('mouseup', this.mouseUpHandler);
+            this.mouseUpHandler = null;
+        }
     }
 
     startDrag(e) {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
-        if (allSelectedFeatures.length > 0) {
-            const clickedFeatures = this.map.queryRenderedFeatures(e.point);
+        if (allSelectedFeatures.length === 0) return;
 
-            const sources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses'];
+        const clickedFeatures = this.map.queryRenderedFeatures(e.point);
+        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses'];
+        const filteredFeatures = clickedFeatures.filter(feature => validSources.includes(feature.source));
 
-            const filteredFeatures = clickedFeatures.filter(feature => sources.includes(feature.source));
+        // Check for edit handles (midpoint/vertex)
+        const hasEditHandles = filteredFeatures.some(feature =>
+            feature.properties.mode === 'direct_select' || 
+            feature.properties.meta === 'midpoint' || 
+            feature.properties.meta === 'vertex'
+        );
 
-            // Check if any filtered feature has properties.meta equal to 'midpoint' or 'vertex'
-            const hasMidpointOrVertex = filteredFeatures.some(feature =>
-                feature.properties.mode === 'direct_select' || feature.properties.meta === 'midpoint' || feature.properties.meta === 'vertex'
-            );
-
-            if (filteredFeatures.length === 0 || hasMidpointOrVertex) {
-                return;
-            }
-
-            const isFeatureSelected = filteredFeatures.some(clickedFeature => {
-                clickedFeature.id = clickedFeature.id || clickedFeature.properties.id;
-                return allSelectedFeatures.some(f => f.id === clickedFeature.id);
-            });
-
-            if (isFeatureSelected) {
-                this.isDragging = true;
-                this.map.dragPan.disable();
-                this.uiManager.setDragging(true);
-                this.initialCoordinates = e.lngLat;
-                this.setCursorStyle('grabbing');
-
-                this.selectedFeatures = allSelectedFeatures;
-                this.offsets = new Map(allSelectedFeatures.map(item => [
-                    item.id,
-                    {
-                        feature: item,
-                        source: item.properties.source,
-                        offset: this.calculateOffset(item, this.initialCoordinates)
-                    }
-                ]));
-            }
+        if (filteredFeatures.length === 0 || hasEditHandles) {
+            return;
         }
+
+        // Check if clicked feature is selected
+        const isFeatureSelected = filteredFeatures.some(clickedFeature => {
+            clickedFeature.id = clickedFeature.id || clickedFeature.properties.id;
+            return allSelectedFeatures.some(f => f.id === clickedFeature.id);
+        });
+
+        if (!isFeatureSelected) return;
+
+        // Initialize drag state
+        this.isDragging = true;
+        this.map.dragPan.disable();
+        this.uiManager.setDragging(true);
+        this.setCursorStyle('grabbing');
+        
+        // Cache initial coordinates
+        this.initialCoordinates = e.lngLat;
+        this.cachedPosition.lng = e.lngLat.lng;
+        this.cachedPosition.lat = e.lngLat.lat;
+        this.cachedDelta.dx = 0;
+        this.cachedDelta.dy = 0;
+        
+        // Cache selected features and calculate offsets
+        this.selectedFeatures = allSelectedFeatures;
+        this.offsets = this.calculateOffsetsOptimized(allSelectedFeatures, this.initialCoordinates);
     }
 
     onMouseMove(e) {
         if (!this.isDragging) return;
 
-        const currentTime = performance.now();
-        if (currentTime - this.lastUpdateTime < this.debounceTime) {
+        // Update cached position and delta
+        this.cachedPosition.lng = e.lngLat.lng;
+        this.cachedPosition.lat = e.lngLat.lat;
+        this.cachedDelta.dx = this.cachedPosition.lng - this.initialCoordinates.lng;
+        this.cachedDelta.dy = this.cachedPosition.lat - this.initialCoordinates.lat;
+
+        // Use requestAnimationFrame for smooth updates
+        if (!this.pendingUpdate) {
+            this.pendingUpdate = true;
+            this.rafId = requestAnimationFrame(this.performDragUpdate.bind(this));
+        }
+    }
+
+    performDragUpdate() {
+        if (!this.isDragging) {
+            this.pendingUpdate = false;
             return;
         }
-        this.lastUpdateTime = currentTime;
 
-        const newPos = e.lngLat;
-        const dx = newPos.lng - this.initialCoordinates.lng;
-        const dy = newPos.lat - this.initialCoordinates.lat;
-
-        this.uiManager.shiftSelectionBoxes(dx, dy);
+        // Perform the actual UI update
+        this.uiManager.shiftSelectionBoxes(this.cachedDelta.dx, this.cachedDelta.dy);
+        
+        this.pendingUpdate = false;
     }
 
     onMouseUp(e) {
         if (!this.isDragging) return;
 
+        // Cancel any pending RAF updates
+        if (this.rafId) {
+            cancelAnimationFrame(this.rafId);
+            this.rafId = null;
+        }
+        this.pendingUpdate = false;
+
+        // Reset drag state
         this.isDragging = false;
         this.map.dragPan.enable();
         this.uiManager.setDragging(false);
-        this.map.off('mousemove', this.onMouseMove);
         this.setCursorStyle('');
 
-        const newPos = e.lngLat;
-        const dx = newPos.lng - this.initialCoordinates.lng;
-        const dy = newPos.lat - this.initialCoordinates.lat;
+        // Clean up event listeners
+        this.cleanupDragListeners();
+
+        // Calculate final position using cached values
+        const dx = this.cachedDelta.dx;
+        const dy = this.cachedDelta.dy;
         const distanceMoved = Math.sqrt(dx * dx + dy * dy);
         const tolerance = 2 / Math.pow(2, this.map.getZoom());
+
         if (distanceMoved > tolerance) {
+            // Reuse coordinate object
+            this.tempCoords.lng = e.lngLat.lng;
+            this.tempCoords.lat = e.lngLat.lat;
 
-            const updatedFeatures = this.selectedFeatures.map(feature => {
-                const { offset } = this.offsets.get(feature.id);
-                const newCoords = {
-                    lng: newPos.lng + offset[0],
-                    lat: newPos.lat + offset[1]
-                };
-                return this.calculateUpdatedFeature(feature, feature.properties.source, dx, dy, newCoords);
-            });
+            // Batch update features
+            const updatedFeatures = this.batchUpdateFeatures(this.selectedFeatures, dx, dy, this.tempCoords);
+            
+            // Final UI update
             this.uiManager.shiftSelectionBoxes(dx, dy, true);
-
-            this.updateSelectionManagerFeatures(updatedFeatures);
-
+            
+            // Update selection manager efficiently
+            this.updateSelectionManagerFeaturesOptimized(updatedFeatures);
+            
+            // Trigger final update
             this.selectionManager.updateSelectedFeatures();
         }
+
+        // Reset state
+        this.selectedFeatures = null;
+        this.offsets = null;
+        this.initialCoordinates = null;
     }
 
-    calculateUpdatedFeature(feature, source, dx, dy, newCoords) {
-        let updatedFeature;
-        switch (source) {
-            case 'draw':
-            case 'los':
-            case 'visibility':
-                updatedFeature = this.uiManager.translateFeature(feature, dx, dy);
-                break;
-            case 'text':
-            case 'image':
-                updatedFeature = { ...feature, geometry: { ...feature.geometry, coordinates: [newCoords.lng, newCoords.lat] } };
-                break;
-            case 'circle':
-                // Para círculos - mover o centro e recalcular geometria
-                const newCenter = [newCoords.lng, newCoords.lat];
-                updatedFeature = {
-                    ...feature,
-                    properties: {
-                        ...feature.properties,
-                        center: newCenter
-                    },
-                    geometry: this.selectionManager.circleControl.generateCircleGeometry(
-                        newCenter,
-                        feature.properties.radius
-                    )
-                };
-                break;
-            case 'ellipse':
-                // Para elipses - mover o centro e recalcular geometria
-                const newEllipseCenter = [newCoords.lng, newCoords.lat];
-                updatedFeature = {
-                    ...feature,
-                    properties: {
-                        ...feature.properties,
-                        center: newEllipseCenter
-                    },
-                    geometry: this.selectionManager.ellipseControl.generateEllipseGeometry(
-                        newEllipseCenter,
-                        feature.properties.majorRadius,
-                        feature.properties.minorRadius,
-                        feature.properties.bearing
-                    )
-                };
-                break;
-            default:
-                console.error('Unknown source type:', source);
-                return feature;
+    calculateOffsetsOptimized(features, referencePoint) {
+        const offsets = new Map();
+        
+        for (const feature of features) {
+            const offset = this.calculateOffsetForFeature(feature, referencePoint);
+            offsets.set(feature.id, {
+                feature: feature,
+                source: feature.properties.source,
+                offset: offset
+            });
         }
-        return { ...updatedFeature, source };
+        
+        return offsets;
     }
 
-    calculateOffset(feature, referencePoint) {
+    calculateOffsetForFeature(feature, referencePoint) {
+        const source = feature.properties.source;
         const coords = feature.geometry.coordinates;
 
-        if (feature.properties.source === 'circle') {
+        // Handle special cases first
+        if (source === 'circle' || source === 'ellipse') {
             let center = feature.properties.center;
             if (typeof center === 'string') {
                 center = JSON.parse(center);
@@ -173,99 +236,165 @@ class MoveHandler {
             ];
         }
 
-        if (feature.properties.source === 'ellipse') {
-            const center = feature.properties.center;
-            if (typeof center === 'string') {
-                center = JSON.parse(center);
-            }
-            return [
-                center[0] - referencePoint.lng,
-                center[1] - referencePoint.lat
-            ];
-        }
-
-        if (feature.geometry.type === "Point") {
-            // For Point geometry
-            return [
-                coords[0] - referencePoint.lng,
-                coords[1] - referencePoint.lat
-            ];
-        } else if (feature.geometry.type === "LineString") {
-            // For LineString geometry (offset the first point)
-            return [
-                coords[0][0] - referencePoint.lng,
-                coords[0][1] - referencePoint.lat
-            ];
-        } else if (feature.geometry.type === "Polygon") {
-            // For Polygon geometry (offset the first point of the first ring)
-            return [
-                coords[0][0][0] - referencePoint.lng,
-                coords[0][0][1] - referencePoint.lat
-            ];
-        } else if (feature.geometry.type === "MultiLineString") {
-            // For MultiLineString geometry (offset the first point of the first line)
-            return [
-                coords[0][0][0] - referencePoint.lng,
-                coords[0][0][1] - referencePoint.lat
-            ];
-        } else if (feature.geometry.type === "MultiPolygon") {
-            // For MultiPolygon geometry (offset the first point of the first polygon)
-            return [
-                coords[0][0][0][0] - referencePoint.lng,
-                coords[0][0][0][1] - referencePoint.lat
-            ];
-        } else {
-            throw new Error("Unsupported geometry type: " + feature.geometry.type);
+        // Handle geometry types efficiently
+        switch (feature.geometry.type) {
+            case "Point":
+                return [
+                    coords[0] - referencePoint.lng,
+                    coords[1] - referencePoint.lat
+                ];
+            
+            case "LineString":
+                return [
+                    coords[0][0] - referencePoint.lng,
+                    coords[0][1] - referencePoint.lat
+                ];
+            
+            case "Polygon":
+                return [
+                    coords[0][0][0] - referencePoint.lng,
+                    coords[0][0][1] - referencePoint.lat
+                ];
+            
+            case "MultiLineString":
+                return [
+                    coords[0][0][0] - referencePoint.lng,
+                    coords[0][0][1] - referencePoint.lat
+                ];
+            
+            case "MultiPolygon":
+                return [
+                    coords[0][0][0][0] - referencePoint.lng,
+                    coords[0][0][0][1] - referencePoint.lat
+                ];
+            
+            default:
+                console.error("Unsupported geometry type:", feature.geometry.type);
+                return [0, 0];
         }
     }
 
-    updateSelectionManagerFeatures(updatedFeatures) {
-        const newSelectedFeatures = new Map();
-        const newSelectedTextFeatures = new Map();
-        const newSelectedImageFeatures = new Map();
-        const newSelectedLOSFeatures = new Map();
-        const newSelectedVisibilityFeatures = new Map();
-        const newSelectedCircleFeatures = new Map();
-        const newSelectedEllipseFeatures = new Map();
+    batchUpdateFeatures(features, dx, dy, newPos) {
+        const updatedFeatures = new Array(features.length);
+        
+        for (let i = 0; i < features.length; i++) {
+            const feature = features[i];
+            const { offset } = this.offsets.get(feature.id);
+            
+            // Reuse coordinate object
+            this.coordsPool.lng = newPos.lng + offset[0];
+            this.coordsPool.lat = newPos.lat + offset[1];
+            
+            updatedFeatures[i] = this.calculateUpdatedFeatureOptimized(feature, dx, dy, this.coordsPool);
+        }
+        
+        return updatedFeatures;
+    }
 
-        updatedFeatures.forEach(feature => {
-            switch (feature.properties.source) {
-                case 'draw':
-                    newSelectedFeatures.set(feature.id, feature);
-                    break;
-                case 'text':
-                    newSelectedTextFeatures.set(feature.id, feature);
-                    break;
-                case 'image':
-                    newSelectedImageFeatures.set(feature.id, feature);
-                    break;
-                case 'los':
-                    newSelectedLOSFeatures.set(feature.id, feature);
-                case 'visibility':
-                    newSelectedVisibilityFeatures.set(feature.id, feature);
-                    break;
-                case 'circle':
-                    newSelectedCircleFeatures.set(feature.id, feature);
-                    break;
-                case 'ellipse':
-                    newSelectedEllipseFeatures.set(feature.id, feature);
-                    break;
+    calculateUpdatedFeatureOptimized(feature, dx, dy, newCoords) {
+        const source = feature.properties.source;
+        const strategy = this.featureUpdateStrategies[source];
+        
+        if (!strategy) {
+            console.error('Unknown source type:', source);
+            return feature;
+        }
+        
+        const updatedFeature = strategy(feature, dx, dy, newCoords);
+        return { ...updatedFeature, source };
+    }
+
+    // Feature update strategies
+    updateDrawFeature(feature, dx, dy, newCoords) {
+        return this.uiManager.translateFeature(feature, dx, dy);
+    }
+
+    updatePointFeature(feature, dx, dy, newCoords) {
+        return {
+            ...feature,
+            geometry: {
+                ...feature.geometry,
+                coordinates: [newCoords.lng, newCoords.lat]
             }
-        });
+        };
+    }
 
-        this.selectionManager.selectedDrawFeatures = newSelectedFeatures;
-        this.selectionManager.selectedTextFeatures = newSelectedTextFeatures;
-        this.selectionManager.selectedImageFeatures = newSelectedImageFeatures;
-        this.selectionManager.selectedLOSFeatures = newSelectedLOSFeatures;
-        this.selectionManager.selectedVisibilityFeatures = newSelectedVisibilityFeatures;
-        this.selectionManager.selectedCircleFeatures = newSelectedCircleFeatures;
-        this.selectionManager.selectedEllipseFeatures = newSelectedEllipseFeatures;
+    updateCircleFeature(feature, dx, dy, newCoords) {
+        const newCenter = [newCoords.lng, newCoords.lat];
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                center: newCenter
+            },
+            geometry: this.selectionManager.circleControl.generateCircleGeometry(
+                newCenter,
+                feature.properties.radius
+            )
+        };
+    }
 
+    updateEllipseFeature(feature, dx, dy, newCoords) {
+        const newCenter = [newCoords.lng, newCoords.lat];
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                center: newCenter
+            },
+            geometry: this.selectionManager.ellipseControl.generateEllipseGeometry(
+                newCenter,
+                feature.properties.majorRadius,
+                feature.properties.minorRadius,
+                feature.properties.bearing
+            )
+        };
+    }
 
+    updateSelectionManagerFeaturesOptimized(updatedFeatures) {
+        // Initialize all maps at once
+        const featureMaps = {
+            selectedDrawFeatures: new Map(),
+            selectedTextFeatures: new Map(),
+            selectedImageFeatures: new Map(),
+            selectedLOSFeatures: new Map(),
+            selectedVisibilityFeatures: new Map(),
+            selectedCircleFeatures: new Map(),
+            selectedEllipseFeatures: new Map()
+        };
+
+        // Batch process all features
+        for (const feature of updatedFeatures) {
+            const source = feature.properties.source;
+            const mapKey = this.featureManagersMap[source];
+            
+            if (mapKey) {
+                featureMaps[mapKey].set(feature.id, feature);
+            }
+        }
+
+        // Update selection manager in one batch
+        Object.assign(this.selectionManager, featureMaps);
     }
 
     setCursorStyle(style) {
         this.map.getCanvas().style.cursor = style;
+    }
+
+    // Cleanup method for proper disposal
+    destroy() {
+        this.cleanupDragListeners();
+        
+        if (this.rafId) {
+            cancelAnimationFrame(this.rafId);
+        }
+        
+        // Clear references
+        this.selectedFeatures = null;
+        this.offsets = null;
+        this.initialCoordinates = null;
+        this.featureUpdateStrategies = null;
+        this.featureManagersMap = null;
     }
 }
 
