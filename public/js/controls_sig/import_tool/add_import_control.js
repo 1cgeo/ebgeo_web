@@ -47,8 +47,6 @@ class AddImportControl {
 
     changeButtonColor = () => {
         $("#import-tool").html(`<img class="icon-sig-tool" src="./images/icon_import_black.svg" alt="IMPORT" />`);
-        if (!this.isActive) return;
-        $("#import-tool").html('<img class="icon-sig-tool" src="./images/icon_import_red.svg" alt="IMPORT" />');
     }
 
     onRemove() {

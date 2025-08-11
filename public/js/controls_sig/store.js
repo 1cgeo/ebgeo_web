@@ -266,7 +266,6 @@ const moveProcessedLOSFeatures = async (losFeatureId, targetMapName) => {
         }
         setCurrentMap(oldCurrentMap);
 
-        console.log(`Movidas ${processedFeatures.length} features processadas de LOS`);
     } catch (error) {
         console.error('Erro ao mover features processadas de LOS:', error);
     }
@@ -295,7 +294,6 @@ const moveProcessedVisibilityFeatures = async (visibilityFeatureId, targetMapNam
         }
         setCurrentMap(oldCurrentMap);
 
-        console.log(`Movidas ${processedFeatures.length} features processadas de Visibility`);
     } catch (error) {
         console.error('Erro ao mover features processadas de Visibility:', error);
     }

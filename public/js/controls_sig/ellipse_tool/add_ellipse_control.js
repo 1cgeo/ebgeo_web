@@ -110,7 +110,6 @@ class AddEllipseControl {
             
             if (this.drawPoints.length === 1) {
                 // Primeiro clique - centro definido, ativar preview
-                console.log('Centro da elipse definido');
                 this.map.on('mousemove', this.handlePreviewMouseMove);
             } else if (this.drawPoints.length === 2) {
                 // Segundo clique - eixo maior e orientação definidos
@@ -552,7 +551,6 @@ class AddEllipseControl {
                 await updateFeature('ellipses', f);
             }
         }
-        console.log('Ellipse features saved:', features.length);
     }
 
     // ✅ PADRONIZADO: Método hasFeatureChanged seguindo padrão das outras ferramentas
