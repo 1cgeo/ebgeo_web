@@ -16,6 +16,8 @@ const map = new maplibregl.Map({
     ],
 });
 
+map.setSourceTileLodParams(5, 6.0);
+
 const bounds = [
     [-45.82515, -22.69950],
     [-43.92333, -21.30216]
@@ -73,6 +75,40 @@ map.on('styledata', async () => {
         });
     }
 
+    if (!map.getSource('circle-preview')) {
+        map.addSource('circle-preview', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // Layer de preenchimento para preview
+    if (!map.getLayer('circle-preview-fill-layer')) {
+        map.addLayer({
+            id: 'circle-preview-fill-layer',
+            type: 'fill',
+            source: 'circle-preview',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': 0.3
+            }
+        });
+    }
+
+    // Layer de linha para preview
+    if (!map.getLayer('circle-preview-layer')) {
+        map.addLayer({
+            id: 'circle-preview-layer',
+            type: 'line',
+            source: 'circle-preview',
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': 2,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8
+            }
+        });
+    }
     //  Layer do círculo (preenchimento)
     if (!map.getLayer('circle-fill-layer')) {
         map.addLayer({
@@ -540,7 +576,7 @@ function clearAllMeasurements() {
                 label.remove();
             }
         });
-        
+
     } catch (error) {
         console.warn('⚠️ Erro ao limpar medições antigas:', error);
     }
@@ -548,10 +584,10 @@ function clearAllMeasurements() {
 
 function restoreMeasurements(features) {
     try {
-        const drawControl = map._controls.find(control => 
+        const drawControl = map._controls.find(control =>
             control.constructor.name === 'DrawControl'
         );
-        const losControl = map._controls.find(control => 
+        const losControl = map._controls.find(control =>
             control.constructor.name === 'AddLOSControl'
         );
 

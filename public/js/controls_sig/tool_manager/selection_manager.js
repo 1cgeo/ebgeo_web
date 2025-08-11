@@ -63,6 +63,7 @@ class SelectionManager {
         this.map.on('click', 'image-layer', this.handleElementClick);
         this.map.on('click', 'los-layer', this.handleElementClick);
         this.map.on('click', 'visibility-layer', this.handleElementClick);
+        this.map.on('click', 'circle-fill-layer', this.handleElementClick);
         this.map.on('click', 'circle-layer', this.handleElementClick);
         this.map.on('click', 'ellipse-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
@@ -149,8 +150,14 @@ class SelectionManager {
 
         if (targetMap.has(featureId)) {
             targetMap.delete(featureId);
+            if (source === 'circle' && this.circleControl) {
+                this.circleControl.onFeatureDeselected?.(feature);
+            }
         } else {
             targetMap.set(featureId, feature);
+            if (source === 'circle' && this.circleControl) {
+                this.circleControl.onFeatureSelected?.(feature);
+            }
         }
     }
 

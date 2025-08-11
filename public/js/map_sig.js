@@ -63,7 +63,6 @@ textControl.setSelectionManager(selectionManager);
 imageControl.setSelectionManager(selectionManager);
 losControl.setSelectionManager(selectionManager);
 visibilityControl.setSelectionManager(selectionManager);
-circleControl.setSelectionManager(selectionManager);
 ellipseControl.setSelectionManager(selectionManager);
 
 importControl.setDrawControl(drawControl);

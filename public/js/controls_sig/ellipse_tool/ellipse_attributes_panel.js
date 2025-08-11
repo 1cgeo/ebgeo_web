@@ -103,7 +103,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         min: 0,
         max: 1,
         step: 0.1,
-        value: feature.properties.opacity || 0.7,
+        value: feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7,
         unit: '',
         onChange: (value) => {
             ellipseControl.updateFeaturesProperty(selectedFeatures, 'opacity', value);

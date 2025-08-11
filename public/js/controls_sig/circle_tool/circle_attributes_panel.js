@@ -103,7 +103,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         min: 0,
         max: 1,
         step: 0.1,
-        value: feature.properties.opacity || 0.7,
+        value: feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7,
         unit: '',
         onChange: (value) => {
             circleControl.updateFeaturesProperty(selectedFeatures, 'opacity', value);

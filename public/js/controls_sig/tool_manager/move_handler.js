@@ -162,6 +162,28 @@ class MoveHandler {
     calculateOffset(feature, referencePoint) {
         const coords = feature.geometry.coordinates;
 
+        if (feature.properties.source === 'circle') {
+            let center = feature.properties.center;
+            if (typeof center === 'string') {
+                center = JSON.parse(center);
+            }
+            return [
+                center[0] - referencePoint.lng,
+                center[1] - referencePoint.lat
+            ];
+        }
+
+        if (feature.properties.source === 'ellipse') {
+            const center = feature.properties.center;
+            if (typeof center === 'string') {
+                center = JSON.parse(center);
+            }
+            return [
+                center[0] - referencePoint.lng,
+                center[1] - referencePoint.lat
+            ];
+        }
+
         if (feature.geometry.type === "Point") {
             // For Point geometry
             return [
