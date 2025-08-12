@@ -349,6 +349,7 @@ export const updateFeature = async (type, feature) => {
 export const removeFeature = async (type, id) => {
     const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
     const featureIndex = currentMapData.features[type].findIndex(f => f.id == id);
+    
     if (featureIndex !== -1) {
         const feature = currentMapData.features[type].splice(featureIndex, 1)[0];
         await mapStore.setItem(memoryStore.currentMap, currentMapData);
@@ -358,6 +359,28 @@ export const removeFeature = async (type, id) => {
             featureType: type,
             feature: JSON.parse(JSON.stringify(feature))
         });
+        
+        // ROBUST DELETION: Verify and retry if needed
+        setTimeout(async () => {
+            try {                
+                // Verify deletion
+                const verifyMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+                const stillExists = verifyMapData.features[type].some(f => f.id == id);
+                
+                if (stillExists) {
+                    // Retry deletion
+                    const retryMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+                    const retryIndex = retryMapData.features[type].findIndex(f => f.id == id);
+                    
+                    if (retryIndex !== -1) {
+                        retryMapData.features[type].splice(retryIndex, 1);
+                        await mapStore.setItem(memoryStore.currentMap, retryMapData);
+                    }
+                }
+            } catch (error) {
+                console.error(`Robust deletion verification failed for ${type} ${id}:`, error);
+            }
+        }, 500);
     }
 };
 

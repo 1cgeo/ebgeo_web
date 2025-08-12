@@ -6,7 +6,7 @@ import { getTerrainElevation } from '../terrain_control.js';
 class DrawControl {
     constructor(toolManager) {
         this.toolManager = toolManager;
-        this.selectionManager = null;
+        this.selectionManager = toolManager.selectionManager;
         this.isActive = false;
         this.defaultProperties = {
             polygon: {
@@ -41,10 +41,6 @@ class DrawControl {
             }
         };
         this.controlPosition = 'top-right';
-    }
-
-    setSelectionManager(selectionManager) {
-        this.selectionManager = selectionManager;
     }
 
     onAdd = (map) => {

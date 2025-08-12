@@ -16,13 +16,9 @@ class AddImageControl {
         this.toolManager = toolManager;
         this.toolManager.imageControl = this;
         this.isActive = false;
-        this.selectionManager = null;
+        this.selectionManager = toolManager.selectionManager;
     }
-
-    setSelectionManager(selectionManager) {
-        this.selectionManager = selectionManager;
-    }
-
+    
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');

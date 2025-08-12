@@ -19,13 +19,9 @@ class AddVisibilityControl {
         this.startPoint = null;
         this.debounceTime = 30;
         this.lastUpdateTime = 0;
-        this.selectionManager = null;
+        this.selectionManager = toolManager.selectionManager;
     }
-
-    setSelectionManager(selectionManager) {
-        this.selectionManager = selectionManager;
-    }
-
+    
     onAdd = (map) => {
         this.map = map;
         this.container = document.createElement('div');

@@ -82,6 +82,47 @@ map.on('styledata', async () => {
         });
     }
 
+    if (!map.getSource('ellipse-preview')) {
+        map.addSource('ellipse-preview', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    if (!map.getLayer('ellipse-preview-fill-layer')) {
+        map.addLayer({
+            id: 'ellipse-preview-fill-layer',
+            type: 'fill',
+            source: 'ellipse-preview',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': 0.3
+            }
+        });
+    }
+
+    // Layer de linha para preview da elipse
+    if (!map.getLayer('ellipse-preview-layer')) {
+        map.addLayer({
+            id: 'ellipse-preview-layer',
+            type: 'line',
+            source: 'ellipse-preview',
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': 2,
+                'line-dasharray': [2, 2],
+                'line-opacity': 1
+            }
+        });
+    }
+
+    if (!map.getSource('ellipse-edit-handles')) {
+        map.addSource('ellipse-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
     // Layer de preenchimento para preview
     if (!map.getLayer('circle-preview-fill-layer')) {
         map.addLayer({
@@ -496,14 +537,14 @@ map.on('styledata', async () => {
     if (!map.getLayer('ellipse-edit-handles-layer')) {
         map.addLayer({
             id: 'ellipse-edit-handles-layer',
-            type: 'circle',  // ✅ Correto para handles
+            type: 'circle',
             source: 'ellipse-edit-handles',
             paint: {
                 'circle-radius': 8,
                 'circle-color': [
                     'case',
-                    ['==', ['get', 'handleType'], 'primary'], '#ff0000',
-                    ['==', ['get', 'handleType'], 'secondary'], '#0066ff',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
                     '#ffffff'
                 ],
                 'circle-stroke-color': '#ffffff',

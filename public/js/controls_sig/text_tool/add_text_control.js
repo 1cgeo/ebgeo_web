@@ -14,13 +14,9 @@ class AddTextControl {
 
     constructor(toolManager) {
         this.toolManager = toolManager;
-        this.selectionManager = null;
+        this.selectionManager = toolManager.selectionManager;
         this.toolManager.textControl = this;
         this.isActive = false;
-    }
-
-    setSelectionManager(selectionManager) {
-        this.selectionManager = selectionManager;
     }
 
     onAdd = (map) => {

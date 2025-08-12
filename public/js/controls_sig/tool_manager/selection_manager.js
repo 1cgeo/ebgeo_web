@@ -2,7 +2,7 @@
 class SelectionManager {
     constructor(map) {
         this.map = map;
-        this.uiControl = null;
+        this.uiManager = null;
         this.drawControl = null;
         this.textControl = null;
         this.imageControl = null;
@@ -66,6 +66,7 @@ class SelectionManager {
         this.map.on('click', 'circle-fill-layer', this.handleElementClick);
         this.map.on('click', 'circle-layer', this.handleElementClick);
         this.map.on('click', 'ellipse-layer', this.handleElementClick);
+        this.map.on('click', 'ellipse-fill-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
     }
 
@@ -76,25 +77,180 @@ class SelectionManager {
         if (activeTool) {
             activeTool.handleMapClick(e);
         } else {
-            const clickedFeature = this.getClickedDrawFeature(e.point);
+            // Check for maplibredraw features
+            const clickedDrawFeature = this.getClickedDrawFeature(e.point);
+            
+            // Check for custom tool features (circle, ellipse, etc.)
+            const clickedCustomFeature = this.getClickedCustomFeature(e.point);
 
-            if (!clickedFeature) {
+            // Check if we clicked on an edit handle
+            if (this.isClickOnEditHandle(e.point)) {
+                return; // Don't deselect if clicking on edit handles
+            }
 
-                if (!e.originalEvent.shiftKey) {
-                    this.uiManager.saveChangesAndClosePanel();
-                    this.deselectAllFeatures();
-                }
-            } else {
-                if (this.selectedDrawFeatures.has(clickedFeature.properties.id) && clickedFeature.geometry.type !== 'Point') {
-                    this.drawControl.draw.changeMode('direct_select', { featureId: clickedFeature.properties.id });
+            // Handle maplibredraw features
+            if (clickedDrawFeature) {
+                if (this.selectedDrawFeatures.has(clickedDrawFeature.properties.id) && clickedDrawFeature.geometry.type !== 'Point') {
+                    this.drawControl.draw.changeMode('direct_select', { featureId: clickedDrawFeature.properties.id });
                 } else {
                     if (!e.originalEvent.shiftKey) {
                         this.deselectAllFeatures();
                     }
                 }
+                this.updateUI();
+                return;
+            }
+
+            // Handle custom tool features (circle, ellipse, etc.)
+            if (clickedCustomFeature) {
+                const isAlreadySelected = this.isCustomFeatureSelected(clickedCustomFeature);
+                
+                if (isAlreadySelected) {
+                    // Feature is already selected - transition to editing mode
+                    this.transitionToEditingMode(clickedCustomFeature);
+                } else {
+                    // New feature selection
+                    if (!e.originalEvent.shiftKey) {
+                        this.deselectAllFeatures();
+                    }
+                    // The actual selection will be handled by handleElementClick
+                }
+                this.updateUI();
+                return;
+            }
+
+            // No feature clicked - deselect all if not holding shift
+            if (!e.originalEvent.shiftKey) {
+                this.uiManager.saveChangesAndClosePanel();
+                this.deselectAllFeatures();
             }
             this.updateUI();
         }
+    }
+
+    // Get clicked custom tool feature (circle, ellipse, etc.)
+    getClickedCustomFeature = (point) => {
+        const features = this.map.queryRenderedFeatures(point);
+        
+        // Look for circle features
+        const circleFeature = features.find(f => 
+            (f.source === 'circles' || f.layer?.id === 'circle-layer' || f.layer?.id === 'circle-fill-layer') &&
+            f.properties.source === 'circle'
+        );
+        if (circleFeature) return { ...circleFeature, toolType: 'circle' };
+
+        // Look for ellipse features
+        const ellipseFeature = features.find(f => 
+            (f.source === 'ellipses' || f.layer?.id === 'ellipse-layer') &&
+            f.properties.source === 'ellipse'
+        );
+        if (ellipseFeature) return { ...ellipseFeature, toolType: 'ellipse' };
+
+        // Look for other custom tool features
+        const textFeature = features.find(f => 
+            (f.source === 'texts' || f.layer?.id === 'text-layer') &&
+            f.properties.source === 'text'
+        );
+        if (textFeature) return { ...textFeature, toolType: 'text' };
+
+        const imageFeature = features.find(f => 
+            (f.source === 'images' || f.layer?.id === 'image-layer') &&
+            f.properties.source === 'image'
+        );
+        if (imageFeature) return { ...imageFeature, toolType: 'image' };
+
+        const losFeature = features.find(f => 
+            (f.source === 'los' || f.layer?.id === 'los-layer') &&
+            f.properties.source === 'los'
+        );
+        if (losFeature) return { ...losFeature, toolType: 'los' };
+
+        const visibilityFeature = features.find(f => 
+            (f.source === 'visibility' || f.layer?.id === 'visibility-layer') &&
+            f.properties.source === 'visibility'
+        );
+        if (visibilityFeature) return { ...visibilityFeature, toolType: 'visibility' };
+
+        return null;
+    }
+
+    // Check if a custom feature is already selected
+    isCustomFeatureSelected = (feature) => {
+        const featureId = feature.id || feature.properties.id;
+        
+        switch (feature.toolType || feature.properties.source) {
+            case 'circle':
+                return this.selectedCircleFeatures.has(featureId);
+            case 'ellipse':
+                return this.selectedEllipseFeatures.has(featureId);
+            case 'text':
+                return this.selectedTextFeatures.has(featureId);
+            case 'image':
+                return this.selectedImageFeatures.has(featureId);
+            case 'los':
+                return this.selectedLOSFeatures.has(featureId);
+            case 'visibility':
+                return this.selectedVisibilityFeatures.has(featureId);
+            default:
+                return false;
+        }
+    }
+
+    // Transition feature to editing mode (analogous to maplibredraw's direct_select)
+    transitionToEditingMode = (feature) => {
+        const source = feature.toolType || feature.properties.source;
+        const featureId = feature.id || feature.properties.id;
+                
+        switch (source) {
+            case 'circle':
+                if (this.circleControl && this.selectedCircleFeatures.has(featureId)) {
+                    const selectedFeature = this.selectedCircleFeatures.get(featureId);
+                    // Trigger transition to editing mode in circle control
+                    this.circleControl.onFeatureSelected?.(selectedFeature);
+                }
+                break;
+            case 'ellipse':
+                if (this.ellipseControl && this.selectedEllipseFeatures.has(featureId)) {
+                    const selectedFeature = this.selectedEllipseFeatures.get(featureId);
+                    // Trigger transition to editing mode in ellipse control
+                    this.ellipseControl.onFeatureSelected?.(selectedFeature);
+                }
+                break;
+            // Add other tool types as needed
+        }
+    }
+
+    // Check if click is on an edit handle (for any tool in editing mode)
+    isClickOnEditHandle = (point) => {
+        const features = this.map.queryRenderedFeatures(point);
+        
+        // Check for maplibredraw edit handles
+        const hasMaplibreDrawEditHandles = features.some(feature =>
+            feature.properties.mode === 'direct_select' || 
+            feature.properties.meta === 'midpoint' || 
+            feature.properties.meta === 'vertex'
+        );
+        if (hasMaplibreDrawEditHandles) return true;
+
+        // Check for circle edit handles
+        if (this.circleControl && this.circleControl.isEditingMode && this.circleControl.isEditingMode()) {
+            const handleFeatures = features.filter(f => 
+                f.source === 'circle-edit-handles' && 
+                (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
+            );
+            if (handleFeatures.length > 0) return true;
+        }
+
+        // Check for ellipse edit handles (similar pattern)
+        if (this.ellipseControl && this.ellipseControl.isEditingMode && this.ellipseControl.isEditingMode()) {
+            const handleFeatures = features.filter(f => 
+                f.source === 'ellipse-edit-handles' && 
+                (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
+            );
+            if (handleFeatures.length > 0) return true;
+        }
+
+        return false;
     }
 
     getClickedDrawFeature(point) {
@@ -104,15 +260,25 @@ class SelectionManager {
 
     handleElementClick = (e) => {
         e.preventDefault();
-        if (!e.originalEvent.shiftKey) {
-            this.deselectAllFeatures();
-        }
-
+        
         const feature = e.features[0];
         const source = feature.properties.source;
-        const featureId = feature.id;
+        const featureId = feature.id || feature.properties.id;
 
-        this.toggleFeatureSelection(source, featureId, feature);
+        // Check if feature is already selected
+        const isFeatureSelected = this.isFeatureSelected(source, featureId);
+
+        if (isFeatureSelected && e.originalEvent.shiftKey) {
+            // Only deselect if holding shift and feature is already selected
+            this.toggleFeatureSelection(source, featureId, feature, true); // force toggle
+        } else if (!isFeatureSelected) {
+            // Select new feature
+            if (!e.originalEvent.shiftKey) {
+                this.deselectAllFeatures();
+            }
+            this.toggleFeatureSelection(source, featureId, feature, false); // don't force toggle
+        }
+        // If feature is selected and not holding shift, don't deselect (will transition to editing in handleMapClick)
 
         const drawFeatureIds = Array.from(this.selectedDrawFeatures.keys());
         this.drawControl.draw.changeMode('simple_select', { featureIds: drawFeatureIds });
@@ -120,8 +286,30 @@ class SelectionManager {
         this.updateUI();
     }
 
-    toggleFeatureSelection(source, featureId, feature) {
+    isFeatureSelected = (source, featureId) => {
+        switch (source) {
+            case 'text':
+                return this.selectedTextFeatures.has(featureId);
+            case 'image':
+                return this.selectedImageFeatures.has(featureId);
+            case 'los':
+                return this.selectedLOSFeatures.has(featureId);
+            case 'visibility':
+                return this.selectedVisibilityFeatures.has(featureId);
+            case 'draw':
+                return this.selectedDrawFeatures.has(featureId);
+            case 'circle':
+                return this.selectedCircleFeatures.has(featureId);
+            case 'ellipse':
+                return this.selectedEllipseFeatures.has(featureId);
+            default:
+                return false;
+        }
+    }
+
+    toggleFeatureSelection(source, featureId, feature, forceToggle = false) {
         let targetMap;
+        
         switch (source) {
             case 'text':
                 targetMap = this.selectedTextFeatures;
@@ -145,9 +333,12 @@ class SelectionManager {
                 targetMap = this.selectedEllipseFeatures;
                 break;
             default:
-                console.error('Invalid source');
+                console.error('Invalid source:', source);
+                return;
         }
-        if (targetMap.has(featureId)) {
+
+        if (targetMap.has(featureId) && forceToggle) {
+            // Only deselect if explicitly forced (shift+click)
             targetMap.delete(featureId);
             if (source === 'circle' && this.circleControl) {
                 this.circleControl.onFeatureDeselected?.(feature);
@@ -155,7 +346,8 @@ class SelectionManager {
             if (source === 'ellipse' && this.ellipseControl) {
                 this.ellipseControl.onFeatureDeselected?.(feature);
             }
-        } else {
+        } else if (!targetMap.has(featureId)) {
+            // Select feature
             targetMap.set(featureId, feature);
             if (source === 'circle' && this.circleControl) {
                 this.circleControl.onFeatureSelected?.(feature);
@@ -188,6 +380,19 @@ class SelectionManager {
         }
 
         this.updateUI();
+        this.notifyControlsOfGlobalDeselect();
+    }
+
+    notifyControlsOfGlobalDeselect = () => {
+        // Notify circle control about global deselect
+        if (this.circleControl && this.circleControl.onGlobalDeselect) {
+            this.circleControl.onGlobalDeselect();
+        }
+
+        // Notify ellipse control about global deselect
+        if (this.ellipseControl && this.ellipseControl.onGlobalDeselect) {
+            this.ellipseControl.onGlobalDeselect();
+        }
     }
 
     getAllSelectedFeatures() {

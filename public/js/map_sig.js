@@ -26,7 +26,9 @@ import AddEllipseControl from './controls_sig/ellipse_tool/add_ellipse_control.j
 // CONTROLES
 //-----------------------------------------------
 
+const selectionManager = new SelectionManager(map);
 const toolManager = new ToolManager(map);
+toolManager.setSelectionManager(selectionManager)
 
 const drawControl = new DrawControl(toolManager);
 
@@ -47,7 +49,6 @@ const addStreetViewControl = new AddStreetViewControl(toolManager);
 const circleControl = new AddCircleControl(toolManager);
 const ellipseControl = new AddEllipseControl(toolManager);
 
-const selectionManager = new SelectionManager(map);
 selectionManager.setDrawControl(drawControl);
 selectionManager.setTextControl(textControl);
 selectionManager.setImageControl(imageControl);
@@ -58,19 +59,11 @@ selectionManager.setEllipseControl(ellipseControl);
 
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
-drawControl.setSelectionManager(selectionManager);
-textControl.setSelectionManager(selectionManager);
-imageControl.setSelectionManager(selectionManager);
-losControl.setSelectionManager(selectionManager);
-visibilityControl.setSelectionManager(selectionManager);
-ellipseControl.setSelectionManager(selectionManager);
 
 importControl.setDrawControl(drawControl);
 
 const featureSearchControl = new FeatureSearchControl(uiManager);
 uiManager.setFeatureSearchControl(featureSearchControl);
-
-toolManager.setSelectionManager(selectionManager);
 
 new MoveHandler(map, selectionManager, uiManager);
 

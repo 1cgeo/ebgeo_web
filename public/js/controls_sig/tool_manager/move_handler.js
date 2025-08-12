@@ -91,14 +91,23 @@ class MoveHandler {
         const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses'];
         const filteredFeatures = clickedFeatures.filter(feature => validSources.includes(feature.source));
 
-        // Check for edit handles (midpoint/vertex)
-        const hasEditHandles = filteredFeatures.some(feature =>
+        // Check for edit handles (maplibredraw midpoint/vertex handles)
+        const hasMaplibreDrawEditHandles = filteredFeatures.some(feature =>
             feature.properties.mode === 'direct_select' || 
             feature.properties.meta === 'midpoint' || 
             feature.properties.meta === 'vertex'
         );
 
-        if (filteredFeatures.length === 0 || hasEditHandles) {
+        // Check for custom tool edit handles (circle, ellipse, etc.)
+        const hasCustomToolEditHandles = this.hasCustomEditHandles(clickedFeatures);
+
+        if (filteredFeatures.length === 0 || hasMaplibreDrawEditHandles || hasCustomToolEditHandles) {
+            return;
+        }
+
+        // Check if any selected feature is in editing mode (should not be draggable)
+        const hasFeatureInEditingMode = this.hasSelectedFeatureInEditingMode(allSelectedFeatures);
+        if (hasFeatureInEditingMode) {
             return;
         }
 
@@ -115,7 +124,7 @@ class MoveHandler {
         this.map.dragPan.disable();
         this.uiManager.setDragging(true);
         this.setCursorStyle('grabbing');
-        
+                
         // Cache initial coordinates
         this.initialCoordinates = e.lngLat;
         this.cachedPosition.lng = e.lngLat.lng;
@@ -126,6 +135,60 @@ class MoveHandler {
         // Cache selected features and calculate offsets
         this.selectedFeatures = allSelectedFeatures;
         this.offsets = this.calculateOffsetsOptimized(allSelectedFeatures, this.initialCoordinates);
+    }
+
+    // Check for custom tool edit handles (circle, ellipse, etc.)
+    hasCustomEditHandles(clickedFeatures) {
+        // Check for circle edit handles
+        const hasCircleEditHandles = clickedFeatures.some(feature => 
+            feature.source === 'circle-edit-handles' && 
+            (feature.properties.user_isEditingHandle || 
+             feature.properties.meta === 'vertex' ||
+             feature.properties.mode === 'circle_editing')
+        );
+
+        // Check for ellipse edit handles (similar pattern)
+        const hasEllipseEditHandles = clickedFeatures.some(feature => 
+            feature.source === 'ellipse-edit-handles' && 
+            (feature.properties.user_isEditingHandle || 
+             feature.properties.meta === 'vertex' ||
+             feature.properties.mode === 'ellipse_editing')
+        );
+
+        // Add more handle types as needed
+        return hasCircleEditHandles || hasEllipseEditHandles;
+    }
+
+    // Check if any selected feature is in editing mode
+    hasSelectedFeatureInEditingMode(selectedFeatures) {
+        for (const feature of selectedFeatures) {
+            const source = feature.properties.source;
+            
+            // Check circle editing mode
+            if (source === 'circle' && 
+                this.selectionManager.circleControl && 
+                this.selectionManager.circleControl.isEditingMode &&
+                this.selectionManager.circleControl.isEditingMode()) {
+                return true;
+            }
+            
+            // Check ellipse editing mode
+            if (source === 'ellipse' && 
+                this.selectionManager.ellipseControl && 
+                this.selectionManager.ellipseControl.isEditingMode &&
+                this.selectionManager.ellipseControl.isEditingMode()) {
+                return true;
+            }
+            
+            // Check if feature has editing mode properties
+            if (feature.properties.mode && 
+                (feature.properties.mode.includes('editing') || 
+                 feature.properties.mode === 'direct_select')) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     onMouseMove(e) {

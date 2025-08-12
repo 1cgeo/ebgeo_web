@@ -23,11 +23,7 @@ class AddLOSControl {
         this.endPoint = null;
         this.debounceTime = 30;
         this.lastUpdateTime = 0;
-        this.selectionManager = null;
-    }
-
-    setSelectionManager(selectionManager) {
-        this.selectionManager = selectionManager;
+        this.selectionManager = toolManager.selectionManager;
     }
 
     onAdd = (map) => {
