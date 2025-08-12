@@ -35,7 +35,7 @@ class AddVisibilityControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "visibility-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_visibility_black.svg" alt="VISIBILITY" />';
-        button.title = 'Adicionar análise de visibilidade';
+        button.title = 'Adicionar análise de visibilidade (V)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
@@ -500,7 +500,7 @@ class AddVisibilityControl {
         this.map.getCanvas().style.cursor = '';
     }
 
-    updateFeaturesProperty = async (features, property, value) => {
+    updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
@@ -514,9 +514,6 @@ class AddVisibilityControl {
                 processedFeatures.forEach(processedFeature => {
                     processedFeature.properties[property] = value;
                 });
-
-                // Salvar no IndexedDB
-                await updateFeature('visibility', feature);
             }
         }
         this.map.getSource('visibility').setData(data);

@@ -44,7 +44,7 @@ class AddCircleControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "circle-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_circle_black.svg" alt="CIRCLE" />';
-        button.title = 'Adicionar círculo';
+        button.title = 'Adicionar círculo (C)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
@@ -270,9 +270,7 @@ class AddCircleControl {
         // ✅ RESETAR VARIÁVEIS DE DRAG
         this.isDraggingFeature = false;
         this.initialFeaturePosition = null;
-        
-        this.setupSelectedEventListeners();
-        
+                
         console.log(`Círculo ${feature.id} selecionado (drag habilitado)`);
     }
 
@@ -620,7 +618,7 @@ class AddCircleControl {
 
     // ===== MÉTODOS OBRIGATÓRIOS PARA SELEÇÃO =====
 
-    updateFeaturesProperty = async (features, property, value) => {
+    updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('circles')._data));
         
         for (const feature of features) {
@@ -639,8 +637,6 @@ class AddCircleControl {
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
-                
-                await updateFeature('circles', sourceFeature);
             }
         }
         

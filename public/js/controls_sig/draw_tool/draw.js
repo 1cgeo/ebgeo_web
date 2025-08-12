@@ -273,17 +273,13 @@ class DrawControl {
         //nothing to do here
     }
 
-    updateFeaturesProperty = async (features, property, value) => {
+    updateFeaturesProperty = (features, property, value) => {
         for (const feature of features) {
             feature.properties[property] = value;
             this.draw.setFeatureProperty(feature.id, property, value);
             const feat = this.draw.get(feature.id);
             this.draw.add(feat);
             this.updateFeatureMeasurement(feature);
-            
-            // Atualizar no IndexedDB
-            const type = feature.geometry.type.toLowerCase() + 's';
-            await updateFeature(type, feature);
         }
     }
 
@@ -355,19 +351,19 @@ class DrawControl {
     changeButtonColors = () => {
         $('.mapbox-gl-draw_point').html(
             `
-            <img src="./images/icon_point_black.svg" alt="Adicionar ponto" title="Adicionar ponto" />
+            <img src="./images/icon_point_black.svg" alt="Adicionar ponto" title="Adicionar ponto (P)" />
             `
         )
 
         $('.mapbox-gl-draw_line').html(
             `
-            <img src="./images/icon_line_black.svg" alt="Adicionar linha" title="Adicionar linha" />
+            <img src="./images/icon_line_black.svg" alt="Adicionar linha" title="Adicionar linha (L)" />
             `
         )
 
         $('.mapbox-gl-draw_polygon').html(
             `
-            <img src="./images/icon_polygon_black.svg" alt="Adicionar polígono" title="Adicionar polígono" />
+            <img src="./images/icon_polygon_black.svg" alt="Adicionar polígono" title="Adicionar polígono (A)" />
             `
         )
 

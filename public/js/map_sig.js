@@ -140,13 +140,17 @@ document.addEventListener('keydown', (e) => {
         case 'Z':
             if (e.ctrlKey && !e.shiftKey) {
                 e.preventDefault();
-                undoLastAction();
+                if (undoLastAction()) {
+                    mapControl.switchMap(false);
+                }
             }
             break;
         case 'y':
-            if (e.ctrlKey) {
+            if (e.ctrlKey && !e.shiftKey) {
                 e.preventDefault();
-                redoLastAction();
+                if (redoLastAction()) {
+                    mapControl.switchMap(false);
+                }
             }
             break;
 

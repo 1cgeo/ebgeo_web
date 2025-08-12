@@ -462,7 +462,6 @@ export const undoLastAction = async () => {
 
     memoryStore.isUndoing = true;
     currentMap.redoStack.push(lastAction);
-
     try {
         switch (lastAction.type) {
             case 'add':
@@ -474,6 +473,12 @@ export const undoLastAction = async () => {
             case 'remove':
                 await addFeature(lastAction.featureType, lastAction.feature);
                 break;
+            case 'addMultiple':
+                for (const [type, features] of Object.entries(lastAction.features)) {
+                    for (const feature of features) {
+                        await removeFeature(type, feature.id);
+                    }
+                }
             default:
                 break;
         }
@@ -503,6 +508,13 @@ export const redoLastAction = async () => {
             case 'remove':
                 await removeFeature(lastUndoneAction.featureType, lastUndoneAction.feature.id);
                 break;
+            case 'addMultiple':
+                for (const [type, features] of Object.entries(lastUndoneAction.features)) {
+                    for (const feature of features) {
+                        await addFeature(type, feature);
+                    }
+                }
+                break
             default:
                 break;
         }
@@ -526,8 +538,9 @@ export const addFeatures = async (featuresMap) => {
     Object.keys(featuresMap).forEach(type => {
         const features = featuresMap[type] || [];
         if (features.length > 0) {
-            currentMapData.features[type].push(...features);
-            action.features[type] = JSON.parse(JSON.stringify(features));
+            const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
+            currentMapData.features[type].push(...cleanedFeatures);
+            action.features[type] = JSON.parse(JSON.stringify(cleanedFeatures));
         }
     });
     

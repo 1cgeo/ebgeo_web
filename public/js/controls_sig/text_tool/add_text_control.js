@@ -32,7 +32,7 @@ class AddTextControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "text-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_text_black.svg" alt="TEXT" />';
-        button.title = 'Adicionar texto';
+        button.title = 'Adicionar texto (T)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
@@ -124,16 +124,13 @@ class AddTextControl {
         this.map.getCanvas().style.cursor = '';
     }
     
-    updateFeaturesProperty = async (features, property, value) => {
+    updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         for (const feature of features) {
             const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
-                
-                // Atualizar no IndexedDB
-                await updateFeature('texts', feature);
             }
         }
         this.map.getSource('texts').setData(data);

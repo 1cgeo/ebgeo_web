@@ -39,7 +39,7 @@ class AddLOSControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "los-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_los_black.svg" alt="LOS" />';
-        button.title = 'Adicionar linha de visada';
+        button.title = 'Adicionar linha de visada (O)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
@@ -302,7 +302,7 @@ class AddLOSControl {
         this.map.getCanvas().style.cursor = '';
     }
 
-    updateFeaturesProperty = async (features, property, value) => {
+    updateFeaturesProperty = (features, property, value) => {
         const losData = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
 
@@ -319,9 +319,6 @@ class AddLOSControl {
                 processedFeatures.forEach(processedFeature => {
                     processedFeature.properties[property] = value;
                 });
-
-                // Salvar no IndexedDB
-                await updateFeature('los', feature);
             }
         }
 

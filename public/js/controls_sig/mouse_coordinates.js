@@ -1,10 +1,10 @@
 // Path: js\controls_sig\mouse_coordinates.js
-import { 
-    COORDINATE_FORMATS, 
-    getPlaceholderForFormat, 
-    parseCoordinates, 
-    formatCoordinates, 
-    getDisplayFormat 
+import {
+    COORDINATE_FORMATS,
+    getPlaceholderForFormat,
+    parseCoordinates,
+    formatCoordinates,
+    getDisplayFormat
 } from './utilities/coordinate_converter.js';
 
 class MouseCoordinatesControl {
@@ -25,7 +25,7 @@ class MouseCoordinatesControl {
         this._map = map;
         this._container = document.createElement('div');
         this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group coordinates-control';
-        
+
         // CSS para centralizar na parte inferior
         this._container.style.cssText = `
             position: fixed !important;
@@ -35,26 +35,26 @@ class MouseCoordinatesControl {
             z-index: 1000 !important;
             margin: 0 !important;
         `;
-        
+
         // Create inner container for the coordinates display
         this._innerContainer = document.createElement('div');
         this._innerContainer.className = 'coordinates-display';
-        
+
         // Create element for coordinates display
         this._coordinatesText = document.createElement('div');
         this._coordinatesText.className = 'coordinates-text';
-        
+
         // Create controls container
         const controlsContainer = document.createElement('div');
         controlsContainer.className = 'coordinates-controls';
-        
+
         // Create fly-to button
         const flyToButton = document.createElement('div');
         flyToButton.className = 'coordinates-button coordinates-flyto-button';
         flyToButton.title = "Ir para coordenadas";
         flyToButton.innerHTML = `<img src="./images/fly_to_icon.svg" alt="Fly to" width="16" height="16" />`;
         flyToButton.addEventListener('click', this._openFlyToModal.bind(this));
-        
+
         // Create copy button
         const copyButton = document.createElement('div');
         copyButton.className = 'coordinates-button coordinates-copy-button';
@@ -62,18 +62,18 @@ class MouseCoordinatesControl {
         copyButton.innerHTML = `📋`;
         copyButton.style.fontSize = '14px';
         copyButton.addEventListener('click', this._copyCoordinates.bind(this));
-        
+
         // Create gear icon button
         const gearButton = document.createElement('div');
         gearButton.className = 'coordinates-button coordinates-gear-button';
         gearButton.title = "Mudar formato de coordenadas";
         gearButton.innerHTML = `<img src="./images/gear_icon.svg" alt="Settings" width="16" height="16" />`;
         gearButton.addEventListener('click', this._toggleFormatSelector.bind(this));
-        
+
         // Create format selector dropdown (initially hidden)
         this._formatSelector = document.createElement('div');
         this._formatSelector.className = 'coordinates-format-selector';
-        
+
         // Add format options to the selector
         this._formatOptions.forEach(format => {
             const option = document.createElement('div');
@@ -83,7 +83,7 @@ class MouseCoordinatesControl {
             }
             option.textContent = format.label;
             option.dataset.format = format.id;
-            
+
             // Event listeners for the option
             option.addEventListener('click', (e) => {
                 this._setFormat(format.id);
@@ -100,10 +100,10 @@ class MouseCoordinatesControl {
                     option.style.backgroundColor = '';
                 }
             });
-            
+
             this._formatSelector.appendChild(option);
         });
-        
+
         controlsContainer.appendChild(copyButton);
         controlsContainer.appendChild(flyToButton);
         controlsContainer.appendChild(gearButton);
@@ -111,32 +111,32 @@ class MouseCoordinatesControl {
         this._innerContainer.appendChild(controlsContainer);
         this._container.appendChild(this._innerContainer);
         this._container.appendChild(this._formatSelector);
-        
+
         // Create the fly-to modal (hidden initially)
         this._createFlyToModal();
-        
+
         // Add click listener to close the dropdown when clicking outside
         document.addEventListener('click', this._closeFormatSelector.bind(this));
-        
+
         // Bind mousemove event to update coordinates
         this._map.on('mousemove', this._onMouseMove.bind(this));
-        
+
         // Initial coordinates display
         this._updateCoordinates(0, 0);
-        
+
         return this._container;
     }
-    
+
     _createFlyToModal() {
         // Create modal container
         this._modal = document.createElement('div');
         this._modal.className = 'coordinates-modal';
         this._modal.style.display = 'none';
-        
+
         // Create modal content
         const modalContent = document.createElement('div');
         modalContent.className = 'coordinates-modal-content';
-        
+
         // Create modal header
         const modalHeader = document.createElement('div');
         modalHeader.className = 'coordinates-modal-header';
@@ -150,7 +150,7 @@ class MouseCoordinatesControl {
         });
         modalHeader.appendChild(modalTitle);
         modalHeader.appendChild(closeButton);
-        
+
         // Create format selector
         const formatContainer = document.createElement('div');
         formatContainer.className = 'coordinates-modal-format';
@@ -158,7 +158,7 @@ class MouseCoordinatesControl {
         formatLabel.textContent = 'Formato:';
         const formatSelect = document.createElement('select');
         formatSelect.id = 'coordinates-format-select';
-     
+
         this._formatOptions.forEach(format => {
             const option = document.createElement('option');
             option.value = format.id;
@@ -168,10 +168,10 @@ class MouseCoordinatesControl {
             }
             formatSelect.appendChild(option);
         });
-        
+
         formatContainer.appendChild(formatLabel);
         formatContainer.appendChild(formatSelect);
-        
+
         // Create input field
         const inputContainer = document.createElement('div');
         inputContainer.className = 'coordinates-modal-input';
@@ -181,24 +181,24 @@ class MouseCoordinatesControl {
         input.type = 'text';
         input.id = 'coordinates-input';
         input.placeholder = getPlaceholderForFormat(this._currentFormat);
-        
+
         // Update placeholder when format changes
         formatSelect.addEventListener('change', (e) => {
             input.placeholder = getPlaceholderForFormat(e.target.value);
         });
-        
+
         inputContainer.appendChild(inputLabel);
         inputContainer.appendChild(input);
-        
+
         // Create validation message area
         const validationMessage = document.createElement('div');
         validationMessage.className = 'coordinates-validation-message';
         validationMessage.id = 'coordinates-validation';
-        
+
         // Create buttons
         const buttonContainer = document.createElement('div');
         buttonContainer.className = 'coordinates-modal-buttons';
-        
+
         const flyButton = document.createElement('button');
         flyButton.textContent = 'Ir para';
         flyButton.className = 'coordinates-fly-button';
@@ -206,7 +206,7 @@ class MouseCoordinatesControl {
             const formatId = formatSelect.value;
             const inputValue = input.value.trim();
             const coordinates = parseCoordinates(inputValue, formatId);
-            
+
             if (coordinates) {
                 this._flyToCoordinates(coordinates.lng, coordinates.lat);
                 this._modal.style.display = 'none';
@@ -226,7 +226,7 @@ class MouseCoordinatesControl {
             const formatId = formatSelect.value;
             const inputValue = input.value.trim();
             const coordinates = parseCoordinates(inputValue, formatId);
-            
+
             if (coordinates) {
                 this._createPointAtCoordinates(coordinates.lng, coordinates.lat);
                 this._modal.style.display = 'none';
@@ -238,7 +238,7 @@ class MouseCoordinatesControl {
                 validationMessage.className = 'coordinates-validation-message error';
             }
         });
-        
+
         const cancelButton = document.createElement('button');
         cancelButton.textContent = 'Cancelar';
         cancelButton.className = 'coordinates-cancel-button';
@@ -248,11 +248,11 @@ class MouseCoordinatesControl {
             validationMessage.textContent = '';
             validationMessage.className = 'coordinates-validation-message';
         });
-        
+
         buttonContainer.appendChild(flyButton);
         buttonContainer.appendChild(createPointButton);
         buttonContainer.appendChild(cancelButton);
-        
+
         // Assemble modal
         modalContent.appendChild(modalHeader);
         modalContent.appendChild(formatContainer);
@@ -260,10 +260,10 @@ class MouseCoordinatesControl {
         modalContent.appendChild(validationMessage);
         modalContent.appendChild(buttonContainer);
         this._modal.appendChild(modalContent);
-        
+
         // Add modal to document body
         document.body.appendChild(this._modal);
-        
+
         // Close modal when clicking outside
         this._modal.addEventListener('click', (e) => {
             if (e.target === this._modal) {
@@ -271,17 +271,18 @@ class MouseCoordinatesControl {
             }
         });
     }
-    
+
     _createPointAtCoordinates(lng, lat) {
         this._drawControl.addPointFeatureAtCoordinates(lng, lat);
+        this._flyToCoordinates(lng, lat);
     }
-    
+
     _copyCoordinates() {
         const { lat, lng } = this._currentCoordinates;
         const textToCopy = formatCoordinates(lat, lng, this._currentFormat);
-        
+
         if (!textToCopy || textToCopy.trim() === '') return;
-        
+
         // Try modern clipboard API first
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(textToCopy).then(() => {
@@ -292,76 +293,80 @@ class MouseCoordinatesControl {
         } else {
         }
     }
-    
+
     _showCopyFeedback() {
         const copyButton = this._container.querySelector('.coordinates-copy-button');
         const originalContent = copyButton.innerHTML;
-        
+
         // Show check mark briefly
         copyButton.innerHTML = '✅';
         copyButton.style.color = '#28a745';
-        
+
         setTimeout(() => {
             copyButton.innerHTML = originalContent;
             copyButton.style.color = '';
         }, 1000);
     }
-    
+
     _openFlyToModal() {
         if (this._modal) {
             // Set input to current format
             const formatSelect = document.getElementById('coordinates-format-select');
             formatSelect.value = this._currentFormat;
-            
+
             // Clear any previous input
             const input = document.getElementById('coordinates-input');
             input.placeholder = getPlaceholderForFormat(this._currentFormat);
             input.value = '';
-            
+
             // Clear validation message
             const validationMessage = document.getElementById('coordinates-validation');
             validationMessage.textContent = '';
             validationMessage.className = 'coordinates-validation-message';
-            
+
             // Show the modal
             this._modal.style.display = 'block';
-            
+
             // Focus the input
             setTimeout(() => {
                 input.focus();
             }, 100);
         }
     }
-    
+
     _flyToCoordinates(lng, lat) {
-        if (this._map) {
-            this._map.jumpTo({
-                center: [lng, lat],
-                zoom: 14
-            });
-        }
+        // Configurações do zoom para ponto criado
+        const zoomOptions = {
+            center: [lng, lat],
+            zoom: Math.max(this._map.getZoom(), 14),
+            duration: 1500, // Animação de 1.5 segundos
+            essential: true // Não cancelar por outras interações
+        };
+
+        // Executar a navegação
+        this._map.easeTo(zoomOptions);
     }
-    
+
     _toggleFormatSelector(e) {
         e.stopPropagation();
         const isVisible = this._formatSelector.style.display === 'block';
         this._formatSelector.style.display = isVisible ? 'none' : 'block';
     }
-    
+
     _closeFormatSelector(e) {
         // Check if the click is outside the format selector and gear button
-        if (this._formatSelector && 
-            !this._formatSelector.contains(e.target) && 
+        if (this._formatSelector &&
+            !this._formatSelector.contains(e.target) &&
             !e.target.closest('.coordinates-gear-button')) {
             this._formatSelector.style.display = 'none';
         }
     }
-    
+
     _setFormat(formatId) {
         if (this._currentFormat === formatId) return;
-        
+
         this._currentFormat = formatId;
-        
+
         // Update the dropdown to highlight the selected option
         const options = this._formatSelector.querySelectorAll('.coordinates-format-option');
         options.forEach(option => {
@@ -375,24 +380,24 @@ class MouseCoordinatesControl {
                 option.style.fontWeight = '';
             }
         });
-        
+
         // Update the coordinates display with the new format
         if (this._map) {
             this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
         }
     }
-    
+
     _onMouseMove(e) {
         this._currentCoordinates = { lat: e.lngLat.lat, lng: e.lngLat.lng };
         this._updateCoordinates(e.lngLat.lat, e.lngLat.lng);
     }
-    
+
     _updateCoordinates(lat, lng) {
         this._coordinatesText.innerHTML = '';
-        
+
         try {
             const displayFormat = getDisplayFormat(lat, lng, this._currentFormat);
-            
+
             displayFormat.parts.forEach(part => {
                 const span = document.createElement('span');
                 span.textContent = `${part.label}: ${part.value}`;
@@ -403,10 +408,10 @@ class MouseCoordinatesControl {
             // Fallback to lat/long if conversion fails
             const latSpan = document.createElement('span');
             latSpan.textContent = `Lat: ${lat.toFixed(5)}°`;
-            
+
             const lngSpan = document.createElement('span');
             lngSpan.textContent = `Lon: ${lng.toFixed(5)}°`;
-            
+
             this._coordinatesText.appendChild(latSpan);
             this._coordinatesText.appendChild(lngSpan);
         }
@@ -415,11 +420,11 @@ class MouseCoordinatesControl {
     onRemove() {
         document.removeEventListener('click', this._closeFormatSelector);
         this._map.off('mousemove', this._onMouseMove);
-        
+
         if (this._modal && this._modal.parentNode) {
             this._modal.parentNode.removeChild(this._modal);
         }
-        
+
         this._container.parentNode.removeChild(this._container);
         this._map = undefined;
     }

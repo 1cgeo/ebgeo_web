@@ -32,7 +32,7 @@ class AddImageControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "photo-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_photo_black.svg" alt="PHOTO" />';
-        button.title = 'Adicionar imagem';
+        button.title = 'Adicionar imagem (I)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
@@ -196,16 +196,13 @@ class AddImageControl {
         this.map.getCanvas().style.cursor = '';
     }
 
-    updateFeaturesProperty = async (features, property, value) => {
+    updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
         for (const feature of features) {
             const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
-
-                // Atualizar no IndexedDB
-                await updateFeature('images', feature);
             }
         }
         this.map.getSource('images').setData(data);

@@ -49,7 +49,7 @@ class AddEllipseControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "ellipse-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_ellipse_black.svg" alt="ELLIPSE" />';
-        button.title = 'Adicionar elipse';
+        button.title = 'Adicionar elipse (E)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
@@ -500,7 +500,7 @@ class AddEllipseControl {
 
     // ===== MÉTODOS OBRIGATÓRIOS PARA O SISTEMA DE SELEÇÃO =====
 
-    updateFeaturesProperty = async (features, property, value) => {
+    updateFeaturesProperty = (features, property, value) => {
         for (const feature of features) {
             feature.properties[property] = value;
             
@@ -513,8 +513,6 @@ class AddEllipseControl {
                     feature.properties.bearing
                 );
             }
-            
-            await updateFeature('ellipses', feature);
         }
         this.updateMapSource();
     }
