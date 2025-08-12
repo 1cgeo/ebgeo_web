@@ -12,12 +12,19 @@ class AddCircleControl {
         this.drawingMode = null;
         this.drawPoints = [];
         
-        // Sistema de edição
-        this.editMode = false;
+        // ===== SISTEMA DE 3 ESTADOS =====
+        this.selectedMode = false;    // Estado 2: Selecionado (drag habilitado)
+        this.editMode = false;        // Estado 3: Edição (handles de raio)
         this.selectedFeature = null;
+        
+        // Edição de handles
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.initialHandlePosition = null;
+        
+        // Drag da feature completa
+        this.isDraggingFeature = false;
+        this.initialFeaturePosition = null;
     }
 
     static DEFAULT_PROPERTIES = {
@@ -66,6 +73,7 @@ class AddCircleControl {
         this.map.off('mouseenter', 'circle-fill-layer', this.handleMouseEnter);
         this.map.off('mouseleave', 'circle-fill-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.removeSelectedEventListeners();
         this.removeEditEventListeners();
     }
 
@@ -84,13 +92,21 @@ class AddCircleControl {
         this.map.getCanvas().style.cursor = '';
         this.changeButtonColor();
         this.clearPreview();
-        this.exitEditMode();
+        this.exitAllModes();
+        
+        // ✅ LIMPEZA EXTRA DE SEGURANÇA
+        this.isDraggingFeature = false;
+        this.isDraggingHandle = false;
+        this.initialFeaturePosition = null;
+        this.initialHandlePosition = null;
+        this.activeHandle = null;
+        this.map.dragPan.enable();
     }
 
     // ===== SISTEMA DE DESENHO =====
 
     handleMapClick = (e) => {
-        if (this.drawingMode === 'circle') {
+        if (this.isActive) {
             if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
                 console.warn('Coordenadas inválidas para círculo');
                 return;
@@ -101,7 +117,7 @@ class AddCircleControl {
             if (this.drawPoints.length === 1) {
                 this.map.on('mousemove', this.handlePreviewMouseMove);
             } else if (this.drawPoints.length === 2) {
-                this.clearPreview();
+                this.map.off('mousemove', this.handlePreviewMouseMove);
                 this.createFeature();
                 this.toolManager.deactivateCurrentTool();
             }
@@ -130,7 +146,7 @@ class AddCircleControl {
                     preview: true,
                     lineColor: AddCircleControl.DEFAULT_PROPERTIES.lineColor,
                     fillColor: AddCircleControl.DEFAULT_PROPERTIES.fillColor,
-                    opacity: 0.3
+                    opacity: 0.5
                 }
             });
         }
@@ -148,11 +164,11 @@ class AddCircleControl {
 
     createFeature = async () => {
         const center = this.drawPoints[0];
-        const radiusPoint = this.drawPoints[1];
-        const radius = this.calculateDistance(center, radiusPoint);
+        const endPoint = this.drawPoints[1];
+        const radius = this.calculateDistance(center, endPoint);
 
         if (radius < 10) {
-            console.warn('Raio muito pequeno. Mínimo: 10 metros');
+            alert('Raio mínimo: 10 metros');
             this.drawPoints = [];
             return;
         }
@@ -178,44 +194,206 @@ class AddCircleControl {
             this.map.getSource('circles').setData(data);
             
             this.drawPoints = [];
+            
+            this.toolManager.setActiveTool(null);
         } catch (error) {
             console.error('Erro ao criar círculo:', error);
         }
     }
 
+    // ===== SISTEMA DE 3 ESTADOS =====
 
+    // Estado 1 → Estado 2: Primeiro clique seleciona
     onFeatureSelected = (feature) => {
-        feature.id = feature.id || feature.properties.id;
-        this.enterEditMode(feature);
+        const featureId = feature.id || feature.properties.id;
+        
+        if (this.selectedFeature && this.selectedFeature.id === featureId) {
+            this.enterEditMode(feature);
+            return;
+        }
+        
+        this.enterSelectedMode(feature);
     }
 
+    // Estado 2 → Estado 1: Desseleção
     onFeatureDeselected = (feature) => {
         feature.id = feature.id || feature.properties.id;
-        this.exitEditMode();
+        
+        // ✅ PREVENIR LOOP - só processar se for a feature atual
+        if (!this.selectedFeature || this.selectedFeature.id !== feature.id) {
+            return; // Não é a feature atual, ignorar
+        }
+        
+        this.exitAllModes();
     }
 
+    // Estado 2 → Estado 3: Segundo clique entra em edição (chamado via SelectionManager)
     enterEditMode = (feature) => {
-        this.exitEditMode();
-        
+        console.log('edit mode-8=')
         feature.id = feature.id || feature.properties.id;
+        
+        // ✅ VERIFICAR SE JÁ ESTÁ EM MODO DE EDIÇÃO DA MESMA FEATURE
+        if (this.editMode && this.selectedFeature && this.selectedFeature.id === feature.id) {
+            return; // Já em edição desta feature
+        }
+        
+        if (!this.selectedMode || !this.selectedFeature || this.selectedFeature.id !== feature.id) {
+            // Se não estava selecionado, seleciona primeiro
+            this.enterSelectedMode(feature);
+        }
+        
+        // Transição: Selected → Edit
+        this.exitSelectedMode();
         
         this.selectedFeature = feature;
         this.editMode = true;
         
+        // ✅ RESETAR VARIÁVEIS DE DRAG DE HANDLES
+        this.isDraggingHandle = false;
+        this.activeHandle = null;
+        this.initialHandlePosition = null;
+        
         this.createEditHandles(feature);
         this.setupEditEventListeners();
         
+        console.log(`Círculo ${feature.id} entrou em modo de edição`);
+    }
+
+    // Estado 2: Selecionado (drag habilitado, sem handles)
+    enterSelectedMode = (feature) => {
+        this.exitAllModes(); // Limpa estados anteriores
+        
+        feature.id = feature.id || feature.properties.id;
+        this.selectedFeature = feature;
+        this.selectedMode = true;
+        
+        // ✅ RESETAR VARIÁVEIS DE DRAG
+        this.isDraggingFeature = false;
+        this.initialFeaturePosition = null;
+        
+        this.setupSelectedEventListeners();
+        
+        console.log(`Círculo ${feature.id} selecionado (drag habilitado)`);
+    }
+
+    exitSelectedMode = () => {
+        if (!this.selectedMode) return;
+        
+        this.selectedMode = false;
+        
+        // ✅ LIMPAR ESTADO DE DRAG
+        this.isDraggingFeature = false;
+        this.initialFeaturePosition = null;
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+        
+        this.removeSelectedEventListeners();
+        
+        console.log('Saiu do modo selecionado');
     }
 
     exitEditMode = () => {
         if (!this.editMode) return;
         
-        this.selectedFeature = null;
         this.editMode = false;
+        
+        // ✅ LIMPAR ESTADO DE DRAG DE HANDLES
+        this.isDraggingHandle = false;
+        this.activeHandle = null;
+        this.initialHandlePosition = null;
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+        
         this.clearEditHandles();
         this.removeEditEventListeners();
         
+        console.log('Saiu do modo de edição');
     }
+
+    exitAllModes = () => {
+        this.exitEditMode();
+        this.exitSelectedMode();
+        this.selectedFeature = null;
+    }
+
+    // ===== ESTADO 2: SELECTED MODE (DRAG) =====
+
+    setupSelectedEventListeners = () => {
+        this.map.on('mousedown', this.onSelectedMouseDown);
+        this.map.on('mousemove', this.onSelectedMouseMove);
+        this.map.on('mouseup', this.onSelectedMouseUp);
+    }
+
+    removeSelectedEventListeners = () => {
+        this.map.off('mousedown', this.onSelectedMouseDown);
+        this.map.off('mousemove', this.onSelectedMouseMove);
+        this.map.off('mouseup', this.onSelectedMouseUp);
+    }
+
+    onSelectedMouseDown = (e) => {
+        if (!this.selectedMode) return;
+
+        // Verificar se clicou na feature selecionada
+        const features = this.map.queryRenderedFeatures(e.point, {
+            layers: ['circle-layer', 'circle-fill-layer']
+        });
+
+        const clickedFeature = features.find(f => 
+            (f.id || f.properties.id) === this.selectedFeature.id
+        );
+
+        if (clickedFeature) {
+            this.isDraggingFeature = true;
+            this.initialFeaturePosition = [e.lngLat.lng, e.lngLat.lat];
+            this.map.dragPan.disable();
+            this.map.getCanvas().style.cursor = 'grabbing';
+            e.preventDefault();
+        }
+    }
+
+    onSelectedMouseMove = (e) => {
+        if (!this.isDraggingFeature || !this.selectedFeature || !this.initialFeaturePosition) return;
+        
+        const currentPosition = [e.lngLat.lng, e.lngLat.lat];
+        this.updateFeaturePosition(currentPosition);
+    }
+
+    onSelectedMouseUp = () => {
+        if (this.isDraggingFeature) {
+            this.isDraggingFeature = false;
+            this.initialFeaturePosition = null;
+            this.map.dragPan.enable();
+            this.map.getCanvas().style.cursor = '';
+            
+            if (this.selectedFeature) {
+                this.saveFeatureChanges(this.selectedFeature);
+            }
+        }
+    }
+
+    updateFeaturePosition = (newPosition) => {
+
+        const deltaLng = newPosition[0] - this.initialFeaturePosition[0];
+        const deltaLat = newPosition[1] - this.initialFeaturePosition[1];
+        const currentCenter = this.normalizeCenter(this.selectedFeature.properties.center);
+        if (!currentCenter) {
+            console.error('Centro inválido para atualização de posição');
+            return;
+        }
+        
+        const newCenter = [currentCenter[0] + deltaLng, currentCenter[1] + deltaLat];
+
+        this.selectedFeature.properties.center = newCenter;
+        this.selectedFeature.geometry = this.generateCircleGeometry(
+            newCenter, 
+            this.selectedFeature.properties.radius
+        );
+
+        this.updateFeatureVisualization(this.selectedFeature);
+        this.initialFeaturePosition = newPosition;
+    }
+
+    // ===== ESTADO 3: EDIT MODE (HANDLES) =====
 
     createEditHandles = (feature) => {
         const handles = [];
@@ -313,7 +491,6 @@ class AddCircleControl {
         
         if (this.activeHandle.properties.handleType === 'radius') {
             const currentPosition = [e.lngLat.lng, e.lngLat.lat];
-            
             this.updateGeometryFromHandleDuringDrag('radius', currentPosition);
         }
     }
@@ -328,9 +505,7 @@ class AddCircleControl {
             
             if (this.selectedFeature) {
                 this.createEditHandles(this.selectedFeature);
-                
                 this.updateSelectionAfterEdit();
-                
                 this.saveFeatureChanges(this.selectedFeature);
             }
         }
@@ -351,45 +526,17 @@ class AddCircleControl {
             if (newRadius > 10) {
                 feature.properties.radius = newRadius;
                 feature.geometry = this.generateCircleGeometry(center, newRadius);
-                
                 this.updateFeatureVisualization(feature);
             }
         }
     }
 
-    updateSelectionAfterEdit = () => {
-        // Atualizar a feature selecionada no SelectionManager
-        if (this.selectedFeature && this.selectionManager) {
-            const featureId = this.selectedFeature.id || this.selectedFeature.properties.id;
-            this.selectionManager.selectedCircleFeatures.set(featureId, this.selectedFeature);
-            
-            this.uiManager.updateSelectionHighlight();
-        }
-    }
-
-    updateFeatureVisualization = (feature) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('circles')._data));
-        const featureIndex = data.features.findIndex(f => f.id == feature.id);
-        
-        if (featureIndex !== -1) {
-            data.features[featureIndex] = feature;
-            this.map.getSource('circles').setData(data);
-        }
-    }
-
-    saveFeatureChanges = async (feature) => {
-        try {
-            await updateFeature('circles', feature);
-        } catch (error) {
-            console.error('Erro ao salvar alterações do círculo:', error);
-        }
-    }
+    // ===== UTILITÁRIOS =====
 
     normalizeCenter(center) {
         if (typeof center === 'string') {
             try {
                 center = JSON.parse(center);
-                console.log('Center normalizado de string para array:', center);
             } catch (e) {
                 console.error('Erro ao parsear center:', center, e);
                 return null;
@@ -404,22 +551,19 @@ class AddCircleControl {
         return center;
     }
 
-    generateCircleGeometry = (center, radiusInMeters) => {
-        center = this.normalizeCenter(center);
-        if (!center) {
-            console.error('Não foi possível gerar geometria - center inválido');
-            return null;
-        }
-        
+    generateCircleGeometry = (center, radius) => {
         const points = 64;
         const coords = [];
-        const radiusInDegrees = radiusInMeters / 111320;
-
+        
         for (let i = 0; i <= points; i++) {
-            const angle = (i / points) * 2 * Math.PI;
-            const x = center[0] + (radiusInDegrees * Math.cos(angle)) / Math.cos(center[1] * Math.PI / 180);
-            const y = center[1] + (radiusInDegrees * Math.sin(angle));
-            coords.push([x, y]);
+            const angle = (i * 360 / points) * Math.PI / 180;
+            const dx = radius * Math.cos(angle);
+            const dy = radius * Math.sin(angle);
+            
+            const lng = center[0] + (dx / 111320) / Math.cos(center[1] * Math.PI / 180);
+            const lat = center[1] + (dy / 111320);
+            
+            coords.push([lng, lat]);
         }
 
         return {
@@ -449,6 +593,29 @@ class AddCircleControl {
 
     handleMouseLeave = () => {
         this.map.getCanvas().style.cursor = '';
+    }
+
+    updateFeatureVisualization = (feature) => {
+        const data = JSON.parse(JSON.stringify(this.map.getSource('circles')._data));
+        const sourceFeature = data.features.find(f => f.id == feature.id);
+        if (sourceFeature) {
+            Object.assign(sourceFeature, feature);
+            this.map.getSource('circles').setData(data);
+        }
+    }
+
+    updateSelectionAfterEdit = () => {
+        if (this.selectedFeature && this.selectionManager) {
+            this.selectionManager.selectedCircleFeatures.set(this.selectedFeature.id, this.selectedFeature);
+        }
+    }
+
+    saveFeatureChanges = async (feature) => {
+        try {
+            await updateFeature('circles', feature);
+        } catch (error) {
+            console.error('Erro ao salvar mudanças:', error);
+        }
     }
 
     // ===== MÉTODOS OBRIGATÓRIOS PARA SELEÇÃO =====
@@ -484,39 +651,89 @@ class AddCircleControl {
         }
     }
 
-    deleteFeatures = async (features) => {
-        if (features.length === 0) {
-            return;
-        }
-        
-        const data = JSON.parse(JSON.stringify(this.map.getSource('circles')._data));
-        const idsToDelete = new Set(features.map(f => {
-            const id = f.id || f.properties.id;
-            return String(id);
-        }));
-        
-        data.features = data.features.filter(f => !idsToDelete.has(String(f.id)));
-        this.map.getSource('circles').setData(data);
-        
+    hasUnsavedChanges = (features, initialPropertiesMap) => {
+        return features.some(feature => {
+            const initialProperties = initialPropertiesMap.get(feature.id);
+            if (!initialProperties) return false;
+            
+            return (
+                feature.properties.lineColor !== initialProperties.lineColor ||
+                feature.properties.fillColor !== initialProperties.fillColor ||
+                feature.properties.lineWidth !== initialProperties.lineWidth ||
+                feature.properties.opacity !== initialProperties.opacity ||
+                feature.properties.radius !== initialProperties.radius ||
+                JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
+            );
+        });
+    }
+
+    saveFeatures = async (features, initialPropertiesMap) => {
         for (const feature of features) {
-            const id = feature.id || feature.properties.id;
-            await removeFeature('circles', id);
+            await updateFeature('circles', feature);
         }
-        
-        if (this.selectedFeature && features.some(f => {
-            const fId = f.id || f.properties.id;
-            const selectedId = this.selectedFeature.id || this.selectedFeature.properties.id;
-            return fId == selectedId;
-        })) {
-            this.exitEditMode();
+        this.updateMapSource();
+    }
+
+    discardChangeFeatures = async (features, initialPropertiesMap) => {
+        for (const feature of features) {
+            if (initialPropertiesMap.has(feature.id)) {
+                const originalProps = initialPropertiesMap.get(feature.id);
+                feature.properties = { ...originalProps };
+                
+                feature.geometry = this.generateCircleGeometry(
+                    feature.properties.center,
+                    feature.properties.radius
+                );
+                
+                await updateFeature('circles', feature);
+            }
         }
+        this.updateMapSource();
+    }
+
+    deleteFeatures = async (features) => {
+        for (const feature of features) {
+            await removeFeature('circles', feature.id);
+        }
+        this.updateMapSource();
+    }
+
+    setDefaultProperties = (properties) => {
+        Object.assign(AddCircleControl.DEFAULT_PROPERTIES, properties);
     }
 
     updateMapSource = () => {
         if (this.map && this.map.getSource('circles')) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('circles')._data));
-            this.map.getSource('circles').setData(data);
+            const currentData = this.map.getSource('circles')._data;
+            this.map.getSource('circles').setData(currentData);
         }
+    }
+
+    onRemove = () => {
+        try {
+            if (this.uiManager) {
+                this.uiManager.removeControl(this.container);
+            }
+            this.deactivate();
+            this.removeEventListeners();
+            this.map = undefined;
+        } catch (error) {
+            console.error('Error removing AddCircleControl:', error);
+            throw error;
+        }
+    }
+
+    hasFeatureChanged = (feature, initialProperties) => {
+        if (!initialProperties) return true;
+
+        return (
+            feature.properties.lineColor !== initialProperties.lineColor ||
+            feature.properties.fillColor !== initialProperties.fillColor ||
+            feature.properties.opacity !== initialProperties.opacity ||
+            feature.properties.lineWidth !== initialProperties.lineWidth ||
+            feature.properties.radius !== initialProperties.radius ||
+            JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
+        );
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
@@ -544,60 +761,6 @@ class AddCircleControl {
             
             this.map.getSource('circles').setData(data);
         }
-    }
-
-    setDefaultProperties = (properties) => {
-        Object.assign(AddCircleControl.DEFAULT_PROPERTIES, properties);
-    }
-
-    onRemove = () => {
-        try {
-            if (this.uiManager) {
-                this.uiManager.removeControl(this.container);
-            }
-            this.deactivate();
-            this.removeEventListeners();
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing AddCircleControl:', error);
-            throw error;
-        }
-    }
-    saveFeatures = async (features, initialPropertiesMap) => {
-        for (const f of features) {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('circles', f);
-            }
-        }
-    }
-    hasFeatureChanged = (feature, initialProperties) => {
-        if (!initialProperties) return true;
-
-        return (
-            feature.properties.lineColor !== initialProperties.lineColor ||
-            feature.properties.fillColor !== initialProperties.fillColor ||
-            feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.lineWidth !== initialProperties.lineWidth ||
-            feature.properties.radius !== initialProperties.radius ||
-            JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
-        );
-    }
-    discardChangeFeatures = async (features, initialPropertiesMap) => {
-        for (const feature of features) {
-            if (initialPropertiesMap.has(feature.id)) {
-                const originalProps = initialPropertiesMap.get(feature.id);
-                feature.properties = { ...originalProps };
-
-                // Recalcular geometria após restaurar propriedades
-                feature.geometry = this.generateCircleGeometry(
-                    feature.properties.center,
-                    feature.properties.radius
-                );
-
-                await updateFeature('circles', feature);
-            }
-        }
-        this.updateMapSource();
     }
 }
 

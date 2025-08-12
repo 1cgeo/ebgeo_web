@@ -147,16 +147,21 @@ class SelectionManager {
             default:
                 console.error('Invalid source');
         }
-
         if (targetMap.has(featureId)) {
             targetMap.delete(featureId);
             if (source === 'circle' && this.circleControl) {
                 this.circleControl.onFeatureDeselected?.(feature);
             }
+            if (source === 'ellipse' && this.ellipseControl) {
+                this.ellipseControl.onFeatureDeselected?.(feature);
+            }
         } else {
             targetMap.set(featureId, feature);
             if (source === 'circle' && this.circleControl) {
                 this.circleControl.onFeatureSelected?.(feature);
+            }
+            if (source === 'ellipse' && this.ellipseControl) {
+                this.ellipseControl.onFeatureSelected?.(feature);
             }
         }
     }
