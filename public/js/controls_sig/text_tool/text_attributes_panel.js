@@ -47,7 +47,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     colorInput.type = 'color';
     colorInput.value = feature.properties.color;
     colorInput.oninput = (e) => {
-        textControl.updateFeaturesProperty(selectedFeatures, 'color', `#${e.toHex()}`)
+        textControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
     };
     $(panel).append(
         $("<div>", { class: "attr-container-row" })
@@ -62,7 +62,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     backgroundColorInput.type = 'color';
     backgroundColorInput.value = feature.properties.backgroundColor;
     backgroundColorInput.oninput = (e) => {
-        textControl.updateFeaturesProperty(selectedFeatures, 'backgroundColor', `#${e.toHex()}`)
+        textControl.updateFeaturesProperty(selectedFeatures, 'backgroundColor', e.target.value);
     };
     $(panel).append(
         $("<div>", { class: "attr-container-row" })
@@ -126,14 +126,8 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         justifyCenterButton.disabled = !enabled;
         justifyRightButton.disabled = !enabled;
     };
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(backgroundColorLabel))
-            .append($("<div>", { class: "attr-input" }).append(backgroundColorInput))
-    )
 
     updateJustifyButtons(feature.properties.text);
-
 
     const buttonsContainer = $("<div>", { class: "attr-container-row" })
     $(panel).append(buttonsContainer)
