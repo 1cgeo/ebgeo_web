@@ -39,7 +39,8 @@ class MoveHandler {
             'image': this.updatePointFeature.bind(this),
             'circle': this.updateCircleFeature.bind(this),
             'ellipse': this.updateEllipseFeature.bind(this),
-            'arrow': this.updateArrowFeature.bind(this)
+            'arrow': this.updateArrowFeature.bind(this),
+            'boundary': this.updateBoundaryFeature.bind(this)
         };
     }
 
@@ -52,7 +53,8 @@ class MoveHandler {
             'visibility': 'selectedVisibilityFeatures',
             'circle': 'selectedCircleFeatures',
             'ellipse': 'selectedEllipseFeatures',
-            'arrow': 'selectedArrowFeatures'
+            'arrow': 'selectedArrowFeatures',
+            'boundary': 'selectedBoundaryFeatures'
         };
     }
 
@@ -90,7 +92,7 @@ class MoveHandler {
         if (allSelectedFeatures.length === 0) return;
 
         const clickedFeatures = this.map.queryRenderedFeatures(e.point);
-        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows'];
+        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys'];
         const filteredFeatures = clickedFeatures.filter(feature => validSources.includes(feature.source));
 
         // Check for edit handles (maplibredraw midpoint/vertex handles)
@@ -164,7 +166,16 @@ class MoveHandler {
                 feature.properties.mode === 'arrow_editing')
         );
 
-        return hasCircleEditHandles || hasEllipseEditHandles || hasArrowEditHandles;
+        const hasBoundaryEditHandles = clickedFeatures.some(feature => 
+            feature.source === 'boundary-edit-handles' && 
+            (feature.properties.handleType === 'vertex' ||
+             feature.properties.handleType === 'midpoint' ||
+             feature.properties.handleType === 'symbol' ||
+             feature.properties.handleType === 'size' ||
+             feature.properties.mode === 'boundary_editing')
+        );
+
+        return hasCircleEditHandles || hasEllipseEditHandles || hasArrowEditHandles || hasBoundaryEditHandles ;
     }
 
     // Check if any selected feature is in editing mode
@@ -192,6 +203,13 @@ class MoveHandler {
                 this.selectionManager.arrowControl && 
                 this.selectionManager.arrowControl.isEditingMode &&
                 this.selectionManager.arrowControl.isEditingMode()) {
+                return true;
+            }
+
+            if (source === 'boundary' && 
+                this.selectionManager.boundaryControl && 
+                this.selectionManager.boundaryControl.isEditingMode &&
+                this.selectionManager.boundaryControl.isEditingMode()) {
                 return true;
             }
 
@@ -475,6 +493,27 @@ class MoveHandler {
         };
     }
 
+    updateBoundaryFeature(feature, dx, dy, newCoords) {
+        // Boundary features são LineStrings - mover todos os pontos
+        if (feature.geometry.type === 'LineString') {
+            feature.geometry.coordinates = feature.geometry.coordinates.map(coord => [
+                coord[0] + dx,
+                coord[1] + dy
+            ]);
+        }
+        
+        // Atualizar propriedades se necessário
+        if (feature.properties.center) {
+            // Para features que têm propriedade center, atualizá-la também
+            feature.properties.center = [
+                feature.properties.center[0] + dx,
+                feature.properties.center[1] + dy
+            ];
+        }
+        
+        return feature;
+    }
+
     updateSelectionManagerFeaturesOptimized(updatedFeatures) {
         // Initialize all maps at once
         const featureMaps = {
@@ -485,7 +524,8 @@ class MoveHandler {
             selectedVisibilityFeatures: new Map(),
             selectedCircleFeatures: new Map(),
             selectedEllipseFeatures: new Map(),
-            selectedArrowFeatures: new Map()
+            selectedArrowFeatures: new Map(),
+            selectedBoundaryFeatures: new Map()
         };
 
         // Batch process all features

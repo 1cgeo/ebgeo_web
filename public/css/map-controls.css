@@ -72,6 +72,11 @@
 
 .arrow-control.controls-column-right {
     top: 373px !important;
+
+}
+
+.boundary-control.controls-column-right {
+    top: 418px !important;
 }
 
 /* ===== ESTILOS BASE DOS CONTROLES ===== */

@@ -11,6 +11,7 @@ class SelectionManager {
         this.circleControl = null;
         this.ellipseControl = null;
         this.arrowControl = null;
+        this.boundaryControl = null;
         this.selectedDrawFeatures = new Map();
         this.selectedTextFeatures = new Map();
         this.selectedImageFeatures = new Map();
@@ -19,6 +20,7 @@ class SelectionManager {
         this.selectedCircleFeatures = new Map();
         this.selectedEllipseFeatures = new Map();
         this.selectedArrowFeatures = new Map();
+        this.selectedBoundaryFeatures = new Map();
 
         this.setupEventListeners();
     }
@@ -55,6 +57,10 @@ class SelectionManager {
         this.arrowControl = arrowControl;
     }
 
+    setBoundaryControl(boundaryControl) {
+        this.boundaryControl = boundaryControl;
+    }
+
     setUIManager(uiManager) {
         this.uiManager = uiManager;
     }
@@ -75,6 +81,9 @@ class SelectionManager {
         this.map.on('click', 'ellipse-fill-layer', this.handleElementClick);
         this.map.on('click', 'arrow-layer', this.handleElementClick);
         this.map.on('click', 'arrow-fill-layer', this.handleElementClick);
+        this.map.on('click', 'boundary-line-layer', this.handleElementClick);
+        this.map.on('click', 'boundary-symbol-layer', this.handleElementClick);
+        this.map.on('click', 'boundary-text-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
     }
 
@@ -185,6 +194,15 @@ class SelectionManager {
         );
         if (arrowFeature) return { ...arrowFeature, toolType: 'arrow' };
 
+        const boundaryFeature = features.find(f => 
+            (f.source === 'boundarys' || 
+             f.layer?.id === 'boundary-line-layer' || 
+             f.layer?.id === 'boundary-symbol-layer' ||
+             f.layer?.id === 'boundary-text-layer') &&
+            f.properties.source === 'boundary'
+        );
+        if (boundaryFeature) return { ...boundaryFeature, toolType: 'boundary' };
+
         return null;
     }
 
@@ -199,6 +217,8 @@ class SelectionManager {
                 return this.selectedEllipseFeatures.has(featureId);
             case 'arrow':
                 return this.selectedArrowFeatures.has(featureId);
+            case 'boundary':
+                return this.selectedBoundaryFeatures.has(featureId);
             case 'text':
                 return this.selectedTextFeatures.has(featureId);
             case 'image':
@@ -239,6 +259,13 @@ class SelectionManager {
                     this.arrowControl.onFeatureSelected?.(selectedFeature);
                 }
                 break;
+            case 'boundary':
+                if (this.selectedBoundaryFeatures.has(featureId)) {
+                    const selectedFeature = this.selectedBoundaryFeatures.get(featureId);
+                    // Trigger transition to editing mode in boundary control
+                    this.boundaryControl.onFeatureSelected?.(selectedFeature);
+                }
+                break;
         }
     }
 
@@ -275,6 +302,14 @@ class SelectionManager {
         if (this.arrowControl.isEditingMode && this.arrowControl.isEditingMode()) {
             const handleFeatures = features.filter(f => 
                 f.source === 'arrow-edit-handles' && 
+                (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
+            );
+            if (handleFeatures.length > 0) return true;
+        }
+
+        if (this.boundaryControl.isEditingMode && this.boundaryControl.isEditingMode()) {
+            const handleFeatures = features.filter(f => 
+                f.source === 'boundary-edit-handles' && 
                 (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
             );
             if (handleFeatures.length > 0) return true;
@@ -334,6 +369,8 @@ class SelectionManager {
                 return this.selectedEllipseFeatures.has(featureId);
             case 'arrow':
                 return this.selectedArrowFeatures.has(featureId);
+            case 'boundary':
+                return this.selectedBoundaryFeatures.has(featureId);
             default:
                 return false;
         }
@@ -367,6 +404,8 @@ class SelectionManager {
             case 'arrow':
                 targetMap = this.selectedArrowFeatures;
                 break;
+            case 'boundary':
+                targetMap = this.selectedBoundaryFeatures;
             default:
                 console.error('Invalid source:', source);
                 return;
@@ -384,6 +423,9 @@ class SelectionManager {
             if (source === 'arrow' && this.arrowControl) {
                 this.arrowControl.onFeatureDeselected?.(feature);
             }
+            if (source === 'boundary' && this.boundaryControl) {
+                this.boundaryControl.onFeatureDeselected?.(feature);
+            }
         } else if (!targetMap.has(featureId)) {
             // Select feature
             targetMap.set(featureId, feature);
@@ -395,6 +437,9 @@ class SelectionManager {
             }
             if (source === 'arrow' && this.arrowControl) {
                 this.arrowControl.onFeatureSelected?.(feature);
+            }
+            if (source === 'boundary' && this.boundaryControl) {
+                this.boundaryControl.onFeatureSelected?.(feature);
             }
         }
     }
@@ -416,6 +461,7 @@ class SelectionManager {
         this.selectedCircleFeatures.clear();
         this.selectedEllipseFeatures.clear();
         this.selectedArrowFeatures.clear();
+        this.selectedBoundaryFeatures.clear();
 
         if (forceDraw && !this.drawControl.isActive) {
             this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
@@ -439,6 +485,9 @@ class SelectionManager {
         if (this.arrowControl && this.arrowControl.onGlobalDeselect) {
             this.arrowControl.onGlobalDeselect();
         }
+        if (this.boundaryControl && this.boundaryControl.onGlobalDeselect) {
+            this.boundaryControl.onGlobalDeselect();
+        }
     }
 
     getAllSelectedFeatures() {
@@ -450,7 +499,8 @@ class SelectionManager {
             ...this.selectedVisibilityFeatures.values(),
             ...this.selectedCircleFeatures.values(),
             ...this.selectedEllipseFeatures.values(),
-            ...this.selectedArrowFeatures.values()
+            ...this.selectedArrowFeatures.values(),
+            ...this.selectedBoundaryFeatures.values(),
         ];
     }
 
@@ -472,7 +522,8 @@ class SelectionManager {
         if (this.drawControl.isActive) return this.drawControl;
         if (this.circleControl.isActive) return this.circleControl;
         if (this.ellipseControl.isActive) return this.ellipseControl;
-        if (this.arrowControl && this.arrowControl.isActive) return this.arrowControl;
+        if (this.arrowControl.isActive) return this.arrowControl;
+        if (this.boundaryControl.isActive) return this.boundaryControl;
         return null;
     }
 
@@ -485,6 +536,7 @@ class SelectionManager {
         this.circleControl.deleteFeatures([...this.selectedCircleFeatures.values()]);
         this.ellipseControl.deleteFeatures([...this.selectedEllipseFeatures.values()]);
         this.arrowControl.deleteFeatures([...this.selectedArrowFeatures.values()]);
+        this.boundaryControl.deleteFeatures([...this.selectedBoundaryFeatures.values()]);
 
         this.deselectAllFeatures(true);
     }
@@ -498,6 +550,7 @@ class SelectionManager {
         this.circleControl.updateFeatures([...this.selectedCircleFeatures.values()], true);
         this.ellipseControl.updateFeatures([...this.selectedEllipseFeatures.values()], true);
         this.arrowControl.updateFeatures([...this.selectedArrowFeatures.values()], true);
+        this.boundaryControl.updateFeatures([...this.selectedBoundaryFeatures.values()], true);
     }
 }
 

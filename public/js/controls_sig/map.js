@@ -428,6 +428,180 @@ map.on('styledata', async () => {
         });
     }
 
+    if (features.boundarys) {
+        if (!map.getSource('boundarys')) {
+            map.addSource('boundarys', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: features.boundarys
+                }
+            });
+        } else {
+            map.getSource('boundarys').setData({
+                type: 'FeatureCollection',
+                features: features.boundarys
+            });
+        }
+
+        if (!map.getLayer('boundary-line-layer')) {
+            map.addLayer({
+                id: 'boundary-line-layer',
+                type: 'line',
+                source: 'boundarys',
+                paint: {
+                    'line-color': ['get', 'color'],
+                    'line-width': ['get', 'lineWidth'],
+                    'line-opacity': ['get', 'opacity']
+                },
+                filter: ['==', ['get', 'renderType'], 'line']
+            });
+        }
+
+        if (!map.getLayer('boundary-symbol-layer')) {
+            map.addLayer({
+                id: 'boundary-symbol-layer',
+                type: 'line',
+                source: 'boundarys',
+                paint: {
+                    'line-color': ['get', 'color'],
+                    'line-width': 3,
+                    'line-opacity': ['get', 'opacity']
+                },
+                filter: ['==', ['get', 'renderType'], 'symbol']
+            });
+        }
+
+        if (!map.getLayer('boundary-symbol-fill-layer')) {
+            map.addLayer({
+                id: 'boundary-symbol-fill-layer',
+                type: 'fill',
+                source: 'boundarys',
+                paint: {
+                    'fill-color': ['get', 'color'],
+                    'fill-opacity': ['*', ['get', 'opacity'], 0.3]
+                },
+                filter: ['all',
+                    ['==', ['get', 'renderType'], 'symbol'],
+                    ['==', '$type', 'Polygon']
+                ]
+            });
+        }
+
+        if (!map.getLayer('boundary-text-layer')) {
+            map.addLayer({
+                id: 'boundary-text-layer',
+                type: 'symbol',
+                source: 'boundarys',
+                layout: {
+                    'text-field': ['get', 'text'],
+                    'text-font': ['Noto Sans Regular'],
+                    'text-size': [
+                        'interpolate', ['linear'], ['zoom'],
+                        8, ['*', ['coalesce', ['get', 'textScaleFactor'], 1], 8],
+                        16, ['*', ['coalesce', ['get', 'textScaleFactor'], 1], 20]
+                    ],
+                    'text-rotate': ['get', 'rotation'],
+                    'text-allow-overlap': true,
+                    'text-ignore-placement': true,
+                    'symbol-spacing': 1
+                },
+                paint: {
+                    'text-color': ['get', 'color'],
+                    'text-halo-color': '#fff',
+                    'text-halo-width': 2
+                },
+                filter: ['==', ['get', 'renderType'], 'text']
+            });
+        }
+
+        if (!map.getSource('boundary-preview')) {
+            map.addSource('boundary-preview', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+        }
+
+        if (!map.getLayer('boundary-preview-layer')) {
+            map.addLayer({
+                id: 'boundary-preview-layer',
+                type: 'line',
+                source: 'boundary-preview',
+                paint: {
+                    'line-color': '#000000',
+                    'line-width': 4,
+                    'line-dasharray': [2, 2],
+                    'line-opacity': 0.7
+                }
+            });
+        }
+
+        if (!map.getSource('boundary-edit-handles')) {
+            map.addSource('boundary-edit-handles', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+        }
+
+        if (!map.getLayer('boundary-edit-handles-layer')) {
+            map.addLayer({
+                id: 'boundary-edit-handles-layer',
+                type: 'circle',
+                source: 'boundary-edit-handles',
+                paint: {
+                    'circle-radius': 8,
+                    'circle-color': [
+                        'case',
+                        ['==', ['get', 'handleType'], 'vertex'], '#ff0000',     // Vermelho - vértices
+                        ['==', ['get', 'handleType'], 'midpoint'], '#ff0000',   // Vermelho - midpoints
+                        ['==', ['get', 'handleType'], 'symbol'], '#0066ff',     // Azul - símbolo
+                        ['==', ['get', 'handleType'], 'size'], '#28a745',       // Verde - tamanho
+                        '#000000' // Cor padrão
+                    ],
+                    'circle-stroke-color': '#ffffff',
+                    'circle-stroke-width': 2,
+                    'circle-opacity': [
+                        'case',
+                        ['==', ['get', 'handleType'], 'midpoint'], 0.5,  // Midpoints mais transparentes
+                        1
+                    ]
+                },
+                filter: ['!=', ['get', 'role'], 'selected-feature']
+            });
+        }
+
+        if (!map.getLayer('boundary-selected-layer')) {
+            map.addLayer({
+                id: 'boundary-selected-layer',
+                type: 'line',
+                source: 'boundary-edit-handles',
+                paint: {
+                    'line-color': '#ff0000',
+                    'line-width': 6,
+                    'line-dasharray': [2, 2],
+                    'line-opacity': 0.8
+                },
+                filter: ['all',
+                    ['==', ['get', 'role'], 'selected-feature'],
+                    ['==', '$type', 'LineString']
+                ]
+            });
+        }
+
+        if (!map.getLayer('boundary-hitzone-layer')) {
+            map.addLayer({
+                id: 'boundary-hitzone-layer',
+                type: 'line',
+                source: 'boundarys',
+                paint: {
+                    'line-color': 'transparent',
+                    'line-width': 20  // Área maior para clique
+                },
+                filter: ['==', ['get', 'renderType'], 'line']
+            });
+        }
+    }
+
     // Texts source
     if (!map.getSource('texts')) {
         map.addSource('texts', {
@@ -794,7 +968,7 @@ function restoreMeasurements(features) {
     }
 }
 
-function restoreCircleXMarks(features) {
+function restoreCircleXMarks() {
     try {
         const circleControl = map._controls.find(control =>
             control.constructor.name === 'AddCircleControl'

@@ -33,6 +33,7 @@ const getEmptyMapData = () => ({
         circles: [],
         ellipses: [],
         arrows: [],
+        boundarys: []
     },
     zoom: null,
     center_lat: null,
@@ -188,6 +189,8 @@ function getFeatureType(feature) {
             return 'ellipses';
         case 'arrow':
             return 'arrows';
+        case 'boundary':
+            return 'boundarys';
         default:
             return feature.geometry.type.toLowerCase() + 's';
     }

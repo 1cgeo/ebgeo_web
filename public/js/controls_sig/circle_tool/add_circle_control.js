@@ -350,7 +350,9 @@ class AddCircleControl {
      * Atualiza todas as marcas X no mapa
      */
     updateXMarks = () => {
-        const circleData = this.map.getSource('circles')._data;
+        const circleSouce = this.map.getSource('circles')
+        if(!circleSouce) return
+        const circleData = circleSouce._data;
         const xFeatures = [];
 
         circleData.features.forEach(feature => {
