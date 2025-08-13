@@ -1,4 +1,4 @@
-// Path: js\controls_sig\base_map_styles.js
+// js/controls_sig/layers/carta_topografica.js
 export default {
     "version": 8,
     "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",

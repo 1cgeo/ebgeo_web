@@ -156,19 +156,21 @@
 
 /* ===== BASE LAYER CONTROL INTEGRADO ===== */
 .base-layer-control {
-    display: flex !important;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: 1fr 1fr !important;
     gap: 8px !important;
     align-items: center !important;
-    justify-content: center !important;
-    padding: 0 !important;
-    background: none !important;
-    border: none !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    margin: 0 !important;
-    width: auto !important;
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(8px) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    padding: 8px !important;
     z-index: 15 !important;
     pointer-events: auto !important;
+    width: auto !important;
+    min-width: 240px !important;
 }
 
 .base-layer-control .layer-switch {
@@ -185,7 +187,7 @@
     pointer-events: auto !important;
     margin: 0 !important;
     padding: 0 !important;
-    min-width: 80px !important;
+    min-width: 110px !important;
     height: 32px !important;
 }
 
@@ -207,8 +209,11 @@
 }
 
 .base-layer-control .layer-switch span {
-    display: block !important;
-    padding: 6px 12px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    padding: 6px 8px !important;
     font-size: 12px !important;
     font-weight: 500 !important;
     text-align: center !important;
@@ -221,6 +226,16 @@
     pointer-events: none !important;
     width: 100% !important;
     box-sizing: border-box !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    line-height: 1.2 !important;
+}
+
+.base-layer-control .layer-switch .layer-icon {
+    width: 20px !important;
+    height: 20px !important;
+    flex-shrink: 0 !important;
 }
 
 .base-layer-control .layer-switch input[type="radio"]:checked + span {

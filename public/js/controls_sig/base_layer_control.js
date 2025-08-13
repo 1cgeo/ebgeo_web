@@ -1,6 +1,9 @@
-// Path: js\controls_sig\base_layer_control.js
+// js/controls_sig/base_layer_control.js
 import { setBaseLayer } from './store.js';
-import baseStyle from './base_map_styles.js'
+import cartaTopografica from './baselayers/carta_topografica.js';
+import cartaOrtoimagem from './baselayers/carta_ortoimagem.js';
+import osmLayer from './baselayers/osm_layer.js';
+import imagensLayer from './baselayers/imagens_layer.js';
 
 class BaseLayerControl {
     constructor(uiManager) {
@@ -8,8 +11,10 @@ class BaseLayerControl {
         this.container = null;
         this.uiManager = uiManager;
         this.styleUrls = {
-            'Carta': baseStyle,
-            'Ortoimagem': 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
+            'carta-topografica': cartaTopografica,
+            'carta-ortoimagem': cartaOrtoimagem,
+            'osm': osmLayer,
+            'imagens': imagensLayer
         };
     }
 
@@ -18,15 +23,23 @@ class BaseLayerControl {
         this.container = document.createElement('div');
         this.container.className = 'mapboxgl-ctrl base-layer-control';
         
-        // HTML corrigido com <span> para permitir estilo ativo
+        // HTML com disposição 2x2 e ícones
         this.container.innerHTML = `
             <label class="layer-switch">
-                <input type="radio" name="base-layer" value="Carta" checked>
-                <span>Topográfica</span>
+                <input type="radio" name="base-layer" value="carta-topografica" checked>
+                <span><img src="./images/dsg_symbol.svg" class="layer-icon"> Topográfica</span>
             </label>
             <label class="layer-switch">
-                <input type="radio" name="base-layer" value="Ortoimagem">
-                <span>Ortoimagem</span>
+                <input type="radio" name="base-layer" value="carta-ortoimagem">
+                <span><img src="./images/dsg_symbol.svg" class="layer-icon"> Ortoimagem</span>
+            </label>
+            <label class="layer-switch">
+                <input type="radio" name="base-layer" value="osm">
+                <span>🌐 OSM</span>
+            </label>
+            <label class="layer-switch">
+                <input type="radio" name="base-layer" value="imagens">
+                <span>🌐 Imagens</span>
             </label>
         `;
 
@@ -46,17 +59,17 @@ class BaseLayerControl {
 
     switchLayer(layer) {
         setBaseLayer(layer);
-        this.uiManager.saveChangesAndClosePanel()
+        this.uiManager.saveChangesAndClosePanel();
 
         const styleUrl = this.styleUrls[layer];
         this.map.setStyle(styleUrl);
         this.container.querySelector(`input[value="${layer}"]`).checked = true;
         
-        // Forçar atualização visual (caso necessário)
+        // Forçar atualização visual
         this.updateActiveState(layer);
     }
     
-    // Método adicional para garantir que o estado ativo seja aplicado
+    // Método para garantir que o estado ativo seja aplicado
     updateActiveState(activeLayer) {
         // Remove estado ativo de todos
         this.container.querySelectorAll('.layer-switch span').forEach(span => {

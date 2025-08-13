@@ -1,7 +1,7 @@
 // Path: js\controls_sig\map.js
 import { getCurrentMapFeatures } from './store.js';
 import { imageStore } from './store.js';
-import baseStyle from './base_map_styles.js'
+import baseStyle from './baselayers/carta_topografica.js'
 
 const map = new maplibregl.Map({
     container: 'map-sig',

@@ -120,21 +120,6 @@
     transition: filter 0.2s ease;
 }
 
-/* ===== BASE LAYER CONTROL ===== */
-.base-layer-control {
-    display: flex !important;
-    gap: 10px !important;
-    align-items: center !important;
-    background-color: rgba(255, 255, 255, 0.95) !important;
-    backdrop-filter: blur(8px) !important;
-    border: 1px solid rgba(0, 0, 0, 0.1) !important;
-    border-radius: 8px !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
-    padding: 8px !important;
-    z-index: 10 !important;
-    pointer-events: auto !important;
-}
-
 .layer-switch {
     background-color: transparent !important;
     border: 1px solid #d0d0d0 !important;
@@ -297,13 +282,6 @@
     .icon-sig-tool {
         width: 25px;
         height: 25px;
-    }
-
-    /* Base layer control mobile */
-    .base-layer-control {
-        gap: 8px !important;
-        padding: 6px !important;
-        flex-wrap: wrap;
     }
 
     .layer-switch {
