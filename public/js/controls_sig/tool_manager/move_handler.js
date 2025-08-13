@@ -438,10 +438,29 @@ class MoveHandler {
         };
     }
 
+    // ✅ CORREÇÃO CRÍTICA: updateArrowFeature corrigida
     updateArrowFeature(feature, dx, dy, newCoords) {
-        const newBaseCoordinates = feature.properties.baseCoordinates.map(coord => [
-            coord[0] + (dx / 111320) / Math.cos(coord[1] * Math.PI / 180),
-            coord[1] + (dy / 111320)
+        // ✅ Garantir que baseCoordinates é um array
+        let baseCoordinates = feature.properties.baseCoordinates;
+        
+        if (typeof baseCoordinates === 'string') {
+            try {
+                baseCoordinates = JSON.parse(baseCoordinates);
+            } catch (e) {
+                console.error('Erro ao parsear baseCoordinates:', e);
+                return feature;
+            }
+        }
+        
+        if (!Array.isArray(baseCoordinates)) {
+            console.error('baseCoordinates não é um array válido:', baseCoordinates);
+            return feature;
+        }
+
+        // Converter delta de coordenadas de tela para coordenadas geográficas
+        const newBaseCoordinates = baseCoordinates.map(coord => [
+            coord[0] + dx,
+            coord[1] + dy
         ]);
         
         const updatedProperties = {

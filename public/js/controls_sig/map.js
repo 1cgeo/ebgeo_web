@@ -278,6 +278,36 @@ map.on('styledata', async () => {
         });
     }
 
+    if (!map.getLayer('circle-selected-layer')) {
+        map.addLayer({
+            id: 'circle-selected-layer',
+            type: 'line',
+            source: 'circle-edit-handles',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 3,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8  // ✅ Adicionado: opacity para linha
+            },
+            filter: ['!=', ['get', 'role'], 'handle']
+        });
+    }
+
+    if (!map.getLayer('ellipse-selected-layer')) {
+        map.addLayer({
+            id: 'ellipse-selected-layer',
+            type: 'line',
+            source: 'ellipse-edit-handles',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 3,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8  // ✅ Adicionado para consistência
+            },
+            filter: ['!=', ['get', 'role'], 'handle']
+        });
+    }
+
     if (!map.getSource('arrows')) {
         map.addSource('arrows', {
             type: 'geojson',
@@ -380,6 +410,21 @@ map.on('styledata', async () => {
                 ]
             },
             filter: ['!=', ['get', 'role'], 'selected-feature'] // Não mostrar a feature, só os handles
+        });
+    }
+
+    if (!map.getLayer('arrow-selected-layer')) {
+        map.addLayer({
+            id: 'arrow-selected-layer',
+            type: 'line',
+            source: 'arrow-edit-handles',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 4,
+                'line-dasharray': [3, 3],
+                'line-opacity': 0.8
+            },
+            filter: ['==', ['get', 'role'], 'selected-feature'] // Só a feature destacada
         });
     }
 
