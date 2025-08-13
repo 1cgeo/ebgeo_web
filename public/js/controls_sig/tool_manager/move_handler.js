@@ -4,29 +4,29 @@ class MoveHandler {
         this.map = map;
         this.selectionManager = selectionManager;
         this.uiManager = uiManager;
-        
+
         // Core state
         this.isDragging = false;
         this.selectedFeatures = null;
         this.offsets = null;
         this.initialCoordinates = null;
-        
+
         // Performance optimization properties
         this.rafId = null;
         this.pendingUpdate = false;
         this.mouseMoveHandler = null;
         this.mouseUpHandler = null;
-        
+
         // Coordinate caching and pooling
         this.cachedPosition = { lng: 0, lat: 0 };
         this.cachedDelta = { dx: 0, dy: 0 };
         this.coordsPool = { lng: 0, lat: 0 };
         this.tempCoords = { lng: 0, lat: 0 };
-        
+
         // Feature type strategies lookup
         this.featureUpdateStrategies = this.initializeFeatureStrategies();
         this.featureManagersMap = this.initializeFeatureManagers();
-        
+
         this.setupEventListeners();
     }
 
@@ -45,7 +45,7 @@ class MoveHandler {
     initializeFeatureManagers() {
         return {
             'draw': 'selectedDrawFeatures',
-            'text': 'selectedTextFeatures', 
+            'text': 'selectedTextFeatures',
             'image': 'selectedImageFeatures',
             'los': 'selectedLOSFeatures',
             'visibility': 'selectedVisibilityFeatures',
@@ -60,14 +60,14 @@ class MoveHandler {
 
     onMouseDown(e) {
         this.startDrag(e);
-        
+
         // Setup drag event listeners - clean previous ones if any
         this.cleanupDragListeners();
-        
+
         // Create bound handlers for proper cleanup
         this.mouseMoveHandler = this.onMouseMove.bind(this);
         this.mouseUpHandler = this.onMouseUp.bind(this);
-        
+
         this.map.on('mousemove', this.mouseMoveHandler);
         this.map.once('mouseup', this.mouseUpHandler);
     }
@@ -93,8 +93,8 @@ class MoveHandler {
 
         // Check for edit handles (maplibredraw midpoint/vertex handles)
         const hasMaplibreDrawEditHandles = filteredFeatures.some(feature =>
-            feature.properties.mode === 'direct_select' || 
-            feature.properties.meta === 'midpoint' || 
+            feature.properties.mode === 'direct_select' ||
+            feature.properties.meta === 'midpoint' ||
             feature.properties.meta === 'vertex'
         );
 
@@ -124,14 +124,14 @@ class MoveHandler {
         this.map.dragPan.disable();
         this.uiManager.setDragging(true);
         this.setCursorStyle('grabbing');
-                
+
         // Cache initial coordinates
         this.initialCoordinates = e.lngLat;
         this.cachedPosition.lng = e.lngLat.lng;
         this.cachedPosition.lat = e.lngLat.lat;
         this.cachedDelta.dx = 0;
         this.cachedDelta.dy = 0;
-        
+
         // Cache selected features and calculate offsets
         this.selectedFeatures = allSelectedFeatures;
         this.offsets = this.calculateOffsetsOptimized(allSelectedFeatures, this.initialCoordinates);
@@ -140,19 +140,19 @@ class MoveHandler {
     // Check for custom tool edit handles (circle, ellipse, etc.)
     hasCustomEditHandles(clickedFeatures) {
         // Check for circle edit handles
-        const hasCircleEditHandles = clickedFeatures.some(feature => 
-            feature.source === 'circle-edit-handles' && 
-            (feature.properties.user_isEditingHandle || 
-             feature.properties.meta === 'vertex' ||
-             feature.properties.mode === 'circle_editing')
+        const hasCircleEditHandles = clickedFeatures.some(feature =>
+            feature.source === 'circle-edit-handles' &&
+            (feature.properties.user_isEditingHandle ||
+                feature.properties.meta === 'vertex' ||
+                feature.properties.mode === 'circle_editing')
         );
 
         // Check for ellipse edit handles (similar pattern)
-        const hasEllipseEditHandles = clickedFeatures.some(feature => 
-            feature.source === 'ellipse-edit-handles' && 
-            (feature.properties.user_isEditingHandle || 
-             feature.properties.meta === 'vertex' ||
-             feature.properties.mode === 'ellipse_editing')
+        const hasEllipseEditHandles = clickedFeatures.some(feature =>
+            feature.source === 'ellipse-edit-handles' &&
+            (feature.properties.user_isEditingHandle ||
+                feature.properties.meta === 'vertex' ||
+                feature.properties.mode === 'ellipse_editing')
         );
 
         // Add more handle types as needed
@@ -163,31 +163,31 @@ class MoveHandler {
     hasSelectedFeatureInEditingMode(selectedFeatures) {
         for (const feature of selectedFeatures) {
             const source = feature.properties.source;
-            
+
             // Check circle editing mode
-            if (source === 'circle' && 
-                this.selectionManager.circleControl && 
+            if (source === 'circle' &&
+                this.selectionManager.circleControl &&
                 this.selectionManager.circleControl.isEditingMode &&
                 this.selectionManager.circleControl.isEditingMode()) {
                 return true;
             }
-            
+
             // Check ellipse editing mode
-            if (source === 'ellipse' && 
-                this.selectionManager.ellipseControl && 
+            if (source === 'ellipse' &&
+                this.selectionManager.ellipseControl &&
                 this.selectionManager.ellipseControl.isEditingMode &&
                 this.selectionManager.ellipseControl.isEditingMode()) {
                 return true;
             }
-            
+
             // Check if feature has editing mode properties
-            if (feature.properties.mode && 
-                (feature.properties.mode.includes('editing') || 
-                 feature.properties.mode === 'direct_select')) {
+            if (feature.properties.mode &&
+                (feature.properties.mode.includes('editing') ||
+                    feature.properties.mode === 'direct_select')) {
                 return true;
             }
         }
-        
+
         return false;
     }
 
@@ -215,7 +215,7 @@ class MoveHandler {
 
         // Perform the actual UI update
         this.uiManager.shiftSelectionBoxes(this.cachedDelta.dx, this.cachedDelta.dy);
-        
+
         this.pendingUpdate = false;
     }
 
@@ -251,13 +251,13 @@ class MoveHandler {
 
             // Batch update features
             const updatedFeatures = this.batchUpdateFeatures(this.selectedFeatures, dx, dy, this.tempCoords);
-            
+
             // Final UI update
             this.uiManager.shiftSelectionBoxes(dx, dy, true);
-            
+
             // Update selection manager efficiently
             this.updateSelectionManagerFeaturesOptimized(updatedFeatures);
-            
+
             // Trigger final update
             this.selectionManager.updateSelectedFeatures();
         }
@@ -270,7 +270,7 @@ class MoveHandler {
 
     calculateOffsetsOptimized(features, referencePoint) {
         const offsets = new Map();
-        
+
         for (const feature of features) {
             const offset = this.calculateOffsetForFeature(feature, referencePoint);
             offsets.set(feature.id, {
@@ -279,7 +279,7 @@ class MoveHandler {
                 offset: offset
             });
         }
-        
+
         return offsets;
     }
 
@@ -306,31 +306,31 @@ class MoveHandler {
                     coords[0] - referencePoint.lng,
                     coords[1] - referencePoint.lat
                 ];
-            
+
             case "LineString":
                 return [
                     coords[0][0] - referencePoint.lng,
                     coords[0][1] - referencePoint.lat
                 ];
-            
+
             case "Polygon":
                 return [
                     coords[0][0][0] - referencePoint.lng,
                     coords[0][0][1] - referencePoint.lat
                 ];
-            
+
             case "MultiLineString":
                 return [
                     coords[0][0][0] - referencePoint.lng,
                     coords[0][0][1] - referencePoint.lat
                 ];
-            
+
             case "MultiPolygon":
                 return [
                     coords[0][0][0][0] - referencePoint.lng,
                     coords[0][0][0][1] - referencePoint.lat
                 ];
-            
+
             default:
                 console.error("Unsupported geometry type:", feature.geometry.type);
                 return [0, 0];
@@ -339,30 +339,30 @@ class MoveHandler {
 
     batchUpdateFeatures(features, dx, dy, newPos) {
         const updatedFeatures = new Array(features.length);
-        
+
         for (let i = 0; i < features.length; i++) {
             const feature = features[i];
             const { offset } = this.offsets.get(feature.id);
-            
+
             // Reuse coordinate object
             this.coordsPool.lng = newPos.lng + offset[0];
             this.coordsPool.lat = newPos.lat + offset[1];
-            
+
             updatedFeatures[i] = this.calculateUpdatedFeatureOptimized(feature, dx, dy, this.coordsPool);
         }
-        
+
         return updatedFeatures;
     }
 
     calculateUpdatedFeatureOptimized(feature, dx, dy, newCoords) {
         const source = feature.properties.source;
         const strategy = this.featureUpdateStrategies[source];
-        
+
         if (!strategy) {
             console.error('Unknown source type:', source);
             return feature;
         }
-        
+
         const updatedFeature = strategy(feature, dx, dy, newCoords);
         return { ...updatedFeature, source };
     }
@@ -384,7 +384,8 @@ class MoveHandler {
 
     updateCircleFeature(feature, dx, dy, newCoords) {
         const newCenter = [newCoords.lng, newCoords.lat];
-        return {
+
+        const updatedFeature = {
             ...feature,
             properties: {
                 ...feature.properties,
@@ -395,6 +396,14 @@ class MoveHandler {
                 feature.properties.radius
             )
         };
+
+        // Atualizar X
+        if (this.selectionManager.circleControl &&
+            typeof this.selectionManager.circleControl.updateXMarks === 'function') {
+            this.selectionManager.circleControl.updateXMarks();
+        }
+
+        return updatedFeature;
     }
 
     updateEllipseFeature(feature, dx, dy, newCoords) {
@@ -430,7 +439,7 @@ class MoveHandler {
         for (const feature of updatedFeatures) {
             const source = feature.properties.source;
             const mapKey = this.featureManagersMap[source];
-            
+
             if (mapKey) {
                 featureMaps[mapKey].set(feature.id, feature);
             }
@@ -447,11 +456,11 @@ class MoveHandler {
     // Cleanup method for proper disposal
     destroy() {
         this.cleanupDragListeners();
-        
+
         if (this.rafId) {
             cancelAnimationFrame(this.rafId);
         }
-        
+
         // Clear references
         this.selectedFeatures = null;
         this.offsets = null;

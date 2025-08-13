@@ -32,7 +32,8 @@ class AddCircleControl {
         fillColor: '#3f4fb5',
         lineWidth: 2,
         opacity: 0.5,
-        source: 'circle'
+        source: 'circle',
+        coordinationPoint: false
     };
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -294,11 +295,91 @@ class AddCircleControl {
             data.features.push(feature);
             this.map.getSource('circles').setData(data);
             
+            this.updateXMarks();
+            
             this.drawPoints = [];
             this.toolManager.setActiveTool(null);
         } catch (error) {
             console.error('Erro ao criar círculo:', error);
         }
+    }
+
+    // ===== COORDINATION POINT (X) SYSTEM =====
+
+    /**
+     * Gera geometria do X baseada no centro e raio do círculo
+     */
+    generateXGeometry = (center, radius) => {
+        const radiusInDegrees = radius / 111320;
+        const cosLat = Math.cos(center[1] * Math.PI / 180);
+        
+        // Linha diagonal 1: top-left para bottom-right
+        const diagonal1 = {
+            type: 'LineString',
+            coordinates: [
+                [
+                    center[0] - (radiusInDegrees / cosLat) * Math.cos(Math.PI / 4),
+                    center[1] + radiusInDegrees * Math.sin(Math.PI / 4)
+                ],
+                [
+                    center[0] + (radiusInDegrees / cosLat) * Math.cos(Math.PI / 4),
+                    center[1] - radiusInDegrees * Math.sin(Math.PI / 4)
+                ]
+            ]
+        };
+
+        // Linha diagonal 2: top-right para bottom-left
+        const diagonal2 = {
+            type: 'LineString',
+            coordinates: [
+                [
+                    center[0] + (radiusInDegrees / cosLat) * Math.cos(Math.PI / 4),
+                    center[1] + radiusInDegrees * Math.sin(Math.PI / 4)
+                ],
+                [
+                    center[0] - (radiusInDegrees / cosLat) * Math.cos(Math.PI / 4),
+                    center[1] - radiusInDegrees * Math.sin(Math.PI / 4)
+                ]
+            ]
+        };
+
+        return [diagonal1, diagonal2];
+    }
+
+    /**
+     * Atualiza todas as marcas X no mapa
+     */
+    updateXMarks = () => {
+        const circleData = this.map.getSource('circles')._data;
+        const xFeatures = [];
+
+        circleData.features.forEach(feature => {
+            if (feature.properties.coordinationPoint) {
+                const center = this.normalizeCenter(feature.properties.center);
+                if (center) {
+                    const xGeometries = this.generateXGeometry(center, feature.properties.radius);
+                    
+                    xGeometries.forEach((geometry, index) => {
+                        xFeatures.push({
+                            type: 'Feature',
+                            id: `x-mark-${feature.id}-${index}`,
+                            geometry: geometry,
+                            properties: {
+                                parentId: feature.id,
+                                lineColor: feature.properties.lineColor,
+                                lineWidth: feature.properties.lineWidth,
+                                source: 'circle-x'
+                            }
+                        });
+                    });
+                }
+            }
+        });
+
+        this.map.getSource('circle-x-marks').setData({
+            type: 'FeatureCollection',
+            features: xFeatures
+        });
     }
 
     // ===== EDITING MODE: HANDLE SYSTEM =====
@@ -480,6 +561,8 @@ class AddCircleControl {
             this.updateSelectionAfterEdit();
             this.updateUIAfterEdit();
             this.saveFeatureChanges(finalFeature);
+            
+            this.updateXMarks();
         }
     }
 
@@ -644,6 +727,11 @@ class AddCircleControl {
         
         this.map.getSource('circles').setData(data);
         
+        if (property === 'coordinationPoint' || property === 'lineColor' || 
+            property === 'lineWidth' || property === 'radius' || property === 'center') {
+            this.updateXMarks();
+        }
+        
         if (this.currentState === 'editing' && this.selectedFeature && !this.isDraggingHandle) {
             this.createEditHandles(this.selectedFeature);
         }
@@ -660,6 +748,7 @@ class AddCircleControl {
                 feature.properties.lineWidth !== initialProperties.lineWidth ||
                 feature.properties.opacity !== initialProperties.opacity ||
                 feature.properties.radius !== initialProperties.radius ||
+                feature.properties.coordinationPoint !== initialProperties.coordinationPoint ||
                 JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
             );
         });
@@ -670,6 +759,7 @@ class AddCircleControl {
             await updateFeature('circles', feature);
         }
         this.updateMapSource();
+        this.updateXMarks();
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -687,6 +777,7 @@ class AddCircleControl {
             }
         }
         this.updateMapSource();
+        this.updateXMarks();
     }
 
     deleteFeatures = async (features) => {
@@ -706,6 +797,7 @@ class AddCircleControl {
                 console.error(`Error removing circle ${featureId}:`, error);
             }
         }
+        this.updateXMarks();
     }
 
     setDefaultProperties = (properties) => {
@@ -726,6 +818,7 @@ class AddCircleControl {
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
             feature.properties.radius !== initialProperties.radius ||
+            feature.properties.coordinationPoint !== initialProperties.coordinationPoint ||
             JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
         );
     }
@@ -754,6 +847,7 @@ class AddCircleControl {
             }
             
             this.map.getSource('circles').setData(data);
+            this.updateXMarks();
         }
     }
 }

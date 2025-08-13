@@ -123,6 +123,13 @@ map.on('styledata', async () => {
         });
     }
 
+    if (!map.getSource('circle-x-marks')) {
+        map.addSource('circle-x-marks', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
     // Layer de preenchimento para preview
     if (!map.getLayer('circle-preview-fill-layer')) {
         map.addLayer({
@@ -169,6 +176,19 @@ map.on('styledata', async () => {
             id: 'circle-layer',
             type: 'line',
             source: 'circles',
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': 1
+            }
+        });
+    }
+
+    if (!map.getLayer('circle-x-layer')) {
+        map.addLayer({
+            id: 'circle-x-layer',
+            type: 'line',
+            source: 'circle-x-marks',
             paint: {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
@@ -600,6 +620,7 @@ map.on('styledata', async () => {
     requestAnimationFrame(() => {
         clearAllMeasurements();
         restoreMeasurements(features);
+        restoreCircleXMarks(features);
     });
 });
 
@@ -651,6 +672,21 @@ function restoreMeasurements(features) {
         }
     } catch (error) {
         console.warn('Erro ao restaurar medições:', error);
+    }
+}
+
+function restoreCircleXMarks(features) {
+    try {
+        const circleControl = map._controls.find(control =>
+            control.constructor.name === 'AddCircleControl'
+        );
+
+        // Restaurar X marks dos círculos
+        if (circleControl && typeof circleControl.updateXMarks === 'function') {
+            circleControl.updateXMarks();
+        }
+    } catch (error) {
+        console.warn('Erro ao restaurar X marks dos círculos:', error);
     }
 }
 

@@ -66,6 +66,19 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         return input;
     }
 
+    // ✅ Função auxiliar para criar checkbox (seguindo padrão especificado)
+    const createCheckbox = (checked, onChange) => {
+        const label = $("<label>", { class: "switch" });
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = checked;
+        input.classList.add("slider-check-input");
+        label.append(input);
+        label.append($("<div>", { class: "slider-check round" }));
+        input.onchange = onChange;
+        return label;
+    };
+
     // ===== PROPRIEDADES ESPECÍFICAS DO CÍRCULO =====
 
     // Cor da linha
@@ -136,6 +149,23 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         $("<div>", { class: "attr-container-row" })
             .append($("<div>", { class: "attr-name" }).append(lineWidthLabel))
             .append($("<div>", { class: "attr-input" }).append(lineWidthControl))
+    );
+
+    // ✅ Ponto de coordenação (nova adição)
+    const coordinationPointLabel = document.createElement('label');
+    coordinationPointLabel.textContent = 'Ponto de coordenação:';
+    const coordinationPointCheckbox = createCheckbox(
+        feature.properties.coordinationPoint || false,
+        (e) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'coordinationPoint', e.target.checked);
+            uiManager.updateSelectionHighlight();
+        }
+    );
+
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append($("<div>", { class: "attr-name" }).append(coordinationPointLabel))
+            .append($("<div>", { class: "attr-input" }).append(coordinationPointCheckbox))
     );
 
     // Raio (somente informativo)
