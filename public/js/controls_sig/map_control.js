@@ -18,10 +18,13 @@ import {
     initializeWithLastActiveMap
 } from './store.js';
 
+import { ExportImportService } from './export_import_service.js';
+
 class MapControl {
     constructor(baseLayerControl) {
         this.baseLayerControl = baseLayerControl;
         this.selectionManager = null;
+        this.exportImportService = new ExportImportService(baseLayerControl);
         this.setupDropdownPositionListeners();
     }
 
@@ -56,10 +59,10 @@ class MapControl {
         const allActionsContainer = document.createElement('div');
         allActionsContainer.className = 'all-actions-container';
 
-        // Criar botões save/load diretamente aqui (não mover de outro lugar)
-        const saveButton = this.createSaveButton();
-        const loadButton = this.createLoadButton();
-        const loadAdditiveButton = this.createLoadAdditiveButton();
+        // Usar o serviço de export/import para criar os botões
+        const saveButton = this.exportImportService.createSaveButton();
+        const loadButton = this.exportImportService.createLoadButton();
+        const loadAdditiveButton = this.exportImportService.createLoadAdditiveButton();
 
         // Botão para adicionar mapa
         const addButton = document.createElement('button');
@@ -103,280 +106,6 @@ class MapControl {
         }
 
         await this.switchMap()
-    }
-
-    createSaveButton() {
-        const saveButton = document.createElement('button');
-        saveButton.className = 'map-action-button save-action';
-        saveButton.innerHTML = `<img src="./images/icon_save_black.svg" alt="Exportar projeto" />`;
-        saveButton.title = 'Exportar projeto';
-
-        saveButton.onclick = async () => {
-            try {
-                const zip = new JSZip();
-
-                // Verificar se há mapas selecionados
-                const selectedMaps = this.getSelectedMapNames();
-                const mapsToExport = selectedMaps.length > 0 ? selectedMaps : await getAllMapNames();
-
-                if (mapsToExport.length === 0) {
-                    alert('Nenhum mapa para exportar');
-                    return;
-                }
-
-                const data = {
-                    version: '1.0',
-                    currentMap: await getCurrentMapName(),
-                    maps: {}
-                };
-
-                // Exportar dados dos mapas selecionados
-                for (const mapName of mapsToExport) {
-                    const mapData = await mapStore.getItem(mapName);
-                    if (mapData) {
-                        data.maps[mapName] = mapData;
-                    }
-                }
-
-                // Adicionar data.json ao ZIP
-                zip.file('data.json', JSON.stringify(data, null, 2));
-
-                // Coletar e exportar imagens usadas nos mapas
-                const usedImages = new Set();
-                for (const mapName of mapsToExport) {
-                    const mapData = await mapStore.getItem(mapName);
-                    if (mapData && mapData.features) {
-                        for (const [category, features] of Object.entries(mapData.features)) {
-                            if (Array.isArray(features)) {
-                                features.forEach(feature => {
-                                    if (feature.properties && feature.properties.imageId) {
-                                        usedImages.add(feature.properties.imageId);
-                                    }
-                                });
-                            }
-                        }
-                    }
-                }
-
-                // Adicionar imagens ao ZIP
-                for (const imageId of usedImages) {
-                    try {
-                        const blob = await imageStore.getItem(imageId);
-                        if (blob) {
-                            zip.file(`images/${imageId}.png`, blob);
-                        }
-                    } catch (error) {
-                        console.warn('Imagem não encontrada:', imageId);
-                    }
-                }
-
-                // Gerar e baixar arquivo
-                const blob = await zip.generateAsync({ type: 'blob' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `projeto_${new Date().toISOString().slice(0, 10)}.ebgeo`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                this.showSaveSuccess(mapsToExport.length);
-
-            } catch (error) {
-                console.error('Erro ao exportar dados:', error);
-                alert('Erro ao exportar arquivo .ebgeo');
-            }
-        };
-
-        return saveButton;
-    }
-
-    createLoadButton() {
-        const loadButton = document.createElement('button');
-        loadButton.className = 'map-action-button load-action';
-        loadButton.innerHTML = `<img src="./images/icon_load_black.svg" alt="Importar projeto" />`;
-        loadButton.title = 'Importar projeto (substitui atual)';
-
-        // Criar input file associado
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.accept = '.ebgeo';
-        fileInput.className = 'hidden-file-input';
-        fileInput.onchange = async (event) => {
-            await this.handleImport(event, false);
-        };
-
-        loadButton.onclick = () => {
-            fileInput.click();
-        };
-
-        // Anexar input ao container
-        loadButton.appendChild(fileInput);
-
-        return loadButton;
-    }
-
-    createLoadAdditiveButton() {
-        const loadAdditiveButton = document.createElement('button');
-        loadAdditiveButton.className = 'map-action-button load-action';
-        loadAdditiveButton.innerHTML = `<img src="./images/icon_folder_plus_black.svg" alt="Adicionar ao projeto" />`;
-        loadAdditiveButton.title = 'Adicionar ao projeto atual';
-
-        // Criar input file associado
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.accept = '.ebgeo';
-        fileInput.className = 'hidden-file-input';
-        fileInput.onchange = async (event) => {
-            await this.handleImport(event, true);
-        };
-
-        loadAdditiveButton.onclick = () => {
-            fileInput.click();
-        };
-
-        // Anexar input ao container
-        loadAdditiveButton.appendChild(fileInput);
-
-        return loadAdditiveButton;
-    }
-
-    async handleImport(event, isAdditiveImport) {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        try {
-            const zip = await JSZip.loadAsync(file);
-
-            if (!isAdditiveImport) {
-                // Import normal - limpar tudo
-                await mapStore.clear();
-                await imageStore.clear();
-            }
-
-            // Buscar arquivo data.json
-            let dataFile = zip.file('data.json');
-
-            if (!dataFile) {
-                throw new Error('Arquivo data.json não encontrado no .ebgeo');
-            }
-
-            const dataJson = await dataFile.async('string');
-            const data = JSON.parse(dataJson);
-
-            // Processar mapas
-            let importedMapsCount = 0;
-            if (isAdditiveImport) {
-                const existingMapNames = await getAllMapNames();
-
-                for (const [originalMapName, mapData] of Object.entries(data.maps)) {
-                    let finalMapName = originalMapName;
-                    let counter = 1;
-
-                    // Gerar nome único se houver conflito
-                    while (existingMapNames.includes(finalMapName)) {
-                        finalMapName = `${originalMapName}_importado${counter > 1 ? counter : ''}`;
-                        counter++;
-                    }
-
-                    await mapStore.setItem(finalMapName, mapData);
-                    await addMap(finalMapName, mapData);
-                    existingMapNames.push(finalMapName);
-                    importedMapsCount++;
-                }
-            } else {
-                // Salvar cada mapa no IndexedDB (comportamento original)
-                for (const [mapName, mapData] of Object.entries(data.maps)) {
-                    await mapStore.setItem(mapName, mapData);
-                    await addMap(mapName, mapData);
-                    importedMapsCount++;
-                }
-
-                // Atualizar mapa atual
-                setCurrentMap(data.currentMap);
-            }
-
-            // Carregar imagens para imageStore
-            const imageFiles = Object.keys(zip.files).filter(name =>
-                name.startsWith('images/') && name.endsWith('.png')
-            );
-
-            for (const fileName of imageFiles) {
-                try {
-                    const imageId = fileName.replace('images/', '').replace('.png', '');
-                    const blob = await zip.file(fileName).async('blob');
-                    await imageStore.setItem(imageId, blob);
-                } catch (imgError) {
-                    console.warn('Erro ao carregar imagem:', fileName, imgError);
-                }
-            }
-
-            // Recarregar MapLibre (trigger styledata)
-            let baseLayer = 'Carta';
-            if (!isAdditiveImport) {
-                const currentMapData = await mapStore.getItem(data.currentMap);
-                baseLayer = currentMapData ? currentMapData.baseLayer : 'Carta';
-            }
-
-            this.baseLayerControl.switchLayer(baseLayer);
-            this.updateMapList();
-
-            // Feedback personalizado baseado no tipo de importação
-            const importType = isAdditiveImport ? 'adicionados' : 'carregados';
-            this.showLoadSuccess(importedMapsCount, importType);
-
-        } catch (error) {
-            console.error('Erro ao importar arquivo:', error);
-            alert('Erro ao carregar arquivo .ebgeo: ' + error.message);
-        }
-
-        // Limpar input
-        event.target.value = '';
-    }
-
-    showSaveSuccess(mapCount) {
-        const saveBtn = this.container?.querySelector('.save-action');
-        if (saveBtn) {
-            const originalContent = saveBtn.innerHTML;
-
-            saveBtn.classList.add('success');
-            saveBtn.innerHTML = '<img src="./images/icon_check_green.svg" alt="SUCCESS" />';
-
-            setTimeout(() => {
-                saveBtn.classList.remove('success');
-                saveBtn.innerHTML = originalContent;
-            }, 1500);
-        }
-
-        this.showToast(
-            mapCount === 1 ?
-                `1 mapa exportado!` :
-                `${mapCount} mapas exportados!`,
-            'success'
-        );
-    }
-
-    showLoadSuccess(mapCount, importType) {
-        const loadBtn = this.container?.querySelector('.load-action');
-        if (loadBtn) {
-            const originalContent = loadBtn.innerHTML;
-
-            loadBtn.classList.add('success');
-            loadBtn.innerHTML = '<img src="./images/icon_check_green.svg" alt="SUCCESS" />';
-
-            setTimeout(() => {
-                loadBtn.classList.remove('success');
-                loadBtn.innerHTML = originalContent;
-            }, 1500);
-        }
-
-        this.showToast(
-            mapCount === 1 ?
-                `1 mapa ${importType}!` :
-                `${mapCount} mapas ${importType}!`,
-            'success'
-        );
     }
 
     showToast(message, type = 'info') {
