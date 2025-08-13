@@ -6,6 +6,7 @@ import { addLOSAttributesToPanel } from '../los_tool/los_attributes_panel.js';
 import { addVisibilityAttributesToPanel } from '../visibility_tool/visibility_attributes_panel.js';
 import { addCircleAttributesToPanel } from '../circle_tool/circle_attributes_panel.js';
 import { addEllipseAttributesToPanel } from '../ellipse_tool/ellipse_attributes_panel.js';
+import { addArrowAttributesToPanel } from '../arrow_tool/arrow_attributes_panel.js';
 
 class UIManager {
     constructor(map, selectionManager, toolManager) {
@@ -50,7 +51,8 @@ class UIManager {
             ...this.createSelectionBoxesForLOSFeatures(),
             ...this.createSelectionBoxesForVisibilityFeatures(),
             ...this.createSelectionBoxesForCircleFeatures(),
-            ...this.createSelectionBoxesForEllipseFeatures()
+            ...this.createSelectionBoxesForEllipseFeatures(),
+            ...this.createSelectionBoxesForArrowFeatures()
         ];
 
         this.selectionBoxes = features;
@@ -77,6 +79,27 @@ class UIManager {
                 boxes.push(boxFeature);
             } catch (error) {
                 console.warn('Erro ao criar selection box para círculo:', error);
+            }
+        }
+        return boxes;
+    }
+
+    createSelectionBoxesForArrowFeatures = () => {
+        const boxes = [];
+        if (this.selectionManager.selectedArrowFeatures.size === 0) return boxes;
+
+        for (const feature of this.selectionManager.selectedArrowFeatures.values()) {
+            try {
+                const bbox = turf.bbox(feature);
+                const boxFeature = turf.bboxPolygon(bbox);
+                boxFeature.properties = {
+                    type: 'selection-box',
+                    source: 'arrow',
+                    featureId: feature.properties.id
+                };
+                boxes.push(boxFeature);
+            } catch (error) {
+                console.warn('Erro ao criar selection box para seta:', error);
             }
         }
         return boxes;
@@ -252,6 +275,8 @@ class UIManager {
                 this.addCircleAttributes(panel, selectedFeatures);
             } else if (featureType === 'ellipse') {
                 this.addEllipseAttributes(panel, selectedFeatures);
+            } else if (featureType === 'arrow') {
+                this.addArrowAttributes(panel, selectedFeatures);
             }
         }
 
@@ -343,6 +368,21 @@ class UIManager {
         ellipsePanel.className = 'ellipse-attributes-section';
         addEllipseAttributesToPanel(ellipsePanel, features, this.selectionManager.ellipseControl, this.selectionManager, this);
         panel.appendChild(ellipsePanel);
+    }
+
+    addArrowAttributes = (panel, features) => {
+        const arrowPanel = document.createElement('div');
+        arrowPanel.className = 'arrow-attributes-section';
+
+        addArrowAttributesToPanel(
+            arrowPanel,
+            features,
+            this.selectionManager.arrowControl,
+            this.selectionManager,
+            this
+        );
+
+        panel.appendChild(arrowPanel);
     }
 
     addTextAttributes = (panel, features) => {

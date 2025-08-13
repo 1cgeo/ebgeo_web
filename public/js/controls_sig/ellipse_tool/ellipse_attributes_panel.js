@@ -138,61 +138,6 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
             .append($("<div>", { class: "attr-input" }).append(lineWidthControl))
     );
 
-    // Eixo maior (somente informativo)
-    const majorRadiusLabel = document.createElement('label');
-    majorRadiusLabel.textContent = 'Eixo maior:';
-    const majorRadiusValue = document.createElement('span');
-    majorRadiusValue.textContent = `${Math.round(feature.properties.majorRadius || 1500)} m`;
-    majorRadiusValue.style.cssText = 'font-size: 14px; color: #666; font-weight: 500;';
-
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(majorRadiusLabel))
-            .append($("<div>", { class: "attr-input" }).append(majorRadiusValue))
-    );
-
-    // Eixo menor (somente informativo)
-    const minorRadiusLabel = document.createElement('label');
-    minorRadiusLabel.textContent = 'Eixo menor:';
-    const minorRadiusValue = document.createElement('span');
-    minorRadiusValue.textContent = `${Math.round(feature.properties.minorRadius || 800)} m`;
-    minorRadiusValue.style.cssText = 'font-size: 14px; color: #666; font-weight: 500;';
-
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(minorRadiusLabel))
-            .append($("<div>", { class: "attr-input" }).append(minorRadiusValue))
-    );
-
-    // Rotação/Orientação (somente informativo)
-    const bearingLabel = document.createElement('label');
-    bearingLabel.textContent = 'Orientação:';
-    const bearingValue = document.createElement('span');
-    bearingValue.textContent = `${Math.round(feature.properties.bearing || 0)}°`;
-    bearingValue.style.cssText = 'font-size: 14px; color: #666; font-weight: 500;';
-
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(bearingLabel))
-            .append($("<div>", { class: "attr-input" }).append(bearingValue))
-    );
-
-    // ===== INFORMAÇÕES ADICIONAIS =====
-    
-    // Área aproximada (somente leitura)
-    const area = Math.PI * feature.properties.majorRadius * feature.properties.minorRadius;
-    const areaLabel = document.createElement('label');
-    areaLabel.textContent = 'Área aproximada:';
-    const areaValue = document.createElement('span');
-    areaValue.textContent = `${(area / 1000000).toFixed(2)} km²`;
-    areaValue.style.cssText = 'font-size: 12px; color: #666; font-style: italic;';
-
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(areaLabel))
-            .append($("<div>", { class: "attr-input" }).append(areaValue))
-    );
-
     // ===== BOTÕES DE AÇÃO =====
     const buttonContainer = $("<div>", { class: "attr-container-row" });
 

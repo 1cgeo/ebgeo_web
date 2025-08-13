@@ -19,7 +19,7 @@ const memoryStore = {
 
 // Função para estrutura vazia
 const getEmptyMapData = () => ({
-    baseLayer: 'Carta',
+    baseLayer: 'carta-topografica',
     features: {
         polygons: [],
         linestrings: [],
@@ -32,6 +32,7 @@ const getEmptyMapData = () => ({
         processed_visibility: [],
         circles: [],
         ellipses: [],
+        arrows: [],
     },
     zoom: null,
     center_lat: null,
@@ -185,6 +186,8 @@ function getFeatureType(feature) {
             return 'circles';
         case 'ellipse':
             return 'ellipses';
+        case 'arrow':
+            return 'arrows';
         default:
             return feature.geometry.type.toLowerCase() + 's';
     }

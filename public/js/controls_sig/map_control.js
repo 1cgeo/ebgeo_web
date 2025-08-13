@@ -14,6 +14,7 @@ import {
     moveFeaturesToMap,
     mapStore,
     imageStore,
+    appStore,
     resetMemoryStore,
     initializeWithLastActiveMap
 } from './store.js';
@@ -26,6 +27,9 @@ class MapControl {
         this.selectionManager = null;
         this.exportImportService = new ExportImportService(baseLayerControl);
         this.setupDropdownPositionListeners();
+
+        this.isCollapsed = false;
+        this.reopenButton = null;
     }
 
     setSelectionManager(selectionManager) {
@@ -38,16 +42,40 @@ class MapControl {
         this.container.id = 'map-list'
         this.container.className = 'list-map-container';
 
-        const col = $("<div>", { id: 'header-map-list', class: "header-container-column" })
-        const headerContainer = $("<div>", { class: "header-container-row" }).append(col)
+        // Criar header container usando jQuery (mantendo compatibilidade)
+        const col = $("<div>", { id: 'header-map-list', class: "header-container-column" });
+        const headerContainer = $("<div>", { class: "header-container-row" }).append(col);
+
+        // Adicionar botão de colapso ao header
+        const collapseButton = document.createElement('button');
+        collapseButton.className = 'collapse-button';
+        collapseButton.id = 'collapse-panel-btn';
+        collapseButton.title = 'Esconder painel';
+        collapseButton.innerHTML = `
+        <svg viewBox="0 0 24 24">
+            <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+        </svg>
+    `;
+
+        // Event listener para colapso
+        collapseButton.addEventListener('click', () => this.collapsePanel());
+
+        // Inserir botão no header container (acessando elemento DOM do jQuery)
+        headerContainer[0].appendChild(collapseButton);
+
+        // Container para o menu (onde loadMenu() adiciona os botões)
         const titleContainer = $("<div>", { id: 'menu-map-list', class: "menu-container" });
-        col.append(titleContainer)
+        col.append(titleContainer);
         $(this.container).append(headerContainer);
 
+        // Criar lista de mapas
         this.mapList = document.createElement('ul');
         this.mapList.className = 'map-list';
         this.updateMapList();
         this.container.appendChild(this.mapList);
+
+        // Criar botão de reabrir (inicialmente escondido)
+        this.createReopenButton();
 
         return this.container;
     }
@@ -150,10 +178,15 @@ class MapControl {
 
         // Remover listeners globais se necessário
         // (Os listeners são automaticamente removidos quando o elemento é removido)
+        if (this.reopenButton && this.reopenButton.parentNode) {
+            this.reopenButton.parentNode.removeChild(this.reopenButton);
+            this.reopenButton = null;
+        }
 
         if (this.container && this.container.parentNode) {
             this.container.parentNode.removeChild(this.container);
         }
+
         this.map = undefined;
     }
 
@@ -643,6 +676,7 @@ class MapControl {
             try {
                 await mapStore.clear();
                 await imageStore.clear();
+                await appStore.clear();
                 await resetMemoryStore();
 
                 // Criar novo mapa padrão
@@ -827,6 +861,47 @@ class MapControl {
         } catch (error) {
             setCurrentMap(originalCurrentMap);
             throw error;
+        }
+    }
+
+    createReopenButton() {
+        if (this.reopenButton) return;
+
+        this.reopenButton = document.createElement('button');
+        this.reopenButton.className = 'reopen-button';
+        this.reopenButton.title = 'Mostrar painel';
+        this.reopenButton.innerHTML = `
+        <svg viewBox="0 0 24 24">
+            <path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/>
+        </svg>
+    `;
+
+        this.reopenButton.addEventListener('click', () => this.expandPanel());
+        document.body.appendChild(this.reopenButton);
+    }
+
+    // Método para colapsar o painel
+    collapsePanel() {
+        this.container.classList.add('collapsed');
+        this.createReopenButton();
+        this.reopenButton.classList.add('show');
+        this.isCollapsed = true;
+    }
+
+    expandPanel() {
+        this.container.classList.remove('collapsed');
+        if (this.reopenButton) {
+            this.reopenButton.classList.remove('show');
+        }
+        this.isCollapsed = false;
+    }
+
+    // Método para alternar colapso
+    togglePanel() {
+        if (this.isCollapsed) {
+            this.expandPanel();
+        } else {
+            this.collapsePanel();
         }
     }
 }

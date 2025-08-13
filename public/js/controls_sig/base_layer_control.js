@@ -27,11 +27,11 @@ class BaseLayerControl {
         this.container.innerHTML = `
             <label class="layer-switch">
                 <input type="radio" name="base-layer" value="carta-topografica" checked>
-                <span><img src="./images/dsg_symbol.svg" class="layer-icon"> Topográfica</span>
+                <span><img src="./images/dsg_symbol.svg" class="layer-icon">Topográfica</span>
             </label>
             <label class="layer-switch">
                 <input type="radio" name="base-layer" value="carta-ortoimagem">
-                <span><img src="./images/dsg_symbol.svg" class="layer-icon"> Ortoimagem</span>
+                <span><img src="./images/dsg_symbol.svg" class="layer-icon">Ortoimagem</span>
             </label>
             <label class="layer-switch">
                 <input type="radio" name="base-layer" value="osm">

@@ -272,10 +272,10 @@ export class ExportImportService {
             }
 
             // Recarregar mapa
-            let baseLayer = 'Carta';
+            let baseLayer = 'carta-topografica';
             if (!isAdditiveImport) {
                 const currentMapData = await mapStore.getItem(data.currentMap);
-                baseLayer = currentMapData ? currentMapData.baseLayer : 'Carta';
+                baseLayer = currentMapData ? currentMapData.baseLayer : 'carta-topografica';
             }
 
             this.baseLayerControl.switchLayer(baseLayer);

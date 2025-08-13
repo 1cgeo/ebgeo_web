@@ -224,6 +224,165 @@ map.on('styledata', async () => {
         });
     }
 
+
+    // Source para handles de edição
+    if (!map.getSource('circle-edit-handles')) {
+        map.addSource('circle-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // Layer para handles (pontos arrastáveis)
+    if (!map.getLayer('circle-edit-handles-layer')) {
+        map.addLayer({
+            id: 'circle-edit-handles-layer',
+            type: 'circle',  // ✅ Correto para handles
+            source: 'circle-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': '#ff0000',
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            },
+            filter: ['==', '$type', 'Point']
+        });
+    }
+
+    // Source para handles de edição
+    if (!map.getSource('ellipse-edit-handles')) {
+        map.addSource('ellipse-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // Layer para handles (pontos arrastáveis)
+    if (!map.getLayer('ellipse-edit-handles-layer')) {
+        map.addLayer({
+            id: 'ellipse-edit-handles-layer',
+            type: 'circle',
+            source: 'ellipse-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
+                    '#ffffff'
+                ],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            },
+            filter: ['==', '$type', 'Point']
+        });
+    }
+
+    if (!map.getSource('arrows')) {
+        map.addSource('arrows', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.arrows
+            }
+        });
+    } else {
+        map.getSource('arrows').setData({
+            type: 'FeatureCollection',
+            features: features.arrows
+        });
+    }
+
+    if (!map.getLayer('arrow-layer')) {
+        map.addLayer({
+            id: 'arrow-layer',
+            type: 'line',
+            source: 'arrows',
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': ['get', 'lineOpacity']
+            }
+        });
+    }
+
+    if (!map.getLayer('arrow-fill-layer')) {
+        map.addLayer({
+            id: 'arrow-fill-layer',
+            type: 'fill',
+            source: 'arrows',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': ['get', 'fillOpacity']
+            }
+        }, 'arrow-layer'); // Inserir abaixo da linha
+    }
+
+    if (!map.getSource('arrow-preview')) {
+        map.addSource('arrow-preview', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    if (!map.getLayer('arrow-preview-layer')) {
+        map.addLayer({
+            id: 'arrow-preview-layer',
+            type: 'line',
+            source: 'arrow-preview',
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['get', 'lineWidth'],
+                'line-dasharray': [2, 2],
+                'line-opacity': ['get', 'lineOpacity']
+            }
+        });
+    }
+
+    if (!map.getLayer('arrow-preview-fill-layer')) {
+        map.addLayer({
+            id: 'arrow-preview-fill-layer',
+            type: 'fill',
+            source: 'arrow-preview',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': ['get', 'fillOpacity']
+            }
+        }, 'arrow-preview-layer'); // Inserir abaixo da linha de preview
+    }
+
+    if (!map.getSource('arrow-edit-handles')) {
+        map.addSource('arrow-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    if (!map.getLayer('arrow-edit-handles-layer')) {
+        map.addLayer({
+            id: 'arrow-edit-handles-layer',
+            type: 'circle',
+            source: 'arrow-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',    // Vermelho - vértices
+                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',  // Laranja - midpoints
+                    '#00ff00'  // Verde - padrão
+                ],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2,
+                'circle-opacity': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,  // Midpoints mais transparentes
+                    1.0
+                ]
+            },
+            filter: ['!=', ['get', 'role'], 'selected-feature'] // Não mostrar a feature, só os handles
+        });
+    }
+
     // Texts source
     if (!map.getSource('texts')) {
         map.addSource('texts', {
@@ -502,91 +661,6 @@ map.on('styledata', async () => {
                 'fill-opacity': 0.5,
                 'fill-outline-color': '#3f4fb5'
             }
-        });
-    }
-
-    // Source para handles de edição
-    if (!map.getSource('circle-edit-handles')) {
-        map.addSource('circle-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    // Layer para handles (pontos arrastáveis)
-    if (!map.getLayer('circle-edit-handles-layer')) {
-        map.addLayer({
-            id: 'circle-edit-handles-layer',
-            type: 'circle',  // ✅ Correto para handles
-            source: 'circle-edit-handles',
-            paint: {
-                'circle-radius': 8,
-                'circle-color': '#ff0000',
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 2
-            },
-            filter: ['==', '$type', 'Point']
-        });
-    }
-
-    // Layer para o círculo selecionado (destacado)
-    if (!map.getLayer('circle-selected-layer')) {
-        map.addLayer({
-            id: 'circle-selected-layer',
-            type: 'line',
-            source: 'circle-edit-handles',
-            paint: {
-                'line-color': '#ff0000',
-                'line-width': 3,
-                'line-dasharray': [2, 2],
-                'line-opacity': 0.8  // ✅ Adicionado: opacity para linha
-            },
-            filter: ['!=', ['get', 'role'], 'handle']
-        });
-    }
-
-    // Source para handles de edição
-    if (!map.getSource('ellipse-edit-handles')) {
-        map.addSource('ellipse-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    // Layer para handles (pontos arrastáveis)
-    if (!map.getLayer('ellipse-edit-handles-layer')) {
-        map.addLayer({
-            id: 'ellipse-edit-handles-layer',
-            type: 'circle',
-            source: 'ellipse-edit-handles',
-            paint: {
-                'circle-radius': 8,
-                'circle-color': [
-                    'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
-                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
-                    '#ffffff'
-                ],
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 2
-            },
-            filter: ['==', '$type', 'Point']
-        });
-    }
-
-    // Layer para a elipse selecionada (destacada)
-    if (!map.getLayer('ellipse-selected-layer')) {
-        map.addLayer({
-            id: 'ellipse-selected-layer',
-            type: 'line',
-            source: 'ellipse-edit-handles',
-            paint: {
-                'line-color': '#ff0000',
-                'line-width': 3,
-                'line-dasharray': [2, 2],
-                'line-opacity': 0.8  // ✅ Adicionado para consistência
-            },
-            filter: ['!=', ['get', 'role'], 'handle']
         });
     }
 

@@ -471,6 +471,81 @@
     100% { transform: rotate(360deg); }
 }
 
+.collapse-button {
+    position: absolute !important;
+    top: 8px !important;
+    right: 8px !important;
+    width: 28px !important;
+    height: 28px !important;
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid rgba(0, 0, 0, 0.2) !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.2s ease !important;
+    z-index: 1000 !important;
+    pointer-events: auto !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+.collapse-button:hover {
+    background-color: rgba(240, 240, 240, 0.95) !important;
+    border-color: rgba(0, 0, 0, 0.3) !important;
+    transform: scale(1.05) !important;
+}
+
+.collapse-button:active {
+    transform: scale(0.95) !important;
+}
+
+.collapse-button svg {
+    width: 18px;
+    height: 18px;
+    fill: #333;
+    pointer-events: none;
+}
+
+/* Estado colapsado do painel */
+.list-map-container.collapsed {
+    display: none !important;
+}
+
+/* Botão flutuante para reabrir */
+.reopen-button {
+    position: absolute !important;
+    top: 60px !important;
+    left: 15px !important;
+    width: 40px !important;
+    height: 40px !important;
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(8px) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    display: none !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    z-index: 100 !important;
+    transition: background-color 0.2s ease !important;
+}
+
+.reopen-button:hover {
+    background-color: rgba(240, 240, 240, 0.95) !important;
+}
+
+.reopen-button.show {
+    display: flex !important;
+}
+
+.reopen-button svg {
+    width: 30px;
+    height: 30px;
+    fill: #333;
+}
+
 /* ===== RESPONSIVIDADE MOBILE ===== */
 @media (max-width: 768px) {
     /* Container mobile */

@@ -89,7 +89,7 @@ class AddEllipseControl {
     }
 
     updateButtonAppearance = () => {
-        const iconSrc = this.isActive ? 
+        const iconSrc = this.isActive ?
             './images/icon_ellipse_red.svg' : 
             './images/icon_ellipse_black.svg';
         $("#ellipse-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="ELLIPSE" />`);
@@ -325,17 +325,7 @@ class AddEllipseControl {
         const minorRadius = feature.properties.minorRadius;
         const bearing = feature.properties.bearing;
 
-        console.log(`🔧 Creating ellipse handles - majorRadius: ${majorRadius}m, minorRadius: ${minorRadius}m, bearing: ${bearing}°`); // Debug
-
-        // CORRECTED: Major axis handle (red) - same bearing adjustment as geometry
-        const adjustedBearing = bearing - 90;
-        const bearingRad = adjustedBearing * Math.PI / 180;
-        
-        // Major axis handle position
-        const majorAxisEnd = [
-            center[0] + (majorRadius / 111320) * Math.cos(bearingRad + Math.PI/2) / Math.cos(center[1] * Math.PI / 180),
-            center[1] + (majorRadius / 111320) * Math.sin(bearingRad + Math.PI/2)
-        ];
+        const majorAxisEnd = this.calculateDestination(center, majorRadius, bearing);
         
         const majorHandleId = `ellipse-handle-${feature.id}-major`;
         this.editHandleIds.add(majorHandleId);
@@ -349,8 +339,8 @@ class AddEllipseControl {
             },
             properties: {
                 role: 'handle',
-                handleType: 'vertex',
-                handleId: 'vertex',
+                handleType: 'major-axis',
+                handleId: 'major-axis',
                 featureId: feature.id,
                 mode: 'ellipse_editing',
                 meta: 'vertex',
@@ -358,11 +348,8 @@ class AddEllipseControl {
             }
         });
 
-        // CORRECTED: Minor axis handle (blue) - perpendicular to major axis
-        const minorAxisEnd = [
-            center[0] + (minorRadius / 111320) * Math.cos(bearingRad) / Math.cos(center[1] * Math.PI / 180),
-            center[1] + (minorRadius / 111320) * Math.sin(bearingRad)
-        ];
+        const perpendicularBearing = bearing + 90;
+        const minorAxisEnd = this.calculateDestination(center, minorRadius, perpendicularBearing);
         
         const minorHandleId = `ellipse-handle-${feature.id}-minor`;
         this.editHandleIds.add(minorHandleId);
@@ -376,8 +363,8 @@ class AddEllipseControl {
             },
             properties: {
                 role: 'handle',
-                handleType: 'eccentricity',
-                handleId: 'eccentricity',
+                handleType: 'minor-axis',
+                handleId: 'minor-axis',
                 featureId: feature.id,
                 mode: 'ellipse_editing',
                 meta: 'vertex',
@@ -394,8 +381,6 @@ class AddEllipseControl {
                 mode: 'ellipse_editing'
             }
         });
-
-        console.log(`✅ Created ${handles.length} handles for ellipse ${feature.id}`); // Debug
 
         this.map.getSource('ellipse-edit-handles').setData({
             type: 'FeatureCollection',
@@ -533,8 +518,6 @@ class AddEllipseControl {
 
     onEditMouseUp = () => {
         if (this.isDraggingHandle && this.previewFeature) {
-            console.log('✅ Finishing handle drag and applying changes'); // Debug
-            
             // Apply preview changes to actual feature
             this.selectedFeature.properties.majorRadius = this.previewFeature.properties.majorRadius;
             this.selectedFeature.properties.minorRadius = this.previewFeature.properties.minorRadius;
@@ -556,10 +539,6 @@ class AddEllipseControl {
             this.updateSelectionAfterEdit();
             this.updateUIAfterEdit();
             this.saveFeatureChanges(finalFeature);
-            
-            console.log('🎉 Ellipse edit completed successfully'); // Debug
-        } else if (this.isDraggingHandle) {
-            console.log('❌ Was dragging but no preview feature'); // Debug
         }
     }
 
@@ -586,15 +565,8 @@ class AddEllipseControl {
                 newBearing
             );
             
-            // Calculate minor handle position for preview
-            const perpendicularBearing = (newBearing + 90) % 360;
-            const perpendicularBearingRad = perpendicularBearing * Math.PI / 180;
-            const minorRadius = this.previewFeature.properties.minorRadius;
-            const minorRadiusInDegrees = minorRadius / (111320 * Math.cos(center[1] * Math.PI / 180));
-            const minorHandlePosition = [
-                center[0] + minorRadiusInDegrees * Math.cos(perpendicularBearingRad),
-                center[1] + (minorRadius / 111320) * Math.sin(perpendicularBearingRad)
-            ];
+            const perpendicularBearing = newBearing + 90;
+            const minorHandlePosition = this.calculateDestination(center, this.previewFeature.properties.minorRadius, perpendicularBearing);
             
             this.showEditPreview(this.previewFeature, newPosition, minorHandlePosition);
         }
@@ -621,15 +593,7 @@ class AddEllipseControl {
                 this.previewFeature.properties.bearing
             );
             
-            // Calculate major handle position for preview
-            const bearing = this.previewFeature.properties.bearing;
-            const bearingRad = bearing * Math.PI / 180;
-            const majorRadius = this.previewFeature.properties.majorRadius;
-            const majorRadiusInDegrees = majorRadius / (111320 * Math.cos(center[1] * Math.PI / 180));
-            const majorHandlePosition = [
-                center[0] + majorRadiusInDegrees * Math.cos(bearingRad),
-                center[1] + (majorRadius / 111320) * Math.sin(bearingRad)
-            ];
+            const majorHandlePosition = this.calculateDestination(center, this.previewFeature.properties.majorRadius, this.previewFeature.properties.bearing);
             
             this.showEditPreview(this.previewFeature, majorHandlePosition, newPosition);
         }
@@ -638,7 +602,6 @@ class AddEllipseControl {
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
-        // CRITICAL: Add both fill and line layers for proper click detection
         this.map.on('mouseenter', 'ellipse-layer', this.handleMouseEnter);
         this.map.on('mouseleave', 'ellipse-layer', this.handleMouseLeave);
         this.map.on('mouseenter', 'ellipse-fill-layer', this.handleMouseEnter);
@@ -687,30 +650,34 @@ class AddEllipseControl {
     }
 
     generateEllipseGeometry = (center, majorRadius, minorRadius, bearing) => {
-        // CORRECTED: Use the same approach as reference code
-        // Reference uses: turf.ellipse(center, majorRadius, minorRadius, { angle: bearing - 90 })
-        
-        const points = 64;
+        const steps = 64;
         const coordinates = [[]];
         
-        // CRITICAL: Use bearing - 90 like in reference code
-        const adjustedBearing = bearing - 90;
-        const bearingRad = adjustedBearing * Math.PI / 180;
+        // Convert radius from meters to kilometers for calculations
+        const majorRadiusKm = majorRadius / 1000;
+        const minorRadiusKm = minorRadius / 1000;
         
-        for (let i = 0; i <= points; i++) {
-            const angle = (i * 360 / points) * Math.PI / 180;
+        // Use the same angle adjustment as the working example: bearing - 90
+        const angle = bearing - 90;
+        const angleRad = angle * Math.PI / 180;
+        
+        for (let i = 0; i <= steps; i++) {
+            const theta = (i * 2 * Math.PI) / steps;
             
-            // Standard ellipse equation in local coordinates
-            const localX = majorRadius * Math.cos(angle);
-            const localY = minorRadius * Math.sin(angle);
+            // Standard ellipse parametric equations
+            const x = majorRadiusKm * Math.cos(theta);
+            const y = minorRadiusKm * Math.sin(theta);
             
-            // Apply rotation (bearing)
-            const rotatedX = localX * Math.cos(bearingRad) - localY * Math.sin(bearingRad);
-            const rotatedY = localX * Math.sin(bearingRad) + localY * Math.cos(bearingRad);
+            // Apply rotation
+            const rotatedX = x * Math.cos(angleRad) - y * Math.sin(angleRad);
+            const rotatedY = x * Math.sin(angleRad) + y * Math.cos(angleRad);
             
-            // Convert to geographic coordinates (meters to degrees)
-            const lng = center[0] + (rotatedX / 111320) / Math.cos(center[1] * Math.PI / 180);
-            const lat = center[1] + (rotatedY / 111320);
+            // Convert back to geographic coordinates using simple approximation
+            const deltaLng = rotatedX / (111.32 * Math.cos(center[1] * Math.PI / 180));
+            const deltaLat = rotatedY / 110.54;
+            
+            const lng = center[0] + deltaLng;
+            const lat = center[1] + deltaLat;
             
             coordinates[0].push([lng, lat]);
         }
@@ -721,8 +688,30 @@ class AddEllipseControl {
         };
     }
 
+    // Helper method equivalent to turf.destination
+    calculateDestination = (origin, distance, bearing) => {
+        const distanceKm = distance / 1000; // Convert meters to kilometers
+        const bearingRad = bearing * Math.PI / 180;
+        
+        const R = 6371; // Earth's radius in km
+        const lat1 = origin[1] * Math.PI / 180;
+        const lng1 = origin[0] * Math.PI / 180;
+        
+        const lat2 = Math.asin(
+            Math.sin(lat1) * Math.cos(distanceKm / R) +
+            Math.cos(lat1) * Math.sin(distanceKm / R) * Math.cos(bearingRad)
+        );
+        
+        const lng2 = lng1 + Math.atan2(
+            Math.sin(bearingRad) * Math.sin(distanceKm / R) * Math.cos(lat1),
+            Math.cos(distanceKm / R) - Math.sin(lat1) * Math.sin(lat2)
+        );
+        
+        return [lng2 * 180 / Math.PI, lat2 * 180 / Math.PI];
+    }
+
     calculateDistance = (point1, point2) => {
-        const R = 6371000;
+        const R = 6371000; // Earth's radius in meters
         const lat1Rad = point1[1] * Math.PI / 180;
         const lat2Rad = point2[1] * Math.PI / 180;
         const deltaLatRad = (point2[1] - point1[1]) * Math.PI / 180;
@@ -808,10 +797,6 @@ class AddEllipseControl {
         }
         
         this.map.getSource('ellipses').setData(data);
-        
-        if (this.currentState === 'editing' && this.selectedFeature && !this.isDraggingHandle) {
-            this.createEditHandles(this.selectedFeature);
-        }
     }
 
     hasUnsavedChanges = (features, initialPropertiesMap) => {
@@ -861,7 +846,6 @@ class AddEllipseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
         
-        // Simple and clean: let the robust store handle verification/retry
         for (const feature of features) {
             try {
                 const featureId = feature.id || feature.properties.id;
@@ -871,7 +855,6 @@ class AddEllipseControl {
             }
         }
         
-        // Remove from map source (visual)
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
         const idsToDelete = new Set(features.map(f => String(f.id || f.properties.id)));
         data.features = data.features.filter(f => !idsToDelete.has(String(f.id)));
@@ -900,6 +883,49 @@ class AddEllipseControl {
             feature.properties.bearing !== initialProperties.bearing ||
             JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
         );
+    }
+
+    updateFeaturesCenterProperty = (features, newCenter) => {
+        const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+        
+        for (const feature of features) {
+            feature.id = feature.id || feature.properties.id;
+            
+            const sourceFeature = data.features.find(f => f.id == feature.id);
+            if (sourceFeature) {
+                sourceFeature.properties.center = newCenter;
+                feature.properties.center = newCenter;
+                
+                const newGeometry = this.generateEllipseGeometry(
+                    newCenter,
+                    sourceFeature.properties.majorRadius,
+                    sourceFeature.properties.minorRadius,
+                    sourceFeature.properties.bearing
+                );
+                sourceFeature.geometry = newGeometry;
+                feature.geometry = newGeometry;
+            }
+        }
+        
+        this.map.getSource('ellipses').setData(data);
+    }
+
+    updateFeatureFromUI = (feature) => {
+        const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+        const sourceFeature = data.features.find(f => f.id == feature.id);
+        
+        if (sourceFeature) {
+            Object.assign(sourceFeature.properties, feature.properties);
+            
+            const newGeometry = this.generateEllipseGeometry(
+                sourceFeature.properties.center,
+                sourceFeature.properties.majorRadius,
+                sourceFeature.properties.minorRadius,
+                sourceFeature.properties.bearing
+            );
+            sourceFeature.geometry = newGeometry;
+            this.map.getSource('ellipses').setData(data);
+        }
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {

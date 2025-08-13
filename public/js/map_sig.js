@@ -21,6 +21,7 @@ import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
 import { undoLastAction, redoLastAction } from './controls_sig/store.js';
 import AddCircleControl from './controls_sig/circle_tool/add_circle_control.js';
 import AddEllipseControl from './controls_sig/ellipse_tool/add_ellipse_control.js';
+import AddArrowControl from './controls_sig/arrow_tool/add_arrow_control.js';
 
 //-----------------------------------------------
 // CONTROLES
@@ -48,6 +49,7 @@ const addStreetViewControl = new AddStreetViewControl(toolManager);
 
 const circleControl = new AddCircleControl(toolManager);
 const ellipseControl = new AddEllipseControl(toolManager);
+const arrowControl = new AddArrowControl(toolManager);
 
 selectionManager.setDrawControl(drawControl);
 selectionManager.setTextControl(textControl);
@@ -56,6 +58,7 @@ selectionManager.setLosControl(losControl);
 selectionManager.setVisibilityControl(visibilityControl);
 selectionManager.setCircleControl(circleControl);
 selectionManager.setEllipseControl(ellipseControl);
+selectionManager.setArrowControl(arrowControl);
 
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
@@ -106,7 +109,7 @@ map.addControl(visibilityControl, 'top-right');
 map.addControl(addStreetViewControl, 'top-right');
 map.addControl(circleControl, 'top-right');
 map.addControl(ellipseControl, 'top-right');
-
+map.addControl(arrowControl, 'top-right');
 
 //-----------------------------------------------
 // ATALHOS DE TECLADO
@@ -196,6 +199,11 @@ document.addEventListener('keydown', (e) => {
         case 'O':
             e.preventDefault();
             toolManager.setActiveTool(losControl);
+            break;
+        case 'a':
+        case 'A':
+            e.preventDefault();
+            toolManager.setActiveTool(arrowControl);
             break;
     }
 });

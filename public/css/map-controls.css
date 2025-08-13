@@ -70,6 +70,10 @@
     top: 328px !important;
 }
 
+.arrow-control.controls-column-right {
+    top: 373px !important;
+}
+
 /* ===== ESTILOS BASE DOS CONTROLES ===== */
 .mapboxgl-ctrl-group {
     display: flex !important;

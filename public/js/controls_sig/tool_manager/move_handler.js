@@ -38,7 +38,8 @@ class MoveHandler {
             'text': this.updatePointFeature.bind(this),
             'image': this.updatePointFeature.bind(this),
             'circle': this.updateCircleFeature.bind(this),
-            'ellipse': this.updateEllipseFeature.bind(this)
+            'ellipse': this.updateEllipseFeature.bind(this),
+            'arrow': this.updateArrowFeature.bind(this)
         };
     }
 
@@ -50,7 +51,8 @@ class MoveHandler {
             'los': 'selectedLOSFeatures',
             'visibility': 'selectedVisibilityFeatures',
             'circle': 'selectedCircleFeatures',
-            'ellipse': 'selectedEllipseFeatures'
+            'ellipse': 'selectedEllipseFeatures',
+            'arrow': 'selectedArrowFeatures'
         };
     }
 
@@ -88,7 +90,7 @@ class MoveHandler {
         if (allSelectedFeatures.length === 0) return;
 
         const clickedFeatures = this.map.queryRenderedFeatures(e.point);
-        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses'];
+        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows'];
         const filteredFeatures = clickedFeatures.filter(feature => validSources.includes(feature.source));
 
         // Check for edit handles (maplibredraw midpoint/vertex handles)
@@ -155,8 +157,14 @@ class MoveHandler {
                 feature.properties.mode === 'ellipse_editing')
         );
 
-        // Add more handle types as needed
-        return hasCircleEditHandles || hasEllipseEditHandles;
+        const hasArrowEditHandles = clickedFeatures.some(feature =>
+            feature.source === 'arrow-edit-handles' &&
+            (feature.properties.user_isEditingHandle ||
+                feature.properties.meta === 'vertex' ||
+                feature.properties.mode === 'arrow_editing')
+        );
+
+        return hasCircleEditHandles || hasEllipseEditHandles || hasArrowEditHandles;
     }
 
     // Check if any selected feature is in editing mode
@@ -177,6 +185,13 @@ class MoveHandler {
                 this.selectionManager.ellipseControl &&
                 this.selectionManager.ellipseControl.isEditingMode &&
                 this.selectionManager.ellipseControl.isEditingMode()) {
+                return true;
+            }
+
+            if (source === 'arrow' && 
+                this.selectionManager.arrowControl && 
+                this.selectionManager.arrowControl.isEditingMode &&
+                this.selectionManager.arrowControl.isEditingMode()) {
                 return true;
             }
 
@@ -423,6 +438,24 @@ class MoveHandler {
         };
     }
 
+    updateArrowFeature(feature, dx, dy, newCoords) {
+        const newBaseCoordinates = feature.properties.baseCoordinates.map(coord => [
+            coord[0] + (dx / 111320) / Math.cos(coord[1] * Math.PI / 180),
+            coord[1] + (dy / 111320)
+        ]);
+        
+        const updatedProperties = {
+            ...feature.properties,
+            baseCoordinates: newBaseCoordinates
+        };
+
+        return {
+            ...feature,
+            properties: updatedProperties,
+            geometry: this.selectionManager.arrowControl.generateArrowGeometry(updatedProperties)
+        };
+    }
+
     updateSelectionManagerFeaturesOptimized(updatedFeatures) {
         // Initialize all maps at once
         const featureMaps = {
@@ -432,7 +465,8 @@ class MoveHandler {
             selectedLOSFeatures: new Map(),
             selectedVisibilityFeatures: new Map(),
             selectedCircleFeatures: new Map(),
-            selectedEllipseFeatures: new Map()
+            selectedEllipseFeatures: new Map(),
+            selectedArrowFeatures: new Map()
         };
 
         // Batch process all features
