@@ -96,7 +96,7 @@ class SelectionManager {
         } else {
             // Check for maplibredraw features
             const clickedDrawFeature = this.getClickedDrawFeature(e.point);
-            
+
             // Check for custom tool features (circle, ellipse, etc.)
             const clickedCustomFeature = this.getClickedCustomFeature(e.point);
 
@@ -121,7 +121,7 @@ class SelectionManager {
             // Handle custom tool features (circle, ellipse, etc.)
             if (clickedCustomFeature) {
                 const isAlreadySelected = this.isCustomFeatureSelected(clickedCustomFeature);
-                
+
                 if (isAlreadySelected) {
                     // Feature is already selected - transition to editing mode
                     this.transitionToEditingMode(clickedCustomFeature);
@@ -148,57 +148,57 @@ class SelectionManager {
     // Get clicked custom tool feature (circle, ellipse, etc.)
     getClickedCustomFeature = (point) => {
         const features = this.map.queryRenderedFeatures(point);
-        
+
         // Look for circle features
-        const circleFeature = features.find(f => 
+        const circleFeature = features.find(f =>
             (f.source === 'circles' || f.layer?.id === 'circle-layer' || f.layer?.id === 'circle-fill-layer') &&
             f.properties.source === 'circle'
         );
         if (circleFeature) return { ...circleFeature, toolType: 'circle' };
 
         // Look for ellipse features
-        const ellipseFeature = features.find(f => 
+        const ellipseFeature = features.find(f =>
             (f.source === 'ellipses' || f.layer?.id === 'ellipse-layer') &&
             f.properties.source === 'ellipse'
         );
         if (ellipseFeature) return { ...ellipseFeature, toolType: 'ellipse' };
 
         // Look for other custom tool features
-        const textFeature = features.find(f => 
+        const textFeature = features.find(f =>
             (f.source === 'texts' || f.layer?.id === 'text-layer') &&
             f.properties.source === 'text'
         );
         if (textFeature) return { ...textFeature, toolType: 'text' };
 
-        const imageFeature = features.find(f => 
+        const imageFeature = features.find(f =>
             (f.source === 'images' || f.layer?.id === 'image-layer') &&
             f.properties.source === 'image'
         );
         if (imageFeature) return { ...imageFeature, toolType: 'image' };
 
-        const losFeature = features.find(f => 
+        const losFeature = features.find(f =>
             (f.source === 'los' || f.layer?.id === 'los-layer') &&
             f.properties.source === 'los'
         );
         if (losFeature) return { ...losFeature, toolType: 'los' };
 
-        const visibilityFeature = features.find(f => 
+        const visibilityFeature = features.find(f =>
             (f.source === 'visibility' || f.layer?.id === 'visibility-layer') &&
             f.properties.source === 'visibility'
         );
         if (visibilityFeature) return { ...visibilityFeature, toolType: 'visibility' };
 
-        const arrowFeature = features.find(f => 
+        const arrowFeature = features.find(f =>
             (f.source === 'arrows' || f.layer?.id === 'arrow-layer') &&
             f.properties.source === 'arrow'
         );
         if (arrowFeature) return { ...arrowFeature, toolType: 'arrow' };
 
-        const boundaryFeature = features.find(f => 
-            (f.source === 'boundarys' || 
-             f.layer?.id === 'boundary-line-layer' || 
-             f.layer?.id === 'boundary-symbol-layer' ||
-             f.layer?.id === 'boundary-text-layer') &&
+        const boundaryFeature = features.find(f =>
+            (f.source === 'boundarys' ||
+                f.layer?.id === 'boundary-line-layer' ||
+                f.layer?.id === 'boundary-symbol-layer' ||
+                f.layer?.id === 'boundary-text-layer') &&
             f.properties.source === 'boundary'
         );
         if (boundaryFeature) return { ...boundaryFeature, toolType: 'boundary' };
@@ -209,7 +209,7 @@ class SelectionManager {
     // Check if a custom feature is already selected
     isCustomFeatureSelected = (feature) => {
         const featureId = feature.id || feature.properties.id;
-        
+
         switch (feature.toolType || feature.properties.source) {
             case 'circle':
                 return this.selectedCircleFeatures.has(featureId);
@@ -236,7 +236,7 @@ class SelectionManager {
     transitionToEditingMode = (feature) => {
         const source = feature.toolType || feature.properties.source;
         const featureId = feature.id || feature.properties.id;
-                
+
         switch (source) {
             case 'circle':
                 if (this.selectedCircleFeatures.has(featureId)) {
@@ -272,19 +272,19 @@ class SelectionManager {
     // Check if click is on an edit handle (for any tool in editing mode)
     isClickOnEditHandle = (point) => {
         const features = this.map.queryRenderedFeatures(point);
-        
+
         // Check for maplibredraw edit handles
         const hasMaplibreDrawEditHandles = features.some(feature =>
-            feature.properties.mode === 'direct_select' || 
-            feature.properties.meta === 'midpoint' || 
+            feature.properties.mode === 'direct_select' ||
+            feature.properties.meta === 'midpoint' ||
             feature.properties.meta === 'vertex'
         );
         if (hasMaplibreDrawEditHandles) return true;
 
         // Check for circle edit handles
         if (this.circleControl.isEditingMode && this.circleControl.isEditingMode()) {
-            const handleFeatures = features.filter(f => 
-                f.source === 'circle-edit-handles' && 
+            const handleFeatures = features.filter(f =>
+                f.source === 'circle-edit-handles' &&
                 (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
             );
             if (handleFeatures.length > 0) return true;
@@ -292,24 +292,24 @@ class SelectionManager {
 
         // Check for ellipse edit handles (similar pattern)
         if (this.ellipseControl.isEditingMode && this.ellipseControl.isEditingMode()) {
-            const handleFeatures = features.filter(f => 
-                f.source === 'ellipse-edit-handles' && 
+            const handleFeatures = features.filter(f =>
+                f.source === 'ellipse-edit-handles' &&
                 (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
             );
             if (handleFeatures.length > 0) return true;
         }
 
         if (this.arrowControl.isEditingMode && this.arrowControl.isEditingMode()) {
-            const handleFeatures = features.filter(f => 
-                f.source === 'arrow-edit-handles' && 
+            const handleFeatures = features.filter(f =>
+                f.source === 'arrow-edit-handles' &&
                 (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
             );
             if (handleFeatures.length > 0) return true;
         }
 
         if (this.boundaryControl.isEditingMode && this.boundaryControl.isEditingMode()) {
-            const handleFeatures = features.filter(f => 
-                f.source === 'boundary-edit-handles' && 
+            const handleFeatures = features.filter(f =>
+                f.source === 'boundary-edit-handles' &&
                 (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
             );
             if (handleFeatures.length > 0) return true;
@@ -325,7 +325,7 @@ class SelectionManager {
 
     handleElementClick = (e) => {
         e.preventDefault();
-        
+
         const feature = e.features[0];
         const source = feature.properties.source;
         const featureId = feature.id || feature.properties.id;
@@ -376,9 +376,34 @@ class SelectionManager {
         }
     }
 
+    getCompleteFeatureFromSource(source, featureId) {
+        let sourceName;
+        switch (source) {
+            case 'circle':
+                sourceName = 'circles';
+                break;
+            case 'ellipse':
+                sourceName = 'ellipses';
+                break;
+            case 'arrow':
+                sourceName = 'arrows';
+                break;
+            case 'boundary':
+                sourceName = 'boundarys';
+                break;
+            default:
+                return null;
+        }
+
+        const mapSource = this.map.getSource(sourceName);
+        if (!mapSource || !mapSource._data) return null;
+
+        return mapSource._data.features.find(f => f.id == featureId);
+    }
+
     toggleFeatureSelection(source, featureId, feature, forceToggle = false) {
         let targetMap;
-        
+
         switch (source) {
             case 'text':
                 targetMap = this.selectedTextFeatures;
@@ -428,18 +453,27 @@ class SelectionManager {
             }
         } else if (!targetMap.has(featureId)) {
             // Select feature
-            targetMap.set(featureId, feature);
+            let featureToStore = feature;
+            if (['circle', 'ellipse', 'arrow', 'boundary'].includes(source)) {
+                const completeFeature = this.getCompleteFeatureFromSource(source, featureId);
+                if (completeFeature) {
+                    featureToStore = completeFeature;
+                }
+            }
+
+            targetMap.set(featureId, featureToStore);
+
             if (source === 'circle' && this.circleControl) {
-                this.circleControl.onFeatureSelected?.(feature);
+                this.circleControl.onFeatureSelected?.(featureToStore);
             }
             if (source === 'ellipse' && this.ellipseControl) {
-                this.ellipseControl.onFeatureSelected?.(feature);
+                this.ellipseControl.onFeatureSelected?.(featureToStore);
             }
             if (source === 'arrow' && this.arrowControl) {
-                this.arrowControl.onFeatureSelected?.(feature);
+                this.arrowControl.onFeatureSelected?.(featureToStore);
             }
             if (source === 'boundary' && this.boundaryControl) {
-                this.boundaryControl.onFeatureSelected?.(feature);
+                this.boundaryControl.onFeatureSelected?.(featureToStore);
             }
         }
     }
