@@ -982,7 +982,6 @@ class AddBoundaryControl {
                 await updateFeature('boundarys', f);
             }
         }
-        console.log('Boundary features saved:', features.length);
     }
 
     // ✅ OBRIGATÓRIO: Método hasFeatureChanged para otimização

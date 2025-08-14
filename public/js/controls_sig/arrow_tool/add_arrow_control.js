@@ -6,16 +6,15 @@ class AddArrowControl {
         this.map = toolManager.map;
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
-        
-        // ✅ SISTEMA DE 3 ESTADOS (BASEADO NO CIRCLE)
+
         this.currentState = 'deselected';
         this.selectedFeature = null;
-        
+
         // Drawing state
         this.isActive = false;
         this.drawingMode = null;
         this.drawPoints = [];
-        
+
         // Edit mode variables
         this.isDraggingHandle = false;
         this.activeHandle = null;
@@ -26,21 +25,21 @@ class AddArrowControl {
 
     static DEFAULT_PROPERTIES = {
         width: 500,
-        color: '#3f4fb5',          // Retrocompatibilidade
         fillColor: '#3f4fb5',
         lineColor: '#3f4fb5',
         lineWidth: 3,
         fillOpacity: 0.8,
+        lineOpacity: 1.0,
         headLengthRatio: 1.5,
-        airmobile: false,          // ✅ NOVA: Aeromóvel/Aeroterrestre
-        airmobilePosition: 0.7,    // ✅ NOVA: Posição do X na linha (0-1)
+        airmobile: false,
+        airmobilePosition: 0.7,
         source: 'arrow',
         geometryType: 'arrow',
         baseCoordinates: []
     };
 
     // ===== MAPBOX CONTROL INTERFACE =====
-    
+
     onAdd = (map) => {
         this.map = map;
         this.container = document.createElement('div');
@@ -61,20 +60,20 @@ class AddArrowControl {
     }
 
     updateButtonAppearance = () => {
-        const iconSrc = this.isActive ? 
-            './images/icon_arrow_red.svg' : 
+        const iconSrc = this.isActive ?
+            './images/icon_arrow_red.svg' :
             './images/icon_arrow_black.svg';
-            
+
         $(`#arrow-tool`).html(`<img class="icon-sig-tool" src="${iconSrc}" alt="ARROW" />`);
     }
 
-    // ===== SISTEMA DE 3 ESTADOS (TEMPLATE DO CIRCLE) =====
+    // ===== SISTEMA DE 3 ESTADOS =====
 
     transitionToState = (newState, feature = null) => {
         this.exitCurrentState();
         this.currentState = newState;
         this.selectedFeature = feature;
-        
+
         switch (newState) {
             case 'deselected':
                 this.enterDeselectedState();
@@ -116,7 +115,7 @@ class AddArrowControl {
         this.selectedFeature = feature;
     }
 
-    exitSelectedState = () => {}
+    exitSelectedState = () => { }
 
     // State 3: EDITING (handle-based editing)
     enterEditingState = (feature) => {
@@ -148,7 +147,7 @@ class AddArrowControl {
     onFeatureSelected = (feature) => {
         const featureId = feature.id || feature.properties.id;
         const isSameFeature = this.selectedFeature && this.selectedFeature.id === featureId;
-        
+
         if (isSameFeature && this.currentState === 'selected') {
             // Same feature selected again: SELECTED → EDITING
             this.transitionToState('editing', feature);
@@ -160,7 +159,7 @@ class AddArrowControl {
 
     onFeatureDeselected = (feature) => {
         const featureId = feature.id || feature.properties.id;
-        
+
         if (this.selectedFeature && this.selectedFeature.id === featureId) {
             this.transitionToState('deselected');
         }
@@ -176,7 +175,7 @@ class AddArrowControl {
     isEditingMode = () => {
         return this.currentState === 'editing';
     }
-    
+
     hasEditHandle = (featureId) => {
         return this.editHandleIds.has(featureId);
     }
@@ -185,14 +184,14 @@ class AddArrowControl {
 
     handleMapClick = (e) => {
         if (!this.isActive) return;
-        
+
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
             console.warn('Coordenadas inválidas para seta');
             return;
         }
 
         this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
-        
+
         if (this.drawPoints.length === 1) {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         }
@@ -200,11 +199,11 @@ class AddArrowControl {
 
     handleDoubleClick = (e) => {
         if (!this.isActive) return;
-        
+
         if (this.drawPoints.length > 0) {
             this.drawPoints.pop();
         }
-        
+
         if (this.drawPoints.length >= 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             this.createFeature();
@@ -218,16 +217,16 @@ class AddArrowControl {
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length >= 1) {
             const previewPoints = [...this.drawPoints, [e.lngLat.lng, e.lngLat.lat]];
-            
+
             if (previewPoints.length >= 2) {
                 const previewGeometry = this.generateArrowGeometry({
                     baseCoordinates: previewPoints,
                     width: AddArrowControl.DEFAULT_PROPERTIES.width,
-                    headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio, // ✅ INCLUIR NO PREVIEW
-                    airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile, // ✅ INCLUIR NO PREVIEW
-                    airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition // ✅ INCLUIR NO PREVIEW
+                    headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
+                    airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
+                    airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
                 });
-                
+
                 if (previewGeometry) {
                     this.showPreview(previewGeometry);
                 }
@@ -239,12 +238,13 @@ class AddArrowControl {
         this.map.getSource('arrow-preview').setData({
             type: 'Feature',
             geometry: geometry,
-            properties: { 
+            properties: {
                 preview: true,
-                color: AddArrowControl.DEFAULT_PROPERTIES.color,
                 fillColor: AddArrowControl.DEFAULT_PROPERTIES.fillColor,
+                lineColor: AddArrowControl.DEFAULT_PROPERTIES.lineColor,
                 lineWidth: AddArrowControl.DEFAULT_PROPERTIES.lineWidth,
-                fillOpacity: 0.5
+                fillOpacity: 0.5,
+                lineOpacity: 0.8
             }
         });
     }
@@ -277,9 +277,15 @@ class AddArrowControl {
                 ...AddArrowControl.DEFAULT_PROPERTIES,
                 baseCoordinates: [...this.drawPoints],
                 id: featureId,
-                headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio, // ✅ GARANTIR VALOR PADRÃO
-                airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile, // ✅ GARANTIR VALOR PADRÃO
-                airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition // ✅ GARANTIR VALOR PADRÃO
+                // ✅ GARANTIR que todas as propriedades visuais existam
+                fillColor: AddArrowControl.DEFAULT_PROPERTIES.fillColor,
+                lineColor: AddArrowControl.DEFAULT_PROPERTIES.lineColor,
+                lineWidth: AddArrowControl.DEFAULT_PROPERTIES.lineWidth,
+                fillOpacity: AddArrowControl.DEFAULT_PROPERTIES.fillOpacity,
+                lineOpacity: AddArrowControl.DEFAULT_PROPERTIES.lineOpacity,
+                headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
+                airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
+                airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
             },
             geometry: this.generateArrowGeometry({
                 baseCoordinates: this.drawPoints,
@@ -292,11 +298,11 @@ class AddArrowControl {
 
         try {
             await addFeature('arrows', feature);
-            
+
             const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
             data.features.push(feature);
             this.map.getSource('arrows').setData(data);
-            
+
             this.drawPoints = [];
             this.toolManager.setActiveTool(null);
 
@@ -315,78 +321,33 @@ class AddArrowControl {
         this.clearPreview();
     }
 
-    // ===== GERAÇÃO DA GEOMETRIA DA SETA (CORRIGIDA PARA FILL) =====
+    // ===== GERAÇÃO DA GEOMETRIA DA SETA =====
 
     generateArrowGeometry = (properties) => {
         const coords = this.normalizeBaseCoordinates(properties.baseCoordinates);
         const width = properties.width || 1000;
-        // ✅ RETROCOMPATIBILIDADE: se não existir, usar valor padrão
-        const headLengthRatio = properties.headLengthRatio !== undefined ? 
-            properties.headLengthRatio : 1.5;
-        
+        const headLengthRatio = properties.headLengthRatio || 1.5;
+        const airmobile = properties.airmobile || false;
+        const airmobilePosition = properties.airmobilePosition || 0.7;
+
         if (coords.length < 2) {
             console.warn('Coordenadas insuficientes para seta:', coords);
             return null;
         }
 
         const absHalfBodyWidth = Math.abs(width / 2);
-        
+
         try {
             const mainLine = turf.lineString(coords);
-            
-            // 1. Criar corpo da seta (linhas paralelas)
-            const leftLine = turf.lineOffset(mainLine, absHalfBodyWidth, { units: 'meters' });
-            const rightLine = turf.lineOffset(mainLine, -absHalfBodyWidth, { units: 'meters' });
 
-            const p_last = coords[coords.length - 1];
-            const p_second_last = coords[coords.length - 2];
-            const bearing = turf.bearing(p_second_last, p_last);
+            // ===== MODO AEROMÓVEL/AEROTERRESTRE =====
+            if (airmobile) {
+                return this.generateAirmobileArrowGeometry(mainLine, width, headLengthRatio, airmobilePosition);
+            }
 
-            // 2. Definir proporções da cabeça baseado na largura absoluta
-            const absHeadBaseWidth = Math.abs(width * 2.5);
-            const headLength = absHeadBaseWidth * headLengthRatio; // ✅ USANDO NOVA PROPORÇÃO
+            // ===== MODO NORMAL =====
+            return this.generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth);
 
-            // 3. Calcular pontos dos cantos da cabeça (sempre geográficos left/right)
-            const perpendicularBearingLeft = bearing - 90;
-            const perpendicularBearingRight = bearing + 90;
-            const headCornerLeft = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingLeft, { units: 'meters' });
-            const headCornerRight = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingRight, { units: 'meters' });
-            
-            // 4. Calcular a ponta da seta
-            const headTip = turf.destination(p_last, headLength, bearing, { units: 'meters' });
-            
-            // 5. Obter os pontos finais do corpo
-            const bodyEndLeft = leftLine.geometry.coordinates[leftLine.geometry.coordinates.length - 1];
-            const bodyEndRight = rightLine.geometry.coordinates[rightLine.geometry.coordinates.length - 1];
-            
-            // 6. CRIAR POLÍGONO SEGUINDO EXATAMENTE O PADRÃO TACTICAL_TOOLS
-            const arrowPolygonCoords = [];
-            
-            // Lado esquerdo do corpo (do início ao fim)
-            arrowPolygonCoords.push(...leftLine.geometry.coordinates);
-            
-            // bodyEndLeft → headCornerRight (como tactical_tools)
-            arrowPolygonCoords.push(headCornerRight.geometry.coordinates);
-            
-            // headCornerRight → headTip
-            arrowPolygonCoords.push(headTip.geometry.coordinates);
-            
-            // headTip → headCornerLeft
-            arrowPolygonCoords.push(headCornerLeft.geometry.coordinates);
-            
-            // headCornerLeft → bodyEndRight (conecta com fim da linha direita)
-            // Agora seguimos a linha direita do fim ao início (reverso)
-            const rightLineReversed = [...rightLine.geometry.coordinates].reverse();
-            arrowPolygonCoords.push(...rightLineReversed);
-            
-            // Fechar o polígono
-            arrowPolygonCoords.push(arrowPolygonCoords[0]);
-
-            return {
-                type: 'Polygon',
-                coordinates: [arrowPolygonCoords]
-            };
-            
         } catch (error) {
             console.warn('Erro ao gerar geometria da seta:', error);
             return {
@@ -396,7 +357,166 @@ class AddArrowControl {
         }
     }
 
-    // ===== SISTEMA DE EDIÇÃO COM HANDLE DE LARGURA =====
+    generateNormalArrowGeometry = (mainLine, width, headLengthRatio, absHalfBodyWidth) => {
+        const coords = mainLine.geometry.coordinates;
+
+        // 1. Criar corpo da seta (linhas paralelas)
+        const leftLine = turf.lineOffset(mainLine, absHalfBodyWidth, { units: 'meters' });
+        const rightLine = turf.lineOffset(mainLine, -absHalfBodyWidth, { units: 'meters' });
+
+        const p_last = coords[coords.length - 1];
+        const p_second_last = coords[coords.length - 2];
+        const bearing = turf.bearing(p_second_last, p_last);
+
+        // 2. Definir proporções da cabeça baseado na largura absoluta
+        const absHeadBaseWidth = Math.abs(width * 2.5);
+        const headLength = absHeadBaseWidth * headLengthRatio;
+
+        // 3. Calcular pontos dos cantos da cabeça (sempre geográficos left/right)
+        const perpendicularBearingLeft = bearing - 90;
+        const perpendicularBearingRight = bearing + 90;
+        const headCornerLeft = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingLeft, { units: 'meters' });
+        const headCornerRight = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingRight, { units: 'meters' });
+
+        // 4. Calcular a ponta da seta
+        const headTip = turf.destination(p_last, headLength, bearing, { units: 'meters' });
+
+        // 5. Obter os pontos finais do corpo
+        const bodyEndLeft = leftLine.geometry.coordinates[leftLine.geometry.coordinates.length - 1];
+        const bodyEndRight = rightLine.geometry.coordinates[rightLine.geometry.coordinates.length - 1];
+
+        // 6. CRIAR POLÍGONO NORMAL
+        const arrowPolygonCoords = [];
+
+        // Lado esquerdo do corpo (do início ao fim)
+        arrowPolygonCoords.push(...leftLine.geometry.coordinates);
+
+        // bodyEndLeft → headCornerRight
+        arrowPolygonCoords.push(headCornerRight.geometry.coordinates);
+
+        // headCornerRight → headTip
+        arrowPolygonCoords.push(headTip.geometry.coordinates);
+
+        // headTip → headCornerLeft
+        arrowPolygonCoords.push(headCornerLeft.geometry.coordinates);
+
+        // headCornerLeft → bodyEndRight (conecta com fim da linha direita)
+        // Agora seguimos a linha direita do fim ao início (reverso)
+        const rightLineReversed = [...rightLine.geometry.coordinates].reverse();
+        arrowPolygonCoords.push(...rightLineReversed);
+
+        // Fechar o polígono
+        arrowPolygonCoords.push(arrowPolygonCoords[0]);
+
+        return {
+            type: 'Polygon',
+            coordinates: [arrowPolygonCoords]
+        };
+    }
+
+    generateAirmobileArrowGeometry = (mainLine, width, headLengthRatio, airmobilePosition) => {
+        const coords = mainLine.geometry.coordinates;
+        const absHalfBodyWidth = Math.abs(width / 2);
+        const mainLineLength = turf.length(mainLine, { units: 'meters' });
+
+        try {
+            // 1. Create full offset lines first for stability
+            const fullLeftLine = turf.lineOffset(mainLine, absHalfBodyWidth, { units: 'meters' });
+            const fullRightLine = turf.lineOffset(mainLine, -absHalfBodyWidth, { units: 'meters' });
+
+            // 2. Find the exact point on the main line for the crossover
+            const pointOnMainLine = turf.along(mainLine, mainLineLength * airmobilePosition, { units: 'meters' });
+
+            // 3. Find the corresponding points on the offset lines
+            const crossoverLeftPoint = turf.nearestPointOnLine(fullLeftLine, pointOnMainLine, { units: 'meters' });
+            const crossoverRightPoint = turf.nearestPointOnLine(fullRightLine, pointOnMainLine, { units: 'meters' });
+
+            // 4. Slice the two full offset lines at their respective crossover points
+            const left1 = turf.lineSlice(turf.point(fullLeftLine.geometry.coordinates[0]), crossoverLeftPoint, fullLeftLine);
+            const left2 = turf.lineSlice(crossoverLeftPoint, turf.point(fullLeftLine.geometry.coordinates[fullLeftLine.geometry.coordinates.length - 1]), fullLeftLine);
+            const right1 = turf.lineSlice(turf.point(fullRightLine.geometry.coordinates[0]), crossoverRightPoint, fullRightLine);
+            const right2 = turf.lineSlice(crossoverRightPoint, turf.point(fullRightLine.geometry.coordinates[fullRightLine.geometry.coordinates.length - 1]), fullRightLine);
+
+            const finalBodyLine1 = turf.lineString([...left1.geometry.coordinates, ...right2.geometry.coordinates.slice(1)]);
+            const finalBodyLine2 = turf.lineString([...right1.geometry.coordinates, ...left2.geometry.coordinates.slice(1)]);
+
+            const intersection = turf.lineIntersect(finalBodyLine1, finalBodyLine2);
+
+            let handleCoord;
+            if (intersection.features.length > 0) {
+                handleCoord = intersection.features[0].geometry.coordinates;
+            } else {
+                handleCoord = pointOnMainLine.geometry.coordinates;
+            }
+            // 5. Calcular geometria da cabeça da seta
+            const p_last = coords[coords.length - 1];
+            const p_second_last = coords[coords.length - 2];
+            const bearing = turf.bearing(p_second_last, p_last);
+            const absHeadBaseWidth = Math.abs(width * 2.5);
+            const headLength = absHeadBaseWidth * headLengthRatio;
+
+            const perpendicularBearingLeft = bearing - 90;
+            const perpendicularBearingRight = bearing + 90;
+            const headCornerLeft = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingLeft, { units: 'meters' });
+            const headCornerRight = turf.destination(p_last, absHeadBaseWidth / 2, perpendicularBearingRight, { units: 'meters' });
+            const headTip = turf.destination(p_last, headLength, bearing, { units: 'meters' });
+
+            // 6. ✅ SOLUÇÃO: Criar MultiPolygon com duas partes separadas para evitar auto-interseção
+
+            // PRIMEIRO POLÍGONO: Do início até o crossover
+            const polygon1Coords = [];
+
+            // Seguir left1 (linha esquerda do início até crossover)
+            polygon1Coords.push(...[...left1.geometry.coordinates].slice(0, -1));
+
+            // Ir para o ponto de crossover na linha direita
+            polygon1Coords.push(handleCoord);
+
+            // Voltar pela right1 reversa (linha direita do crossover até início)
+            const right1Reversed = [...right1.geometry.coordinates].reverse();
+            polygon1Coords.push(...right1Reversed.slice(1)); // slice(1) para evitar duplicar o ponto de crossover
+
+            // Fechar o primeiro polígono
+            polygon1Coords.push(polygon1Coords[0]);
+
+            // SEGUNDO POLÍGONO: Do crossover até o fim (incluindo a cabeça)
+            const polygon2Coords = [];
+
+            // Seguir left2 (linha esquerda do crossover até fim)
+            polygon2Coords.push(...[...left2.geometry.coordinates].slice(1));
+
+            // Conectar com a cabeça da seta
+            polygon2Coords.push(headCornerRight.geometry.coordinates);
+            polygon2Coords.push(headTip.geometry.coordinates);
+            polygon2Coords.push(headCornerLeft.geometry.coordinates);
+
+            // Voltar pela right2 reversa (linha direita do fim até crossover)
+            const right2Reversed = [...right2.geometry.coordinates].reverse();
+            polygon2Coords.push(...right2Reversed.slice(0, -1)); // slice(1) para evitar duplicar o último ponto
+
+            // Ir para o ponto de crossover na linha esquerda
+            polygon2Coords.push(handleCoord);
+
+            // Fechar o segundo polígono
+            polygon2Coords.push(polygon2Coords[0]);
+
+            // 7. Retornar MultiPolygon
+            return {
+                type: 'MultiPolygon',
+                coordinates: [
+                    [polygon1Coords],  // Primeiro polígono
+                    [polygon2Coords]   // Segundo polígono
+                ]
+            };
+
+        } catch (error) {
+            console.warn('Erro na geometria aeromóvel, usando normal:', error);
+            // Fallback para geometria normal
+            return this.generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth);
+        }
+    }
+
+    // ===== SISTEMA DE EDIÇÃO COM HANDLES =====
 
     createEditHandles = (feature) => {
         const handles = [];
@@ -411,7 +531,7 @@ class AddArrowControl {
         coords.forEach((coord, index) => {
             const handleId = `arrow-handle-${feature.id}-vertex-${index}`;
             this.editHandleIds.add(handleId);
-            
+
             handles.push({
                 type: 'Feature',
                 id: handleId,
@@ -434,7 +554,7 @@ class AddArrowControl {
             const midpoint = turf.midpoint(turf.point(coords[i]), turf.point(coords[i + 1]));
             const handleId = `arrow-handle-${feature.id}-midpoint-${i}`;
             this.editHandleIds.add(handleId);
-            
+
             handles.push({
                 type: 'Feature',
                 id: handleId,
@@ -461,10 +581,10 @@ class AddArrowControl {
         const perpendicularBearing = bearing - (90 * sign);
         const headBaseWidth = Math.abs(width * 2.5);
         const widthHandlePoint = turf.destination(lastPoint, headBaseWidth / 2, perpendicularBearing, { units: 'meters' });
-        
+
         const widthHandleId = `arrow-handle-${feature.id}-width`;
         this.editHandleIds.add(widthHandleId);
-        
+
         handles.push({
             type: 'Feature',
             id: widthHandleId,
@@ -481,14 +601,13 @@ class AddArrowControl {
         });
 
         // 4. Handle de comprimento da cabeça (verde)
-        const headLengthRatio = feature.properties.headLengthRatio !== undefined ? 
-            feature.properties.headLengthRatio : 1.5; // ✅ RETROCOMPATIBILIDADE
+        const headLengthRatio = feature.properties.headLengthRatio || 1.5;
         const headLength = headBaseWidth * headLengthRatio;
         const headTipPoint = turf.destination(lastPoint, headLength, bearing, { units: 'meters' });
-        
+
         const headLengthHandleId = `arrow-handle-${feature.id}-headlength`;
         this.editHandleIds.add(headLengthHandleId);
-        
+
         handles.push({
             type: 'Feature',
             id: headLengthHandleId,
@@ -504,33 +623,64 @@ class AddArrowControl {
             }
         });
 
-        // 5. ✅ NOVO: Handle de posição do X aeromóvel (roxo) - só aparece se airmobile estiver ativo
+        // 5. Handle de posição do X aeromóvel (roxo) - REPLICANDO EXATAMENTE O EXEMPLO
         const airmobile = feature.properties.airmobile || false;
+
         if (airmobile) {
-            const airmobilePosition = feature.properties.airmobilePosition !== undefined ? 
-                feature.properties.airmobilePosition : 0.7;
-            
-            const mainLine = turf.lineString(coords);
-            const lineLength = turf.length(mainLine, { units: 'meters' });
-            const xPoint = turf.along(mainLine, lineLength * airmobilePosition, { units: 'meters' });
-            
-            const airmobileHandleId = `arrow-handle-${feature.id}-airmobile`;
-            this.editHandleIds.add(airmobileHandleId);
-            
-            handles.push({
-                type: 'Feature',
-                id: airmobileHandleId,
-                geometry: { type: 'Point', coordinates: xPoint.geometry.coordinates },
-                properties: {
-                    role: 'handle',
-                    handleType: 'airmobile',
-                    handleId: 'airmobile',
-                    featureId: feature.id,
-                    mode: 'arrow_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
+            const airmobilePosition = feature.properties.airmobilePosition || 0.5;
+
+            if (coords.length >= 2) {
+                const absHalfBodyWidth = Math.abs((feature.properties.width || 1000) / 2);
+                const mainLine = turf.lineString(coords);
+                const mainLineLength = turf.length(mainLine, { units: 'meters' });
+
+                // ✅ REPLICANDO EXATAMENTE O CÁLCULO DO EXEMPLO
+                const fullLeftLine = turf.lineOffset(mainLine, absHalfBodyWidth, { units: 'meters' });
+                const fullRightLine = turf.lineOffset(mainLine, -absHalfBodyWidth, { units: 'meters' });
+                const pointOnMainLine = turf.along(mainLine, mainLineLength * airmobilePosition, { units: 'meters' });
+
+                // ✅ USAR nearestPointOnLine pois pointOnLine não existe na nossa versão
+                const crossoverLeftPoint = turf.nearestPointOnLine(fullLeftLine, pointOnMainLine);
+                const crossoverRightPoint = turf.nearestPointOnLine(fullRightLine, pointOnMainLine);
+
+                const left1 = turf.lineSlice(turf.point(fullLeftLine.geometry.coordinates[0]), crossoverLeftPoint, fullLeftLine);
+                const left2 = turf.lineSlice(crossoverLeftPoint, turf.point(fullLeftLine.geometry.coordinates[fullLeftLine.geometry.coordinates.length - 1]), fullLeftLine);
+                const right1 = turf.lineSlice(turf.point(fullRightLine.geometry.coordinates[0]), crossoverRightPoint, fullRightLine);
+                const right2 = turf.lineSlice(crossoverRightPoint, turf.point(fullRightLine.geometry.coordinates[fullRightLine.geometry.coordinates.length - 1]), fullRightLine);
+
+                const finalBodyLine1 = turf.lineString([...left1.geometry.coordinates, ...right2.geometry.coordinates.slice(1)]);
+                const finalBodyLine2 = turf.lineString([...right1.geometry.coordinates, ...left2.geometry.coordinates.slice(1)]);
+
+                const intersection = turf.lineIntersect(finalBodyLine1, finalBodyLine2);
+
+                let handleCoord;
+                if (intersection.features.length > 0) {
+                    handleCoord = intersection.features[0].geometry.coordinates;
+                } else {
+                    handleCoord = pointOnMainLine.geometry.coordinates;
                 }
-            });
+
+                const airmobileHandleId = `arrow-handle-${feature.id}-airmobile`;
+                this.editHandleIds.add(airmobileHandleId);
+
+                // ✅ USAR EXATAMENTE A MESMA ESTRUTURA DO EXEMPLO
+                const handleFeature = {
+                    type: 'Feature',
+                    id: airmobileHandleId,
+                    geometry: { type: 'Point', coordinates: handleCoord },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'airmobile',  // ✅ Manter para compatibilidade com layers
+                        handleId: 'airmobile',
+                        featureId: feature.id,
+                        mode: 'arrow_editing',
+                        meta: 'vertex',
+                        user_isEditingHandle: true
+                    }
+                };
+
+                handles.push(handleFeature);
+            }
         }
 
         // 6. Feature destacada para modo editing
@@ -592,15 +742,18 @@ class AddArrowControl {
             this.initialHandlePosition = [e.lngLat.lng, e.lngLat.lat];
             this.map.dragPan.disable();
             this.map.getCanvas().style.cursor = 'grabbing';
-            
-            // Criar preview para drag
+
             this.previewFeature = JSON.parse(JSON.stringify(this.selectedFeature));
+
+
             e.preventDefault();
         }
     }
 
     onEditMouseMove = (e) => {
-        if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) return;
+        if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) {
+            return;
+        }
 
         const currentPosition = [e.lngLat.lng, e.lngLat.lat];
         const handleId = this.activeHandle.properties.handleId;
@@ -610,11 +763,9 @@ class AddArrowControl {
 
     onEditMouseUp = () => {
         if (this.isDraggingHandle && this.previewFeature) {
-            // ✅ SEGUINDO PADRÃO DO CIRCLE CONTROL
-            // Apply preview changes to actual feature
             this.selectedFeature.properties = { ...this.previewFeature.properties };
             this.selectedFeature.geometry = { ...this.previewFeature.geometry };
-            
+
             // Reset drag state first
             this.isDraggingHandle = false;
             this.activeHandle = null;
@@ -623,7 +774,7 @@ class AddArrowControl {
             this.previewFeature = null;
             this.map.dragPan.enable();
             this.map.getCanvas().style.cursor = '';
-            
+
             this.clearEditPreview();
             this.forceUpdateMainSource(finalFeature);
             this.createEditHandles(finalFeature);
@@ -632,10 +783,9 @@ class AddArrowControl {
             this.saveFeatureChanges(finalFeature);
         }
     }
-
     updateGeometryFromHandle = (handleId, newPosition) => {
         if (!this.previewFeature) return;
-        
+
         let coords = this.normalizeBaseCoordinates(this.previewFeature.properties.baseCoordinates);
 
         if (coords.length < 2) {
@@ -659,64 +809,61 @@ class AddArrowControl {
             this.activeHandle.properties.handleType = 'vertex';
             this.activeHandle.properties.handleId = `vertex-${insertIndex}`;
         } else if (handleId === 'width') {
-            // Handle de largura
+            // Handle de largura (sem mudanças)
             const lastPoint = coords[coords.length - 1];
             const secondLastPoint = coords[coords.length - 2];
             const line = turf.lineString([secondLastPoint, lastPoint]);
 
-            let newWidth = turf.pointToLineDistance(turf.point(newPosition), line, {units: 'meters'});
-            
+            let newWidth = turf.pointToLineDistance(turf.point(newPosition), line, { units: 'meters' });
+
             // Determinar sinal baseado no lado da linha
             const x1 = secondLastPoint[0], y1 = secondLastPoint[1];
             const x2 = lastPoint[0], y2 = lastPoint[1];
             const x = newPosition[0], y = newPosition[1];
             if ((x - x1) * (y2 - y1) - (y - y1) * (x2 - x1) > 0) newWidth = -newWidth;
 
-            // Aplicar nova largura
             this.previewFeature.properties.width = newWidth;
         } else if (handleId === 'headLength') {
-            // Handle de comprimento da cabeça
+            // Handle de comprimento da cabeça (sem mudanças)
             const lastPoint = coords[coords.length - 1];
             const secondLastPoint = coords[coords.length - 2];
             const bearing = turf.bearing(secondLastPoint, lastPoint);
-            
-            // Calcular distância do último ponto até a nova posição na direção do bearing
+
             const line = turf.lineString([lastPoint, newPosition]);
             const distance = turf.length(line, { units: 'meters' });
-            
-            // Verificar se está na mesma direção (produto escalar)
+
             const tipBearing = turf.bearing(lastPoint, newPosition);
             const angleDiff = Math.abs(bearing - tipBearing);
             const isForward = angleDiff < 90 || angleDiff > 270;
-            
-            if (isForward && distance > 100) { // Mínimo de 100m para a cabeça
+
+            if (isForward && distance > 100) {
                 const width = this.previewFeature.properties.width || 500;
                 const headBaseWidth = Math.abs(width * 2.5);
-                const newHeadLengthRatio = Math.max(0.5, distance / headBaseWidth); // Mínimo 0.5x
-                
+                const newHeadLengthRatio = Math.max(0.5, distance / headBaseWidth);
+
                 this.previewFeature.properties.headLengthRatio = newHeadLengthRatio;
             }
         } else if (handleId === 'airmobile') {
-            // ✅ NOVO: Handle de posição do X aeromóvel
-            const mainLine = turf.lineString(coords);
-            const lineLength = turf.length(mainLine, { units: 'meters' });
-            
-            // Encontrar o ponto mais próximo na linha
-            const nearestPointOnLine = turf.nearestPointOnLine(mainLine, turf.point(newPosition));
-            const distanceFromStart = turf.length(turf.lineSliceAlong(mainLine, 0, nearestPointOnLine.properties.location, { units: 'meters' }), { units: 'meters' });
-            
-            // Calcular nova posição como percentual (0-1)
-            let newAirmobilePosition = distanceFromStart / lineLength;
-            
-            // Limitar entre 0.1 e 0.9 (não pode ficar muito perto das extremidades)
-            newAirmobilePosition = Math.max(0.1, Math.min(0.9, newAirmobilePosition));
-            
-            this.previewFeature.properties.airmobilePosition = newAirmobilePosition;
+            // ✅ IMPLEMENTAR EXATAMENTE COMO NO HTML DE REFERÊNCIA
+            const line = turf.lineString(coords);
+            const lineLength = turf.length(line, { units: 'meters' });
+
+            // ✅ Tentar usar turf.pointOnLine primeiro (como no HTML)
+            let snappedPoint;
+            let newDistance;
+
+            snappedPoint = turf.nearestPointOnLine(line, turf.point(newPosition), { units: 'meters' });
+            newDistance = snappedPoint.properties.location;
+
+            let newPositionNormalized = newDistance / lineLength;
+            newPositionNormalized = Math.max(0.01, Math.min(0.99, newPositionNormalized));
+
+            this.previewFeature.properties.airmobilePosition = newPositionNormalized;
         }
-        
+
         // Recalcular geometria da seta
         this.previewFeature.geometry = this.generateArrowGeometry(this.previewFeature.properties);
-        
+
         // Mostrar preview
         this.showEditPreview(this.previewFeature);
     }
@@ -737,7 +884,6 @@ class AddArrowControl {
         }
     }
 
-    // ✅ NOVOS MÉTODOS BASEADOS NO CIRCLE CONTROL
     updateSelectionAfterEdit = () => {
         this.selectionManager.selectedArrowFeatures.set(this.selectedFeature.id, this.selectedFeature);
     }
@@ -760,27 +906,34 @@ class AddArrowControl {
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
-        
+
         for (const feature of features) {
             feature.id = feature.id || feature.properties.id;
-            
+
             const sourceFeature = data.features.find(f => f.id == feature.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
-                
+
+                // ✅ GARANTIR que propriedades essenciais nunca sejam null
+                sourceFeature.properties.fillColor = sourceFeature.properties.fillColor || AddArrowControl.DEFAULT_PROPERTIES.fillColor;
+                sourceFeature.properties.lineColor = sourceFeature.properties.lineColor || AddArrowControl.DEFAULT_PROPERTIES.lineColor;
+                sourceFeature.properties.lineOpacity = sourceFeature.properties.lineOpacity || AddArrowControl.DEFAULT_PROPERTIES.lineOpacity;
+                sourceFeature.properties.fillOpacity = sourceFeature.properties.fillOpacity || AddArrowControl.DEFAULT_PROPERTIES.fillOpacity;
+                sourceFeature.properties.lineWidth = sourceFeature.properties.lineWidth || AddArrowControl.DEFAULT_PROPERTIES.lineWidth;
+
                 // ✅ Se alterar propriedades geométricas, recalcular geometria
-                if (property === 'width' || property === 'headLengthRatio') { // ✅ INCLUÍDO headLengthRatio
+                if (property === 'width' || property === 'headLengthRatio' || property === 'airmobile' || property === 'airmobilePosition') {
                     const newGeometry = this.generateArrowGeometry(sourceFeature.properties);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
             }
         }
-        
+
         this.map.getSource('arrows').setData(data);
-        
-        // SEGUINDO PADRÃO DO CIRCLE - Atualizar handles se em modo editing
+
+        // Atualizar handles se em modo editing
         if (this.currentState === 'editing' && this.selectedFeature && !this.isDraggingHandle) {
             this.createEditHandles(this.selectedFeature);
         }
@@ -789,10 +942,10 @@ class AddArrowControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
-            
+
             for (const feature of features) {
                 feature.id = feature.id || feature.properties.id;
-                
+
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
@@ -800,15 +953,15 @@ class AddArrowControl {
                     } else {
                         data.features[featureIndex] = feature;
                     }
-                    
+
                     if (save) {
-                        const featureToUpdate = onlyUpdateProperties ? 
+                        const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
                         await updateFeature('arrows', featureToUpdate);
                     }
                 }
             }
-            
+
             this.map.getSource('arrows').setData(data);
         }
     }
@@ -819,26 +972,20 @@ class AddArrowControl {
                 await updateFeature('arrows', f);
             }
         }
-        console.log('Arrow features saved:', features.length);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
-        
-        // ✅ Normalizar valores para comparação (tratar undefined)
-        const currentHeadRatio = feature.properties.headLengthRatio !== undefined ? 
-            feature.properties.headLengthRatio : 1.5;
-        const initialHeadRatio = initialProperties.headLengthRatio !== undefined ? 
-            initialProperties.headLengthRatio : 1.5;
-        
+
+        const currentHeadRatio = feature.properties.headLengthRatio || 1.5;
+        const initialHeadRatio = initialProperties.headLengthRatio || 1.5;
+
         const currentAirmobile = feature.properties.airmobile || false;
         const initialAirmobile = initialProperties.airmobile || false;
-        
-        const currentAirmobilePosition = feature.properties.airmobilePosition !== undefined ? 
-            feature.properties.airmobilePosition : 0.7;
-        const initialAirmobilePosition = initialProperties.airmobilePosition !== undefined ? 
-            initialProperties.airmobilePosition : 0.7;
-        
+
+        const currentAirmobilePosition = feature.properties.airmobilePosition || 0.7;
+        const initialAirmobilePosition = initialProperties.airmobilePosition || 0.7;
+
         return (
             feature.properties.fillColor !== initialProperties.fillColor ||
             feature.properties.lineColor !== initialProperties.lineColor ||
@@ -846,18 +993,17 @@ class AddArrowControl {
             feature.properties.fillOpacity !== initialProperties.fillOpacity ||
             feature.properties.width !== initialProperties.width ||
             currentHeadRatio !== initialHeadRatio ||
-            currentAirmobile !== initialAirmobile || // ✅ NOVA PROPRIEDADE
-            currentAirmobilePosition !== initialAirmobilePosition || // ✅ NOVA PROPRIEDADE
+            currentAirmobile !== initialAirmobile ||
+            currentAirmobilePosition !== initialAirmobilePosition ||
             JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
         );
     }
 
-    // ✅ NOVOS MÉTODOS DE VALIDAÇÃO BASEADOS NO CIRCLE CONTROL
     hasUnsavedChanges = (features, initialPropertiesMap) => {
         return features.some(feature => {
             const initialProperties = initialPropertiesMap.get(feature.id);
             if (!initialProperties) return false;
-            
+
             return this.hasFeatureChanged(feature, initialProperties);
         });
     }
@@ -876,8 +1022,7 @@ class AddArrowControl {
 
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
-        
-        // ✅ SEGUINDO PADRÃO DO CIRCLE CONTROL
+
         for (const feature of features) {
             try {
                 const featureId = feature.id || feature.properties.id;
@@ -886,8 +1031,8 @@ class AddArrowControl {
                 console.error(`Error removing arrow ${featureId}:`, error);
             }
         }
-        
-        // ✅ Remove from map source (visual) - CRÍTICO PARA ATUALIZAR
+
+        // Remove from map source (visual)
         const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
         const idsToDelete = new Set(features.map(f => String(f.id || f.properties.id)));
         data.features = data.features.filter(f => !idsToDelete.has(String(f.id)));
@@ -905,18 +1050,8 @@ class AddArrowControl {
         }
     }
 
-    // ✅ NOVOS MÉTODOS DE VALIDAÇÃO BASEADOS NO CIRCLE CONTROL
-    hasUnsavedChanges = (features, initialPropertiesMap) => {
-        return features.some(feature => {
-            const initialProperties = initialPropertiesMap.get(feature.id);
-            if (!initialProperties) return false;
-            
-            return this.hasFeatureChanged(feature, initialProperties);
-        });
-    }
-
     // ===== EVENT LISTENER MANAGEMENT =====
-    
+
     setupBaseEventListeners = () => {
         this.map.on('mouseenter', 'arrow-layer', this.handleMouseEnter);
         this.map.on('mouseleave', 'arrow-layer', this.handleMouseLeave);
@@ -968,8 +1103,8 @@ class AddArrowControl {
     }
 
     // ===== UTILITY METHODS =====
-    
-    // ✅ Helper para garantir que baseCoordinates é sempre um array
+
+    // Helper para garantir que baseCoordinates é sempre um array
     normalizeBaseCoordinates = (baseCoordinates) => {
         if (typeof baseCoordinates === 'string') {
             try {
@@ -979,15 +1114,15 @@ class AddArrowControl {
                 return [];
             }
         }
-        
+
         if (!Array.isArray(baseCoordinates)) {
             console.warn('baseCoordinates não é um array:', baseCoordinates);
             return [];
         }
-        
+
         return baseCoordinates;
     }
-    
+
     setCursorStyle = (style) => {
         this.map.getCanvas().style.cursor = style;
     }

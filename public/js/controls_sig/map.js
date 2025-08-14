@@ -329,7 +329,7 @@ map.on('styledata', async () => {
             type: 'line',
             source: 'arrows',
             paint: {
-                'line-color': ['get', 'color'],
+                'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
                 'line-opacity': ['get', 'lineOpacity']
             }
@@ -361,7 +361,7 @@ map.on('styledata', async () => {
             type: 'line',
             source: 'arrow-preview',
             paint: {
-                'line-color': ['get', 'color'],
+                'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
                 'line-dasharray': [2, 2],
                 'line-opacity': ['get', 'lineOpacity']
@@ -397,9 +397,12 @@ map.on('styledata', async () => {
                 'circle-radius': 8,
                 'circle-color': [
                     'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',    // Vermelho - vértices
-                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',  // Laranja - midpoints
-                    '#00ff00'  // Verde - padrão
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',      // 🔴 Vermelho - vértices
+                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',    // 🟠 Laranja - midpoints
+                    ['==', ['get', 'handleType'], 'width'], '#0066ff',       // 🔵 Azul - largura
+                    ['==', ['get', 'handleType'], 'headLength'], '#00aa00',  // 🟢 Verde - proporção cabeça
+                    ['==', ['get', 'handleType'], 'airmobile'], '#aa00aa',   // 🟣 Roxo - posição X aeromóvel
+                    '#000000'  // ⚫ Preto - padrão (não deveria acontecer)
                 ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2,

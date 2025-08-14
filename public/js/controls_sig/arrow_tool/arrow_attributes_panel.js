@@ -5,7 +5,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
     const feature = selectedFeatures[0];
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
 
-    // ✅ Função auxiliar para criar checkbox (fornecida pelo usuário)
+    // Função auxiliar para criar checkbox
     const createCheckbox = (checked, onChange) => {
         const label = $("<label>", { class: "switch" });
         const input = document.createElement('input');
@@ -18,7 +18,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         return label;
     };
 
-    // ✅ Função auxiliar padronizada para slider com input numérico
+    // Função auxiliar padronizada para slider com input numérico
     function createSliderWithInput(config) {
         const container = document.createElement('div');
         container.className = 'slider-numeric-container';
@@ -71,7 +71,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         return container;
     }
 
-    // ✅ Função auxiliar padronizada para color picker
+    // Função auxiliar padronizada para color picker
     function createColorPicker(value, onChange, title) {
         const input = document.createElement('input');
         input.classList.add("picker-color");
@@ -83,7 +83,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         return input;
     }
 
-    // ✅ Função auxiliar para criar linha de atributo
+    // Função auxiliar para criar linha de atributo
     function createAttributeRow(labelText, inputElement) {
         const container = $("<div>", { class: "attr-container-row" });
         const label = document.createElement('label');
@@ -97,7 +97,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     // ========== PROPRIEDADES ESPECÍFICAS DA SETA ==========
     
-    // ✅ Cor de preenchimento
+    // Cor de preenchimento
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -105,17 +105,15 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Cor de preenchimento:', fillColorInput));
 
-    // ✅ Cor da borda
-    const lineColorInput = createColorPicker(feature.properties.lineColor || feature.properties.color, (e) => {
+    // Cor da borda
+    const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
-        // Manter retrocompatibilidade
-        arrowControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
         uiManager.updateSelectionHighlight();
     }, 'Cor da borda da seta');
 
     $(panel).append(createAttributeRow('Cor da borda:', lineColorInput));
 
-    // ✅ Opacidade do preenchimento
+    // Opacidade do preenchimento
     const fillOpacityControl = createSliderWithInput({
         min: 0.1,
         max: 1,
@@ -129,7 +127,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Opacidade do preenchimento:', fillOpacityControl));
 
-    // ✅ Largura da borda (não largura da seta)
+    // Largura da borda (não largura da seta)
     const lineWidthControl = createSliderWithInput({
         min: 1,
         max: 10,
@@ -144,55 +142,13 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Largura da borda:', lineWidthControl));
 
-    // ✅ NOVO: Checkbox Aeromóvel/Aeroterrestre
+    // Checkbox Aeromóvel / Aeroterrestre
     const airmobileCheckbox = createCheckbox(feature.properties.airmobile || false, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'airmobile', e.target.checked);
         uiManager.updateSelectionHighlight();
     });
 
     $(panel).append(createAttributeRow('Aeromóvel / Aeroterrestre:', airmobileCheckbox));
-
-    // ✅ Proporção da cabeça (somente informativo - não editável)
-    const headRatioLabel = document.createElement('label');
-    headRatioLabel.textContent = 'Proporção da cabeça:';
-    const headRatioValue = document.createElement('span');
-    const currentHeadRatio = feature.properties.headLengthRatio !== undefined ? 
-        feature.properties.headLengthRatio : 1.5; // ✅ RETROCOMPATIBILIDADE
-    headRatioValue.textContent = `${currentHeadRatio.toFixed(1)}x`;
-    headRatioValue.style.cssText = 'font-size: 14px; color: #666; font-weight: 500;';
-
-    // Adicionar texto explicativo
-    const headRatioHelp = document.createElement('div');
-    headRatioHelp.textContent = 'Use o handle verde na ponta para ajustar';
-    headRatioHelp.style.cssText = 'font-size: 11px; color: #888; margin-top: 2px;';
-
-    const headRatioContainer = document.createElement('div');
-    headRatioContainer.appendChild(headRatioValue);
-    headRatioContainer.appendChild(headRatioHelp);
-
-    $(panel).append(createAttributeRow('Proporção da cabeça:', headRatioContainer));
-
-    // ✅ NOVO: Posição do X (somente informativo - só aparece se aeromóvel estiver ativo)
-    if (feature.properties.airmobile) {
-        const xPositionLabel = document.createElement('label');
-        xPositionLabel.textContent = 'Posição do X:';
-        const xPositionValue = document.createElement('span');
-        const currentXPosition = feature.properties.airmobilePosition !== undefined ? 
-            feature.properties.airmobilePosition : 0.7;
-        xPositionValue.textContent = `${(currentXPosition * 100).toFixed(0)}%`;
-        xPositionValue.style.cssText = 'font-size: 14px; color: #666; font-weight: 500;';
-
-        // Adicionar texto explicativo
-        const xPositionHelp = document.createElement('div');
-        xPositionHelp.textContent = 'Use o handle roxo na linha para ajustar';
-        xPositionHelp.style.cssText = 'font-size: 11px; color: #888; margin-top: 2px;';
-
-        const xPositionContainer = document.createElement('div');
-        xPositionContainer.appendChild(xPositionValue);
-        xPositionContainer.appendChild(xPositionHelp);
-
-        $(panel).append(createAttributeRow('Posição do X:', xPositionContainer));
-    }
 
     // ========== BOTÕES DE AÇÃO PADRONIZADOS ==========
     
@@ -222,18 +178,15 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         setDefaultButton.classList.add('tool-button', 'pure-material-tool-button-contained');
         setDefaultButton.onclick = () => {
             // Copiar propriedades para usar como padrão
-            // Copiar propriedades para usar como padrão
             const defaultProps = {
                 width: feature.properties.width,
                 fillColor: feature.properties.fillColor,
                 lineColor: feature.properties.lineColor,
                 lineWidth: feature.properties.lineWidth,
                 fillOpacity: feature.properties.fillOpacity,
-                headLengthRatio: feature.properties.headLengthRatio !== undefined ? 
-                    feature.properties.headLengthRatio : 1.5, // ✅ RETROCOMPATIBILIDADE
-                airmobile: feature.properties.airmobile || false, // ✅ NOVA PROPRIEDADE
-                airmobilePosition: feature.properties.airmobilePosition !== undefined ? 
-                    feature.properties.airmobilePosition : 0.7 // ✅ NOVA PROPRIEDADE
+                headLengthRatio: feature.properties.headLengthRatio || 1.5,
+                airmobile: feature.properties.airmobile || false,
+                airmobilePosition: feature.properties.airmobilePosition || 0.7
             };
             arrowControl.setDefaultProperties(defaultProps);
             selectionManager.deselectAllFeatures();
