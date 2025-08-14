@@ -19,6 +19,12 @@
     z-index: 1000;
 }
 
+.topbar-subtitle {
+    color: var(--ebgeo-light, #b8d4b6);
+    font-size: 22px;
+    font-weight: 700;
+}
+
 /* ===== LOGO SECTION ===== */
 .logo-section {
     flex: 0 0 auto;
@@ -348,4 +354,10 @@ input[type="checkbox"]:checked ~ #sidebarMenu {
 .tutorial-button:focus {
     outline: 2px solid var(--ebgeo-light);
     outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+    .topbar-subtitle {
+        display: none; /* Ocultar no mobile para economizar espaço */
+    }
 }

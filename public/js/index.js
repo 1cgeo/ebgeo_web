@@ -1,4 +1,5 @@
 // Path: js\index.js
+import './config-loader.js'; // Aplica as configurações automaticamente
 
 import { } from './map_sig.js'
 import {

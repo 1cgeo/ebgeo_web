@@ -1,4 +1,5 @@
 // Path: js\map_3d.js
+import config from './config.js';
 
 // ===== GESTÃO DE ESTADO GLOBAL =====
 let cesiumState = {
@@ -88,12 +89,7 @@ function waitForGlobal(globalName, timeout = 5000) {
 
 async function initCesiumMap() {
     // Configuração do extent - movido do arquivo map.js original
-    const bounds = {
-        "west": -44.449656,
-        "south": -22.455922,
-        "east": -44.449654,
-        "north": -22.455920
-    };
+    const { bounds } = config.map3d;
     
     const extent = new Cesium.Rectangle.fromDegrees(bounds.west, bounds.south, bounds.east, bounds.north);
     Cesium.Camera.DEFAULT_VIEW_RECTANGLE = extent;
@@ -101,23 +97,7 @@ async function initCesiumMap() {
 
     // Configuração otimizada do viewer
     const viewer = new Cesium.Viewer("map-3d", {
-        // Configurações básicas
-        infoBox: false,
-        shouldAnimate: false,
-        vrButton: false,
-        geocoder: false,
-        homeButton: false,
-        sceneModePicker: false,
-        baseLayerPicker: false,
-        navigationHelpButton: true,
-        animation: false,
-        timeline: false,
-        fullscreenButton: false,
-        
-        // Otimizações de performance
-        requestRenderMode: true, // Render apenas quando necessário
-        maximumRenderTimeChange: Infinity, // Não limita tempo de render
-        
+        ...config.map3d.viewer,
         // Configurações de terreno e atmosfera
         terrainProvider: undefined, // Evita carregar terreno desnecessário inicialmente
         skyAtmosphere: new Cesium.SkyAtmosphere()
@@ -178,44 +158,23 @@ function setupResizeObserver() {
 }
 
 async function loadTilesets(viewer) {
-    const tilesetConfigs = [
-        {
-            url: "/3d/AMAN/tileset.json",
-            heightOffset: 50,
-            id: "AMAN",
-            default: true,
-            locate: { lat: -22.455921, lon: -44.449655, height: 2200 }
-        },
-        {
-            url: "/3d/ESA/tileset.json",
-            heightOffset: 75,
-            id: "ESA",
-            locate: { lon: -45.25666459926732, lat: -21.703613735103637, height: 1500 }
-        },
-        {
-            url: "/3d/PCL/tileset.json",
-            heightOffset: 35,
-            id: "PCL",
-            locate: { lon: -44.47332385414955, lat: -22.43976556982974, height: 1000 }
-        }
-    ];
-    
-    for (const config of tilesetConfigs) {
+    // Usar tilesets da configuração
+    for (const tilesetConfig of config.tilesets) {
         try {
-            const tileset = await createOptimizedTileset(viewer, config);
-            cesiumState.loadedTilesets[config.id.toLowerCase()] = {
+            const tileset = await createOptimizedTileset(viewer, tilesetConfig);
+            cesiumState.loadedTilesets[tilesetConfig.id.toLowerCase()] = {
                 tileset: tileset,
-                location: config.locate
+                location: tilesetConfig.locate
             };
         } catch (error) {
-            console.warn(`Failed to load tileset ${config.id}:`, error);
+            console.warn(`Failed to load tileset ${tilesetConfig.id}:`, error);
         }
     }
 }
 
-async function createOptimizedTileset(viewer, config) {
+async function createOptimizedTileset(viewer, tilesetConfig) {
     const tileset = new Cesium.Cesium3DTileset({
-        url: config.url,
+        url: tilesetConfig.url,
         maximumScreenSpaceError: 16,
         maximumMemoryUsage: 512,
         preferLeaves: false, // Melhor para tilesets grandes
@@ -239,7 +198,7 @@ async function createOptimizedTileset(viewer, config) {
     await tileset.readyPromise;
     
     // Aplica transformações
-    const heightOffset = config.heightOffset;
+    const heightOffset = tilesetConfig.heightOffset;
     const boundingSphere = tileset.boundingSphere;
     const cartographic = Cesium.Cartographic.fromCartesian(boundingSphere.center);
     const surface = Cesium.Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, 0.0);
@@ -247,8 +206,8 @@ async function createOptimizedTileset(viewer, config) {
     const translation = Cesium.Cartesian3.subtract(offset, surface, new Cesium.Cartesian3());
     tileset.modelMatrix = Cesium.Matrix4.fromTranslation(translation);
     
-    if (config.default) {
-        const { lat, lon, height } = config.locate;
+    if (tilesetConfig.default) {
+        const { lat, lon, height } = tilesetConfig.locate;
         viewer.camera.flyTo({
             destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
         });

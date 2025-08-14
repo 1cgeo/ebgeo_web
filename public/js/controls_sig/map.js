@@ -2,28 +2,20 @@
 import { getCurrentMapFeatures } from './store.js';
 import { imageStore } from './store.js';
 import baseStyle from './baselayers/carta_topografica.js'
+import config from '../config.js';
 
 const map = new maplibregl.Map({
     container: 'map-sig',
     style: baseStyle,
     attributionControl: false,
-    minZoom: 11,
-    maxZoom: 17.9,
-    maxPitch: 65,
-    bounds: [
-        [-44.4633992903047, -22.46265178239199],
-        [-44.439695820515325, -22.444666254876367]
-    ],
+    minZoom: config.map2d.minZoom,
+    maxZoom: config.map2d.maxZoom,
+    maxPitch: config.map2d.maxPitch,
+    bounds: config.map2d.bounds
 });
 
-map.setSourceTileLodParams(5, 6.0);
-
-const bounds = [
-    [-45.82515, -22.69950],
-    [-43.92333, -21.30216]
-];
-
-map.setMaxBounds(bounds);
+map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
+map.setMaxBounds(config.map2d.maxBounds);
 
 map.addControl(new maplibregl.AttributionControl({
     customAttribution: 'Diretoria de Serviço Geográfico - Exército Brasileiro',
