@@ -21,6 +21,19 @@ class AddArrowControl {
         this.initialHandlePosition = null;
         this.previewFeature = null;
         this.editHandleIds = new Set();
+
+        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing (same pattern as circle)
+        this.previewRafId = null;
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewPoints = null;
+        this.geometryDebounceTimer = null;
+        
+        // ✅ EDIT PERFORMANCE: Same pattern as circle
+        this.editRafId = null;
+        this.pendingEditUpdate = false;
+        this.lastEditHandleId = null;
+        this.lastEditPosition = null;
     }
 
     static DEFAULT_PROPERTIES = {
@@ -140,6 +153,34 @@ class AddArrowControl {
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
         this.clearEditPreview();
+
+        // ✅ CLEANUP: Cancel pending operations
+        this.cancelPendingUpdates();
+    }
+
+    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewPoints = null;
+
+        // ✅ EDIT RAF cleanup (same as circle)
+        if (this.editRafId) {
+            cancelAnimationFrame(this.editRafId);
+            this.editRafId = null;
+        }
+        this.pendingEditUpdate = false;
+        this.lastEditHandleId = null;
+        this.lastEditPosition = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====
@@ -214,24 +255,43 @@ class AddArrowControl {
         e.preventDefault();
     }
 
+    // ✅ OPTIMIZED: RAF-based preview
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length >= 1) {
-            const previewPoints = [...this.drawPoints, [e.lngLat.lng, e.lngLat.lat]];
+            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+            this.lastPreviewPoints = [...this.drawPoints, this.lastPreviewPosition];
 
-            if (previewPoints.length >= 2) {
-                const previewGeometry = this.generateArrowGeometry({
-                    baseCoordinates: previewPoints,
-                    width: AddArrowControl.DEFAULT_PROPERTIES.width,
-                    headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
-                    airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
-                    airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
-                });
-
-                if (previewGeometry) {
-                    this.showPreview(previewGeometry);
-                }
+            if (!this.pendingPreviewUpdate) {
+                this.pendingPreviewUpdate = true;
+                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
             }
         }
+    }
+
+    // ✅ PERFORMANCE: RAF callback for smooth preview
+    performPreviewUpdate = () => {
+        if (!this.lastPreviewPoints || this.lastPreviewPoints.length < 2) {
+            this.pendingPreviewUpdate = false;
+            return;
+        }
+
+        // Light debouncing for heavy turf.js operations (same as circle)
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            const previewGeometry = this.generateArrowGeometry({
+                baseCoordinates: this.lastPreviewPoints,
+                width: AddArrowControl.DEFAULT_PROPERTIES.width,
+                headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
+                airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
+                airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
+            });
+
+            if (previewGeometry) {
+                this.showPreview(previewGeometry);
+            }
+        }, 8); // Same 8ms as circle for consistency
+
+        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -251,6 +311,7 @@ class AddArrowControl {
 
     clearPreview = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.cancelPendingUpdates();
         this.map.getSource('arrow-preview').setData({
             type: 'FeatureCollection',
             features: []
@@ -745,20 +806,39 @@ class AddArrowControl {
 
             this.previewFeature = JSON.parse(JSON.stringify(this.selectedFeature));
 
-
             e.preventDefault();
         }
     }
 
+    // ✅ OPTIMIZED: RAF-based edit updates (same pattern as circle)
     onEditMouseMove = (e) => {
         if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) {
             return;
         }
 
-        const currentPosition = [e.lngLat.lng, e.lngLat.lat];
-        const handleId = this.activeHandle.properties.handleId;
+        this.lastEditPosition = [e.lngLat.lng, e.lngLat.lat];
+        this.lastEditHandleId = this.activeHandle.properties.handleId;
 
-        this.updateGeometryFromHandle(handleId, currentPosition);
+        if (!this.pendingEditUpdate) {
+            this.pendingEditUpdate = true;
+            this.editRafId = requestAnimationFrame(this.performEditUpdate.bind(this));
+        }
+    }
+
+    // ✅ PERFORMANCE: RAF callback for smooth edit updates
+    performEditUpdate = () => {
+        if (!this.lastEditPosition || !this.lastEditHandleId || !this.previewFeature) {
+            this.pendingEditUpdate = false;
+            return;
+        }
+
+        // Light debouncing for heavy turf.js operations (same as circle)
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            this.updateGeometryFromHandle(this.lastEditHandleId, this.lastEditPosition);
+        }, 8); // Same 8ms as circle for consistency
+
+        this.pendingEditUpdate = false;
     }
 
     onEditMouseUp = () => {
@@ -783,6 +863,7 @@ class AddArrowControl {
             this.saveFeatureChanges(finalFeature);
         }
     }
+
     updateGeometryFromHandle = (handleId, newPosition) => {
         if (!this.previewFeature) return;
 
@@ -900,6 +981,60 @@ class AddArrowControl {
         } catch (error) {
             console.error('Erro ao salvar alterações da seta:', error);
         }
+    }
+
+    // ===== EVENT LISTENER MANAGEMENT =====
+
+    setupBaseEventListeners = () => {
+        this.map.on('mouseenter', 'arrow-layer', this.handleMouseEnter);
+        this.map.on('mouseleave', 'arrow-layer', this.handleMouseLeave);
+        this.map.on('mouseenter', 'arrow-fill-layer', this.handleMouseEnter);
+        this.map.on('mouseleave', 'arrow-fill-layer', this.handleMouseLeave);
+        this.map.on('dblclick', this.handleDoubleClick);
+    }
+
+    removeAllEventListeners = () => {
+        this.map.off('mouseenter', 'arrow-layer', this.handleMouseEnter);
+        this.map.off('mouseleave', 'arrow-layer', this.handleMouseLeave);
+        this.map.off('mouseenter', 'arrow-fill-layer', this.handleMouseEnter);
+        this.map.off('mouseleave', 'arrow-fill-layer', this.handleMouseLeave);
+        this.map.off('dblclick', this.handleDoubleClick);
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.removeEditEventListeners();
+        // ✅ CLEANUP: Cancel all pending operations
+        this.cancelPendingUpdates();
+    }
+
+    handleMouseEnter = () => {
+        if (this.currentState === 'deselected') {
+            this.map.getCanvas().style.cursor = 'pointer';
+        }
+    }
+
+    handleMouseLeave = () => {
+        if (this.currentState === 'deselected') {
+            this.map.getCanvas().style.cursor = '';
+        }
+    }
+
+    // ===== TOOL ACTIVATION/DEACTIVATION =====
+
+    activate = () => {
+        this.isActive = true;
+        this.drawingMode = 'arrow';
+        this.drawPoints = [];
+        this.map.getCanvas().style.cursor = 'crosshair';
+        this.updateButtonAppearance();
+    }
+
+    deactivate = () => {
+        this.isActive = false;
+        this.drawingMode = null;
+        this.drawPoints = [];
+        this.map.getCanvas().style.cursor = '';
+        this.updateButtonAppearance();
+        this.clearPreview();
+        this.forceTransitionToDeselected();
     }
 
     // ===== MÉTODOS OBRIGATÓRIOS PARA O SISTEMA DE SELEÇÃO =====
@@ -1048,58 +1183,6 @@ class AddArrowControl {
             const currentData = this.map.getSource('arrows')._data;
             this.map.getSource('arrows').setData(currentData);
         }
-    }
-
-    // ===== EVENT LISTENER MANAGEMENT =====
-
-    setupBaseEventListeners = () => {
-        this.map.on('mouseenter', 'arrow-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'arrow-layer', this.handleMouseLeave);
-        this.map.on('mouseenter', 'arrow-fill-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'arrow-fill-layer', this.handleMouseLeave);
-        this.map.on('dblclick', this.handleDoubleClick);
-    }
-
-    removeAllEventListeners = () => {
-        this.map.off('mouseenter', 'arrow-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'arrow-layer', this.handleMouseLeave);
-        this.map.off('mouseenter', 'arrow-fill-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'arrow-fill-layer', this.handleMouseLeave);
-        this.map.off('dblclick', this.handleDoubleClick);
-        this.map.off('mousemove', this.handlePreviewMouseMove);
-        this.removeEditEventListeners();
-    }
-
-    handleMouseEnter = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = 'pointer';
-        }
-    }
-
-    handleMouseLeave = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = '';
-        }
-    }
-
-    // ===== TOOL ACTIVATION/DEACTIVATION =====
-
-    activate = () => {
-        this.isActive = true;
-        this.drawingMode = 'arrow';
-        this.drawPoints = [];
-        this.map.getCanvas().style.cursor = 'crosshair';
-        this.updateButtonAppearance();
-    }
-
-    deactivate = () => {
-        this.isActive = false;
-        this.drawingMode = null;
-        this.drawPoints = [];
-        this.map.getCanvas().style.cursor = '';
-        this.updateButtonAppearance();
-        this.clearPreview();
-        this.forceTransitionToDeselected();
     }
 
     // ===== UTILITY METHODS =====

@@ -25,6 +25,18 @@ class AddCircleControl {
         this.initialHandlePosition = null;
         this.previewFeature = null;
         this.editHandleIds = new Set();
+
+        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing
+        this.previewRafId = null;
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+        this.geometryDebounceTimer = null;
+        
+        // ✅ EDIT PERFORMANCE: Same pattern as preview
+        this.editRafId = null;
+        this.pendingEditUpdate = false;
+        this.lastEditPosition = null;
     }
 
     static DEFAULT_PROPERTIES = {
@@ -169,6 +181,33 @@ class AddCircleControl {
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
         this.clearEditPreview();
+
+        // ✅ CLEANUP: Cancel pending operations
+        this.cancelPendingUpdates();
+    }
+
+    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+
+        // ✅ EDIT RAF cleanup
+        if (this.editRafId) {
+            cancelAnimationFrame(this.editRafId);
+            this.editRafId = null;
+        }
+        this.pendingEditUpdate = false;
+        this.lastEditPosition = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
     }
 
     // ===== SELECTION SYSTEM INTEGRATION (Template) =====
@@ -230,17 +269,38 @@ class AddCircleControl {
         }
     }
 
+    // ✅ OPTIMIZED: RAF-based preview
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length === 1) {
-            const center = this.drawPoints[0];
-            const currentPoint = [e.lngLat.lng, e.lngLat.lat];
-            const radius = this.calculateDistance(center, currentPoint);
+            this.lastPreviewCenter = this.drawPoints[0];
+            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
             
-            if (radius >= 10) {
-                const previewGeometry = this.generateCircleGeometry(center, radius);
-                this.showPreview(previewGeometry);
+            if (!this.pendingPreviewUpdate) {
+                this.pendingPreviewUpdate = true;
+                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
             }
         }
+    }
+
+    // ✅ PERFORMANCE: RAF callback for smooth preview
+    performPreviewUpdate = () => {
+        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
+            this.pendingPreviewUpdate = false;
+            return;
+        }
+
+        const radius = this.calculateDistance(this.lastPreviewCenter, this.lastPreviewPosition);
+        
+        if (radius >= 10) {
+            // Debounce geometry generation for very complex circles
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = setTimeout(() => {
+                const previewGeometry = this.generateCircleGeometry(this.lastPreviewCenter, radius);
+                this.showPreview(previewGeometry);
+            }, 8); // Light debouncing for circle geometry
+        }
+
+        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -258,6 +318,7 @@ class AddCircleControl {
 
     clearPreview = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.cancelPendingUpdates();
         this.map.getSource('circle-preview').setData({
             type: 'FeatureCollection',
             features: []
@@ -533,13 +594,34 @@ class AddCircleControl {
         }
     }
 
+    // ✅ OPTIMIZED: RAF-based edit updates (same pattern as preview)
     onEditMouseMove = (e) => {
         if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) return;
         
         if (this.activeHandle.properties.handleType === 'radius') {
-            const currentPosition = [e.lngLat.lng, e.lngLat.lat];
-            this.updateRadiusPreview(currentPosition);
+            this.lastEditPosition = [e.lngLat.lng, e.lngLat.lat];
+            
+            if (!this.pendingEditUpdate) {
+                this.pendingEditUpdate = true;
+                this.editRafId = requestAnimationFrame(this.performEditUpdate.bind(this));
+            }
         }
+    }
+
+    // ✅ PERFORMANCE: RAF callback for smooth edit updates
+    performEditUpdate = () => {
+        if (!this.lastEditPosition || !this.previewFeature) {
+            this.pendingEditUpdate = false;
+            return;
+        }
+
+        // Light debouncing for geometry generation (same as preview)
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            this.updateRadiusPreview(this.lastEditPosition);
+        }, 8); // Same 8ms as preview for consistency
+
+        this.pendingEditUpdate = false;
     }
 
     onEditMouseUp = () => {
@@ -603,6 +685,8 @@ class AddCircleControl {
         this.map.off('mouseleave', 'circle-fill-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
+        // ✅ CLEANUP: Cancel all pending operations
+        this.cancelPendingUpdates();
     }
 
     handleMouseEnter = () => {
