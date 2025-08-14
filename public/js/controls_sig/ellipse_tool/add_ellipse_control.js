@@ -28,6 +28,19 @@ class AddEllipseControl {
         this.initialHandlePosition = null;
         this.previewFeature = null;
         this.editHandleIds = new Set();
+
+        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing (same pattern as circle)
+        this.previewRafId = null;
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+        this.geometryDebounceTimer = null;
+        
+        // ✅ EDIT PERFORMANCE: Same pattern as circle
+        this.editRafId = null;
+        this.pendingEditUpdate = false;
+        this.lastEditPosition = null;
+        this.lastEditHandleType = null;
     }
 
     static DEFAULT_PROPERTIES = {
@@ -171,6 +184,34 @@ class AddEllipseControl {
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
         this.clearEditPreview();
+
+        // ✅ CLEANUP: Cancel pending operations
+        this.cancelPendingUpdates();
+    }
+
+    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+
+        // ✅ EDIT RAF cleanup (same as circle)
+        if (this.editRafId) {
+            cancelAnimationFrame(this.editRafId);
+            this.editRafId = null;
+        }
+        this.pendingEditUpdate = false;
+        this.lastEditPosition = null;
+        this.lastEditHandleType = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====
@@ -232,25 +273,45 @@ class AddEllipseControl {
         }
     }
 
+    // ✅ OPTIMIZED: RAF-based preview (same pattern as circle)
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length === 1) {
-            const center = this.drawPoints[0];
-            const currentPoint = [e.lngLat.lng, e.lngLat.lat];
+            this.lastPreviewCenter = this.drawPoints[0];
+            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
             
-            // Calculate using same logic as HTML file
-            const majorRadius = this.calculateDistance(center, currentPoint, { units: 'kilometers' });
-            const bearing = this.calculateBearing(center, currentPoint);
-            
-            if (majorRadius >= 0.01) { // Minimum 10 meters
+            if (!this.pendingPreviewUpdate) {
+                this.pendingPreviewUpdate = true;
+                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
+            }
+        }
+    }
+
+    // ✅ PERFORMANCE: RAF callback for smooth preview
+    performPreviewUpdate = () => {
+        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
+            this.pendingPreviewUpdate = false;
+            return;
+        }
+
+        // Calculate using same logic as original
+        const majorRadius = this.calculateDistance(this.lastPreviewCenter, this.lastPreviewPosition, { units: 'kilometers' });
+        const bearing = this.calculateBearing(this.lastPreviewCenter, this.lastPreviewPosition);
+        
+        if (majorRadius >= 0.01) { // Minimum 10 meters
+            // Light debouncing for geometry generation (same as circle)
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = setTimeout(() => {
                 const previewGeometry = this.generateEllipseGeometry(
-                    center, 
+                    this.lastPreviewCenter, 
                     majorRadius, 
                     majorRadius * 0.6, // Initial minor radius
                     bearing
                 );
                 this.showPreview(previewGeometry);
-            }
+            }, 8); // Same 8ms as circle for consistency
         }
+
+        this.pendingPreviewUpdate = false;
     }
 
     showPreview = (geometry) => {
@@ -268,6 +329,7 @@ class AddEllipseControl {
 
     clearPreview = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.cancelPendingUpdates();
         this.map.getSource('ellipse-preview').setData({
             type: 'FeatureCollection',
             features: []
@@ -515,16 +577,37 @@ class AddEllipseControl {
         }
     }
 
+    // ✅ OPTIMIZED: RAF-based edit updates (same pattern as circle)
     onEditMouseMove = (e) => {
         if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) return;
         
-        const currentPosition = [e.lngLat.lng, e.lngLat.lat];
+        this.lastEditPosition = [e.lngLat.lng, e.lngLat.lat];
+        this.lastEditHandleType = this.activeHandle.properties.handleType;
         
-        if (this.activeHandle.properties.handleType === 'vertex') {
-            this.updateMajorAxisPreview(currentPosition);
-        } else if (this.activeHandle.properties.handleType === 'eccentricity') {
-            this.updateMinorAxisPreview(currentPosition);
+        if (!this.pendingEditUpdate) {
+            this.pendingEditUpdate = true;
+            this.editRafId = requestAnimationFrame(this.performEditUpdate.bind(this));
         }
+    }
+
+    // ✅ PERFORMANCE: RAF callback for smooth edit updates
+    performEditUpdate = () => {
+        if (!this.lastEditPosition || !this.lastEditHandleType || !this.previewFeature) {
+            this.pendingEditUpdate = false;
+            return;
+        }
+
+        // Light debouncing for turf.js operations (same as circle)
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            if (this.lastEditHandleType === 'vertex') {
+                this.updateMajorAxisPreview(this.lastEditPosition);
+            } else if (this.lastEditHandleType === 'eccentricity') {
+                this.updateMinorAxisPreview(this.lastEditPosition);
+            }
+        }, 8); // Same 8ms as circle for consistency
+
+        this.pendingEditUpdate = false;
     }
 
     onEditMouseUp = () => {
@@ -633,6 +716,8 @@ class AddEllipseControl {
         this.map.off('mouseleave', 'ellipse-fill-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
+        // ✅ CLEANUP: Cancel all pending operations
+        this.cancelPendingUpdates();
     }
 
     handleMouseEnter = () => {
