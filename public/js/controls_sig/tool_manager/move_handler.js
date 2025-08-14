@@ -115,10 +115,10 @@ class MoveHandler {
             return;
         }
 
-        // Check if clicked feature is selected
+        // Check if clicked feature is selected (using loose equality for type coercion)
         const isFeatureSelected = filteredFeatures.some(clickedFeature => {
             clickedFeature.id = clickedFeature.id || clickedFeature.properties.id;
-            return allSelectedFeatures.some(f => f.id === clickedFeature.id);
+            return allSelectedFeatures.some(f => f.id == clickedFeature.id);
         });
 
         if (!isFeatureSelected) return;
@@ -430,7 +430,7 @@ class MoveHandler {
             )
         };
 
-        // Atualizar X
+        // Atualizar X marks se disponível
         if (this.selectionManager.circleControl &&
             typeof this.selectionManager.circleControl.updateXMarks === 'function') {
             this.selectionManager.circleControl.updateXMarks();
@@ -456,9 +456,8 @@ class MoveHandler {
         };
     }
 
-    // ✅ CORREÇÃO CRÍTICA: updateArrowFeature corrigida
     updateArrowFeature(feature, dx, dy, newCoords) {
-        // ✅ Garantir que baseCoordinates é um array
+        // Garantir que baseCoordinates é um array
         let baseCoordinates = feature.properties.baseCoordinates;
         
         if (typeof baseCoordinates === 'string') {
@@ -475,7 +474,7 @@ class MoveHandler {
             return feature;
         }
 
-        // Converter delta de coordenadas de tela para coordenadas geográficas
+        // Converter delta de coordenadas para coordenadas geográficas
         const newBaseCoordinates = baseCoordinates.map(coord => [
             coord[0] + dx,
             coord[1] + dy

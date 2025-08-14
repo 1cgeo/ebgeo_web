@@ -401,6 +401,43 @@ class SelectionManager {
         return mapSource._data.features.find(f => f.id == featureId);
     }
 
+    // Create optimal feature for drag operations
+    createOptimalFeatureForDrag(queryFeature, completeFeature, source) {
+        if (!completeFeature) {
+            return queryFeature;
+        }
+
+        // Critical properties that need to be native (not serialized)
+        const criticalProps = {
+            'circle': ['center', 'radius'],
+            'ellipse': ['center', 'majorRadius', 'minorRadius', 'bearing'],
+            'arrow': ['baseCoordinates'],
+            'boundary': ['center']
+        };
+
+        const relevantProps = criticalProps[source] || [];
+
+        // Start with query feature (has correct render properties)
+        const hybridFeature = {
+            ...queryFeature,
+            // Ensure consistent ID (use string like complete feature)
+            id: completeFeature.id,
+            // Use geometry from complete feature (more reliable)
+            geometry: completeFeature.geometry,
+            properties: {
+                ...queryFeature.properties,
+                // Override with critical properties from complete feature
+                ...Object.fromEntries(
+                    relevantProps
+                        .filter(prop => completeFeature.properties[prop] !== undefined)
+                        .map(prop => [prop, completeFeature.properties[prop]])
+                )
+            }
+        };
+
+        return hybridFeature;
+    }
+
     toggleFeatureSelection(source, featureId, feature, forceToggle = false) {
         let targetMap;
 
@@ -431,6 +468,7 @@ class SelectionManager {
                 break;
             case 'boundary':
                 targetMap = this.selectedBoundaryFeatures;
+                break;
             default:
                 console.error('Invalid source:', source);
                 return;
@@ -454,10 +492,14 @@ class SelectionManager {
         } else if (!targetMap.has(featureId)) {
             // Select feature
             let featureToStore = feature;
+            
+            // For problematic features, create optimized hybrid feature
             if (['circle', 'ellipse', 'arrow', 'boundary'].includes(source)) {
                 const completeFeature = this.getCompleteFeatureFromSource(source, featureId);
+                
                 if (completeFeature) {
-                    featureToStore = completeFeature;
+                    // Create hybrid feature that combines the best of both worlds
+                    featureToStore = this.createOptimalFeatureForDrag(feature, completeFeature, source);
                 }
             }
 
