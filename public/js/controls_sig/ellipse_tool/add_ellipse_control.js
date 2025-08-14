@@ -1,6 +1,9 @@
 // Path: js\controls_sig\ellipse_tool\add_ellipse_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 
+// Note: turf is globally available as window.turf
+const turf = window.turf;
+
 class AddEllipseControl {
     constructor(toolManager) {
         this.map = toolManager.map;
@@ -233,10 +236,12 @@ class AddEllipseControl {
         if (this.drawPoints.length === 1) {
             const center = this.drawPoints[0];
             const currentPoint = [e.lngLat.lng, e.lngLat.lat];
-            const majorRadius = this.calculateDistance(center, currentPoint);
+            
+            // Calculate using same logic as HTML file
+            const majorRadius = this.calculateDistance(center, currentPoint, { units: 'kilometers' });
             const bearing = this.calculateBearing(center, currentPoint);
             
-            if (majorRadius >= 10) {
+            if (majorRadius >= 0.01) { // Minimum 10 meters
                 const previewGeometry = this.generateEllipseGeometry(
                     center, 
                     majorRadius, 
@@ -272,10 +277,12 @@ class AddEllipseControl {
     createFeature = async () => {
         const center = this.drawPoints[0];
         const majorAxisEnd = this.drawPoints[1];
-        const majorRadius = this.calculateDistance(center, majorAxisEnd);
+        
+        // Use same calculations as HTML file
+        const majorRadius = this.calculateDistance(center, majorAxisEnd, { units: 'kilometers' });
         const bearing = this.calculateBearing(center, majorAxisEnd);
 
-        if (majorRadius < 10) {
+        if (majorRadius < 0.01) { // 10 meters minimum (0.01 km)
             alert('Raio mínimo: 10 metros');
             this.drawPoints = [];
             return;
@@ -321,11 +328,14 @@ class AddEllipseControl {
             return;
         }
         
+        // CRITICAL FIX: Use original values (no swap) for handles like HTML example
+        // The swap only affects the geometry, not the handle positions
         const majorRadius = feature.properties.majorRadius;
         const minorRadius = feature.properties.minorRadius;
         const bearing = feature.properties.bearing;
 
-        const majorAxisEnd = this.calculateDestination(center, majorRadius, bearing);
+        // Major axis handle (red) - follow HTML logic exactly
+        const majorAxisEnd = turf.destination(center, majorRadius, bearing, { units: 'kilometers' });
         
         const majorHandleId = `ellipse-handle-${feature.id}-major`;
         this.editHandleIds.add(majorHandleId);
@@ -335,11 +345,11 @@ class AddEllipseControl {
             id: majorHandleId,
             geometry: {
                 type: 'Point',
-                coordinates: majorAxisEnd
+                coordinates: majorAxisEnd.geometry.coordinates
             },
             properties: {
                 role: 'handle',
-                handleType: 'major-axis',
+                handleType: 'vertex', // RED color in map.js
                 handleId: 'major-axis',
                 featureId: feature.id,
                 mode: 'ellipse_editing',
@@ -348,8 +358,9 @@ class AddEllipseControl {
             }
         });
 
+        // Minor axis handle (blue) - perpendicular to major axis
         const perpendicularBearing = bearing + 90;
-        const minorAxisEnd = this.calculateDestination(center, minorRadius, perpendicularBearing);
+        const minorAxisEnd = turf.destination(center, minorRadius, perpendicularBearing, { units: 'kilometers' });
         
         const minorHandleId = `ellipse-handle-${feature.id}-minor`;
         this.editHandleIds.add(minorHandleId);
@@ -359,11 +370,11 @@ class AddEllipseControl {
             id: minorHandleId,
             geometry: {
                 type: 'Point',
-                coordinates: minorAxisEnd
+                coordinates: minorAxisEnd.geometry.coordinates
             },
             properties: {
                 role: 'handle',
-                handleType: 'minor-axis',
+                handleType: 'eccentricity', // BLUE color in map.js
                 handleId: 'minor-axis',
                 featureId: feature.id,
                 mode: 'ellipse_editing',
@@ -400,7 +411,7 @@ class AddEllipseControl {
     showEditPreview = (feature, majorHandlePosition, minorHandlePosition) => {
         const handles = [];
         
-        // Major handle at current position
+        // Major handle at current position (RED)
         if (majorHandlePosition) {
             const majorHandleId = `ellipse-handle-${feature.id}-major`;
             handles.push({
@@ -412,7 +423,7 @@ class AddEllipseControl {
                 },
                 properties: {
                     role: 'handle',
-                    handleType: 'major-axis',
+                    handleType: 'vertex', // RED color in map.js
                     handleId: 'major-axis',
                     featureId: feature.id,
                     mode: 'ellipse_editing',
@@ -422,7 +433,7 @@ class AddEllipseControl {
             });
         }
 
-        // Minor handle at current position
+        // Minor handle at current position (BLUE)
         if (minorHandlePosition) {
             const minorHandleId = `ellipse-handle-${feature.id}-minor`;
             handles.push({
@@ -434,7 +445,7 @@ class AddEllipseControl {
                 },
                 properties: {
                     role: 'handle',
-                    handleType: 'minor-axis',
+                    handleType: 'eccentricity', // BLUE color in map.js
                     handleId: 'minor-axis',
                     featureId: feature.id,
                     mode: 'ellipse_editing',
@@ -491,7 +502,7 @@ class AddEllipseControl {
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
             
-            if (handle.properties.handleType === 'major-axis' || handle.properties.handleType === 'minor-axis') {
+            if (handle.properties.handleType === 'vertex' || handle.properties.handleType === 'eccentricity') {
                 this.isDraggingHandle = true;
                 this.activeHandle = handle;
                 this.initialHandlePosition = [e.lngLat.lng, e.lngLat.lat];
@@ -509,9 +520,9 @@ class AddEllipseControl {
         
         const currentPosition = [e.lngLat.lng, e.lngLat.lat];
         
-        if (this.activeHandle.properties.handleType === 'major-axis') {
+        if (this.activeHandle.properties.handleType === 'vertex') {
             this.updateMajorAxisPreview(currentPosition);
-        } else if (this.activeHandle.properties.handleType === 'minor-axis') {
+        } else if (this.activeHandle.properties.handleType === 'eccentricity') {
             this.updateMinorAxisPreview(currentPosition);
         }
     }
@@ -552,10 +563,11 @@ class AddEllipseControl {
             return;
         }
 
-        const newMajorRadius = this.calculateDistance(center, newPosition);
-        const newBearing = this.calculateBearing(center, newPosition);
+        // Follow HTML logic exactly - use turf functions
+        const newMajorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
+        const newBearing = turf.bearing(center, newPosition);
         
-        if (newMajorRadius > 10) {
+        if (newMajorRadius > 0.01) { // Minimum radius (0.01 km = 10 meters)
             this.previewFeature.properties.majorRadius = newMajorRadius;
             this.previewFeature.properties.bearing = newBearing;
             this.previewFeature.geometry = this.generateEllipseGeometry(
@@ -565,10 +577,11 @@ class AddEllipseControl {
                 newBearing
             );
             
+            // Calculate minor handle position using original values (no swap)
             const perpendicularBearing = newBearing + 90;
-            const minorHandlePosition = this.calculateDestination(center, this.previewFeature.properties.minorRadius, perpendicularBearing);
+            const minorHandlePosition = turf.destination(center, this.previewFeature.properties.minorRadius, perpendicularBearing, { units: 'kilometers' });
             
-            this.showEditPreview(this.previewFeature, newPosition, minorHandlePosition);
+            this.showEditPreview(this.previewFeature, newPosition, minorHandlePosition.geometry.coordinates);
         }
     }
 
@@ -582,9 +595,10 @@ class AddEllipseControl {
             return;
         }
 
-        const newMinorRadius = this.calculateDistance(center, newPosition);
+        // Follow HTML logic exactly - use turf functions
+        const newMinorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
         
-        if (newMinorRadius > 10) {
+        if (newMinorRadius > 0.01) { // Minimum radius (0.01 km = 10 meters)
             this.previewFeature.properties.minorRadius = newMinorRadius;
             this.previewFeature.geometry = this.generateEllipseGeometry(
                 center, 
@@ -593,9 +607,13 @@ class AddEllipseControl {
                 this.previewFeature.properties.bearing
             );
             
-            const majorHandlePosition = this.calculateDestination(center, this.previewFeature.properties.majorRadius, this.previewFeature.properties.bearing);
+            // CRITICAL FIX: Calculate where the minor handle SHOULD be (not where mouse is)
+            // Minor handle should always be at bearing + 90° from center
+            const majorHandlePosition = turf.destination(center, this.previewFeature.properties.majorRadius, this.previewFeature.properties.bearing, { units: 'kilometers' });
+            const perpendicularBearing = this.previewFeature.properties.bearing + 90;
+            const minorHandlePosition = turf.destination(center, newMinorRadius, perpendicularBearing, { units: 'kilometers' });
             
-            this.showEditPreview(this.previewFeature, majorHandlePosition, newPosition);
+            this.showEditPreview(this.previewFeature, majorHandlePosition.geometry.coordinates, minorHandlePosition.geometry.coordinates);
         }
     }
 
@@ -649,95 +667,44 @@ class AddEllipseControl {
         return center;
     }
 
+    // Use turf.ellipse exactly like the HTML example
     generateEllipseGeometry = (center, majorRadius, minorRadius, bearing) => {
-        const steps = 64;
-        const coordinates = [[]];
+        // Handle case where minor radius is larger than major radius (same as HTML)
+        let actualMajorRadius = majorRadius;
+        let actualMinorRadius = minorRadius;
+        let actualBearing = bearing;
         
-        // Convert radius from meters to kilometers for calculations
-        const majorRadiusKm = majorRadius / 1000;
-        const minorRadiusKm = minorRadius / 1000;
-        
-        // Use the same angle adjustment as the working example: bearing - 90
-        const angle = bearing - 90;
-        const angleRad = angle * Math.PI / 180;
-        
-        for (let i = 0; i <= steps; i++) {
-            const theta = (i * 2 * Math.PI) / steps;
-            
-            // Standard ellipse parametric equations
-            const x = majorRadiusKm * Math.cos(theta);
-            const y = minorRadiusKm * Math.sin(theta);
-            
-            // Apply rotation
-            const rotatedX = x * Math.cos(angleRad) - y * Math.sin(angleRad);
-            const rotatedY = x * Math.sin(angleRad) + y * Math.cos(angleRad);
-            
-            // Convert back to geographic coordinates using simple approximation
-            const deltaLng = rotatedX / (111.32 * Math.cos(center[1] * Math.PI / 180));
-            const deltaLat = rotatedY / 110.54;
-            
-            const lng = center[0] + deltaLng;
-            const lat = center[1] + deltaLat;
-            
-            coordinates[0].push([lng, lat]);
+        if (minorRadius > majorRadius) {
+            actualMajorRadius = minorRadius;
+            actualMinorRadius = majorRadius;
+            actualBearing = bearing + 90; // Rotate 90 degrees
         }
 
-        return {
-            type: 'Polygon',
-            coordinates: coordinates
+        const options = { 
+            angle: actualBearing - 90, // Align major axis with bearing direction (same as HTML)
+            steps: 64,
+            units: 'kilometers' 
         };
+        
+        // Use turf.ellipse exactly like the HTML example
+        const ellipsePolygon = turf.ellipse(center, actualMajorRadius, actualMinorRadius, options);
+        
+        return ellipsePolygon.geometry;
     }
 
-    // Helper method equivalent to turf.destination
-    calculateDestination = (origin, distance, bearing) => {
-        const distanceKm = distance / 1000; // Convert meters to kilometers
-        const bearingRad = bearing * Math.PI / 180;
-        
-        const R = 6371; // Earth's radius in km
-        const lat1 = origin[1] * Math.PI / 180;
-        const lng1 = origin[0] * Math.PI / 180;
-        
-        const lat2 = Math.asin(
-            Math.sin(lat1) * Math.cos(distanceKm / R) +
-            Math.cos(lat1) * Math.sin(distanceKm / R) * Math.cos(bearingRad)
-        );
-        
-        const lng2 = lng1 + Math.atan2(
-            Math.sin(bearingRad) * Math.sin(distanceKm / R) * Math.cos(lat1),
-            Math.cos(distanceKm / R) - Math.sin(lat1) * Math.sin(lat2)
-        );
-        
-        return [lng2 * 180 / Math.PI, lat2 * 180 / Math.PI];
+    // Corrected distance calculation following turf.distance logic
+    calculateDistance = (point1, point2, options = {}) => {
+        return turf.distance(point1, point2, options);
     }
 
-    calculateDistance = (point1, point2) => {
-        const R = 6371000; // Earth's radius in meters
-        const lat1Rad = point1[1] * Math.PI / 180;
-        const lat2Rad = point2[1] * Math.PI / 180;
-        const deltaLatRad = (point2[1] - point1[1]) * Math.PI / 180;
-        const deltaLngRad = (point2[0] - point1[0]) * Math.PI / 180;
-
-        const a = Math.sin(deltaLatRad / 2) * Math.sin(deltaLatRad / 2) +
-                  Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-                  Math.sin(deltaLngRad / 2) * Math.sin(deltaLngRad / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-        return R * c;
-    }
-
+    // Corrected bearing calculation following turf.bearing logic
     calculateBearing = (start, end) => {
-        const startLat = start[1] * Math.PI / 180;
-        const startLng = start[0] * Math.PI / 180;
-        const endLat = end[1] * Math.PI / 180;
-        const endLng = end[0] * Math.PI / 180;
+        return turf.bearing(start, end);
+    }
 
-        const dLng = endLng - startLng;
-
-        const y = Math.sin(dLng) * Math.cos(endLat);
-        const x = Math.cos(startLat) * Math.sin(endLat) - Math.sin(startLat) * Math.cos(endLat) * Math.cos(dLng);
-
-        let bearing = Math.atan2(y, x) * 180 / Math.PI;
-        return (bearing + 360) % 360;
+    // Corrected destination calculation following turf.destination logic
+    calculateDestination = (origin, distance, bearing, options = {}) => {
+        return turf.destination(origin, distance, bearing, options);
     }
 
     forceUpdateMainSource = (feature) => {
