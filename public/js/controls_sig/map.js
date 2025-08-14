@@ -431,6 +431,8 @@ map.on('styledata', async () => {
         });
     }
 
+    // Seção específica do map.js para corrigir os layers do boundary
+
     if (features.boundarys) {
         if (!map.getSource('boundarys')) {
             map.addSource('boundarys', {
@@ -447,6 +449,7 @@ map.on('styledata', async () => {
             });
         }
 
+        // ✅ LAYER PRINCIPAL - Linha da boundary
         if (!map.getLayer('boundary-line-layer')) {
             map.addLayer({
                 id: 'boundary-line-layer',
@@ -457,10 +460,11 @@ map.on('styledata', async () => {
                     'line-width': ['get', 'lineWidth'],
                     'line-opacity': ['get', 'opacity']
                 },
-                filter: ['==', ['get', 'renderType'], 'line']
+                filter: ['==', 'renderType', 'line']
             });
         }
 
+        // ✅ SÍMBOLOS - Linhas dos símbolos (X, I, círculos)
         if (!map.getLayer('boundary-symbol-layer')) {
             map.addLayer({
                 id: 'boundary-symbol-layer',
@@ -471,10 +475,14 @@ map.on('styledata', async () => {
                     'line-width': 3,
                     'line-opacity': ['get', 'opacity']
                 },
-                filter: ['==', ['get', 'renderType'], 'symbol']
+                filter: ['all',
+                    ['==', 'renderType', 'symbol'],
+                    ['==', '$type', 'LineString']
+                ]
             });
         }
 
+        // ✅ PREENCHIMENTO DOS SÍMBOLOS - Apenas polígonos (círculos)
         if (!map.getLayer('boundary-symbol-fill-layer')) {
             map.addLayer({
                 id: 'boundary-symbol-fill-layer',
@@ -485,12 +493,13 @@ map.on('styledata', async () => {
                     'fill-opacity': ['*', ['get', 'opacity'], 0.3]
                 },
                 filter: ['all',
-                    ['==', ['get', 'renderType'], 'symbol'],
+                    ['==', 'renderType', 'symbol'],
                     ['==', '$type', 'Polygon']
                 ]
             });
         }
 
+        // ✅ TEXTOS
         if (!map.getLayer('boundary-text-layer')) {
             map.addLayer({
                 id: 'boundary-text-layer',
@@ -501,8 +510,8 @@ map.on('styledata', async () => {
                     'text-font': ['Noto Sans Regular'],
                     'text-size': [
                         'interpolate', ['linear'], ['zoom'],
-                        8, ['*', ['coalesce', ['get', 'textScaleFactor'], 1], 8],
-                        16, ['*', ['coalesce', ['get', 'textScaleFactor'], 1], 20]
+                        8, ['*', ['get', 'textScaleFactor'], 8],
+                        16, ['*', ['get', 'textScaleFactor'], 20]
                     ],
                     'text-rotate': ['get', 'rotation'],
                     'text-allow-overlap': true,
@@ -514,10 +523,11 @@ map.on('styledata', async () => {
                     'text-halo-color': '#fff',
                     'text-halo-width': 2
                 },
-                filter: ['==', ['get', 'renderType'], 'text']
+                filter: ['==', 'renderType', 'text']
             });
         }
 
+        // ✅ PREVIEW
         if (!map.getSource('boundary-preview')) {
             map.addSource('boundary-preview', {
                 type: 'geojson',
@@ -539,6 +549,7 @@ map.on('styledata', async () => {
             });
         }
 
+        // ✅ HANDLES DE EDIÇÃO
         if (!map.getSource('boundary-edit-handles')) {
             map.addSource('boundary-edit-handles', {
                 type: 'geojson',
@@ -555,24 +566,25 @@ map.on('styledata', async () => {
                     'circle-radius': 8,
                     'circle-color': [
                         'case',
-                        ['==', ['get', 'handleType'], 'vertex'], '#ff0000',     // Vermelho - vértices
-                        ['==', ['get', 'handleType'], 'midpoint'], '#ff0000',   // Vermelho - midpoints
-                        ['==', ['get', 'handleType'], 'symbol'], '#0066ff',     // Azul - símbolo
-                        ['==', ['get', 'handleType'], 'size'], '#28a745',       // Verde - tamanho
-                        '#000000' // Cor padrão
+                        ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                        ['==', ['get', 'handleType'], 'midpoint'], '#ff0000',
+                        ['==', ['get', 'handleType'], 'symbol'], '#0066ff',
+                        ['==', ['get', 'handleType'], 'size'], '#28a745',
+                        '#000000'
                     ],
                     'circle-stroke-color': '#ffffff',
                     'circle-stroke-width': 2,
                     'circle-opacity': [
                         'case',
-                        ['==', ['get', 'handleType'], 'midpoint'], 0.5,  // Midpoints mais transparentes
+                        ['==', ['get', 'handleType'], 'midpoint'], 0.5,
                         1
                     ]
                 },
-                filter: ['!=', ['get', 'role'], 'selected-feature']
+                filter: ['!=', 'role', 'selected-feature']
             });
         }
 
+        // ✅ FEATURE SELECIONADA
         if (!map.getLayer('boundary-selected-layer')) {
             map.addLayer({
                 id: 'boundary-selected-layer',
@@ -585,12 +597,13 @@ map.on('styledata', async () => {
                     'line-opacity': 0.8
                 },
                 filter: ['all',
-                    ['==', ['get', 'role'], 'selected-feature'],
+                    ['==', 'role', 'selected-feature'],
                     ['==', '$type', 'LineString']
                 ]
             });
         }
 
+        // ✅ HITZONE - Área maior para clique
         if (!map.getLayer('boundary-hitzone-layer')) {
             map.addLayer({
                 id: 'boundary-hitzone-layer',
@@ -598,9 +611,9 @@ map.on('styledata', async () => {
                 source: 'boundarys',
                 paint: {
                     'line-color': 'transparent',
-                    'line-width': 20  // Área maior para clique
+                    'line-width': 20
                 },
-                filter: ['==', ['get', 'renderType'], 'line']
+                filter: ['==', 'renderType', 'line']
             });
         }
     }

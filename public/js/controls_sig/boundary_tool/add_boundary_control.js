@@ -8,9 +8,6 @@ class AddBoundaryControl {
         this.selectionManager = toolManager.selectionManager;
         
         // ✅ SISTEMA DE 3 ESTADOS (CRÍTICO)
-        // 1. deselected: Estado padrão, sem interação especial
-        // 2. selected: Feature pode ser movida via MoveHandler
-        // 3. editing: Edição baseada em handles, drag da feature desabilitado
         this.currentState = 'deselected';
         this.selectedFeature = null;
         
@@ -19,37 +16,31 @@ class AddBoundaryControl {
         this.drawingMode = null;
         this.drawPoints = [];
         
-        // ✅ Edit mode variables (para sistema de edição customizada)
+        // ✅ Edit mode variables
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.initialHandlePosition = null;
-        this.previewFeature = null;
-        this.editHandleIds = new Set(); // Tracking de handles ativos
+        this.editHandleIds = new Set();
     }
 
     static DEFAULT_PROPERTIES = {
-        // ✅ OBRIGATÓRIO: Definir propriedades padrão
+        // ✅ OBRIGATÓRIO: Propriedades simples
         color: '#000000',
         lineWidth: 4,
         opacity: 1,
-        source: 'boundary', // ✅ CRÍTICO: usado pelo sistema de seleção
+        source: 'boundary',
         geometryType: 'boundary',
+        renderType: 'line',
         
-        // Propriedades específicas do símbolo
-        echelon: 'XXX',                    // Tipo de escalão
-        symbolPositionRatio: 0.5,          // Posição ao longo da linha (0-1)
-        symbolSize: 100,                   // Tamanho em metros
+        // Propriedades específicas
+        echelon: 'XXX',
+        symbolPositionRatio: 0.5,
+        symbolSize: 100,
         
         // Textos
-        textTop: '',                       // Texto superior
-        textBottom: '',                    // Texto inferior
-        textScaleFactor: 1,                // Fator de escala do texto
-        
-        // IDs de subfeatures (para gerenciamento)
-        lineId: null,                      // ID da linha principal
-        symbolId: null,                    // ID do símbolo
-        textTopId: null,                   // ID do texto superior
-        textBottomId: null                 // ID do texto inferior
+        textTop: '',
+        textBottom: '',
+        textScaleFactor: 1
     };
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -73,7 +64,6 @@ class AddBoundaryControl {
         return this.container;
     }
 
-    // ✅ OBRIGATÓRIO: Padrão visual consistente
     updateButtonAppearance = () => {
         const iconSrc = this.isActive ? 
             './images/icon_boundary_red.svg' : 
@@ -82,20 +72,18 @@ class AddBoundaryControl {
         $(`#boundary-tool`).html(`<img class="icon-sig-tool" src="${iconSrc}" alt="BOUNDARY" />`);
     }
 
-    // ===== SISTEMA DE 3 ESTADOS (BASEADO NO CIRCLE) =====
+    // ===== SISTEMA DE 3 ESTADOS =====
     
     transitionToState = (newState, feature = null) => {
         const oldState = this.currentState;
         
         if (oldState === newState) return;
         
-        // Limpeza do estado anterior
         if (oldState === 'editing') {
             this.clearEditHandles();
             this.removeEditEventListeners();
         }
         
-        // Configuração do novo estado
         this.currentState = newState;
         
         switch (newState) {
@@ -129,10 +117,8 @@ class AddBoundaryControl {
         const isSameFeature = this.selectedFeature && this.selectedFeature.id === featureId;
         
         if (isSameFeature && this.currentState === 'selected') {
-            // Mesma feature selecionada novamente: SELECTED → EDITING
             this.transitionToState('editing', feature);
         } else {
-            // Nova feature ou primeira seleção: → SELECTED
             this.transitionToState('selected', feature);
         }
     }
@@ -151,7 +137,6 @@ class AddBoundaryControl {
         }
     }
 
-    // ✅ Interface para integração com move_handler
     isEditingMode = () => {
         return this.currentState === 'editing';
     }
@@ -165,7 +150,6 @@ class AddBoundaryControl {
     handleMapClick = (e) => {
         if (!this.isActive) return;
         
-        // ✅ OBRIGATÓRIO: Validação de entrada
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
             console.warn('Coordenadas inválidas para boundary');
             return;
@@ -174,7 +158,6 @@ class AddBoundaryControl {
         this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
         
         if (this.drawPoints.length === 1) {
-            // Primeiro ponto - iniciar preview
             this.map.on('mousemove', this.handlePreviewMouseMove);
         }
     }
@@ -184,7 +167,6 @@ class AddBoundaryControl {
         
         e.preventDefault();
         
-        // Adicionar último ponto
         this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
         
         if (this.drawPoints.length >= 2) {
@@ -194,7 +176,6 @@ class AddBoundaryControl {
         this.toolManager.deactivateCurrentTool();
     }
 
-    // ✅ Sistema de preview
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length >= 1) {
             const previewPoints = [...this.drawPoints, [e.lngLat.lng, e.lngLat.lat]];
@@ -255,10 +236,7 @@ class AddBoundaryControl {
         };
 
         try {
-            // ✅ OBRIGATÓRIO: Salvar no IndexedDB
             await addFeature('boundarys', feature);
-            
-            // Renderizar todas as geometrias
             this.renderComplexFeature(feature);
             
             this.drawPoints = [];
@@ -268,42 +246,38 @@ class AddBoundaryControl {
         }
     }
 
-    // ===== SISTEMA DE RENDERIZAÇÃO COMPLEXA =====
+    // ===== SISTEMA DE RENDERIZAÇÃO REFATORADO =====
 
     renderComplexFeature = (feature) => {
-        const { lineFeatures, symbolFeatures, textFeatures } = this.createBoundaryGraphic(feature);
+        const allFeatures = this.createAllBoundaryFeatures(feature);
         
-        // Atualizar source principal com todas as geometrias
+        // Atualizar source com todas as geometrias
         const data = JSON.parse(JSON.stringify(this.map.getSource('boundarys')._data));
         
-        // Adicionar feature base
-        data.features.push(feature);
+        // Remover features antigas desta boundary
+        const featureId = feature.properties.id;
+        data.features = data.features.filter(f => 
+            f.properties.parent !== featureId && f.id !== featureId
+        );
         
-        // Adicionar geometrias renderizadas
-        if (lineFeatures.length > 0) {
-            data.features.push(...lineFeatures);
-        }
-        if (symbolFeatures.length > 0) {
-            data.features.push(...symbolFeatures);
-        }
-        if (textFeatures.length > 0) {
-            data.features.push(...textFeatures);
-        }
+        // Adicionar todas as novas features
+        data.features.push(...allFeatures);
         
         this.map.getSource('boundarys').setData(data);
     }
 
-    createBoundaryGraphic = (baseFeature) => {
+    // ✅ REFATORADO: Criar todas as features de uma vez com tipos garantidos
+    createAllBoundaryFeatures = (baseFeature) => {
         const { properties, geometry: line } = baseFeature;
         const id = properties.id;
 
         if (!line || line.coordinates.length < 2) {
-            return { lineFeatures: [], symbolFeatures: [], textFeatures: [] };
+            return [baseFeature];
         }
         
         const {
-            symbolPositionRatio: ratio = 0.5,
-            symbolSize: size = 100,
+            symbolPositionRatio = 0.5,
+            symbolSize = 100,
             echelon = 'XXX',
             textTop = '',
             textBottom = '',
@@ -311,52 +285,87 @@ class AddBoundaryControl {
             color = '#000000'
         } = properties;
         
-        // Calcular posição do símbolo
-        const totalLength = this.calculateLineLength(line);
-        const centerPoint = this.getPointAtRatio(line, ratio);
-        const localBearing = this.getLocalBearing(line, ratio);
+        const allFeatures = [];
         
-        // Criar linha com gap
-        const lineSegments = this.createLineWithGap(line, ratio, size);
-        
-        // Criar símbolos
-        const symbolGeometries = this.createEchelonSymbol(echelon, centerPoint, size, localBearing);
-        
-        // Criar textos
-        const textGeometries = this.createRotatedTexts(centerPoint, localBearing, textTop, textBottom, size, textScaleFactor, color);
-        
-        // Converter para features
-        const lineFeatures = lineSegments.map((segment, index) => ({
-            type: 'Feature',
-            id: `${id}-line-${index}`,
-            geometry: {
-                type: 'LineString',
-                coordinates: segment
-            },
-            properties: {
-                ...properties,
-                renderType: 'line',
-                parent: id
-            }
+        // 1. Feature base (OBRIGATÓRIA)
+        allFeatures.push(this.createSafeFeature(baseFeature, {
+            renderType: 'line'
         }));
         
-        const symbolFeatures = symbolGeometries.map((geom, index) => ({
-            type: 'Feature',
-            id: `${id}-symbol-${index}`,
-            geometry: geom,
-            properties: {
-                ...properties,
+        // 2. Calcular posição do símbolo
+        const centerPoint = this.getPointAtRatio(line, symbolPositionRatio);
+        const localBearing = this.getLocalBearing(line, symbolPositionRatio);
+        
+        // 3. Criar linha com gap
+        const lineSegments = this.createLineWithGap(line, symbolPositionRatio, symbolSize);
+        
+        lineSegments.forEach((segment, index) => {
+            if (segment.length >= 2) {
+                allFeatures.push(this.createSafeFeature({
+                    type: 'Feature',
+                    id: `${id}-line-${index}`,
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: segment
+                    },
+                    properties: { ...properties }
+                }, {
+                    renderType: 'line',
+                    parent: id
+                }));
+            }
+        });
+        
+        // 4. Criar símbolos
+        const symbolGeometries = this.createEchelonSymbol(echelon, centerPoint, symbolSize, localBearing);
+        
+        symbolGeometries.forEach((geom, index) => {
+            allFeatures.push(this.createSafeFeature({
+                type: 'Feature',
+                id: `${id}-symbol-${index}`,
+                geometry: geom,
+                properties: { ...properties }
+            }, {
                 renderType: 'symbol',
                 parent: id
-            }
-        }));
+            }));
+        });
         
-        const textFeatures = textGeometries;
+        // 5. Criar textos
+        const textFeatures = this.createRotatedTexts(centerPoint, localBearing, textTop, textBottom, symbolSize, textScaleFactor, color);
         
-        return { lineFeatures, symbolFeatures, textFeatures };
+        textFeatures.forEach(textFeature => {
+            allFeatures.push(this.createSafeFeature(textFeature, {
+                renderType: 'text',
+                parent: id
+            }));
+        });
+        
+        return allFeatures;
     }
 
-    // ===== GEOMETRIA E CÁLCULOS =====
+    // ✅ CRÍTICO: Garantir que todas as propriedades sejam simples
+    createSafeFeature = (feature, extraProps = {}) => {
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                ...extraProps,
+                // Garantir propriedades obrigatórias
+                renderType: extraProps.renderType || feature.properties.renderType || 'line',
+                parent: extraProps.parent || feature.properties.parent,
+                role: extraProps.role || feature.properties.role,
+                source: feature.properties.source || 'boundary',
+                color: feature.properties.color || '#000000',
+                id: feature.properties.id || feature.id,
+                lineWidth: feature.properties.lineWidth || 4,
+                opacity: feature.properties.opacity || 1,
+                textScaleFactor: feature.properties.textScaleFactor || 1
+            }
+        };
+    }
+
+    // ===== GEOMETRIA E CÁLCULOS (mantidos iguais) =====
 
     calculateLineLength = (line) => {
         let length = 0;
@@ -422,7 +431,7 @@ class AddBoundaryControl {
 
     createLineWithGap = (line, ratio, symbolSize) => {
         const totalLength = this.calculateLineLength(line);
-        const gapWidth = symbolSize * 0.012; // Gap proporcional ao tamanho
+        const gapWidth = symbolSize * 0.012;
         const centerDistance = totalLength * ratio;
         
         const gapStartDistance = Math.max(0, centerDistance - (gapWidth / 2));
@@ -430,12 +439,10 @@ class AddBoundaryControl {
         
         const segments = [];
         
-        // Segmento antes do gap
         if (gapStartDistance > 0) {
             segments.push(this.getLineSegment(line, 0, gapStartDistance));
         }
         
-        // Segmento depois do gap
         if (gapEndDistance < totalLength) {
             segments.push(this.getLineSegment(line, gapEndDistance, totalLength));
         }
@@ -451,7 +458,6 @@ class AddBoundaryControl {
         for (let i = 0; i < line.coordinates.length - 1; i++) {
             const segmentLength = this.calculateDistance(line.coordinates[i], line.coordinates[i + 1]);
             
-            // Ponto inicial do segmento
             if (!startFound && currentDistance + segmentLength >= startDistance) {
                 const remainingDistance = startDistance - currentDistance;
                 const segmentRatio = remainingDistance / segmentLength;
@@ -464,12 +470,10 @@ class AddBoundaryControl {
                 startFound = true;
             }
             
-            // Pontos intermediários
             if (startFound && currentDistance + segmentLength <= endDistance) {
                 segment.push(line.coordinates[i + 1]);
             }
             
-            // Ponto final do segmento
             if (startFound && currentDistance + segmentLength >= endDistance) {
                 const remainingDistance = endDistance - currentDistance;
                 const segmentRatio = remainingDistance / segmentLength;
@@ -491,10 +495,9 @@ class AddBoundaryControl {
     createEchelonSymbol = (echelon, centerPoint, size, bearing) => {
         const symbolLines = [];
         const numSymbols = echelon.length;
-        const spacing = size * 0.015; // Espaçamento entre símbolos
+        const spacing = size * 0.015;
         const totalWidth = (numSymbols - 1) * spacing;
         
-        // Calcular posição do primeiro símbolo
         const firstSymbolBearing = bearing;
         const firstSymbolCenter = this.destinationPoint(centerPoint, -totalWidth / 2, firstSymbolBearing);
 
@@ -504,7 +507,6 @@ class AddBoundaryControl {
 
             switch (symbolType) {
                 case 'X':
-                    // Criar X com duas linhas
                     const xSize = size * 0.008;
                     const angle1 = bearing + 45;
                     const angle2 = bearing - 45;
@@ -525,7 +527,6 @@ class AddBoundaryControl {
                     break;
                     
                 case 'I':
-                    // Criar linha vertical
                     const iSize = size * 0.01;
                     const iAngle = bearing - 90;
                     const i_top = this.destinationPoint(currentCenter, iSize, iAngle);
@@ -537,7 +538,6 @@ class AddBoundaryControl {
                     break;
                     
                 case 'o':
-                    // Criar círculo como polígono
                     const circleRadius = size * 0.004;
                     const circlePoints = [];
                     const segments = 16;
@@ -566,13 +566,11 @@ class AddBoundaryControl {
 
     createRotatedTexts = (centerPoint, bearing, textTop, textBottom, size, scaleFactor, color) => {
         const texts = [];
-        const labelOffset = size * 0.012; // Offset dos textos
+        const labelOffset = size * 0.012;
         const textPlacementBearing = bearing - 90;
         
-        // Calcular rotação do texto
         const textRotation = (bearing <= 0 || bearing >= 180) ? bearing + 90 : bearing - 90;
         
-        // Texto superior
         if (textTop && textTop.trim()) {
             const pTop = this.destinationPoint(centerPoint, labelOffset, textPlacementBearing);
             texts.push({
@@ -583,7 +581,6 @@ class AddBoundaryControl {
                     coordinates: pTop
                 },
                 properties: {
-                    renderType: 'text',
                     text: textTop,
                     rotation: textRotation,
                     textScaleFactor: scaleFactor,
@@ -592,7 +589,6 @@ class AddBoundaryControl {
             });
         }
         
-        // Texto inferior
         if (textBottom && textBottom.trim()) {
             const pBottom = this.destinationPoint(centerPoint, labelOffset, textPlacementBearing + 180);
             texts.push({
@@ -603,7 +599,6 @@ class AddBoundaryControl {
                     coordinates: pBottom
                 },
                 properties: {
-                    renderType: 'text',
                     text: textBottom,
                     rotation: textRotation,
                     textScaleFactor: scaleFactor,
@@ -615,24 +610,24 @@ class AddBoundaryControl {
         return texts;
     }
 
-    // ===== SISTEMA DE EDIÇÃO CUSTOMIZADA COM 4 TIPOS DE HANDLES =====
+    // ===== SISTEMA DE EDIÇÃO =====
 
     createEditHandles = (feature) => {
         const handles = [];
         
-        // 1. Vertex handles (editar pontos da linha)
+        // 1. Vertex handles
         handles.push(...this.createVertexHandles(feature));
         
-        // 2. Midpoint handles (adicionar novos pontos)
+        // 2. Midpoint handles
         handles.push(...this.createMidpointHandles(feature));
         
-        // 3. Symbol handle (mover posição do símbolo)
+        // 3. Symbol handle
         handles.push(this.createSymbolHandle(feature));
         
-        // 4. Size handle (redimensionar símbolo)
+        // 4. Size handle
         handles.push(this.createSizeHandle(feature));
 
-        // Adicionar feature destacada para modo de edição
+        // 5. Feature destacada
         handles.push({
             ...feature,
             properties: {
@@ -642,7 +637,6 @@ class AddBoundaryControl {
             }
         });
 
-        // Atualizar source
         this.map.getSource('boundary-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -735,7 +729,6 @@ class AddBoundaryControl {
         const centerPoint = this.getPointAtRatio(feature.geometry, ratio);
         const localBearing = this.getLocalBearing(feature.geometry, ratio);
         
-        // Posicionar handle de tamanho
         const sizeHandlePoint = this.destinationPoint(centerPoint, size * 0.006, localBearing + 45);
         
         const handleId = `boundary-size-${feature.id}`;
@@ -777,7 +770,6 @@ class AddBoundaryControl {
         this.map.off('mouseup', this.onEditMouseUp);
     }
 
-    // Detectar clique nos handles
     onEditMouseDown = (e) => {
         if (!this.isEditingMode()) return;
 
@@ -796,18 +788,15 @@ class AddBoundaryControl {
         }
     }
 
-    // Arrastar handles
     onEditMouseMove = (e) => {
         if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) return;
 
         const currentPosition = [e.lngLat.lng, e.lngLat.lat];
         const handleId = this.activeHandle.properties.handleId;
 
-        // Atualizar geometria baseada no handle arrastado
         this.updateGeometryFromHandle(handleId, currentPosition);
     }
 
-    // Finalizar drag
     onEditMouseUp = () => {
         if (this.isDraggingHandle) {
             this.isDraggingHandle = false;
@@ -816,7 +805,6 @@ class AddBoundaryControl {
             this.map.dragPan.enable();
             this.map.getCanvas().style.cursor = '';
 
-            // Salvar alterações
             if (this.selectedFeature) {
                 this.saveFeatureChanges(this.selectedFeature);
             }
@@ -827,17 +815,14 @@ class AddBoundaryControl {
         const feature = this.selectedFeature;
         
         if (handleId.startsWith('vertex-')) {
-            // Editar vértice da linha
             const index = parseInt(handleId.split('-')[1]);
             feature.geometry.coordinates[index] = newPosition;
             
         } else if (handleId.startsWith('midpoint-')) {
-            // Adicionar novo ponto
             const index = parseInt(handleId.split('-')[1]) + 1;
             feature.geometry.coordinates.splice(index, 0, newPosition);
             
         } else if (handleId === 'symbol-position') {
-            // Mover posição do símbolo ao longo da linha
             const totalLength = this.calculateLineLength(feature.geometry);
             const distanceToPoint = this.getDistanceToPoint(feature.geometry, newPosition);
             const newRatio = Math.max(0.1, Math.min(0.9, distanceToPoint / totalLength));
@@ -845,20 +830,18 @@ class AddBoundaryControl {
             feature.properties.symbolPositionRatio = newRatio;
             
         } else if (handleId === 'symbol-size') {
-            // Redimensionar símbolo
             const ratio = feature.properties.symbolPositionRatio || 0.5;
             const centerPoint = this.getPointAtRatio(feature.geometry, ratio);
             const newSize = this.calculateDistance(centerPoint, newPosition) / 0.006;
             
             if (newSize > 50 && newSize < 500) {
                 feature.properties.symbolSize = newSize;
-                feature.properties.textScaleFactor = newSize / 100; // Ajustar escala do texto
+                feature.properties.textScaleFactor = newSize / 100;
             }
         }
 
-        // Atualizar visualização em tempo real
         this.forceUpdateMainSource(feature);
-        this.createEditHandles(feature); // Recriar handles nas novas posições
+        this.createEditHandles(feature);
     }
 
     getDistanceToPoint = (line, point) => {
@@ -869,12 +852,10 @@ class AddBoundaryControl {
         for (let i = 0; i < line.coordinates.length - 1; i++) {
             const segmentLength = this.calculateDistance(line.coordinates[i], line.coordinates[i + 1]);
             
-            // Encontrar ponto mais próximo no segmento
             const distanceToSegment = this.distanceToLineSegment(point, line.coordinates[i], line.coordinates[i + 1]);
             
             if (distanceToSegment < minDistance) {
                 minDistance = distanceToSegment;
-                // Calcular distância aproximada ao longo da linha
                 closestDistance = currentDistance + (segmentLength / 2);
             }
             
@@ -916,7 +897,7 @@ class AddBoundaryControl {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // ===== MÉTODOS OBRIGATÓRIOS PARA O SISTEMA DE SELEÇÃO =====
+    // ===== MÉTODOS OBRIGATÓRIOS PARA O SISTEMA =====
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('boundarys')._data));
@@ -927,8 +908,6 @@ class AddBoundaryControl {
             const sourceFeature = data.features.find(f => f.id == feature.id && f.properties.source === 'boundary');
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
-                
-                // Recalcular e renderizar geometrias
                 this.reRenderFeature(sourceFeature, data);
             }
         }
@@ -937,18 +916,13 @@ class AddBoundaryControl {
     }
 
     reRenderFeature = (feature, data) => {
-        // Remover geometrias antigas renderizadas
         const featureId = feature.properties.id;
         data.features = data.features.filter(f => f.properties.parent !== featureId);
         
-        // Gerar novas geometrias
-        const { lineFeatures, symbolFeatures, textFeatures } = this.createBoundaryGraphic(feature);
-        
-        // Adicionar novas geometrias
-        data.features.push(...lineFeatures, ...symbolFeatures, ...textFeatures);
+        const newFeatures = this.createAllBoundaryFeatures(feature);
+        data.features.push(...newFeatures);
     }
 
-    // ✅ OBRIGATÓRIO: Método updateFeatures padronizado
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('boundarys')._data));
@@ -962,7 +936,6 @@ class AddBoundaryControl {
                         data.features[featureIndex] = feature;
                     }
                     
-                    // Re-renderizar
                     this.reRenderFeature(data.features[featureIndex], data);
                     
                     if (save) {
@@ -975,7 +948,6 @@ class AddBoundaryControl {
         }
     }
 
-    // ✅ OBRIGATÓRIO: Método saveFeatures com verificação de mudanças
     saveFeatures = async (features, initialPropertiesMap) => {
         for (const f of features) {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
@@ -984,7 +956,6 @@ class AddBoundaryControl {
         }
     }
 
-    // ✅ OBRIGATÓRIO: Método hasFeatureChanged para otimização
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
         
@@ -1037,14 +1008,21 @@ class AddBoundaryControl {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             
-            // Re-renderizar
             this.reRenderFeature(sourceFeature, data);
-            
             this.map.getSource('boundarys').setData(data);
         }
     }
 
-    // ===== EVENT LISTENER MANAGEMENT =====
+    saveFeatureChanges = async (feature) => {
+        try {
+            await updateFeature('boundarys', feature);
+            this.forceUpdateMainSource(feature);
+        } catch (error) {
+            console.error('Erro ao salvar changes da feature:', error);
+        }
+    }
+
+    // ===== EVENT LISTENERS =====
     
     setupBaseEventListeners = () => {
         this.map.on('mouseenter', 'boundary-line-layer', this.handleMouseEnter);
@@ -1083,7 +1061,6 @@ class AddBoundaryControl {
         this.map.getCanvas().style.cursor = 'crosshair';
         this.updateButtonAppearance();
         
-        // Setup map event listeners
         this.map.on('click', this.handleMapClick);
         this.map.on('dblclick', this.handleDoubleClick);
     }
@@ -1097,7 +1074,6 @@ class AddBoundaryControl {
         this.clearPreview();
         this.forceTransitionToDeselected();
         
-        // Remove map event listeners
         this.map.off('click', this.handleMapClick);
         this.map.off('dblclick', this.handleDoubleClick);
     }
@@ -1117,7 +1093,7 @@ class AddBoundaryControl {
     }
 
     calculateDistance = (point1, point2) => {
-        const R = 6371000; // Raio da Terra em metros
+        const R = 6371000;
         const lat1Rad = point1[1] * Math.PI / 180;
         const lat2Rad = point2[1] * Math.PI / 180;
         const deltaLatRad = (point2[1] - point1[1]) * Math.PI / 180;
@@ -1144,7 +1120,7 @@ class AddBoundaryControl {
     }
 
     destinationPoint = (point, distance, bearing) => {
-        const R = 6371000; // Raio da Terra em metros
+        const R = 6371000;
         const lat1 = point[1] * Math.PI / 180;
         const lng1 = point[0] * Math.PI / 180;
         const bearingRad = bearing * Math.PI / 180;
@@ -1162,7 +1138,6 @@ class AddBoundaryControl {
         this.selectionManager = selectionManager;
     }
 
-    // ✅ OBRIGATÓRIO: onRemove com try/catch padronizado
     onRemove = () => {
         try {
             if (this.selectionManager.uiManager) {
