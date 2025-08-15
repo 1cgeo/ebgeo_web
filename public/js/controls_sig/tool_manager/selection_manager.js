@@ -77,14 +77,13 @@ class SelectionManager {
 
     setupEventListeners = () => {
         this.map.on('click', this.handleMapClick);
-        this.map.on('click', 'text-layer', this.handleElementClick);
-        this.map.on('click', 'image-layer', this.handleElementClick);
-        this.map.on('click', 'los-layer', this.handleElementClick);
-        this.map.on('click', 'visibility-layer', this.handleElementClick);
         this.map.on('click', 'circle-fill-layer', this.handleElementClick);
         this.map.on('click', 'circle-layer', this.handleElementClick);
         this.map.on('click', 'ellipse-layer', this.handleElementClick);
         this.map.on('click', 'ellipse-fill-layer', this.handleElementClick);
+        this.map.on('click', 'visibility-layer', this.handleElementClick);
+        this.map.on('click', 'image-layer', this.handleElementClick);
+        this.map.on('click', 'los-layer', this.handleElementClick);
         this.map.on('click', 'arrow-layer', this.handleElementClick);
         this.map.on('click', 'arrow-fill-layer', this.handleElementClick);
         this.map.on('click', 'boundary-line-layer', this.handleElementClick);
@@ -92,6 +91,7 @@ class SelectionManager {
         this.map.on('click', 'boundary-text-layer', this.handleElementClick);
         this.map.on('click', 'occupied-front-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
+        this.map.on('click', 'text-layer', this.handleElementClick);
     }
 
     handleMapClick = (e) => {

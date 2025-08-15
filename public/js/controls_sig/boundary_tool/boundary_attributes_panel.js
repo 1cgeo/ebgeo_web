@@ -5,59 +5,6 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
     const feature = selectedFeatures[0];
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
 
-    // ✅ Função auxiliar padronizada para slider com input numérico
-    function createSliderWithInput(config) {
-        const container = document.createElement('div');
-        container.className = 'slider-numeric-container';
-        container.style.cssText = 'display: flex; gap: 8px; align-items: center; width: 100%;';
-
-        const slider = document.createElement('input');
-        slider.classList.add("slider");
-        slider.type = 'range';
-        slider.min = config.min;
-        slider.max = config.max;
-        slider.step = config.step || 1;
-        slider.value = config.value;
-        slider.style.cssText = 'flex-grow: 1;';
-
-        const numericInput = document.createElement('input');
-        numericInput.type = 'number';
-        numericInput.min = config.min;
-        numericInput.max = config.max;
-        numericInput.step = config.step || 1;
-        numericInput.value = config.value;
-        numericInput.style.cssText = 'width: 60px; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;';
-
-        // Validação e sincronização
-        const clampValue = (value) => Math.max(config.min, Math.min(config.max, value));
-        
-        slider.oninput = (e) => {
-            const value = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
-            numericInput.value = value;
-            config.onChange(value);
-        };
-
-        numericInput.oninput = (e) => {
-            let value = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
-            value = clampValue(value);
-            slider.value = value;
-            numericInput.value = value;
-            config.onChange(value);
-        };
-
-        container.appendChild(slider);
-        container.appendChild(numericInput);
-
-        if (config.unit) {
-            const unit = document.createElement('span');
-            unit.textContent = config.unit;
-            unit.style.cssText = 'font-size: 12px; color: #666; min-width: 20px;';
-            container.appendChild(unit);
-        }
-
-        return container;
-    }
-
     // ✅ Função auxiliar padronizada para color picker
     function createColorPicker(value, onChange, title) {
         const input = document.createElement('input');
@@ -150,51 +97,6 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
             .append($("<div>", { class: "attr-input" }).append(textBottomInput))
     );
 
-    // Slider de Tamanho do Símbolo
-    const sizeLabel = document.createElement('label');
-    sizeLabel.textContent = 'Tamanho do Símbolo:';
-    const sizeControl = createSliderWithInput({
-        min: 50,
-        max: 500,
-        step: 10,
-        value: feature.properties.symbolSize || 100,
-        unit: 'm',
-        onChange: (value) => {
-            boundaryControl.updateFeaturesProperty(selectedFeatures, 'symbolSize', value);
-            // Recalcular textScaleFactor baseado no novo tamanho
-            const scaleFactor = value / 100; // 100 é o tamanho base
-            boundaryControl.updateFeaturesProperty(selectedFeatures, 'textScaleFactor', scaleFactor);
-            uiManager.updateSelectionHighlight();
-        }
-    });
-
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(sizeLabel))
-            .append($("<div>", { class: "attr-input" }).append(sizeControl))
-    );
-
-    // Slider de Posição do Símbolo
-    const positionLabel = document.createElement('label');
-    positionLabel.textContent = 'Posição do Símbolo:';
-    const positionControl = createSliderWithInput({
-        min: 0.1,
-        max: 0.9,
-        step: 0.05,
-        value: feature.properties.symbolPositionRatio || 0.5,
-        unit: '',
-        onChange: (value) => {
-            boundaryControl.updateFeaturesProperty(selectedFeatures, 'symbolPositionRatio', value);
-            uiManager.updateSelectionHighlight();
-        }
-    });
-
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(positionLabel))
-            .append($("<div>", { class: "attr-input" }).append(positionControl))
-    );
-
     // Cor da Linha
     const colorLabel = document.createElement('label');
     colorLabel.textContent = 'Cor:';
@@ -212,43 +114,32 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
     // Espessura da Linha
     const lineWidthLabel = document.createElement('label');
     lineWidthLabel.textContent = 'Espessura:';
-    const lineWidthControl = createSliderWithInput({
-        min: 1,
-        max: 10,
-        step: 1,
-        value: feature.properties.lineWidth || 4,
-        unit: 'px',
-        onChange: (value) => {
-            boundaryControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
-            uiManager.updateSelectionHighlight();
-        }
-    });
+    const lineWidthInput = document.createElement('input');
+    lineWidthInput.type = 'number';
+    lineWidthInput.min = '1';
+    lineWidthInput.max = '10';
+    lineWidthInput.step = '1';
+    lineWidthInput.value = feature.properties.lineWidth || 4;
+    lineWidthInput.style.cssText = 'width: 60px; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;';
+    lineWidthInput.oninput = (e) => {
+        const value = parseInt(e.target.value, 10);
+        boundaryControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
+        uiManager.updateSelectionHighlight();
+    };
+
+    const lineWidthContainer = document.createElement('div');
+    lineWidthContainer.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+    lineWidthContainer.appendChild(lineWidthInput);
+
+    const lineWidthUnit = document.createElement('span');
+    lineWidthUnit.textContent = 'px';
+    lineWidthUnit.style.cssText = 'font-size: 12px; color: #666;';
+    lineWidthContainer.appendChild(lineWidthUnit);
 
     $(panel).append(
         $("<div>", { class: "attr-container-row" })
             .append($("<div>", { class: "attr-name" }).append(lineWidthLabel))
-            .append($("<div>", { class: "attr-input" }).append(lineWidthControl))
-    );
-
-    // Opacidade
-    const opacityLabel = document.createElement('label');
-    opacityLabel.textContent = 'Opacidade:';
-    const opacityControl = createSliderWithInput({
-        min: 0.1,
-        max: 1,
-        step: 0.1,
-        value: feature.properties.opacity || 1,
-        unit: '',
-        onChange: (value) => {
-            boundaryControl.updateFeaturesProperty(selectedFeatures, 'opacity', value);
-            uiManager.updateSelectionHighlight();
-        }
-    });
-
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(opacityLabel))
-            .append($("<div>", { class: "attr-input" }).append(opacityControl))
+            .append($("<div>", { class: "attr-input" }).append(lineWidthContainer))
     );
 
     // ========== BOTÕES DE AÇÃO PADRONIZADOS ==========

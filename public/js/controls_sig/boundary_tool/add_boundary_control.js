@@ -21,26 +21,28 @@ class AddBoundaryControl {
         this.activeHandle = null;
         this.initialHandlePosition = null;
         this.editHandleIds = new Set();
+
+        // ✅ Constantes do gabarito
+        this.initialSymbolSize = 2; // Base size in kilometers (from gabarito)
     }
 
     static DEFAULT_PROPERTIES = {
         // ✅ OBRIGATÓRIO: Propriedades simples
         color: '#000000',
         lineWidth: 4,
-        opacity: 1,
         source: 'boundary',
         geometryType: 'boundary',
         renderType: 'line',
         
-        // Propriedades específicas
+        // Propriedades específicas seguindo o gabarito
         echelon: 'XXX',
         symbolPositionRatio: 0.5,
-        symbolSize: 100,
+        symbolSize: 2, // kilometers (matching gabarito)
+        textScaleFactor: 1,
         
         // Textos
         textTop: '',
-        textBottom: '',
-        textScaleFactor: 1
+        textBottom: ''
     };
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -266,7 +268,7 @@ class AddBoundaryControl {
         this.map.getSource('boundarys').setData(data);
     }
 
-    // ✅ REFATORADO: Criar todas as features de uma vez com tipos garantidos
+    // ✅ REFATORADO: Seguindo exatamente o gabarito HTML
     createAllBoundaryFeatures = (baseFeature) => {
         const { properties, geometry: line } = baseFeature;
         const id = properties.id;
@@ -277,7 +279,7 @@ class AddBoundaryControl {
         
         const {
             symbolPositionRatio = 0.5,
-            symbolSize = 100,
+            symbolSize = this.initialSymbolSize,
             echelon = 'XXX',
             textTop = '',
             textBottom = '',
@@ -292,12 +294,18 @@ class AddBoundaryControl {
             renderType: 'line'
         }));
         
-        // 2. Calcular posição do símbolo
-        const centerPoint = this.getPointAtRatio(line, symbolPositionRatio);
-        const localBearing = this.getLocalBearing(line, symbolPositionRatio);
+        // 2. Usar turf.js para cálculos (seguindo gabarito)
+        const turfLine = turf.lineString(line.coordinates);
+        const totalLength = turf.length(turfLine, { units: 'kilometers' });
+        const centerPoint = turf.along(turfLine, totalLength * symbolPositionRatio, { units: 'kilometers' });
         
-        // 3. Criar linha com gap
-        const lineSegments = this.createLineWithGap(line, symbolPositionRatio, symbolSize);
+        // 3. Calcular bearing local (seguindo gabarito)
+        const p1 = turf.along(turfLine, totalLength * symbolPositionRatio - 0.01, { units: 'kilometers' });
+        const p2 = turf.along(turfLine, totalLength * symbolPositionRatio + 0.01, { units: 'kilometers' });
+        const localBearing = turf.bearing(p1, p2);
+        
+        // 4. Criar linha com gap (seguindo gabarito)
+        const lineSegments = this.createLineWithGap(turfLine, symbolPositionRatio, symbolSize);
         
         lineSegments.forEach((segment, index) => {
             if (segment.length >= 2) {
@@ -316,14 +324,17 @@ class AddBoundaryControl {
             }
         });
         
-        // 4. Criar símbolos
+        // 5. Criar símbolos (seguindo gabarito)
         const symbolGeometries = this.createEchelonSymbol(echelon, centerPoint, symbolSize, localBearing);
         
-        symbolGeometries.forEach((geom, index) => {
+        symbolGeometries.lines.forEach((lineCoords, index) => {
             allFeatures.push(this.createSafeFeature({
                 type: 'Feature',
-                id: `${id}-symbol-${index}`,
-                geometry: geom,
+                id: `${id}-symbol-line-${index}`,
+                geometry: {
+                    type: 'LineString',
+                    coordinates: lineCoords
+                },
                 properties: { ...properties }
             }, {
                 renderType: 'symbol',
@@ -331,7 +342,19 @@ class AddBoundaryControl {
             }));
         });
         
-        // 5. Criar textos
+        symbolGeometries.polygons.forEach((polygon, index) => {
+            allFeatures.push(this.createSafeFeature({
+                type: 'Feature',
+                id: `${id}-symbol-polygon-${index}`,
+                geometry: polygon.geometry,
+                properties: { ...properties }
+            }, {
+                renderType: 'symbol',
+                parent: id
+            }));
+        });
+        
+        // 6. Criar textos (seguindo gabarito)
         const textFeatures = this.createRotatedTexts(centerPoint, localBearing, textTop, textBottom, symbolSize, textScaleFactor, color);
         
         textFeatures.forEach(textFeature => {
@@ -342,6 +365,119 @@ class AddBoundaryControl {
         });
         
         return allFeatures;
+    }
+
+    // ✅ CRITICAL: Seguindo exatamente o gabarito HTML
+    createLineWithGap = (line, ratio, symbolSize, echelon = 'XXX') => {
+        const totalLength = turf.length(line, { units: 'kilometers' });
+        const numSymbols = echelon.length;
+        const symbolWidth = (numSymbols * symbolSize * 1.5);
+        const gapWidth = symbolWidth * 1.2;
+        const centerDistance = totalLength * ratio;
+
+        const gapStartDistance = Math.max(0, centerDistance - (gapWidth / 2));
+        const gapEndDistance = Math.min(totalLength, centerDistance + (gapWidth / 2));
+
+        const lineStartPoint = turf.point(line.geometry.coordinates[0]);
+        const lineEndPoint = turf.point(line.geometry.coordinates[line.geometry.coordinates.length - 1]);
+        const gapStartPoint = turf.along(line, gapStartDistance, { units: 'kilometers' });
+        const gapEndPoint = turf.along(line, gapEndDistance, { units: 'kilometers' });
+
+        const segment1 = turf.lineSlice(lineStartPoint, gapStartPoint, line);
+        const segment2 = turf.lineSlice(gapEndPoint, lineEndPoint, line);
+        
+        const segments = [];
+        if (segment1.geometry.coordinates.length >= 2) segments.push(segment1.geometry.coordinates);
+        if (segment2.geometry.coordinates.length >= 2) segments.push(segment2.geometry.coordinates);
+
+        return segments;
+    }
+
+    // ✅ SEGUINDO EXATAMENTE O GABARITO HTML
+    createEchelonSymbol = (echelon, centerPoint, size, bearing) => {
+        const symbolLines = [];
+        const polygons = [];
+        const numSymbols = echelon.length;
+        const spacing = size * 1.5;
+        const totalWidth = (numSymbols - 1) * spacing;
+        const firstSymbolBearing = bearing;
+        const firstSymbolCenter = turf.destination(centerPoint, -totalWidth / 2, firstSymbolBearing, { units: 'kilometers' });
+
+        for (let i = 0; i < numSymbols; i++) {
+            const currentCenter = turf.destination(firstSymbolCenter, i * spacing, firstSymbolBearing, { units: 'kilometers' });
+            const symbolType = echelon.charAt(i);
+
+            switch (symbolType) {
+                case 'X':
+                    const xAngle1 = 45;
+                    const p1_start = turf.destination(currentCenter, size / 2, bearing + xAngle1, { units: 'kilometers' });
+                    const p1_end = turf.destination(currentCenter, size / 2, bearing + xAngle1 + 180, { units: 'kilometers' });
+                    symbolLines.push([p1_start.geometry.coordinates, p1_end.geometry.coordinates]);
+
+                    const xAngle2 = -45;
+                    const p2_start = turf.destination(currentCenter, size / 2, bearing + xAngle2, { units: 'kilometers' });
+                    const p2_end = turf.destination(currentCenter, size / 2, bearing + xAngle2 + 180, { units: 'kilometers' });
+                    symbolLines.push([p2_start.geometry.coordinates, p2_end.geometry.coordinates]);
+                    break;
+                case 'I':
+                    const iAngle = bearing - 90;
+                    const p_top = turf.destination(currentCenter, size / 1.5, iAngle, { units: 'kilometers' });
+                    const p_bottom = turf.destination(currentCenter, -size / 1.5, iAngle, { units: 'kilometers' });
+                    symbolLines.push([p_top.geometry.coordinates, p_bottom.geometry.coordinates]);
+                    break;
+                case 'o':
+                    const circle = turf.circle(currentCenter, size / 4, { steps: 32, units: 'kilometers' });
+                    polygons.push(circle);
+                    break;
+            }
+        }
+        return { lines: symbolLines, polygons: polygons };
+    }
+
+    createRotatedTexts = (centerPoint, bearing, textTop, textBottom, size, scaleFactor, color) => {
+        const texts = [];
+        const labelOffset = size * 1.2;
+        const textPlacementBearing = bearing - 90;
+        
+        const textRotation = (bearing <= 0 || bearing >= 180) ? bearing + 90 : bearing - 90;
+        
+        if (textTop && textTop.trim()) {
+            const pTop = turf.destination(centerPoint, labelOffset, textPlacementBearing, { units: 'kilometers' });
+            texts.push({
+                type: 'Feature',
+                id: `text-top-${Date.now()}`,
+                geometry: {
+                    type: 'Point',
+                    coordinates: pTop.geometry.coordinates
+                },
+                properties: {
+                    text: textTop,
+                    rotation: textRotation,
+                    textScaleFactor: scaleFactor,
+                    color: color
+                }
+            });
+        }
+        
+        if (textBottom && textBottom.trim()) {
+            const pBottom = turf.destination(centerPoint, -labelOffset, textPlacementBearing, { units: 'kilometers' });
+            texts.push({
+                type: 'Feature',
+                id: `text-bottom-${Date.now()}`,
+                geometry: {
+                    type: 'Point',
+                    coordinates: pBottom.geometry.coordinates
+                },
+                properties: {
+                    text: textBottom,
+                    rotation: textRotation,
+                    textScaleFactor: scaleFactor,
+                    color: color
+                }
+            });
+        }
+        
+        return texts;
     }
 
     // ✅ CRÍTICO: Garantir que todas as propriedades sejam simples
@@ -359,255 +495,9 @@ class AddBoundaryControl {
                 color: feature.properties.color || '#000000',
                 id: feature.properties.id || feature.id,
                 lineWidth: feature.properties.lineWidth || 4,
-                opacity: feature.properties.opacity || 1,
                 textScaleFactor: feature.properties.textScaleFactor || 1
             }
         };
-    }
-
-    // ===== GEOMETRIA E CÁLCULOS (mantidos iguais) =====
-
-    calculateLineLength = (line) => {
-        let length = 0;
-        for (let i = 0; i < line.coordinates.length - 1; i++) {
-            length += this.calculateDistance(line.coordinates[i], line.coordinates[i + 1]);
-        }
-        return length;
-    }
-
-    getPointAtRatio = (line, ratio) => {
-        const totalLength = this.calculateLineLength(line);
-        const targetDistance = totalLength * ratio;
-        
-        let currentDistance = 0;
-        for (let i = 0; i < line.coordinates.length - 1; i++) {
-            const segmentLength = this.calculateDistance(line.coordinates[i], line.coordinates[i + 1]);
-            
-            if (currentDistance + segmentLength >= targetDistance) {
-                const remainingDistance = targetDistance - currentDistance;
-                const segmentRatio = remainingDistance / segmentLength;
-                
-                return [
-                    line.coordinates[i][0] + (line.coordinates[i + 1][0] - line.coordinates[i][0]) * segmentRatio,
-                    line.coordinates[i][1] + (line.coordinates[i + 1][1] - line.coordinates[i][1]) * segmentRatio
-                ];
-            }
-            currentDistance += segmentLength;
-        }
-        
-        return line.coordinates[line.coordinates.length - 1];
-    }
-
-    getLocalBearing = (line, ratio) => {
-        const totalLength = this.calculateLineLength(line);
-        const p1Distance = Math.max(0, totalLength * ratio - 10);
-        const p2Distance = Math.min(totalLength, totalLength * ratio + 10);
-        
-        const p1 = this.getPointAtDistance(line, p1Distance);
-        const p2 = this.getPointAtDistance(line, p2Distance);
-        
-        return this.calculateBearing(p1, p2);
-    }
-
-    getPointAtDistance = (line, distance) => {
-        let currentDistance = 0;
-        for (let i = 0; i < line.coordinates.length - 1; i++) {
-            const segmentLength = this.calculateDistance(line.coordinates[i], line.coordinates[i + 1]);
-            
-            if (currentDistance + segmentLength >= distance) {
-                const remainingDistance = distance - currentDistance;
-                const segmentRatio = remainingDistance / segmentLength;
-                
-                return [
-                    line.coordinates[i][0] + (line.coordinates[i + 1][0] - line.coordinates[i][0]) * segmentRatio,
-                    line.coordinates[i][1] + (line.coordinates[i + 1][1] - line.coordinates[i][1]) * segmentRatio
-                ];
-            }
-            currentDistance += segmentLength;
-        }
-        
-        return line.coordinates[line.coordinates.length - 1];
-    }
-
-    createLineWithGap = (line, ratio, symbolSize) => {
-        const totalLength = this.calculateLineLength(line);
-        const gapWidth = symbolSize * 0.012;
-        const centerDistance = totalLength * ratio;
-        
-        const gapStartDistance = Math.max(0, centerDistance - (gapWidth / 2));
-        const gapEndDistance = Math.min(totalLength, centerDistance + (gapWidth / 2));
-        
-        const segments = [];
-        
-        if (gapStartDistance > 0) {
-            segments.push(this.getLineSegment(line, 0, gapStartDistance));
-        }
-        
-        if (gapEndDistance < totalLength) {
-            segments.push(this.getLineSegment(line, gapEndDistance, totalLength));
-        }
-        
-        return segments.filter(segment => segment.length >= 2);
-    }
-
-    getLineSegment = (line, startDistance, endDistance) => {
-        const segment = [];
-        let currentDistance = 0;
-        let startFound = false;
-        
-        for (let i = 0; i < line.coordinates.length - 1; i++) {
-            const segmentLength = this.calculateDistance(line.coordinates[i], line.coordinates[i + 1]);
-            
-            if (!startFound && currentDistance + segmentLength >= startDistance) {
-                const remainingDistance = startDistance - currentDistance;
-                const segmentRatio = remainingDistance / segmentLength;
-                
-                const startPoint = [
-                    line.coordinates[i][0] + (line.coordinates[i + 1][0] - line.coordinates[i][0]) * segmentRatio,
-                    line.coordinates[i][1] + (line.coordinates[i + 1][1] - line.coordinates[i][1]) * segmentRatio
-                ];
-                segment.push(startPoint);
-                startFound = true;
-            }
-            
-            if (startFound && currentDistance + segmentLength <= endDistance) {
-                segment.push(line.coordinates[i + 1]);
-            }
-            
-            if (startFound && currentDistance + segmentLength >= endDistance) {
-                const remainingDistance = endDistance - currentDistance;
-                const segmentRatio = remainingDistance / segmentLength;
-                
-                const endPoint = [
-                    line.coordinates[i][0] + (line.coordinates[i + 1][0] - line.coordinates[i][0]) * segmentRatio,
-                    line.coordinates[i][1] + (line.coordinates[i + 1][1] - line.coordinates[i][1]) * segmentRatio
-                ];
-                segment.push(endPoint);
-                break;
-            }
-            
-            currentDistance += segmentLength;
-        }
-        
-        return segment;
-    }
-
-    createEchelonSymbol = (echelon, centerPoint, size, bearing) => {
-        const symbolLines = [];
-        const numSymbols = echelon.length;
-        const spacing = size * 0.015;
-        const totalWidth = (numSymbols - 1) * spacing;
-        
-        const firstSymbolBearing = bearing;
-        const firstSymbolCenter = this.destinationPoint(centerPoint, -totalWidth / 2, firstSymbolBearing);
-
-        for (let i = 0; i < numSymbols; i++) {
-            const currentCenter = this.destinationPoint(firstSymbolCenter, i * spacing, firstSymbolBearing);
-            const symbolType = echelon.charAt(i);
-
-            switch (symbolType) {
-                case 'X':
-                    const xSize = size * 0.008;
-                    const angle1 = bearing + 45;
-                    const angle2 = bearing - 45;
-                    
-                    const x1_start = this.destinationPoint(currentCenter, xSize, angle1);
-                    const x1_end = this.destinationPoint(currentCenter, xSize, angle1 + 180);
-                    symbolLines.push({
-                        type: 'LineString',
-                        coordinates: [x1_start, x1_end]
-                    });
-
-                    const x2_start = this.destinationPoint(currentCenter, xSize, angle2);
-                    const x2_end = this.destinationPoint(currentCenter, xSize, angle2 + 180);
-                    symbolLines.push({
-                        type: 'LineString',
-                        coordinates: [x2_start, x2_end]
-                    });
-                    break;
-                    
-                case 'I':
-                    const iSize = size * 0.01;
-                    const iAngle = bearing - 90;
-                    const i_top = this.destinationPoint(currentCenter, iSize, iAngle);
-                    const i_bottom = this.destinationPoint(currentCenter, iSize, iAngle + 180);
-                    symbolLines.push({
-                        type: 'LineString',
-                        coordinates: [i_top, i_bottom]
-                    });
-                    break;
-                    
-                case 'o':
-                    const circleRadius = size * 0.004;
-                    const circlePoints = [];
-                    const segments = 16;
-                    
-                    for (let j = 0; j <= segments; j++) {
-                        const angle = (j * 360 / segments) * Math.PI / 180;
-                        const dx = circleRadius * Math.cos(angle);
-                        const dy = circleRadius * Math.sin(angle);
-                        
-                        const lng = currentCenter[0] + (dx / 111320) / Math.cos(currentCenter[1] * Math.PI / 180);
-                        const lat = currentCenter[1] + (dy / 111320);
-                        
-                        circlePoints.push([lng, lat]);
-                    }
-                    
-                    symbolLines.push({
-                        type: 'Polygon',
-                        coordinates: [circlePoints]
-                    });
-                    break;
-            }
-        }
-        
-        return symbolLines;
-    }
-
-    createRotatedTexts = (centerPoint, bearing, textTop, textBottom, size, scaleFactor, color) => {
-        const texts = [];
-        const labelOffset = size * 0.012;
-        const textPlacementBearing = bearing - 90;
-        
-        const textRotation = (bearing <= 0 || bearing >= 180) ? bearing + 90 : bearing - 90;
-        
-        if (textTop && textTop.trim()) {
-            const pTop = this.destinationPoint(centerPoint, labelOffset, textPlacementBearing);
-            texts.push({
-                type: 'Feature',
-                id: `text-top-${Date.now()}`,
-                geometry: {
-                    type: 'Point',
-                    coordinates: pTop
-                },
-                properties: {
-                    text: textTop,
-                    rotation: textRotation,
-                    textScaleFactor: scaleFactor,
-                    color: color
-                }
-            });
-        }
-        
-        if (textBottom && textBottom.trim()) {
-            const pBottom = this.destinationPoint(centerPoint, labelOffset, textPlacementBearing + 180);
-            texts.push({
-                type: 'Feature',
-                id: `text-bottom-${Date.now()}`,
-                geometry: {
-                    type: 'Point',
-                    coordinates: pBottom
-                },
-                properties: {
-                    text: textBottom,
-                    rotation: textRotation,
-                    textScaleFactor: scaleFactor,
-                    color: color
-                }
-            });
-        }
-        
-        return texts;
     }
 
     // ===== SISTEMA DE EDIÇÃO =====
@@ -702,7 +592,9 @@ class AddBoundaryControl {
 
     createSymbolHandle = (feature) => {
         const ratio = feature.properties.symbolPositionRatio || 0.5;
-        const symbolPoint = this.getPointAtRatio(feature.geometry, ratio);
+        const turfLine = turf.lineString(feature.geometry.coordinates);
+        const totalLength = turf.length(turfLine, { units: 'kilometers' });
+        const symbolPoint = turf.along(turfLine, totalLength * ratio, { units: 'kilometers' });
         
         const handleId = `boundary-symbol-${feature.id}`;
         this.editHandleIds.add(handleId);
@@ -712,7 +604,7 @@ class AddBoundaryControl {
             id: handleId,
             geometry: {
                 type: 'Point',
-                coordinates: symbolPoint
+                coordinates: symbolPoint.geometry.coordinates
             },
             properties: {
                 role: 'handle',
@@ -725,11 +617,17 @@ class AddBoundaryControl {
 
     createSizeHandle = (feature) => {
         const ratio = feature.properties.symbolPositionRatio || 0.5;
-        const size = feature.properties.symbolSize || 100;
-        const centerPoint = this.getPointAtRatio(feature.geometry, ratio);
-        const localBearing = this.getLocalBearing(feature.geometry, ratio);
+        const size = feature.properties.symbolSize || this.initialSymbolSize;
+        const turfLine = turf.lineString(feature.geometry.coordinates);
+        const totalLength = turf.length(turfLine, { units: 'kilometers' });
+        const centerPoint = turf.along(turfLine, totalLength * ratio, { units: 'kilometers' });
         
-        const sizeHandlePoint = this.destinationPoint(centerPoint, size * 0.006, localBearing + 45);
+        // Calcular bearing local como no gabarito
+        const p1 = turf.along(turfLine, totalLength * ratio - 0.01, { units: 'kilometers' });
+        const p2 = turf.along(turfLine, totalLength * ratio + 0.01, { units: 'kilometers' });
+        const localBearing = turf.bearing(p1, p2);
+        
+        const sizeHandlePoint = turf.destination(centerPoint, size / 2, localBearing + 45, { units: 'kilometers' });
         
         const handleId = `boundary-size-${feature.id}`;
         this.editHandleIds.add(handleId);
@@ -739,7 +637,7 @@ class AddBoundaryControl {
             id: handleId,
             geometry: {
                 type: 'Point',
-                coordinates: sizeHandlePoint
+                coordinates: sizeHandlePoint.geometry.coordinates
             },
             properties: {
                 role: 'handle',
@@ -823,78 +721,29 @@ class AddBoundaryControl {
             feature.geometry.coordinates.splice(index, 0, newPosition);
             
         } else if (handleId === 'symbol-position') {
-            const totalLength = this.calculateLineLength(feature.geometry);
-            const distanceToPoint = this.getDistanceToPoint(feature.geometry, newPosition);
-            const newRatio = Math.max(0.1, Math.min(0.9, distanceToPoint / totalLength));
-            
-            feature.properties.symbolPositionRatio = newRatio;
+            // Seguindo gabarito: usar turf.pointOnLine
+            const line = turf.lineString(feature.geometry.coordinates);
+            const pointOnLine = turf.pointOnLine(line, turf.point(newPosition), { units: 'kilometers' });
+            const distance = pointOnLine.properties.location;
+            const totalLength = turf.length(line, { units: 'kilometers' });
+            feature.properties.symbolPositionRatio = distance / totalLength;
             
         } else if (handleId === 'symbol-size') {
+            // Seguindo gabarito: calcular nova distância
             const ratio = feature.properties.symbolPositionRatio || 0.5;
-            const centerPoint = this.getPointAtRatio(feature.geometry, ratio);
-            const newSize = this.calculateDistance(centerPoint, newPosition) / 0.006;
+            const turfLine = turf.lineString(feature.geometry.coordinates);
+            const totalLength = turf.length(turfLine, { units: 'kilometers' });
+            const centerPoint = turf.along(turfLine, totalLength * ratio, { units: 'kilometers' });
+            const newSize = turf.distance(centerPoint, turf.point(newPosition), { units: 'kilometers' }) * 2;
             
-            if (newSize > 50 && newSize < 500) {
+            if (newSize > 0.5 && newSize < 50) { // Limites razoáveis em km
                 feature.properties.symbolSize = newSize;
-                feature.properties.textScaleFactor = newSize / 100;
+                feature.properties.textScaleFactor = newSize / this.initialSymbolSize;
             }
         }
 
         this.forceUpdateMainSource(feature);
         this.createEditHandles(feature);
-    }
-
-    getDistanceToPoint = (line, point) => {
-        let minDistance = Infinity;
-        let closestDistance = 0;
-        let currentDistance = 0;
-        
-        for (let i = 0; i < line.coordinates.length - 1; i++) {
-            const segmentLength = this.calculateDistance(line.coordinates[i], line.coordinates[i + 1]);
-            
-            const distanceToSegment = this.distanceToLineSegment(point, line.coordinates[i], line.coordinates[i + 1]);
-            
-            if (distanceToSegment < minDistance) {
-                minDistance = distanceToSegment;
-                closestDistance = currentDistance + (segmentLength / 2);
-            }
-            
-            currentDistance += segmentLength;
-        }
-        
-        return closestDistance;
-    }
-
-    distanceToLineSegment = (point, lineStart, lineEnd) => {
-        const A = point[0] - lineStart[0];
-        const B = point[1] - lineStart[1];
-        const C = lineEnd[0] - lineStart[0];
-        const D = lineEnd[1] - lineStart[1];
-
-        const dot = A * C + B * D;
-        const lenSq = C * C + D * D;
-        let param = -1;
-        
-        if (lenSq !== 0) {
-            param = dot / lenSq;
-        }
-
-        let xx, yy;
-
-        if (param < 0) {
-            xx = lineStart[0];
-            yy = lineStart[1];
-        } else if (param > 1) {
-            xx = lineEnd[0];
-            yy = lineEnd[1];
-        } else {
-            xx = lineStart[0] + param * C;
-            yy = lineStart[1] + param * D;
-        }
-
-        const dx = point[0] - xx;
-        const dy = point[1] - yy;
-        return Math.sqrt(dx * dx + dy * dy);
     }
 
     // ===== MÉTODOS OBRIGATÓRIOS PARA O SISTEMA =====
@@ -962,7 +811,6 @@ class AddBoundaryControl {
         return (
             feature.properties.color !== initialProperties.color ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
-            feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.echelon !== initialProperties.echelon ||
             feature.properties.textTop !== initialProperties.textTop ||
             feature.properties.textBottom !== initialProperties.textBottom ||
@@ -1090,48 +938,6 @@ class AddBoundaryControl {
 
     showValidationError = () => {
         alert('É necessário pelo menos 2 pontos para criar uma linha de divisão');
-    }
-
-    calculateDistance = (point1, point2) => {
-        const R = 6371000;
-        const lat1Rad = point1[1] * Math.PI / 180;
-        const lat2Rad = point2[1] * Math.PI / 180;
-        const deltaLatRad = (point2[1] - point1[1]) * Math.PI / 180;
-        const deltaLngRad = (point2[0] - point1[0]) * Math.PI / 180;
-
-        const a = Math.sin(deltaLatRad / 2) * Math.sin(deltaLatRad / 2) +
-                  Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-                  Math.sin(deltaLngRad / 2) * Math.sin(deltaLngRad / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-        return R * c;
-    }
-
-    calculateBearing = (point1, point2) => {
-        const lat1 = point1[1] * Math.PI / 180;
-        const lat2 = point2[1] * Math.PI / 180;
-        const deltaLng = (point2[0] - point1[0]) * Math.PI / 180;
-
-        const y = Math.sin(deltaLng) * Math.cos(lat2);
-        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
-
-        let bearing = Math.atan2(y, x) * 180 / Math.PI;
-        return (bearing + 360) % 360;
-    }
-
-    destinationPoint = (point, distance, bearing) => {
-        const R = 6371000;
-        const lat1 = point[1] * Math.PI / 180;
-        const lng1 = point[0] * Math.PI / 180;
-        const bearingRad = bearing * Math.PI / 180;
-
-        const lat2 = Math.asin(Math.sin(lat1) * Math.cos(distance / R) +
-                              Math.cos(lat1) * Math.sin(distance / R) * Math.cos(bearingRad));
-
-        const lng2 = lng1 + Math.atan2(Math.sin(bearingRad) * Math.sin(distance / R) * Math.cos(lat1),
-                                      Math.cos(distance / R) - Math.sin(lat1) * Math.sin(lat2));
-
-        return [lng2 * 180 / Math.PI, lat2 * 180 / Math.PI];
     }
 
     setSelectionManager = (selectionManager) => {
