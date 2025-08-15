@@ -79,6 +79,10 @@
     top: 418px !important;
 }
 
+.occupied-front-control.controls-column-right {
+    top: 463px !important;
+}
+
 /* ===== ESTILOS BASE DOS CONTROLES ===== */
 .mapboxgl-ctrl-group {
     display: flex !important;

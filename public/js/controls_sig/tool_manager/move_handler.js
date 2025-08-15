@@ -40,7 +40,8 @@ class MoveHandler {
             'circle': this.updateCircleFeature.bind(this),
             'ellipse': this.updateEllipseFeature.bind(this),
             'arrow': this.updateArrowFeature.bind(this),
-            'boundary': this.updateBoundaryFeature.bind(this)
+            'boundary': this.updateBoundaryFeature.bind(this),
+            'occupied_front': this.updateOccupiedFrontFeature.bind(this)
         };
     }
 
@@ -54,7 +55,8 @@ class MoveHandler {
             'circle': 'selectedCircleFeatures',
             'ellipse': 'selectedEllipseFeatures',
             'arrow': 'selectedArrowFeatures',
-            'boundary': 'selectedBoundaryFeatures'
+            'boundary': 'selectedBoundaryFeatures',
+            'occupied_front': 'selectedOccupiedFrontFeatures'
         };
     }
 
@@ -92,7 +94,7 @@ class MoveHandler {
         if (allSelectedFeatures.length === 0) return;
 
         const clickedFeatures = this.map.queryRenderedFeatures(e.point);
-        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys'];
+        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys', 'occupied_fronts'];
         const filteredFeatures = clickedFeatures.filter(feature => validSources.includes(feature.source));
 
         // Check for edit handles (maplibredraw midpoint/vertex handles)
@@ -166,16 +168,23 @@ class MoveHandler {
                 feature.properties.mode === 'arrow_editing')
         );
 
-        const hasBoundaryEditHandles = clickedFeatures.some(feature => 
-            feature.source === 'boundary-edit-handles' && 
+        const hasBoundaryEditHandles = clickedFeatures.some(feature =>
+            feature.source === 'boundary-edit-handles' &&
             (feature.properties.handleType === 'vertex' ||
-             feature.properties.handleType === 'midpoint' ||
-             feature.properties.handleType === 'symbol' ||
-             feature.properties.handleType === 'size' ||
-             feature.properties.mode === 'boundary_editing')
+                feature.properties.handleType === 'midpoint' ||
+                feature.properties.handleType === 'symbol' ||
+                feature.properties.handleType === 'size' ||
+                feature.properties.mode === 'boundary_editing')
         );
 
-        return hasCircleEditHandles || hasEllipseEditHandles || hasArrowEditHandles || hasBoundaryEditHandles ;
+        const hasOccupiedFrontEditHandles = clickedFeatures.some(feature =>
+            feature.source === 'occupied-front-edit-handles' &&
+            (feature.properties.user_isEditingHandle ||
+                feature.properties.meta === 'vertex' ||
+                feature.properties.mode === 'occupied_front_editing')
+        );
+
+        return hasCircleEditHandles || hasEllipseEditHandles || hasArrowEditHandles || hasBoundaryEditHandles || hasOccupiedFrontEditHandles;
     }
 
     // Check if any selected feature is in editing mode
@@ -199,17 +208,24 @@ class MoveHandler {
                 return true;
             }
 
-            if (source === 'arrow' && 
-                this.selectionManager.arrowControl && 
+            if (source === 'arrow' &&
+                this.selectionManager.arrowControl &&
                 this.selectionManager.arrowControl.isEditingMode &&
                 this.selectionManager.arrowControl.isEditingMode()) {
                 return true;
             }
 
-            if (source === 'boundary' && 
-                this.selectionManager.boundaryControl && 
+            if (source === 'boundary' &&
+                this.selectionManager.boundaryControl &&
                 this.selectionManager.boundaryControl.isEditingMode &&
                 this.selectionManager.boundaryControl.isEditingMode()) {
+                return true;
+            }
+
+            if (source === 'occupied_front' &&
+                this.selectionManager.occupiedFrontControl &&
+                this.selectionManager.occupiedFrontControl.isEditingMode &&
+                this.selectionManager.occupiedFrontControl.isEditingMode()) {
                 return true;
             }
 
@@ -456,10 +472,29 @@ class MoveHandler {
         };
     }
 
+    updateOccupiedFrontFeature = (feature, deltaLng, deltaLat) => {
+        // Atualizar pontos de controle base
+        if (feature.properties.baseCoordinates && Array.isArray(feature.properties.baseCoordinates)) {
+            const newBaseCoords = feature.properties.baseCoordinates.map(coord => [
+                coord[0] + deltaLng,
+                coord[1] + deltaLat
+            ]);
+
+            feature.properties.baseCoordinates = newBaseCoords;
+
+            // Recalcular geometria usando o método do controle
+            if (this.selectionManager.occupiedFrontControl) {
+                feature.geometry = this.selectionManager.occupiedFrontControl.createOccupiedFrontGeometry(newBaseCoords);
+            }
+        }
+
+        return feature;
+    }
+
     updateArrowFeature(feature, dx, dy, newCoords) {
         // Garantir que baseCoordinates é um array
         let baseCoordinates = feature.properties.baseCoordinates;
-        
+
         if (typeof baseCoordinates === 'string') {
             try {
                 baseCoordinates = JSON.parse(baseCoordinates);
@@ -468,7 +503,7 @@ class MoveHandler {
                 return feature;
             }
         }
-        
+
         if (!Array.isArray(baseCoordinates)) {
             console.error('baseCoordinates não é um array válido:', baseCoordinates);
             return feature;
@@ -479,7 +514,7 @@ class MoveHandler {
             coord[0] + dx,
             coord[1] + dy
         ]);
-        
+
         const updatedProperties = {
             ...feature.properties,
             baseCoordinates: newBaseCoordinates
@@ -500,7 +535,7 @@ class MoveHandler {
                 coord[1] + dy
             ]);
         }
-        
+
         // Atualizar propriedades se necessário
         if (feature.properties.center) {
             // Para features que têm propriedade center, atualizá-la também
@@ -509,7 +544,7 @@ class MoveHandler {
                 feature.properties.center[1] + dy
             ];
         }
-        
+
         return feature;
     }
 
@@ -524,7 +559,8 @@ class MoveHandler {
             selectedCircleFeatures: new Map(),
             selectedEllipseFeatures: new Map(),
             selectedArrowFeatures: new Map(),
-            selectedBoundaryFeatures: new Map()
+            selectedBoundaryFeatures: new Map(),
+            selectedOccupiedFrontFeatures: new Map()
         };
 
         // Batch process all features

@@ -8,6 +8,8 @@ import { addCircleAttributesToPanel } from '../circle_tool/circle_attributes_pan
 import { addEllipseAttributesToPanel } from '../ellipse_tool/ellipse_attributes_panel.js';
 import { addArrowAttributesToPanel } from '../arrow_tool/arrow_attributes_panel.js';
 import { addBoundaryAttributesToPanel } from '../boundary_tool/boundary_attributes_panel.js';
+import { addOccupiedFrontAttributesToPanel } from '../occupied_front_tool/occupied_front_attributes_panel.js';
+
 class UIManager {
     constructor(map, selectionManager, toolManager) {
         this.map = map;
@@ -53,7 +55,8 @@ class UIManager {
             ...this.createSelectionBoxesForCircleFeatures(),
             ...this.createSelectionBoxesForEllipseFeatures(),
             ...this.createSelectionBoxesForArrowFeatures(),
-            ...this.createSelectionBoxesForBoundaryFeatures()
+            ...this.createSelectionBoxesForBoundaryFeatures(),
+            ...this.createSelectionBoxesForOccupiedFrontFeatures()
         ];
 
         this.selectionBoxes = features;
@@ -144,6 +147,27 @@ class UIManager {
                 boxes.push(boxFeature);
             } catch (error) {
                 console.warn('Erro ao criar selection box para elipse:', error);
+            }
+        }
+        return boxes;
+    }
+
+    createSelectionBoxesForOccupiedFrontFeatures = () => {
+        const boxes = [];
+        if (this.selectionManager.selectedOccupiedFrontFeatures.size === 0) return boxes;
+
+        for (const feature of this.selectionManager.selectedOccupiedFrontFeatures.values()) {
+            try {
+                const bbox = turf.bbox(feature);
+                const boxFeature = turf.bboxPolygon(bbox);
+                boxFeature.properties = {
+                    type: 'selection-box',
+                    source: 'occupied_front',
+                    featureId: feature.properties.id
+                };
+                boxes.push(boxFeature);
+            } catch (error) {
+                console.warn('Erro ao criar selection box para frente ocupada:', error);
             }
         }
         return boxes;
@@ -302,6 +326,8 @@ class UIManager {
                 this.addArrowAttributes(panel, selectedFeatures);
             } else if (featureType === 'boundary') {
                 this.addBoundaryAttributes(panel, selectedFeatures);
+            } else if (featureType === 'occupied_front') {
+                this.addOccupiedFrontAttributes(panel, selectedFeatures);
             }
         }
 
@@ -394,7 +420,22 @@ class UIManager {
         addEllipseAttributesToPanel(ellipsePanel, features, this.selectionManager.ellipseControl, this.selectionManager, this);
         panel.appendChild(ellipsePanel);
     }
-    
+
+    addOccupiedFrontAttributes = (panel, features) => {
+        const occupiedFrontPanel = document.createElement('div');
+        occupiedFrontPanel.className = 'occupied-front-attributes-section';
+
+        addOccupiedFrontAttributesToPanel(
+            occupiedFrontPanel,
+            features,
+            this.selectionManager.occupiedFrontControl,
+            this.selectionManager,
+            this
+        );
+
+        panel.appendChild(occupiedFrontPanel);
+    }
+
     addBoundaryAttributes = (panel, features) => {
         const boundaryPanel = document.createElement('div');
         boundaryPanel.className = 'boundary-attributes-section';

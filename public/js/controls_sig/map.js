@@ -23,10 +23,148 @@ map.addControl(new maplibregl.AttributionControl({
 }), 'bottom-right');
 
 map.on('styledata', async () => {
+    setupAuxiliaryLayers();
+
     // Carregar dados do IndexedDB
     const features = await getCurrentMapFeatures();
 
-    // Configurar draw com dados do IndexedDB
+    setupDrawLayers(features);
+    setupEllipseLayers(features);
+    setupCircleLayers(features);
+    setupVisibilityLayers(features);
+    setupImageLayers(features);
+    setupBoundaryLayers(features);
+    setupOccupiedFrontLayers(features);
+    setupArrowLayers(features);
+    setupLOSLayers(features);
+    setupTextLayers(features);
+
+    await setImages(features);
+        
+    // Restaurar medições e marcações
+    requestAnimationFrame(() => {
+        clearAllMeasurements();
+        restoreMeasurements(features);
+        restoreCircleXMarks(features);
+    });
+});
+
+function setupOccupiedFrontLayers(features) {
+    // Source principal
+    if (!map.getSource('occupied_fronts')) {
+        map.addSource('occupied_fronts', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.occupied_fronts || []
+            }
+        });
+    } else {
+        map.getSource('occupied_fronts').setData({
+            type: 'FeatureCollection',
+            features: features.occupied_fronts || []
+        });
+    }
+
+    // Preview source (durante desenho)
+    if (!map.getSource('occupied-front-preview')) {
+        map.addSource('occupied-front-preview', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // Edit handles source (durante edição)
+    if (!map.getSource('occupied-front-edit-handles')) {
+        map.addSource('occupied-front-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // 1. Layer principal (MultiLineString) ✅ CORRIGIDO
+    if (!map.getLayer('occupied-front-layer')) {
+        map.addLayer({
+            id: 'occupied-front-layer',
+            type: 'line',
+            source: 'occupied_fronts',
+            layout: {
+                'line-cap': 'round',      // ✅ MOVIDO para layout
+                'line-join': 'round'      // ✅ MOVIDO para layout
+            },
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
+    // 2. Preview layer (durante desenho) ✅ CORRIGIDO
+    if (!map.getLayer('occupied-front-preview-layer')) {
+        map.addLayer({
+            id: 'occupied-front-preview-layer',
+            type: 'line',
+            source: 'occupied-front-preview',
+            layout: {
+                'line-cap': 'round',      // ✅ MOVIDO para layout
+                'line-join': 'round'      // ✅ MOVIDO para layout
+            },
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 3,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.7
+            }
+        });
+    }
+
+    // 3. Selected layer (feature selecionada para edição) ✅ CORRIGIDO
+    if (!map.getLayer('occupied-front-selected-layer')) {
+        map.addLayer({
+            id: 'occupied-front-selected-layer',
+            type: 'line',
+            source: 'occupied-front-edit-handles',
+            layout: {
+                'line-cap': 'round',      // ✅ MOVIDO para layout
+                'line-join': 'round'      // ✅ MOVIDO para layout
+            },
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 4,
+                'line-dasharray': [3, 3],
+                'line-opacity': 0.8
+            },
+            filter: ['==', ['get', 'role'], 'selected-feature']
+        });
+    }
+
+    // 4. Edit handles layer (pontos arrastáveis P1, P2, P3) ✅ INALTERADO
+    if (!map.getLayer('occupied-front-edit-handles-layer')) {
+        map.addLayer({
+            id: 'occupied-front-edit-handles-layer',
+            type: 'circle',
+            source: 'occupied-front-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'center'], '#00ff00',    // Verde (P1 - origem)
+                    ['==', ['get', 'handleType'], 'primary'], '#ff0000',   // Vermelho (P2 - braço superior)
+                    ['==', ['get', 'handleType'], 'secondary'], '#0066ff', // Azul (P3 - braço inferior)
+                    '#888888' // Fallback cinza
+                ],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2,
+                'circle-stroke-opacity': 1
+            },
+            filter: ['==', '$type', 'Point'] // Só pontos (handles)
+        });
+    }
+}
+
+
+function setupDrawLayers(features) {
     const draw = map._controls.find(control => control instanceof MapboxDraw);
     if (draw) {
         draw.deleteAll();
@@ -35,23 +173,223 @@ map.on('styledata', async () => {
             features: features.polygons.concat(features.linestrings).concat(features.points)
         });
     }
+}
 
-    if (!map.getSource('circles')) {
-        map.addSource('circles', {
+async function setImages(features) {
+// Carregar blobs das imagens do IndexedDB
+    for (const feature of features.images) {
+        const imageId = feature.properties.imageId;
+        try {
+            const blob = await imageStore.getItem(imageId);
+            if (blob) {
+                const url = URL.createObjectURL(blob);
+                const image = new Image();
+                image.onload = () => {
+                    if (!map.hasImage(imageId)) {
+                        map.addImage(imageId, image);
+                    }
+                    URL.revokeObjectURL(url);
+                };
+                image.src = url;
+            }
+        } catch (error) {
+            console.warn(`Erro ao carregar imagem ${imageId}:`, error);
+        }
+    }
+}
+
+function setupBoundaryLayers(features) {
+    if (!features.boundarys) return;
+
+    // Source
+    if (!map.getSource('boundarys')) {
+        map.addSource('boundarys', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
-                features: features.circles
+                features: features.boundarys
             }
         });
     } else {
-        map.getSource('circles').setData({
+        map.getSource('boundarys').setData({
             type: 'FeatureCollection',
-            features: features.circles
+            features: features.boundarys
         });
     }
 
-    //  Source da elipse
+    // Preview source
+    if (!map.getSource('boundary-preview')) {
+        map.addSource('boundary-preview', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // Edit handles source
+    if (!map.getSource('boundary-edit-handles')) {
+        map.addSource('boundary-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // 1. Hitzone (maior área para clique) - mais baixo
+    if (!map.getLayer('boundary-hitzone-layer')) {
+        map.addLayer({
+            id: 'boundary-hitzone-layer',
+            type: 'line',
+            source: 'boundarys',
+            paint: {
+                'line-color': 'transparent',
+                'line-width': 20
+            },
+            filter: ['==', 'renderType', 'line']
+        });
+    }
+
+    // 2. Preenchimento dos símbolos
+    if (!map.getLayer('boundary-symbol-fill-layer')) {
+        map.addLayer({
+            id: 'boundary-symbol-fill-layer',
+            type: 'fill',
+            source: 'boundarys',
+            paint: {
+                'fill-color': ['get', 'color'],
+                'fill-opacity': ['*', ['get', 'opacity'], 0.3]
+            },
+            filter: ['all',
+                ['==', 'renderType', 'symbol'],
+                ['==', '$type', 'Polygon']
+            ]
+        });
+    }
+
+    // 3. Linha principal
+    if (!map.getLayer('boundary-line-layer')) {
+        map.addLayer({
+            id: 'boundary-line-layer',
+            type: 'line',
+            source: 'boundarys',
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': ['get', 'opacity']
+            },
+            filter: ['==', 'renderType', 'line']
+        });
+    }
+
+    // 4. Símbolos (linhas)
+    if (!map.getLayer('boundary-symbol-layer')) {
+        map.addLayer({
+            id: 'boundary-symbol-layer',
+            type: 'line',
+            source: 'boundarys',
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': 3,
+                'line-opacity': ['get', 'opacity']
+            },
+            filter: ['all',
+                ['==', 'renderType', 'symbol'],
+                ['==', '$type', 'LineString']
+            ]
+        });
+    }
+
+    // 5. Textos
+    if (!map.getLayer('boundary-text-layer')) {
+        map.addLayer({
+            id: 'boundary-text-layer',
+            type: 'symbol',
+            source: 'boundarys',
+            layout: {
+                'text-field': ['get', 'text'],
+                'text-font': ['Noto Sans Regular'],
+                'text-size': [
+                    'interpolate', ['linear'], ['zoom'],
+                    8, ['*', ['get', 'textScaleFactor'], 8],
+                    16, ['*', ['get', 'textScaleFactor'], 20]
+                ],
+                'text-rotate': ['get', 'rotation'],
+                'text-allow-overlap': true,
+                'text-ignore-placement': true,
+                'symbol-spacing': 1
+            },
+            paint: {
+                'text-color': ['get', 'color'],
+                'text-halo-color': '#fff',
+                'text-halo-width': 2
+            },
+            filter: ['==', 'renderType', 'text']
+        });
+    }
+
+    // 6. Preview
+    if (!map.getLayer('boundary-preview-layer')) {
+        map.addLayer({
+            id: 'boundary-preview-layer',
+            type: 'line',
+            source: 'boundary-preview',
+            paint: {
+                'line-color': '#000000',
+                'line-width': 4,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.7
+            }
+        });
+    }
+
+    // 7. Seleção
+    if (!map.getLayer('boundary-selected-layer')) {
+        map.addLayer({
+            id: 'boundary-selected-layer',
+            type: 'line',
+            source: 'boundary-edit-handles',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 6,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8
+            },
+            filter: ['all',
+                ['==', 'role', 'selected-feature'],
+                ['==', '$type', 'LineString']
+            ]
+        });
+    }
+
+    // 8. Edit handles
+    if (!map.getLayer('boundary-edit-handles-layer')) {
+        map.addLayer({
+            id: 'boundary-edit-handles-layer',
+            type: 'circle',
+            source: 'boundary-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'midpoint'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'symbol'], '#0066ff',
+                    ['==', ['get', 'handleType'], 'size'], '#28a745',
+                    '#000000'
+                ],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2,
+                'circle-opacity': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'midpoint'], 0.5,
+                    1
+                ]
+            },
+            filter: ['!=', 'role', 'selected-feature']
+        });
+    }
+}
+
+function setupEllipseLayers(features) {
+    // Source
     if (!map.getSource('ellipses')) {
         map.addSource('ellipses', {
             type: 'geojson',
@@ -67,13 +405,7 @@ map.on('styledata', async () => {
         });
     }
 
-    if (!map.getSource('circle-preview')) {
-        map.addSource('circle-preview', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
+    // Preview source
     if (!map.getSource('ellipse-preview')) {
         map.addSource('ellipse-preview', {
             type: 'geojson',
@@ -81,6 +413,42 @@ map.on('styledata', async () => {
         });
     }
 
+    // Edit handles source
+    if (!map.getSource('ellipse-edit-handles')) {
+        map.addSource('ellipse-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // 1. Preenchimento
+    if (!map.getLayer('ellipse-fill-layer')) {
+        map.addLayer({
+            id: 'ellipse-fill-layer',
+            type: 'fill',
+            source: 'ellipses',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
+    // 2. Linha
+    if (!map.getLayer('ellipse-layer')) {
+        map.addLayer({
+            id: 'ellipse-layer',
+            type: 'line',
+            source: 'ellipses',
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': 1
+            }
+        });
+    }
+
+    // 3. Preview preenchimento
     if (!map.getLayer('ellipse-preview-fill-layer')) {
         map.addLayer({
             id: 'ellipse-preview-fill-layer',
@@ -93,7 +461,7 @@ map.on('styledata', async () => {
         });
     }
 
-    // Layer de linha para preview da elipse
+    // 4. Preview linha
     if (!map.getLayer('ellipse-preview-layer')) {
         map.addLayer({
             id: 'ellipse-preview-layer',
@@ -108,148 +476,23 @@ map.on('styledata', async () => {
         });
     }
 
-    if (!map.getSource('ellipse-edit-handles')) {
-        map.addSource('ellipse-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    if (!map.getSource('circle-x-marks')) {
-        map.addSource('circle-x-marks', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    // Layer de preenchimento para preview
-    if (!map.getLayer('circle-preview-fill-layer')) {
+    // 5. Seleção
+    if (!map.getLayer('ellipse-selected-layer')) {
         map.addLayer({
-            id: 'circle-preview-fill-layer',
-            type: 'fill',
-            source: 'circle-preview',
-            paint: {
-                'fill-color': ['get', 'fillColor'],
-                'fill-opacity': 0.3
-            }
-        });
-    }
-
-    // Layer de linha para preview
-    if (!map.getLayer('circle-preview-layer')) {
-        map.addLayer({
-            id: 'circle-preview-layer',
+            id: 'ellipse-selected-layer',
             type: 'line',
-            source: 'circle-preview',
+            source: 'ellipse-edit-handles',
             paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': 2,
+                'line-color': '#ff0000',
+                'line-width': 3,
                 'line-dasharray': [2, 2],
                 'line-opacity': 0.8
-            }
-        });
-    }
-    //  Layer do círculo (preenchimento)
-    if (!map.getLayer('circle-fill-layer')) {
-        map.addLayer({
-            id: 'circle-fill-layer',
-            type: 'fill',
-            source: 'circles',
-            paint: {
-                'fill-color': ['get', 'fillColor'],
-                'fill-opacity': ['get', 'opacity']
-            }
-        });
-    }
-
-    //  Layer do círculo (linha)
-    if (!map.getLayer('circle-layer')) {
-        map.addLayer({
-            id: 'circle-layer',
-            type: 'line',
-            source: 'circles',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
-            }
-        });
-    }
-
-    if (!map.getLayer('circle-x-layer')) {
-        map.addLayer({
-            id: 'circle-x-layer',
-            type: 'line',
-            source: 'circle-x-marks',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
-            }
-        });
-    }
-
-    //  Layer da elipse (preenchimento)
-    if (!map.getLayer('ellipse-fill-layer')) {
-        map.addLayer({
-            id: 'ellipse-fill-layer',
-            type: 'fill',
-            source: 'ellipses',
-            paint: {
-                'fill-color': ['get', 'fillColor'],
-                'fill-opacity': ['get', 'opacity']
-            }
-        });
-    }
-
-    //  Layer da elipse (linha)
-    if (!map.getLayer('ellipse-layer')) {
-        map.addLayer({
-            id: 'ellipse-layer',
-            type: 'line',
-            source: 'ellipses',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
-            }
-        });
-    }
-
-
-    // Source para handles de edição
-    if (!map.getSource('circle-edit-handles')) {
-        map.addSource('circle-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    // Layer para handles (pontos arrastáveis)
-    if (!map.getLayer('circle-edit-handles-layer')) {
-        map.addLayer({
-            id: 'circle-edit-handles-layer',
-            type: 'circle',  // ✅ Correto para handles
-            source: 'circle-edit-handles',
-            paint: {
-                'circle-radius': 8,
-                'circle-color': '#ff0000',
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 2
             },
-            filter: ['==', '$type', 'Point']
+            filter: ['!=', ['get', 'role'], 'handle']
         });
     }
 
-    // Source para handles de edição
-    if (!map.getSource('ellipse-edit-handles')) {
-        map.addSource('ellipse-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    // Layer para handles (pontos arrastáveis)
+    // 6. Edit handles
     if (!map.getLayer('ellipse-edit-handles-layer')) {
         map.addLayer({
             id: 'ellipse-edit-handles-layer',
@@ -269,37 +512,173 @@ map.on('styledata', async () => {
             filter: ['==', '$type', 'Point']
         });
     }
+}
 
-    if (!map.getLayer('circle-selected-layer')) {
-        map.addLayer({
-            id: 'circle-selected-layer',
-            type: 'line',
-            source: 'circle-edit-handles',
-            paint: {
-                'line-color': '#ff0000',
-                'line-width': 3,
-                'line-dasharray': [2, 2],
-                'line-opacity': 0.8  // ✅ Adicionado: opacity para linha
-            },
-            filter: ['!=', ['get', 'role'], 'handle']
+// ===== VISIBILITY LAYERS (Áreas - Prioridade 3) =====
+function setupVisibilityLayers(features) {
+    // Source original
+    if (!map.getSource('visibility')) {
+        map.addSource('visibility', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.visibility
+            }
+        });
+    } else {
+        map.getSource('visibility').setData({
+            type: 'FeatureCollection',
+            features: features.visibility
         });
     }
 
-    if (!map.getLayer('ellipse-selected-layer')) {
-        map.addLayer({
-            id: 'ellipse-selected-layer',
-            type: 'line',
-            source: 'ellipse-edit-handles',
-            paint: {
-                'line-color': '#ff0000',
-                'line-width': 3,
-                'line-dasharray': [2, 2],
-                'line-opacity': 0.8  // ✅ Adicionado para consistência
-            },
-            filter: ['!=', ['get', 'role'], 'handle']
+    // Source processada
+    if (!map.getSource('processed-visibility')) {
+        map.addSource('processed-visibility', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.processed_visibility
+            }
+        });
+    } else {
+        map.getSource('processed-visibility').setData({
+            type: 'FeatureCollection',
+            features: features.processed_visibility
         });
     }
 
+    // 1. Layer original (invisível)
+    if (!map.getLayer('visibility-layer')) {
+        map.addLayer({
+            id: 'visibility-layer',
+            type: 'fill',
+            source: 'visibility',
+            paint: {
+                'fill-color': '#D3D3D3',
+                'fill-opacity': 0
+            }
+        });
+    }
+
+    // 2. Layer processada (visível)
+    if (!map.getLayer('processed-visibility-layer')) {
+        map.addLayer({
+            id: 'processed-visibility-layer',
+            type: 'fill',
+            source: 'processed-visibility',
+            paint: {
+                'fill-color': ['get', 'color'],
+                'fill-opacity': ['get', 'opacity']
+            }
+        });
+    }
+}
+
+// ===== IMAGE LAYERS (Prioridade 4) =====
+function setupImageLayers(features) {
+    // Source
+    if (!map.getSource('images')) {
+        map.addSource('images', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.images
+            }
+        });
+    } else {
+        map.getSource('images').setData({
+            type: 'FeatureCollection',
+            features: features.images
+        });
+    }
+
+    // Layer
+    if (!map.getLayer('image-layer')) {
+        map.addLayer({
+            id: 'image-layer',
+            type: 'symbol',
+            source: 'images',
+            paint: {
+                'icon-opacity': ['get', 'opacity']
+            },
+            layout: {
+                'icon-image': ['get', 'imageId'],
+                'icon-size': ['get', 'size'],
+                'icon-rotate': ['get', 'rotation'],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true
+            }
+        });
+    }
+}
+
+// ===== LOS LAYERS (Linhas - Prioridade 5) =====
+function setupLOSLayers(features) {
+    // Source original
+    if (!map.getSource('los')) {
+        map.addSource('los', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.los
+            }
+        });
+    } else {
+        map.getSource('los').setData({
+            type: 'FeatureCollection',
+            features: features.los
+        });
+    }
+
+    // Source processada
+    if (!map.getSource('processed-los')) {
+        map.addSource('processed-los', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.processed_los
+            }
+        });
+    } else {
+        map.getSource('processed-los').setData({
+            type: 'FeatureCollection',
+            features: features.processed_los
+        });
+    }
+
+    // 1. Layer original (invisível)
+    if (!map.getLayer('los-layer')) {
+        map.addLayer({
+            'id': 'los-layer',
+            'type': 'line',
+            'source': 'los',
+            'paint': {
+                'line-color': '#D3D3D3',
+                'line-opacity': 0,
+                'line-width': ['get', 'width']
+            }
+        });
+    }
+
+    // 2. Layer processada (visível)
+    if (!map.getLayer('processed-los-layer')) {
+        map.addLayer({
+            'id': 'processed-los-layer',
+            'type': 'line',
+            'source': 'processed-los',
+            'paint': {
+                'line-color': ['get', 'color'],
+                'line-opacity': ['get', 'opacity'],
+                'line-width': ['get', 'width']
+            }
+        });
+    }
+}
+
+// ===== ARROW LAYERS (Linhas - Prioridade 6) =====
+function setupArrowLayers(features) {
+    // Source
     if (!map.getSource('arrows')) {
         map.addSource('arrows', {
             type: 'geojson',
@@ -315,6 +694,36 @@ map.on('styledata', async () => {
         });
     }
 
+    // Preview source
+    if (!map.getSource('arrow-preview')) {
+        map.addSource('arrow-preview', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // Edit handles source
+    if (!map.getSource('arrow-edit-handles')) {
+        map.addSource('arrow-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // 1. Preenchimento
+    if (!map.getLayer('arrow-fill-layer')) {
+        map.addLayer({
+            id: 'arrow-fill-layer',
+            type: 'fill',
+            source: 'arrows',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': ['get', 'fillOpacity']
+            }
+        });
+    }
+
+    // 2. Linha
     if (!map.getLayer('arrow-layer')) {
         map.addLayer({
             id: 'arrow-layer',
@@ -328,25 +737,20 @@ map.on('styledata', async () => {
         });
     }
 
-    if (!map.getLayer('arrow-fill-layer')) {
+    // 3. Preview preenchimento
+    if (!map.getLayer('arrow-preview-fill-layer')) {
         map.addLayer({
-            id: 'arrow-fill-layer',
+            id: 'arrow-preview-fill-layer',
             type: 'fill',
-            source: 'arrows',
+            source: 'arrow-preview',
             paint: {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'fillOpacity']
             }
-        }, 'arrow-layer'); // Inserir abaixo da linha
-    }
-
-    if (!map.getSource('arrow-preview')) {
-        map.addSource('arrow-preview', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
         });
     }
 
+    // 4. Preview linha
     if (!map.getLayer('arrow-preview-layer')) {
         map.addLayer({
             id: 'arrow-preview-layer',
@@ -361,53 +765,7 @@ map.on('styledata', async () => {
         });
     }
 
-    if (!map.getLayer('arrow-preview-fill-layer')) {
-        map.addLayer({
-            id: 'arrow-preview-fill-layer',
-            type: 'fill',
-            source: 'arrow-preview',
-            paint: {
-                'fill-color': ['get', 'fillColor'],
-                'fill-opacity': ['get', 'fillOpacity']
-            }
-        }, 'arrow-preview-layer'); // Inserir abaixo da linha de preview
-    }
-
-    if (!map.getSource('arrow-edit-handles')) {
-        map.addSource('arrow-edit-handles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-        });
-    }
-
-    if (!map.getLayer('arrow-edit-handles-layer')) {
-        map.addLayer({
-            id: 'arrow-edit-handles-layer',
-            type: 'circle',
-            source: 'arrow-edit-handles',
-            paint: {
-                'circle-radius': 8,
-                'circle-color': [
-                    'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',      // 🔴 Vermelho - vértices
-                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',    // 🟠 Laranja - midpoints
-                    ['==', ['get', 'handleType'], 'width'], '#0066ff',       // 🔵 Azul - largura
-                    ['==', ['get', 'handleType'], 'headLength'], '#00aa00',  // 🟢 Verde - proporção cabeça
-                    ['==', ['get', 'handleType'], 'airmobile'], '#aa00aa',   // 🟣 Roxo - posição X aeromóvel
-                    '#000000'  // ⚫ Preto - padrão (não deveria acontecer)
-                ],
-                'circle-stroke-color': '#ffffff',
-                'circle-stroke-width': 2,
-                'circle-opacity': [
-                    'case',
-                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,  // Midpoints mais transparentes
-                    1.0
-                ]
-            },
-            filter: ['!=', ['get', 'role'], 'selected-feature'] // Não mostrar a feature, só os handles
-        });
-    }
-
+    // 5. Seleção
     if (!map.getLayer('arrow-selected-layer')) {
         map.addLayer({
             id: 'arrow-selected-layer',
@@ -419,198 +777,187 @@ map.on('styledata', async () => {
                 'line-dasharray': [3, 3],
                 'line-opacity': 0.8
             },
-            filter: ['==', ['get', 'role'], 'selected-feature'] // Só a feature destacada
+            filter: ['==', ['get', 'role'], 'selected-feature']
         });
     }
 
-    // Seção específica do map.js para corrigir os layers do boundary
+    // 6. Edit handles
+    if (!map.getLayer('arrow-edit-handles-layer')) {
+        map.addLayer({
+            id: 'arrow-edit-handles-layer',
+            type: 'circle',
+            source: 'arrow-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',
+                    ['==', ['get', 'handleType'], 'width'], '#0066ff',
+                    ['==', ['get', 'handleType'], 'headLength'], '#00aa00',
+                    ['==', ['get', 'handleType'], 'airmobile'], '#aa00aa',
+                    '#000000'
+                ],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2,
+                'circle-opacity': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,
+                    1.0
+                ]
+            },
+            filter: ['!=', ['get', 'role'], 'selected-feature']
+        });
+    }
+}
 
-    if (features.boundarys) {
-        if (!map.getSource('boundarys')) {
-            map.addSource('boundarys', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: features.boundarys
-                }
-            });
-        } else {
-            map.getSource('boundarys').setData({
+// ===== CIRCLE LAYERS (Pontos - Prioridade 7) =====
+function setupCircleLayers(features) {
+    // Source
+    if (!map.getSource('circles')) {
+        map.addSource('circles', {
+            type: 'geojson',
+            data: {
                 type: 'FeatureCollection',
-                features: features.boundarys
-            });
-        }
-
-        // ✅ LAYER PRINCIPAL - Linha da boundary
-        if (!map.getLayer('boundary-line-layer')) {
-            map.addLayer({
-                id: 'boundary-line-layer',
-                type: 'line',
-                source: 'boundarys',
-                paint: {
-                    'line-color': ['get', 'color'],
-                    'line-width': ['get', 'lineWidth'],
-                    'line-opacity': ['get', 'opacity']
-                },
-                filter: ['==', 'renderType', 'line']
-            });
-        }
-
-        // ✅ SÍMBOLOS - Linhas dos símbolos (X, I, círculos)
-        if (!map.getLayer('boundary-symbol-layer')) {
-            map.addLayer({
-                id: 'boundary-symbol-layer',
-                type: 'line',
-                source: 'boundarys',
-                paint: {
-                    'line-color': ['get', 'color'],
-                    'line-width': 3,
-                    'line-opacity': ['get', 'opacity']
-                },
-                filter: ['all',
-                    ['==', 'renderType', 'symbol'],
-                    ['==', '$type', 'LineString']
-                ]
-            });
-        }
-
-        // ✅ PREENCHIMENTO DOS SÍMBOLOS - Apenas polígonos (círculos)
-        if (!map.getLayer('boundary-symbol-fill-layer')) {
-            map.addLayer({
-                id: 'boundary-symbol-fill-layer',
-                type: 'fill',
-                source: 'boundarys',
-                paint: {
-                    'fill-color': ['get', 'color'],
-                    'fill-opacity': ['*', ['get', 'opacity'], 0.3]
-                },
-                filter: ['all',
-                    ['==', 'renderType', 'symbol'],
-                    ['==', '$type', 'Polygon']
-                ]
-            });
-        }
-
-        // ✅ TEXTOS
-        if (!map.getLayer('boundary-text-layer')) {
-            map.addLayer({
-                id: 'boundary-text-layer',
-                type: 'symbol',
-                source: 'boundarys',
-                layout: {
-                    'text-field': ['get', 'text'],
-                    'text-font': ['Noto Sans Regular'],
-                    'text-size': [
-                        'interpolate', ['linear'], ['zoom'],
-                        8, ['*', ['get', 'textScaleFactor'], 8],
-                        16, ['*', ['get', 'textScaleFactor'], 20]
-                    ],
-                    'text-rotate': ['get', 'rotation'],
-                    'text-allow-overlap': true,
-                    'text-ignore-placement': true,
-                    'symbol-spacing': 1
-                },
-                paint: {
-                    'text-color': ['get', 'color'],
-                    'text-halo-color': '#fff',
-                    'text-halo-width': 2
-                },
-                filter: ['==', 'renderType', 'text']
-            });
-        }
-
-        // ✅ PREVIEW
-        if (!map.getSource('boundary-preview')) {
-            map.addSource('boundary-preview', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
-            });
-        }
-
-        if (!map.getLayer('boundary-preview-layer')) {
-            map.addLayer({
-                id: 'boundary-preview-layer',
-                type: 'line',
-                source: 'boundary-preview',
-                paint: {
-                    'line-color': '#000000',
-                    'line-width': 4,
-                    'line-dasharray': [2, 2],
-                    'line-opacity': 0.7
-                }
-            });
-        }
-
-        // ✅ HANDLES DE EDIÇÃO
-        if (!map.getSource('boundary-edit-handles')) {
-            map.addSource('boundary-edit-handles', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
-            });
-        }
-
-        if (!map.getLayer('boundary-edit-handles-layer')) {
-            map.addLayer({
-                id: 'boundary-edit-handles-layer',
-                type: 'circle',
-                source: 'boundary-edit-handles',
-                paint: {
-                    'circle-radius': 8,
-                    'circle-color': [
-                        'case',
-                        ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
-                        ['==', ['get', 'handleType'], 'midpoint'], '#ff0000',
-                        ['==', ['get', 'handleType'], 'symbol'], '#0066ff',
-                        ['==', ['get', 'handleType'], 'size'], '#28a745',
-                        '#000000'
-                    ],
-                    'circle-stroke-color': '#ffffff',
-                    'circle-stroke-width': 2,
-                    'circle-opacity': [
-                        'case',
-                        ['==', ['get', 'handleType'], 'midpoint'], 0.5,
-                        1
-                    ]
-                },
-                filter: ['!=', 'role', 'selected-feature']
-            });
-        }
-
-        // ✅ FEATURE SELECIONADA
-        if (!map.getLayer('boundary-selected-layer')) {
-            map.addLayer({
-                id: 'boundary-selected-layer',
-                type: 'line',
-                source: 'boundary-edit-handles',
-                paint: {
-                    'line-color': '#ff0000',
-                    'line-width': 6,
-                    'line-dasharray': [2, 2],
-                    'line-opacity': 0.8
-                },
-                filter: ['all',
-                    ['==', 'role', 'selected-feature'],
-                    ['==', '$type', 'LineString']
-                ]
-            });
-        }
-
-        // ✅ HITZONE - Área maior para clique
-        if (!map.getLayer('boundary-hitzone-layer')) {
-            map.addLayer({
-                id: 'boundary-hitzone-layer',
-                type: 'line',
-                source: 'boundarys',
-                paint: {
-                    'line-color': 'transparent',
-                    'line-width': 20
-                },
-                filter: ['==', 'renderType', 'line']
-            });
-        }
+                features: features.circles
+            }
+        });
+    } else {
+        map.getSource('circles').setData({
+            type: 'FeatureCollection',
+            features: features.circles
+        });
     }
 
-    // Texts source
+    // Preview source
+    if (!map.getSource('circle-preview')) {
+        map.addSource('circle-preview', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // Edit handles source
+    if (!map.getSource('circle-edit-handles')) {
+        map.addSource('circle-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // X marks source
+    if (!map.getSource('circle-x-marks')) {
+        map.addSource('circle-x-marks', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // 1. Preenchimento
+    if (!map.getLayer('circle-fill-layer')) {
+        map.addLayer({
+            id: 'circle-fill-layer',
+            type: 'fill',
+            source: 'circles',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
+    // 2. Linha
+    if (!map.getLayer('circle-layer')) {
+        map.addLayer({
+            id: 'circle-layer',
+            type: 'line',
+            source: 'circles',
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': 1
+            }
+        });
+    }
+
+    // 3. X marks
+    if (!map.getLayer('circle-x-layer')) {
+        map.addLayer({
+            id: 'circle-x-layer',
+            type: 'line',
+            source: 'circle-x-marks',
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': 1
+            }
+        });
+    }
+
+    // 4. Preview preenchimento
+    if (!map.getLayer('circle-preview-fill-layer')) {
+        map.addLayer({
+            id: 'circle-preview-fill-layer',
+            type: 'fill',
+            source: 'circle-preview',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': 0.3
+            }
+        });
+    }
+
+    // 5. Preview linha
+    if (!map.getLayer('circle-preview-layer')) {
+        map.addLayer({
+            id: 'circle-preview-layer',
+            type: 'line',
+            source: 'circle-preview',
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': 2,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8
+            }
+        });
+    }
+
+    // 6. Seleção
+    if (!map.getLayer('circle-selected-layer')) {
+        map.addLayer({
+            id: 'circle-selected-layer',
+            type: 'line',
+            source: 'circle-edit-handles',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 3,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8
+            },
+            filter: ['!=', ['get', 'role'], 'handle']
+        });
+    }
+
+    // 7. Edit handles
+    if (!map.getLayer('circle-edit-handles-layer')) {
+        map.addLayer({
+            id: 'circle-edit-handles-layer',
+            type: 'circle',
+            source: 'circle-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': '#ff0000',
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            },
+            filter: ['==', '$type', 'Point']
+        });
+    }
+}
+
+// ===== TEXT LAYERS (Maior Prioridade - 8) =====
+function setupTextLayers(features) {
+    // Source
     if (!map.getSource('texts')) {
         map.addSource('texts', {
             type: 'geojson',
@@ -626,6 +973,7 @@ map.on('styledata', async () => {
         });
     }
 
+    // Layer (mais alto na hierarquia)
     if (!map.getLayer('text-layer')) {
         map.addLayer({
             id: 'text-layer',
@@ -647,178 +995,10 @@ map.on('styledata', async () => {
             }
         });
     }
+}
 
-    // Images source
-    if (!map.getSource('images')) {
-        map.addSource('images', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.images
-            }
-        });
-    } else {
-        map.getSource('images').setData({
-            type: 'FeatureCollection',
-            features: features.images
-        });
-    }
-
-    if (!map.getLayer('image-layer')) {
-        map.addLayer({
-            id: 'image-layer',
-            type: 'symbol',
-            source: 'images',
-            paint: {
-                'icon-opacity': ['get', 'opacity']
-            },
-            layout: {
-                'icon-image': ['get', 'imageId'],
-                'icon-size': ['get', 'size'],
-                'icon-rotate': ['get', 'rotation'],
-                'icon-allow-overlap': true,
-                'icon-ignore-placement': true
-            }
-        });
-    }
-
-    // Carregar blobs das imagens do IndexedDB
-    for (const feature of features.images) {
-        const imageId = feature.properties.imageId;
-        try {
-            const blob = await imageStore.getItem(imageId);
-            if (blob) {
-                const url = URL.createObjectURL(blob);
-                const image = new Image();
-                image.onload = () => {
-                    if (!map.hasImage(imageId)) {
-                        map.addImage(imageId, image);
-                    }
-                    URL.revokeObjectURL(url);
-                };
-                image.src = url;
-            }
-        } catch (error) {
-            console.warn(`Erro ao carregar imagem ${imageId}:`, error);
-        }
-    }
-
-    // LOS source
-    if (!map.getSource('los')) {
-        map.addSource('los', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.los
-            }
-        });
-    } else {
-        map.getSource('los').setData({
-            type: 'FeatureCollection',
-            features: features.los
-        });
-    }
-
-    if (!map.getLayer('los-layer')) {
-        map.addLayer({
-            'id': 'los-layer',
-            'type': 'line',
-            'source': 'los',
-            'paint': {
-                'line-color': '#D3D3D3',
-                'line-opacity': 0,
-                'line-width': ['get', 'width']
-            }
-        });
-    }
-
-    // Processed LOS source
-    if (!map.getSource('processed-los')) {
-        map.addSource('processed-los', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.processed_los
-            }
-        });
-    } else {
-        map.getSource('processed-los').setData({
-            type: 'FeatureCollection',
-            features: features.processed_los
-        });
-    }
-
-    if (!map.getLayer('processed-los-layer')) {
-        map.addLayer({
-            'id': 'processed-los-layer',
-            'type': 'line',
-            'source': 'processed-los',
-            'paint': {
-                'line-color': ['get', 'color'],
-                'line-opacity': ['get', 'opacity'],
-                'line-width': ['get', 'width']
-            }
-        });
-    }
-
-    // Visibility source
-    if (!map.getSource('visibility')) {
-        map.addSource('visibility', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.visibility
-            }
-        });
-    } else {
-        map.getSource('visibility').setData({
-            type: 'FeatureCollection',
-            features: features.visibility
-        });
-    }
-
-    if (!map.getLayer('visibility-layer')) {
-        map.addLayer({
-            id: 'visibility-layer',
-            type: 'fill',
-            source: 'visibility',
-            layout: {},
-            paint: {
-                'fill-color': '#D3D3D3',
-                'fill-opacity': 0
-            }
-        });
-    }
-
-    // Processed visibility source
-    if (!map.getSource('processed-visibility')) {
-        map.addSource('processed-visibility', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: features.processed_visibility
-            }
-        });
-    } else {
-        map.getSource('processed-visibility').setData({
-            type: 'FeatureCollection',
-            features: features.processed_visibility
-        });
-    }
-
-    if (!map.getLayer('processed-visibility-layer')) {
-        map.addLayer({
-            id: 'processed-visibility-layer',
-            type: 'fill',
-            source: 'processed-visibility',
-            layout: {},
-            paint: {
-                'fill-color': ['get', 'color'],
-                'fill-opacity': ['get', 'opacity']
-            }
-        });
-    }
-
+// ===== AUXILIARY LAYERS =====
+function setupAuxiliaryLayers() {
     // Selection boxes source
     if (!map.getSource('selection-boxes')) {
         map.addSource('selection-boxes', {
@@ -917,13 +1097,7 @@ map.on('styledata', async () => {
             }
         });
     }
-
-    requestAnimationFrame(() => {
-        clearAllMeasurements();
-        restoreMeasurements(features);
-        restoreCircleXMarks(features);
-    });
-});
+}
 
 function clearAllMeasurements() {
     try {

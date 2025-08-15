@@ -12,6 +12,7 @@ class SelectionManager {
         this.ellipseControl = null;
         this.arrowControl = null;
         this.boundaryControl = null;
+        this.occupiedFrontControl = null;
         this.selectedDrawFeatures = new Map();
         this.selectedTextFeatures = new Map();
         this.selectedImageFeatures = new Map();
@@ -21,6 +22,7 @@ class SelectionManager {
         this.selectedEllipseFeatures = new Map();
         this.selectedArrowFeatures = new Map();
         this.selectedBoundaryFeatures = new Map();
+        this.selectedOccupiedFrontFeatures = new Map();
 
         this.setupEventListeners();
     }
@@ -69,6 +71,10 @@ class SelectionManager {
         this.vectorTileInfoControl = vectorTileInfoControl;
     }
 
+    setOccupiedFrontControl(occupiedFrontControl) {
+        this.occupiedFrontControl = occupiedFrontControl;
+    }
+
     setupEventListeners = () => {
         this.map.on('click', this.handleMapClick);
         this.map.on('click', 'text-layer', this.handleElementClick);
@@ -84,6 +90,7 @@ class SelectionManager {
         this.map.on('click', 'boundary-line-layer', this.handleElementClick);
         this.map.on('click', 'boundary-symbol-layer', this.handleElementClick);
         this.map.on('click', 'boundary-text-layer', this.handleElementClick);
+        this.map.on('click', 'occupied-front-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
     }
 
@@ -203,6 +210,12 @@ class SelectionManager {
         );
         if (boundaryFeature) return { ...boundaryFeature, toolType: 'boundary' };
 
+        const occupiedFrontFeature = features.find(f =>
+            (f.source === 'occupied_fronts' || f.layer?.id === 'occupied-front-layer') &&
+            f.properties.source === 'occupied_front'
+        );
+        if (occupiedFrontFeature) return { ...occupiedFrontFeature, toolType: 'occupied_front' };
+
         return null;
     }
 
@@ -219,6 +232,8 @@ class SelectionManager {
                 return this.selectedArrowFeatures.has(featureId);
             case 'boundary':
                 return this.selectedBoundaryFeatures.has(featureId);
+            case 'occupied_front':
+                return this.selectedOccupiedFrontFeatures.has(featureId);
             case 'text':
                 return this.selectedTextFeatures.has(featureId);
             case 'image':
@@ -266,6 +281,13 @@ class SelectionManager {
                     this.boundaryControl.onFeatureSelected?.(selectedFeature);
                 }
                 break;
+            case 'occupied_front':
+                if (this.selectedOccupiedFrontFeatures.has(featureId)) {
+                    const selectedFeature = this.selectedOccupiedFrontFeatures.get(featureId);
+                    // Trigger transition to editing mode in boundary control
+                    this.occupiedFrontControl.onFeatureSelected?.(selectedFeature);
+                }
+                break;
         }
     }
 
@@ -310,6 +332,14 @@ class SelectionManager {
         if (this.boundaryControl.isEditingMode && this.boundaryControl.isEditingMode()) {
             const handleFeatures = features.filter(f =>
                 f.source === 'boundary-edit-handles' &&
+                (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
+            );
+            if (handleFeatures.length > 0) return true;
+        }
+
+        if (this.occupiedFrontControl.isEditingMode && this.occupiedFrontControl.isEditingMode()) {
+            const handleFeatures = features.filter(f =>
+                f.source === 'occupied_front-edit-handles' &&
                 (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
             );
             if (handleFeatures.length > 0) return true;
@@ -371,6 +401,8 @@ class SelectionManager {
                 return this.selectedArrowFeatures.has(featureId);
             case 'boundary':
                 return this.selectedBoundaryFeatures.has(featureId);
+            case 'occupied_front':
+                return this.selectedOccupiedFrontFeatures.has(featureId);
             default:
                 return false;
         }
@@ -390,6 +422,9 @@ class SelectionManager {
                 break;
             case 'boundary':
                 sourceName = 'boundarys';
+                break;
+            case 'occupied_front':
+                sourceName = 'occupied_fronts';
                 break;
             default:
                 return null;
@@ -412,7 +447,8 @@ class SelectionManager {
             'circle': ['center', 'radius'],
             'ellipse': ['center', 'majorRadius', 'minorRadius', 'bearing'],
             'arrow': ['baseCoordinates'],
-            'boundary': ['center']
+            'boundary': ['center'],
+            'occupied_front': ['baseCoordinates']
         };
 
         const relevantProps = criticalProps[source] || [];
@@ -469,6 +505,9 @@ class SelectionManager {
             case 'boundary':
                 targetMap = this.selectedBoundaryFeatures;
                 break;
+            case 'occupied_front':
+                targetMap = this.selectedOccupiedFrontFeatures;
+                break;
             default:
                 console.error('Invalid source:', source);
                 return;
@@ -477,26 +516,29 @@ class SelectionManager {
         if (targetMap.has(featureId) && forceToggle) {
             // Only deselect if explicitly forced (shift+click)
             targetMap.delete(featureId);
-            if (source === 'circle' && this.circleControl) {
+            if (source === 'circle') {
                 this.circleControl.onFeatureDeselected?.(feature);
             }
-            if (source === 'ellipse' && this.ellipseControl) {
+            if (source === 'ellipse') {
                 this.ellipseControl.onFeatureDeselected?.(feature);
             }
-            if (source === 'arrow' && this.arrowControl) {
+            if (source === 'arrow') {
                 this.arrowControl.onFeatureDeselected?.(feature);
             }
-            if (source === 'boundary' && this.boundaryControl) {
+            if (source === 'boundary') {
                 this.boundaryControl.onFeatureDeselected?.(feature);
+            }
+            if (source === 'occupied_front') {
+                this.occupiedFrontControl.onFeatureDeselected?.(feature);
             }
         } else if (!targetMap.has(featureId)) {
             // Select feature
             let featureToStore = feature;
-            
+
             // For problematic features, create optimized hybrid feature
-            if (['circle', 'ellipse', 'arrow', 'boundary'].includes(source)) {
+            if (['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front'].includes(source)) {
                 const completeFeature = this.getCompleteFeatureFromSource(source, featureId);
-                
+
                 if (completeFeature) {
                     // Create hybrid feature that combines the best of both worlds
                     featureToStore = this.createOptimalFeatureForDrag(feature, completeFeature, source);
@@ -505,17 +547,20 @@ class SelectionManager {
 
             targetMap.set(featureId, featureToStore);
 
-            if (source === 'circle' && this.circleControl) {
+            if (source === 'circle') {
                 this.circleControl.onFeatureSelected?.(featureToStore);
             }
-            if (source === 'ellipse' && this.ellipseControl) {
+            if (source === 'ellipse') {
                 this.ellipseControl.onFeatureSelected?.(featureToStore);
             }
-            if (source === 'arrow' && this.arrowControl) {
+            if (source === 'arrow') {
                 this.arrowControl.onFeatureSelected?.(featureToStore);
             }
-            if (source === 'boundary' && this.boundaryControl) {
+            if (source === 'boundary') {
                 this.boundaryControl.onFeatureSelected?.(featureToStore);
+            }
+            if (source === 'occupied_front') {
+                this.occupiedFrontControl.onFeatureSelected?.(featureToStore);
             }
         }
     }
@@ -538,6 +583,7 @@ class SelectionManager {
         this.selectedEllipseFeatures.clear();
         this.selectedArrowFeatures.clear();
         this.selectedBoundaryFeatures.clear();
+        this.selectedOccupiedFrontFeatures.clear();
 
         if (forceDraw && !this.drawControl.isActive) {
             this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
@@ -549,21 +595,12 @@ class SelectionManager {
 
     notifyControlsOfGlobalDeselect = () => {
         // Notify circle control about global deselect
-        if (this.circleControl && this.circleControl.onGlobalDeselect) {
-            this.circleControl.onGlobalDeselect();
-        }
+        this.circleControl.onGlobalDeselect();
+        this.ellipseControl.onGlobalDeselect();
+        this.arrowControl.onGlobalDeselect();
+        this.boundaryControl.onGlobalDeselect();
+        this.occupiedFrontControl.onGlobalDeselect();
 
-        // Notify ellipse control about global deselect
-        if (this.ellipseControl && this.ellipseControl.onGlobalDeselect) {
-            this.ellipseControl.onGlobalDeselect();
-        }
-
-        if (this.arrowControl && this.arrowControl.onGlobalDeselect) {
-            this.arrowControl.onGlobalDeselect();
-        }
-        if (this.boundaryControl && this.boundaryControl.onGlobalDeselect) {
-            this.boundaryControl.onGlobalDeselect();
-        }
     }
 
     getAllSelectedFeatures() {
@@ -577,6 +614,7 @@ class SelectionManager {
             ...this.selectedEllipseFeatures.values(),
             ...this.selectedArrowFeatures.values(),
             ...this.selectedBoundaryFeatures.values(),
+            ...this.selectedOccupiedFrontFeatures.values(),
         ];
     }
 
@@ -600,6 +638,7 @@ class SelectionManager {
         if (this.ellipseControl.isActive) return this.ellipseControl;
         if (this.arrowControl.isActive) return this.arrowControl;
         if (this.boundaryControl.isActive) return this.boundaryControl;
+        if (this.occupiedFrontControl.isActive) return this.occupiedFrontControl;
         return null;
     }
 
@@ -613,6 +652,7 @@ class SelectionManager {
         this.ellipseControl.deleteFeatures([...this.selectedEllipseFeatures.values()]);
         this.arrowControl.deleteFeatures([...this.selectedArrowFeatures.values()]);
         this.boundaryControl.deleteFeatures([...this.selectedBoundaryFeatures.values()]);
+        this.occupiedFrontControl.deleteFeatures([...this.selectedOccupiedFrontFeatures.values()]);
 
         this.deselectAllFeatures(true);
     }
@@ -627,6 +667,7 @@ class SelectionManager {
         this.ellipseControl.updateFeatures([...this.selectedEllipseFeatures.values()], true);
         this.arrowControl.updateFeatures([...this.selectedArrowFeatures.values()], true);
         this.boundaryControl.updateFeatures([...this.selectedBoundaryFeatures.values()], true);
+        this.occupiedFrontControl.updateFeatures([...this.selectedOccupiedFrontFeatures.values()], true);
     }
 }
 
