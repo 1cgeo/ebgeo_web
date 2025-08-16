@@ -1,6 +1,5 @@
 // Path: js\controls_sig\street_view_tool\add_street_view_control.js
 
-
 import * as THREE from 'three';
 import { DragControls } from 'DragControls';
 class AddStreetViewControl {
@@ -44,6 +43,18 @@ class AddStreetViewControl {
             maxZoom: 17.9
         });
         this.isOpen = false
+        
+        // Performance optimization properties
+        this.animationId = null
+        this.documentListeners = []
+        this.arrowGeometry = null
+        this.arrowTexture = null
+        
+        // High-impact performance caches
+        this.textureCache = new Map()
+        this.metadataCache = new Map()
+        this.sphereGeometry = null
+        this.miniMapHovered = false
 
         this.animate = this.animate.bind(this);
         this.update = this.update.bind(this);
@@ -51,6 +62,112 @@ class AddStreetViewControl {
         this.onPointerUp = this.onPointerUp.bind(this);
         this.onDocumentMouseWheel = this.onDocumentMouseWheel.bind(this);
         this.setCurrentMouse = this.setCurrentMouse.bind(this);
+        this.onMouseMove = this.onMouseMove.bind(this);
+    }
+
+    // Cached metadata loader for performance
+    loadMetadataWithCache = async (name) => {
+        if (this.metadataCache.has(name)) {
+            return this.metadataCache.get(name);
+        }
+        
+        const data = await $.getJSON(`${this.METADATA_LOCATION}/${name}.json`);
+        this.metadataCache.set(name, data);
+        return data;
+    }
+
+    // Helper method for tracking document listeners
+    addDocumentListener = (event, handler, options = false) => {
+        document.addEventListener(event, handler, options);
+        this.documentListeners.push({ event, handler, options });
+    }
+
+    // Remove all tracked document listeners
+    removeAllDocumentListeners = () => {
+        this.documentListeners.forEach(({ event, handler, options }) => {
+            document.removeEventListener(event, handler, options);
+        });
+        this.documentListeners = [];
+    }
+
+    // Named method for mouse move instead of anonymous function
+    onMouseMove = (event) => {
+        event.preventDefault();
+        this.mouse.x = (event.clientX / this.renderer.domElement.clientWidth) * 2 - 1;
+        this.mouse.y = - (event.clientY / this.renderer.domElement.clientHeight) * 2 + 1;
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+    }
+
+    // Complete Three.js cleanup method
+    cleanupThreeJS = () => {
+        // Stop animation loop
+        if (this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
+        }
+
+        // Remove all document listeners
+        this.removeAllDocumentListeners();
+
+        // Cleanup Three.js resources
+        if (this.scene) {
+            // Clean arrows
+            this.cleanArrows(this.arrows.map(i => i.arrow));
+            this.arrows = [];
+
+            // Clean main mesh
+            if (this.mesh) {
+                if (this.mesh.geometry) this.mesh.geometry.dispose();
+                if (this.mesh.material) {
+                    if (this.mesh.material.map) this.mesh.material.map.dispose();
+                    this.mesh.material.dispose();
+                }
+                this.scene.remove(this.mesh);
+                this.mesh = null;
+            }
+
+            // Clean controls
+            if (this.controls) {
+                this.controls.deactivate();
+                this.controls = null;
+            }
+        }
+
+        // Clean renderer
+        if (this.renderer) {
+            const container = document.getElementById('street-view-container');
+            if (container && this.renderer.domElement.parentNode === container) {
+                container.removeChild(this.renderer.domElement);
+            }
+            this.renderer.dispose();
+            this.renderer = null;
+        }
+
+        // Clean cached resources
+        if (this.arrowGeometry) {
+            this.arrowGeometry.dispose();
+            this.arrowGeometry = null;
+        }
+        if (this.arrowTexture) {
+            this.arrowTexture.dispose();
+            this.arrowTexture = null;
+        }
+        if (this.sphereGeometry) {
+            this.sphereGeometry.dispose();
+            this.sphereGeometry = null;
+        }
+        
+        // Clean texture cache
+        this.textureCache.forEach(texture => texture.dispose());
+        this.textureCache.clear();
+        
+        // Clear metadata cache
+        this.metadataCache.clear();
+
+        // Reset state
+        this.scene = null;
+        this.camera = null;
+        this.material = null;
     }
 
     loadData = async () => {
@@ -116,6 +233,14 @@ class AddStreetViewControl {
             this.miniMap.on('mouseleave', 'points', () => {
                 this.miniMap.getCanvas().style.cursor = '';
             });
+            
+            // Optimize DOM queries for wheel events
+            this.miniMap.getCanvas().addEventListener('mouseenter', () => {
+                this.miniMapHovered = true;
+            });
+            this.miniMap.getCanvas().addEventListener('mouseleave', () => {
+                this.miniMapHovered = false;
+            });
         }
         setupMiniMap()
 
@@ -136,6 +261,7 @@ class AddStreetViewControl {
     }
 
     onRemove() {
+        this.cleanupThreeJS();
         this.container.parentNode.removeChild(this.container);
     }
 
@@ -204,25 +330,20 @@ class AddStreetViewControl {
         return target
     }
 
-    loadImageByName = (name) => {
-        $.getJSON(`${this.METADATA_LOCATION}/${name}.json`, (data) => {
-            this.currentInfo = data
-            this.loadStreetView(data)
-            this.animate()
-        });
-    }
+    loadImageByName = async (name) => {
+        const data = await this.loadMetadataWithCache(name);
+        this.currentInfo = data
+        this.loadStreetView(data)
+        this.animate()
+    };
 
     loadStreetView = (info) => {
         this.isOpen = true
         const container = document.getElementById('street-view-container');
 
-        document.addEventListener('pointermove', this.setCurrentMouse, { passive: true });
-        document.addEventListener('mousemove', (event) => {
-            event.preventDefault();
-            this.mouse.x = (event.clientX / this.renderer.domElement.clientWidth) * 2 - 1;
-            this.mouse.y = - (event.clientY / this.renderer.domElement.clientHeight) * 2 + 1;
-            this.raycaster.setFromCamera(this.mouse, this.camera);
-        }, false);
+        // Use tracked document listeners
+        this.addDocumentListener('pointermove', this.setCurrentMouse, { passive: true });
+        this.addDocumentListener('mousemove', this.onMouseMove, false);
 
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         //camera.rotation.reorder("YXZ");
@@ -232,16 +353,42 @@ class AddStreetViewControl {
         this.scene = new THREE.Scene();
         this.scene.add(this.camera)
 
-        const geometry = new THREE.SphereGeometry(500, 60, 40);
-        geometry.scale(- 1, 1, 1);
+        // Use cached sphere geometry for performance
+        if (!this.sphereGeometry) {
+            this.sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
+            this.sphereGeometry.scale(- 1, 1, 1);
+        }
+        
         this.setCurrentPhotoName(info.camera.img)
-        let texture = new THREE.TextureLoader().load(
-            `${this.IMAGES_LOCATION}/${info.camera.img}.jpg`
-        );
-        texture.colorSpace = THREE.SRGBColorSpace
-        this.material = new THREE.MeshBasicMaterial({ map: texture });
-        this.mesh = new THREE.Mesh(geometry, this.material);
-        this.mesh.name = 'IMAGE_360';
+        
+        // Handle texture loading with cache (async safe)
+        const imagePath = `${this.IMAGES_LOCATION}/${info.camera.img}.jpg`;
+        
+        if (this.textureCache.has(imagePath)) {
+            // Use cached texture immediately
+            const texture = this.textureCache.get(imagePath);
+            this.material = new THREE.MeshBasicMaterial({ map: texture });
+            this.mesh = new THREE.Mesh(this.sphereGeometry, this.material);
+            this.mesh.name = 'IMAGE_360';
+        } else {
+            // Load new texture with callback
+            const texture = new THREE.TextureLoader().load(
+                imagePath,
+                (loadedTexture) => {
+                    loadedTexture.colorSpace = THREE.SRGBColorSpace;
+                    this.textureCache.set(imagePath, loadedTexture);
+                    // Update material after texture loads
+                    if (this.material) {
+                        this.material.map = loadedTexture;
+                        this.material.needsUpdate = true;
+                    }
+                }
+            );
+            // Create material with placeholder texture that will be updated
+            this.material = new THREE.MeshBasicMaterial({ map: texture });
+            this.mesh = new THREE.Mesh(this.sphereGeometry, this.material);
+            this.mesh.name = 'IMAGE_360';
+        }
 
         this.setIconDirection(info.camera.heading)
         this.offsetRad = THREE.MathUtils.degToRad(270 - info.camera.heading);
@@ -264,30 +411,30 @@ class AddStreetViewControl {
         container.addEventListener('pointerdown', this.onPointerDown);
         //container.addEventListener('pointerdown', clickObj);
 
-        document.addEventListener('wheel', this.onDocumentMouseWheel, { passive: true });
+        this.addDocumentListener('wheel', this.onDocumentMouseWheel, { passive: true });
 
         //
 
-        document.addEventListener('dragover', function (event) {
+        this.addDocumentListener('dragover', function (event) {
 
             event.preventDefault();
             event.dataTransfer.dropEffect = 'copy';
 
         });
 
-        document.addEventListener('dragenter', function () {
+        this.addDocumentListener('dragenter', function () {
 
             document.body.style.opacity = 0.5;
 
         });
 
-        document.addEventListener('dragleave', function () {
+        this.addDocumentListener('dragleave', function () {
 
             document.body.style.opacity = 1;
 
         });
 
-        document.addEventListener('drop', function (event) {
+        this.addDocumentListener('drop', function (event) {
 
             event.preventDefault();
 
@@ -372,12 +519,22 @@ class AddStreetViewControl {
         this.cleanArrows(this.arrows.map(i => i.arrow))
         this.arrows = []
 
-        const geometry = new THREE.CircleGeometry(0.5, 70);
-        const texture = new THREE.TextureLoader().load("/street_view/arrow.png");
-        const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, transparent: true });
+        // Use cached resources for better performance
+        if (!this.arrowGeometry) {
+            this.arrowGeometry = new THREE.CircleGeometry(0.5, 70);
+        }
+        if (!this.arrowTexture) {
+            this.arrowTexture = new THREE.TextureLoader().load("/street_view/arrow.png");
+        }
+
+        const material = new THREE.MeshBasicMaterial({ 
+            map: this.arrowTexture, 
+            side: THREE.DoubleSide, 
+            transparent: true 
+        });
 
         for (let target of this.currentInfo.targets) {
-            const control = new THREE.Mesh(geometry, material);
+            const control = new THREE.Mesh(this.arrowGeometry, material);
             control.imgId = () => target.id;
             control.callback = () => this.loadTarget(target.id);
             this.arrows.push({ ...target, arrow: control });
@@ -424,35 +581,53 @@ class AddStreetViewControl {
         for (let mesh of objects) {
             const object = this.scene.getObjectByProperty('uuid', mesh.uuid);
             if (!object) continue
-            object.geometry.dispose();
-            object.material.dispose();
+            // Don't dispose cached geometry and texture
+            if (object.geometry !== this.arrowGeometry && object.geometry !== this.sphereGeometry) {
+                object.geometry.dispose();
+            }
+            // Check if material map is not a cached texture before disposing
+            if (object.material && object.material.map && 
+                object.material.map !== this.arrowTexture && 
+                !Array.from(this.textureCache.values()).includes(object.material.map)) {
+                object.material.dispose();
+            }
             this.scene.remove(object);
         }
     }
 
-    loadTarget = (name, cb = () => { }) => {
-        $.getJSON(`${this.METADATA_LOCATION}/${name}.json`, (data) => {
-            this.currentInfo = data
-            this.setCurrentMiniMap()
-            this.createControl()
-            this.setCurrentMouse()
-            this.drawControl()
-            this.setCurrentMouse()
-            this.setCurrentPhotoName(data.camera.img)
-            let texture = new THREE.TextureLoader().load(
-                `${this.IMAGES_LOCATION}/${data.camera.img}.jpg`,
-                (texture) => {
-                    texture.colorSpace = THREE.SRGBColorSpace
-                    this.material.map = texture
+    loadTarget = async (name, cb = () => { }) => {
+        const data = await this.loadMetadataWithCache(name);
+        this.currentInfo = data
+        this.setCurrentMiniMap()
+        this.createControl()
+        this.setCurrentMouse()
+        this.drawControl()
+        this.setCurrentPhotoName(data.camera.img)
+        
+        const imagePath = `${this.IMAGES_LOCATION}/${data.camera.img}.jpg`;
+        
+        // Check if texture is already cached
+        if (this.textureCache.has(imagePath)) {
+            const texture = this.textureCache.get(imagePath);
+            this.material.map = texture;
+            this.offsetRad = THREE.MathUtils.degToRad(270 - data.camera.heading);
+            this.mesh.rotation.y = this.offsetRad;
+            cb();
+        } else {
+            // Load new texture
+            const texture = new THREE.TextureLoader().load(
+                imagePath,
+                (loadedTexture) => {
+                    loadedTexture.colorSpace = THREE.SRGBColorSpace;
+                    this.textureCache.set(imagePath, loadedTexture);
+                    this.material.map = loadedTexture;
                     this.offsetRad = THREE.MathUtils.degToRad(270 - data.camera.heading);
-                    this.mesh.rotation.y = this.offsetRad
-                    cb()
-                },
+                    this.mesh.rotation.y = this.offsetRad;
+                    cb();
+                }
             );
-
-        });
-
-    }
+        }
+    };
 
     onPointerDown = (event) => {
         if (event.isPrimary === false || this.nextTarget) return;
@@ -490,15 +665,20 @@ class AddStreetViewControl {
     }
 
     onDocumentMouseWheel = (event) => {
-        if ($('#mini-map-street-view:hover').length == 1 || !this.isOpen) return
+        if (this.miniMapHovered || !this.isOpen) return
         const fov = this.camera.fov + event.deltaY * 0.05;
         this.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
         this.camera.updateProjectionMatrix();
     }
 
     animate = () => {
-        requestAnimationFrame(this.animate)
-        this.update()
+        // Intelligent animation loop control
+        if (this.isOpen && this.isActive) {
+            this.animationId = requestAnimationFrame(this.animate);
+            this.update();
+        } else {
+            this.animationId = null;
+        }
     }
 
     update = () => {
@@ -626,11 +806,13 @@ class AddStreetViewControl {
         this.map.getCanvas().style.cursor = '';
         this.hidePhotos()
         $('#close-street-view-button').off('click', this.closeStreetView)
+        this.cleanupThreeJS()
     }
 
     closeStreetView = () => {
         this.setFullMap(true)
         this.isOpen = false
+        this.cleanupThreeJS()
     }
 
     hidePhotos = () => {

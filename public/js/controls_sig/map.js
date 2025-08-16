@@ -24,12 +24,6 @@ map.addControl(new maplibregl.AttributionControl({
     compact: true
 }), 'bottom-right');
 
-map.on('style.load', () => {
-    map.setProjection({
-        type: 'globe', // Set projection to globe
-    });
-});
-
 map.on('styledata', async () => {
     setupAuxiliaryLayers();
 
