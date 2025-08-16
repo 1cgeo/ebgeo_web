@@ -870,7 +870,6 @@ class AddOccupiedFrontControl {
                 await updateFeature('occupied_fronts', f);
             }
         }
-        console.log('OccupiedFront features saved:', features.length);
     }
 
     // ✅ OBRIGATÓRIO: Método hasFeatureChanged para otimização
@@ -913,7 +912,6 @@ class AddOccupiedFrontControl {
             data.features = data.features.filter(f => !idsToDelete.has(String(f.id)));
             this.map.getSource('occupied_fronts').setData(data);
 
-            console.log(`Removed ${features.length} occupied front features`);
         } catch (error) {
             console.error('Erro ao remover frentes ocupadas:', error);
         }

@@ -53,6 +53,33 @@ const config = {
       fullscreenButton: false,
       requestRenderMode: true,
       maximumRenderTimeChange: Infinity
+    },
+    providers: {
+      // ===== IMAGERY PROVIDER (Imagens de fundo) =====
+      imagery: {
+        enabled: true, // true para usar imagery local, false para desabilitar
+        type: 'UrlTemplate', // Tipos: 'UrlTemplate', 'WMS', 'SingleTile'
+        url: 'http://localhost/raster/data/aman_esa_alta_resolucao_2_data/{z}/{x}/{y}.png',
+        options: {
+          maximumLevel: 18,
+          minimumLevel: 0,
+          tileWidth: 256,
+          tileHeight: 256,
+          credit: 'Imagery Local Server'
+        }
+      },
+      // ===== TERRAIN PROVIDER (Terreno 3D) =====
+      terrain: {
+        enabled: true, // true para usar terrain local, false para usar ellipsoid (plano)
+        type: 'Cesium', // Tipos: 'Cesium' (quantized-mesh), 'Ellipsoid' (terreno plano)
+        url: 'http://localhost/terrain/tilesets/terrain',
+        options: {
+          requestVertexNormals: true,
+          requestWaterMask: false,
+          requestMetadata: false,
+          credit: 'Terrain Local Server'
+        }
+      }
     }
   },
 
@@ -70,5 +97,55 @@ const config = {
 config.hasTilesets = () => config.tilesets && config.tilesets.length > 0;
 
 config.getDefaultTileset = () => config.tilesets.find(t => t.default) || config.tilesets[0];
+
+// Helper para criar imagery provider baseado na configuração
+config.createImageryProvider = () => {
+  const imageryConfig = config.map3d.providers.imagery;
+  if (!imageryConfig.enabled) return false;
+
+  switch (imageryConfig.type) {
+    case 'UrlTemplate':
+      return {
+        provider: 'UrlTemplateImageryProvider',
+        url: imageryConfig.url,
+        ...imageryConfig.options
+      };
+    case 'WMS':
+      return {
+        provider: 'WebMapServiceImageryProvider',
+        url: imageryConfig.url,
+        ...imageryConfig.options
+      };
+    case 'SingleTile':
+      return {
+        provider: 'SingleTileImageryProvider',
+        url: imageryConfig.url,
+        ...imageryConfig.options
+      };
+    default:
+      return false;
+  }
+};
+
+// Helper para criar terrain provider baseado na configuração
+config.createTerrainProvider = () => {
+  const terrainConfig = config.map3d.providers.terrain;
+  if (!terrainConfig.enabled) {
+    return { provider: 'EllipsoidTerrainProvider' };
+  }
+
+  switch (terrainConfig.type) {
+    case 'Cesium':
+      return {
+        provider: 'CesiumTerrainProvider',
+        url: terrainConfig.url,
+        ...terrainConfig.options
+      };
+    case 'Ellipsoid':
+      return { provider: 'EllipsoidTerrainProvider' };
+    default:
+      return { provider: 'EllipsoidTerrainProvider' };
+  }
+};
 
 export default config;

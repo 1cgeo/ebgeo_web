@@ -24,6 +24,12 @@ map.addControl(new maplibregl.AttributionControl({
     compact: true
 }), 'bottom-right');
 
+map.on('style.load', () => {
+    map.setProjection({
+        type: 'globe', // Set projection to globe
+    });
+});
+
 map.on('styledata', async () => {
     setupAuxiliaryLayers();
 
@@ -43,7 +49,7 @@ map.on('styledata', async () => {
     setupTextLayers(features);
 
     await setImages(features);
-        
+
     // Restaurar medições e marcações
     requestAnimationFrame(() => {
         clearAllMeasurements();
@@ -207,7 +213,7 @@ function setupMilitarySymbolsLayers(features) {
 
 async function loadMilitarySymbolImages(features) {
     if (!features.military_symbols) return;
-    
+
     for (const feature of features.military_symbols) {
         if (feature.id && !map.hasImage(feature.id)) {
             try {
@@ -233,7 +239,7 @@ function setupDrawLayers(features) {
 }
 
 async function setImages(features) {
-// Carregar blobs das imagens do IndexedDB
+    // Carregar blobs das imagens do IndexedDB
     for (const feature of features.images) {
         const imageId = feature.properties.imageId;
         try {
@@ -259,7 +265,7 @@ function setupBoundaryLayers(features) {
     if (!features.boundarys) return;
 
     // ===== SOURCES =====
-    
+
     // Source principal - feature atômica
     if (!map.getSource('boundarys')) {
         map.addSource('boundarys', {
@@ -1249,7 +1255,7 @@ function restoreBoundaryDependentFeatures(features) {
 
                 // Normalizar coordenadas (pode vir como string do IndexedDB)
                 let coords = boundaryFeature.properties.baseCoordinates;
-                
+
                 if (typeof coords === 'string') {
                     try {
                         coords = JSON.parse(coords);
@@ -1266,12 +1272,12 @@ function restoreBoundaryDependentFeatures(features) {
                 }
 
                 // Filtrar apenas coordenadas válidas
-                const validCoords = coords.filter(coord => 
-                    Array.isArray(coord) && 
-                    coord.length >= 2 && 
-                    typeof coord[0] === 'number' && 
+                const validCoords = coords.filter(coord =>
+                    Array.isArray(coord) &&
+                    coord.length >= 2 &&
+                    typeof coord[0] === 'number' &&
                     typeof coord[1] === 'number' &&
-                    !isNaN(coord[0]) && 
+                    !isNaN(coord[0]) &&
                     !isNaN(coord[1])
                 );
 
@@ -1282,7 +1288,7 @@ function restoreBoundaryDependentFeatures(features) {
 
                 // Atualizar coordenadas validadas
                 boundaryFeature.properties.baseCoordinates = validCoords;
-                
+
                 // Regenerar textos e círculos dependentes
                 boundaryControl.updateDependentFeatures(boundaryFeature);
 

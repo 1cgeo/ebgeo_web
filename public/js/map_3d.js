@@ -45,6 +45,46 @@ export async function loadCesiumAndInit() {
             // Aguarda Cesium estar disponível globalmente
             await waitForGlobal('Cesium', 5000);
             
+            // ===== DESABILITA COMPLETAMENTE O CESIUM ION =====
+            // Remove qualquer token que possa estar configurado
+            if (Cesium.Ion) {
+                Cesium.Ion.defaultAccessToken = undefined;
+                // Desabilita o servidor padrão do Ion
+                if (Cesium.Ion.defaultServer) {
+                    Cesium.Ion.defaultServer = new Cesium.Resource({ url: 'about:blank' });
+                }
+            }
+            
+            // Configura terrain e imagery providers locais ANTES de criar o viewer
+            if (Cesium.createWorldTerrain) {
+                // Impede criação automática de terreno do Ion
+                const originalCreateWorldTerrain = Cesium.createWorldTerrain;
+                Cesium.createWorldTerrain = function() {
+                    return new Cesium.EllipsoidTerrainProvider();
+                };
+            }
+            
+            if (Cesium.createWorldImagery) {
+                // Impede criação automática de imagery do Ion
+                const originalCreateWorldImagery = Cesium.createWorldImagery;
+                Cesium.createWorldImagery = function() {
+                    return false;
+                };
+            }
+            
+            // Desabilita requests para Ion
+            if (Cesium.RequestScheduler) {
+                // Bloqueia qualquer request para api.cesium.com
+                const originalRequest = Cesium.RequestScheduler.request;
+                Cesium.RequestScheduler.request = function(request) {
+                    if (request.url && request.url.includes('api.cesium.com')) {
+                        console.warn('Blocked Ion request:', request.url);
+                        return Promise.reject(new Error('Ion requests are disabled'));
+                    }
+                    return originalRequest.apply(this, arguments);
+                };
+            }
+            
             // Carrega dependências do Cesium
             await Promise.all([
                 loadScript('./vendors/cesium/cesium-measure.js'),
@@ -95,21 +135,115 @@ async function initCesiumMap() {
     Cesium.Camera.DEFAULT_VIEW_RECTANGLE = extent;
     Cesium.Camera.DEFAULT_VIEW_FACTOR = 0;
 
+    // ===== CRIAÇÃO DE PROVIDERS LOCAIS BASEADOS NO CONFIG =====
+    const terrainProviderConfig = config.createTerrainProvider();
+    const imageryProviderConfig = config.createImageryProvider();
+    
+    // Criar terrain provider
+    let terrainProvider;
+    try {
+        switch (terrainProviderConfig.provider) {
+            case 'CesiumTerrainProvider':
+                terrainProvider = new Cesium.CesiumTerrainProvider({
+                    url: terrainProviderConfig.url,
+                    requestVertexNormals: terrainProviderConfig.requestVertexNormals,
+                    requestWaterMask: terrainProviderConfig.requestWaterMask,
+                    requestMetadata: terrainProviderConfig.requestMetadata,
+                    credit: terrainProviderConfig.credit
+                });
+                break;
+            case 'EllipsoidTerrainProvider':
+            default:
+                terrainProvider = new Cesium.EllipsoidTerrainProvider();
+                break;
+        }
+    } catch (error) {
+        console.warn('⚠️ Erro ao criar terrain provider, usando ellipsoid:', error);
+        terrainProvider = new Cesium.EllipsoidTerrainProvider();
+    }
+    
+    // Criar imagery provider
+    let imageryProvider = false; // Padrão sem imagery
+    if (imageryProviderConfig) {
+        try {
+            switch (imageryProviderConfig.provider) {
+                case 'UrlTemplateImageryProvider':
+                    imageryProvider = new Cesium.UrlTemplateImageryProvider({
+                        url: imageryProviderConfig.url,
+                        maximumLevel: imageryProviderConfig.maximumLevel,
+                        minimumLevel: imageryProviderConfig.minimumLevel,
+                        tileWidth: imageryProviderConfig.tileWidth,
+                        tileHeight: imageryProviderConfig.tileHeight,
+                        credit: imageryProviderConfig.credit
+                    });
+                    break;
+                case 'WebMapServiceImageryProvider':
+                    imageryProvider = new Cesium.WebMapServiceImageryProvider({
+                        url: imageryProviderConfig.url,
+                        layers: imageryProviderConfig.layers,
+                        ...imageryProviderConfig
+                    });
+                    break;
+                case 'SingleTileImageryProvider':
+                    imageryProvider = new Cesium.SingleTileImageryProvider({
+                        url: imageryProviderConfig.url,
+                        ...imageryProviderConfig
+                    });
+                    break;
+            }
+        } catch (error) {
+            console.warn('⚠️ Erro ao criar imagery provider, desabilitando imagery:', error);
+            imageryProvider = false;
+        }
+    }
+    
     // Configuração otimizada do viewer
     const viewer = new Cesium.Viewer("map-3d", {
         ...config.map3d.viewer,
-        // Configurações de terreno e atmosfera
-        terrainProvider: undefined, // Evita carregar terreno desnecessário inicialmente
-        skyAtmosphere: new Cesium.SkyAtmosphere()
+        // FORÇA providers locais sem Ion
+        terrainProvider: terrainProvider,
+        imageryProvider: imageryProvider,
+        skyAtmosphere: false, // Recria depois manualmente
+        baseLayerPicker: false,
+        geocoder: false,
+        // Força configurações offline
+        terrainExaggeration: 1.0,
+        shadows: false,
+        contextOptions: {
+            webgl: {
+                powerPreference: "high-performance"
+            }
+        }
     });
+    
+    // Se imagery foi desabilitado, remove layers padrão
+    if (!imageryProvider) {
+        viewer.imageryLayers.removeAll();
+    }
+    
+    // Força o terrain provider configurado
+    viewer.terrainProvider = terrainProvider;
     
     // Otimizações de cena
     const scene = viewer.scene;
     scene.globe.baseColor = Cesium.Color.BLACK;
+    
+    // Garante que o terrain provider configurado está sendo usado
+    scene.globe.terrainProvider = terrainProvider;
+    scene.globe.depthTestAgainstTerrain = terrainProviderConfig.provider === 'CesiumTerrainProvider';
+    
+    // Recria atmosfera manualmente para evitar dependências Ion
+    scene.skyAtmosphere = new Cesium.SkyAtmosphere(scene.globe.ellipsoid);
     scene.skyAtmosphere.show = true;
     scene.skyBox.show = true;
     scene.sun.show = false; // Economiza processamento
     scene.moon.show = false;
+    
+    // Configurações de render baseadas no tipo de terrain
+    scene.fog.enabled = false;
+    scene.globe.enableLighting = false;
+    scene.globe.dynamicAtmosphereLighting = false;
+    scene.globe.dynamicAtmosphereLightingFromSun = false;
     
     // Oculta container inferior
     viewer.bottomContainer.style.display = "none";
@@ -127,6 +261,22 @@ async function initCesiumMap() {
     Cesium.RequestScheduler.maximumRequestsPerServer = 18;
     
     cesiumState.viewer = viewer;
+    
+    // ===== VERIFICAÇÃO FINAL - GARANTE QUE NÃO HÁ REQUESTS PARA ION =====
+    // Log qualquer tentativa de request para debugar
+    const originalXHR = window.XMLHttpRequest;
+    window.XMLHttpRequest = function() {
+        const xhr = new originalXHR();
+        const originalOpen = xhr.open;
+        xhr.open = function(method, url, ...args) {
+            if (url && url.includes('api.cesium.com')) {
+                console.warn('Blocked XHR request to Ion:', url);
+                throw new Error('Ion requests are disabled');
+            }
+            return originalOpen.apply(this, [method, url, ...args]);
+        };
+        return xhr;
+    };
     
     // Setup resize observer para performance
     setupResizeObserver();
@@ -233,10 +383,6 @@ async function setupTools(viewer) {
         const mouseCoordModule = await import('./control_3d/mouse_coordinates_3d.js');
         cesiumState.modules.mouseCoordinates = mouseCoordModule;
         
-        // Carrega módulo de órbita
-        const orbitModule = await import('./control_3d/orbit_control.js');
-        cesiumState.modules.orbitControl = orbitModule;
-        
         // Carrega módulo de viewshed
         const viewshedModule = await import('./control_3d/viewshed.js');
         cesiumState.modules.viewshed = viewshedModule;
@@ -307,13 +453,8 @@ export function resumeRendering() {
 // ===== LIMPEZA COMPLETA DE MEMÓRIA =====
 export function cleanup3DFeatures() {
     
-    // Para órbita e limpa ferramentas usando módulos carregados dinamicamente
+    // Limpa ferramentas usando módulos carregados dinamicamente (SEM ÓRBITA)
     try {
-        if (cesiumState.modules.orbitControl) {
-            cesiumState.modules.orbitControl.stopOrbit();
-            cesiumState.modules.orbitControl.cleanupOrbitControl();
-        }
-        
         if (cesiumState.modules.viewshed) {
             cesiumState.modules.viewshed.clearAllViewField();
         }
@@ -384,18 +525,13 @@ export function cleanup3DFeatures() {
     window.measure = null;
 }
 
-// ===== FERRAMENTAS EXISTENTES (Compatibilidade) =====
+// ===== FERRAMENTAS EXISTENTES =====
 export function init3DFeatures() {
     if (!cesiumState.viewer) return;
-    
     
     try {
         if (cesiumState.modules.mouseCoordinates) {
             cesiumState.modules.mouseCoordinates.initMouseCoordinates3D(cesiumState.viewer);
-        }
-        
-        if (cesiumState.modules.orbitControl) {
-            cesiumState.modules.orbitControl.initOrbitControl(cesiumState.viewer);
         }
     } catch (error) {
         console.warn('Erro ao inicializar ferramentas 3D:', error);
@@ -443,9 +579,17 @@ export function handleClickGoTo() {
     removeAllTools();
     
     const tilesetData = cesiumState.loadedTilesets[targetId];
-    if (tilesetData && cesiumState.modules.orbitControl) {
-        const { tileset, location } = tilesetData;
-        cesiumState.modules.orbitControl.flyToAndOrbit(location, tileset);
+    if (tilesetData) {
+        const { location } = tilesetData;
+        // Navegação simples sem órbita
+        cesiumState.viewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(
+                location.lon, 
+                location.lat, 
+                location.height
+            ),
+            duration: 2.0
+        });
     }
 }
 
@@ -479,10 +623,7 @@ function removeAllTools() {
         if (cesiumState.modules.viewshed) {
             cesiumState.modules.viewshed.clearAllViewField();
         }
-        
-        if (cesiumState.modules.orbitControl) {
-            cesiumState.modules.orbitControl.stopOrbit();
-        }
+                
     } catch (error) {
         console.warn('Erro ao remover ferramentas:', error);
     }
