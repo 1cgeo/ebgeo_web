@@ -1,3 +1,4 @@
+// Path: js\config.js
 const config = {
   app: {
     title: "EBGeo Op. Arandu",
@@ -13,13 +14,13 @@ const config = {
       [-44.4633992903047, -22.46265178239199],
       [-44.439695820515325, -22.444666254876367]
     ],
-    minZoom: 11,
+    minZoom: 1,
     maxZoom: 17.9,
     maxPitch: 65,
-    maxBounds: [
-      [-45.82515, -22.69950],
-      [-43.92333, -21.30216]
-    ],
+    //maxBounds: [
+    //  [-45.82515, -22.69950],
+    //  [-43.92333, -21.30216]
+    //],
     sourceTileLodParams: [5, 6.0]
   },
 
@@ -56,21 +57,6 @@ const config = {
   },
 
   tilesets: [
-    {
-      url: "/3d/AMAN/tileset.json",
-      heightOffset: 50,
-      id: "AMAN",
-      name: "AMAN",
-      default: true,
-      locate: { lat: -22.455921, lon: -44.449655, height: 2200 }
-    },
-    {
-      url: "/3d/ESA/tileset.json",
-      heightOffset: 75,
-      id: "ESA",
-      name: "ESA",
-      locate: { lon: -45.25666459926732, lat: -21.703613735103637, height: 1500 }
-    },
     {
       url: "/3d/PCL/tileset.json",
       heightOffset: 35,

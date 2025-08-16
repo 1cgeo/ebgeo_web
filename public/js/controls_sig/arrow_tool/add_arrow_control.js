@@ -1,4 +1,4 @@
-// js/controls_sig/arrow_tool/add_arrow_control.js
+// Path: js\controls_sig\arrow_tool\add_arrow_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 
 class AddArrowControl {

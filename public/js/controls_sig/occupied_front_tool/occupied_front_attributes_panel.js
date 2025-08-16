@@ -1,4 +1,4 @@
-// Path: js/controls_sig/occupied_front_tool/occupied_front_attributes_panel.js
+// Path: js\controls_sig\occupied_front_tool\occupied_front_attributes_panel.js
 export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occupiedFrontControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;
 

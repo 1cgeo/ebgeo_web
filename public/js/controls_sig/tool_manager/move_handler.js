@@ -41,7 +41,8 @@ class MoveHandler {
             'ellipse': this.updateEllipseFeature.bind(this),
             'arrow': this.updateArrowFeature.bind(this),
             'boundary': this.updateBoundaryFeature.bind(this),
-            'occupied_front': this.updateOccupiedFrontFeature.bind(this)
+            'occupied_front': this.updateOccupiedFrontFeature.bind(this),
+            'military-symbols': this.updateMilitarySymbolFeature.bind(this)
         };
     }
 
@@ -56,7 +57,8 @@ class MoveHandler {
             'ellipse': 'selectedEllipseFeatures',
             'arrow': 'selectedArrowFeatures',
             'boundary': 'selectedBoundaryFeatures',
-            'occupied_front': 'selectedOccupiedFrontFeatures'
+            'occupied_front': 'selectedOccupiedFrontFeatures',
+            'military-symbols': 'selectedMilitarySymbolFeatures'
         };
     }
 
@@ -94,7 +96,7 @@ class MoveHandler {
         if (allSelectedFeatures.length === 0) return;
 
         const clickedFeatures = this.map.queryRenderedFeatures(e.point);
-        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys', 'occupied_fronts'];
+        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys', 'occupied_fronts', 'military-symbols'];
         const filteredFeatures = clickedFeatures.filter(feature => validSources.includes(feature.source));
 
         // Check for edit handles (maplibredraw midpoint/vertex handles)
@@ -228,6 +230,8 @@ class MoveHandler {
                 this.selectionManager.occupiedFrontControl.isEditingMode()) {
                 return true;
             }
+
+            // Military symbols don't have editing mode, so no check needed
 
             // Check if feature has editing mode properties
             if (feature.properties.mode &&
@@ -431,6 +435,17 @@ class MoveHandler {
         };
     }
 
+    updateMilitarySymbolFeature(feature, dx, dy, newCoords) {
+        // Military symbols are point features, so just update the coordinates
+        return {
+            ...feature,
+            geometry: {
+                ...feature.geometry,
+                coordinates: [newCoords.lng, newCoords.lat]
+            }
+        };
+    }
+
     updateCircleFeature(feature, dx, dy, newCoords) {
         const newCenter = [newCoords.lng, newCoords.lat];
 
@@ -588,7 +603,8 @@ class MoveHandler {
             selectedEllipseFeatures: new Map(),
             selectedArrowFeatures: new Map(),
             selectedBoundaryFeatures: new Map(),
-            selectedOccupiedFrontFeatures: new Map()
+            selectedOccupiedFrontFeatures: new Map(),
+            selectedMilitarySymbolFeatures: new Map()
         };
 
         // Batch process all features

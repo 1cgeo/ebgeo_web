@@ -9,6 +9,7 @@ import { addEllipseAttributesToPanel } from '../ellipse_tool/ellipse_attributes_
 import { addArrowAttributesToPanel } from '../arrow_tool/arrow_attributes_panel.js';
 import { addBoundaryAttributesToPanel } from '../boundary_tool/boundary_attributes_panel.js';
 import { addOccupiedFrontAttributesToPanel } from '../occupied_front_tool/occupied_front_attributes_panel.js';
+import { addMilitarySymbolAttributesToPanel } from '../military_symbol_tool/military_symbol_attributes_panel.js';
 
 class UIManager {
     constructor(map, selectionManager, toolManager) {
@@ -56,7 +57,8 @@ class UIManager {
             ...this.createSelectionBoxesForEllipseFeatures(),
             ...this.createSelectionBoxesForArrowFeatures(),
             ...this.createSelectionBoxesForBoundaryFeatures(),
-            ...this.createSelectionBoxesForOccupiedFrontFeatures()
+            ...this.createSelectionBoxesForOccupiedFrontFeatures(),
+            ...this.createSelectionBoxesForMilitarySymbols(),
         ];
 
         this.selectionBoxes = features;
@@ -64,6 +66,22 @@ class UIManager {
         selectionBoxesSource.setData({
             type: 'FeatureCollection',
             features: features
+        });
+    }
+
+    createSelectionBoxesForMilitarySymbols = () => {
+        return Array.from(this.selectionManager.selectedMilitarySymbolFeatures.values()).map(feature => {
+            const coordinates = feature.geometry.coordinates;
+            const size = feature.properties.size || 35;
+            // Converter tamanho do símbolo para dimensões aproximadas
+            const width = size * 1.5;
+            const height = size * 1.5;
+            const polygon = this.createSelectionBox(coordinates, width, height, feature.properties.rotation || 0);
+            return {
+                type: 'Feature',
+                geometry: polygon,
+                properties: {}
+            };
         });
     }
 
@@ -328,6 +346,8 @@ class UIManager {
                 this.addBoundaryAttributes(panel, selectedFeatures);
             } else if (featureType === 'occupied_front') {
                 this.addOccupiedFrontAttributes(panel, selectedFeatures);
+            } else if (featureType === 'military-symbols') {
+                this.addMilitarySymbolAttributes(panel, selectedFeatures);
             }
         }
 
@@ -406,6 +426,13 @@ class UIManager {
 
             panel.remove();
         }
+    }
+
+    addMilitarySymbolAttributes = (panel, features) => {
+        const militarySymbolPanel = document.createElement('div');
+        militarySymbolPanel.className = 'military-symbol-attributes-section';
+        addMilitarySymbolAttributesToPanel(militarySymbolPanel, features, this.selectionManager.militarySymbolControl, this.selectionManager, this);
+        panel.appendChild(militarySymbolPanel);
     }
 
     addCircleAttributes = (panel, features) => {

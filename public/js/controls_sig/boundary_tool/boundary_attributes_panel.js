@@ -1,4 +1,4 @@
-// js/controls_sig/boundary_tool/boundary_attributes_panel.js
+// Path: js\controls_sig\boundary_tool\boundary_attributes_panel.js
 
 export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;

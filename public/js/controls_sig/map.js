@@ -15,7 +15,9 @@ const map = new maplibregl.Map({
 });
 
 map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
-map.setMaxBounds(config.map2d.maxBounds);
+if (config.map2d.maxBounds) {
+    map.setMaxBounds(config.map2d.maxBounds);
+}
 
 map.addControl(new maplibregl.AttributionControl({
     customAttribution: 'Diretoria de Serviço Geográfico - Exército Brasileiro',
@@ -33,6 +35,7 @@ map.on('styledata', async () => {
     setupCircleLayers(features);
     setupVisibilityLayers(features);
     setupImageLayers(features);
+    setupMilitarySymbolsLayers(features);
     setupBoundaryLayers(features);
     setupOccupiedFrontLayers(features);
     setupArrowLayers(features);
@@ -47,6 +50,7 @@ map.on('styledata', async () => {
         restoreMeasurements(features);
         restoreCircleXMarks(features);
         restoreBoundaryDependentFeatures(features);
+        loadMilitarySymbolImages(features);
     });
 });
 
@@ -164,6 +168,58 @@ function setupOccupiedFrontLayers(features) {
     }
 }
 
+function setupMilitarySymbolsLayers(features) {
+    // Source
+    if (!map.getSource('military-symbols')) {
+        map.addSource('military-symbols', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.military_symbols || []
+            }
+        });
+    } else {
+        map.getSource('military-symbols').setData({
+            type: 'FeatureCollection',
+            features: features.military_symbols || []
+        });
+    }
+
+    // Layer
+    if (!map.getLayer('military-symbols-layer')) {
+        map.addLayer({
+            id: 'military-symbols-layer',
+            type: 'symbol',
+            source: 'military-symbols',
+            paint: {
+                'icon-opacity': ['get', 'opacity']
+            },
+            layout: {
+                'icon-image': ['get', 'id'], // Usa o ID da feature como nome da imagem
+                'icon-size': ['*', ['get', 'size'], 0.02], // Converter tamanho em escala
+                'icon-rotate': ['get', 'rotation'],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true
+            }
+        });
+    }
+}
+
+async function loadMilitarySymbolImages(features) {
+    if (!features.military_symbols) return;
+    
+    for (const feature of features.military_symbols) {
+        if (feature.id && !map.hasImage(feature.id)) {
+            try {
+                // Regenerar a imagem do símbolo usando o generator
+                const symbolImage = await militarySymbolControl.symbolGenerator.generateSymbolImage(feature.properties);
+                map.addImage(feature.id, symbolImage);
+            } catch (error) {
+                console.error('Erro ao carregar imagem do símbolo militar:', feature.id, error);
+            }
+        }
+    }
+}
 
 function setupDrawLayers(features) {
     const draw = map._controls.find(control => control instanceof MapboxDraw);

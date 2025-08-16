@@ -1,4 +1,4 @@
-// js/controls_sig/layers/imagens_layer.js
+// Path: js\controls_sig\baselayers\imagens_layer.js
 export default {
     "version": 8,
     "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",

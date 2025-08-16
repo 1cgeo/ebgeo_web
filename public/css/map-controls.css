@@ -83,6 +83,10 @@
     top: 463px !important;
 }
 
+.military-symbol-control.controls-column-right {
+    top: 508px !important;
+}
+
 /* ===== ESTILOS BASE DOS CONTROLES ===== */
 .mapboxgl-ctrl-group {
     display: flex !important;

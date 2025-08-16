@@ -1,4 +1,4 @@
-// Path: js/controls_sig/occupied_front_tool/add_occupied_front_control.js
+// Path: js\controls_sig\occupied_front_tool\add_occupied_front_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 
 class AddOccupiedFrontControl {

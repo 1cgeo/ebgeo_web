@@ -1,4 +1,4 @@
-// js/config-loader.js - Script para aplicar configurações no HTML
+// Path: js\config-loader.js
 
 import config from './config.js';
 

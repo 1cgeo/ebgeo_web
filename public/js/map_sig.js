@@ -24,6 +24,7 @@ import AddEllipseControl from './controls_sig/ellipse_tool/add_ellipse_control.j
 import AddArrowControl from './controls_sig/arrow_tool/add_arrow_control.js';
 import AddBoundaryControl from './controls_sig/boundary_tool/add_boundary_control.js';
 import AddOccupiedFrontControl from './controls_sig/occupied_front_tool/add_occupied_front_control.js';
+import AddMilitarySymbolControl from './controls_sig/military_symbol_tool/add_military_symbol_control.js';
 
 //-----------------------------------------------
 // CONTROLES
@@ -54,6 +55,7 @@ const ellipseControl = new AddEllipseControl(toolManager);
 const arrowControl = new AddArrowControl(toolManager);
 const boundaryControl = new AddBoundaryControl(toolManager);
 const occupiedFrontControl = new AddOccupiedFrontControl(toolManager);
+const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
 
 selectionManager.setDrawControl(drawControl);
 selectionManager.setTextControl(textControl);
@@ -65,6 +67,7 @@ selectionManager.setEllipseControl(ellipseControl);
 selectionManager.setArrowControl(arrowControl);
 selectionManager.setBoundaryControl(boundaryControl);
 selectionManager.setOccupiedFrontControl(occupiedFrontControl);
+selectionManager.setMilitarySymbolControl(militarySymbolControl);
 
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
@@ -118,6 +121,7 @@ map.addControl(ellipseControl, 'top-right');
 map.addControl(arrowControl, 'top-right');
 map.addControl(boundaryControl, 'top-right');
 map.addControl(occupiedFrontControl, 'top-right');
+map.addControl(militarySymbolControl, 'top-right');
 
 //-----------------------------------------------
 // ATALHOS DE TECLADO
@@ -150,6 +154,7 @@ document.addEventListener('keydown', (e) => {
             }
             break;
         case 'y':
+        case 'Y':
             if (e.ctrlKey && !e.shiftKey) {
                 e.preventDefault();
                 if (redoLastAction()) {
@@ -213,8 +218,8 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             toolManager.setActiveTool(arrowControl);
             break;
-        case 'b':
-        case 'B':
+        case 'd':
+        case 'D':
             e.preventDefault();
             toolManager.setActiveTool(boundaryControl);
             break;
@@ -222,6 +227,11 @@ document.addEventListener('keydown', (e) => {
         case 'F':
             e.preventDefault();
             toolManager.setActiveTool(occupiedFrontControl);
+            break;
+        case 'q':
+        case 'Q':
+            e.preventDefault();
+            toolManager.setActiveTool(militarySymbolControl);
             break;
     }
 });

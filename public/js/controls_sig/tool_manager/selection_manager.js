@@ -13,6 +13,7 @@ class SelectionManager {
         this.arrowControl = null;
         this.boundaryControl = null;
         this.occupiedFrontControl = null;
+        this.militarySymbolControl = null;
         this.selectedDrawFeatures = new Map();
         this.selectedTextFeatures = new Map();
         this.selectedImageFeatures = new Map();
@@ -23,6 +24,7 @@ class SelectionManager {
         this.selectedArrowFeatures = new Map();
         this.selectedBoundaryFeatures = new Map();
         this.selectedOccupiedFrontFeatures = new Map();
+        this.selectedMilitarySymbolFeatures = new Map();
 
         this.setupEventListeners();
     }
@@ -75,6 +77,11 @@ class SelectionManager {
         this.occupiedFrontControl = occupiedFrontControl;
     }
 
+    setMilitarySymbolControl(militarySymbolControl) {
+        this.militarySymbolControl = militarySymbolControl;
+    }
+
+
     setupEventListeners = () => {
         this.map.on('click', this.handleMapClick);
         this.map.on('click', 'circle-fill-layer', this.handleElementClick);
@@ -88,6 +95,7 @@ class SelectionManager {
         this.map.on('click', 'arrow-fill-layer', this.handleElementClick);
         this.map.on('click', 'occupied-front-layer', this.handleElementClick);
         this.map.on('click', 'boundary-main-layer', this.handleElementClick);
+        this.map.on('click', 'military-symbols-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
         this.map.on('click', 'text-layer', this.handleElementClick);
     }
@@ -168,6 +176,13 @@ class SelectionManager {
         );
         if (ellipseFeature) return { ...ellipseFeature, toolType: 'ellipse' };
 
+        // Look for military symbol features
+        const militarySymbolFeature = features.find(f =>
+            (f.source === 'military-symbols' || f.layer?.id === 'military-symbols-layer') &&
+            f.properties.source === 'military-symbols'
+        );
+        if (militarySymbolFeature) return { ...militarySymbolFeature, toolType: 'military-symbol' };
+
         // Look for other custom tool features
         const textFeature = features.find(f =>
             (f.source === 'texts' || f.layer?.id === 'text-layer') &&
@@ -229,6 +244,8 @@ class SelectionManager {
                 return this.selectedBoundaryFeatures.has(featureId);
             case 'occupied_front':
                 return this.selectedOccupiedFrontFeatures.has(featureId);
+            case 'military-symbol':
+                return this.selectedMilitarySymbolFeatures.has(featureId);
             case 'text':
                 return this.selectedTextFeatures.has(featureId);
             case 'image':
@@ -282,6 +299,10 @@ class SelectionManager {
                     // Trigger transition to editing mode in boundary control
                     this.occupiedFrontControl.onFeatureSelected?.(selectedFeature);
                 }
+                break;
+            case 'military-symbol':
+                // Military symbols don't have editing mode like other tools
+                // They are just selected for property modification
                 break;
         }
     }
@@ -398,6 +419,8 @@ class SelectionManager {
                 return this.selectedBoundaryFeatures.has(featureId);
             case 'occupied_front':
                 return this.selectedOccupiedFrontFeatures.has(featureId);
+            case 'military-symbols':
+                return this.selectedMilitarySymbolFeatures.has(featureId);
             default:
                 return false;
         }
@@ -421,6 +444,9 @@ class SelectionManager {
             case 'occupied_front':
                 sourceName = 'occupied_fronts';
                 break;
+            case 'military-symbols':
+                sourceName = 'military-symbols';
+                break;
             default:
                 return null;
         }
@@ -443,7 +469,8 @@ class SelectionManager {
             'ellipse': ['center', 'majorRadius', 'minorRadius', 'bearing'],
             'arrow': ['baseCoordinates'],
             'boundary': ['center'],
-            'occupied_front': ['baseCoordinates']
+            'occupied_front': ['baseCoordinates'],
+            'military-symbols': ['sidc', 'affiliation', 'dimension', 'mainIcon', 'echelon']
         };
 
         const relevantProps = criticalProps[source] || [];
@@ -503,6 +530,9 @@ class SelectionManager {
             case 'occupied_front':
                 targetMap = this.selectedOccupiedFrontFeatures;
                 break;
+            case 'military-symbols':
+                targetMap = this.selectedMilitarySymbolFeatures;
+                break;
             default:
                 console.error('Invalid source:', source);
                 return;
@@ -526,12 +556,13 @@ class SelectionManager {
             if (source === 'occupied_front') {
                 this.occupiedFrontControl.onFeatureDeselected?.(feature);
             }
+            // Military symbols don't need special deselection handling
         } else if (!targetMap.has(featureId)) {
             // Select feature
             let featureToStore = feature;
 
             // For problematic features, create optimized hybrid feature
-            if (['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front'].includes(source)) {
+            if (['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front', 'military-symbols'].includes(source)) {
                 const completeFeature = this.getCompleteFeatureFromSource(source, featureId);
 
                 if (completeFeature) {
@@ -557,6 +588,7 @@ class SelectionManager {
             if (source === 'occupied_front') {
                 this.occupiedFrontControl.onFeatureSelected?.(featureToStore);
             }
+            // Military symbols don't need special selection handling
         }
     }
 
@@ -579,6 +611,7 @@ class SelectionManager {
         this.selectedArrowFeatures.clear();
         this.selectedBoundaryFeatures.clear();
         this.selectedOccupiedFrontFeatures.clear();
+        this.selectedMilitarySymbolFeatures.clear();
 
         if (forceDraw && !this.drawControl.isActive) {
             this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
@@ -595,7 +628,7 @@ class SelectionManager {
         this.arrowControl.onGlobalDeselect();
         this.boundaryControl.onGlobalDeselect();
         this.occupiedFrontControl.onGlobalDeselect();
-
+        // Military symbols don't need special global deselect handling
     }
 
     getAllSelectedFeatures() {
@@ -610,6 +643,7 @@ class SelectionManager {
             ...this.selectedArrowFeatures.values(),
             ...this.selectedBoundaryFeatures.values(),
             ...this.selectedOccupiedFrontFeatures.values(),
+            ...this.selectedMilitarySymbolFeatures.values(),
         ];
     }
 
@@ -634,6 +668,7 @@ class SelectionManager {
         if (this.arrowControl.isActive) return this.arrowControl;
         if (this.boundaryControl.isActive) return this.boundaryControl;
         if (this.occupiedFrontControl.isActive) return this.occupiedFrontControl;
+        if (this.militarySymbolControl && this.militarySymbolControl.isActive) return this.militarySymbolControl;
         return null;
     }
 
@@ -648,6 +683,7 @@ class SelectionManager {
         this.arrowControl.deleteFeatures([...this.selectedArrowFeatures.values()]);
         this.boundaryControl.deleteFeatures([...this.selectedBoundaryFeatures.values()]);
         this.occupiedFrontControl.deleteFeatures([...this.selectedOccupiedFrontFeatures.values()]);
+        this.militarySymbolControl.deleteFeatures([...this.selectedMilitarySymbolFeatures.values()]);
 
         this.deselectAllFeatures(true);
     }
@@ -663,6 +699,7 @@ class SelectionManager {
         this.arrowControl.updateFeatures([...this.selectedArrowFeatures.values()], true);
         this.boundaryControl.updateFeatures([...this.selectedBoundaryFeatures.values()], true);
         this.occupiedFrontControl.updateFeatures([...this.selectedOccupiedFrontFeatures.values()], true);
+        this.militarySymbolControl.updateFeatures([...this.selectedMilitarySymbolFeatures.values()], true);
     }
 }
 

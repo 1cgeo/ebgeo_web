@@ -1,4 +1,4 @@
-// js/controls_sig/base_layer_control.js
+// Path: js\controls_sig\base_layer_control.js
 import { setBaseLayer } from './store.js';
 import cartaTopografica from './baselayers/carta_topografica.js';
 import cartaOrtoimagem from './baselayers/carta_ortoimagem.js';

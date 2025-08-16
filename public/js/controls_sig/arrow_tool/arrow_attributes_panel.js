@@ -1,4 +1,4 @@
-// js/controls_sig/arrow_tool/arrow_attributes_panel.js
+// Path: js\controls_sig\arrow_tool\arrow_attributes_panel.js
 export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;
 

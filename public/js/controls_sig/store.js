@@ -34,7 +34,8 @@ const getEmptyMapData = () => ({
         ellipses: [],
         arrows: [],
         boundarys: [],
-        occupied_fronts: []
+        occupied_fronts: [],
+        military_symbols: []
     },
     zoom: null,
     center_lat: null,
@@ -194,6 +195,8 @@ function getFeatureType(feature) {
             return 'boundarys';
         case 'occupied_front':
             return 'occupied_fronts';
+        case 'military_symbol':
+            return 'military_symbols';
         default:
             return feature.geometry.type.toLowerCase() + 's';
     }
