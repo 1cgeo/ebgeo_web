@@ -86,6 +86,7 @@ class SelectionManager {
         this.map.on('click', 'los-layer', this.handleElementClick);
         this.map.on('click', 'arrow-layer', this.handleElementClick);
         this.map.on('click', 'arrow-fill-layer', this.handleElementClick);
+        this.map.on('click', 'occupied-front-layer', this.handleElementClick);
         this.map.on('click', 'boundary-main-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
         this.map.on('click', 'text-layer', this.handleElementClick);

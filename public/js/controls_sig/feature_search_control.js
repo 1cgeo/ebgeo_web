@@ -25,7 +25,12 @@ class FeatureSearchControl {
       this._container.appendChild(this._suggestionsList);
   
       this._input.addEventListener('input', this._debounce(this._getSuggestions.bind(this), 300));
-      this._input.addEventListener('focusout', () => {
+      this._input.addEventListener('focus', () => {
+        if (this._input.value.length >= 3) {
+          this._getSuggestions();
+        }
+      });
+      this._input.addEventListener('blur', () => {
         setTimeout(() => {
           this._suggestionsList.style.display = 'none';
         }, 200);
@@ -43,36 +48,77 @@ class FeatureSearchControl {
     }
   
     async _getSuggestions() {
-      const query = this._input.value;
+      const query = this._input.value.trim();
       if (query.length < 3) {
         this._suggestionsList.style.display = 'none';
         return;
       }
   
       try {
+        // Adicionar indicador de carregamento
+        this._container.classList.add('searching');
+        
         const center = this._map.getCenter();
         const response = await fetch(`${this._apiUrl}?q=${encodeURIComponent(query)}&lat=${center.lat}&lon=${center.lng}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
         this._displaySuggestions(data);
+        
       } catch (error) {
         console.error('Error fetching suggestions:', error);
+        this._displayError();
+      } finally {
+        // Remover indicador de carregamento
+        this._container.classList.remove('searching');
       }
     }
   
     _displaySuggestions(suggestions) {
       this._suggestionsList.innerHTML = '';
-      if (suggestions.length === 0) {
+      
+      if (!suggestions || suggestions.length === 0) {
         this._suggestionsList.style.display = 'none';
         return;
       }
   
       suggestions.forEach(suggestion => {
         const li = document.createElement('li');
+        li.className = 'feature-search-suggestion';
         li.innerHTML = `<strong>${suggestion.tipo}:</strong> ${suggestion.nome} (${suggestion.municipio}, ${suggestion.estado})`;
-        li.addEventListener('click', () => this._selectFeature(suggestion));
+        
+        li.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this._selectFeature(suggestion);
+        });
+        
+        li.addEventListener('mouseenter', () => {
+          li.style.backgroundColor = 'rgba(80, 141, 78, 0.1)';
+        });
+        
+        li.addEventListener('mouseleave', () => {
+          li.style.backgroundColor = '';
+        });
+        
         this._suggestionsList.appendChild(li);
       });
   
+      // Mostrar dropdown
+      this._suggestionsList.style.display = 'block';
+    }
+    
+    _displayError() {
+      this._suggestionsList.innerHTML = '';
+      const li = document.createElement('li');
+      li.className = 'feature-search-suggestion error';
+      li.innerHTML = '<strong>Erro:</strong> Não foi possível buscar sugestões';
+      li.style.color = '#dc3545';
+      li.style.cursor = 'default';
+      this._suggestionsList.appendChild(li);
       this._suggestionsList.style.display = 'block';
     }
   
@@ -82,31 +128,46 @@ class FeatureSearchControl {
   
       this._uiManager.saveChangesAndClosePanel();
   
+      // Remover marcador anterior se existir
+      this.removeMarker();
+      
+      // Criar novo marcador
       this._marker = new maplibregl.Marker()
-      .setLngLat([feature.longitude, feature.latitude])
-      .addTo(this._map);
+        .setLngLat([feature.longitude, feature.latitude])
+        .addTo(this._map);
   
+      // Fazer zoom para a localização
       this._map.flyTo({
         center: [feature.longitude, feature.latitude],
         zoom: 14,
         essential: true
       });
 
+      // Mostrar painel com informações da feature
       this._uiManager.showFeatureSearchPanel(feature);
     }
   
     onRemove() {
-      this._container.parentNode.removeChild(this._container);
+      if (this._container && this._container.parentNode) {
+        this._container.parentNode.removeChild(this._container);
+      }
       this.removeMarker();
       this._map = undefined;
-  }
+    }
 
     removeMarker() {
       if (this._marker) {
-          this._marker.remove();
-          this._marker = null;
+        this._marker.remove();
+        this._marker = null;
       }
-  }
-  }
+    }
+    
+    // Método público para limpar a busca
+    clearSearch() {
+      this._input.value = '';
+      this._suggestionsList.style.display = 'none';
+      this.removeMarker();
+    }
+}
   
-  export default FeatureSearchControl;
+export default FeatureSearchControl;

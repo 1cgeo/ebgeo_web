@@ -134,7 +134,7 @@
     transform: scale(0.9);
 }
 
-/* ===== FEATURE SEARCH PANEL ===== */
+/* ===== FEATURE SEARCH PANEL - CORREÇÃO OVERFLOW ===== */
 .feature-search-panel {
     position: absolute;
     bottom: 10px;
@@ -149,6 +149,11 @@
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
     z-index: 100;
     animation: slideInFromRight 0.3s ease;
+    
+    /* CORREÇÃO: Prevenir overflow horizontal */
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+    word-wrap: break-word !important;
 }
 
 .feature-search-panel h3 {
@@ -158,12 +163,22 @@
     font-weight: 600;
     border-bottom: 2px solid var(--primary-color);
     padding-bottom: 5px;
+    
+    /* CORREÇÃO: Garantir que não vaze */
+    width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .feature-search-panel ul {
     list-style: none;
     margin: 0;
     padding: 0;
+    
+    /* CORREÇÃO: Controlar largura da lista */
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .feature-search-panel li {
@@ -172,6 +187,15 @@
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
     font-size: 14px;
     line-height: 1.4;
+    
+    /* CORREÇÃO: Quebra de texto e controle de largura */
+    width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+    hyphens: auto;
+    white-space: normal;
 }
 
 .feature-search-panel li:last-child {
@@ -182,6 +206,12 @@
 .feature-search-panel strong {
     color: var(--primary-color);
     font-weight: 600;
+    
+    /* CORREÇÃO: Permitir quebra em elementos strong também */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    display: inline;
+    max-width: 100%;
 }
 
 /* ===== BOTÃO DE FECHAR DO FEATURE SEARCH ===== */
@@ -196,7 +226,10 @@
     font-weight: 500;
     margin-top: 15px;
     transition: all 0.2s ease;
+    
+    /* CORREÇÃO: Garantir que o botão não vaze */
     width: 100%;
+    box-sizing: border-box;
 }
 
 .feature-search-panel button:hover {
@@ -266,6 +299,21 @@
     font-weight: 600;
     display: inline-block;
     min-width: 120px;
+}
+
+.vector-tile-info-panel button {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.vector-tile-info-panel button:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.vector-tile-info-panel button:active {
+    transform: translateY(0);
 }
 
 /* ===== FEATURE SEARCH CONTROL ===== */
@@ -367,12 +415,11 @@
     transform: translateY(0) !important;
 }
 
-/* Dropdown de sugestões com posicionamento relativo */
+/* CORREÇÃO: Dropdown de sugestões com posicionamento fixo simples */
 .feature-search-suggestions {
-    position: absolute !important;
-    top: calc(100% + 8px) !important;
-    left: 0 !important;
-    right: 0 !important;
+    position: fixed !important;
+    top: 45px !important; /* 60px (control top) + ~40px (control height) + 8px gap */
+    right: 0px !important; /* Mesmo right do control */
     background: white !important;
     border: 1px solid rgba(0, 0, 0, 0.08) !important;
     border-radius: 12px !important;
@@ -381,29 +428,44 @@
         0 4px 6px rgba(0, 0, 0, 0.05) !important;
     max-height: 250px !important;
     overflow-y: auto !important;
-    z-index: 1001 !important;
-    display: none !important;
+    z-index: 10000 !important;
+    display: none;
+    list-style: none !important;
+    padding: 8px 0 !important;
+    margin: 0 !important;
+    min-width: 320px !important;
+    max-width: 500px !important;
     
     /* Animação de entrada */
-    animation: slideDown 0.2s ease !important;
+    opacity: 0 !important;
+    transform: translateY(-10px) !important;
+    transition: all 0.2s ease !important;
 }
 
-/* Itens de sugestão melhorados */
+/* CORREÇÃO: Estado visível do dropdown */
+.feature-search-suggestions[style*="block"] {
+    opacity: 1 !important;
+    transform: translateY(0) !important;
+    animation: slideDown 0.2s ease forwards !important;
+}
+
+/* CORREÇÃO: Itens de sugestão melhorados */
 .feature-search-suggestion {
     padding: 12px 16px !important;
     cursor: pointer !important;
     font-size: 14px !important;
     border-bottom: 1px solid rgba(0, 0, 0, 0.04) !important;
     transition: all 0.15s ease !important;
+    display: block !important;
     
     /* Typography */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
     line-height: 1.5 !important;
+    color: #333 !important;
 }
 
 .feature-search-suggestion:hover {
-    background: linear-gradient(90deg, rgba(80, 141, 78, 0.05), rgba(80, 141, 78, 0.02)) !important;
-    transform: translateX(4px) !important;
+    background: linear-gradient(90deg, rgba(80, 141, 78, 0.08), rgba(80, 141, 78, 0.04)) !important;
 }
 
 .feature-search-suggestion:last-child {
@@ -415,51 +477,37 @@
     font-weight: 600 !important;
 }
 
-/* ===== ANIMAÇÕES ===== */
-@keyframes slideInFromLeft {
-    from {
-        transform: translateX(-100%);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
+/* Estado de erro para sugestões */
+.feature-search-suggestion.error {
+    color: #dc3545 !important;
+    cursor: default !important;
 }
 
-@keyframes slideInFromRight {
-    from {
-        transform: translateX(100%);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
+.feature-search-suggestion.error:hover {
+    background: rgba(220, 53, 69, 0.05) !important;
 }
 
-@keyframes fadeInScale {
-    from {
-        transform: scale(0.9);
-        opacity: 0;
-    }
-    to {
-        transform: scale(1);
-        opacity: 1;
-    }
+/* Estado de carregamento */
+.feature-search-control.searching .feature-search-input {
+    opacity: 0.7 !important;
 }
 
-@keyframes pulse {
-    0%, 100% { 
-        opacity: 1; 
-        transform: scale(1);
-    }
-    50% { 
-        opacity: 0.8; 
-        transform: scale(0.98);
-    }
+.feature-search-control.searching::after {
+    content: '' !important;
+    position: absolute !important;
+    right: 12px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    width: 16px !important;
+    height: 16px !important;
+    border: 2px solid #e0e0e0 !important;
+    border-top: 2px solid var(--primary-color) !important;
+    border-radius: 50% !important;
+    animation: spin 1s linear infinite !important;
+    z-index: 10 !important;
 }
 
+/* ===== ANIMAÇÕES CORRIGIDAS ===== */
 @keyframes slideDown {
     from {
         opacity: 0;
@@ -471,10 +519,63 @@
     }
 }
 
-.feature-search-control.searching .feature-search-button {
-    background: linear-gradient(135deg, #a0aec0, #718096) !important;
-    cursor: not-allowed !important;
-    animation: pulse 1.5s infinite !important;
+@keyframes spin {
+    0% { transform: translateY(-50%) rotate(0deg); }
+    100% { transform: translateY(-50%) rotate(360deg); }
+}
+
+/* ===== SCROLLBARS CUSTOMIZADOS ===== */
+.feature-search-suggestions::-webkit-scrollbar {
+    width: 6px;
+}
+
+.feature-search-suggestions::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 3px;
+}
+
+.feature-search-suggestions::-webkit-scrollbar-thumb {
+    background-color: var(--primary-color);
+    border-radius: 3px;
+}
+
+.feature-search-suggestions::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-dark);
+}
+
+/* ===== RESPONSIVIDADE MOBILE ===== */
+@media (max-width: 768px) {
+    /* Feature Search Control mobile */
+    .feature-search-control {
+        top: 5px !important;
+        right: 5px !important;
+        left: 45px !important;
+        padding: 6px 8px !important;
+        min-width: auto !important;
+        max-width: none !important;
+        width: calc(100vw - 55px) !important;
+    }
+
+    .feature-search-input {
+        font-size: 12px !important;
+        padding: 8px 10px !important;
+    }
+
+    .feature-search-suggestions {
+        top: 45px !important; /* 5px (control top mobile) + ~32px (control height mobile) + 8px gap */
+        right: 5px !important; /* Mesmo right do control mobile */
+        left: 45px !important; /* Mesmo left do control mobile */
+        max-height: 150px !important;
+        font-size: 12px !important;
+        min-width: auto !important;
+        max-width: none !important;
+        width: calc(100vw - 55px) !important;
+    }
+
+    .feature-search-suggestion {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }
 }
 
 /* ===== RESPONSIVIDADE MOBILE ===== */
@@ -509,23 +610,6 @@
         font-size: 14px;
     }
 
-    /* Feature Search Panel mobile */
-    .feature-search-panel {
-        left: 10px;
-        right: 10px;
-        bottom: 10px;
-        min-width: auto;
-        padding: 12px;
-    }
-
-    .feature-search-panel h3 {
-        font-size: 14px;
-    }
-
-    .feature-search-panel li {
-        font-size: 13px;
-    }
-
     /* Vector Tile Info mobile */
     .vector-tile-info-panel {
         left: 10px;
@@ -534,34 +618,6 @@
         min-width: auto;
         max-height: 300px;
         padding: 12px;
-    }
-
-    /* Feature Search Control mobile */
-    .feature-search-control {
-        top: 5px;
-        right: 5px;
-        left: 45px;
-        padding: 6px 8px;
-    }
-
-    .feature-search-input {
-        width: 100%;
-        font-size: 12px;
-        padding: 5px 8px;
-    }
-
-    .feature-search-button {
-        font-size: 12px;
-        padding: 5px 8px;
-    }
-
-    .feature-search-suggestions {
-        max-height: 150px;
-    }
-
-    .feature-search-suggestion {
-        padding: 6px 8px;
-        font-size: 12px;
     }
 }
 

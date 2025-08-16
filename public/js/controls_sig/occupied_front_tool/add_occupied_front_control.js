@@ -345,6 +345,8 @@ class AddOccupiedFrontControl {
 
             this.drawPoints = [];
             this.toolManager.setActiveTool(null);
+            this.selectionManager.toggleFeatureSelection('occupied_front', featureId, feature);
+            this.selectionManager.updateUI();
         } catch (error) {
             console.error('Erro ao criar frente ocupada:', error);
         }
@@ -884,17 +886,17 @@ class AddOccupiedFrontControl {
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
-        for (const feature of features) {
-            if (initialPropertiesMap.has(feature.id)) {
-                const originalProps = initialPropertiesMap.get(feature.id);
-                feature.properties = { ...originalProps };
-                feature.geometry = this.createOccupiedFrontGeometry(feature.properties.baseCoordinates);
-                await updateFeature('occupied_fronts', feature);
-            }
-        }
-        this.updateMapSource();
-    }
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.id));
 
+            // Regenerar geometria com propriedades originais
+            f.geometry = this.createOccupiedFrontGeometry(f.properties.baseCoordinates);
+        });
+
+        // Usar o método updateFeatures que já existe e funciona corretamente
+        await this.updateFeatures(features, true, true);
+    }
+    
     deleteFeatures = async (features) => {
         if (!features || features.length === 0) return;
 

@@ -59,7 +59,7 @@ export default [
         'paint': {
             'line-color': ['coalesce', ['get', 'user_color'], '#3bb2d0'],
             'line-opacity': ['coalesce', ['get', 'user_opacity'], 0.5],
-            'line-width': ['coalesce', ['get', 'user_size'], 4]
+            'line-width': ['coalesce', ['get', 'user_size'], 4] 
         }
     },
     // POLIGONO ATIVO

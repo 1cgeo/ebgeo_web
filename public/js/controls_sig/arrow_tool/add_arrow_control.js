@@ -28,7 +28,7 @@ class AddArrowControl {
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
         this.geometryDebounceTimer = null;
-        
+
         // ✅ EDIT PERFORMANCE: Same pattern as circle
         this.editRafId = null;
         this.pendingEditUpdate = false;
@@ -44,6 +44,7 @@ class AddArrowControl {
         fillOpacity: 0.8,
         lineOpacity: 1.0,
         headLengthRatio: 1.5,
+        showArrowHead: true,  // ✅ NOVA PROPRIEDADE
         airmobile: false,
         airmobilePosition: 0.7,
         source: 'arrow',
@@ -282,6 +283,7 @@ class AddArrowControl {
                 baseCoordinates: this.lastPreviewPoints,
                 width: AddArrowControl.DEFAULT_PROPERTIES.width,
                 headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
+                showArrowHead: AddArrowControl.DEFAULT_PROPERTIES.showArrowHead,  // ✅ NOVA PROPRIEDADE
                 airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
                 airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
             });
@@ -345,6 +347,7 @@ class AddArrowControl {
                 fillOpacity: AddArrowControl.DEFAULT_PROPERTIES.fillOpacity,
                 lineOpacity: AddArrowControl.DEFAULT_PROPERTIES.lineOpacity,
                 headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
+                showArrowHead: AddArrowControl.DEFAULT_PROPERTIES.showArrowHead,  // ✅ NOVA PROPRIEDADE
                 airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
                 airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
             },
@@ -352,6 +355,7 @@ class AddArrowControl {
                 baseCoordinates: this.drawPoints,
                 width: AddArrowControl.DEFAULT_PROPERTIES.width,
                 headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
+                showArrowHead: AddArrowControl.DEFAULT_PROPERTIES.showArrowHead,  // ✅ NOVA PROPRIEDADE
                 airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
                 airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
             })
@@ -367,10 +371,8 @@ class AddArrowControl {
             this.drawPoints = [];
             this.toolManager.setActiveTool(null);
 
-            if (this.selectionManager) {
-                this.selectionManager.toggleFeatureSelection('arrow', feature.id, feature);
-                this.selectionManager.updateUI();
-            }
+            this.selectionManager.toggleFeatureSelection('arrow', feature.id, feature);
+            this.selectionManager.updateUI();
         } catch (error) {
             console.error('Erro ao criar seta:', error);
         }
@@ -388,6 +390,7 @@ class AddArrowControl {
         const coords = this.normalizeBaseCoordinates(properties.baseCoordinates);
         const width = properties.width || 1000;
         const headLengthRatio = properties.headLengthRatio || 1.5;
+        const showArrowHead = properties.showArrowHead !== false;  // ✅ DEFAULT TRUE
         const airmobile = properties.airmobile || false;
         const airmobilePosition = properties.airmobilePosition || 0.7;
 
@@ -403,11 +406,11 @@ class AddArrowControl {
 
             // ===== MODO AEROMÓVEL/AEROTERRESTRE =====
             if (airmobile) {
-                return this.generateAirmobileArrowGeometry(mainLine, width, headLengthRatio, airmobilePosition);
+                return this.generateAirmobileArrowGeometry(mainLine, width, headLengthRatio, airmobilePosition, showArrowHead);
             }
 
             // ===== MODO NORMAL =====
-            return this.generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth);
+            return this.generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth, showArrowHead);
 
         } catch (error) {
             console.warn('Erro ao gerar geometria da seta:', error);
@@ -418,7 +421,7 @@ class AddArrowControl {
         }
     }
 
-    generateNormalArrowGeometry = (mainLine, width, headLengthRatio, absHalfBodyWidth) => {
+    generateNormalArrowGeometry = (mainLine, width, headLengthRatio, absHalfBodyWidth, showArrowHead) => {
         const coords = mainLine.geometry.coordinates;
 
         // 1. Criar corpo da seta (linhas paralelas)
@@ -428,6 +431,26 @@ class AddArrowControl {
         const p_last = coords[coords.length - 1];
         const p_second_last = coords[coords.length - 2];
         const bearing = turf.bearing(p_second_last, p_last);
+
+        // ✅ MODIFICAÇÃO: Se não mostrar cabeça, retornar apenas o corpo retangular
+        if (!showArrowHead) {
+            const arrowPolygonCoords = [];
+            
+            // Lado esquerdo do corpo (do início ao fim)
+            arrowPolygonCoords.push(...leftLine.geometry.coordinates);
+            
+            // Lado direito do corpo (do fim ao início - reverso)
+            const rightLineReversed = [...rightLine.geometry.coordinates].reverse();
+            arrowPolygonCoords.push(...rightLineReversed);
+            
+            // Fechar o polígono
+            arrowPolygonCoords.push(arrowPolygonCoords[0]);
+
+            return {
+                type: 'Polygon',
+                coordinates: [arrowPolygonCoords]
+            };
+        }
 
         // 2. Definir proporções da cabeça baseado na largura absoluta
         const absHeadBaseWidth = Math.abs(width * 2.5);
@@ -446,7 +469,7 @@ class AddArrowControl {
         const bodyEndLeft = leftLine.geometry.coordinates[leftLine.geometry.coordinates.length - 1];
         const bodyEndRight = rightLine.geometry.coordinates[rightLine.geometry.coordinates.length - 1];
 
-        // 6. CRIAR POLÍGONO NORMAL
+        // 6. CRIAR POLÍGONO NORMAL (com cabeça)
         const arrowPolygonCoords = [];
 
         // Lado esquerdo do corpo (do início ao fim)
@@ -475,7 +498,7 @@ class AddArrowControl {
         };
     }
 
-    generateAirmobileArrowGeometry = (mainLine, width, headLengthRatio, airmobilePosition) => {
+    generateAirmobileArrowGeometry = (mainLine, width, headLengthRatio, airmobilePosition, showArrowHead) => {
         const coords = mainLine.geometry.coordinates;
         const absHalfBodyWidth = Math.abs(width / 2);
         const mainLineLength = turf.length(mainLine, { units: 'meters' });
@@ -509,7 +532,35 @@ class AddArrowControl {
             } else {
                 handleCoord = pointOnMainLine.geometry.coordinates;
             }
-            // 5. Calcular geometria da cabeça da seta
+
+            // ✅ MODIFICAÇÃO: Se não mostrar cabeça, retornar apenas o corpo cruzado
+            if (!showArrowHead) {
+                // PRIMEIRO POLÍGONO: Do início até o crossover
+                const polygon1Coords = [];
+                polygon1Coords.push(...[...left1.geometry.coordinates].slice(0, -1));
+                polygon1Coords.push(handleCoord);
+                const right1Reversed = [...right1.geometry.coordinates].reverse();
+                polygon1Coords.push(...right1Reversed.slice(1));
+                polygon1Coords.push(polygon1Coords[0]);
+
+                // SEGUNDO POLÍGONO: Do crossover até o fim (SEM cabeça triangular)
+                const polygon2Coords = [];
+                polygon2Coords.push(...[...left2.geometry.coordinates].slice(1));
+                const right2Reversed = [...right2.geometry.coordinates].reverse();
+                polygon2Coords.push(...right2Reversed.slice(0, -1));
+                polygon2Coords.push(handleCoord);
+                polygon2Coords.push(polygon2Coords[0]);
+
+                return {
+                    type: 'MultiPolygon',
+                    coordinates: [
+                        [polygon1Coords],
+                        [polygon2Coords]
+                    ]
+                };
+            }
+
+            // 5. Calcular geometria da cabeça da seta (quando showArrowHead = true)
             const p_last = coords[coords.length - 1];
             const p_second_last = coords[coords.length - 2];
             const bearing = turf.bearing(p_second_last, p_last);
@@ -573,7 +624,7 @@ class AddArrowControl {
         } catch (error) {
             console.warn('Erro na geometria aeromóvel, usando normal:', error);
             // Fallback para geometria normal
-            return this.generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth);
+            return this.generateNormalArrowGeometry(mainLine, width, headLengthRatio, absHalfBodyWidth, showArrowHead);
         }
     }
 
@@ -661,28 +712,31 @@ class AddArrowControl {
             }
         });
 
-        // 4. Handle de comprimento da cabeça (verde)
-        const headLengthRatio = feature.properties.headLengthRatio || 1.5;
-        const headLength = headBaseWidth * headLengthRatio;
-        const headTipPoint = turf.destination(lastPoint, headLength, bearing, { units: 'meters' });
+        // 4. Handle de comprimento da cabeça (verde) - ✅ APENAS SE showArrowHead = true
+        const showArrowHead = feature.properties.showArrowHead !== false;
+        if (showArrowHead) {
+            const headLengthRatio = feature.properties.headLengthRatio || 1.5;
+            const headLength = headBaseWidth * headLengthRatio;
+            const headTipPoint = turf.destination(lastPoint, headLength, bearing, { units: 'meters' });
 
-        const headLengthHandleId = `arrow-handle-${feature.id}-headlength`;
-        this.editHandleIds.add(headLengthHandleId);
+            const headLengthHandleId = `arrow-handle-${feature.id}-headlength`;
+            this.editHandleIds.add(headLengthHandleId);
 
-        handles.push({
-            type: 'Feature',
-            id: headLengthHandleId,
-            geometry: { type: 'Point', coordinates: headTipPoint.geometry.coordinates },
-            properties: {
-                role: 'handle',
-                handleType: 'headLength',
-                handleId: 'headLength',
-                featureId: feature.id,
-                mode: 'arrow_editing',
-                meta: 'vertex',
-                user_isEditingHandle: true
-            }
-        });
+            handles.push({
+                type: 'Feature',
+                id: headLengthHandleId,
+                geometry: { type: 'Point', coordinates: headTipPoint.geometry.coordinates },
+                properties: {
+                    role: 'handle',
+                    handleType: 'headLength',
+                    handleId: 'headLength',
+                    featureId: feature.id,
+                    mode: 'arrow_editing',
+                    meta: 'vertex',
+                    user_isEditingHandle: true
+                }
+            });
+        }
 
         // 5. Handle de posição do X aeromóvel (roxo) - REPLICANDO EXATAMENTE O EXEMPLO
         const airmobile = feature.properties.airmobile || false;
@@ -1058,7 +1112,7 @@ class AddArrowControl {
                 sourceFeature.properties.lineWidth = sourceFeature.properties.lineWidth || AddArrowControl.DEFAULT_PROPERTIES.lineWidth;
 
                 // ✅ Se alterar propriedades geométricas, recalcular geometria
-                if (property === 'width' || property === 'headLengthRatio' || property === 'airmobile' || property === 'airmobilePosition') {
+                if (property === 'width' || property === 'headLengthRatio' || property === 'showArrowHead' || property === 'airmobile' || property === 'airmobilePosition') {
                     const newGeometry = this.generateArrowGeometry(sourceFeature.properties);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
@@ -1115,6 +1169,9 @@ class AddArrowControl {
         const currentHeadRatio = feature.properties.headLengthRatio || 1.5;
         const initialHeadRatio = initialProperties.headLengthRatio || 1.5;
 
+        const currentShowHead = feature.properties.showArrowHead !== false;  // ✅ NOVA COMPARAÇÃO
+        const initialShowHead = initialProperties.showArrowHead !== false;
+
         const currentAirmobile = feature.properties.airmobile || false;
         const initialAirmobile = initialProperties.airmobile || false;
 
@@ -1128,6 +1185,7 @@ class AddArrowControl {
             feature.properties.fillOpacity !== initialProperties.fillOpacity ||
             feature.properties.width !== initialProperties.width ||
             currentHeadRatio !== initialHeadRatio ||
+            currentShowHead !== initialShowHead ||  // ✅ NOVA VERIFICAÇÃO
             currentAirmobile !== initialAirmobile ||
             currentAirmobilePosition !== initialAirmobilePosition ||
             JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
@@ -1144,15 +1202,15 @@ class AddArrowControl {
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
-        for (const feature of features) {
-            if (initialPropertiesMap.has(feature.id)) {
-                const originalProps = initialPropertiesMap.get(feature.id);
-                feature.properties = { ...originalProps };
-                feature.geometry = this.generateArrowGeometry(feature.properties);
-                await updateFeature('arrows', feature);
-            }
-        }
-        this.updateMapSource();
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+
+            // Regenerar geometria com propriedades originais
+            f.geometry = this.generateArrowGeometry(f.properties);
+        });
+
+        // Usar o método updateFeatures que já existe e funciona corretamente
+        await this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = async (features) => {

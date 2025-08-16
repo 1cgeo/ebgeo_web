@@ -6,6 +6,7 @@ import {
     formatCoordinates,
     getDisplayFormat
 } from './utilities/coordinate_converter.js';
+import { getTerrainElevation } from './terrain_control.js';
 
 class MouseCoordinatesControl {
     constructor(drawControl) {
@@ -19,6 +20,14 @@ class MouseCoordinatesControl {
         this._modal = null;
         this._currentCoordinates = { lat: 0, lng: 0 };
         this._drawControl = drawControl; // Referência ao DrawControl para criar pontos
+        
+        // Elevation properties
+        this._elevationEnabled = false;
+        this._terrainAvailable = false;
+        this._elevationButton = null;
+        this._currentElevation = null;
+        this._debounceTimer = null;
+        this._elevationAbortController = null;
     }
 
     onAdd(map) {
@@ -63,6 +72,14 @@ class MouseCoordinatesControl {
         copyButton.style.fontSize = '14px';
         copyButton.addEventListener('click', this._copyCoordinates.bind(this));
 
+        // Create elevation toggle button
+        this._elevationButton = document.createElement('div');
+        this._elevationButton.className = 'coordinates-button coordinates-elevation-button';
+        this._elevationButton.title = "Mostrar elevação (terreno necessário)";
+        this._elevationButton.innerHTML = `⛰️`;
+        this._elevationButton.style.fontSize = '14px';
+        this._elevationButton.addEventListener('click', this._toggleElevation.bind(this));
+
         // Create gear icon button
         const gearButton = document.createElement('div');
         gearButton.className = 'coordinates-button coordinates-gear-button';
@@ -106,6 +123,7 @@ class MouseCoordinatesControl {
 
         controlsContainer.appendChild(copyButton);
         controlsContainer.appendChild(flyToButton);
+        controlsContainer.appendChild(this._elevationButton);
         controlsContainer.appendChild(gearButton);
         this._innerContainer.appendChild(this._coordinatesText);
         this._innerContainer.appendChild(controlsContainer);
@@ -121,10 +139,87 @@ class MouseCoordinatesControl {
         // Bind mousemove event to update coordinates
         this._map.on('mousemove', this._onMouseMove.bind(this));
 
+        // Check terrain availability and setup elevation button
+        this._checkTerrainAvailability();
+
         // Initial coordinates display
         this._updateCoordinates(0, 0);
 
         return this._container;
+    }
+
+    async _checkTerrainAvailability() {
+        try {
+            // Test if terrain is available by querying a known coordinate
+            const testCoords = [0, 0];
+            await getTerrainElevation(this._map, testCoords);
+            this._terrainAvailable = true;
+            this._elevationButton.style.opacity = '1';
+            this._elevationButton.style.cursor = 'pointer';
+            this._elevationButton.title = "Mostrar/ocultar elevação";
+        } catch (error) {
+            console.warn('Terrain not available:', error);
+            this._terrainAvailable = false;
+            this._elevationButton.style.opacity = '0.3';
+            this._elevationButton.style.cursor = 'not-allowed';
+            this._elevationButton.title = "Elevação indisponível (terreno necessário)";
+        }
+    }
+
+    _toggleElevation() {
+        if (!this._terrainAvailable) {
+            return; // Don't toggle if terrain is not available
+        }
+
+        this._elevationEnabled = !this._elevationEnabled;
+        
+        // Update button appearance
+        if (this._elevationEnabled) {
+            this._elevationButton.style.backgroundColor = '#508D4E';
+            this._elevationButton.style.color = 'white';
+        } else {
+            this._elevationButton.style.backgroundColor = '';
+            this._elevationButton.style.color = '';
+            this._currentElevation = null;
+        }
+
+        // Update coordinates display immediately
+        this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
+    }
+
+    async _getElevationDebounced(lat, lng) {
+        // Cancel previous request
+        if (this._elevationAbortController) {
+            this._elevationAbortController.abort();
+        }
+
+        // Clear previous timer
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+        }
+
+        return new Promise((resolve) => {
+            this._debounceTimer = setTimeout(async () => {
+                try {
+                    this._elevationAbortController = new AbortController();
+                    const elevation = await getTerrainElevation(this._map, [lng, lat]);
+                    
+                    // Check if request was aborted
+                    if (this._elevationAbortController.signal.aborted) {
+                        return;
+                    }
+
+                    resolve(elevation);
+                } catch (error) {
+                    console.warn('Error getting elevation:', error);
+                    // Fallback: disable elevation on error
+                    this._elevationEnabled = false;
+                    this._elevationButton.style.backgroundColor = '';
+                    this._elevationButton.style.color = '';
+                    resolve(null);
+                }
+            }, 300); // 300ms debounce
+        });
     }
 
     _createFlyToModal() {
@@ -291,7 +386,28 @@ class MouseCoordinatesControl {
                 this._fallbackCopyTextToClipboard(textToCopy);
             });
         } else {
+            this._fallbackCopyTextToClipboard(textToCopy);
         }
+    }
+
+    _fallbackCopyTextToClipboard(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            document.execCommand('copy');
+            this._showCopyFeedback();
+        } catch (err) {
+            console.error('Error copying text:', err);
+        }
+        
+        document.body.removeChild(textArea);
     }
 
     _showCopyFeedback() {
@@ -387,8 +503,14 @@ class MouseCoordinatesControl {
         }
     }
 
-    _onMouseMove(e) {
+    async _onMouseMove(e) {
         this._currentCoordinates = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+        
+        // Get elevation if enabled
+        if (this._elevationEnabled && this._terrainAvailable) {
+            this._currentElevation = await this._getElevationDebounced(e.lngLat.lat, e.lngLat.lng);
+        }
+        
         this._updateCoordinates(e.lngLat.lat, e.lngLat.lng);
     }
 
@@ -403,6 +525,13 @@ class MouseCoordinatesControl {
                 span.textContent = `${part.label}: ${part.value}`;
                 this._coordinatesText.appendChild(span);
             });
+
+            // Add elevation if enabled and available
+            if (this._elevationEnabled && this._currentElevation !== null) {
+                const elevSpan = document.createElement('span');
+                elevSpan.textContent = `Elev: ${Math.round(this._currentElevation)}m`;
+                this._coordinatesText.appendChild(elevSpan);
+            }
         } catch (error) {
             console.error('Error converting coordinates:', error);
             // Fallback to lat/long if conversion fails
@@ -414,10 +543,25 @@ class MouseCoordinatesControl {
 
             this._coordinatesText.appendChild(latSpan);
             this._coordinatesText.appendChild(lngSpan);
+
+            // Add elevation in fallback too
+            if (this._elevationEnabled && this._currentElevation !== null) {
+                const elevSpan = document.createElement('span');
+                elevSpan.textContent = `Elev: ${Math.round(this._currentElevation)}m`;
+                this._coordinatesText.appendChild(elevSpan);
+            }
         }
     }
 
     onRemove() {
+        // Clean up timers and controllers
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+        }
+        if (this._elevationAbortController) {
+            this._elevationAbortController.abort();
+        }
+
         document.removeEventListener('click', this._closeFormatSelector);
         this._map.off('mousemove', this._onMouseMove);
 

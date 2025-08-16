@@ -9,19 +9,19 @@ class AddEllipseControl {
         this.map = toolManager.map;
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
-        
+
         // Drawing state
         this.isActive = false;
         this.drawingMode = null;
         this.drawPoints = [];
-        
+
         // 3-STATE SYSTEM (same as circle)
         // 1. deselected: Default state, no special interaction
         // 2. selected: Feature can be dragged via MoveHandler
         // 3. editing: Handle-based editing, feature drag disabled
         this.currentState = 'deselected';
         this.selectedFeature = null;
-        
+
         // Edit mode variables
         this.isDraggingHandle = false;
         this.activeHandle = null;
@@ -35,7 +35,7 @@ class AddEllipseControl {
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
-        
+
         // ✅ EDIT PERFORMANCE: Same pattern as circle
         this.editRafId = null;
         this.pendingEditUpdate = false;
@@ -106,7 +106,7 @@ class AddEllipseControl {
 
     updateButtonAppearance = () => {
         const iconSrc = this.isActive ?
-            './images/icon_ellipse_red.svg' : 
+            './images/icon_ellipse_red.svg' :
             './images/icon_ellipse_black.svg';
         $("#ellipse-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="ELLIPSE" />`);
     }
@@ -117,7 +117,7 @@ class AddEllipseControl {
         this.exitCurrentState();
         this.currentState = newState;
         this.selectedFeature = feature;
-        
+
         switch (newState) {
             case 'deselected':
                 this.enterDeselectedState();
@@ -159,7 +159,7 @@ class AddEllipseControl {
         this.selectedFeature = feature;
     }
 
-    exitSelectedState = () => {}
+    exitSelectedState = () => { }
 
     // State 3: EDITING (handle-based editing)
     enterEditingState = (feature) => {
@@ -219,7 +219,7 @@ class AddEllipseControl {
     onFeatureSelected = (feature) => {
         const featureId = feature.id || feature.properties.id;
         const isSameFeature = this.selectedFeature && this.selectedFeature.id === featureId;
-        
+
         if (isSameFeature && this.currentState === 'selected') {
             // Same feature selected again: SELECTED → EDITING
             this.transitionToState('editing', feature);
@@ -231,7 +231,7 @@ class AddEllipseControl {
 
     onFeatureDeselected = (feature) => {
         const featureId = feature.id || feature.properties.id;
-        
+
         if (this.selectedFeature && this.selectedFeature.id === featureId) {
             this.transitionToState('deselected');
         }
@@ -247,7 +247,7 @@ class AddEllipseControl {
     isEditingMode = () => {
         return this.currentState === 'editing';
     }
-    
+
     hasEditHandle = (featureId) => {
         return this.editHandleIds.has(featureId);
     }
@@ -256,14 +256,14 @@ class AddEllipseControl {
 
     handleMapClick = (e) => {
         if (!this.isActive) return;
-        
+
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
             console.warn('Coordenadas inválidas para elipse');
             return;
         }
 
         this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
-        
+
         if (this.drawPoints.length === 1) {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length === 2) {
@@ -278,7 +278,7 @@ class AddEllipseControl {
         if (this.drawPoints.length === 1) {
             this.lastPreviewCenter = this.drawPoints[0];
             this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
-            
+
             if (!this.pendingPreviewUpdate) {
                 this.pendingPreviewUpdate = true;
                 this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
@@ -296,14 +296,14 @@ class AddEllipseControl {
         // Calculate using same logic as original
         const majorRadius = this.calculateDistance(this.lastPreviewCenter, this.lastPreviewPosition, { units: 'kilometers' });
         const bearing = this.calculateBearing(this.lastPreviewCenter, this.lastPreviewPosition);
-        
+
         if (majorRadius >= 0.01) { // Minimum 10 meters
             // Light debouncing for geometry generation (same as circle)
             clearTimeout(this.geometryDebounceTimer);
             this.geometryDebounceTimer = setTimeout(() => {
                 const previewGeometry = this.generateEllipseGeometry(
-                    this.lastPreviewCenter, 
-                    majorRadius, 
+                    this.lastPreviewCenter,
+                    majorRadius,
                     majorRadius * 0.6, // Initial minor radius
                     bearing
                 );
@@ -318,7 +318,7 @@ class AddEllipseControl {
         this.map.getSource('ellipse-preview').setData({
             type: 'Feature',
             geometry: geometry,
-            properties: { 
+            properties: {
                 preview: true,
                 lineColor: AddEllipseControl.DEFAULT_PROPERTIES.lineColor,
                 fillColor: AddEllipseControl.DEFAULT_PROPERTIES.fillColor,
@@ -339,7 +339,7 @@ class AddEllipseControl {
     createFeature = async () => {
         const center = this.drawPoints[0];
         const majorAxisEnd = this.drawPoints[1];
-        
+
         // Use same calculations as HTML file
         const majorRadius = this.calculateDistance(center, majorAxisEnd, { units: 'kilometers' });
         const bearing = this.calculateBearing(center, majorAxisEnd);
@@ -367,13 +367,15 @@ class AddEllipseControl {
 
         try {
             await addFeature('ellipses', feature);
-            
+
             const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
             data.features.push(feature);
             this.map.getSource('ellipses').setData(data);
-            
+
             this.drawPoints = [];
             this.toolManager.setActiveTool(null);
+            this.selectionManager.toggleFeatureSelection('ellipse', featureId, feature);
+            this.selectionManager.updateUI();
         } catch (error) {
             console.error('Erro ao criar elipse:', error);
         }
@@ -384,12 +386,12 @@ class AddEllipseControl {
     createEditHandles = (feature) => {
         const handles = [];
         const center = this.normalizeCenter(feature.properties.center);
-        
+
         if (!center) {
             console.error('Não foi possível criar handles - center inválido');
             return;
         }
-        
+
         // CRITICAL FIX: Use original values (no swap) for handles like HTML example
         // The swap only affects the geometry, not the handle positions
         const majorRadius = feature.properties.majorRadius;
@@ -398,10 +400,10 @@ class AddEllipseControl {
 
         // Major axis handle (red) - follow HTML logic exactly
         const majorAxisEnd = turf.destination(center, majorRadius, bearing, { units: 'kilometers' });
-        
+
         const majorHandleId = `ellipse-handle-${feature.id}-major`;
         this.editHandleIds.add(majorHandleId);
-        
+
         handles.push({
             type: 'Feature',
             id: majorHandleId,
@@ -423,10 +425,10 @@ class AddEllipseControl {
         // Minor axis handle (blue) - perpendicular to major axis
         const perpendicularBearing = bearing + 90;
         const minorAxisEnd = turf.destination(center, minorRadius, perpendicularBearing, { units: 'kilometers' });
-        
+
         const minorHandleId = `ellipse-handle-${feature.id}-minor`;
         this.editHandleIds.add(minorHandleId);
-        
+
         handles.push({
             type: 'Feature',
             id: minorHandleId,
@@ -472,7 +474,7 @@ class AddEllipseControl {
     // Preview system for editing mode
     showEditPreview = (feature, majorHandlePosition, minorHandlePosition) => {
         const handles = [];
-        
+
         // Major handle at current position (RED)
         if (majorHandlePosition) {
             const majorHandleId = `ellipse-handle-${feature.id}-major`;
@@ -563,14 +565,14 @@ class AddEllipseControl {
 
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
-            
+
             if (handle.properties.handleType === 'vertex' || handle.properties.handleType === 'eccentricity') {
                 this.isDraggingHandle = true;
                 this.activeHandle = handle;
                 this.initialHandlePosition = [e.lngLat.lng, e.lngLat.lat];
                 this.map.dragPan.disable();
                 this.map.getCanvas().style.cursor = 'grabbing';
-                
+
                 this.previewFeature = JSON.parse(JSON.stringify(this.selectedFeature));
                 e.preventDefault();
             }
@@ -580,10 +582,10 @@ class AddEllipseControl {
     // ✅ OPTIMIZED: RAF-based edit updates (same pattern as circle)
     onEditMouseMove = (e) => {
         if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) return;
-        
+
         this.lastEditPosition = [e.lngLat.lng, e.lngLat.lat];
         this.lastEditHandleType = this.activeHandle.properties.handleType;
-        
+
         if (!this.pendingEditUpdate) {
             this.pendingEditUpdate = true;
             this.editRafId = requestAnimationFrame(this.performEditUpdate.bind(this));
@@ -617,7 +619,7 @@ class AddEllipseControl {
             this.selectedFeature.properties.minorRadius = this.previewFeature.properties.minorRadius;
             this.selectedFeature.properties.bearing = this.previewFeature.properties.bearing;
             this.selectedFeature.geometry = this.previewFeature.geometry;
-            
+
             // Reset drag state first
             this.isDraggingHandle = false;
             this.activeHandle = null;
@@ -626,7 +628,7 @@ class AddEllipseControl {
             this.previewFeature = null;
             this.map.dragPan.enable();
             this.map.getCanvas().style.cursor = '';
-            
+
             this.clearEditPreview();
             this.forceUpdateMainSource(finalFeature);
             this.createEditHandles(finalFeature);
@@ -638,9 +640,9 @@ class AddEllipseControl {
 
     updateMajorAxisPreview = (newPosition) => {
         if (!this.previewFeature) return;
-        
+
         const center = this.normalizeCenter(this.previewFeature.properties.center);
-        
+
         if (!center) {
             console.error('Center inválido, não é possível atualizar preview');
             return;
@@ -649,30 +651,30 @@ class AddEllipseControl {
         // Follow HTML logic exactly - use turf functions
         const newMajorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
         const newBearing = turf.bearing(center, newPosition);
-        
+
         if (newMajorRadius > 0.01) { // Minimum radius (0.01 km = 10 meters)
             this.previewFeature.properties.majorRadius = newMajorRadius;
             this.previewFeature.properties.bearing = newBearing;
             this.previewFeature.geometry = this.generateEllipseGeometry(
-                center, 
-                newMajorRadius, 
-                this.previewFeature.properties.minorRadius, 
+                center,
+                newMajorRadius,
+                this.previewFeature.properties.minorRadius,
                 newBearing
             );
-            
+
             // Calculate minor handle position using original values (no swap)
             const perpendicularBearing = newBearing + 90;
             const minorHandlePosition = turf.destination(center, this.previewFeature.properties.minorRadius, perpendicularBearing, { units: 'kilometers' });
-            
+
             this.showEditPreview(this.previewFeature, newPosition, minorHandlePosition.geometry.coordinates);
         }
     }
 
     updateMinorAxisPreview = (newPosition) => {
         if (!this.previewFeature) return;
-        
+
         const center = this.normalizeCenter(this.previewFeature.properties.center);
-        
+
         if (!center) {
             console.error('Center inválido, não é possível atualizar preview');
             return;
@@ -680,22 +682,22 @@ class AddEllipseControl {
 
         // Follow HTML logic exactly - use turf functions
         const newMinorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
-        
+
         if (newMinorRadius > 0.01) { // Minimum radius (0.01 km = 10 meters)
             this.previewFeature.properties.minorRadius = newMinorRadius;
             this.previewFeature.geometry = this.generateEllipseGeometry(
-                center, 
-                this.previewFeature.properties.majorRadius, 
-                newMinorRadius, 
+                center,
+                this.previewFeature.properties.majorRadius,
+                newMinorRadius,
                 this.previewFeature.properties.bearing
             );
-            
+
             // CRITICAL FIX: Calculate where the minor handle SHOULD be (not where mouse is)
             // Minor handle should always be at bearing + 90° from center
             const majorHandlePosition = turf.destination(center, this.previewFeature.properties.majorRadius, this.previewFeature.properties.bearing, { units: 'kilometers' });
             const perpendicularBearing = this.previewFeature.properties.bearing + 90;
             const minorHandlePosition = turf.destination(center, newMinorRadius, perpendicularBearing, { units: 'kilometers' });
-            
+
             this.showEditPreview(this.previewFeature, majorHandlePosition.geometry.coordinates, minorHandlePosition.geometry.coordinates);
         }
     }
@@ -743,12 +745,12 @@ class AddEllipseControl {
                 return null;
             }
         }
-        
+
         if (!Array.isArray(center) || center.length < 2) {
             console.error('Center inválido:', center);
             return null;
         }
-        
+
         return center;
     }
 
@@ -758,22 +760,22 @@ class AddEllipseControl {
         let actualMajorRadius = majorRadius;
         let actualMinorRadius = minorRadius;
         let actualBearing = bearing;
-        
+
         if (minorRadius > majorRadius) {
             actualMajorRadius = minorRadius;
             actualMinorRadius = majorRadius;
             actualBearing = bearing + 90; // Rotate 90 degrees
         }
 
-        const options = { 
+        const options = {
             angle: actualBearing - 90, // Align major axis with bearing direction (same as HTML)
             steps: 64,
-            units: 'kilometers' 
+            units: 'kilometers'
         };
-        
+
         // Use turf.ellipse exactly like the HTML example
         const ellipsePolygon = turf.ellipse(center, actualMajorRadius, actualMinorRadius, options);
-        
+
         return ellipsePolygon.geometry;
     }
 
@@ -826,15 +828,15 @@ class AddEllipseControl {
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-        
+
         for (const feature of features) {
             feature.id = feature.id || feature.properties.id;
-            
+
             const sourceFeature = data.features.find(f => f.id == feature.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
-                
+
                 if (['majorRadius', 'minorRadius', 'bearing', 'center'].includes(property)) {
                     const newGeometry = this.generateEllipseGeometry(
                         sourceFeature.properties.center,
@@ -847,7 +849,7 @@ class AddEllipseControl {
                 }
             }
         }
-        
+
         this.map.getSource('ellipses').setData(data);
     }
 
@@ -855,7 +857,7 @@ class AddEllipseControl {
         return features.some(feature => {
             const initialProperties = initialPropertiesMap.get(feature.id);
             if (!initialProperties) return false;
-            
+
             return (
                 feature.properties.lineColor !== initialProperties.lineColor ||
                 feature.properties.fillColor !== initialProperties.fillColor ||
@@ -877,27 +879,25 @@ class AddEllipseControl {
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
-        for (const feature of features) {
-            if (initialPropertiesMap.has(feature.id)) {
-                const originalProps = initialPropertiesMap.get(feature.id);
-                feature.properties = { ...originalProps };
-                
-                feature.geometry = this.generateEllipseGeometry(
-                    feature.properties.center,
-                    feature.properties.majorRadius,
-                    feature.properties.minorRadius,
-                    feature.properties.bearing
-                );
-                
-                await updateFeature('ellipses', feature);
-            }
-        }
-        this.updateMapSource();
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+
+            // Regenerar geometria com propriedades originais
+            f.geometry = this.generateEllipseGeometry(
+                f.properties.center,
+                f.properties.majorRadius,
+                f.properties.minorRadius,
+                f.properties.bearing
+            );
+        });
+
+        // Usar o método updateFeatures que já existe e funciona corretamente
+        await this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
-        
+
         for (const feature of features) {
             try {
                 const featureId = feature.id || feature.properties.id;
@@ -906,7 +906,7 @@ class AddEllipseControl {
                 console.error(`Error removing ellipse ${featureId}:`, error);
             }
         }
-        
+
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
         const idsToDelete = new Set(features.map(f => String(f.id || f.properties.id)));
         data.features = data.features.filter(f => !idsToDelete.has(String(f.id)));
@@ -939,15 +939,15 @@ class AddEllipseControl {
 
     updateFeaturesCenterProperty = (features, newCenter) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-        
+
         for (const feature of features) {
             feature.id = feature.id || feature.properties.id;
-            
+
             const sourceFeature = data.features.find(f => f.id == feature.id);
             if (sourceFeature) {
                 sourceFeature.properties.center = newCenter;
                 feature.properties.center = newCenter;
-                
+
                 const newGeometry = this.generateEllipseGeometry(
                     newCenter,
                     sourceFeature.properties.majorRadius,
@@ -958,17 +958,17 @@ class AddEllipseControl {
                 feature.geometry = newGeometry;
             }
         }
-        
+
         this.map.getSource('ellipses').setData(data);
     }
 
     updateFeatureFromUI = (feature) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
         const sourceFeature = data.features.find(f => f.id == feature.id);
-        
+
         if (sourceFeature) {
             Object.assign(sourceFeature.properties, feature.properties);
-            
+
             const newGeometry = this.generateEllipseGeometry(
                 sourceFeature.properties.center,
                 sourceFeature.properties.majorRadius,
@@ -983,10 +983,10 @@ class AddEllipseControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-            
+
             for (const feature of features) {
                 feature.id = feature.id || feature.properties.id;
-                
+
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
@@ -994,15 +994,15 @@ class AddEllipseControl {
                     } else {
                         data.features[featureIndex] = feature;
                     }
-                    
+
                     if (save) {
-                        const featureToUpdate = onlyUpdateProperties ? 
+                        const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
                         await updateFeature('ellipses', featureToUpdate);
                     }
                 }
             }
-            
+
             this.map.getSource('ellipses').setData(data);
         }
     }

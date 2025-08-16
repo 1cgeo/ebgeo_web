@@ -345,7 +345,7 @@ class UIManager {
         this.saveChangesAndClosePanel();
 
         const panel = document.createElement('div');
-        panel.className = 'unified-attributes-panel';
+        panel.className = 'vector-tile-info-panel unified-attributes-panel';
 
         this.addVectorTileInfoToPanel(panel, feature);
 
@@ -354,7 +354,8 @@ class UIManager {
 
     addVectorTileInfoToPanel(panel, feature) {
         const title = document.createElement('h3');
-        let sourceName = feature.source.replace(/_10k|_25k|_50k|_100k|_250k/g, '');
+        // MUDANÇA: usar sourceLayer ao invés de source
+        let sourceName = feature.sourceLayer.replace(/_10k|_25k|_50k|_100k|_250k/g, '');
         title.textContent = `Atributos ${sourceName}:`;
         panel.appendChild(title);
 

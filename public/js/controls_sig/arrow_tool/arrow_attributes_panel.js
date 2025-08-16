@@ -97,6 +97,29 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     // ========== PROPRIEDADES ESPECÍFICAS DA SETA ==========
     
+    // ✅ NOVO: Checkbox "Seta" para mostrar/ocultar cabeça
+    const showArrowHeadCheckbox = createCheckbox(feature.properties.showArrowHead !== false, (e) => {
+        arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', e.target.checked);
+        uiManager.updateSelectionHighlight();
+    });
+
+    $(panel).append(createAttributeRow('Seta:', showArrowHeadCheckbox));
+
+    // ✅ NOVO: Slider de Largura (m)
+    const widthControl = createSliderWithInput({
+        min: 50,
+        max: 5000,
+        step: 50,
+        value: feature.properties.width || 500,
+        unit: 'm',
+        onChange: (value) => {
+            arrowControl.updateFeaturesProperty(selectedFeatures, 'width', value);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Largura:', widthControl));
+
     // Cor de preenchimento
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
@@ -185,6 +208,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
                 lineWidth: feature.properties.lineWidth,
                 fillOpacity: feature.properties.fillOpacity,
                 headLengthRatio: feature.properties.headLengthRatio || 1.5,
+                showArrowHead: feature.properties.showArrowHead !== false,  // ✅ NOVA PROPRIEDADE
                 airmobile: feature.properties.airmobile || false,
                 airmobilePosition: feature.properties.airmobilePosition || 0.7
             };
