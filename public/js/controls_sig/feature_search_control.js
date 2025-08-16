@@ -30,10 +30,12 @@ class FeatureSearchControl {
           this._getSuggestions();
         }
       });
+      
+      // CORREÇÃO: Aumentar timeout do blur para dar tempo do click processar
       this._input.addEventListener('blur', () => {
         setTimeout(() => {
           this._suggestionsList.style.display = 'none';
-        }, 200);
+        }, 300); // Aumentado de 200ms para 300ms
       });
   
       return this._container;
@@ -90,14 +92,26 @@ class FeatureSearchControl {
         li.className = 'feature-search-suggestion';
         li.innerHTML = `<strong>${suggestion.tipo}:</strong> ${suggestion.nome} (${suggestion.municipio}, ${suggestion.estado})`;
         
+        // CORREÇÃO: Múltiplos event handlers para melhor compatibilidade
+        // Event handler principal - usando pointerdown que funciona com touchpad
+        li.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          this._selectFeature(suggestion);
+        });
+        
+        // Fallback para click (ainda necessário para alguns casos)
         li.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
           this._selectFeature(suggestion);
         });
         
+        // CORREÇÃO: Usar mouseenter/mouseleave com verificação de touch
         li.addEventListener('mouseenter', () => {
-          li.style.backgroundColor = 'rgba(80, 141, 78, 0.1)';
+          // Só aplicar hover se não for touch device
+          if (!this._isTouchDevice()) {
+            li.style.backgroundColor = 'rgba(80, 141, 78, 0.1)';
+          }
         });
         
         li.addEventListener('mouseleave', () => {
@@ -109,6 +123,11 @@ class FeatureSearchControl {
   
       // Mostrar dropdown
       this._suggestionsList.style.display = 'block';
+    }
+    
+    // CORREÇÃO: Método para detectar se é dispositivo touch
+    _isTouchDevice() {
+      return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     }
     
     _displayError() {

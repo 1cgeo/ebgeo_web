@@ -35,7 +35,14 @@ class AddStreetViewControl {
         this.currentPhotoName = ''
         this.nextPhotoTarget = null
         this.isDrag = false
-        this.miniMap = null
+        this.miniMap = new maplibregl.Map({
+            container: 'mini-map-street-view',
+            style: '/street_view/street-view-mini-map-style.json',
+            attributionControl: false,
+            zoom: 12.5,
+            minZoom: 11,
+            maxZoom: 17.9
+        });
         this.isOpen = false
 
         this.animate = this.animate.bind(this);
@@ -47,9 +54,6 @@ class AddStreetViewControl {
     }
 
     loadData = async () => {
-        this.photosGeojson = await $.getJSON("/street_view/fotos.geojson")
-        this.photosLinhasGeoJson = await $.getJSON("/street_view/fotos_linha.geojson")
-        this.centroid = turf.centroid(this.photosGeojson)
 
         try {
             this.map.getSource('lines-street-view').setData(this.photosLinhasGeoJson);
@@ -73,7 +77,48 @@ class AddStreetViewControl {
 
         this.container.appendChild(button);
         this.changeButtonColor()
-        $('input[name="base-layer"]').on('change', this.reload);
+
+        const setupMiniMap = async () => {
+            this.photosGeojson = await $.getJSON("/street_view/fotos.geojson")
+            this.photosLinhasGeoJson = await $.getJSON("/street_view/fotos_linha.geojson")
+            this.centroid = turf.centroid(this.photosGeojson)
+
+            let pointImage = await this.miniMap.loadImage('/street_view/point.png')
+            await this.miniMap.addImage('point', pointImage.data);
+            this.miniMap.addSource('points', {
+                'type': 'geojson',
+                'data': this.photosGeojson
+            });
+            this.miniMap.addLayer({
+                'id': 'points',
+                'type': 'symbol',
+                'source': 'points',
+                'layout': {
+                    'icon-image': 'point'
+                }
+            });
+
+            let pointSelectedImage = await this.miniMap.loadImage('/street_view/point-selected-v2.png')
+            this.miniMap.addImage('point-selected', pointSelectedImage.data);
+            this.miniMap.addSource('selected', {
+                'type': 'geojson',
+                'data': this.photosGeojson
+            });
+            this.miniMap.on('click', 'points', (e) => {
+                this.loadTarget(e.features[0].properties.nome_img, () => {
+                    this.setIconDirection(this.currentInfo.camera.heading)
+                })
+            });
+            this.miniMap.on('mouseenter', 'points', () => {
+                this.miniMap.getCanvas().style.cursor = 'pointer';
+            });
+
+            this.miniMap.on('mouseleave', 'points', () => {
+                this.miniMap.getCanvas().style.cursor = '';
+            });
+        }
+        setupMiniMap()
+
         return this.container;
     }
 
@@ -87,7 +132,7 @@ class AddStreetViewControl {
         if (this.isActive) {
             await this.loadData()
             this.showPhotos()
-        } 
+        }
     }
 
     onRemove() {
@@ -116,37 +161,15 @@ class AddStreetViewControl {
 
         this.map.on('mouseleave', 'street-view', this.hideHoverCursor);
 
-        this.miniMap = new maplibregl.Map({
-            container: 'mini-map-street-view',
-            style: '/street_view/street-view-map-style.json',
-            center: this.centroid.geometry.coordinates,
-            attributionControl: false,
-            zoom: 12.5,
-            minZoom: 11,
-            maxZoom: 17.9
-        });
+        // this.map.flyTo({
+        //     center: centroid.geometry.coordinates
+        // });
 
-        let pointImage = await this.miniMap.loadImage('/street_view/point.png')
-        await this.miniMap.addImage('point', pointImage.data);
-        this.miniMap.addSource('points', {
-            'type': 'geojson',
-            'data': this.photosGeojson
-        });
-        this.miniMap.addLayer({
-            'id': 'points',
-            'type': 'symbol',
-            'source': 'points',
-            'layout': {
-                'icon-image': 'point'
-            }
-        });
 
-        let pointSelectedImage = await this.miniMap.loadImage('/street_view/point-selected-v2.png')
-        this.miniMap.addImage('point-selected', pointSelectedImage.data);
-        this.miniMap.addSource('selected', {
-            'type': 'geojson',
-            'data': this.photosGeojson
-        });
+
+        if (this.miniMap.getLayer('selected')) {
+            this.miniMap.removeLayer('selected');
+        }
         this.miniMap.addLayer({
             'id': 'selected',
             'type': 'symbol',
@@ -164,18 +187,7 @@ class AddStreetViewControl {
             }
         });
 
-        this.miniMap.on('click', 'points', (e) => {
-            this.loadTarget(e.features[0].properties.nome_img, () => {
-                this.setIconDirection(this.currentInfo.camera.heading)
-            })
-        });
-        this.miniMap.on('mouseenter', 'points', () => {
-            this.miniMap.getCanvas().style.cursor = 'pointer';
-        });
 
-        this.miniMap.on('mouseleave', 'points', () => {
-            this.miniMap.getCanvas().style.cursor = '';
-        });
     }
 
     getNeighbor = (point, points) => {
@@ -210,7 +222,7 @@ class AddStreetViewControl {
             this.mouse.x = (event.clientX / this.renderer.domElement.clientWidth) * 2 - 1;
             this.mouse.y = - (event.clientY / this.renderer.domElement.clientHeight) * 2 + 1;
             this.raycaster.setFromCamera(this.mouse, this.camera);
-       }, false);
+        }, false);
 
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         //camera.rotation.reorder("YXZ");
@@ -232,7 +244,7 @@ class AddStreetViewControl {
         this.mesh.name = 'IMAGE_360';
 
         this.setIconDirection(info.camera.heading)
-        this.offsetRad = THREE.MathUtils.degToRad(info.camera.fix_heading);
+        this.offsetRad = THREE.MathUtils.degToRad(270 - info.camera.heading);
         this.mesh.rotation.y = this.offsetRad
 
         this.scene.add(this.mesh);
@@ -373,31 +385,31 @@ class AddStreetViewControl {
         }
 
         if (this.controls) this.controls.deactivate()
-            this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
-            this.controls.addEventListener('drag', (event) => {
-                this.isDrag = true
-            });
-            this.controls.addEventListener('dragstart', (event) => {
-                this.dragStartTime = Date.now();
-                this.dragStartPosition = { x: event.object.position.x, y: event.object.position.y };
-            });
-            this.controls.addEventListener('dragend', (event) => {
-                const dragEndTime = Date.now();
-                const dragDuration = dragEndTime - this.dragStartTime;
-                const dragDistance = Math.sqrt(
-                    Math.pow(event.object.position.x - this.dragStartPosition.x, 2) +
-                    Math.pow(event.object.position.y - this.dragStartPosition.y, 2)
-                );
-    
-                if (dragDuration < 200 && dragDistance < 5) {
-                    // This was likely intended as a click, not a drag
-                    this.clickObj(event.object);
-                }
-                
-                this.isDrag = false;
-                this.dragStartTime = null;
-                this.dragStartPosition = null;
-            });
+        this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
+        this.controls.addEventListener('drag', (event) => {
+            this.isDrag = true
+        });
+        this.controls.addEventListener('dragstart', (event) => {
+            this.dragStartTime = Date.now();
+            this.dragStartPosition = { x: event.object.position.x, y: event.object.position.y };
+        });
+        this.controls.addEventListener('dragend', (event) => {
+            const dragEndTime = Date.now();
+            const dragDuration = dragEndTime - this.dragStartTime;
+            const dragDistance = Math.sqrt(
+                Math.pow(event.object.position.x - this.dragStartPosition.x, 2) +
+                Math.pow(event.object.position.y - this.dragStartPosition.y, 2)
+            );
+
+            if (dragDuration < 200 && dragDistance < 5) {
+                // This was likely intended as a click, not a drag
+                this.clickObj(event.object);
+            }
+
+            this.isDrag = false;
+            this.dragStartTime = null;
+            this.dragStartPosition = null;
+        });
     }
 
     clickObj = (event) => {
@@ -432,7 +444,7 @@ class AddStreetViewControl {
                 (texture) => {
                     texture.colorSpace = THREE.SRGBColorSpace
                     this.material.map = texture
-                    this.offsetRad = THREE.MathUtils.degToRad(data.camera.fix_heading);
+                    this.offsetRad = THREE.MathUtils.degToRad(270 - data.camera.heading);
                     this.mesh.rotation.y = this.offsetRad
                     cb()
                 },
@@ -496,7 +508,6 @@ class AddStreetViewControl {
             this.drawControl()
             this.setCurrentMouse()
             this.camera.lookAt(target.x, THREE.MathUtils.clamp(target.y, -360, 250), target.z);
-            
         }
         this.nextTarget = null
         this.currentLookAt = null

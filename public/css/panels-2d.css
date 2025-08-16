@@ -11,7 +11,7 @@
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     overflow: hidden;
-    z-index: 50;
+    z-index: 1001;
     backdrop-filter: blur(4px);
     transition: all 0.3s ease;
 }
@@ -699,14 +699,6 @@
     z-index: 100;
 }
 
-.feature-search-control {
-    z-index: 50;
-}
-
 .feature-search-suggestions {
     z-index: 1000;
-}
-
-#mini-map-street-view {
-    z-index: 50;
 }
