@@ -527,27 +527,55 @@ class MoveHandler {
         };
     }
 
-    updateBoundaryFeature(feature, dx, dy, newCoords) {
-        // Boundary features são LineStrings - mover todos os pontos
-        if (feature.geometry.type === 'LineString') {
-            feature.geometry.coordinates = feature.geometry.coordinates.map(coord => [
-                coord[0] + dx,
-                coord[1] + dy
-            ]);
-        }
+    updateBoundaryFeature = (feature, dx, dy, newCoords) => {
+    // ✅ NOVO: Seguindo padrão da arrow tool
+    
+    // Garantir que baseCoordinates é um array
+    let baseCoordinates = feature.properties.baseCoordinates;
 
-        // Atualizar propriedades se necessário
-        if (feature.properties.center) {
-            // Para features que têm propriedade center, atualizá-la também
-            feature.properties.center = [
-                feature.properties.center[0] + dx,
-                feature.properties.center[1] + dy
-            ];
+    if (typeof baseCoordinates === 'string') {
+        try {
+            baseCoordinates = JSON.parse(baseCoordinates);
+        } catch (e) {
+            console.error('Erro ao parsear baseCoordinates:', e);
+            return feature;
         }
+    }
 
+    if (!Array.isArray(baseCoordinates)) {
+        console.error('baseCoordinates não é um array válido:', baseCoordinates);
         return feature;
     }
 
+    // Converter delta de coordenadas para coordenadas geográficas
+    const newBaseCoordinates = baseCoordinates.map(coord => [
+        coord[0] + dx,
+        coord[1] + dy
+    ]);
+
+    const updatedProperties = {
+        ...feature.properties,
+        baseCoordinates: newBaseCoordinates
+    };
+
+    const updatedFeature = {
+        ...feature,
+        properties: updatedProperties,
+        geometry: this.selectionManager.boundaryControl.generateBoundaryGeometry(updatedProperties)
+    };
+
+    // ✅ NOVO: Atualizar features dependentes também
+    if (this.selectionManager.boundaryControl && 
+        typeof this.selectionManager.boundaryControl.updateDependentFeatures === 'function') {
+        
+        // Atualizar círculos e textos
+        requestAnimationFrame(() => {
+            this.selectionManager.boundaryControl.updateDependentFeatures(updatedFeature);
+        });
+    }
+
+    return updatedFeature;
+}
     updateSelectionManagerFeaturesOptimized(updatedFeatures) {
         // Initialize all maps at once
         const featureMaps = {

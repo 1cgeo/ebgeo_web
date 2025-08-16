@@ -46,6 +46,7 @@ map.on('styledata', async () => {
         clearAllMeasurements();
         restoreMeasurements(features);
         restoreCircleXMarks(features);
+        restoreBoundaryDependentFeatures(features);
     });
 });
 
@@ -201,7 +202,9 @@ async function setImages(features) {
 function setupBoundaryLayers(features) {
     if (!features.boundarys) return;
 
-    // Source
+    // ===== SOURCES =====
+    
+    // Source principal - feature atômica
     if (!map.getSource('boundarys')) {
         map.addSource('boundarys', {
             type: 'geojson',
@@ -217,7 +220,23 @@ function setupBoundaryLayers(features) {
         });
     }
 
-    // Preview source
+    // Source para círculos do escalão (separado)
+    if (!map.getSource('boundary-circles')) {
+        map.addSource('boundary-circles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // Source para textos (separado)
+    if (!map.getSource('boundary-texts')) {
+        map.addSource('boundary-texts', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // Preview source (durante desenho)
     if (!map.getSource('boundary-preview')) {
         map.addSource('boundary-preview', {
             type: 'geojson',
@@ -225,7 +244,7 @@ function setupBoundaryLayers(features) {
         });
     }
 
-    // Edit handles source
+    // Edit handles source (durante edição)
     if (!map.getSource('boundary-edit-handles')) {
         map.addSource('boundary-edit-handles', {
             type: 'geojson',
@@ -233,83 +252,66 @@ function setupBoundaryLayers(features) {
         });
     }
 
-    // 1. Hitzone (maior área para clique) - mais baixo
-    if (!map.getLayer('boundary-hitzone-layer')) {
+    // ===== LAYERS SIMPLIFICADAS (apenas 4 principais) =====
+
+    // 1. LAYER PRINCIPAL - MultiLineString (linha + símbolos)
+    if (!map.getLayer('boundary-main-layer')) {
         map.addLayer({
-            id: 'boundary-hitzone-layer',
+            id: 'boundary-main-layer',
             type: 'line',
             source: 'boundarys',
-            paint: {
-                'line-color': 'transparent',
-                'line-width': 20
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
             },
-            filter: ['==', 'renderType', 'line']
-        });
-    }
-
-    // 2. Preenchimento dos símbolos
-    if (!map.getLayer('boundary-symbol-fill-layer')) {
-        map.addLayer({
-            id: 'boundary-symbol-fill-layer',
-            type: 'fill',
-            source: 'boundarys',
-            paint: {
-                'fill-color': ['get', 'color'],
-                'fill-opacity': ['*', ['get', 'opacity'], 0.3]
-            },
-            filter: ['all',
-                ['==', 'renderType', 'symbol'],
-                ['==', '$type', 'Polygon']
-            ]
-        });
-    }
-
-    // 3. Linha principal
-    if (!map.getLayer('boundary-line-layer')) {
-        map.addLayer({
-            id: 'boundary-line-layer',
-            type: 'line',
-            source: 'boundarys',
             paint: {
                 'line-color': ['get', 'color'],
                 'line-width': ['get', 'lineWidth'],
                 'line-opacity': ['get', 'opacity']
-            },
-            filter: ['==', 'renderType', 'line']
+            }
         });
     }
 
-    // 4. Símbolos (linhas)
-    if (!map.getLayer('boundary-symbol-layer')) {
+    // 2. LAYER CÍRCULOS - Preenchimento dos símbolos 'o'
+    if (!map.getLayer('boundary-circles-layer')) {
         map.addLayer({
-            id: 'boundary-symbol-layer',
+            id: 'boundary-circles-layer',
+            type: 'fill',
+            source: 'boundary-circles',
+            paint: {
+                'fill-color': ['get', 'color'],
+                'fill-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
+    // 3. LAYER CÍRCULOS CONTORNO - Contorno dos símbolos 'o'
+    if (!map.getLayer('boundary-circles-stroke-layer')) {
+        map.addLayer({
+            id: 'boundary-circles-stroke-layer',
             type: 'line',
-            source: 'boundarys',
+            source: 'boundary-circles',
             paint: {
                 'line-color': ['get', 'color'],
-                'line-width': 3,
+                'line-width': 2,
                 'line-opacity': ['get', 'opacity']
-            },
-            filter: ['all',
-                ['==', 'renderType', 'symbol'],
-                ['==', '$type', 'LineString']
-            ]
+            }
         });
     }
 
-    // 5. Textos
+    // 4. LAYER TEXTOS - Labels rotativos
     if (!map.getLayer('boundary-text-layer')) {
         map.addLayer({
             id: 'boundary-text-layer',
             type: 'symbol',
-            source: 'boundarys',
+            source: 'boundary-texts',
             layout: {
                 'text-field': ['get', 'text'],
                 'text-font': ['Noto Sans Regular'],
                 'text-size': [
                     'interpolate', ['linear'], ['zoom'],
-                    8, ['*', ['get', 'textScaleFactor'], 8],
-                    16, ['*', ['get', 'textScaleFactor'], 20]
+                    8, ['*', ['coalesce', ['get', 'text_size'], 14], 0.5],
+                    16, ['*', ['coalesce', ['get', 'text_size'], 14], 1.2]
                 ],
                 'text-rotate': ['get', 'rotation'],
                 'text-allow-overlap': true,
@@ -320,17 +322,22 @@ function setupBoundaryLayers(features) {
                 'text-color': ['get', 'color'],
                 'text-halo-color': '#fff',
                 'text-halo-width': 2
-            },
-            filter: ['==', 'renderType', 'text']
+            }
         });
     }
 
-    // 6. Preview
+    // ===== LAYERS AUXILIARES (como arrow tool) =====
+
+    // 5. PREVIEW - Durante desenho
     if (!map.getLayer('boundary-preview-layer')) {
         map.addLayer({
             id: 'boundary-preview-layer',
             type: 'line',
             source: 'boundary-preview',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
             paint: {
                 'line-color': '#000000',
                 'line-width': 4,
@@ -340,26 +347,27 @@ function setupBoundaryLayers(features) {
         });
     }
 
-    // 7. Seleção
+    // 6. SELEÇÃO - Feature selecionada
     if (!map.getLayer('boundary-selected-layer')) {
         map.addLayer({
             id: 'boundary-selected-layer',
             type: 'line',
             source: 'boundary-edit-handles',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
             paint: {
                 'line-color': '#ff0000',
                 'line-width': 6,
                 'line-dasharray': [2, 2],
                 'line-opacity': 0.8
             },
-            filter: ['all',
-                ['==', 'role', 'selected-feature'],
-                ['==', '$type', 'LineString']
-            ]
+            filter: ['==', ['get', 'role'], 'selected-feature']
         });
     }
 
-    // 8. Edit handles
+    // 7. EDIT HANDLES - Pontos de edição
     if (!map.getLayer('boundary-edit-handles-layer')) {
         map.addLayer({
             id: 'boundary-edit-handles-layer',
@@ -369,21 +377,21 @@ function setupBoundaryLayers(features) {
                 'circle-radius': 8,
                 'circle-color': [
                     'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
-                    ['==', ['get', 'handleType'], 'midpoint'], '#ff0000',
-                    ['==', ['get', 'handleType'], 'symbol'], '#0066ff',
-                    ['==', ['get', 'handleType'], 'size'], '#28a745',
+                    ['==', ['get', 'type'], 'vertex'], '#ff0000',        // Vermelho: vértices
+                    ['==', ['get', 'type'], 'midpoint'], '#ff0000',      // Vermelho: midpoints
+                    ['==', ['get', 'type'], 'symbol_handle'], '#0066ff', // Azul: posição símbolo
+                    ['==', ['get', 'type'], 'size_handle'], '#28a745',   // Verde: tamanho símbolo
                     '#000000'
                 ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2,
                 'circle-opacity': [
                     'case',
-                    ['==', ['get', 'handleType'], 'midpoint'], 0.5,
+                    ['==', ['get', 'type'], 'midpoint'], 0.5,  // Midpoints mais transparentes
                     1
                 ]
             },
-            filter: ['!=', 'role', 'selected-feature']
+            filter: ['==', '$type', 'Point']  // Apenas pontos (handles)
         });
     }
 }
@@ -1162,6 +1170,73 @@ function restoreCircleXMarks() {
         }
     } catch (error) {
         console.warn('Erro ao restaurar X marks dos círculos:', error);
+    }
+}
+
+function restoreBoundaryDependentFeatures(features) {
+    try {
+        const boundaryControl = map._controls.find(control =>
+            control.constructor.name === 'AddBoundaryControl'
+        );
+
+        if (!boundaryControl || !features.boundarys?.length) {
+            return;
+        }
+
+        features.boundarys.forEach((boundaryFeature, index) => {
+            try {
+                // Validação básica da feature
+                if (!boundaryFeature?.properties) {
+                    console.warn(`Invalid boundary feature ${index}:`, boundaryFeature);
+                    return;
+                }
+
+                // Normalizar coordenadas (pode vir como string do IndexedDB)
+                let coords = boundaryFeature.properties.baseCoordinates;
+                
+                if (typeof coords === 'string') {
+                    try {
+                        coords = JSON.parse(coords);
+                    } catch (parseError) {
+                        console.warn(`Failed to parse coordinates for boundary ${boundaryFeature.id}`);
+                        return;
+                    }
+                }
+
+                // Validar array de coordenadas
+                if (!Array.isArray(coords) || coords.length < 2) {
+                    console.warn(`Invalid coordinates for boundary ${boundaryFeature.id}`);
+                    return;
+                }
+
+                // Filtrar apenas coordenadas válidas
+                const validCoords = coords.filter(coord => 
+                    Array.isArray(coord) && 
+                    coord.length >= 2 && 
+                    typeof coord[0] === 'number' && 
+                    typeof coord[1] === 'number' &&
+                    !isNaN(coord[0]) && 
+                    !isNaN(coord[1])
+                );
+
+                if (validCoords.length < 2) {
+                    console.warn(`Insufficient valid coordinates for boundary ${boundaryFeature.id}`);
+                    return;
+                }
+
+                // Atualizar coordenadas validadas
+                boundaryFeature.properties.baseCoordinates = validCoords;
+                
+                // Regenerar textos e círculos dependentes
+                boundaryControl.updateDependentFeatures(boundaryFeature);
+
+            } catch (featureError) {
+                console.error(`Error processing boundary ${index}:`, featureError);
+            }
+        });
+
+    } catch (error) {
+        console.error('Error restoring boundary dependent features:', error);
     }
 }
 

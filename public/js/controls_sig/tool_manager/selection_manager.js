@@ -86,10 +86,7 @@ class SelectionManager {
         this.map.on('click', 'los-layer', this.handleElementClick);
         this.map.on('click', 'arrow-layer', this.handleElementClick);
         this.map.on('click', 'arrow-fill-layer', this.handleElementClick);
-        this.map.on('click', 'boundary-line-layer', this.handleElementClick);
-        this.map.on('click', 'boundary-symbol-layer', this.handleElementClick);
-        this.map.on('click', 'boundary-text-layer', this.handleElementClick);
-        this.map.on('click', 'occupied-front-layer', this.handleElementClick);
+        this.map.on('click', 'boundary-main-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
         this.map.on('click', 'text-layer', this.handleElementClick);
     }
@@ -202,10 +199,7 @@ class SelectionManager {
         if (arrowFeature) return { ...arrowFeature, toolType: 'arrow' };
 
         const boundaryFeature = features.find(f =>
-            (f.source === 'boundarys' ||
-                f.layer?.id === 'boundary-line-layer' ||
-                f.layer?.id === 'boundary-symbol-layer' ||
-                f.layer?.id === 'boundary-text-layer') &&
+            (f.source === 'boundarys' || f.layer?.id === 'boundary-main-layer') &&
             f.properties.source === 'boundary'
         );
         if (boundaryFeature) return { ...boundaryFeature, toolType: 'boundary' };
