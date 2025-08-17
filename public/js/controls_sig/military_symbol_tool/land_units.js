@@ -1,3 +1,4 @@
+// Path: js\controls_sig\military_symbol_tool\land_units.js
 export default {
   "symbol_sets": [
     {

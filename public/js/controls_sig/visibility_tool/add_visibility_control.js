@@ -12,7 +12,8 @@ const VIEWSHED_CONFIG = {
 class AddVisibilityControl {
     static DEFAULT_PROPERTIES = {
         opacity: 0.5,
-        source: 'visibility'
+        source: 'visibility',
+        observerHeight: 2  // ✅ NOVO: Altura do observador em metros (default 2m)
     };
 
     static VISIBLE_COLOR = '#00FF00';
@@ -31,6 +32,11 @@ class AddVisibilityControl {
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
+
+        // ✅ NOVO: Progress Modal
+        this.progressModal = null;
+        this.progressBar = null;
+        this.progressText = null;
     }
 
     onAdd = (map) => {
@@ -48,21 +54,130 @@ class AddVisibilityControl {
         this.container.appendChild(button);
         this.setupEventListeners();
         this.changeButtonColor();
+        this.createProgressModal(); // ✅ NOVO: Criar modal de progresso
 
         return this.container;
     }
 
-   changeButtonColor = () => {
+    // ✅ NOVO: Criar modal de progresso
+    createProgressModal = () => {
+        this.progressModal = document.createElement('div');
+        this.progressModal.style.cssText = `
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        `;
+
+        const modalContent = document.createElement('div');
+        modalContent.style.cssText = `
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            min-width: 300px;
+        `;
+
+        const title = document.createElement('h3');
+        title.textContent = 'Calculando Visibilidade';
+        title.style.cssText = `
+            margin: 0 0 20px 0;
+            color: #333;
+            font-size: 18px;
+            font-weight: 500;
+        `;
+
+        this.progressText = document.createElement('p');
+        this.progressText.textContent = 'Analisando terreno...';
+        this.progressText.style.cssText = `
+            margin: 0 0 20px 0;
+            color: #666;
+            font-size: 14px;
+        `;
+
+        const progressContainer = document.createElement('div');
+        progressContainer.style.cssText = `
+            width: 100%;
+            height: 8px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        `;
+
+        this.progressBar = document.createElement('div');
+        this.progressBar.style.cssText = `
+            width: 0%;
+            height: 100%;
+            background-color: #508D4E;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        `;
+
+        const progressPercentage = document.createElement('div');
+        progressPercentage.id = 'progress-percentage';
+        progressPercentage.textContent = '0%';
+        progressPercentage.style.cssText = `
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        `;
+
+        progressContainer.appendChild(this.progressBar);
+        modalContent.appendChild(title);
+        modalContent.appendChild(this.progressText);
+        modalContent.appendChild(progressContainer);
+        modalContent.appendChild(progressPercentage);
+        this.progressModal.appendChild(modalContent);
+        document.body.appendChild(this.progressModal);
+    }
+
+    // ✅ NOVO: Mostrar modal de progresso
+    showProgressModal = () => {
+        this.progressModal.style.display = 'flex';
+        this.updateProgress(0, 'Iniciando análise...');
+    }
+
+    // ✅ NOVO: Atualizar progresso
+    updateProgress = (percentage, text = null) => {
+        this.progressBar.style.width = `${percentage}%`;
+        document.getElementById('progress-percentage').textContent = `${Math.round(percentage)}%`;
+
+        if (text) {
+            this.progressText.textContent = text;
+        }
+    }
+
+    // ✅ NOVO: Esconder modal de progresso
+    hideProgressModal = () => {
+        this.progressModal.style.display = 'none';
+        this.updateProgress(0, 'Analisando terreno...');
+    }
+
+    changeButtonColor = () => {
         $("#visibility-tool").html(`<img class="icon-sig-tool" src="./images/icon_visibility_black.svg" alt="VISIBILITY" />`);
         if (!this.isActive) return
         $("#visibility-tool").html('<img class="icon-sig-tool" src="./images/icon_visibility_red.svg" alt="VISIBILITY" />');
     }
-    
+
     onRemove = () => {
         try {
             this.uiManager.removeControl(this.container);
             this.removeEventListeners();
             this.map = undefined;
+
+            // ✅ NOVO: Limpar modal de progresso
+            if (this.progressModal && this.progressModal.parentNode) {
+                this.progressModal.parentNode.removeChild(this.progressModal);
+            }
         } catch (error) {
             console.error('Error removing AddVisibilityControl:', error);
             throw error;
@@ -181,41 +296,77 @@ class AddVisibilityControl {
         this.map.getSource('temp-polygon').setData(data);
     }
 
+    // ✅ MODIFICADO: Progresso completo incluindo dissolve e salvamento
     addVisibilityFeature = async (startPoint, endPoint) => {
-        const center = turf.point(startPoint);
-        const radius = turf.distance(startPoint, endPoint, { units: 'meters' });
-        const angle = turf.bearing(startPoint, endPoint);
+        try {
+            const center = turf.point(startPoint);
+            const radius = turf.distance(startPoint, endPoint, { units: 'meters' });
+            const angle = turf.bearing(startPoint, endPoint);
+            const observerHeight = AddVisibilityControl.DEFAULT_PROPERTIES.observerHeight;
 
-        const viewshedResult = await this.calculateViewshed(center, radius, angle);
-        const feature = this.createViewshedFeature(viewshedResult, radius, angle);
-        
-        // Salvar no IndexedDB
-        await addFeature('visibility', feature);
+            const viewshedResult = await this.calculateViewshed(center, radius, angle, true);
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
-        data.features.push(feature);
-        this.map.getSource('visibility').setData(data);
+            this.updateProgress(72, 'Otimizando geometrias...');
+            await this.delay(100);
 
-        const processedVisibilityFeatures = this.preprocessVisibilityFeature(feature);
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
-        
-        for (const processedFeature of processedVisibilityFeatures) {
-            await addFeature('processed_visibility', processedFeature);
-            processedData.features.push(processedFeature);
+            const optimizedCells = this.dissolveVisibilityCells(viewshedResult);
+
+            this.updateProgress(75, 'Criando feature...');
+            await this.delay(100);
+
+            const feature = this.createViewshedFeature(optimizedCells, radius, angle, observerHeight);
+
+            // ✅ CORREÇÃO: Adicionar centro original nas propriedades
+            feature.properties.center = startPoint;
+
+            this.updateProgress(80, 'Salvando no banco de dados...');
+            await this.delay(100);
+
+            await addFeature('visibility', feature);
+
+            this.updateProgress(85, 'Atualizando mapa...');
+            await this.delay(50);
+
+            const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
+            data.features.push(feature);
+            this.map.getSource('visibility').setData(data);
+
+            this.updateProgress(90, 'Processando células...');
+            await this.delay(100);
+
+            const processedVisibilityFeatures = this.preprocessVisibilityFeature(feature);
+            const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
+
+            this.updateProgress(95, 'Salvando células processadas...');
+            await this.delay(100);
+
+            for (const processedFeature of processedVisibilityFeatures) {
+                await addFeature('processed_visibility', processedFeature);
+                processedData.features.push(processedFeature);
+            }
+
+            this.map.getSource('processed-visibility').setData(processedData);
+
+            this.updateProgress(100, 'Concluído!');
+            await this.delay(300);
+
+            this.selectionManager.toggleFeatureSelection('visibility', feature.id, feature);
+            this.selectionManager.updateUI();
+
+            this.hideProgressModal();
+
+        } catch (error) {
+            console.error('Erro ao calcular visibilidade:', error);
+            this.hideProgressModal();
+            throw error;
         }
-        
-        this.map.getSource('processed-visibility').setData(processedData);
-
-        // ✅ ADICIONAR: Auto-seleção após criar (padrão LOS)
-        this.selectionManager.toggleFeatureSelection('visibility', feature.id, feature);
-        this.selectionManager.updateUI();
     }
 
     preprocessVisibilityFeature(feature) {
         let processedFeatures = [];
         feature.geometry.coordinates.forEach((polygonCoords, index) => {
             const cellData = feature.properties.cellData[index];
-            
+
             processedFeatures.push({
                 type: 'Feature',
                 id: `${feature.id}-${index}`,
@@ -229,18 +380,19 @@ class AddVisibilityControl {
                 }
             });
         });
-            
+
         return processedFeatures;
     }
 
-    createViewshedFeature = (cellsData, radius, angle) => {
+    createViewshedFeature = (cellsData, radius, angle, observerHeight = 2) => {
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
-            properties: { 
+            properties: {
                 ...AddVisibilityControl.DEFAULT_PROPERTIES,
                 radius: radius,
                 angle: angle,
+                observerHeight: observerHeight, // ✅ NOVO: Incluir altura do observador
                 cellData: cellsData.map(cell => ({ isVisible: cell.isVisible }))
             },
             geometry: {
@@ -248,7 +400,7 @@ class AddVisibilityControl {
                 coordinates: cellsData.map(cell => [cell.coordinates])
             }
         };
-    
+
         return feature;
     };
 
@@ -258,7 +410,7 @@ class AddVisibilityControl {
         const sectorAngle = Math.PI / 4; // 45 degrees in radians
         const angleStep = sectorAngle / 45;
         const startAngle = Math.atan2(edgePoint[1] - cy, edgePoint[0] - cx) - sectorAngle / 2;
-    
+
         const coordinates = [center];
         for (let i = 0; i <= 45; i++) {
             const angle = startAngle + angleStep * i;
@@ -267,8 +419,8 @@ class AddVisibilityControl {
                 cy + radius * Math.sin(angle)
             ]);
         }
-        coordinates.push(center); 
-    
+        coordinates.push(center);
+
         return coordinates;
     };
 
@@ -279,7 +431,7 @@ class AddVisibilityControl {
     handleMouseLeave = (e) => {
         this.map.getCanvas().style.cursor = '';
     }
-    
+
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
@@ -300,8 +452,8 @@ class AddVisibilityControl {
         this.map.getSource('processed-visibility').setData(processedData);
     }
 
-    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
-        if(features.length > 0){
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false, showModal = true) => {
+        if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
             const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
@@ -310,7 +462,7 @@ class AddVisibilityControl {
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
-                        
+
                         const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
                         processedFeatures.forEach(processedFeature => {
                             Object.keys(feature.properties).forEach(key => {
@@ -320,16 +472,32 @@ class AddVisibilityControl {
                             });
                         });
                     } else {
-                        const updatedFeature = await this.recalculateVisibility(feature);
+                        // ✅ MODIFICADO: Passes observerHeight to recalculation
+                        const updatedFeature = await this.recalculateVisibility(feature, showModal);
                         data.features[featureIndex] = updatedFeature;
-                        
+
+                        if (showModal) {
+                            this.updateProgress(75, 'Removendo células antigas...');
+                            await this.delay(50);
+                        }
+
                         processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
+
+                        if (showModal) {
+                            this.updateProgress(80, 'Criando novas células...');
+                            await this.delay(50);
+                        }
 
                         const newProcessedFeatures = this.preprocessVisibilityFeature(updatedFeature);
                         processedData.features.push(...newProcessedFeatures);
                     }
 
-                    if(save){
+                    if (save) {
+                        if (showModal) {
+                            this.updateProgress(90, 'Salvando alterações...');
+                            await this.delay(100);
+                        }
+
                         await updateFeature('visibility', data.features[featureIndex]);
                         const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
                         for (const pf of processedFeatures) {
@@ -338,8 +506,20 @@ class AddVisibilityControl {
                     }
                 }
             };
+
+            if (showModal) {
+                this.updateProgress(95, 'Atualizando mapa...');
+                await this.delay(50);
+            }
+
             this.map.getSource('visibility').setData(data);
             this.map.getSource('processed-visibility').setData(processedData);
+
+            if (showModal) {
+                this.updateProgress(100, 'Concluído!');
+                await this.delay(300);
+                this.hideProgressModal();
+            }
         }
     }
 
@@ -369,36 +549,48 @@ class AddVisibilityControl {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.id));
         });
-        await this.updateFeatures(features, true, true);
+        // ✅ MODIFICADO: Não mostrar modal para operação de descarte
+        await this.updateFeatures(features, true, true, false);
     }
 
     deleteFeatures = async (features) => {
         if (features.length === 0) {
             return;
         }
+
+        // ✅ PASSO 1: Buscar células processadas ANTES de filtrar os dados
+        const cellsToRemove = [];
+        for (const f of features) {
+            const currentProcessedData = this.map.getSource('processed-visibility')._data;
+            const relatedCells = currentProcessedData.features.filter(pf => pf.id.startsWith(`${f.id}-`));
+            cellsToRemove.push(...relatedCells);
+        }
+
+        // ✅ PASSO 2: Remover do IndexedDB PRIMEIRO
+        for (const f of features) {
+            await removeFeature('visibility', f.id);
+        }
+
+        for (const cell of cellsToRemove) {
+            await removeFeature('processed_visibility', cell.id);
+        }
+
+        // ✅ PASSO 3: Atualizar fontes visuais POR ÚLTIMO
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
         const idsToDelete = new Set(features.map(f => f.id.toString()));
-        
+
         data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
         processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
-        
+
         this.map.getSource('visibility').setData(data);
         this.map.getSource('processed-visibility').setData(processedData);
-
-        for (const f of features) {
-            await removeFeature('visibility', f.id);
-            // Remove todas as células processadas deste viewshed
-            const cellsToRemove = this.map.getSource('processed-visibility')._data.features.filter(pf => pf.id.startsWith(f.id));
-            for (const cell of cellsToRemove) {
-                await removeFeature('processed_visibility', cell.id);
-            }
-        }
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
         return (
-            feature.properties.opacity !== initialProperties.opacity
+            feature.properties.opacity !== initialProperties.opacity ||
+            feature.properties.observerHeight !== initialProperties.observerHeight  // ✅ NOVO: Considera mudança na altura
         );
     }
 
@@ -408,69 +600,165 @@ class AddVisibilityControl {
         const steps = 25; // Resolução fixa por raio
         const stepLength = length / steps;
         const visibilityProfile = [];
-        
+
         // Calcular elevação do ponto final
         const endPoint = turf.along(line, length, { units: 'meters' });
         const endElevation = await getTerrainElevation(this.map, endPoint.geometry.coordinates);
-        
+
         for (let i = 1; i <= steps; i++) {
             const currentPoint = turf.along(line, i * stepLength, { units: 'meters' });
             const currentCoords = currentPoint.geometry.coordinates;
             const currentElevation = await getTerrainElevation(this.map, currentCoords);
-            
+
             // ✅ CORRIGIDA: Linha de visão simples (semelhante ao LOS control)
             const progress = i / steps;
             const expectedElevation = observer.elevation + (endElevation - observer.elevation) * progress;
-            
+
             const isVisible = currentElevation <= expectedElevation;
-            
+
             visibilityProfile.push({
                 point: currentCoords,
                 visible: isVisible
             });
         }
-        
+
         return visibilityProfile;
     }
 
-    // ✅ NOVA FUNÇÃO: Grid polar adaptativo
-    calculateViewshed = async (center, radius, angle) => {
-        const sectorStart = angle - 22.5;
-        const sectorEnd = angle + 22.5;
-        const observerElevation = await getTerrainElevation(this.map, center.geometry.coordinates) + 2;
-        const observer = {
-            coord: center.geometry.coordinates,
-            elevation: observerElevation
-        };
-
-        const cells = [];
-
-        // Gerar grid polar adaptativo
-        for (let ring = 0; ring < VIEWSHED_CONFIG.RINGS; ring++) {
-            const innerRadius = (ring / VIEWSHED_CONFIG.RINGS) * radius;
-            const outerRadius = ((ring + 1) / VIEWSHED_CONFIG.RINGS) * radius;
-            
-            // Mais subdivisões angulares em anéis externos
-            const raysInRing = Math.floor(
-                VIEWSHED_CONFIG.MIN_RAYS_PER_RING + 
-                (ring / (VIEWSHED_CONFIG.RINGS - 1)) * 
-                (VIEWSHED_CONFIG.MAX_RAYS_PER_RING - VIEWSHED_CONFIG.MIN_RAYS_PER_RING)
-            );
-            
-            const angleStep = 45 / raysInRing; // 45° é o setor total
-            
-            for (let ray = 0; ray < raysInRing; ray++) {
-                const startAngle = sectorStart + (ray * angleStep);
-                const endAngle = sectorStart + ((ray + 1) * angleStep);
-                
-                // Criar célula do setor polar
-                const cell = await this.createSectorCell(center, innerRadius, outerRadius, startAngle, endAngle, observer);
-                cells.push(cell);
+    // ✅ MODIFICADO: calculateViewshed vai até 70%, não esconde modal
+    calculateViewshed = async (center, radius, angle, showModal = false) => {
+        try {
+            if (showModal) {
+                this.showProgressModal();
+                await this.delay(100); // Pequeno delay para mostrar o modal
             }
-        }
 
-        console.log(`✅ Viewshed criado: ${cells.length} células`);
-        return cells;
+            const sectorStart = angle - 22.5;
+            const sectorEnd = angle + 22.5;
+
+            if (showModal) {
+                this.updateProgress(5, 'Obtendo elevação do observador...');
+                await this.delay(50);
+            }
+
+            // ✅ MODIFICADO: Usar observerHeight da propriedade da feature ou default
+            const observerHeight = center.properties?.observerHeight || AddVisibilityControl.DEFAULT_PROPERTIES.observerHeight;
+            const observerElevation = await getTerrainElevation(this.map, center.geometry.coordinates) + observerHeight;
+            const observer = {
+                coord: center.geometry.coordinates,
+                elevation: observerElevation
+            };
+
+            const cells = [];
+
+            if (showModal) {
+                this.updateProgress(10, 'Iniciando análise do terreno...');
+                await this.delay(50);
+            }
+
+            // Gerar grid polar adaptativo
+            for (let ring = 0; ring < VIEWSHED_CONFIG.RINGS; ring++) {
+                const innerRadius = (ring / VIEWSHED_CONFIG.RINGS) * radius;
+                const outerRadius = ((ring + 1) / VIEWSHED_CONFIG.RINGS) * radius;
+
+                // Mais subdivisões angulares em anéis externos
+                const raysInRing = Math.floor(
+                    VIEWSHED_CONFIG.MIN_RAYS_PER_RING +
+                    (ring / (VIEWSHED_CONFIG.RINGS - 1)) *
+                    (VIEWSHED_CONFIG.MAX_RAYS_PER_RING - VIEWSHED_CONFIG.MIN_RAYS_PER_RING)
+                );
+
+                const angleStep = 45 / raysInRing; // 45° é o setor total
+
+                for (let ray = 0; ray < raysInRing; ray++) {
+                    const startAngle = sectorStart + (ray * angleStep);
+                    const endAngle = sectorStart + ((ray + 1) * angleStep);
+
+                    // Criar célula do setor polar
+                    const cell = await this.createSectorCell(center, innerRadius, outerRadius, startAngle, endAngle, observer);
+                    cells.push(cell);
+                }
+
+                if (showModal) {
+                    // ✅ CORRIGIDO: Progresso de 10% a 70% durante o processamento dos anéis
+                    const ringProgress = 10 + (60 * (ring + 1) / VIEWSHED_CONFIG.RINGS);
+                    this.updateProgress(ringProgress, `Processando anel ${ring + 1}/${VIEWSHED_CONFIG.RINGS}...`);
+                    await this.delay(30); // Delay para visualizar o progresso
+                }
+            }
+
+            // ✅ REMOVIDO: Não esconde mais o modal aqui (feito nas funções chamadoras)
+            console.log(`✅ Viewshed criado: ${cells.length} células`);
+            return cells;
+
+        } catch (error) {
+            if (showModal) {
+                this.hideProgressModal();
+            }
+            throw error;
+        }
+    }
+
+    // ✅ NOVO: Dissolve células de visibilidade para otimizar performance
+    dissolveVisibilityCells = (cells) => {
+        try {
+            console.log(`🔄 Iniciando dissolve de ${cells.length} células...`);
+
+            // Separar células por visibilidade
+            const visibleCells = [];
+            const obstructedCells = [];
+
+            cells.forEach(cell => {
+                const polygon = turf.polygon([cell.coordinates]);
+                polygon.properties = { isVisible: cell.isVisible };
+
+                if (cell.isVisible) {
+                    visibleCells.push(polygon);
+                } else {
+                    obstructedCells.push(polygon);
+                }
+            });
+
+            const optimizedCells = [];
+
+            // Dissolve células visíveis
+            if (visibleCells.length > 0) {
+                const visibleCollection = turf.featureCollection(visibleCells);
+                const dissolvedVisible = turf.dissolve(visibleCollection, { propertyName: 'isVisible' });
+
+                dissolvedVisible.features.forEach(feature => {
+                    optimizedCells.push({
+                        coordinates: feature.geometry.coordinates[0], // Primeiro anel do polígono
+                        isVisible: true
+                    });
+                });
+            }
+
+            // Dissolve células obstruídas
+            if (obstructedCells.length > 0) {
+                const obstructedCollection = turf.featureCollection(obstructedCells);
+                const dissolvedObstructed = turf.dissolve(obstructedCollection, { propertyName: 'isVisible' });
+
+                dissolvedObstructed.features.forEach(feature => {
+                    optimizedCells.push({
+                        coordinates: feature.geometry.coordinates[0], // Primeiro anel do polígono
+                        isVisible: false
+                    });
+                });
+            }
+
+            console.log(`✅ Dissolve concluído: ${cells.length} → ${optimizedCells.length} células (redução de ${Math.round((1 - optimizedCells.length / cells.length) * 100)}%)`);
+            return optimizedCells;
+
+        } catch (error) {
+            console.log(`❌ Erro no dissolve, usando geometrias originais:`, error);
+            return cells; // Fallback para células originais
+        }
+    }
+
+    // ✅ NOVO: Função auxiliar para delays
+    delay = (ms) => {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     // ✅ IMPLEMENTADA: Teste de visibilidade real similar ao LOS control
@@ -480,11 +768,11 @@ class AddVisibilityControl {
         const p2 = turf.destination(center, outerRadius, startAngle, { units: 'meters' }).geometry.coordinates;
         const p3 = turf.destination(center, outerRadius, endAngle, { units: 'meters' }).geometry.coordinates;
         const p4 = turf.destination(center, innerRadius, endAngle, { units: 'meters' }).geometry.coordinates;
-        
+
         // ✅ TESTE REAL DE VISIBILIDADE: Similar ao LOS control
         const midAngle = (startAngle + endAngle) / 2;
         const testPoint = turf.destination(center, outerRadius, midAngle, { units: 'meters' });
-        
+
         // Criar linha de visão do observador até o ponto de teste
         const line = turf.lineString([observer.coord, testPoint.geometry.coordinates]);
         const length = turf.length(line, { units: 'meters' });
@@ -493,49 +781,66 @@ class AddVisibilityControl {
 
         // Obter elevação do ponto de teste
         const testElevation = await getTerrainElevation(this.map, testPoint.geometry.coordinates);
-        
+
         let isVisible = true;
 
         // Verificar obstruções ao longo da linha de visão (algoritmo do LOS control)
         for (let i = 1; i <= steps; i++) {
             const segment = turf.along(line, i * stepLength, { units: 'meters' });
             const segmentCoordinates = segment.geometry.coordinates;
-            
+
             // Calcular elevação esperada na linha de visão
             const expectedElevation = observer.elevation + (testElevation - observer.elevation) * (i / steps);
-            
+
             // Obter elevação real do terreno
             const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
-            
+
             // Se o terreno está acima da linha de visão, há obstrução
             if (actualElevation > expectedElevation) {
                 isVisible = false;
                 break;
             }
         }
-        
+
         return {
             coordinates: [p1, p2, p3, p4, p1],
             isVisible: isVisible
         };
     }
 
-    async recalculateVisibility(feature) {
-        let centerCoord
-        if (feature.geometry.type === 'MultiPolygon') {
-            centerCoord = feature.geometry.coordinates[0][0][0]
-        } else if (feature.geometry.type === 'Polygon') {
-            centerCoord = feature.geometry.coordinates[0][0]
+    async recalculateVisibility(feature, showModal = true) {
+        // ✅ CORREÇÃO: Usar centro salvo em vez de geometria
+        let centerCoord = feature.properties.center;
+        // Fallback para compatibilidade com features antigas
+        if (!centerCoord) {
+            if (feature.geometry.type === 'MultiPolygon') {
+                centerCoord = feature.geometry.coordinates[0][0][0];
+            } else if (feature.geometry.type === 'Polygon') {
+                centerCoord = feature.geometry.coordinates[0][0];
+            }
         }
 
-        const { radius, angle } = feature.properties;
+        const { radius, angle, observerHeight } = feature.properties;
         const center = turf.point(centerCoord);
+        center.properties = { observerHeight };
 
-        const viewshedResult = await this.calculateViewshed(center, radius, angle);
-        const updatedFeature = this.createViewshedFeature(viewshedResult, radius, angle);
-        
+        const viewshedResult = await this.calculateViewshed(center, radius, angle, showModal);
+
+        let optimizedCells = viewshedResult;
+
+        if (showModal) {
+            this.updateProgress(70, 'Otimizando geometrias...');
+            await this.delay(100);
+            optimizedCells = this.dissolveVisibilityCells(viewshedResult);
+        }
+
+        const updatedFeature = this.createViewshedFeature(optimizedCells, radius, angle, observerHeight);
+
         updatedFeature.id = feature.id;
         updatedFeature.properties = { ...feature.properties, ...updatedFeature.properties };
+
+        // ✅ CORREÇÃO: Preservar centro original
+        updatedFeature.properties.center = centerCoord;
 
         return updatedFeature;
     }

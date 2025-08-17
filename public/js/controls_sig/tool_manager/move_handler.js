@@ -34,7 +34,7 @@ class MoveHandler {
         return {
             'draw': this.updateDrawFeature.bind(this),
             'los': this.updateDrawFeature.bind(this),
-            'visibility': this.updateDrawFeature.bind(this),
+            'visibility': this.updateVisibilityFeature.bind(this),
             'text': this.updatePointFeature.bind(this),
             'image': this.updatePointFeature.bind(this),
             'circle': this.updateCircleFeature.bind(this),
@@ -308,7 +308,6 @@ class MoveHandler {
             // Final UI update
             this.uiManager.shiftSelectionBoxes(dx, dy, true);
 
-            // Update selection manager efficiently
             this.updateSelectionManagerFeaturesOptimized(updatedFeatures);
 
             // Trigger final update
@@ -435,6 +434,34 @@ class MoveHandler {
         };
     }
 
+    updateVisibilityFeature(feature, dx, dy, newCoords) {
+        // ✅ Calcular novo centro baseado no movimento
+        let oldCenter = feature.properties.center || [
+            feature.geometry.coordinates[0][0][0][0],
+            feature.geometry.coordinates[0][0][0][1]
+        ];
+        if (typeof oldCenter === 'string') {
+                oldCenter = JSON.parse(oldCenter);
+        }
+
+        const newCenter = [oldCenter[0]+dx, oldCenter[1]+dy];
+
+        // ✅ Preservar propriedades originais
+        const updatedProperties = {
+            ...feature.properties,
+            center: newCenter
+        };
+
+        // ✅ Para drag, apenas atualizar propriedades sem recalcular geometria
+        // A geometria será recalculada quando o drag terminar
+        const updatedFeature = {
+            ...feature,
+            properties: updatedProperties
+        };
+
+        return updatedFeature;
+    }
+
     updateMilitarySymbolFeature(feature, dx, dy, newCoords) {
         // Military symbols are point features, so just update the coordinates
         return {
@@ -543,54 +570,55 @@ class MoveHandler {
     }
 
     updateBoundaryFeature = (feature, dx, dy, newCoords) => {
-    // ✅ NOVO: Seguindo padrão da arrow tool
-    
-    // Garantir que baseCoordinates é um array
-    let baseCoordinates = feature.properties.baseCoordinates;
+        // ✅ NOVO: Seguindo padrão da arrow tool
 
-    if (typeof baseCoordinates === 'string') {
-        try {
-            baseCoordinates = JSON.parse(baseCoordinates);
-        } catch (e) {
-            console.error('Erro ao parsear baseCoordinates:', e);
+        // Garantir que baseCoordinates é um array
+        let baseCoordinates = feature.properties.baseCoordinates;
+
+        if (typeof baseCoordinates === 'string') {
+            try {
+                baseCoordinates = JSON.parse(baseCoordinates);
+            } catch (e) {
+                console.error('Erro ao parsear baseCoordinates:', e);
+                return feature;
+            }
+        }
+
+        if (!Array.isArray(baseCoordinates)) {
+            console.error('baseCoordinates não é um array válido:', baseCoordinates);
             return feature;
         }
+
+        // Converter delta de coordenadas para coordenadas geográficas
+        const newBaseCoordinates = baseCoordinates.map(coord => [
+            coord[0] + dx,
+            coord[1] + dy
+        ]);
+
+        const updatedProperties = {
+            ...feature.properties,
+            baseCoordinates: newBaseCoordinates
+        };
+
+        const updatedFeature = {
+            ...feature,
+            properties: updatedProperties,
+            geometry: this.selectionManager.boundaryControl.generateBoundaryGeometry(updatedProperties)
+        };
+
+        // ✅ NOVO: Atualizar features dependentes também
+        if (this.selectionManager.boundaryControl &&
+            typeof this.selectionManager.boundaryControl.updateDependentFeatures === 'function') {
+
+            // Atualizar círculos e textos
+            requestAnimationFrame(() => {
+                this.selectionManager.boundaryControl.updateDependentFeatures(updatedFeature);
+            });
+        }
+
+        return updatedFeature;
     }
 
-    if (!Array.isArray(baseCoordinates)) {
-        console.error('baseCoordinates não é um array válido:', baseCoordinates);
-        return feature;
-    }
-
-    // Converter delta de coordenadas para coordenadas geográficas
-    const newBaseCoordinates = baseCoordinates.map(coord => [
-        coord[0] + dx,
-        coord[1] + dy
-    ]);
-
-    const updatedProperties = {
-        ...feature.properties,
-        baseCoordinates: newBaseCoordinates
-    };
-
-    const updatedFeature = {
-        ...feature,
-        properties: updatedProperties,
-        geometry: this.selectionManager.boundaryControl.generateBoundaryGeometry(updatedProperties)
-    };
-
-    // ✅ NOVO: Atualizar features dependentes também
-    if (this.selectionManager.boundaryControl && 
-        typeof this.selectionManager.boundaryControl.updateDependentFeatures === 'function') {
-        
-        // Atualizar círculos e textos
-        requestAnimationFrame(() => {
-            this.selectionManager.boundaryControl.updateDependentFeatures(updatedFeature);
-        });
-    }
-
-    return updatedFeature;
-}
     updateSelectionManagerFeaturesOptimized(updatedFeatures) {
         // Initialize all maps at once
         const featureMaps = {

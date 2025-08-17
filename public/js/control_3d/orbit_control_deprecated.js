@@ -1,4 +1,4 @@
-// Path: js\control_3d\orbit_control.js
+// Path: js\control_3d\orbit_control_deprecated.js
 
 // Orbit control variables
 let isOrbiting = false;

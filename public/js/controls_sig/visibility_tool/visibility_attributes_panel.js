@@ -3,6 +3,104 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
     const feature = selectedFeatures[0]; // Use the first selected feature to populate the form
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
 
+    // ✅ NOVO: Debounce timer para altura do observador
+    let observerHeightDebounceTimer = null;
+
+    // ✅ NOVO: Função para recalcular com debounce
+    const debouncedRecalculate = () => {
+        clearTimeout(observerHeightDebounceTimer);
+        observerHeightDebounceTimer = setTimeout(() => {
+            console.log('🔄 Recalculando visibilidade após mudança na altura...');
+            visibilityControl.updateFeatures(selectedFeatures, false, false, true);
+        }, 500); // Aguarda 1.5 segundos após parar de mexer
+    };
+
+    // ✅ NOVO: Observer Height with slider and numeric input
+    const observerHeightLabel = document.createElement('label');
+    observerHeightLabel.textContent = 'Altura do Observador:';
+    
+    const observerHeightContainer = document.createElement('div');
+    observerHeightContainer.className = 'slider-numeric-container';
+    observerHeightContainer.style.cssText = 'display: flex; gap: 8px; align-items: center; width: 100%;';
+    
+    const observerHeightSlider = document.createElement('input');
+    observerHeightSlider.classList.add("slider");
+    observerHeightSlider.type = 'range';
+    observerHeightSlider.min = 1;
+    observerHeightSlider.max = 20;
+    observerHeightSlider.step = 0.5;
+    observerHeightSlider.value = feature.properties.observerHeight || 2;
+    observerHeightSlider.style.cssText = 'flex-grow: 1;';
+    
+    const observerHeightInput = document.createElement('input');
+    observerHeightInput.type = 'number';
+    observerHeightInput.min = 1;
+    observerHeightInput.max = 20;
+    observerHeightInput.step = 0.5;
+    observerHeightInput.value = feature.properties.observerHeight || 2;
+    observerHeightInput.placeholder = 'm';
+    observerHeightInput.title = 'Altura em metros';
+    observerHeightInput.style.cssText = 'width: 60px; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; text-align: center;';
+    
+    observerHeightSlider.oninput = (e) => {
+        const value = parseFloat(e.target.value);
+        observerHeightInput.value = value;
+        
+        // ✅ MODIFICADO: Apenas atualiza propriedade, sem recalcular imediatamente
+        visibilityControl.updateFeaturesProperty(selectedFeatures, 'observerHeight', value);
+        uiManager.updateSelectionHighlight();
+        
+        // ✅ NOVO: Programa recálculo com debounce
+        debouncedRecalculate();
+    };
+    
+    observerHeightInput.oninput = (e) => {
+        let value = parseFloat(e.target.value);
+        if (isNaN(value)) {
+            value = 2; // Default value
+        } else {
+            value = Math.max(1, Math.min(20, value));
+        }
+        observerHeightSlider.value = value;
+        observerHeightInput.value = value;
+        
+        // ✅ MODIFICADO: Apenas atualiza propriedade, sem recalcular imediatamente
+        visibilityControl.updateFeaturesProperty(selectedFeatures, 'observerHeight', value);
+        uiManager.updateSelectionHighlight();
+        
+        // ✅ NOVO: Programa recálculo com debounce
+        debouncedRecalculate();
+    };
+    
+    observerHeightInput.onblur = (e) => {
+        let value = parseFloat(e.target.value);
+        if (isNaN(value)) {
+            value = 2; // Default value
+        } else {
+            value = Math.max(1, Math.min(20, value));
+        }
+        observerHeightInput.value = value;
+        observerHeightSlider.value = value;
+        
+        // ✅ MODIFICADO: Apenas atualiza propriedade, sem recalcular imediatamente
+        visibilityControl.updateFeaturesProperty(selectedFeatures, 'observerHeight', value);
+        uiManager.updateSelectionHighlight();
+        
+        // ✅ NOVO: Força recálculo imediato no blur (quando sai do campo)
+        clearTimeout(observerHeightDebounceTimer);
+        console.log('🔄 Recalculando visibilidade após blur...');
+        visibilityControl.updateFeatures(selectedFeatures, false, false, true);
+    };
+    
+    observerHeightContainer.appendChild(observerHeightSlider);
+    observerHeightContainer.appendChild(observerHeightInput);
+    
+    $(panel).append(
+        $("<div>", { class: "attr-container-row" })
+            .append($("<div>", { class: "attr-name" }).append(observerHeightLabel))
+            .append($("<div>", { class: "attr-input" }).append(observerHeightContainer))
+    );
+
     // Opacity with slider and numeric input
     const opacityLabel = document.createElement('label');
     opacityLabel.textContent = 'Opacidade:';
@@ -57,6 +155,8 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
     saveButton.textContent = 'Salvar';
     saveButton.type = 'submit';
     saveButton.onclick = () => {
+        // ✅ NOVO: Cancelar qualquer recálculo pendente antes de salvar
+        clearTimeout(observerHeightDebounceTimer);
         visibilityControl.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
     };
@@ -65,6 +165,8 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
     discardButton.classList.add('tool-button', 'pure-material-tool-button-contained')
     discardButton.textContent = 'Descartar';
     discardButton.onclick = () => {
+        // ✅ NOVO: Cancelar qualquer recálculo pendente antes de descartar
+        clearTimeout(observerHeightDebounceTimer);
         visibilityControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
     };
