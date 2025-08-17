@@ -18,11 +18,11 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         return label;
     };
 
-    // Função auxiliar padronizada para slider com input numérico
+    // Função auxiliar melhorada para slider com input numérico
     function createSliderWithInput(config) {
         const container = document.createElement('div');
         container.className = 'slider-numeric-container';
-        container.style.cssText = 'display: flex; gap: 8px; align-items: center; width: 100%;';
+        container.style.cssText = 'display: flex; gap: 12px; align-items: center; width: 100%;';
 
         const slider = document.createElement('input');
         slider.classList.add("slider");
@@ -39,22 +39,58 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         numericInput.max = config.max;
         numericInput.step = config.step || 1;
         numericInput.value = config.value;
-        numericInput.style.cssText = 'width: 60px; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;';
+        numericInput.style.cssText = 'width: 80px; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; text-align: center;';
 
-        // Validação e sincronização
+        // Função para arredondar valores
+        const roundToStep = (value, step) => {
+            return Math.round(value / step) * step;
+        };
+
+        // Função para validar e clampar valores
         const clampValue = (value) => Math.max(config.min, Math.min(config.max, value));
         
+        // Debounce timer para input manual
+        let debounceTimer = null;
+
+        // Sync slider -> input (com arredondamento)
         slider.oninput = (e) => {
-            const value = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
+            const rawValue = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
+            const value = roundToStep(rawValue, config.step || 1);
             numericInput.value = value;
             config.onChange(value);
         };
 
+        // Sync input -> slider (com debounce)
         numericInput.oninput = (e) => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                let value = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
+                
+                if (isNaN(value)) {
+                    value = config.value;
+                } else {
+                    value = roundToStep(clampValue(value), config.step || 1);
+                }
+                
+                slider.value = value;
+                numericInput.value = value;
+                config.onChange(value);
+            }, 300);
+        };
+
+        // Validação robusta ao sair do input
+        numericInput.onblur = (e) => {
+            clearTimeout(debounceTimer);
             let value = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
-            value = clampValue(value);
-            slider.value = value;
+            
+            if (isNaN(value)) {
+                value = config.value;
+            } else {
+                value = roundToStep(clampValue(value), config.step || 1);
+            }
+            
             numericInput.value = value;
+            slider.value = value;
             config.onChange(value);
         };
 
@@ -97,7 +133,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     // ========== PROPRIEDADES ESPECÍFICAS DA SETA ==========
     
-    // ✅ NOVO: Checkbox "Seta" para mostrar/ocultar cabeça
+    // Checkbox "Seta" para mostrar/ocultar cabeça
     const showArrowHeadCheckbox = createCheckbox(feature.properties.showArrowHead !== false, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', e.target.checked);
         uiManager.updateSelectionHighlight();
@@ -105,11 +141,11 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Seta:', showArrowHeadCheckbox));
 
-    // ✅ NOVO: Slider de Largura (m)
+    // Slider de Largura (m) - com step de 1 metro
     const widthControl = createSliderWithInput({
         min: 50,
         max: 5000,
-        step: 50,
+        step: 1,
         value: feature.properties.width || 500,
         unit: 'm',
         onChange: (value) => {
@@ -208,7 +244,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
                 lineWidth: feature.properties.lineWidth,
                 fillOpacity: feature.properties.fillOpacity,
                 headLengthRatio: feature.properties.headLengthRatio || 1.5,
-                showArrowHead: feature.properties.showArrowHead !== false,  // ✅ NOVA PROPRIEDADE
+                showArrowHead: feature.properties.showArrowHead !== false,
                 airmobile: feature.properties.airmobile || false,
                 airmobilePosition: feature.properties.airmobilePosition || 0.7
             };
