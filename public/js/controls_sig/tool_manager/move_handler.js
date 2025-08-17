@@ -42,7 +42,7 @@ class MoveHandler {
             'arrow': this.updateArrowFeature.bind(this),
             'boundary': this.updateBoundaryFeature.bind(this),
             'occupied_front': this.updateOccupiedFrontFeature.bind(this),
-            'military_symbols': this.updateMilitarySymbolFeature.bind(this)
+            'military_symbol': this.updateMilitarySymbolFeature.bind(this)
         };
     }
 
@@ -58,7 +58,7 @@ class MoveHandler {
             'arrow': 'selectedArrowFeatures',
             'boundary': 'selectedBoundaryFeatures',
             'occupied_front': 'selectedOccupiedFrontFeatures',
-            'military_symbols': 'selectedMilitarySymbolFeatures'
+            'military_symbol': 'selectedMilitarySymbolFeatures'
         };
     }
 

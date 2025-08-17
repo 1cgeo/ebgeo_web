@@ -8,7 +8,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     const feature = selectedFeatures[0];
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
 
-    // Função auxiliar para criar slider com input numérico
+    // Slider com input numérico
     function createSliderWithInput(config) {
         const container = document.createElement('div');
         container.className = 'slider-numeric-container';
@@ -60,7 +60,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         return container;
     }
 
-    // ========== BOTÃO SÍMBOLO ==========
+    // Botão para abrir modal do símbolo
     const symbolButton = document.createElement('button');
     symbolButton.classList.add('tool-button', 'pure-material-button-contained');
     symbolButton.textContent = 'Símbolo...';
@@ -73,12 +73,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             .append($("<div>", { class: "attr-input" }).append(symbolButton))
     );
 
-    // ========== PROPRIEDADES DE RENDERIZAÇÃO ==========
-
-    // Tamanho
+    // Controles de renderização
     const sizeControl = createSliderWithInput({
         min: 20,
-        max: 80,
+        max: 200,
         step: 5,
         value: feature.properties.size || 35,
         unit: 'px',
@@ -94,7 +92,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             .append($("<div>", { class: "attr-input" }).append(sizeControl))
     );
 
-    // Opacidade
     const opacityControl = createSliderWithInput({
         min: 0.1,
         max: 1,
@@ -112,7 +109,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             .append($("<div>", { class: "attr-input" }).append(opacityControl))
     );
 
-    // Rotação
     const rotationControl = createSliderWithInput({
         min: -180,
         max: 180,
@@ -131,20 +127,19 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             .append($("<div>", { class: "attr-input" }).append(rotationControl))
     );
 
-    // ========== BOTÕES DE AÇÃO ==========
+    // Botões de ação
     const buttonsContainer = $("<div>", { class: "attr-container-row" });
 
-    // Botão Salvar
     const saveButton = document.createElement('button');
     saveButton.classList.add('tool-button', 'pure-material-tool-button-contained');
     saveButton.textContent = 'Salvar';
+    saveButton.type = 'submit';
     saveButton.onclick = () => {
         militarySymbolControl.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
     };
     buttonsContainer.append(saveButton);
 
-    // Botão Descartar
     const discardButton = document.createElement('button');
     discardButton.classList.add('tool-button', 'pure-material-tool-button-contained');
     discardButton.textContent = 'Descartar';
@@ -154,7 +149,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     };
     buttonsContainer.append(discardButton);
 
-    // Botão Definir Padrão (apenas para seleção única)
     if (selectedFeatures.length === 1) {
         const setDefaultButton = document.createElement('button');
         setDefaultButton.classList.add('tool-button', 'pure-material-tool-button-contained');
@@ -168,9 +162,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
     $(panel).append(buttonsContainer);
 
-    // ========== MODAL DE SÍMBOLO ==========
+    // Modal do símbolo
     function openSymbolModal() {
-        // Criar overlay do modal
         const modalOverlay = document.createElement('div');
         modalOverlay.style.cssText = `
             position: fixed;
@@ -185,7 +178,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             align-items: center;
         `;
 
-        // Criar modal
         const modal = document.createElement('div');
         modal.style.cssText = `
             background: white;
@@ -197,21 +189,17 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         `;
 
-        // Título do modal
         const modalTitle = document.createElement('h2');
         modalTitle.textContent = 'Configurar Símbolo Militar';
         modalTitle.style.cssText = 'margin-top: 0; margin-bottom: 20px; text-align: center;';
         modal.appendChild(modalTitle);
 
-        // Container principal do modal
         const modalContent = document.createElement('div');
         modalContent.style.cssText = 'display: flex; gap: 20px;';
 
-        // Coluna esquerda - Controles
         const controlsColumn = document.createElement('div');
         controlsColumn.style.cssText = 'flex: 1; min-width: 320px;';
 
-        // Coluna direita - Preview
         const previewColumn = document.createElement('div');
         previewColumn.style.cssText = 'flex: 0 0 200px; text-align: center;';
 
@@ -236,10 +224,24 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         previewLabel.textContent = 'Preview';
         previewLabel.style.cssText = 'margin-bottom: 10px;';
 
+        // SIDC display
+        const sidcLabel = document.createElement('div');
+        sidcLabel.style.cssText = `
+            margin-top: 10px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            color: #495057;
+        `;
+
         previewColumn.appendChild(previewLabel);
         previewColumn.appendChild(previewContainer);
+        previewColumn.appendChild(sidcLabel);
 
-        // Função auxiliar para criar combobox no modal
+        // Combobox para modal
         function createModalComboBox(options, currentValue, onChange, label) {
             const container = document.createElement('div');
             container.style.cssText = 'margin-bottom: 15px;';
@@ -259,31 +261,27 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 select.appendChild(opt);
             });
             
-            select.onchange = (e) => {
-                onChange(e.target.value);
-            };
+            select.onchange = (e) => onChange(e.target.value);
 
             container.appendChild(labelElement);
             container.appendChild(select);
             return container;
         }
 
-        // Variáveis temporárias para o modal
+        // Propriedades temporárias para o modal
         let tempProperties = { ...feature.properties };
 
-        // Container para duas colunas de comboboxes
+        // Layout de duas colunas
         const comboboxesContainer = document.createElement('div');
         comboboxesContainer.style.cssText = 'display: flex; gap: 15px;';
 
-        // Primeira coluna de comboboxes
         const column1 = document.createElement('div');
         column1.style.cssText = 'flex: 1;';
 
-        // Segunda coluna de comboboxes
         const column2 = document.createElement('div');
         column2.style.cssText = 'flex: 1;';
 
-        // Adicionar controles à primeira coluna
+        // Primeira coluna
         column1.appendChild(createModalComboBox(
             MILITARY_DATA.affiliations,
             tempProperties.affiliation || "03",
@@ -293,29 +291,29 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         column1.appendChild(createModalComboBox(
             MILITARY_DATA.dimensions,
-            tempProperties.dimension || "01",
+            tempProperties.dimension || "10",
             (value) => { tempProperties.dimension = value; updatePreview(); },
             'Dimensão'
         ));
 
         column1.appendChild(createModalComboBox(
             MILITARY_DATA.echelons,
-            tempProperties.echelon || "Btl",
+            tempProperties.echelon || "16",
             (value) => { tempProperties.echelon = value; updatePreview(); },
             'Escalão'
         ));
 
         column1.appendChild(createModalComboBox(
             MILITARY_DATA.mainIcons,
-            tempProperties.mainIcon || "1211",
+            tempProperties.mainIcon || "121100",
             (value) => { tempProperties.mainIcon = value; updatePreview(); },
             'Ícone Central'
         ));
 
-        // Adicionar controles à segunda coluna
+        // Segunda coluna
         column2.appendChild(createModalComboBox(
             MILITARY_DATA.modifier1,
-            tempProperties.modifier1 || "00",
+            tempProperties.modifier1 || "none",
             (value) => { tempProperties.modifier1 = value; updatePreview(); },
             'Modificador 1'
         ));
@@ -329,36 +327,40 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         column2.appendChild(createModalComboBox(
             MILITARY_DATA.modifierTransversal,
-            tempProperties.modifierTransversal || "00",
+            tempProperties.modifierTransversal || "none",
             (value) => { tempProperties.modifierTransversal = value; updatePreview(); },
             'Modificador Transversal'
         ));
 
-        // Montar container de comboboxes
         comboboxesContainer.appendChild(column1);
         comboboxesContainer.appendChild(column2);
         controlsColumn.appendChild(comboboxesContainer);
 
-        // Função para atualizar preview
+        // Função simplificada de preview (lógica agora está no generator)
         async function updatePreview() {
             try {
+                // Construir SIDC usando o generator (que aplica toda a lógica)
                 const sidc = militarySymbolControl.symbolGenerator.buildSIDC(tempProperties);
                 tempProperties.sidc = sidc;
 
-                // Gerar preview usando milsymbol
+                // Mostrar SIDC na UI
+                sidcLabel.textContent = `SIDC: ${sidc}`;
+
+                // Renderizar símbolo
                 const symbol = new ms.Symbol(sidc, {
                     size: 60,
                     frame: true,
                     fill: true,
-                    strokeWidth: 2,
-                    echelon: militarySymbolControl.symbolGenerator.mapEchelonToMilsymbol(tempProperties.echelon)
+                    strokeWidth: 2
                 });
 
                 previewImage.src = symbol.toDataURL();
                 previewImage.style.display = 'block';
+
             } catch (error) {
                 console.error('Erro ao gerar preview:', error);
                 previewImage.style.display = 'none';
+                sidcLabel.textContent = 'SIDC: Erro';
             }
         }
 
@@ -378,7 +380,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             font-size: 14px;
         `;
         applyButton.onclick = async () => {
-            // Aplicar mudanças
+            // Aplicar mudanças às features selecionadas
             for (const [key, value] of Object.entries(tempProperties)) {
                 if (key !== 'id' && key !== 'source') {
                     await militarySymbolControl.updateFeaturesProperty(selectedFeatures, key, value);
@@ -399,9 +401,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             cursor: pointer;
             font-size: 14px;
         `;
-        cancelButton.onclick = () => {
-            document.body.removeChild(modalOverlay);
-        };
+        cancelButton.onclick = () => document.body.removeChild(modalOverlay);
 
         modalButtons.appendChild(applyButton);
         modalButtons.appendChild(cancelButton);

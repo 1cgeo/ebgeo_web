@@ -194,8 +194,8 @@ function setupMilitarySymbolsLayers(features) {
                 'icon-opacity': ['get', 'opacity']
             },
             layout: {
-                'icon-image': ['get', 'id'], // Usa o ID da feature como nome da imagem
-                'icon-size': ['*', ['get', 'size'], 0.02], // Converter tamanho em escala
+                'icon-image': ['get', 'imageId'], // Usa imageId igual ao image control
+                'icon-size': ['/', ['get', 'size'], 64], // Divide pelo tamanho base (64px) para obter escala
                 'icon-rotate': ['get', 'rotation'],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true
@@ -216,7 +216,7 @@ function setupDrawLayers(features) {
 }
 
 async function setImages(features) {
-    // Carregar blobs das imagens do IndexedDB
+    // Carregar blobs das imagens normais do IndexedDB
     for (const feature of features.images) {
         const imageId = feature.properties.imageId;
         try {
@@ -234,6 +234,27 @@ async function setImages(features) {
             }
         } catch (error) {
             console.warn(`Erro ao carregar imagem ${imageId}:`, error);
+        }
+    }
+
+    // Carregar blobs dos símbolos militares do IndexedDB (análogo às imagens)
+    for (const feature of features.military_symbols || []) {
+        const imageId = feature.properties.imageId;
+        try {
+            const blob = await imageStore.getItem(imageId);
+            if (blob) {
+                const url = URL.createObjectURL(blob);
+                const image = new Image();
+                image.onload = () => {
+                    if (!map.hasImage(imageId)) {
+                        map.addImage(imageId, image);
+                    }
+                    URL.revokeObjectURL(url);
+                };
+                image.src = url;
+            }
+        } catch (error) {
+            console.warn(`Erro ao carregar símbolo militar ${imageId}:`, error);
         }
     }
 }

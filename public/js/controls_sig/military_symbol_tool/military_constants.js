@@ -1,107 +1,88 @@
 // Path: js\controls_sig\military_symbol_tool\military_constants.js
 
-// Dados extraídos do arquivo de simbologia militar brasileira
 export const MILITARY_DATA = {
+    // Posições 3-4: Afiliação
     affiliations: [
-        { value: "01", label: "Desconhecido" },
+        { value: "06", label: "Desconhecido" },
         { value: "03", label: "Amigo" },
-        { value: "04", label: "Neutro" }, 
-        { value: "06", label: "Hostil" }
+        { value: "04", label: "Neutro" },
+        { value: "01", label: "Hostil" }
     ],
-    
+
+    // Posições 1-2: Symbol Set (Dimensão)
     dimensions: [
-        { value: "01", label: "Terrestre" },
-        { value: "02", label: "Ar" },
-        { value: "04", label: "Naval/Superfície" },
-        { value: "05", label: "Subsuperfície" }
+        { value: "10", label: "Unidade" },
+        { value: "15", label: "Equipamento/Viatura" },
+        { value: "01", label: "Aeronave" },
+        { value: "30", label: "Instalação" }
     ],
-    
+
+    // Posições 11-12: Escalão
     echelons: [
-        { value: "Tu", label: "Turma" },
-        { value: "GC", label: "Grupo de Combate" },
-        { value: "Pel", label: "Pelotão" },
-        { value: "SU", label: "Subunidade (Cia/Esqd/Bia)" },
-        { value: "Btl", label: "Batalhão" },
-        { value: "Gp", label: "Grupo" },
-        { value: "Rgt", label: "Regimento" },
-        { value: "GU", label: "Grande Unidade (Brigada)" },
-        { value: "DE", label: "Divisão de Exército" },
-        { value: "C Ex", label: "Corpo de Exército" },
-        { value: "RM", label: "Região Militar" },
-        { value: "TO", label: "Teatro de Operações" }
+        { value: "11", label: "Equipe/Guarnição" },
+        { value: "12", label: "Esquadra" },
+        { value: "13", label: "Seção" },
+        { value: "14", label: "Pelotão/Destacamento" },
+        { value: "15", label: "Companhia" },
+        { value: "16", label: "Batalhão" },
+        { value: "17", label: "Regimento" },
+        { value: "18", label: "Brigada" },
+        { value: "21", label: "Divisão" },
+        { value: "22", label: "Corpo de Exército" },
+        { value: "23", label: "Exército" },
+        { value: "24", label: "Teatro de Operações" }
     ],
-    
+
+    // Posições 13-18: Function ID (6 dígitos)
     mainIcons: [
-        { value: "0000", label: "Comando Não Especificado", sidc: "000000" },
-        { value: "1211", label: "Infantaria", sidc: "1211000000" },
-        { value: "1205", label: "Cavalaria Blindada/Mecanizada", sidc: "1205000000" },
-        { value: "1213", label: "Cavalaria", sidc: "1213000000" },
-        { value: "1303", label: "Artilharia de Campanha", sidc: "1303000000" },
-        { value: "1301", label: "Artilharia Antiaérea", sidc: "1301000000" },
-        { value: "1407", label: "Engenharia", sidc: "1407000000" },
-        { value: "1110", label: "Comunicações", sidc: "1110000000" },
-        { value: "1600", label: "Logística", sidc: "1600000000" },
-        { value: "1611", label: "Manutenção", sidc: "1611000000" },
-        { value: "1613", label: "Saúde", sidc: "1613000000" },
-        { value: "1634", label: "Suprimento", sidc: "1634000000" },
-        { value: "1636", label: "Transporte", sidc: "1636000000" },
-        { value: "1510", label: "Inteligência Militar", sidc: "1510000000" },
-        { value: "1505", label: "Guerra Eletrônica", sidc: "1505000000" },
-        { value: "1218", label: "Operações Especiais", sidc: "1218000000" },
-        { value: "1217", label: "Ações de Comandos", sidc: "1217000000" },
-        { value: "1412", label: "Polícia Militar", sidc: "1412000000" },
-        { value: "1206", label: "Aviação do Exército", sidc: "1206000000" },
-        { value: "1701", label: "Naval", sidc: "1701000000" }
+        { value: "121100", label: "Infantaria" },
+        { value: "121103", label: "Infantaria Blindada/Mecanizada" },
+        { value: "120500", label: "Cavalaria" },
+        { value: "120501", label: "Cavalaria Blindada/Mecanizada" },
+        { value: "100300", label: "Artilharia de Campanha" },
+        { value: "100301", label: "Artilharia de Campanha Autopropulsada" },
+        { value: "100100", label: "Artilharia Antiaérea" },
+        { value: "130000", label: "Engenharia" },
+        { value: "130002", label: "Engenharia Blindada/Mecanizada" },
+        { value: "100200", label: "Comunicações" },
+        { value: "160000", label: "Logística" },
+        { value: "160200", label: "Manutenção" },
+        { value: "160400", label: "Suprimento" },
+        { value: "160500", label: "Transporte" },
+        { value: "110300", label: "Forças Especiais" },
+        { value: "110400", label: "Ações de Comandos" },
+        { value: "180100", label: "Guerra Eletrônica" },
+        { value: "100600", label: "Aviação do Exército" }
     ],
-    
-    modifier1: [
-        { value: "00", label: "Nenhum" },
-        { value: "01", label: "Aeromóvel" },
-        { value: "05", label: "Fronteira" },
-        { value: "10", label: "Comando e Controle" },
-        { value: "12", label: "Construção" },
-        { value: "34", label: "Mísseis" },
-        { value: "41", label: "Lançadora de Múltiplos Foguetes" },
-        { value: "50", label: "Radar" },
-        { value: "53", label: "Busca e Salvamento (SAR)" },
-        { value: "67", label: "Busca de Alvos" },
-        { value: "77", label: "Apoio" },
-        { value: "98", label: "Elemento de Comando" }
-    ],
-    
+
+    // Posições 19-20: Modificador Específico (valores reais do SIDC)
     modifier2: [
         { value: "00", label: "Nenhum" },
         { value: "01", label: "Paraquedista" },
-        { value: "15", label: "Pesado" },
-        { value: "19", label: "Leve" },
-        { value: "24", label: "Médio" },
-        { value: "27", label: "Montanha" },
-        { value: "40", label: "Ribeirinho" },
-        { value: "45", label: "Apoio" },
-        { value: "47", label: "Rebocado" },
-        { value: "51", label: "Sobre Rodas" }
+        { value: "02", label: "Leve" },
+        { value: "03", label: "Médio" },
+        { value: "04", label: "Pesado" },
+        { value: "05", label: "Montanha" },
+        { value: "06", label: "Selva" },
+        { value: "07", label: "Sobre Rodas" },
+        { value: "08", label: "Carros de Combate" },
+        { value: "09", label: "Aeromóvel" },
+        { value: "11", label: "Guerra Eletrônica" },
+        { value: "12", label: "Motorizado" }
     ],
-    
-    modifierTransversal: [
-        { value: "00", label: "Nenhum" },
-        { value: "BLD", label: "Blindado" },
-        { value: "MEC", label: "Mecanizado" },
-        { value: "MTZ", label: "Motorizado" },
-        { value: "DEFESA_AEREA", label: "Defesa Aérea" }
-    ]
-};
 
-export const ECHELON_MAPPING = {
-    'Tu': '11',      // Team
-    'GC': '12',      // Squad  
-    'Pel': '13',     // Section
-    'SU': '14',      // Platoon
-    'Btl': '15',     // Company
-    'Gp': '16',      // Battalion
-    'Rgt': '17',     // Regiment
-    'GU': '18',      // Brigade
-    'DE': '21',      // Division
-    'C Ex': '22',    // Corps
-    'RM': '23',      // Army
-    'TO': '24'       // Army Group
+    // Modificadores lógicos (não entram diretamente no SIDC)
+    modifier1: [
+        { value: "none", label: "Nenhum" },
+        { value: "airmobile", label: "Aeromóvel" },
+        { value: "ranger", label: "Caçador" },
+        { value: "ew", label: "Guerra Eletrônica" }
+    ],
+
+    modifierTransversal: [
+        { value: "none", label: "Nenhum" },
+        { value: "armored", label: "Blindado" },
+        { value: "mechanized", label: "Mecanizado" },
+        { value: "motorized", label: "Motorizado" }
+    ]
 };
