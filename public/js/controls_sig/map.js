@@ -50,7 +50,6 @@ map.on('styledata', async () => {
         restoreMeasurements(features);
         restoreCircleXMarks(features);
         restoreBoundaryDependentFeatures(features);
-        loadMilitarySymbolImages(features);
     });
 });
 
@@ -170,8 +169,8 @@ function setupOccupiedFrontLayers(features) {
 
 function setupMilitarySymbolsLayers(features) {
     // Source
-    if (!map.getSource('military-symbols')) {
-        map.addSource('military-symbols', {
+    if (!map.getSource('military_symbols')) {
+        map.addSource('military_symbols', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -179,7 +178,7 @@ function setupMilitarySymbolsLayers(features) {
             }
         });
     } else {
-        map.getSource('military-symbols').setData({
+        map.getSource('military_symbols').setData({
             type: 'FeatureCollection',
             features: features.military_symbols || []
         });
@@ -190,7 +189,7 @@ function setupMilitarySymbolsLayers(features) {
         map.addLayer({
             id: 'military-symbols-layer',
             type: 'symbol',
-            source: 'military-symbols',
+            source: 'military_symbols',
             paint: {
                 'icon-opacity': ['get', 'opacity']
             },
@@ -202,22 +201,6 @@ function setupMilitarySymbolsLayers(features) {
                 'icon-ignore-placement': true
             }
         });
-    }
-}
-
-async function loadMilitarySymbolImages(features) {
-    if (!features.military_symbols) return;
-
-    for (const feature of features.military_symbols) {
-        if (feature.id && !map.hasImage(feature.id)) {
-            try {
-                // Regenerar a imagem do símbolo usando o generator
-                const symbolImage = await militarySymbolControl.symbolGenerator.generateSymbolImage(feature.properties);
-                map.addImage(feature.id, symbolImage);
-            } catch (error) {
-                console.error('Erro ao carregar imagem do símbolo militar:', feature.id, error);
-            }
-        }
     }
 }
 

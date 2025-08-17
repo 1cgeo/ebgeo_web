@@ -24,7 +24,7 @@ class AddMilitarySymbolControl {
         
         // Identificadores
         id: null,
-        source: 'military-symbols'
+        source: 'military_symbol'
     };
 
     constructor(toolManager) {
@@ -144,15 +144,15 @@ class AddMilitarySymbolControl {
             }
 
             // Salvar no store
-            await addFeature('military-symbols', feature);
+            await addFeature('military_symbols', feature);
 
             // Adicionar ao source do mapa
-            const data = JSON.parse(JSON.stringify(this.map.getSource('military-symbols')._data));
+            const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
             data.features.push(feature);
-            this.map.getSource('military-symbols').setData(data);
+            this.map.getSource('military_symbols').setData(data);
 
             // Selecionar o símbolo criado
-            this.selectionManager.toggleFeatureSelection('military-symbol', feature.id, feature);
+            this.selectionManager.toggleFeatureSelection('military_symbol', feature.id, feature);
             this.selectionManager.updateUI();
 
         } catch (error) {
@@ -173,7 +173,7 @@ class AddMilitarySymbolControl {
     }
 
     updateFeaturesProperty = async (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('military-symbols')._data));
+        const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
         
         for (const feature of features) {
             const f = data.features.find(f => f.id == feature.id);
@@ -191,12 +191,12 @@ class AddMilitarySymbolControl {
             }
         }
         
-        this.map.getSource('military-symbols').setData(data);
+        this.map.getSource('military_symbols').setData(data);
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('military-symbols')._data));
+            const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
             
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
@@ -211,18 +211,18 @@ class AddMilitarySymbolControl {
 
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
-                        await updateFeature('military-symbols', featureToUpdate);
+                        await updateFeature('military_symbols', featureToUpdate);
                     }
                 }
             }
-            this.map.getSource('military-symbols').setData(data);
+            this.map.getSource('military_symbols').setData(data);
         }
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
         for (const f of features) {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('military-symbols', f);
+                await updateFeature('military_symbols', f);
             }
         }
     }
@@ -245,10 +245,10 @@ class AddMilitarySymbolControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
         
-        const data = JSON.parse(JSON.stringify(this.map.getSource('military-symbols')._data));
+        const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
         const idsToDelete = new Set(Array.from(features).map(f => String(f.id)));
         data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
-        this.map.getSource('military-symbols').setData(data);
+        this.map.getSource('military_symbols').setData(data);
 
         for (const feature of features) {
             // Remover imagem do mapa
@@ -256,7 +256,7 @@ class AddMilitarySymbolControl {
                 this.map.removeImage(feature.id);
             }
             
-            await removeFeature('military-symbols', feature.id);
+            await removeFeature('military_symbols', feature.id);
         }
     }
 

@@ -12,7 +12,6 @@ class AddLOSControl {
     };
 
     static VISIBLE_COLOR = '#00FF00';
-
     static OBSTRUCTED_COLOR = '#FF0000';
 
     constructor(toolManager) {
@@ -21,9 +20,18 @@ class AddLOSControl {
         this.isActive = false;
         this.startPoint = null;
         this.endPoint = null;
-        this.debounceTime = 30;
-        this.lastUpdateTime = 0;
         this.selectionManager = toolManager.selectionManager;
+
+        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing (same pattern as circle)
+        this.previewRafId = null;
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null; // startPoint
+        this.geometryDebounceTimer = null;
+
+        // Remove old debouncing system
+        // this.debounceTime = 30;
+        // this.lastUpdateTime = 0;
     }
 
     onAdd = (map) => {
@@ -39,10 +47,8 @@ class AddLOSControl {
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
-
         this.setupEventListeners();
-
-        this.changeButtonColor()
+        this.changeButtonColor();
 
         return this.container;
     }
@@ -72,12 +78,31 @@ class AddLOSControl {
     removeEventListeners = () => {
         this.map.off('mouseenter', 'los-layer', this.handleMouseEnter);
         this.map.off('mouseleave', 'los-layer', this.handleMouseLeave);
+        this.map.off('mousemove', this.handleMouseMove);
+        // ✅ CLEANUP: Cancel all pending operations
+        this.cancelPendingUpdates();
+    }
+
+    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations (same as circle)
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
     }
 
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.changeButtonColor()
+        this.changeButtonColor();
     }
 
     deactivate = () => {
@@ -85,12 +110,17 @@ class AddLOSControl {
         this.map.getCanvas().style.cursor = '';
         this.startPoint = null;
         this.endPoint = null;
+        this.clearPreview();
+        this.changeButtonColor();
+    }
+
+    // ✅ Clear preview (same pattern as circle)
+    clearPreview = () => {
+        this.cancelPendingUpdates();
         this.map.getSource('temp-line').setData({
             type: 'FeatureCollection',
             features: []
         });
-        this.map.off('mousemove', this.handleMouseMove);
-        this.changeButtonColor()
     }
 
     handleMapClick = async (e) => {
@@ -100,26 +130,43 @@ class AddLOSControl {
 
         if (!this.startPoint) {
             this.startPoint = [lng, lat];
+            this.lastPreviewCenter = this.startPoint; // Store for RAF pattern
             this.map.on('mousemove', this.handleMouseMove);
         } else {
             this.endPoint = [lng, lat];
+            this.map.off('mousemove', this.handleMouseMove);
             await this.addLOSFeature();
             this.toolManager.deactivateCurrentTool();
         }
     }
 
+    // ✅ OPTIMIZED: RAF-based preview (same pattern as circle)
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
-        const currentTime = performance.now();
-        if (currentTime - this.lastUpdateTime < this.debounceTime) {
+        this.lastPreviewCenter = this.startPoint;
+        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
+        }
+    }
+
+    // ✅ PERFORMANCE: RAF callback for smooth preview (same as circle)
+    performPreviewUpdate = () => {
+        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
+            this.pendingPreviewUpdate = false;
             return;
         }
-        this.lastUpdateTime = currentTime;
 
-        const { lng, lat } = e.lngLat;
-        const endPoint = [lng, lat];
-        this.updateTempLine([this.startPoint, endPoint]);
+        // Light debouncing for line preview (same as circle)
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            this.updateTempLine([this.lastPreviewCenter, this.lastPreviewPosition]);
+        }, 8); // Same 8ms as circle for consistency
+
+        this.pendingPreviewUpdate = false;
     }
 
     updateTempLine = (coordinates) => {
@@ -477,7 +524,6 @@ class AddLOSControl {
             .setLngLat(coordinates)
             .addTo(this.map);
     }
-
 
     createMeasurementLabel = (measurement, featureId) => {
         const label = document.createElement('div');

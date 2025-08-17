@@ -178,10 +178,10 @@ class SelectionManager {
 
         // Look for military symbol features
         const militarySymbolFeature = features.find(f =>
-            (f.source === 'military-symbols' || f.layer?.id === 'military-symbols-layer') &&
-            f.properties.source === 'military-symbols'
+            (f.source === 'military_symbols' || f.layer?.id === 'military-symbols-layer') &&
+            f.properties.source === 'military_symbol'
         );
-        if (militarySymbolFeature) return { ...militarySymbolFeature, toolType: 'military-symbol' };
+        if (militarySymbolFeature) return { ...militarySymbolFeature, toolType: 'military_symbol' };
 
         // Look for other custom tool features
         const textFeature = features.find(f =>
@@ -244,7 +244,7 @@ class SelectionManager {
                 return this.selectedBoundaryFeatures.has(featureId);
             case 'occupied_front':
                 return this.selectedOccupiedFrontFeatures.has(featureId);
-            case 'military-symbol':
+            case 'military_symbol':
                 return this.selectedMilitarySymbolFeatures.has(featureId);
             case 'text':
                 return this.selectedTextFeatures.has(featureId);
@@ -300,7 +300,7 @@ class SelectionManager {
                     this.occupiedFrontControl.onFeatureSelected?.(selectedFeature);
                 }
                 break;
-            case 'military-symbol':
+            case 'military_symbol':
                 // Military symbols don't have editing mode like other tools
                 // They are just selected for property modification
                 break;
@@ -419,7 +419,7 @@ class SelectionManager {
                 return this.selectedBoundaryFeatures.has(featureId);
             case 'occupied_front':
                 return this.selectedOccupiedFrontFeatures.has(featureId);
-            case 'military-symbols':
+            case 'military_symbol':
                 return this.selectedMilitarySymbolFeatures.has(featureId);
             default:
                 return false;
@@ -444,8 +444,8 @@ class SelectionManager {
             case 'occupied_front':
                 sourceName = 'occupied_fronts';
                 break;
-            case 'military-symbols':
-                sourceName = 'military-symbols';
+            case 'military_symbol':
+                sourceName = 'military_symbols';
                 break;
             default:
                 return null;
@@ -470,7 +470,7 @@ class SelectionManager {
             'arrow': ['baseCoordinates'],
             'boundary': ['center'],
             'occupied_front': ['baseCoordinates'],
-            'military-symbols': ['sidc', 'affiliation', 'dimension', 'mainIcon', 'echelon']
+            'military_symbol': ['sidc', 'affiliation', 'dimension', 'mainIcon', 'echelon']
         };
 
         const relevantProps = criticalProps[source] || [];
@@ -530,7 +530,7 @@ class SelectionManager {
             case 'occupied_front':
                 targetMap = this.selectedOccupiedFrontFeatures;
                 break;
-            case 'military-symbols':
+            case 'military_symbol':
                 targetMap = this.selectedMilitarySymbolFeatures;
                 break;
             default:
@@ -562,7 +562,7 @@ class SelectionManager {
             let featureToStore = feature;
 
             // For problematic features, create optimized hybrid feature
-            if (['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front', 'military-symbols'].includes(source)) {
+            if (['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front', 'military_symbol'].includes(source)) {
                 const completeFeature = this.getCompleteFeatureFromSource(source, featureId);
 
                 if (completeFeature) {

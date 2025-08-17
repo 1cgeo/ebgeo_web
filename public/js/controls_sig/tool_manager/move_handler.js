@@ -42,7 +42,7 @@ class MoveHandler {
             'arrow': this.updateArrowFeature.bind(this),
             'boundary': this.updateBoundaryFeature.bind(this),
             'occupied_front': this.updateOccupiedFrontFeature.bind(this),
-            'military-symbols': this.updateMilitarySymbolFeature.bind(this)
+            'military_symbols': this.updateMilitarySymbolFeature.bind(this)
         };
     }
 
@@ -58,7 +58,7 @@ class MoveHandler {
             'arrow': 'selectedArrowFeatures',
             'boundary': 'selectedBoundaryFeatures',
             'occupied_front': 'selectedOccupiedFrontFeatures',
-            'military-symbols': 'selectedMilitarySymbolFeatures'
+            'military_symbols': 'selectedMilitarySymbolFeatures'
         };
     }
 
@@ -96,7 +96,7 @@ class MoveHandler {
         if (allSelectedFeatures.length === 0) return;
 
         const clickedFeatures = this.map.queryRenderedFeatures(e.point);
-        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys', 'occupied_fronts', 'military-symbols'];
+        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys', 'occupied_fronts', 'military_symbols'];
         const filteredFeatures = clickedFeatures.filter(feature => validSources.includes(feature.source));
 
         // Check for edit handles (maplibredraw midpoint/vertex handles)

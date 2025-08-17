@@ -2,6 +2,13 @@
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 
+// Configuração do grid polar adaptativo
+const VIEWSHED_CONFIG = {
+    RINGS: 20,                    // Anéis concêntricos
+    MIN_RAYS_PER_RING: 4,        // Mínimo de subdivisões angulares
+    MAX_RAYS_PER_RING: 20        // Máximo de subdivisões angulares
+};
+
 class AddVisibilityControl {
     static DEFAULT_PROPERTIES = {
         opacity: 0.5,
@@ -9,7 +16,6 @@ class AddVisibilityControl {
     };
 
     static VISIBLE_COLOR = '#00FF00';
-
     static OBSTRUCTED_COLOR = '#FF0000';
 
     constructor(toolManager) {
@@ -17,11 +23,16 @@ class AddVisibilityControl {
         this.toolManager.visibilityControl = this;
         this.isActive = false;
         this.startPoint = null;
-        this.debounceTime = 30;
-        this.lastUpdateTime = 0;
         this.selectionManager = toolManager.selectionManager;
+
+        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing (padrão LOS)
+        this.previewRafId = null;
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+        this.geometryDebounceTimer = null;
     }
-    
+
     onAdd = (map) => {
         this.map = map;
         this.container = document.createElement('div');
@@ -35,20 +46,18 @@ class AddVisibilityControl {
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
-
         this.setupEventListeners();
-
-        this.changeButtonColor()
+        this.changeButtonColor();
 
         return this.container;
     }
 
-    changeButtonColor = () => {
+   changeButtonColor = () => {
         $("#visibility-tool").html(`<img class="icon-sig-tool" src="./images/icon_visibility_black.svg" alt="VISIBILITY" />`);
         if (!this.isActive) return
         $("#visibility-tool").html('<img class="icon-sig-tool" src="./images/icon_visibility_red.svg" alt="VISIBILITY" />');
     }
-
+    
     onRemove = () => {
         try {
             this.uiManager.removeControl(this.container);
@@ -68,24 +77,48 @@ class AddVisibilityControl {
     removeEventListeners = () => {
         this.map.off('mouseenter', 'visibility-layer', this.handleMouseEnter);
         this.map.off('mouseleave', 'visibility-layer', this.handleMouseLeave);
+        this.map.off('mousemove', this.handleMouseMove);
+        // ✅ CLEANUP: Cancel all pending operations
+        this.cancelPendingUpdates();
+    }
+
+    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations (padrão LOS)
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
     }
 
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.changeButtonColor()
+        this.changeButtonColor();
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
         this.startPoint = null;
+        this.clearPreview();
+        this.changeButtonColor();
+    }
+
+    // ✅ Clear preview (padrão LOS)
+    clearPreview = () => {
+        this.cancelPendingUpdates();
         this.map.getSource('temp-polygon').setData({
             type: 'FeatureCollection',
             features: []
         });
-        this.map.off('mousemove', this.handleMouseMove);
-        this.changeButtonColor()
     }
 
     handleMapClick = async (e) => {
@@ -95,26 +128,42 @@ class AddVisibilityControl {
 
         if (!this.startPoint) {
             this.startPoint = [lng, lat];
+            this.lastPreviewCenter = this.startPoint;
             this.map.on('mousemove', this.handleMouseMove);
         } else {
             const endPoint = [lng, lat];
+            this.map.off('mousemove', this.handleMouseMove);
             await this.addVisibilityFeature(this.startPoint, endPoint);
             this.toolManager.deactivateCurrentTool();
         }
     }
 
+    // ✅ OPTIMIZED: RAF-based preview (padrão LOS)
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
-        const currentTime = performance.now();
-        if (currentTime - this.lastUpdateTime < this.debounceTime) {
+        this.lastPreviewCenter = this.startPoint;
+        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
+        }
+    }
+
+    // ✅ PERFORMANCE: RAF callback for smooth preview (padrão LOS)
+    performPreviewUpdate = () => {
+        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
+            this.pendingPreviewUpdate = false;
             return;
         }
-        this.lastUpdateTime = currentTime;
 
-        const { lng, lat } = e.lngLat;
-        const endPoint = [lng, lat];
-        this.updateTempPolygon(this.calculateSectorCoordinates(this.startPoint, endPoint));
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            this.updateTempPolygon(this.calculateSectorCoordinates(this.lastPreviewCenter, this.lastPreviewPosition));
+        }, 8);
+
+        this.pendingPreviewUpdate = false;
     }
 
     updateTempPolygon = (coordinates) => {
@@ -138,8 +187,8 @@ class AddVisibilityControl {
         const angle = turf.bearing(startPoint, endPoint);
 
         const viewshedResult = await this.calculateViewshed(center, radius, angle);
-        const feature = this.createViewshedFeature(viewshedResult.visible, viewshedResult.obstructed, radius, angle);
-
+        const feature = this.createViewshedFeature(viewshedResult, radius, angle);
+        
         // Salvar no IndexedDB
         await addFeature('visibility', feature);
 
@@ -149,288 +198,67 @@ class AddVisibilityControl {
 
         const processedVisibilityFeatures = this.preprocessVisibilityFeature(feature);
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
-
+        
         for (const processedFeature of processedVisibilityFeatures) {
             await addFeature('processed_visibility', processedFeature);
             processedData.features.push(processedFeature);
         }
+        
         this.map.getSource('processed-visibility').setData(processedData);
 
+        // ✅ ADICIONAR: Auto-seleção após criar (padrão LOS)
         this.selectionManager.toggleFeatureSelection('visibility', feature.id, feature);
         this.selectionManager.updateUI();
     }
 
-    // Método para encontrar pontos de transição em um raio
-    calculateTransitionPointsInRay = async (line) => {
-        const length = turf.length(line, { units: 'meters' });
-        const steps = Math.ceil(length / 60); // Passos dinâmicos baseados na distância
-        const stepLength = length / steps;
-
-        const startCoordinates = line.geometry.coordinates[0];
-        const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
-        const startElevation = await getTerrainElevation(this.map, startCoordinates) + 2;
-        const endElevation = await getTerrainElevation(this.map, endCoordinates);
-
-        let transitions = [];
-        let isCurrentlyVisible = true; // Começa sempre visível do observador
-
-        for (let i = 1; i <= steps; i++) {
-            const segment = turf.along(line, i * stepLength, { units: 'meters' });
-            const segmentCoordinates = segment.geometry.coordinates;
-            const distance = i * stepLength;
-
-            // Calculate expected elevation on the line
-            const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
-
-            // Query terrain elevation
-            const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
-
-            const pointIsVisible = actualElevation <= expectedElevation;
-
-            if (pointIsVisible !== isCurrentlyVisible) {
-                // Mudança de estado - ponto de transição
-                transitions.push({
-                    point: segmentCoordinates,
-                    type: pointIsVisible ? 'visible' : 'obstructed',
-                    distance: distance
-                });
-                isCurrentlyVisible = pointIsVisible;
-            }
-        }
-
-        // Se não houve nenhuma transição, toda a linha é visível até o final
-        if (transitions.length === 0) {
-            transitions.push({
-                point: endCoordinates,
-                type: 'visible',
-                distance: length
+    preprocessVisibilityFeature(feature) {
+        let processedFeatures = [];
+        feature.geometry.coordinates.forEach((polygonCoords, index) => {
+            const cellData = feature.properties.cellData[index];
+            
+            processedFeatures.push({
+                type: 'Feature',
+                id: `${feature.id}-${index}`,
+                properties: {
+                    ...feature.properties,
+                    color: cellData.isVisible ? AddVisibilityControl.VISIBLE_COLOR : AddVisibilityControl.OBSTRUCTED_COLOR
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: polygonCoords
+                }
             });
-        }
-
-        return transitions;
-    }
-
-    // Método principal do viewshed com algoritmo esperto
-    calculateViewshed = async (center, radius, angle, numRays = 20) => {
-        const sectorStart = angle - 22.5;
-        const sectorEnd = angle + 22.5;
-
-        let rayTransitions = [];
-
-        for (let i = 0; i <= numRays; i++) {
-            const bearing = sectorStart + (i * (sectorEnd - sectorStart)) / numRays;
-            const endpoint = turf.destination(center, radius, bearing, { units: 'meters' });
-
-            const line = turf.lineString([center.geometry.coordinates, endpoint.geometry.coordinates]);
-            const transitions = await this.calculateTransitionPointsInRay(line);
-
-            rayTransitions.push({
-                bearing: bearing,
-                transitions: transitions
-            });
-        }
-
-        // Reconstrói polígonos baseado nas transições
-        return this.reconstructPolygonsFromTransitions(center.geometry.coordinates, rayTransitions);
-    }
-
-    // Método principal de reconstrução
-    reconstructPolygonsFromTransitions = (centerCoords, rayTransitions, distanceTolerance = 50) => {
-        const visiblePolygons = [];
-        const obstructedPolygons = [];
-
-        // Separa transições por tipo e posição na sequência
-        const transitionsByTypeAndIndex = this.groupTransitionsByTypeAndIndex(rayTransitions);
-
-        // Para cada tipo (visible/obstructed)
-        ['visible', 'obstructed'].forEach(type => {
-            const polygons = this.buildPolygonsForType(
-                centerCoords,
-                transitionsByTypeAndIndex[type],
-                distanceTolerance
-            );
-
-            if (type === 'visible') {
-                visiblePolygons.push(...polygons);
-            } else {
-                obstructedPolygons.push(...polygons);
-            }
         });
+            
+        return processedFeatures;
+    }
 
-        return {
-            visible: this.mergePolygons(visiblePolygons),
-            obstructed: this.mergePolygons(obstructedPolygons)
+    createViewshedFeature = (cellsData, radius, angle) => {
+        const feature = {
+            type: 'Feature',
+            id: Date.now().toString(),
+            properties: { 
+                ...AddVisibilityControl.DEFAULT_PROPERTIES,
+                radius: radius,
+                angle: angle,
+                cellData: cellsData.map(cell => ({ isVisible: cell.isVisible }))
+            },
+            geometry: {
+                type: 'MultiPolygon',
+                coordinates: cellsData.map(cell => [cell.coordinates])
+            }
         };
-    }
-
-    // Agrupa transições por tipo e posição na sequência
-    groupTransitionsByTypeAndIndex = (rayTransitions) => {
-        const grouped = {
-            visible: {},    // indexed by position in sequence (0, 1, 2...)
-            obstructed: {}
-        };
-
-        rayTransitions.forEach((rayData, rayIndex) => {
-            rayData.transitions.forEach((transition, transIndex) => {
-                const type = transition.type;
-
-                if (!grouped[type][transIndex]) {
-                    grouped[type][transIndex] = [];
-                }
-
-                grouped[type][transIndex].push({
-                    ...transition,
-                    rayIndex: rayIndex,
-                    bearing: rayData.bearing
-                });
-            });
-        });
-
-        return grouped;
-    }
-
-    // Constrói polígonos para um tipo específico
-    buildPolygonsForType = (centerCoords, transitionsByIndex, distanceTolerance) => {
-        const polygons = [];
-
-        // Para cada índice de transição (1ª transição, 2ª transição, etc.)
-        Object.keys(transitionsByIndex).forEach(transIndex => {
-            const transitions = transitionsByIndex[transIndex];
-
-            if (transitions.length === 0) return;
-
-            // Ordena por bearing
-            transitions.sort((a, b) => a.bearing - b.bearing);
-
-            // Agrupa transições contínuas (dentro da tolerância)
-            const continuousGroups = this.groupContinuousTransitions(transitions, distanceTolerance);
-
-            // Cada grupo vira um polígono
-            continuousGroups.forEach(group => {
-                if (group.length >= 2) { // Precisa de pelo menos 2 pontos
-                    const polygonCoords = [centerCoords];
-                    group.forEach(t => polygonCoords.push(t.point));
-                    polygonCoords.push(centerCoords);
-
-                    try {
-                        const polygon = turf.polygon([polygonCoords]);
-                        polygons.push(polygon);
-                    } catch (error) {
-                        console.warn('Erro ao criar polígono:', error);
-                    }
-                }
-            });
-        });
-
-        return polygons;
-    }
-
-    // Agrupa transições que estão próximas (contínuas)
-    groupContinuousTransitions = (transitions, distanceTolerance) => {
-        if (transitions.length === 0) return [];
-
-        const groups = [];
-        let currentGroup = [transitions[0]];
-
-        for (let i = 1; i < transitions.length; i++) {
-            const current = transitions[i];
-            const previous = transitions[i - 1];
-
-            // Calcula distância entre pontos consecutivos
-            const distance = turf.distance(
-                turf.point(previous.point),
-                turf.point(current.point),
-                { units: 'meters' }
-            );
-
-            if (distance <= distanceTolerance) {
-                // Dentro da tolerância - adiciona ao grupo atual
-                currentGroup.push(current);
-            } else {
-                // Fora da tolerância - fecha grupo atual e inicia novo
-                if (currentGroup.length >= 2) {
-                    groups.push([...currentGroup]);
-                }
-                currentGroup = [current];
-            }
-        }
-
-        // Adiciona o último grupo
-        if (currentGroup.length >= 2) {
-            groups.push(currentGroup);
-        }
-
-        return groups;
-    }
-
-    // Merge múltiplos polígonos em um só usando union
-    mergePolygons = (polygons) => {
-        if (polygons.length === 0) {
-            // Retorna polígono vazio válido
-            return turf.polygon([[[0, 0], [0, 0.001], [0.001, 0], [0, 0]]]);
-        }
-
-        if (polygons.length === 1) {
-            return polygons[0];
-        }
-
-        // Merge real usando turf.union() - une todos os polígonos
-        try {
-            let mergedPolygon = polygons[0];
-
-            for (let i = 1; i < polygons.length; i++) {
-                try {
-                    // Union com o polígono atual
-                    const unionResult = turf.union(mergedPolygon, polygons[i]);
-                    if (unionResult) {
-                        mergedPolygon = unionResult;
-                    }
-                } catch (unionError) {
-                    console.warn('Erro ao fazer union de polígono:', unionError);
-                    // Se union falhar, mantém o polígono atual
-                }
-            }
-
-            return mergedPolygon;
-
-        } catch (error) {
-            console.warn('Erro no merge de polígonos, usando fallback:', error);
-
-            // Fallback: retorna o maior polígono se union falhar
-            let largest = polygons[0];
-            let largestArea = 0;
-
-            try {
-                largestArea = turf.area(largest);
-            } catch (error) {
-                console.warn('Erro ao calcular área:', error);
-            }
-
-            polygons.forEach(polygon => {
-                try {
-                    const area = turf.area(polygon);
-                    if (area > largestArea) {
-                        largest = polygon;
-                        largestArea = area;
-                    }
-                } catch (error) {
-                    console.warn('Erro ao calcular área do polígono:', error);
-                }
-            });
-
-            return largest;
-        }
-    }
-
-    // ===== MÉTODOS UTILITÁRIOS =====
+    
+        return feature;
+    };
 
     calculateSectorCoordinates = (center, edgePoint) => {
         const [cx, cy] = center;
         const radius = Math.sqrt((edgePoint[0] - cx) ** 2 + (edgePoint[1] - cy) ** 2);
         const sectorAngle = Math.PI / 4; // 45 degrees in radians
-        const angleStep = sectorAngle / 45; // Angle step to cover 45 points in the sector
+        const angleStep = sectorAngle / 45;
         const startAngle = Math.atan2(edgePoint[1] - cy, edgePoint[0] - cx) - sectorAngle / 2;
-
+    
         const coordinates = [center];
         for (let i = 0; i <= 45; i++) {
             const angle = startAngle + angleStep * i;
@@ -439,54 +267,10 @@ class AddVisibilityControl {
                 cy + radius * Math.sin(angle)
             ]);
         }
-        coordinates.push(center);
-
+        coordinates.push(center); 
+    
         return coordinates;
     };
-
-    preprocessVisibilityFeature(feature) {
-        let processedFeatures = [];
-
-        feature.geometry.coordinates.forEach((coordinates, index) => {
-            processedFeatures.push({
-                type: 'Feature',
-                id: `${feature.id}-${index === 0 ? 'visible' : 'obstructed'}`,
-                properties: {
-                    ...feature.properties,
-                    color: index === 0 ? AddVisibilityControl.VISIBLE_COLOR : AddVisibilityControl.OBSTRUCTED_COLOR
-                },
-                geometry: {
-                    type: 'Polygon',
-                    coordinates: coordinates
-                }
-            });
-        });
-
-        return processedFeatures;
-    }
-
-    createViewshedFeature = (visible, obstructed, radius, angle) => {
-        const feature = {
-            type: 'Feature',
-            id: Date.now().toString(),
-            properties: {
-                ...AddVisibilityControl.DEFAULT_PROPERTIES,
-                radius: radius,
-                angle: angle
-            },
-            geometry: {
-                type: 'MultiPolygon',
-                coordinates: [
-                    visible.geometry.coordinates,
-                    obstructed.geometry.coordinates
-                ]
-            }
-        };
-
-        return feature;
-    };
-
-    // ===== MÉTODOS DE MANIPULAÇÃO DE FEATURES =====
 
     handleMouseEnter = (e) => {
         this.map.getCanvas().style.cursor = 'pointer';
@@ -495,12 +279,12 @@ class AddVisibilityControl {
     handleMouseLeave = (e) => {
         this.map.getCanvas().style.cursor = '';
     }
-
+    
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
-        for (const feature of features) {
+        features.forEach(feature => {
             const f = data.features.find(f => f.id == feature.id);
             if (f) {
                 f.properties[property] = value;
@@ -511,13 +295,13 @@ class AddVisibilityControl {
                     processedFeature.properties[property] = value;
                 });
             }
-        }
+        });
         this.map.getSource('visibility').setData(data);
         this.map.getSource('processed-visibility').setData(processedData);
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
-        if (features.length > 0) {
+        if(features.length > 0){
             const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
             const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
@@ -525,10 +309,8 @@ class AddVisibilityControl {
                 const featureIndex = data.features.findIndex(f => f.id == feature.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
-                        // Update properties for both 'visibility' and 'processed-visibility' sources
                         Object.assign(data.features[featureIndex].properties, feature.properties);
-
-                        // Update processed features
+                        
                         const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
                         processedFeatures.forEach(processedFeature => {
                             Object.keys(feature.properties).forEach(key => {
@@ -538,18 +320,16 @@ class AddVisibilityControl {
                             });
                         });
                     } else {
-                        // Recalculate visibility and update both 'visibility' and 'processed-visibility' sources
                         const updatedFeature = await this.recalculateVisibility(feature);
                         data.features[featureIndex] = updatedFeature;
-                        // Remove old processed features
+                        
                         processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
 
-                        // Add new processed features
                         const newProcessedFeatures = this.preprocessVisibilityFeature(updatedFeature);
                         processedData.features.push(...newProcessedFeatures);
                     }
 
-                    if (save) {
+                    if(save){
                         await updateFeature('visibility', data.features[featureIndex]);
                         const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
                         for (const pf of processedFeatures) {
@@ -557,21 +337,21 @@ class AddVisibilityControl {
                         }
                     }
                 }
-            }
+            };
             this.map.getSource('visibility').setData(data);
             this.map.getSource('processed-visibility').setData(processedData);
         }
     }
 
-    saveFeatures = async (features, initialPropertiesMap) => {
+    saveFeatures = (features, initialPropertiesMap) => {
         const processedData = this.map.getSource('processed-visibility')._data;
 
-        for (const f of features) {
+        features.forEach(f => {
             if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('visibility', f);
+                updateFeature('visibility', f);
 
                 const processedFeatures = processedData.features.filter(pf => pf.id.startsWith(f.id));
-                for (const pf of processedFeatures) {
+                processedFeatures.forEach(pf => {
                     const updatedProcessedFeature = {
                         ...pf,
                         properties: {
@@ -579,10 +359,10 @@ class AddVisibilityControl {
                             color: pf.properties.color
                         }
                     };
-                    await updateFeature('processed_visibility', updatedProcessedFeature);
-                }
+                    updateFeature('processed_visibility', updatedProcessedFeature);
+                });
             }
-        }
+        });
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
@@ -599,15 +379,20 @@ class AddVisibilityControl {
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
         const idsToDelete = new Set(features.map(f => f.id.toString()));
+        
         data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
         processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
+        
         this.map.getSource('visibility').setData(data);
         this.map.getSource('processed-visibility').setData(processedData);
 
         for (const f of features) {
             await removeFeature('visibility', f.id);
-            await removeFeature('processed_visibility', f.id + '-obstructed');
-            await removeFeature('processed_visibility', f.id + '-visible');
+            // Remove todas as células processadas deste viewshed
+            const cellsToRemove = this.map.getSource('processed-visibility')._data.features.filter(pf => pf.id.startsWith(f.id));
+            for (const cell of cellsToRemove) {
+                await removeFeature('processed_visibility', cell.id);
+            }
         }
     }
 
@@ -617,21 +402,138 @@ class AddVisibilityControl {
         );
     }
 
+    // ✅ CORRIGIDA: Análise de visibilidade mais simples e eficaz
+    calculateVisibilityAlongRay = async (line, observer) => {
+        const length = turf.length(line, { units: 'meters' });
+        const steps = 25; // Resolução fixa por raio
+        const stepLength = length / steps;
+        const visibilityProfile = [];
+        
+        // Calcular elevação do ponto final
+        const endPoint = turf.along(line, length, { units: 'meters' });
+        const endElevation = await getTerrainElevation(this.map, endPoint.geometry.coordinates);
+        
+        for (let i = 1; i <= steps; i++) {
+            const currentPoint = turf.along(line, i * stepLength, { units: 'meters' });
+            const currentCoords = currentPoint.geometry.coordinates;
+            const currentElevation = await getTerrainElevation(this.map, currentCoords);
+            
+            // ✅ CORRIGIDA: Linha de visão simples (semelhante ao LOS control)
+            const progress = i / steps;
+            const expectedElevation = observer.elevation + (endElevation - observer.elevation) * progress;
+            
+            const isVisible = currentElevation <= expectedElevation;
+            
+            visibilityProfile.push({
+                point: currentCoords,
+                visible: isVisible
+            });
+        }
+        
+        return visibilityProfile;
+    }
+
+    // ✅ NOVA FUNÇÃO: Grid polar adaptativo
+    calculateViewshed = async (center, radius, angle) => {
+        const sectorStart = angle - 22.5;
+        const sectorEnd = angle + 22.5;
+        const observerElevation = await getTerrainElevation(this.map, center.geometry.coordinates) + 2;
+        const observer = {
+            coord: center.geometry.coordinates,
+            elevation: observerElevation
+        };
+
+        const cells = [];
+
+        // Gerar grid polar adaptativo
+        for (let ring = 0; ring < VIEWSHED_CONFIG.RINGS; ring++) {
+            const innerRadius = (ring / VIEWSHED_CONFIG.RINGS) * radius;
+            const outerRadius = ((ring + 1) / VIEWSHED_CONFIG.RINGS) * radius;
+            
+            // Mais subdivisões angulares em anéis externos
+            const raysInRing = Math.floor(
+                VIEWSHED_CONFIG.MIN_RAYS_PER_RING + 
+                (ring / (VIEWSHED_CONFIG.RINGS - 1)) * 
+                (VIEWSHED_CONFIG.MAX_RAYS_PER_RING - VIEWSHED_CONFIG.MIN_RAYS_PER_RING)
+            );
+            
+            const angleStep = 45 / raysInRing; // 45° é o setor total
+            
+            for (let ray = 0; ray < raysInRing; ray++) {
+                const startAngle = sectorStart + (ray * angleStep);
+                const endAngle = sectorStart + ((ray + 1) * angleStep);
+                
+                // Criar célula do setor polar
+                const cell = await this.createSectorCell(center, innerRadius, outerRadius, startAngle, endAngle, observer);
+                cells.push(cell);
+            }
+        }
+
+        console.log(`✅ Viewshed criado: ${cells.length} células`);
+        return cells;
+    }
+
+    // ✅ IMPLEMENTADA: Teste de visibilidade real similar ao LOS control
+    createSectorCell = async (center, innerRadius, outerRadius, startAngle, endAngle, observer) => {
+        // Calcular os 4 vértices da célula
+        const p1 = turf.destination(center, innerRadius, startAngle, { units: 'meters' }).geometry.coordinates;
+        const p2 = turf.destination(center, outerRadius, startAngle, { units: 'meters' }).geometry.coordinates;
+        const p3 = turf.destination(center, outerRadius, endAngle, { units: 'meters' }).geometry.coordinates;
+        const p4 = turf.destination(center, innerRadius, endAngle, { units: 'meters' }).geometry.coordinates;
+        
+        // ✅ TESTE REAL DE VISIBILIDADE: Similar ao LOS control
+        const midAngle = (startAngle + endAngle) / 2;
+        const testPoint = turf.destination(center, outerRadius, midAngle, { units: 'meters' });
+        
+        // Criar linha de visão do observador até o ponto de teste
+        const line = turf.lineString([observer.coord, testPoint.geometry.coordinates]);
+        const length = turf.length(line, { units: 'meters' });
+        const steps = Math.ceil(length / 60); // 1 passo por ~60m (mesma resolução do LOS)
+        const stepLength = length / steps;
+
+        // Obter elevação do ponto de teste
+        const testElevation = await getTerrainElevation(this.map, testPoint.geometry.coordinates);
+        
+        let isVisible = true;
+
+        // Verificar obstruções ao longo da linha de visão (algoritmo do LOS control)
+        for (let i = 1; i <= steps; i++) {
+            const segment = turf.along(line, i * stepLength, { units: 'meters' });
+            const segmentCoordinates = segment.geometry.coordinates;
+            
+            // Calcular elevação esperada na linha de visão
+            const expectedElevation = observer.elevation + (testElevation - observer.elevation) * (i / steps);
+            
+            // Obter elevação real do terreno
+            const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
+            
+            // Se o terreno está acima da linha de visão, há obstrução
+            if (actualElevation > expectedElevation) {
+                isVisible = false;
+                break;
+            }
+        }
+        
+        return {
+            coordinates: [p1, p2, p3, p4, p1],
+            isVisible: isVisible
+        };
+    }
+
     async recalculateVisibility(feature) {
-        let centerCoord;
+        let centerCoord
         if (feature.geometry.type === 'MultiPolygon') {
-            centerCoord = feature.geometry.coordinates[0][0][0];
+            centerCoord = feature.geometry.coordinates[0][0][0]
         } else if (feature.geometry.type === 'Polygon') {
-            centerCoord = feature.geometry.coordinates[0][0];
+            centerCoord = feature.geometry.coordinates[0][0]
         }
 
         const { radius, angle } = feature.properties;
         const center = turf.point(centerCoord);
 
         const viewshedResult = await this.calculateViewshed(center, radius, angle);
-        const updatedFeature = this.createViewshedFeature(viewshedResult.visible, viewshedResult.obstructed, radius, angle);
-
-        // Preserve the original ID and other properties
+        const updatedFeature = this.createViewshedFeature(viewshedResult, radius, angle);
+        
         updatedFeature.id = feature.id;
         updatedFeature.properties = { ...feature.properties, ...updatedFeature.properties };
 

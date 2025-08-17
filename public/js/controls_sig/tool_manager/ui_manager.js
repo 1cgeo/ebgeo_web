@@ -346,7 +346,7 @@ class UIManager {
                 this.addBoundaryAttributes(panel, selectedFeatures);
             } else if (featureType === 'occupied_front') {
                 this.addOccupiedFrontAttributes(panel, selectedFeatures);
-            } else if (featureType === 'military-symbols') {
+            } else if (featureType === 'military_symbol') {
                 this.addMilitarySymbolAttributes(panel, selectedFeatures);
             }
         }

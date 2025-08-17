@@ -319,7 +319,6 @@ export const addFeature = async (type, feature) => {
         console.warn('Feature ignorada após limpeza:', feature);
         return;
     }
-
     const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
     currentMapData.features[type].push(cleanedFeature);
     await mapStore.setItem(memoryStore.currentMap, currentMapData);
