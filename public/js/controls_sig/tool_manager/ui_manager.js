@@ -72,10 +72,9 @@ class UIManager {
     createSelectionBoxesForMilitarySymbols = () => {
         return Array.from(this.selectionManager.selectedMilitarySymbolFeatures.values()).map(feature => {
             const coordinates = feature.geometry.coordinates;
-            const size = feature.properties.size || 35;
-            // Converter tamanho do símbolo para dimensões aproximadas
-            const width = size * 1.5;
-            const height = size * 1.5;
+            // ✅ CORRIGIDO: Usar width * size e height * size (igual image tool)
+            const width = feature.properties.width * feature.properties.size
+            const height = feature.properties.height *feature.properties.size
             const polygon = this.createSelectionBox(coordinates, width, height, feature.properties.rotation || 0);
             return {
                 type: 'Feature',

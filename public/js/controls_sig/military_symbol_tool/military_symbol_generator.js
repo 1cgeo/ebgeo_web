@@ -1,84 +1,63 @@
 // Path: js\controls_sig\military_symbol_tool\military_symbol_generator.js
 
+const DEFAULT_SIZE = 100;
+
 export class MilitarySymbolGenerator {
     constructor() {
         this.symbolCache = new Map();
     }
 
-    // Aplicar lógica de tradução antes de construir SIDC
-    translateProperties(properties) {
-        let finalFunctionId = properties.mainIcon;
-        let finalModifier2 = properties.modifier2 || "00";
-
-        // Regra: modificador transversal troca o ID da função
-        if (properties.modifierTransversal === 'mechanized' || properties.modifierTransversal === 'armored') {
-            if (properties.mainIcon === '121100') { // Infantaria → Infantaria Mecanizada
-                finalFunctionId = '121103';
-            } else if (properties.mainIcon === '120500') { // Cavalaria → Cavalaria Mecanizada
-                finalFunctionId = '120501';
-            } else if (properties.mainIcon === '130000') { // Engenharia → Engenharia Mecanizada
-                finalFunctionId = '130002';
-            } else if (properties.mainIcon === '100300') { // Artilharia → Artilharia Autopropulsada
-                finalFunctionId = '100301';
-            }
-        } else if (properties.modifierTransversal === 'motorized') {
-            finalModifier2 = '12'; // Define modificador para motorizado
-        }
-
-        // Regra: modifier1 pode trocar função ou modificador
-        if (properties.modifier1 === 'ranger') {
-            finalFunctionId = '110400'; // Troca para Ações de Comandos
-        } else if (properties.modifier1 === 'airmobile') {
-            finalModifier2 = '09'; // Define modificador para aeromóvel
-        } else if (properties.modifier1 === 'ew') {
-            finalModifier2 = '11'; // Define modificador para guerra eletrônica
-        }
-
-        return {
-            ...properties,
-            mainIcon: finalFunctionId,
-            modifier2: finalModifier2
-        };
-    }
-
     buildSIDC(properties) {
-        // Aplicar tradução primeiro
-        const translatedProps = this.translateProperties(properties);
+        // Construir SIDC de 20 dígitos conforme padrão MIL-STD-2525D
+        // Estrutura: A-B-C-D-E-F-G-H-I-J = 10-0-3-10-0-0-16-121100-00-00
         
-        // Construir SIDC de 20 dígitos conforme padrão militar
-        const symbolSet = translatedProps.dimension || "10";           // Pos 1-2
-        const affiliation = translatedProps.affiliation || "03";       // Pos 3-4 (Amigo como padrão)
-        const battleDimension = "10";                                  // Pos 5-6 (fixo para terrestres)
-        const status = "00";                                           // Pos 7-8 (presente/atual)
-        const hq = "00";                                               // Pos 9-10 (não é QG)
-        const echelon = translatedProps.echelon || "16";               // Pos 11-12
-        const functionId = translatedProps.mainIcon || "121100";       // Pos 13-18
-        const modifier = translatedProps.modifier2 || "00";           // Pos 19-20
+        const formatId = "10";                                              // A: 2 dígitos (sempre "10")
+        const context = properties.context || "0";                         // B: 1 dígito (0=realidade)
+        const standardIdentity = properties.standardIdentity || "3";       // C: 1 dígito (3=amigo)
+        const symbolSet = "10";                                            // D: 2 dígitos (sempre "10"=terrestre)
+        const status = properties.status || "0";                          // E: 1 dígito (0=presente)
+        const hqTfDummy = properties.hqTfDummy || "0";                     // F: 1 dígito (0=não aplicável)
+        const echelon = properties.echelon || "16";                       // G: 2 dígitos (16=batalhão)
+        const mainIcon = properties.mainIcon || "121100";                 // H: 6 dígitos (121100=infantaria)
+        const modifier1 = properties.modifier1 || "00";                   // I: 2 dígitos
+        const modifier2 = properties.modifier2 || "00";                   // J: 2 dígitos
         
-        return `${symbolSet}${affiliation}${battleDimension}${status}${hq}${echelon}${functionId}${modifier}`;
+        const sidc = `${formatId}${context}${standardIdentity}${symbolSet}${status}${hqTfDummy}${echelon}${mainIcon}${modifier1}${modifier2}`;
+        
+        return sidc;
     }
 
-    // Gerar blob da imagem (análogo ao image control)
+    // Gerar blob da imagem
     async generateSymbolBlob(properties) {
         const sidc = properties.sidc;
-        const size = properties.size;
         
-        // Cache baseado no SIDC e tamanho
-        const cacheKey = `${sidc}-${size}`;
+        // Cache baseado apenas no SIDC
+        const cacheKey = `${sidc}`;
         if (this.symbolCache.has(cacheKey)) {
             return this.symbolCache.get(cacheKey);
         }
 
         try {
-            // Gerar símbolo usando milsymbol.js
+            const validation = this.validateSIDC(sidc);
+            if (!validation.valid) {
+                console.error('Invalid SIDC:', validation.error);
+            }
+
+            // Gerar símbolo sempre com tamanho fixo
             const symbol = new ms.Symbol(sidc, {
-                size: size,
+                size: DEFAULT_SIZE * 0.5,
                 frame: true,
                 fill: true,
-                strokeWidth: 3
+                strokeWidth: 3,
+                colorMode: 'Light'
             });
 
-            // Converter para blob (igual ao image control)
+            // Verificar se o símbolo foi gerado com sucesso
+            if (!symbol || symbol.isValid === false) {
+                console.warn('milsymbol.js returned invalid symbol for SIDC:', sidc);
+            }
+
+            // Converter para blob
             const dataURL = symbol.toDataURL();
             const response = await fetch(dataURL);
             const blob = await response.blob();
@@ -89,29 +68,27 @@ export class MilitarySymbolGenerator {
 
         } catch (error) {
             console.error('Erro ao gerar símbolo:', error);
-            return this.generateDefaultSymbolBlob(size);
         }
     }
 
-    async generateDefaultSymbolBlob(size) {
-        // Gerar símbolo padrão em caso de erro
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        
-        ctx.fillStyle = '#0066cc';
-        ctx.fillRect(0, 0, size, size);
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(0, 0, size, size);
-        
-        // Converter para blob
-        return new Promise((resolve) => {
-            canvas.toBlob((blob) => {
-                resolve(blob);
-            });
-        });
+    // Validar SIDC
+    validateSIDC(sidc) {
+        if (!sidc || sidc.length !== 20) {
+            return { valid: false, error: `SIDC deve ter 20 dígitos, tem ${sidc?.length || 0}` };
+        }
+
+        // Verificar se todos os caracteres são válidos (números)
+        if (!/^[0-9]{20}$/.test(sidc)) {
+            return { valid: false, error: 'SIDC deve conter apenas números' };
+        }
+
+        // Validar estrutura específica
+        const formatId = sidc.substring(0, 2);
+        if (formatId !== "10") {
+            return { valid: false, error: `Format ID deve ser "10", recebido "${formatId}"` };
+        }
+
+        return { valid: true };
     }
 
     clearCache() {

@@ -195,7 +195,7 @@ function setupMilitarySymbolsLayers(features) {
             },
             layout: {
                 'icon-image': ['get', 'imageId'], // Usa imageId igual ao image control
-                'icon-size': ['/', ['get', 'size'], 64], // Divide pelo tamanho base (64px) para obter escala
+                'icon-size': ['get', 'size'],
                 'icon-rotate': ['get', 'rotation'],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true

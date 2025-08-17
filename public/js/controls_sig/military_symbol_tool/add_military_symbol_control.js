@@ -5,19 +5,20 @@ import { MilitarySymbolGenerator } from './military_symbol_generator.js';
 
 class AddMilitarySymbolControl {
     static DEFAULT_PROPERTIES = {
-        // Componentes do SIDC - Padrão: Batalhão de Infantaria Amigo
-        affiliation: "03",      // Amigo
-        dimension: "10",        // Unidade Terrestre
-        echelon: "16",          // Batalhão
-        mainIcon: "121100",     // Infantaria
-        modifier2: "00",        // Nenhum modificador
+        // Campos do SIDC - Padrão: Batalhão de Infantaria Amigo
+        context: "0",                   // B: Contexto (0=realidade)
+        standardIdentity: "3",          // C: Standard Identity (3=amigo)
+        status: "0",                    // E: Status (0=presente)
+        hqTfDummy: "0",                // F: HQ/TF/Dummy (0=não aplicável)
+        echelon: "16",                  // G: Escalão (16=batalhão)
+        mainIcon: "121100",             // H: Ícone principal (121100=infantaria)
+        modifier1: "00",                // I: Modificador 1
+        modifier2: "00",                // J: Modificador 2
         
-        // Modificadores lógicos (não entram diretamente no SIDC)
-        modifier1: "none",
-        modifierTransversal: "none",
-        
-        // Propriedades de renderização (não afetam SIDC)
-        size: 35,
+        // Propriedades de renderização
+        size: 1.0,
+        width: 100,
+        height: 100,
         opacity: 1.0,
         rotation: 0,
         
@@ -32,6 +33,12 @@ class AddMilitarySymbolControl {
         this.selectionManager = toolManager.selectionManager;
         this.isActive = false;
         this.symbolGenerator = new MilitarySymbolGenerator();
+
+        // Performance optimization: RAF & Debouncing
+        this.symbolRafId = null;
+        this.pendingSymbolUpdate = false;
+        this.lastSymbolFeature = null;
+        this.symbolDebounceTimer = null;
     }
 
     onAdd(map) {
@@ -57,6 +64,7 @@ class AddMilitarySymbolControl {
     onRemove() {
         try {
             this.removeEventListeners();
+            this.cancelPendingUpdates();
             this.deactivate();
             this.map = undefined;
         } catch (error) {
@@ -90,6 +98,7 @@ class AddMilitarySymbolControl {
 
     deactivate = () => {
         this.isActive = false;
+        this.cancelPendingUpdates();
         this.map.getCanvas().style.cursor = '';
         this.changeButtonColor();
     }
@@ -122,7 +131,7 @@ class AddMilitarySymbolControl {
         const sidc = this.symbolGenerator.buildSIDC(properties);
         properties.sidc = sidc;
         
-        // Usar symbolId como imageId (análogo ao image control)
+        // Usar symbolId como imageId
         properties.imageId = symbolId;
 
         const feature = {
@@ -140,16 +149,13 @@ class AddMilitarySymbolControl {
             const symbolBlob = await this.symbolGenerator.generateSymbolBlob(properties);
             await imageStore.setItem(symbolId, symbolBlob);
 
-            // Carregar imagem no mapa PRIMEIRO
-            await this.loadSymbolImageToMap(symbolId, symbolBlob);
-
-            // Só então adicionar feature ao source (evita race condition)
             const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
             data.features.push(feature);
             this.map.getSource('military_symbols').setData(data);
 
             // Salvar feature no store
             await addFeature('military_symbols', feature);
+            await this.loadSymbolImageToMap(symbolId, symbolBlob);
 
             // Selecionar o símbolo criado
             this.selectionManager.toggleFeatureSelection('military_symbol', feature.id, feature);
@@ -160,7 +166,6 @@ class AddMilitarySymbolControl {
         }
     }
 
-    // Carregar imagem no mapa (análogo ao setImages do map.js)
     async loadSymbolImageToMap(imageId, blob) {
         const url = URL.createObjectURL(blob);
         const img = new Image();
@@ -171,14 +176,43 @@ class AddMilitarySymbolControl {
                     this.map.addImage(imageId, img);
                 }
                 URL.revokeObjectURL(url);
-                resolve();
+                
+                requestAnimationFrame(() => {
+                    if (this.map.hasImage(imageId)) {
+                        resolve();
+                    } else {
+                        requestAnimationFrame(() => resolve());
+                    }
+                });
             };
             img.onerror = reject;
             img.src = url;
         });
     }
 
-    // Regenerar símbolo (só chamado quando SIDC mudou)
+    scheduleSymbolUpdate = (feature) => {
+        this.lastSymbolFeature = feature;
+        
+        if (!this.pendingSymbolUpdate) {
+            this.pendingSymbolUpdate = true;
+            this.symbolRafId = requestAnimationFrame(this.performSymbolUpdate.bind(this));
+        }
+    }
+
+    performSymbolUpdate = () => {
+        if (!this.lastSymbolFeature) {
+            this.pendingSymbolUpdate = false;
+            return;
+        }
+
+        clearTimeout(this.symbolDebounceTimer);
+        this.symbolDebounceTimer = setTimeout(() => {
+            this.updateSymbolImage(this.lastSymbolFeature);
+        }, 8);
+
+        this.pendingSymbolUpdate = false;
+    }
+
     async updateSymbolImage(feature) {
         try {
             // Gerar nova imagem e salvar no imageStore
@@ -201,31 +235,46 @@ class AddMilitarySymbolControl {
         for (const feature of features) {
             const f = data.features.find(f => f.id == feature.id);
             if (f) {
-                // Capturar SIDC antigo ANTES de atualizar propriedades
                 const oldSIDC = f.properties.sidc;
                 
                 f.properties[property] = value;
                 feature.properties[property] = value;
                 
-                // Apenas propriedades que afetam o SIDC devem regenerar a imagem
-                const sidcProperties = ['affiliation', 'dimension', 'mainIcon', 'modifier2', 'echelon', 'modifier1', 'modifierTransversal'];
+                // Propriedades que afetam o SIDC devem regenerar a imagem
+                const sidcProperties = [
+                    'context', 'standardIdentity', 'status', 'hqTfDummy',
+                    'echelon', 'mainIcon', 'modifier1', 'modifier2'
+                ];
                 
                 if (sidcProperties.includes(property)) {
                     // Calcular novo SIDC
                     const newSIDC = this.symbolGenerator.buildSIDC(f.properties);
                     f.properties.sidc = newSIDC;
                     feature.properties.sidc = newSIDC;
-                    
-                    // Só regenerar se SIDC realmente mudou
+                                        
+                    // Only regenerate if SIDC actually changed
                     if (oldSIDC !== newSIDC) {
-                        await this.updateSymbolImage(feature);
+                        this.scheduleSymbolUpdate(feature);
                     }
                 }
-                // size, opacity, rotation são controlados pelo MapLibre GL JS - não regeneram
             }
         }
         
         this.map.getSource('military_symbols').setData(data);
+    }
+
+    cancelPendingUpdates = () => {
+        if (this.symbolRafId) {
+            cancelAnimationFrame(this.symbolRafId);
+            this.symbolRafId = null;
+        }
+        this.pendingSymbolUpdate = false;
+        this.lastSymbolFeature = null;
+
+        if (this.symbolDebounceTimer) {
+            clearTimeout(this.symbolDebounceTimer);
+            this.symbolDebounceTimer = null;
+        }
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
@@ -266,9 +315,8 @@ class AddMilitarySymbolControl {
                 const oldSIDC = feature.properties.sidc;
                 feature.properties = { ...originalProps };
                 
-                // Só regenerar se SIDC mudou
                 if (feature.properties.sidc !== oldSIDC) {
-                    await this.updateSymbolImage(feature);
+                    this.scheduleSymbolUpdate(feature);
                 }
             }
         }
@@ -303,13 +351,14 @@ class AddMilitarySymbolControl {
 
     hasFeatureChanged = (feature, initialProperties) => {
         return (
-            feature.properties.affiliation !== initialProperties.affiliation ||
-            feature.properties.dimension !== initialProperties.dimension ||
+            feature.properties.context !== initialProperties.context ||
+            feature.properties.standardIdentity !== initialProperties.standardIdentity ||
+            feature.properties.status !== initialProperties.status ||
+            feature.properties.hqTfDummy !== initialProperties.hqTfDummy ||
+            feature.properties.echelon !== initialProperties.echelon ||
             feature.properties.mainIcon !== initialProperties.mainIcon ||
             feature.properties.modifier1 !== initialProperties.modifier1 ||
             feature.properties.modifier2 !== initialProperties.modifier2 ||
-            feature.properties.modifierTransversal !== initialProperties.modifierTransversal ||
-            feature.properties.echelon !== initialProperties.echelon ||
             feature.properties.size !== initialProperties.size ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.rotation !== initialProperties.rotation
