@@ -31,7 +31,6 @@ class FeatureSearchControl {
         }
       });
       
-      // CORREÇÃO: Aumentar timeout do blur para dar tempo do click processar
       this._input.addEventListener('blur', () => {
         setTimeout(() => {
           this._suggestionsList.style.display = 'none';
@@ -78,37 +77,72 @@ class FeatureSearchControl {
         this._container.classList.remove('searching');
       }
     }
+
+    /**
+     * Filtra sugestões removendo itens com atributos obrigatórios nulos/vazios
+     * @param {Array} suggestions - Array de sugestões da API
+     * @returns {Array} - Array filtrado
+     */
+    _filterValidSuggestions(suggestions) {
+      if (!Array.isArray(suggestions)) {
+        return [];
+      }
+
+      return suggestions.filter(suggestion => {
+        // Verificar se todos os atributos obrigatórios estão presentes e válidos
+        const requiredFields = ['tipo', 'nome', 'municipio', 'estado', 'longitude', 'latitude'];
+        
+        return requiredFields.every(field => {
+          const value = suggestion[field];
+          
+          // Verificar se o valor não é nulo, undefined ou string vazia
+          if (value === null || value === undefined) {
+            return false;
+          }
+          
+          // Para strings, verificar se não está vazia após trim
+          if (typeof value === 'string' && value.trim() === '') {
+            return false;
+          }
+          
+          // Para coordenadas, verificar se são números válidos
+          if ((field === 'longitude' || field === 'latitude') && (isNaN(value) || !isFinite(value))) {
+            return false;
+          }
+          
+          return true;
+        });
+      });
+    }
   
     _displaySuggestions(suggestions) {
       this._suggestionsList.innerHTML = '';
       
-      if (!suggestions || suggestions.length === 0) {
+      const validSuggestions = this._filterValidSuggestions(suggestions);
+      
+      if (validSuggestions.length === 0) {
         this._suggestionsList.style.display = 'none';
         return;
       }
   
-      suggestions.forEach(suggestion => {
+      validSuggestions.forEach(suggestion => {
         const li = document.createElement('li');
         li.className = 'feature-search-suggestion';
         li.innerHTML = `<strong>${suggestion.tipo}:</strong> ${suggestion.nome} (${suggestion.municipio}, ${suggestion.estado})`;
         
-        // CORREÇÃO: Múltiplos event handlers para melhor compatibilidade
         // Event handler principal - usando pointerdown que funciona com touchpad
         li.addEventListener('pointerdown', (e) => {
           e.preventDefault();
           this._selectFeature(suggestion);
         });
         
-        // Fallback para click (ainda necessário para alguns casos)
         li.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
           this._selectFeature(suggestion);
         });
         
-        // CORREÇÃO: Usar mouseenter/mouseleave com verificação de touch
         li.addEventListener('mouseenter', () => {
-          // Só aplicar hover se não for touch device
           if (!this._isTouchDevice()) {
             li.style.backgroundColor = 'rgba(80, 141, 78, 0.1)';
           }
@@ -125,7 +159,6 @@ class FeatureSearchControl {
       this._suggestionsList.style.display = 'block';
     }
     
-    // CORREÇÃO: Método para detectar se é dispositivo touch
     _isTouchDevice() {
       return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     }
@@ -155,14 +188,13 @@ class FeatureSearchControl {
         .setLngLat([feature.longitude, feature.latitude])
         .addTo(this._map);
   
-      // Fazer zoom para a localização
       this._map.flyTo({
         center: [feature.longitude, feature.latitude],
         zoom: 14,
         essential: true
       });
 
-      // Mostrar painel com informações da feature
+
       this._uiManager.showFeatureSearchPanel(feature);
     }
   
@@ -180,8 +212,8 @@ class FeatureSearchControl {
         this._marker = null;
       }
     }
-    
-    // Método público para limpar a busca
+
+
     clearSearch() {
       this._input.value = '';
       this._suggestionsList.style.display = 'none';
