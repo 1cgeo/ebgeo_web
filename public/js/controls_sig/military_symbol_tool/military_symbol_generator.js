@@ -27,6 +27,50 @@ export class MilitarySymbolGenerator {
         return sidc;
     }
 
+    // Converter qualquer imagem (SVG/PNG/etc) para PNG blob usando canvas
+    async convertToPngBlob(dataURL, size = DEFAULT_SIZE) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            
+            img.onload = () => {
+                try {
+                    // Criar canvas para converter para PNG
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Definir tamanho do canvas
+                    canvas.width = size;
+                    canvas.height = size;
+                    
+                    // Limpar fundo (transparente)
+                    ctx.clearRect(0, 0, size, size);
+                    
+                    // Desenhar a imagem no canvas
+                    ctx.drawImage(img, 0, 0, size, size);
+                    
+                    // Converter canvas para PNG blob
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            resolve(blob);
+                        } else {
+                            reject(new Error('Falha ao converter para PNG blob'));
+                        }
+                    }, 'image/png', 1.0);
+                    
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            
+            img.onerror = () => {
+                reject(new Error('Falha ao carregar imagem para conversão PNG'));
+            };
+            
+            // Carregar a imagem do data URL
+            img.src = dataURL;
+        });
+    }
+
     // Gerar blob da imagem
     async generateSymbolBlob(properties) {
         const sidc = properties.sidc;
@@ -57,17 +101,19 @@ export class MilitarySymbolGenerator {
                 console.warn('milsymbol.js returned invalid symbol for SIDC:', sidc);
             }
 
-            // Converter para blob
+            // Obter data URL do símbolo (pode ser SVG ou PNG)
             const dataURL = symbol.toDataURL();
-            const response = await fetch(dataURL);
-            const blob = await response.blob();
+            
+            // FORÇAR conversão para PNG usando canvas
+            const pngBlob = await this.convertToPngBlob(dataURL, DEFAULT_SIZE);
             
             // Adicionar ao cache
-            this.symbolCache.set(cacheKey, blob);
-            return blob;
+            this.symbolCache.set(cacheKey, pngBlob);
+            return pngBlob;
 
         } catch (error) {
             console.error('Erro ao gerar símbolo:', error);
+            throw error;
         }
     }
 
@@ -89,6 +135,41 @@ export class MilitarySymbolGenerator {
         }
 
         return { valid: true };
+    }
+
+    // Gerar preview para UI (reutiliza a lógica de conversão PNG)
+    async generatePreviewDataURL(sidc, size = 80) {
+        try {
+            const symbol = new ms.Symbol(sidc, {
+                size: size,
+                frame: true,
+                fill: true,
+                strokeWidth: 2,
+                colorMode: 'Light'
+            });
+
+            if (!symbol || symbol.isValid === false) {
+                console.warn('milsymbol.js returned invalid symbol for SIDC:', sidc);
+                return null;
+            }
+
+            // Obter data URL original
+            const originalDataURL = symbol.toDataURL();
+            
+            // Converter para PNG e depois para data URL
+            const pngBlob = await this.convertToPngBlob(originalDataURL, size);
+            
+            // Converter blob para data URL
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.readAsDataURL(pngBlob);
+            });
+            
+        } catch (error) {
+            console.error('Erro ao gerar preview:', error);
+            return null;
+        }
     }
 
     clearCache() {

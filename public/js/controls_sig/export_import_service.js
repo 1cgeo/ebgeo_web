@@ -5,7 +5,8 @@ import {
     getAllMapNames,
     getCurrentMapName,
     mapStore,
-    imageStore
+    imageStore,
+    appStore
 } from './store.js';
 
 export class ExportImportService {
@@ -52,6 +53,18 @@ export class ExportImportService {
         }
         
         return optimized;
+    }
+
+    // Detectar extensão correta do blob baseado no tipo MIME
+    getBlobExtension(blob) {
+        const mimeType = blob.type || 'image/png';
+        switch (mimeType) {
+            case 'image/svg+xml': return 'svg';
+            case 'image/jpeg': return 'jpg';
+            case 'image/webp': return 'webp';
+            case 'image/png':
+            default: return 'png';
+        }
     }
 
     // XOR simples para mascarar dados
@@ -173,12 +186,13 @@ export class ExportImportService {
                 }
             }
 
-            // Adicionar imagens ao ZIP com compressão máxima
+            // Adicionar imagens ao ZIP com extensão correta baseada no tipo MIME
             for (const imageId of usedImages) {
                 try {
                     const blob = await imageStore.getItem(imageId);
                     if (blob) {
-                        zip.file(`images/${imageId}.png`, blob, {
+                        const extension = this.getBlobExtension(blob);
+                        zip.file(`images/${imageId}.${extension}`, blob, {
                             compression: 'DEFLATE',
                             compressionOptions: { level: 9 }
                         });
@@ -260,6 +274,7 @@ export class ExportImportService {
             if (!isAdditiveImport) {
                 await mapStore.clear();
                 await imageStore.clear();
+                await appStore.clear();
             }
 
             // Buscar arquivo data.json
@@ -301,14 +316,16 @@ export class ExportImportService {
                 setCurrentMap(data.currentMap);
             }
 
-            // Carregar imagens
+            // Carregar imagens - aceitar múltiplos formatos
             const imageFiles = Object.keys(zip.files).filter(name =>
-                name.startsWith('images/') && name.endsWith('.png')
+                name.startsWith('images/') && 
+                /\.(png|jpe?g|svg|webp)$/i.test(name)
             );
 
             for (const fileName of imageFiles) {
                 try {
-                    const imageId = fileName.replace('images/', '').replace('.png', '');
+                    // Extrair imageId removendo o path e qualquer extensão de imagem
+                    const imageId = fileName.replace('images/', '').replace(/\.(png|jpe?g|svg|webp)$/i, '');
                     const blob = await zip.file(fileName).async('blob');
                     await imageStore.setItem(imageId, blob);
                 } catch (imgError) {

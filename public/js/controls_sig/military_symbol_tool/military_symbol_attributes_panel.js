@@ -684,7 +684,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxesContainer.appendChild(column2);
         controlsColumn.appendChild(comboboxesContainer);
 
-        // Função de preview
+        // Função de preview - CORRIGIDA para usar o generator
         async function updatePreview() {
             try {
                 // Construir SIDC usando o generator
@@ -703,20 +703,15 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     sidcLabel.style.color = '#495057';
                 }
 
-                const symbol = new ms.Symbol(sidc, {
-                    size: 80,
-                    frame: true,
-                    fill: true,
-                    strokeWidth: 2,
-                    colorMode: 'Light'
-                });
+                // Usar a nova função generatePreviewDataURL que converte para PNG
+                const previewDataURL = await militarySymbolControl.symbolGenerator.generatePreviewDataURL(sidc, 80);
 
-                if (symbol.isValid !== false) {
-                    previewImage.src = symbol.toDataURL();
+                if (previewDataURL) {
+                    previewImage.src = previewDataURL;
                     previewImage.style.display = 'block';
                 } else {
                     previewImage.style.display = 'none';
-                    console.warn('milsymbol.js returned invalid symbol for SIDC:', sidc);
+                    console.warn('Falha ao gerar preview para SIDC:', sidc);
                 }
 
             } catch (error) {
@@ -808,4 +803,3 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         updatePreview();
     }
 }
-
