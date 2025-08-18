@@ -3689,5 +3689,12 @@
         "x": 114,
         "y": 882,
         "pixelRatio": 1
+    },
+    "railway-dash":{
+        "width": 8,
+        "height": 2,
+        "x": 103,
+        "y": 24,
+        "pixelRatio": 1
     }
 }
