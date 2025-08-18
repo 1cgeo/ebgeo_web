@@ -54,6 +54,15 @@ export class ExportImportService {
         return optimized;
     }
 
+    // XOR simples para mascarar dados
+    xorData(data, key = 0xAA) {
+        const result = new Uint8Array(data.length);
+        for (let i = 0; i < data.length; i++) {
+            result[i] = data[i] ^ key;
+        }
+        return result;
+    }
+
     // Criar botão de salvar
     createSaveButton() {
         const saveButton = document.createElement('button');
@@ -179,15 +188,30 @@ export class ExportImportService {
                 }
             }
 
-            // Gerar arquivo com compressão máxima
-            const blob = await zip.generateAsync({ 
+            // Gerar arquivo ZIP
+            const zipBlob = await zip.generateAsync({ 
                 type: 'blob',
                 compression: 'DEFLATE',
                 compressionOptions: { level: 9 },
                 streamFiles: true
             });
 
-            const url = URL.createObjectURL(blob);
+            // Aplicar XOR nos dados ZIP para mascarar
+            const zipArray = new Uint8Array(await zipBlob.arrayBuffer());
+            const maskedData = this.xorData(zipArray);
+
+            // Adicionar identificador no início para detectar arquivo XOR
+            const identifier = new TextEncoder().encode('EBGXOR');
+            const finalArray = new Uint8Array(identifier.length + maskedData.length);
+            finalArray.set(identifier, 0);
+            finalArray.set(maskedData, identifier.length);
+
+            // Criar blob final
+            const finalBlob = new Blob([finalArray], {
+                type: 'application/vnd.ebgeo'
+            });
+
+            const url = URL.createObjectURL(finalBlob);
             const a = document.createElement('a');
             a.href = url;
             a.download = `projeto_${new Date().toISOString().slice(0, 10)}.ebgeo`;
@@ -210,7 +234,28 @@ export class ExportImportService {
         if (!file) return;
 
         try {
-            const zip = await JSZip.loadAsync(file);
+            // Ler arquivo como array buffer
+            const fileBuffer = await file.arrayBuffer();
+            const fileArray = new Uint8Array(fileBuffer);
+            
+            let zipData;
+            
+            // Verificar se é arquivo XOR mascarado
+            const identifier = new TextDecoder().decode(fileArray.slice(0, 6));
+            
+            if (identifier === 'EBGXOR') {
+                console.log('Arquivo EBGEO XOR detectado, desmascarando...');
+                // Arquivo XOR - remover identificador e aplicar XOR reverso
+                const maskedData = fileArray.slice(6);
+                zipData = this.xorData(maskedData); // XOR reverso (mesmo key)
+            } else {
+                console.log('Arquivo ZIP direto detectado (compatibilidade)');
+                // Arquivo ZIP direto ou formato antigo - compatibilidade
+                zipData = fileArray;
+            }
+
+            // Carregar ZIP
+            const zip = await JSZip.loadAsync(zipData);
 
             if (!isAdditiveImport) {
                 await mapStore.clear();
