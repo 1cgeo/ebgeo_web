@@ -374,7 +374,7 @@ class UIManager {
     addVectorTileInfoToPanel(panel, feature) {
         const title = document.createElement('h3');
         // MUDANÇA: usar sourceLayer ao invés de source
-        let sourceName = feature.sourceLayer.replace(/_10k|_25k|_50k|_100k|_250k/g, '');
+        let sourceName = feature.sourceLayer.replace(/_10k|_25k|_50k|_100k|_250k/g, '').replace('edgv_', '');
         title.textContent = `Atributos ${sourceName}:`;
         panel.appendChild(title);
 

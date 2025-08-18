@@ -68,33 +68,13 @@ class ScreenshotControl {
             try {
                 const canvas = this.map.getCanvas();
                 
-                // Criar um novo canvas para garantir que capturamos corretamente
-                const offscreenCanvas = document.createElement('canvas');
-                offscreenCanvas.width = canvas.width;
-                offscreenCanvas.height = canvas.height;
-                
-                const ctx = offscreenCanvas.getContext('2d');
-                
-                // Desenhar o canvas do mapa no canvas offscreen
-                ctx.drawImage(canvas, 0, 0);
-                
-                // Verificar se a imagem não está vazia
-                const imageData = ctx.getImageData(0, 0, 1, 1);
-                const pixel = imageData.data;
-                const isEmpty = pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0;
-                
-                if (isEmpty) {
-                    // Tentar método alternativo se a imagem estiver vazia
-                    this.captureWithPreserveDrawingBuffer();
-                } else {
-                    // Converter para base64 e fazer download
-                    offscreenCanvas.toBlob((blob) => {
-                        if (blob) {
-                            this.downloadImage(blob);
-                        } else {
-                            throw new Error('Falha ao criar blob da imagem');
-                        }
-                    }, 'image/png');
+                // Método 1: Tentar dataURL direto (mais compatível com HTTP)
+                try {
+                    const dataURL = canvas.toDataURL('image/png');
+                    this.downloadImageFromDataURL(dataURL);
+                } catch (securityError) {
+                    console.warn('Erro de segurança com dataURL, tentando com blob...');
+                    this.captureWithBlob(canvas);
                 }
                 
             } catch (error) {
@@ -103,6 +83,52 @@ class ScreenshotControl {
                 this.captureWithPreserveDrawingBuffer();
             }
         });
+    }
+    
+    captureWithBlob(canvas) {
+        try {
+            // Criar um novo canvas para garantir que capturamos corretamente
+            const offscreenCanvas = document.createElement('canvas');
+            offscreenCanvas.width = canvas.width;
+            offscreenCanvas.height = canvas.height;
+            
+            const ctx = offscreenCanvas.getContext('2d');
+            
+            // Desenhar o canvas do mapa no canvas offscreen
+            ctx.drawImage(canvas, 0, 0);
+            
+            // Verificar se a imagem não está vazia
+            const imageData = ctx.getImageData(0, 0, 1, 1);
+            const pixel = imageData.data;
+            const isEmpty = pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0;
+            
+            if (isEmpty) {
+                // Tentar método alternativo se a imagem estiver vazia
+                this.captureWithPreserveDrawingBuffer();
+            } else {
+                // Tentar blob primeiro, depois dataURL se falhar
+                try {
+                    offscreenCanvas.toBlob((blob) => {
+                        if (blob) {
+                            this.downloadImageFromBlob(blob);
+                        } else {
+                            // Fallback para dataURL
+                            const dataURL = offscreenCanvas.toDataURL('image/png');
+                            this.downloadImageFromDataURL(dataURL);
+                        }
+                    }, 'image/png');
+                } catch (blobError) {
+                    console.warn('Erro com blob, usando dataURL como fallback');
+                    const dataURL = offscreenCanvas.toDataURL('image/png');
+                    this.downloadImageFromDataURL(dataURL);
+                }
+            }
+            
+        } catch (error) {
+            console.error('Erro ao processar canvas com blob:', error);
+            // Tentar método alternativo
+            this.captureWithPreserveDrawingBuffer();
+        }
     }
     
     captureWithPreserveDrawingBuffer() {
@@ -144,21 +170,11 @@ class ScreenshotControl {
                             const canvas = tempMap.getCanvas();
                             const dataURL = canvas.toDataURL('image/png');
                             
-                            // Converter dataURL para blob
-                            fetch(dataURL)
-                                .then(res => res.blob())
-                                .then(blob => {
-                                    this.downloadImage(blob);
-                                    // Limpar recursos
-                                    tempMap.remove();
-                                    document.body.removeChild(tempContainer);
-                                })
-                                .catch(error => {
-                                    console.error('Erro ao converter imagem:', error);
-                                    alert('Não foi possível capturar o screenshot');
-                                    tempMap.remove();
-                                    document.body.removeChild(tempContainer);
-                                });
+                            this.downloadImageFromDataURL(dataURL);
+                            
+                            // Limpar recursos
+                            tempMap.remove();
+                            document.body.removeChild(tempContainer);
                         } catch (error) {
                             console.error('Erro no método alternativo:', error);
                             alert('Não foi possível capturar o screenshot');
@@ -175,24 +191,57 @@ class ScreenshotControl {
         }
     }
     
-    downloadImage(blob) {
-        // Criar URL do blob
-        const url = URL.createObjectURL(blob);
-        
-        // Criar link para download
-        const link = document.createElement('a');
-        link.download = `ebgeo-map-${new Date().toISOString().slice(0, 10)}.png`;
-        link.href = url;
-        
-        // Simular clique para iniciar download
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // Limpar o URL do blob após o download
-        setTimeout(() => {
-            URL.revokeObjectURL(url);
-        }, 100);
+    downloadImageFromDataURL(dataURL) {
+        try {
+            // Método mais compatível com HTTP - usar dataURL diretamente
+            const link = document.createElement('a');
+            link.download = `ebgeo-map-${new Date().toISOString().slice(0, 10)}.png`;
+            link.href = dataURL;
+            
+            // Simular clique para iniciar download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+        } catch (error) {
+            console.error('Erro ao fazer download via dataURL:', error);
+        }
+    }
+    
+    downloadImageFromBlob(blob) {
+        try {
+            // Primeiro tentar o método tradicional com blob
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.download = `ebgeo-map-${new Date().toISOString().slice(0, 10)}.png`;
+            link.href = url;
+            
+            // Adicionar evento de cleanup
+            link.addEventListener('click', () => {
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                }, 100);
+            });
+            
+            // Simular clique para iniciar download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+        } catch (error) {
+            console.warn('Erro com blob URL, convertendo para dataURL');
+            // Fallback: converter blob para dataURL
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                this.downloadImageFromDataURL(event.target.result);
+            };
+            reader.onerror = () => {
+                console.error('Erro ao ler blob');
+                alert('Não foi possível processar a imagem');
+            };
+            reader.readAsDataURL(blob);
+        }
     }
 
     onRemove() {
