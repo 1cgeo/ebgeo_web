@@ -114,12 +114,16 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // Função para obter texto de exibição da opção (versão melhorada)
         function getOptionDisplayText(option) {
             if (option.entity_portugues) {
-                // Priorizar a informação mais específica (subtype > type > entity)
-                if (option.entity_subtype_portugues) {
-                    return option.entity_subtype_portugues;
-                } else if (option.entity_type_portugues) {
-                    return option.entity_type_portugues;
-                } else {
+                // Se tiver subtype: "entity_type_portugues - entity_subtype_portugues"
+                if (option.entity_subtype_portugues && option.entity_type_portugues) {
+                    return option.entity_type_portugues + ' - ' + option.entity_subtype_portugues;
+                }
+                // Se não tiver subtype mas tiver type: "entity_portugues - entity_type_portugues"
+                else if (option.entity_type_portugues) {
+                    return option.entity_portugues + ' - ' + option.entity_type_portugues;
+                }
+                // Se não tiver type: apenas "entity_portugues"
+                else {
                     return option.entity_portugues;
                 }
             }
@@ -804,3 +808,4 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         updatePreview();
     }
 }
+
