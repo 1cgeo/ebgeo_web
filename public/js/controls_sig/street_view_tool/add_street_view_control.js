@@ -749,7 +749,9 @@ class AddStreetViewControl {
         var pt = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat])
         var buffered = turf.buffer(pt, 0.04)
         var bbox = turf.bbox(buffered)
-        this.miniMap.fitBounds(bbox)
+        this.miniMap.fitBounds(bbox, {
+            maxZoom: 17
+        })
         //miniMap2.zoomTo(19, {duration: 2000})
     }
 
