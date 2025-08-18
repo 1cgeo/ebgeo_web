@@ -33,7 +33,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         const selectContainer = document.createElement('div');
         selectContainer.style.cssText = 'position: relative;';
 
-        // Display do valor atual (estilo select)
+        // Display do valor atual (estilo select) - Ajustado para múltiplas linhas
         const selectDisplay = document.createElement('div');
         selectDisplay.style.cssText = `
             width: 100%;
@@ -48,15 +48,25 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             position: relative;
         `;
 
+        // Container do texto com tooltip
+        const textContainer = document.createElement('div');
+        textContainer.style.cssText = `
+            flex: 1;
+            overflow: hidden;
+            word-wrap: break-word;
+            hyphens: auto;
+        `;
+        selectDisplay.appendChild(textContainer);
+
         // Ícone dropdown
         const dropdownIcon = document.createElement('span');
         dropdownIcon.innerHTML = '▼';
         dropdownIcon.style.cssText = `
             position: absolute;
-            left: 12px;
+            right: 12px;
             top: 50%;
             transform: translateY(-50%);
-            font-size: 15x;
+            font-size: 15px;
             pointer-events: none;
             color: #000;
         `;
@@ -101,25 +111,56 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // Adicionar dropdown à lista global para controle
         openDropdowns.push(dropdown);
 
-        // Encontrar e exibir valor atual
-        const currentOption = options.find(opt => opt.value == currentValue || opt.code == currentValue);
-        if (currentOption) {
-            selectDisplay.childNodes[0].textContent = getOptionDisplayText(currentOption);
+        // Função para obter texto de exibição da opção (versão melhorada)
+        function getOptionDisplayText(option) {
+            if (option.entity_portugues) {
+                // Priorizar a informação mais específica (subtype > type > entity)
+                if (option.entity_subtype_portugues) {
+                    return option.entity_subtype_portugues;
+                } else if (option.entity_type_portugues) {
+                    return option.entity_type_portugues;
+                } else {
+                    return option.entity_portugues;
+                }
+            }
+            return option.label;
         }
 
-        // Função para obter texto de exibição da opção
-        function getOptionDisplayText(option) {
+        // Função para obter tooltip completo
+        function getOptionTooltipText(option) {
+            if (option.entity_portugues) {
+                const parts = [];
+                if (option.entity_portugues) parts.push(option.entity_portugues);
+                if (option.entity_type_portugues) parts.push(option.entity_type_portugues);
+                if (option.entity_subtype_portugues) parts.push(option.entity_subtype_portugues);
+                return parts.join(' → ');
+            }
+            return option.label;
+        }
+
+        // Função para obter texto de exibição hierárquico para dropdown
+        function getDropdownDisplayText(option) {
             if (option.entity_portugues) {
                 let text = option.entity_portugues;
                 if (option.entity_type_portugues) {
-                    text += ' - ' + option.entity_type_portugues;
+                    text += ' → ' + option.entity_type_portugues;
                 }
                 if (option.entity_subtype_portugues) {
-                    text += ' - ' + option.entity_subtype_portugues;
+                    text += ' → ' + option.entity_subtype_portugues;
                 }
                 return text;
             }
             return option.label;
+        }
+
+        // Encontrar e exibir valor atual
+        const currentOption = options.find(opt => opt.value == currentValue || opt.code == currentValue);
+        if (currentOption) {
+            const displayText = getOptionDisplayText(currentOption);
+            const tooltipText = getOptionTooltipText(currentOption);
+            
+            textContainer.textContent = displayText;
+            textContainer.title = tooltipText;
         }
 
         // Função para buscar opções
@@ -155,24 +196,44 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             `;
             
             if (option.entity_portugues) {
+                const hierarchy = document.createElement('div');
+                
                 const mainText = document.createElement('div');
                 mainText.textContent = option.entity_portugues;
-                mainText.style.cssText = `font-weight: ${isSelected ? '700' : '600'}; font-size: 14px; color: #333; margin-bottom: 2px;`;
-                item.appendChild(mainText);
+                mainText.style.cssText = `
+                    font-weight: ${isSelected ? '700' : '600'}; 
+                    font-size: 14px; 
+                    color: #333; 
+                    margin-bottom: 2px;
+                `;
+                hierarchy.appendChild(mainText);
 
                 if (option.entity_type_portugues) {
                     const typeText = document.createElement('div');
-                    typeText.textContent = option.entity_type_portugues;
-                    typeText.style.cssText = 'font-size: 13px; color: #666; margin-bottom: 1px; font-weight: 500;';
-                    item.appendChild(typeText);
-                }-8
+                    typeText.textContent = '→ ' + option.entity_type_portugues;
+                    typeText.style.cssText = `
+                        font-size: 14px; 
+                        color: #666; 
+                        margin-bottom: 1px; 
+                        font-weight: 500;
+                        margin-left: 10px;
+                    `;
+                    hierarchy.appendChild(typeText);
+                }
 
                 if (option.entity_subtype_portugues) {
                     const subtypeText = document.createElement('div');
-                    subtypeText.textContent = option.entity_subtype_portugues;
-                    subtypeText.style.cssText = 'font-size: 12px; color: #888; font-weight: 400;';
-                    item.appendChild(subtypeText);
+                    subtypeText.textContent = '→ ' + option.entity_subtype_portugues;
+                    subtypeText.style.cssText = `
+                        font-size: 13px; 
+                        color: #888; 
+                        font-weight: 400;
+                        margin-left: 20px;
+                    `;
+                    hierarchy.appendChild(subtypeText);
                 }
+                
+                item.appendChild(hierarchy);
             } else {
                 item.textContent = option.label;
                 item.style.fontSize = '14px';
@@ -187,7 +248,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             
             item.onclick = () => {
                 const value = option.value || option.code;
-                selectDisplay.childNodes[0].textContent = getOptionDisplayText(option);
+                const displayText = getOptionDisplayText(option);
+                const tooltipText = getOptionTooltipText(option);
+                
+                textContainer.textContent = displayText;
+                textContainer.title = tooltipText;
                 closeDropdown();
                 onChange(value);
             };

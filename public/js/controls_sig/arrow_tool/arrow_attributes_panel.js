@@ -143,8 +143,8 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     // Slider de Largura (m) - com step de 1 metro
     const widthControl = createSliderWithInput({
-        min: 50,
-        max: 5000,
+        min: 10,
+        max: 10000,
         step: 1,
         value: feature.properties.width || 500,
         unit: 'm',
