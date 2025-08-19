@@ -1,6 +1,6 @@
 // Path: js\controls_sig\text_tool\add_text_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
-
+import { IDUtils } from '../id_utils.js';
 class AddTextControl {
     static DEFAULT_PROPERTIES = {
         text: '',
@@ -45,7 +45,7 @@ class AddTextControl {
         if (!this.isActive) return
         $("#text-tool").html('<img class="icon-sig-tool" src="./images/icon_text_red.svg" alt="TEXT" />');
     }
-    
+
     onRemove = () => {
         try {
             this.uiManager.removeControl(this.container);
@@ -88,7 +88,7 @@ class AddTextControl {
 
     addTextFeature = async (lngLat, text) => {
         const feature = this.createTextFeature(lngLat, text);
-        
+        feature.properties.id = IDUtils.generateUniqueId();
         // Salvar no IndexedDB
         await addFeature('texts', feature);
 
@@ -96,7 +96,7 @@ class AddTextControl {
         data.features.push(feature);
         this.map.getSource('texts').setData(data);
 
-        this.selectionManager.toggleFeatureSelection('text', feature.id, feature)
+        this.selectionManager.toggleFeatureSelection('text', feature.properties.id, feature)
         this.selectionManager.updateUI()
     }
 
@@ -119,11 +119,11 @@ class AddTextControl {
     handleMouseLeave = (e) => {
         this.map.getCanvas().style.cursor = '';
     }
-    
+
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         for (const feature of features) {
-            const f = data.features.find(f => f.id == feature.id);
+            const f = data.features.find(f => f.properties.id == feature.properties.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
@@ -133,10 +133,10 @@ class AddTextControl {
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
-        if(features.length > 0){
+        if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         // Only update properties of the existing feature
@@ -145,7 +145,7 @@ class AddTextControl {
                         // Replace the entire feature
                         data.features[featureIndex] = feature;
                     }
-        
+
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
                         await updateFeature('texts', featureToUpdate);
@@ -157,16 +157,26 @@ class AddTextControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        for (const f of features) {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('texts', f);
+        const currentData = this.map.getSource('texts')._data;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,  // Geometria atual (pós-drag)
+                        properties: { ...selectedFeature.properties } // Propriedades do painel
+                    };
+                    await updateFeature('texts', featureToSave);
+                }
             }
         }
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
         });
         await this.updateFeatures(features, true, true);
     }
@@ -176,14 +186,14 @@ class AddTextControl {
             return;
         }
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
-        const idsToDelete = new Set(Array.from(features).map(f => String(f.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
+        const idsToDelete = new Set(Array.from(features).map(f => String(f.properties.id)));
+        data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
 
         this.map.getSource('texts').setData(data);
 
         for (const f of features) {
             // Remover do IndexedDB
-            await removeFeature('texts', f.id);
+            await removeFeature('texts', f.properties.id);
         }
     }
 

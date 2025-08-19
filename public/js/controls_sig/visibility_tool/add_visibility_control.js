@@ -1,7 +1,7 @@
 // Path: js\controls_sig\visibility_tool\add_visibility_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
-
+import { IDUtils } from '../id_utils.js';
 // Configuração do grid polar adaptativo
 const VIEWSHED_CONFIG = {
     RINGS: 20,                    // Anéis concêntricos
@@ -350,7 +350,7 @@ class AddVisibilityControl {
             this.updateProgress(100, 'Concluído!');
             await this.delay(300);
 
-            this.selectionManager.toggleFeatureSelection('visibility', feature.id, feature);
+            this.selectionManager.toggleFeatureSelection('visibility', feature.properties.id, feature);
             this.selectionManager.updateUI();
 
             this.hideProgressModal();
@@ -369,7 +369,7 @@ class AddVisibilityControl {
 
             processedFeatures.push({
                 type: 'Feature',
-                id: `${feature.id}-${index}`,
+                id: `${feature.properties.id}-${index}`,
                 properties: {
                     ...feature.properties,
                     color: cellData.isVisible ? AddVisibilityControl.VISIBLE_COLOR : AddVisibilityControl.OBSTRUCTED_COLOR
@@ -385,6 +385,8 @@ class AddVisibilityControl {
     }
 
     createViewshedFeature = (cellsData, radius, angle, observerHeight = 2) => {
+        const featureId = IDUtils.generateUniqueId();
+
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
@@ -393,7 +395,8 @@ class AddVisibilityControl {
                 radius: radius,
                 angle: angle,
                 observerHeight: observerHeight, // ✅ NOVO: Incluir altura do observador
-                cellData: cellsData.map(cell => ({ isVisible: cell.isVisible }))
+                cellData: cellsData.map(cell => ({ isVisible: cell.isVisible })),
+                id: featureId
             },
             geometry: {
                 type: 'MultiPolygon',
@@ -437,12 +440,12 @@ class AddVisibilityControl {
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
         features.forEach(feature => {
-            const f = data.features.find(f => f.id == feature.id);
+            const f = data.features.find(f => f.properties.id == feature.properties.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
 
-                const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
                 processedFeatures.forEach(processedFeature => {
                     processedFeature.properties[property] = value;
                 });
@@ -458,12 +461,12 @@ class AddVisibilityControl {
             const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
 
-                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                        const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
                         processedFeatures.forEach(processedFeature => {
                             Object.keys(feature.properties).forEach(key => {
                                 if (key !== 'color') {
@@ -481,7 +484,7 @@ class AddVisibilityControl {
                             await this.delay(50);
                         }
 
-                        processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
+                        processedData.features = processedData.features.filter(f => !f.properties.id.startsWith(feature.properties.id));
 
                         if (showModal) {
                             this.updateProgress(80, 'Criando novas células...');
@@ -499,7 +502,7 @@ class AddVisibilityControl {
                         }
 
                         await updateFeature('visibility', data.features[featureIndex]);
-                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                        const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
                         for (const pf of processedFeatures) {
                             await updateFeature('processed_visibility', pf);
                         }
@@ -523,31 +526,41 @@ class AddVisibilityControl {
         }
     }
 
-    saveFeatures = (features, initialPropertiesMap) => {
+    saveFeatures = async (features, initialPropertiesMap) => {
+        const currentData = this.map.getSource('visibility')._data;
         const processedData = this.map.getSource('processed-visibility')._data;
 
-        features.forEach(f => {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                updateFeature('visibility', f);
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
-                const processedFeatures = processedData.features.filter(pf => pf.id.startsWith(f.id));
-                processedFeatures.forEach(pf => {
-                    const updatedProcessedFeature = {
-                        ...pf,
-                        properties: {
-                            ...f.properties,
-                            color: pf.properties.color
-                        }
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
+                        properties: { ...selectedFeature.properties }
                     };
-                    updateFeature('processed_visibility', updatedProcessedFeature);
-                });
+                    await updateFeature('visibility', featureToSave);
+
+                    // Atualizar features processadas também
+                    const processedFeatures = processedData.features.filter(pf => pf.properties.id.startsWith(selectedFeature.properties.id));
+                    for (const pf of processedFeatures) {
+                        const updatedProcessedFeature = {
+                            ...pf,
+                            properties: {
+                                ...selectedFeature.properties,
+                                color: pf.properties.color // Manter cor específica processada
+                            }
+                        };
+                        await updateFeature('processed_visibility', updatedProcessedFeature);
+                    }
+                }
             }
-        });
+        }
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
         });
         // ✅ MODIFICADO: Não mostrar modal para operação de descarte
         await this.updateFeatures(features, true, true, false);
@@ -562,22 +575,22 @@ class AddVisibilityControl {
         const cellsToRemove = [];
         for (const f of features) {
             const currentProcessedData = this.map.getSource('processed-visibility')._data;
-            const relatedCells = currentProcessedData.features.filter(pf => pf.id.startsWith(`${f.id}-`));
+            const relatedCells = currentProcessedData.features.filter(pf => pf.properties.id.startsWith(`${f.properties.id}-`));
             cellsToRemove.push(...relatedCells);
         }
 
         // ✅ PASSO 2: Remover do IndexedDB PRIMEIRO
         for (const f of features) {
-            await removeFeature('visibility', f.id);
+            await removeFeature('visibility', f.properties.id);
         }
 
         // ✅ PASSO 3: Atualizar fontes visuais POR ÚLTIMO
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
-        const idsToDelete = new Set(features.map(f => f.id.toString()));
+        const idsToDelete = new Set(features.map(f => f.properties.id.toString()));
 
-        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
-        processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
+        data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
+        processedData.features = processedData.features.filter(f => !idsToDelete.has(f.properties.id.split('-')[0]));
 
         this.map.getSource('visibility').setData(data);
         this.map.getSource('processed-visibility').setData(processedData);
@@ -828,7 +841,7 @@ class AddVisibilityControl {
 
         const updatedFeature = this.createViewshedFeature(optimizedCells, radius, angle, observerHeight);
 
-        updatedFeature.id = feature.id;
+        updatedFeature.properties.id = feature.properties.id;
         updatedFeature.properties = { ...feature.properties, ...updatedFeature.properties };
 
         // ✅ CORREÇÃO: Preservar centro original

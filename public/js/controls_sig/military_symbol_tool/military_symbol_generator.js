@@ -10,7 +10,7 @@ export class MilitarySymbolGenerator {
     buildSIDC(properties) {
         // Construir SIDC de 20 dígitos conforme padrão MIL-STD-2525D
         // Estrutura: A-B-C-D-E-F-G-H-I-J = 10-0-3-10-0-0-16-121100-00-00
-        
+
         const formatId = "10";                                              // A: 2 dígitos (sempre "10")
         const context = properties.context || "0";                         // B: 1 dígito (0=realidade)
         const standardIdentity = properties.standardIdentity || "3";       // C: 1 dígito (3=amigo)
@@ -21,34 +21,55 @@ export class MilitarySymbolGenerator {
         const mainIcon = properties.mainIcon || "121100";                 // H: 6 dígitos (121100=infantaria)
         const modifier1 = properties.modifier1 || "00";                   // I: 2 dígitos
         const modifier2 = properties.modifier2 || "00";                   // J: 2 dígitos
-        
+
         const sidc = `${formatId}${context}${standardIdentity}${symbolSet}${status}${hqTfDummy}${echelon}${mainIcon}${modifier1}${modifier2}`;
-        
+
         return sidc;
     }
 
     // Converter qualquer imagem (SVG/PNG/etc) para PNG blob usando canvas
-    async convertToPngBlob(dataURL, size = DEFAULT_SIZE) {
+    async convertToPngBlob(dataURL, targetSize = DEFAULT_SIZE) {
         return new Promise((resolve, reject) => {
             const img = new Image();
-            
+
             img.onload = () => {
                 try {
-                    // Criar canvas para converter para PNG
+                    // 1. Obter dimensões originais da imagem
+                    const originalWidth = img.naturalWidth || img.width;
+                    const originalHeight = img.naturalHeight || img.height;
+
+                    // 2. Calcular aspect ratio
+                    const aspectRatio = originalWidth / originalHeight;
+
+                    // 3. Calcular novas dimensões mantendo proporção
+                    let newWidth, newHeight;
+                    if (aspectRatio >= 1) {
+                        // Imagem mais larga que alta (landscape ou quadrada)
+                        newWidth = targetSize;
+                        newHeight = Math.round(targetSize / aspectRatio);
+                    } else {
+                        // Imagem mais alta que larga (portrait)
+                        newHeight = targetSize;
+                        newWidth = Math.round(targetSize * aspectRatio);
+                    }
+
+                    // 4. Criar canvas com dimensões do targetSize (quadrado para padding)
                     const canvas = document.createElement('canvas');
+                    canvas.width = targetSize;
+                    canvas.height = targetSize;
                     const ctx = canvas.getContext('2d');
-                    
-                    // Definir tamanho do canvas
-                    canvas.width = size;
-                    canvas.height = size;
-                    
-                    // Limpar fundo (transparente)
-                    ctx.clearRect(0, 0, size, size);
-                    
-                    // Desenhar a imagem no canvas
-                    ctx.drawImage(img, 0, 0, size, size);
-                    
-                    // Converter canvas para PNG blob
+
+                    // 5. Limpar fundo (transparente)
+                    ctx.clearRect(0, 0, targetSize, targetSize);
+
+                    // 6. Calcular posição para centralizar a imagem
+                    const offsetX = Math.round((targetSize - newWidth) / 2);
+                    const offsetY = Math.round((targetSize - newHeight) / 2);
+
+                    // 7. Desenhar a imagem centralizada e com proporção correta
+                    ctx.drawImage(img, offsetX, offsetY, newWidth, newHeight);
+
+                    // 8. Converter canvas para PNG blob
                     canvas.toBlob((blob) => {
                         if (blob) {
                             resolve(blob);
@@ -56,16 +77,16 @@ export class MilitarySymbolGenerator {
                             reject(new Error('Falha ao converter para PNG blob'));
                         }
                     }, 'image/png', 1.0);
-                    
+
                 } catch (error) {
                     reject(error);
                 }
             };
-            
+
             img.onerror = () => {
                 reject(new Error('Falha ao carregar imagem para conversão PNG'));
             };
-            
+
             // Carregar a imagem do data URL
             img.src = dataURL;
         });
@@ -74,7 +95,7 @@ export class MilitarySymbolGenerator {
     // Gerar blob da imagem
     async generateSymbolBlob(properties) {
         const sidc = properties.sidc;
-        
+
         // Cache baseado apenas no SIDC
         const cacheKey = `${sidc}`;
         if (this.symbolCache.has(cacheKey)) {
@@ -103,10 +124,10 @@ export class MilitarySymbolGenerator {
 
             // Obter data URL do símbolo (pode ser SVG ou PNG)
             const dataURL = symbol.toDataURL();
-            
+
             // FORÇAR conversão para PNG usando canvas
             const pngBlob = await this.convertToPngBlob(dataURL, DEFAULT_SIZE);
-            
+
             // Adicionar ao cache
             this.symbolCache.set(cacheKey, pngBlob);
             return pngBlob;
@@ -155,17 +176,17 @@ export class MilitarySymbolGenerator {
 
             // Obter data URL original
             const originalDataURL = symbol.toDataURL();
-            
+
             // Converter para PNG e depois para data URL
             const pngBlob = await this.convertToPngBlob(originalDataURL, size);
-            
+
             // Converter blob para data URL
             return new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);
                 reader.readAsDataURL(pngBlob);
             });
-            
+
         } catch (error) {
             console.error('Erro ao gerar preview:', error);
             return null;

@@ -11,6 +11,8 @@ import {
     getCurrentBaseLayer
 } from './store.js';
 
+import { IDUtils } from './id_utils.js';
+
 export class ExportImportService {
     constructor(baseLayerControl, mapControl) {
         this.baseLayerControl = baseLayerControl;
@@ -180,8 +182,8 @@ export class ExportImportService {
                     for (const [category, features] of Object.entries(mapData.features)) {
                         if (Array.isArray(features)) {
                             features.forEach(feature => {
-                                if (feature.properties && feature.properties.imageId) {
-                                    usedImages.add(feature.properties.imageId);
+                                if (feature.properties && feature.properties.id) {
+                                    usedImages.add(feature.properties.id);
                                 }
                             });
                         }
@@ -251,25 +253,19 @@ export class ExportImportService {
         if (!file) return;
 
         try {
-            // Ler arquivo como array buffer
             const fileBuffer = await file.arrayBuffer();
             const fileArray = new Uint8Array(fileBuffer);
 
             let zipData;
-
-            // Verificar se é arquivo XOR mascarado
             const identifier = new TextDecoder().decode(fileArray.slice(0, 6));
 
             if (identifier === 'EBGXOR') {
-                // Arquivo XOR - remover identificador e aplicar XOR reverso
                 const maskedData = fileArray.slice(6);
-                zipData = this.xorData(maskedData); // XOR reverso (mesmo key)
+                zipData = this.xorData(maskedData);
             } else {
-                // Arquivo ZIP direto ou formato antigo - compatibilidade
                 zipData = fileArray;
             }
 
-            // Carregar ZIP
             const zip = await JSZip.loadAsync(zipData);
 
             if (!isAdditiveImport) {
@@ -279,9 +275,7 @@ export class ExportImportService {
                 await appStore.clear();
             }
 
-            // Buscar arquivo data.json
-            let dataFile = zip.file('data.json');
-
+            const dataFile = zip.file('data.json');
             if (!dataFile) {
                 throw new Error('Arquivo data.json não encontrado no .ebgeo');
             }
@@ -291,61 +285,49 @@ export class ExportImportService {
 
             // Processar mapas
             let importedMapsCount = 0;
+
             if (isAdditiveImport) {
+                // IMPORTAÇÃO ADITIVA: Regenerar IDs para evitar conflitos
                 const existingMapNames = await getAllMapNames();
                 const mapsToImport = Object.keys(data.maps).length;
+
                 if (existingMapNames.length + mapsToImport > 30) {
                     throw new Error(`Limite de mapas excedido. Você tem ${existingMapNames.length} mapas, tentando importar ${mapsToImport}. Limite: 30 mapas.`);
                 }
+
                 for (const [originalMapName, mapData] of Object.entries(data.maps)) {
+                    // Encontrar nome único
                     let finalMapName = originalMapName;
                     let counter = 1;
-
                     while (existingMapNames.includes(finalMapName)) {
                         finalMapName = `${originalMapName}_${counter}`;
                         counter++;
                     }
 
-                    await addMap(finalMapName, mapData);
+                    // Regenerar IDs das feições e duplicar recursos
+                    const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
+
+                    // Criar novo mapa
+                    await addMap(finalMapName, newMapData);
                     existingMapNames.push(finalMapName);
                     importedMapsCount++;
                 }
             } else {
+                // IMPORTAÇÃO COM SUBSTITUIÇÃO: Manter IDs originais
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     await addMap(mapName, mapData);
                     importedMapsCount++;
                 }
-
                 setCurrentMap(data.currentMap);
             }
 
-            // Carregar imagens - aceitar múltiplos formatos
-            const imageFiles = Object.keys(zip.files).filter(name =>
-                name.startsWith('images/') &&
-                /\.(png|jpe?g|svg|webp)$/i.test(name)
-            );
+            // Carregar imagens do ZIP
+            await this.loadImagesFromZip(zip);
 
-            for (const fileName of imageFiles) {
-                try {
-                    // Extrair imageId removendo o path e qualquer extensão de imagem
-                    const imageId = fileName.replace('images/', '').replace(/\.(png|jpe?g|svg|webp)$/i, '');
-                    const blob = await zip.file(fileName).async('blob');
-                    await imageStore.setItem(imageId, blob);
-                } catch (imgError) {
-                    console.warn('Erro ao carregar imagem:', fileName, imgError);
-                }
-            }
-
-            // Recarregar mapa
-            let baseLayer;
-            if (isAdditiveImport) {
-                // Modo aditivo: preservar layer atual do usuário
-                baseLayer = await getCurrentBaseLayer();
-            } else {
-                // Modo substituição: usar layer do arquivo
-                const currentMapData = await mapStore.getItem(data.currentMap);
-                baseLayer = currentMapData ? currentMapData.baseLayer : 'carta-topografica';
-            }
+            // Recarregar interface
+            const baseLayer = isAdditiveImport ?
+                await getCurrentBaseLayer() :
+                (await mapStore.getItem(await getCurrentMapName()))?.baseLayer || 'carta-topografica';
 
             this.baseLayerControl.switchLayer(baseLayer);
             await this.mapControl.updateMapList();
@@ -359,6 +341,23 @@ export class ExportImportService {
         }
 
         event.target.value = '';
+    }
+
+    async loadImagesFromZip(zip) {
+        const imageFiles = Object.keys(zip.files).filter(name =>
+            name.startsWith('images/') &&
+            /\.(png|jpe?g|svg|webp)$/i.test(name)
+        );
+
+        for (const fileName of imageFiles) {
+            try {
+                const imageId = fileName.replace('images/', '').replace(/\.(png|jpe?g|svg|webp)$/i, '');
+                const blob = await zip.file(fileName).async('blob');
+                await imageStore.setItem(imageId, blob);
+            } catch (imgError) {
+                console.warn('Erro ao carregar imagem:', fileName, imgError);
+            }
+        }
     }
 
     // Mostrar sucesso no salvamento

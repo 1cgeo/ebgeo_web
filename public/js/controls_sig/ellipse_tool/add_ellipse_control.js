@@ -1,5 +1,6 @@
 // Path: js\controls_sig\ellipse_tool\add_ellipse_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { IDUtils } from '../id_utils.js';
 
 // Note: turf is globally available as window.turf
 const turf = window.turf;
@@ -217,8 +218,8 @@ class AddEllipseControl {
     // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
-        const isSameFeature = this.selectedFeature && this.selectedFeature.id === featureId;
+        const featureId = feature.properties.id;
+        const isSameFeature = this.selectedFeature && this.selectedFeature.properties.id === featureId;
 
         if (isSameFeature && this.currentState === 'selected') {
             // Same feature selected again: SELECTED → EDITING
@@ -230,9 +231,9 @@ class AddEllipseControl {
     }
 
     onFeatureDeselected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
+        const featureId = feature.properties.id;
 
-        if (this.selectedFeature && this.selectedFeature.id === featureId) {
+        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
             this.transitionToState('deselected');
         }
     }
@@ -350,10 +351,10 @@ class AddEllipseControl {
             return;
         }
 
-        const featureId = Date.now().toString();
+        const featureId = IDUtils.generateUniqueId();
         const feature = {
             type: 'Feature',
-            id: featureId,
+            id: Date.now().toString(),
             properties: {
                 ...AddEllipseControl.DEFAULT_PROPERTIES,
                 center: center,
@@ -401,7 +402,7 @@ class AddEllipseControl {
         // Major axis handle (red) - follow HTML logic exactly
         const majorAxisEnd = turf.destination(center, majorRadius, bearing, { units: 'kilometers' });
 
-        const majorHandleId = `ellipse-handle-${feature.id}-major`;
+        const majorHandleId = `ellipse-handle-${feature.properties.id}-major`;
         this.editHandleIds.add(majorHandleId);
 
         handles.push({
@@ -415,7 +416,7 @@ class AddEllipseControl {
                 role: 'handle',
                 handleType: 'vertex', // RED color in map.js
                 handleId: 'major-axis',
-                featureId: feature.id,
+                featureId: feature.properties.id,
                 mode: 'ellipse_editing',
                 meta: 'vertex',
                 user_isEditingHandle: true
@@ -426,7 +427,7 @@ class AddEllipseControl {
         const perpendicularBearing = bearing + 90;
         const minorAxisEnd = turf.destination(center, minorRadius, perpendicularBearing, { units: 'kilometers' });
 
-        const minorHandleId = `ellipse-handle-${feature.id}-minor`;
+        const minorHandleId = `ellipse-handle-${feature.properties.id}-minor`;
         this.editHandleIds.add(minorHandleId);
 
         handles.push({
@@ -440,7 +441,7 @@ class AddEllipseControl {
                 role: 'handle',
                 handleType: 'eccentricity', // BLUE color in map.js
                 handleId: 'minor-axis',
-                featureId: feature.id,
+                featureId: feature.properties.id,
                 mode: 'ellipse_editing',
                 meta: 'vertex',
                 user_isEditingHandle: true
@@ -477,7 +478,7 @@ class AddEllipseControl {
 
         // Major handle at current position (RED)
         if (majorHandlePosition) {
-            const majorHandleId = `ellipse-handle-${feature.id}-major`;
+            const majorHandleId = `ellipse-handle-${feature.properties.id}-major`;
             handles.push({
                 type: 'Feature',
                 id: majorHandleId,
@@ -489,7 +490,7 @@ class AddEllipseControl {
                     role: 'handle',
                     handleType: 'vertex', // RED color in map.js
                     handleId: 'major-axis',
-                    featureId: feature.id,
+                    featureId: feature.properties.id,
                     mode: 'ellipse_editing',
                     meta: 'vertex',
                     user_isEditingHandle: true
@@ -499,7 +500,7 @@ class AddEllipseControl {
 
         // Minor handle at current position (BLUE)
         if (minorHandlePosition) {
-            const minorHandleId = `ellipse-handle-${feature.id}-minor`;
+            const minorHandleId = `ellipse-handle-${feature.properties.id}-minor`;
             handles.push({
                 type: 'Feature',
                 id: minorHandleId,
@@ -511,7 +512,7 @@ class AddEllipseControl {
                     role: 'handle',
                     handleType: 'eccentricity', // BLUE color in map.js
                     handleId: 'minor-axis',
-                    featureId: feature.id,
+                    featureId: feature.properties.id,
                     mode: 'ellipse_editing',
                     meta: 'vertex',
                     user_isEditingHandle: true
@@ -796,18 +797,18 @@ class AddEllipseControl {
 
     forceUpdateMainSource = (feature) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-        const sourceFeature = data.features.find(f => f.id == feature.id);
+        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('ellipses').setData(data);
         } else {
-            console.error(`Feature ${feature.id} not found in ellipses source for forced update`);
+            console.error(`Feature ${feature.properties.id} not found in ellipses source for forced update`);
         }
     }
 
     updateSelectionAfterEdit = () => {
-        this.selectionManager.selectedEllipseFeatures.set(this.selectedFeature.id, this.selectedFeature);
+        this.selectionManager.selectedEllipseFeatures.set(this.selectedFeature.properties.id, this.selectedFeature);
     }
 
     updateUIAfterEdit = () => {
@@ -830,9 +831,9 @@ class AddEllipseControl {
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
 
         for (const feature of features) {
-            feature.id = feature.id || feature.properties.id;
+            feature.properties.id = feature.properties.id;
 
-            const sourceFeature = data.features.find(f => f.id == feature.id);
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -855,7 +856,7 @@ class AddEllipseControl {
 
     hasUnsavedChanges = (features, initialPropertiesMap) => {
         return features.some(feature => {
-            const initialProperties = initialPropertiesMap.get(feature.id);
+            const initialProperties = initialPropertiesMap.get(feature.properties.id);
             if (!initialProperties) return false;
 
             return (
@@ -872,15 +873,26 @@ class AddEllipseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        for (const feature of features) {
-            await updateFeature('ellipses', feature);
+        const currentData = this.map.getSource('ellipses')._data;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
+                        properties: { ...selectedFeature.properties }
+                    };
+                    await updateFeature('ellipses', featureToSave);
+                }
+            }
         }
-        this.updateMapSource();
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
 
             // Regenerar geometria com propriedades originais
             f.geometry = this.generateEllipseGeometry(
@@ -900,7 +912,7 @@ class AddEllipseControl {
 
         for (const feature of features) {
             try {
-                const featureId = feature.id || feature.properties.id;
+                const featureId = feature.properties.id;
                 await removeFeature('ellipses', featureId);
             } catch (error) {
                 console.error(`Error removing ellipse ${featureId}:`, error);
@@ -908,8 +920,8 @@ class AddEllipseControl {
         }
 
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-        const idsToDelete = new Set(features.map(f => String(f.id || f.properties.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(String(f.id)));
+        const idsToDelete = new Set(features.map(f => String(f.properties.id || f.properties.id)));
+        data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
         this.map.getSource('ellipses').setData(data);
     }
 
@@ -941,9 +953,9 @@ class AddEllipseControl {
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
 
         for (const feature of features) {
-            feature.id = feature.id || feature.properties.id;
+            feature.properties.id = feature.properties.id;
 
-            const sourceFeature = data.features.find(f => f.id == feature.id);
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties.center = newCenter;
                 feature.properties.center = newCenter;
@@ -964,7 +976,7 @@ class AddEllipseControl {
 
     updateFeatureFromUI = (feature) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-        const sourceFeature = data.features.find(f => f.id == feature.id);
+        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
 
         if (sourceFeature) {
             Object.assign(sourceFeature.properties, feature.properties);
@@ -985,9 +997,9 @@ class AddEllipseControl {
             const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
 
             for (const feature of features) {
-                feature.id = feature.id || feature.properties.id;
+                feature.properties.id = feature.properties.id;
 
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);

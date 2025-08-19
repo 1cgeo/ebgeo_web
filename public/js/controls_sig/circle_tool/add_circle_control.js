@@ -1,5 +1,6 @@
 // Path: js\controls_sig\circle_tool\add_circle_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { IDUtils } from '../id_utils.js';
 
 class AddCircleControl {
     constructor(toolManager) {
@@ -213,8 +214,8 @@ class AddCircleControl {
     // ===== SELECTION SYSTEM INTEGRATION (Template) =====
 
     onFeatureSelected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
-        const isSameFeature = this.selectedFeature && this.selectedFeature.id === featureId;
+        const featureId = feature.properties.id;
+        const isSameFeature = this.selectedFeature && this.selectedFeature.properties.id === featureId;
 
         if (isSameFeature && this.currentState === 'selected') {
             // Same feature selected again: SELECTED → EDITING
@@ -226,9 +227,9 @@ class AddCircleControl {
     }
 
     onFeatureDeselected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
+        const featureId = feature.properties.id;
 
-        if (this.selectedFeature && this.selectedFeature.id === featureId) {
+        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
             this.transitionToState('deselected');
         }
     }
@@ -336,10 +337,10 @@ class AddCircleControl {
             return;
         }
 
-        const featureId = Date.now().toString();
+        const featureId = IDUtils.generateUniqueId();
         const feature = {
             type: 'Feature',
-            id: featureId,
+            id: Date.now().toString(),
             properties: {
                 ...AddCircleControl.DEFAULT_PROPERTIES,
                 center: center,
@@ -427,10 +428,10 @@ class AddCircleControl {
                     xGeometries.forEach((geometry, index) => {
                         xFeatures.push({
                             type: 'Feature',
-                            id: `x-mark-${feature.id}-${index}`,
+                            id: `x-mark-${feature.properties.id}-${index}`,
                             geometry: geometry,
                             properties: {
-                                parentId: feature.id,
+                                parentId: feature.properties.id,
                                 lineColor: feature.properties.lineColor,
                                 lineWidth: feature.properties.lineWidth,
                                 source: 'circle-x'
@@ -467,7 +468,7 @@ class AddCircleControl {
             center[1]
         ];
 
-        const handleId = `circle-handle-${feature.id}-radius`;
+        const handleId = `circle-handle-${feature.properties.id}-radius`;
         this.editHandleIds.add(handleId);
 
         handles.push({
@@ -481,7 +482,7 @@ class AddCircleControl {
                 role: 'handle',
                 handleType: 'radius',
                 handleId: 'radius-main',
-                featureId: feature.id,
+                featureId: feature.properties.id,
                 mode: 'circle_editing',
                 meta: 'vertex',
                 user_isEditingHandle: true
@@ -517,7 +518,7 @@ class AddCircleControl {
         const handles = [];
 
         // Handle at current position
-        const handleId = `circle-handle-${feature.id}-radius`;
+        const handleId = `circle-handle-${feature.properties.id}-radius`;
         handles.push({
             type: 'Feature',
             id: handleId,
@@ -529,7 +530,7 @@ class AddCircleControl {
                 role: 'handle',
                 handleType: 'radius',
                 handleId: 'radius-main',
-                featureId: feature.id,
+                featureId: feature.properties.id,
                 mode: 'circle_editing',
                 meta: 'vertex',
                 user_isEditingHandle: true
@@ -761,18 +762,18 @@ class AddCircleControl {
 
     forceUpdateMainSource = (feature) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('circles')._data));
-        const sourceFeature = data.features.find(f => f.id == feature.id);
+        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('circles').setData(data);
         } else {
-            console.error(`Feature ${feature.id} not found in circles source for forced update`);
+            console.error(`Feature ${feature.properties.id} not found in circles source for forced update`);
         }
     }
 
     updateSelectionAfterEdit = () => {
-        this.selectionManager.selectedCircleFeatures.set(this.selectedFeature.id, this.selectedFeature);
+        this.selectionManager.selectedCircleFeatures.set(this.selectedFeature.properties.id, this.selectedFeature);
     }
 
     updateUIAfterEdit = () => {
@@ -795,9 +796,9 @@ class AddCircleControl {
         const data = JSON.parse(JSON.stringify(this.map.getSource('circles')._data));
 
         for (const feature of features) {
-            feature.id = feature.id || feature.properties.id;
+            feature.properties.id = feature.properties.id;
 
-            const sourceFeature = data.features.find(f => f.id == feature.id);
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -827,7 +828,7 @@ class AddCircleControl {
 
     hasUnsavedChanges = (features, initialPropertiesMap) => {
         return features.some(feature => {
-            const initialProperties = initialPropertiesMap.get(feature.id);
+            const initialProperties = initialPropertiesMap.get(feature.properties.id);
             if (!initialProperties) return false;
 
             return (
@@ -843,16 +844,35 @@ class AddCircleControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        for (const feature of features) {
-            await updateFeature('circles', feature);
+        const currentData = this.map.getSource('circles')._data;
+
+        let hasChanges = false;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
+                        properties: { ...selectedFeature.properties }
+                    };
+
+                    await updateFeature('circles', featureToSave);
+                    hasChanges = true;
+                }
+            }
         }
-        this.updateMapSource();
-        this.updateXMarks();
+
+        if (hasChanges) {
+            this.updateXMarks();
+        }
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
 
             // Regenerar geometria com propriedades originais
             f.geometry = this.generateCircleGeometry(
@@ -871,12 +891,12 @@ class AddCircleControl {
         // Simple and clean: let the robust store handle verification/retry
         for (const feature of features) {
             try {
-                const featureId = feature.id || feature.properties.id;
+                const featureId = feature.properties.id;
                 await removeFeature('circles', featureId);
                 // Remove from map source (visual)
                 const data = JSON.parse(JSON.stringify(this.map.getSource('circles')._data));
-                const idsToDelete = new Set(features.map(f => String(f.id || f.properties.id)));
-                data.features = data.features.filter(f => !idsToDelete.has(String(f.id)));
+                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
+                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('circles').setData(data);
             } catch (error) {
                 console.error(`Error removing circle ${featureId}:`, error);
@@ -911,11 +931,8 @@ class AddCircleControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('circles')._data));
-
             for (const feature of features) {
-                feature.id = feature.id || feature.properties.id;
-
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);

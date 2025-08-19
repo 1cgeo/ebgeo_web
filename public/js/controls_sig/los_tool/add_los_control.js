@@ -1,7 +1,7 @@
 // Path: js\controls_sig\los_tool\add_los_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
-
+import { IDUtils } from '../id_utils.js';
 class AddLOSControl {
     static DEFAULT_PROPERTIES = {
         opacity: 1,
@@ -225,6 +225,7 @@ class AddLOSControl {
                 }
             };
         }
+        losFeature.properties.id = IDUtils.generateUniqueId();
 
         // Salvar no IndexedDB
         await addFeature('los', losFeature);
@@ -244,7 +245,7 @@ class AddLOSControl {
 
         this.map.getSource('processed-los').setData(processedData);
 
-        this.selectionManager.toggleFeatureSelection('los', losFeature.id, losFeature);
+        this.selectionManager.toggleFeatureSelection('los', losFeature.properties.id, losFeature);
         this.selectionManager.updateUI();
     }
 
@@ -255,7 +256,7 @@ class AddLOSControl {
         if (feature.geometry.type === 'MultiLineString') {
             processedFeatures.push({
                 type: 'Feature',
-                id: feature.id + '-visible',
+                id: feature.properties.id + '-visible',
                 properties: {
                     ...properties,
                     color: AddLOSControl.VISIBLE_COLOR
@@ -268,7 +269,7 @@ class AddLOSControl {
 
             processedFeatures.push({
                 type: 'Feature',
-                id: feature.id + '-obstructed',
+                id: feature.properties.id + '-obstructed',
                 properties: {
                     ...properties,
                     color: AddLOSControl.OBSTRUCTED_COLOR
@@ -281,7 +282,7 @@ class AddLOSControl {
         } else {
             processedFeatures.push({
                 type: 'Feature',
-                id: feature.id + '-visible',
+                id: feature.properties.id + '-visible',
                 properties: {
                     ...properties,
                     color: AddLOSControl.VISIBLE_COLOR
@@ -351,14 +352,14 @@ class AddLOSControl {
 
         for (const feature of features) {
             // Update los source
-            const losFeature = losData.features.find(f => f.id == feature.id);
+            const losFeature = losData.features.find(f => f.properties.id == feature.properties.id);
             if (losFeature) {
                 losFeature.properties[property] = value;
                 feature.properties[property] = value;
                 this.updateFeatureMeasurement(feature);
 
                 // Update processed-los source
-                const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
                 processedFeatures.forEach(processedFeature => {
                     processedFeature.properties[property] = value;
                 });
@@ -375,12 +376,12 @@ class AddLOSControl {
             const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
 
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
 
-                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                        const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
                         processedFeatures.forEach(processedFeature => {
                             Object.keys(feature.properties).forEach(key => {
                                 if (key !== 'color') {
@@ -393,7 +394,7 @@ class AddLOSControl {
                         const updatedFeature = await this.recalculateLOS(feature);
                         data.features[featureIndex] = updatedFeature;
                         // Remove old processed features
-                        processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
+                        processedData.features = processedData.features.filter(f => !f.properties.id.startsWith(feature.properties.id));
 
                         // Add new processed features
                         const newProcessedFeatures = this.preprocessLosFeature(updatedFeature);
@@ -403,7 +404,7 @@ class AddLOSControl {
                     if (save) {
                         await updateFeature('los', data.features[featureIndex]);
                         this.updateFeatureMeasurement(data.features[featureIndex]);
-                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                        const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
                         for (const pf of processedFeatures) {
                             await updateFeature('processed_los', pf);
                         }
@@ -416,22 +417,32 @@ class AddLOSControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        const currentData = this.map.getSource('los')._data;
         const processedData = this.map.getSource('processed-los')._data;
 
-        for (const f of features) {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('los', f);
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
-                const processedFeatures = processedData.features.filter(pf => pf.id.startsWith(f.id));
-                for (const pf of processedFeatures) {
-                    const updatedProcessedFeature = {
-                        ...pf,
-                        properties: {
-                            ...f.properties,
-                            color: pf.properties.color
-                        }
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,  // Geometria atual (pós-drag)
+                        properties: { ...selectedFeature.properties } // Propriedades do painel
                     };
-                    await updateFeature('processed_los', updatedProcessedFeature);
+                    await updateFeature('los', featureToSave);
+
+                    // Atualizar features processadas
+                    const processedFeatures = processedData.features.filter(pf => pf.properties.id.startsWith(selectedFeature.properties.id));
+                    for (const pf of processedFeatures) {
+                        const updatedProcessedFeature = {
+                            ...pf,
+                            properties: {
+                                ...selectedFeature.properties,
+                                color: pf.properties.color // Manter cor específica processada
+                            }
+                        };
+                        await updateFeature('processed_los', updatedProcessedFeature);
+                    }
                 }
             }
         }
@@ -439,7 +450,7 @@ class AddLOSControl {
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
         });
         await this.updateFeatures(features, true, true);
     }
@@ -450,16 +461,16 @@ class AddLOSControl {
         }
         const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-        const idsToDelete = new Set(features.map(f => f.id.toString()));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
-        processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
+        const idsToDelete = new Set(features.map(f => f.properties.id.toString()));
+        data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
+        processedData.features = processedData.features.filter(f => !idsToDelete.has(f.properties.id.split('-')[0]));
 
         this.map.getSource('los').setData(data);
         this.map.getSource('processed-los').setData(processedData);
 
         for (const f of features) {
-            await removeFeature('los', f.id);
-            this.removeFeatureMeasurement(f.id);
+            await removeFeature('los', f.properties.id);
+            this.removeFeatureMeasurement(f.properties.id);
         }
     }
 
@@ -473,7 +484,7 @@ class AddLOSControl {
     }
 
     updateFeatureMeasurement = (feature) => {
-        this.removeFeatureMeasurement(feature.id);
+        this.removeFeatureMeasurement(feature.properties.id);
         if (feature.properties.measure) {
             let combinedLine;
 
@@ -505,7 +516,7 @@ class AddLOSControl {
                 ? `${(lengthInMeters / 1000).toFixed(2)} km`
                 : `${lengthInMeters.toFixed(2)} m`;
             const midpoint = turf.along(line, lengthInMeters / 2, { units: 'meters' });
-            this.displayMeasurement(midpoint.geometry.coordinates, lengthFormatted, feature.id);
+            this.displayMeasurement(midpoint.geometry.coordinates, lengthFormatted, feature.properties.id);
         }
     }
 

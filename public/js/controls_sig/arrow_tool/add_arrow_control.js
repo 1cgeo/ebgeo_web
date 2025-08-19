@@ -1,5 +1,6 @@
 // Path: js\controls_sig\arrow_tool\add_arrow_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { IDUtils } from '../id_utils.js';
 
 class AddArrowControl {
     constructor(toolManager) {
@@ -187,8 +188,8 @@ class AddArrowControl {
     // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
-        const isSameFeature = this.selectedFeature && this.selectedFeature.id === featureId;
+        const featureId = feature.properties.id;
+        const isSameFeature = this.selectedFeature && this.selectedFeature.properties.id === featureId;
 
         if (isSameFeature && this.currentState === 'selected') {
             // Same feature selected again: SELECTED → EDITING
@@ -200,9 +201,9 @@ class AddArrowControl {
     }
 
     onFeatureDeselected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
+        const featureId = feature.properties.id;
 
-        if (this.selectedFeature && this.selectedFeature.id === featureId) {
+        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
             this.transitionToState('deselected');
         }
     }
@@ -332,10 +333,10 @@ class AddArrowControl {
             return;
         }
 
-        const featureId = Date.now().toString();
+        const featureId = IDUtils.generateUniqueId();
         const feature = {
             type: 'Feature',
-            id: featureId,
+            id: Date.now().toString(),
             properties: {
                 ...AddArrowControl.DEFAULT_PROPERTIES,
                 baseCoordinates: [...this.drawPoints],
@@ -371,7 +372,7 @@ class AddArrowControl {
             this.drawPoints = [];
             this.toolManager.setActiveTool(null);
 
-            this.selectionManager.toggleFeatureSelection('arrow', feature.id, feature);
+            this.selectionManager.toggleFeatureSelection('arrow', feature.properties.id, feature);
             this.selectionManager.updateUI();
         } catch (error) {
             console.error('Erro ao criar seta:', error);
@@ -435,14 +436,14 @@ class AddArrowControl {
         // ✅ MODIFICAÇÃO: Se não mostrar cabeça, retornar apenas o corpo retangular
         if (!showArrowHead) {
             const arrowPolygonCoords = [];
-            
+
             // Lado esquerdo do corpo (do início ao fim)
             arrowPolygonCoords.push(...leftLine.geometry.coordinates);
-            
+
             // Lado direito do corpo (do fim ao início - reverso)
             const rightLineReversed = [...rightLine.geometry.coordinates].reverse();
             arrowPolygonCoords.push(...rightLineReversed);
-            
+
             // Fechar o polígono
             arrowPolygonCoords.push(arrowPolygonCoords[0]);
 
@@ -641,7 +642,7 @@ class AddArrowControl {
 
         // 1. Handles nos vértices da linha base (vermelho)
         coords.forEach((coord, index) => {
-            const handleId = `arrow-handle-${feature.id}-vertex-${index}`;
+            const handleId = `arrow-handle-${feature.properties.id}-vertex-${index}`;
             this.editHandleIds.add(handleId);
 
             handles.push({
@@ -653,7 +654,7 @@ class AddArrowControl {
                     handleType: 'vertex',
                     handleId: `vertex-${index}`,
                     index: index,
-                    featureId: feature.id,
+                    featureId: feature.properties.id,
                     mode: 'arrow_editing',
                     meta: 'vertex',
                     user_isEditingHandle: true
@@ -664,7 +665,7 @@ class AddArrowControl {
         // 2. Handles de ponto médio para adicionar vértices (laranja)
         for (let i = 0; i < coords.length - 1; i++) {
             const midpoint = turf.midpoint(turf.point(coords[i]), turf.point(coords[i + 1]));
-            const handleId = `arrow-handle-${feature.id}-midpoint-${i}`;
+            const handleId = `arrow-handle-${feature.properties.id}-midpoint-${i}`;
             this.editHandleIds.add(handleId);
 
             handles.push({
@@ -676,7 +677,7 @@ class AddArrowControl {
                     handleType: 'midpoint',
                     handleId: `midpoint-${i}`,
                     insertIndex: i + 1,
-                    featureId: feature.id,
+                    featureId: feature.properties.id,
                     mode: 'arrow_editing',
                     meta: 'vertex',
                     user_isEditingHandle: true
@@ -694,7 +695,7 @@ class AddArrowControl {
         const headBaseWidth = Math.abs(width * 2.5);
         const widthHandlePoint = turf.destination(lastPoint, headBaseWidth / 2, perpendicularBearing, { units: 'meters' });
 
-        const widthHandleId = `arrow-handle-${feature.id}-width`;
+        const widthHandleId = `arrow-handle-${feature.properties.id}-width`;
         this.editHandleIds.add(widthHandleId);
 
         handles.push({
@@ -705,7 +706,7 @@ class AddArrowControl {
                 role: 'handle',
                 handleType: 'width',
                 handleId: 'width',
-                featureId: feature.id,
+                featureId: feature.properties.id,
                 mode: 'arrow_editing',
                 meta: 'vertex',
                 user_isEditingHandle: true
@@ -719,7 +720,7 @@ class AddArrowControl {
             const headLength = headBaseWidth * headLengthRatio;
             const headTipPoint = turf.destination(lastPoint, headLength, bearing, { units: 'meters' });
 
-            const headLengthHandleId = `arrow-handle-${feature.id}-headlength`;
+            const headLengthHandleId = `arrow-handle-${feature.properties.id}-headlength`;
             this.editHandleIds.add(headLengthHandleId);
 
             handles.push({
@@ -730,7 +731,7 @@ class AddArrowControl {
                     role: 'handle',
                     handleType: 'headLength',
                     handleId: 'headLength',
-                    featureId: feature.id,
+                    featureId: feature.properties.id,
                     mode: 'arrow_editing',
                     meta: 'vertex',
                     user_isEditingHandle: true
@@ -775,7 +776,7 @@ class AddArrowControl {
                     handleCoord = pointOnMainLine.geometry.coordinates;
                 }
 
-                const airmobileHandleId = `arrow-handle-${feature.id}-airmobile`;
+                const airmobileHandleId = `arrow-handle-${feature.properties.id}-airmobile`;
                 this.editHandleIds.add(airmobileHandleId);
 
                 // ✅ USAR EXATAMENTE A MESMA ESTRUTURA DO EXEMPLO
@@ -787,7 +788,7 @@ class AddArrowControl {
                         role: 'handle',
                         handleType: 'airmobile',  // ✅ Manter para compatibilidade com layers
                         handleId: 'airmobile',
-                        featureId: feature.id,
+                        featureId: feature.properties.id,
                         mode: 'arrow_editing',
                         meta: 'vertex',
                         user_isEditingHandle: true
@@ -1009,18 +1010,18 @@ class AddArrowControl {
 
     forceUpdateMainSource = (feature) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
-        const sourceFeature = data.features.find(f => f.id == feature.id);
+        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('arrows').setData(data);
         } else {
-            console.error(`Feature ${feature.id} not found in arrows source for forced update`);
+            console.error(`Feature ${feature.properties.id} not found in arrows source for forced update`);
         }
     }
 
     updateSelectionAfterEdit = () => {
-        this.selectionManager.selectedArrowFeatures.set(this.selectedFeature.id, this.selectedFeature);
+        this.selectionManager.selectedArrowFeatures.set(this.selectedFeature.properties.id, this.selectedFeature);
     }
 
     updateUIAfterEdit = () => {
@@ -1097,9 +1098,9 @@ class AddArrowControl {
         const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
 
         for (const feature of features) {
-            feature.id = feature.id || feature.properties.id;
+            feature.properties.id = feature.properties.id;
 
-            const sourceFeature = data.features.find(f => f.id == feature.id);
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -1133,9 +1134,7 @@ class AddArrowControl {
             const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
 
             for (const feature of features) {
-                feature.id = feature.id || feature.properties.id;
-
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -1156,9 +1155,19 @@ class AddArrowControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        for (const f of features) {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('arrows', f);
+        const currentData = this.map.getSource('arrows')._data;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
+                        properties: { ...selectedFeature.properties }
+                    };
+                    await updateFeature('arrows', featureToSave);
+                }
             }
         }
     }
@@ -1194,7 +1203,7 @@ class AddArrowControl {
 
     hasUnsavedChanges = (features, initialPropertiesMap) => {
         return features.some(feature => {
-            const initialProperties = initialPropertiesMap.get(feature.id);
+            const initialProperties = initialPropertiesMap.get(feature.properties.id);
             if (!initialProperties) return false;
 
             return this.hasFeatureChanged(feature, initialProperties);
@@ -1203,7 +1212,7 @@ class AddArrowControl {
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
 
             // Regenerar geometria com propriedades originais
             f.geometry = this.generateArrowGeometry(f.properties);
@@ -1218,7 +1227,7 @@ class AddArrowControl {
 
         for (const feature of features) {
             try {
-                const featureId = feature.id || feature.properties.id;
+                const featureId = feature.properties.id;
                 await removeFeature('arrows', featureId);
             } catch (error) {
                 console.error(`Error removing arrow ${featureId}:`, error);
@@ -1227,8 +1236,8 @@ class AddArrowControl {
 
         // Remove from map source (visual)
         const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
-        const idsToDelete = new Set(features.map(f => String(f.id || f.properties.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(String(f.id)));
+        const idsToDelete = new Set(features.map(f => String(f.properties.id)));
+        data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
         this.map.getSource('arrows').setData(data);
     }
 

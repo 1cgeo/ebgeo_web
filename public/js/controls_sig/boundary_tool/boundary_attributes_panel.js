@@ -4,7 +4,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
+    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
     // ✅ Função auxiliar padronizada para slider com input numérico
     function createSliderWithInput(config) {

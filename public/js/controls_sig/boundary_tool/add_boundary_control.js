@@ -1,5 +1,6 @@
 // Path: js\controls_sig\boundary_tool\add_boundary_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { IDUtils } from '../id_utils.js';
 
 class AddBoundaryControl {
     constructor(toolManager) {
@@ -239,8 +240,8 @@ class AddBoundaryControl {
     // ===== SELECTION SYSTEM INTEGRATION (same as circle) =====
 
     onFeatureSelected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
-        const isSameFeature = this.selectedFeature && this.selectedFeature.id === featureId;
+        const featureId = feature.properties.id;
+        const isSameFeature = this.selectedFeature && this.selectedFeature.properties.id === featureId;
 
         if (isSameFeature && this.currentState === 'selected') {
             // Same feature selected again: SELECTED → EDITING
@@ -252,9 +253,9 @@ class AddBoundaryControl {
     }
 
     onFeatureDeselected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
+        const featureId = feature.properties.id;
 
-        if (this.selectedFeature && this.selectedFeature.id === featureId) {
+        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
             this.transitionToState('deselected');
         }
     }
@@ -389,7 +390,7 @@ class AddBoundaryControl {
             return;
         }
 
-        const featureId = Date.now().toString();
+        const featureId = IDUtils.generateUniqueId();
         const properties = {
             ...AddBoundaryControl.DEFAULT_PROPERTIES,
             baseCoordinates: [...validPoints],
@@ -405,7 +406,7 @@ class AddBoundaryControl {
 
         const feature = {
             type: 'Feature',
-            id: featureId,
+            id: Date.now().toString(),
             properties: properties,
             geometry: geometry
         };
@@ -649,7 +650,7 @@ class AddBoundaryControl {
 
     updateBoundaryCircles = (boundaryFeature) => {
         const circleData = JSON.parse(JSON.stringify(this.map.getSource('boundary-circles')._data));
-        const featureId = boundaryFeature.id || boundaryFeature.properties.id;
+        const featureId = boundaryFeature.properties.id;
 
         circleData.features = circleData.features.filter(f => f.properties.parent !== featureId);
 
@@ -681,10 +682,10 @@ class AddBoundaryControl {
             polygons.forEach((polygon, index) => {
                 circles.push({
                     type: 'Feature',
-                    id: `${boundaryFeature.id}-circle-${index}`,
+                    id: `${boundaryFeature.properties.id}-circle-${index}`,
                     geometry: polygon.geometry,
                     properties: {
-                        parent: boundaryFeature.id,
+                        parent: boundaryFeature.properties.id,
                         color: boundaryFeature.properties.color,
                         opacity: boundaryFeature.properties.opacity,
                         source: 'boundary-circle'
@@ -700,7 +701,7 @@ class AddBoundaryControl {
 
     updateBoundaryTexts = (boundaryFeature) => {
         const textData = JSON.parse(JSON.stringify(this.map.getSource('boundary-texts')._data));
-        const featureId = boundaryFeature.id || boundaryFeature.properties.id;
+        const featureId = boundaryFeature.properties.id;
 
         textData.features = textData.features.filter(f => f.properties.parent !== featureId);
 
@@ -735,13 +736,13 @@ class AddBoundaryControl {
                 const pTop = turf.destination(centerPoint, labelOffset, textPlacementBearing, { units: 'kilometers' });
                 textFeatures.push({
                     type: 'Feature',
-                    id: `${boundaryFeature.id}-text-top`,
+                    id: `${boundaryFeature.properties.id}-text-top`,
                     geometry: {
                         type: 'Point',
                         coordinates: pTop.geometry.coordinates
                     },
                     properties: {
-                        parent: boundaryFeature.id,
+                        parent: boundaryFeature.properties.id,
                         text: text_top,
                         rotation: textRotation,
                         text_size: text_size,
@@ -755,13 +756,13 @@ class AddBoundaryControl {
                 const pBottom = turf.destination(centerPoint, -labelOffset, textPlacementBearing, { units: 'kilometers' });
                 textFeatures.push({
                     type: 'Feature',
-                    id: `${boundaryFeature.id}-text-bottom`,
+                    id: `${boundaryFeature.properties.id}-text-bottom`,
                     geometry: {
                         type: 'Point',
                         coordinates: pBottom.geometry.coordinates
                     },
                     properties: {
-                        parent: boundaryFeature.id,
+                        parent: boundaryFeatur.properties.id,
                         text: text_bottom,
                         rotation: textRotation,
                         text_size: text_size,
@@ -808,7 +809,7 @@ class AddBoundaryControl {
     getControlPoints = (baseFeature) => {
         const points = [];
         const coordinates = this.normalizeBaseCoordinates(baseFeature.properties.baseCoordinates);
-        const id = baseFeature.properties.id || baseFeature.id;
+        const id = baseFeature.properties.id;
 
         if (!coordinates || coordinates.length < 2) {
             console.warn('Invalid coordinates for control points:', coordinates);
@@ -1103,9 +1104,9 @@ class AddBoundaryControl {
         if (!this.selectedFeature) return null;
 
         const data = this.map.getSource('boundarys')._data;
-        const featureId = this.selectedFeature.id || this.selectedFeature.properties.id;
+        const featureId = this.selectedFeature.properties.id;
         const found = data.features.find(f =>
-            String(f.id || f.properties.id) === String(featureId) &&
+            String(f.properties.id) === String(featureId) &&
             f.properties.source === 'boundary'
         );
 
@@ -1119,9 +1120,9 @@ class AddBoundaryControl {
 
     forceUpdateMainSource = (feature) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('boundarys')._data));
-        const featureId = feature.id || feature.properties.id;
+        const featureId = feature.properties.id;
         const sourceFeature = data.features.find(f =>
-            (f.id || f.properties.id) == featureId &&
+            (f.properties.id) == featureId &&
             f.properties.source === 'boundary'
         );
         if (sourceFeature) {
@@ -1132,7 +1133,7 @@ class AddBoundaryControl {
     }
 
     updateSelectionAfterEdit = () => {
-        const featureId = this.selectedFeature.id || this.selectedFeature.properties.id;
+        const featureId = this.selectedFeature.properties.id;
         this.selectionManager.selectedBoundaryFeatures.set(featureId, this.selectedFeature);
     }
 
@@ -1191,8 +1192,8 @@ class AddBoundaryControl {
 
             feature.properties[property] = value;
 
-            const featureId = feature.id || feature.properties.id;
-            const sourceFeature = data.features.find(f => (f.id || f.properties.id) == featureId);
+            const featureId = feature.properties.id;
+            const sourceFeature = data.features.find(f => (f.properties.id) == featureId);
 
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
@@ -1215,7 +1216,7 @@ class AddBoundaryControl {
             }
 
             if (this.selectedFeature &&
-                (this.selectedFeature.id || this.selectedFeature.properties.id) === featureId) {
+                (this.selectedFeature.properties.id) === featureId) {
 
                 this.selectedFeature.properties[property] = value;
 
@@ -1246,9 +1247,22 @@ class AddBoundaryControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        for (const f of features) {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('boundarys', f);
+        const currentData = this.map.getSource('boundarys')._data;
+
+        let hasChanges = false;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
+                        properties: { ...selectedFeature.properties }
+                    };
+                    await updateFeature('boundarys', featureToSave);
+                    hasChanges = true;
+                }
             }
         }
     }
@@ -1270,7 +1284,7 @@ class AddBoundaryControl {
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
             f.geometry = this.generateBoundaryGeometry(f.properties);
         });
 
@@ -1286,11 +1300,11 @@ class AddBoundaryControl {
 
         for (const feature of features) {
             try {
-                const featureId = feature.id || feature.properties.id;
+                const featureId = feature.properties.id;
                 await removeFeature('boundarys', featureId);
 
                 const idString = String(featureId);
-                mainData.features = mainData.features.filter(f => String(f.id || f.properties.id) !== idString);
+                mainData.features = mainData.features.filter(f => String(f.properties.id) !== idString);
                 textData.features = textData.features.filter(f => f.properties.parent !== featureId);
                 circleData.features = circleData.features.filter(f => f.properties.parent !== featureId);
 
@@ -1303,9 +1317,9 @@ class AddBoundaryControl {
         this.map.getSource('boundary-texts').setData(textData);
         this.map.getSource('boundary-circles').setData(circleData);
 
-        const deletedIds = features.map(f => String(f.id || f.properties.id));
+        const deletedIds = features.map(f => String(f.properties.id));
         if (this.selectedFeature &&
-            deletedIds.includes(String(this.selectedFeature.id || this.selectedFeature.properties.id))) {
+            deletedIds.includes(String(this.selectedFeature.properties.id))) {
             this.transitionToState('deselected');
         }
     }

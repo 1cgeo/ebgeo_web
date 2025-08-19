@@ -121,8 +121,7 @@ class MoveHandler {
 
         // Check if clicked feature is selected (using loose equality for type coercion)
         const isFeatureSelected = filteredFeatures.some(clickedFeature => {
-            clickedFeature.id = clickedFeature.id || clickedFeature.properties.id;
-            return allSelectedFeatures.some(f => f.id == clickedFeature.id);
+            return allSelectedFeatures.some(f => f.properties.id == clickedFeature.properties.id);
         });
 
         if (!isFeatureSelected) return;
@@ -325,7 +324,7 @@ class MoveHandler {
 
         for (const feature of features) {
             const offset = this.calculateOffsetForFeature(feature, referencePoint);
-            offsets.set(feature.id, {
+            offsets.set(feature.properties.id, {
                 feature: feature,
                 source: feature.properties.source,
                 offset: offset
@@ -394,7 +393,7 @@ class MoveHandler {
 
         for (let i = 0; i < features.length; i++) {
             const feature = features[i];
-            const { offset } = this.offsets.get(feature.id);
+            const { offset } = this.offsets.get(feature.properties.id);
 
             // Reuse coordinate object
             this.coordsPool.lng = newPos.lng + offset[0];
@@ -641,7 +640,7 @@ class MoveHandler {
             const mapKey = this.featureManagersMap[source];
 
             if (mapKey) {
-                featureMaps[mapKey].set(feature.id, feature);
+                featureMaps[mapKey].set(feature.properties.id, feature);
             }
         }
 

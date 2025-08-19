@@ -1,5 +1,6 @@
 // Path: js\controls_sig\occupied_front_tool\add_occupied_front_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { IDUtils } from '../id_utils.js';
 
 class AddOccupiedFrontControl {
     constructor(toolManager) {
@@ -180,8 +181,8 @@ class AddOccupiedFrontControl {
     // ===== INTEGRAÇÃO COM SELECTION MANAGER =====
 
     onFeatureSelected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
-        const isSameFeature = this.selectedFeature && this.selectedFeature.id === featureId;
+        const featureId = feature.properties.id;
+        const isSameFeature = this.selectedFeature && this.selectedFeature.properties.id === featureId;
 
         if (isSameFeature && this.currentState === 'selected') {
             // Mesma feature selecionada novamente: SELECTED → EDITING
@@ -193,9 +194,9 @@ class AddOccupiedFrontControl {
     }
 
     onFeatureDeselected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
+        const featureId = feature.properties.id;
 
-        if (this.selectedFeature && this.selectedFeature.id === featureId) {
+        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
             this.transitionToState('deselected');
         }
     }
@@ -320,12 +321,12 @@ class AddOccupiedFrontControl {
             return;
         }
 
-        const featureId = Date.now().toString();
+        const featureId = IDUtils.generateUniqueId();
         const coordinates = [p1, p2, p3]; // LineString com 3 pontos
 
         const feature = {
             type: 'Feature',
-            id: featureId,
+            id: Date.now().toString(),
             properties: {
                 ...AddOccupiedFrontControl.DEFAULT_PROPERTIES,
                 id: featureId,
@@ -432,7 +433,7 @@ class AddOccupiedFrontControl {
         }
 
         // Handle P1 - origem (verde)
-        const handleId1 = `occupied-front-handle-${feature.id}-p1`;
+        const handleId1 = `occupied-front-handle-${feature.properties.id}-p1`;
         this.editHandleIds.add(handleId1);
         handles.push({
             type: 'Feature',
@@ -443,7 +444,7 @@ class AddOccupiedFrontControl {
                 handleType: 'center',
                 handleId: 'p1',
                 index: 0,
-                featureId: feature.id,
+                featureId: feature.properties.id,
                 mode: 'occupied_front_editing',
                 meta: 'vertex',
                 user_isEditingHandle: true
@@ -451,7 +452,7 @@ class AddOccupiedFrontControl {
         });
 
         // Handle P2 - braço superior (vermelho)
-        const handleId2 = `occupied-front-handle-${feature.id}-p2`;
+        const handleId2 = `occupied-front-handle-${feature.properties.id}-p2`;
         this.editHandleIds.add(handleId2);
         handles.push({
             type: 'Feature',
@@ -462,7 +463,7 @@ class AddOccupiedFrontControl {
                 handleType: 'primary',
                 handleId: 'p2',
                 index: 1,
-                featureId: feature.id,
+                featureId: feature.properties.id,
                 mode: 'occupied_front_editing',
                 meta: 'vertex',
                 user_isEditingHandle: true
@@ -470,7 +471,7 @@ class AddOccupiedFrontControl {
         });
 
         // Handle P3 - braço inferior (azul)
-        const handleId3 = `occupied-front-handle-${feature.id}-p3`;
+        const handleId3 = `occupied-front-handle-${feature.properties.id}-p3`;
         this.editHandleIds.add(handleId3);
         handles.push({
             type: 'Feature',
@@ -481,7 +482,7 @@ class AddOccupiedFrontControl {
                 handleType: 'secondary',
                 handleId: 'p3',
                 index: 2,
-                featureId: feature.id,
+                featureId: feature.properties.id,
                 mode: 'occupied_front_editing',
                 meta: 'vertex',
                 user_isEditingHandle: true
@@ -718,14 +719,14 @@ class AddOccupiedFrontControl {
 
         try {
             const data = JSON.parse(JSON.stringify(source._data));
-            const sourceFeature = data.features.find(f => f.id == feature.id);
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
 
             if (sourceFeature) {
                 sourceFeature.properties = { ...feature.properties };
                 sourceFeature.geometry = { ...feature.geometry };
                 source.setData(data);
             } else {
-                console.error(`Feature ${feature.id} not found in occupied_fronts source for forced update`);
+                console.error(`Feature ${feature.properties.id} not found in occupied_fronts source for forced update`);
             }
         } catch (error) {
             console.error('Erro em forceUpdateMainSource:', error);
@@ -820,9 +821,9 @@ class AddOccupiedFrontControl {
         const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
 
         for (const feature of features) {
-            feature.id = feature.id || feature.properties.id;
+            feature.properties.id = feature.properties.id;
 
-            const sourceFeature = data.features.find(f => f.id == feature.id);
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -845,7 +846,7 @@ class AddOccupiedFrontControl {
             const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
 
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -863,11 +864,20 @@ class AddOccupiedFrontControl {
         }
     }
 
-    // ✅ OBRIGATÓRIO: Método saveFeatures com verificação de mudanças
     saveFeatures = async (features, initialPropertiesMap) => {
-        for (const f of features) {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('occupied_fronts', f);
+        const currentData = this.map.getSource('occupied_fronts')._data;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,  // Geometria atual (pós-drag)
+                        properties: { ...selectedFeature.properties } // Propriedades do painel
+                    };
+                    await updateFeature('occupied_fronts', featureToSave);
+                }
             }
         }
     }
@@ -886,7 +896,7 @@ class AddOccupiedFrontControl {
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
 
             // Regenerar geometria com propriedades originais
             f.geometry = this.createOccupiedFrontGeometry(f.properties.baseCoordinates);
@@ -895,21 +905,21 @@ class AddOccupiedFrontControl {
         // Usar o método updateFeatures que já existe e funciona corretamente
         await this.updateFeatures(features, true, true);
     }
-    
+
     deleteFeatures = async (features) => {
         if (!features || features.length === 0) return;
 
         try {
             // ✅ CORREÇÃO: Remover do IndexedDB primeiro
             for (const feature of features) {
-                const featureId = feature.id || feature.properties.id;
+                const featureId = feature.properties.id;
                 await removeFeature('occupied_fronts', featureId);
             }
 
             // ✅ CORREÇÃO: Atualizar source do mapa imediatamente
             const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
-            const idsToDelete = new Set(features.map(f => String(f.id || f.properties.id)));
-            data.features = data.features.filter(f => !idsToDelete.has(String(f.id)));
+            const idsToDelete = new Set(features.map(f => String(f.properties.id || f.properties.id)));
+            data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
             this.map.getSource('occupied_fronts').setData(data);
 
         } catch (error) {

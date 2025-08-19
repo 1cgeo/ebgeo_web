@@ -60,13 +60,13 @@ function setupOccupiedFrontLayers(features) {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
-                features: features.occupied_fronts || []
+                features: features.occupied_fronts
             }
         });
     } else {
         map.getSource('occupied_fronts').setData({
             type: 'FeatureCollection',
-            features: features.occupied_fronts || []
+            features: features.occupied_fronts
         });
     }
 
@@ -174,13 +174,13 @@ function setupMilitarySymbolsLayers(features) {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
-                features: features.military_symbols || []
+                features: features.military_symbols
             }
         });
     } else {
         map.getSource('military_symbols').setData({
             type: 'FeatureCollection',
-            features: features.military_symbols || []
+            features: features.military_symbols
         });
     }
 
@@ -194,7 +194,7 @@ function setupMilitarySymbolsLayers(features) {
                 'icon-opacity': ['get', 'opacity']
             },
             layout: {
-                'icon-image': ['get', 'imageId'], // Usa imageId igual ao image control
+                'icon-image': ['get', 'id'], // Usa imageId igual ao image control
                 'icon-size': ['get', 'size'],
                 'icon-rotate': ['get', 'rotation'],
                 'icon-allow-overlap': true,
@@ -220,12 +220,12 @@ async function setImages(features) {
 
     // Coletar todas as features que precisam de imagens
     const allImageFeatures = [
-        ...(features.images || []),
-        ...(features.military_symbols || [])
+        ...(features.images),
+        ...(features.military_symbols)
     ];
 
     for (const feature of allImageFeatures) {
-        const imageId = feature.properties.imageId;
+        const imageId = feature.properties.id;
         if (!imageId) continue;
 
         // Verificar se já existe
@@ -696,7 +696,7 @@ function setupImageLayers(features) {
                 'icon-opacity': ['get', 'opacity']
             },
             layout: {
-                'icon-image': ['get', 'imageId'],
+                'icon-image': ['get', 'id'],
                 'icon-size': ['get', 'size'],
                 'icon-rotate': ['get', 'rotation'],
                 'icon-allow-overlap': true,
@@ -1283,14 +1283,14 @@ function restoreBoundaryDependentFeatures(features) {
                     try {
                         coords = JSON.parse(coords);
                     } catch (parseError) {
-                        console.warn(`Failed to parse coordinates for boundary ${boundaryFeature.id}`);
+                        console.warn(`Failed to parse coordinates for boundary ${boundaryFeature.properties.id}`);
                         return;
                     }
                 }
 
                 // Validar array de coordenadas
                 if (!Array.isArray(coords) || coords.length < 2) {
-                    console.warn(`Invalid coordinates for boundary ${boundaryFeature.id}`);
+                    console.warn(`Invalid coordinates for boundary ${boundaryFeature.properties.id}`);
                     return;
                 }
 
@@ -1305,7 +1305,7 @@ function restoreBoundaryDependentFeatures(features) {
                 );
 
                 if (validCoords.length < 2) {
-                    console.warn(`Insufficient valid coordinates for boundary ${boundaryFeature.id}`);
+                    console.warn(`Insufficient valid coordinates for boundary ${boundaryFeature.properties.id}`);
                     return;
                 }
 

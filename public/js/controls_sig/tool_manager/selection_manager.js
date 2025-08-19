@@ -231,7 +231,7 @@ class SelectionManager {
 
     // Check if a custom feature is already selected
     isCustomFeatureSelected = (feature) => {
-        const featureId = feature.id || feature.properties.id;
+        const featureId = feature.properties.id;
 
         switch (feature.toolType || feature.properties.source) {
             case 'circle':
@@ -262,7 +262,7 @@ class SelectionManager {
     // Transition feature to editing mode (analogous to maplibredraw's direct_select)
     transitionToEditingMode = (feature) => {
         const source = feature.toolType || feature.properties.source;
-        const featureId = feature.id || feature.properties.id;
+        const featureId = feature.properties.id;
 
         switch (source) {
             case 'circle':
@@ -374,7 +374,7 @@ class SelectionManager {
 
         const feature = e.features[0];
         const source = feature.properties.source;
-        const featureId = feature.id || feature.properties.id;
+        const featureId = feature.properties.id;
 
         // Check if feature is already selected
         const isFeatureSelected = this.isFeatureSelected(source, featureId);
@@ -454,7 +454,7 @@ class SelectionManager {
         const mapSource = this.map.getSource(sourceName);
         if (!mapSource || !mapSource._data) return null;
 
-        return mapSource._data.features.find(f => f.id == featureId);
+        return mapSource._data.features.find(f => f.properties.id == featureId);
     }
 
     // Create optimal feature for drag operations
@@ -479,7 +479,7 @@ class SelectionManager {
         const hybridFeature = {
             ...queryFeature,
             // Ensure consistent ID (use string like complete feature)
-            id: completeFeature.id,
+            id: completeFeature.properties.id,
             // Use geometry from complete feature (more reliable)
             geometry: completeFeature.geometry,
             properties: {
@@ -595,7 +595,7 @@ class SelectionManager {
     handleDrawSelectionChange = (e) => {
         const selectedFeatures = this.drawControl.draw.getSelected().features;
         this.selectedDrawFeatures = new Map(
-            selectedFeatures.map(f => [f.id, f])
+            selectedFeatures.map(f => [f.properties.id, f])
         );
         this.updateUI();
     }

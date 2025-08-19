@@ -6,7 +6,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     if (!selectedFeatures || selectedFeatures.length === 0) return;
     
     const feature = selectedFeatures[0];
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
+    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
     // Variável global para rastrear dropdowns abertos
     const openDropdowns = [];

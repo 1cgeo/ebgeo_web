@@ -19,6 +19,8 @@ import {
     initializeWithLastActiveMap
 } from './store.js';
 
+import { IDUtils } from './id_utils.js';
+
 import { ExportImportService } from './export_import_service.js';
 
 class MapControl {
@@ -343,19 +345,41 @@ class MapControl {
         copyBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
+
             const allMapNames = await getAllMapNames();
             if (allMapNames.length < 30) {
                 const newMapName = prompt("Nome para o novo mapa:");
                 if (newMapName && newMapName.trim()) {
-                    const copiedMapData = await mapStore.getItem(mapName);
-                    await addMap(newMapName.trim(), copiedMapData);
-                    setCurrentMap(newMapName.trim());
-                    await this.switchMap();
-                    await this.updateMapList();
-                    this.closeAllDropdowns();
+                    try {
+                        // Obter dados do mapa original
+                        const originalMapData = await mapStore.getItem(mapName);
+
+                        if (!originalMapData) {
+                            alert('Erro: Dados do mapa não encontrados');
+                            return;
+                        }
+
+                        // Regenerar IDs e duplicar recursos
+                        const { newMapData } = await IDUtils.regenerateMapIds(originalMapData, newMapName.trim());
+
+                        // Criar novo mapa
+                        await addMap(newMapName.trim(), newMapData);
+
+                        // Definir como mapa atual e atualizar interface
+                        setCurrentMap(newMapName.trim());
+                        await this.switchMap();
+                        await this.updateMapList();
+
+                        this.closeAllDropdowns();
+                        this.showToast(`Mapa "${mapName}" copiado como "${newMapName.trim()}"`, 'success');
+
+                    } catch (error) {
+                        console.error('Erro ao copiar mapa:', error);
+                        alert('Erro ao copiar mapa: ' + error.message);
+                    }
                 }
             } else {
-                alert("Limite de 10 mapas atingido.");
+                alert("Limite de 30 mapas atingido.");
             }
         });
         dropdownContent.appendChild(copyBtn);
@@ -680,10 +704,9 @@ class MapControl {
     async switchMap() {
         const currentMapName = await getCurrentMapName();
 
-        if (this.baseLayerControl && this.baseLayerControl.switchLayer) {
-            const baseLayer = await getCurrentBaseLayer()
-            this.baseLayerControl.switchLayer(baseLayer);
-        }
+        const baseLayer = await getCurrentBaseLayer()
+        this.selectionManager.deselectAllFeatures(true);
+        this.baseLayerControl.switchLayer(baseLayer);
 
         await this.applyMapSavedPosition(currentMapName);
     }

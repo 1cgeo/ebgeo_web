@@ -4,7 +4,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
+    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
     // Função auxiliar para criar slider com input numérico
     function createSliderWithInput(config) {

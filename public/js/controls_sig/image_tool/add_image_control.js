@@ -1,5 +1,6 @@
-// Path: js\controls_sig\image_tool\add_image_control.js
+// Path: js/controls_sig/image_tool/add_image_control.js
 import { addFeature, updateFeature, removeFeature, imageStore } from '../store.js';
+import { IDUtils } from '../id_utils.js';
 
 class AddImageControl {
     static DEFAULT_PROPERTIES = {
@@ -18,7 +19,7 @@ class AddImageControl {
         this.isActive = false;
         this.selectionManager = toolManager.selectionManager;
     }
-    
+
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
@@ -34,15 +35,14 @@ class AddImageControl {
         this.container.appendChild(button);
 
         this.setupEventListeners();
-
-        this.changeButtonColor()
+        this.changeButtonColor();
 
         return this.container;
     }
 
     changeButtonColor = () => {
         $("#photo-tool").html(`<img class="icon-sig-tool" src="./images/icon_photo_black.svg" alt="PHOTO" />`);
-        if (!this.isActive) return
+        if (!this.isActive) return;
         $("#photo-tool").html('<img class="icon-sig-tool" src="./images/icon_photo_red.svg" alt="PHOTO" />');
     }
 
@@ -70,13 +70,13 @@ class AddImageControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.changeButtonColor()
+        this.changeButtonColor();
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
-        this.changeButtonColor()
+        this.changeButtonColor();
     }
 
     handleMapClick = (e) => {
@@ -99,34 +99,72 @@ class AddImageControl {
     }
 
     addImageFeature = async (lngLat, imageBase64) => {
-        const imageId = Date.now().toString();
+        // Gerar ID único
+        const imageId = IDUtils.generateUniqueId();
 
         this.resizeImage(imageBase64, async (resizedImageBase64, width, height) => {
-            // Converter para blob e salvar no imageStore
-            const response = await fetch(resizedImageBase64);
-            const blob = await response.blob();
-            await imageStore.setItem(imageId, blob);
+            try {
+                // Converter para blob e salvar no imageStore
+                const response = await fetch(resizedImageBase64);
+                const blob = await response.blob();
+                await imageStore.setItem(imageId, blob);
 
-            // Criar feature sem base64
-            const feature = this.createImageFeature(lngLat, imageId, width, height);
+                // Criar feature com imageId
+                const feature = this.createImageFeature(lngLat, imageId, width, height);
 
-            // Salvar no IndexedDB
-            await addFeature('images', feature);
+                // Salvar no IndexedDB
+                await addFeature('images', feature);
 
-            // Atualizar layer do MapLibre
-            const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-            data.features.push(feature);
-            this.map.getSource('images').setData(data);
+                // Atualizar layer do MapLibre
+                const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
+                data.features.push(feature);
+                this.map.getSource('images').setData(data);
 
-            // Adicionar imagem ao mapa
-            const img = new Image();
-            img.onload = () => {
-                this.map.addImage(imageId, img);
+                // Adicionar imagem ao mapa (seguindo padrão do map.js)
+                await this.loadImageToMap(imageId, blob);
+
+                // Selecionar a feição criada
+                this.selectionManager.toggleFeatureSelection('image', feature.properties.id, feature);
+                this.selectionManager.updateUI();
+
+            } catch (error) {
+                console.error('Erro ao adicionar imagem:', error);
+                alert('Erro ao adicionar imagem');
+            }
+        });
+    }
+
+    // Método que segue exatamente o padrão do map.js
+    async loadImageToMap(imageId, blob) {
+        const url = URL.createObjectURL(blob);
+
+        return new Promise((resolve, reject) => {
+            const image = new Image();
+
+            image.onload = () => {
+                try {
+                    if (!this.map.hasImage(imageId)) {
+                        this.map.addImage(imageId, image);
+                    }
+                    URL.revokeObjectURL(url);
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
             };
-            img.src = resizedImageBase64;
 
-            this.selectionManager.toggleFeatureSelection('image', feature.id, feature);
-            this.selectionManager.updateUI();
+            image.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error(`Falha ao carregar imagem ${imageId}`));
+            };
+
+            // Timeout para evitar travamento
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                reject(new Error(`Timeout ao carregar imagem ${imageId}`));
+            }, 10000);
+
+            image.src = url;
         });
     }
 
@@ -175,8 +213,13 @@ class AddImageControl {
     createImageFeature = (lngLat, imageId, width, height) => {
         return {
             type: 'Feature',
-            id: imageId,
-            properties: { ...AddImageControl.DEFAULT_PROPERTIES, width, height, imageId },
+            id: Date.now().toString(),
+            properties: {
+                ...AddImageControl.DEFAULT_PROPERTIES,
+                width,
+                height,
+                id: imageId
+            },
             geometry: {
                 type: 'Point',
                 coordinates: [lngLat.lng, lngLat.lat]
@@ -195,7 +238,7 @@ class AddImageControl {
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
         for (const feature of features) {
-            const f = data.features.find(f => f.id == feature.id);
+            const f = data.features.find(f => f.properties.id == feature.properties.id);
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
@@ -208,13 +251,11 @@ class AddImageControl {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
-                        // Only update properties of the existing feature
                         Object.assign(data.features[featureIndex].properties, feature.properties);
                     } else {
-                        // Replace the entire feature
                         data.features[featureIndex] = feature;
                     }
 
@@ -229,16 +270,26 @@ class AddImageControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        for (const f of features) {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('images', f);
+        const currentData = this.map.getSource('images')._data;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
+                        properties: { ...selectedFeature.properties }
+                    };
+                    await updateFeature('images', featureToSave);
+                }
             }
         }
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
         });
         await this.updateFeatures(features, true, true);
     }
@@ -247,16 +298,25 @@ class AddImageControl {
         if (features.length === 0) {
             return;
         }
+
+        // Remover features do source
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
-        const idsToDelete = new Set(Array.from(features).map(f => String(f.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
+        const idsToDelete = new Set(Array.from(features).map(f => String(f.properties.id)));
+        data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
         this.map.getSource('images').setData(data);
 
+        // Remover recursos e feições
         for (const f of features) {
-            // Remover imagem do imageStore
-            await imageStore.removeItem(f.id);
-            // Remover do IndexedDB
-            await removeFeature('images', f.id);
+            try {
+                // Remover imagem do imageStore usando f.properties.id (garantia de consistência)
+                await imageStore.removeItem(f.properties.id);
+
+                // Remover do IndexedDB
+                await removeFeature('images', f.properties.id);
+
+            } catch (error) {
+                console.error(`Erro ao deletar imagem ${f.properties.id}:`, error);
+            }
         }
     }
 

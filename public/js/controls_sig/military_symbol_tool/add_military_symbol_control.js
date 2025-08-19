@@ -1,7 +1,8 @@
-// Path: js\controls_sig\military_symbol_tool\add_military_symbol_control.js
+// Path: js/controls_sig/military_symbol_tool/add_military_symbol_control.js
 
 import { addFeature, updateFeature, removeFeature, imageStore } from '../store.js';
 import { MilitarySymbolGenerator } from './military_symbol_generator.js';
+import { IDUtils } from '../id_utils.js';
 
 class AddMilitarySymbolControl {
     static DEFAULT_PROPERTIES = {
@@ -14,14 +15,14 @@ class AddMilitarySymbolControl {
         mainIcon: "121100",             // H: Ícone principal (121100=infantaria)
         modifier1: "00",                // I: Modificador 1
         modifier2: "00",                // J: Modificador 2
-        
+
         // Propriedades de renderização
         size: 1.0,
         width: 100,
         height: 100,
         opacity: 1.0,
         rotation: 0,
-        
+
         // Identificadores
         id: null,
         source: 'military_symbol'
@@ -45,7 +46,7 @@ class AddMilitarySymbolControl {
         this.map = map;
         this.container = document.createElement('div');
         this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl military-symbol-control controls-column-right';
-        
+
         this.button = document.createElement('button');
         this.button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         this.button.setAttribute("id", "military-symbol-tool");
@@ -53,7 +54,7 @@ class AddMilitarySymbolControl {
         this.button.innerHTML = '<img class="icon-military-tool" src="./images/icon_military_black.svg" alt="MILITARY" />';
         this.button.title = 'Adicionar Símbolo Militar';
         this.button.onclick = () => this.toolManager.setActiveTool(this);
-        
+
         this.container.appendChild(this.button);
         this.setupEventListeners();
         this.changeButtonColor();
@@ -108,7 +109,7 @@ class AddMilitarySymbolControl {
 
         const coordinates = [e.lngLat.lng, e.lngLat.lat];
         await this.createMilitarySymbol(coordinates);
-        
+
         this.toolManager.deactivateCurrentTool();
     }
 
@@ -121,78 +122,91 @@ class AddMilitarySymbolControl {
     }
 
     async createMilitarySymbol(coordinates) {
-        const symbolId = this.generateUniqueId();
-        const properties = { 
-            ...AddMilitarySymbolControl.DEFAULT_PROPERTIES,
-            id: symbolId
-        };
-
-        // Gerar SIDC usando propriedades padrão
-        const sidc = this.symbolGenerator.buildSIDC(properties);
-        properties.sidc = sidc;
-        
-        // Usar symbolId como imageId
-        properties.imageId = symbolId;
-
-        const feature = {
-            type: 'Feature',
-            id: symbolId,
-            geometry: {
-                type: 'Point',
-                coordinates: coordinates
-            },
-            properties: properties
-        };
-
         try {
+            // Gerar ID único
+            const symbolId = IDUtils.generateUniqueId();
+
+            const properties = {
+                ...AddMilitarySymbolControl.DEFAULT_PROPERTIES,
+                id: symbolId
+            };
+
+            // Gerar SIDC usando propriedades padrão
+            const sidc = this.symbolGenerator.buildSIDC(properties);
+            properties.sidc = sidc;
+
+            const feature = {
+                type: 'Feature',
+                id: Date.now().toString(),
+                geometry: {
+                    type: 'Point',
+                    coordinates: coordinates
+                },
+                properties: properties
+            };
+
             // Gerar blob do símbolo e salvar no imageStore
             const symbolBlob = await this.symbolGenerator.generateSymbolBlob(properties);
             await imageStore.setItem(symbolId, symbolBlob);
 
+            // Atualizar layer
             const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
             data.features.push(feature);
             this.map.getSource('military_symbols').setData(data);
 
             // Salvar feature no store
             await addFeature('military_symbols', feature);
+
+            // Carregar imagem no mapa (seguindo padrão do map.js)
             await this.loadSymbolImageToMap(symbolId, symbolBlob);
 
             // Selecionar o símbolo criado
-            this.selectionManager.toggleFeatureSelection('military_symbol', feature.id, feature);
+            this.selectionManager.toggleFeatureSelection('military_symbol', feature.properties.id, feature);
             this.selectionManager.updateUI();
 
         } catch (error) {
             console.error('Erro ao criar símbolo militar:', error);
+            alert('Erro ao criar símbolo militar');
         }
     }
 
+    // Método que segue exatamente o padrão do map.js
     async loadSymbolImageToMap(imageId, blob) {
         const url = URL.createObjectURL(blob);
-        const img = new Image();
-        
+
         return new Promise((resolve, reject) => {
-            img.onload = () => {
-                if (!this.map.hasImage(imageId)) {
-                    this.map.addImage(imageId, img);
-                }
-                URL.revokeObjectURL(url);
-                
-                requestAnimationFrame(() => {
-                    if (this.map.hasImage(imageId)) {
-                        resolve();
-                    } else {
-                        requestAnimationFrame(() => resolve());
+            const image = new Image();
+
+            image.onload = () => {
+                try {
+                    if (!this.map.hasImage(imageId)) {
+                        this.map.addImage(imageId, image);
                     }
-                });
+                    URL.revokeObjectURL(url);
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
             };
-            img.onerror = reject;
-            img.src = url;
+
+            image.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error(`Falha ao carregar símbolo ${imageId}`));
+            };
+
+            // Timeout para evitar travamento
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                reject(new Error(`Timeout ao carregar símbolo ${imageId}`));
+            }, 10000);
+
+            image.src = url;
         });
     }
 
     scheduleSymbolUpdate = (feature) => {
         this.lastSymbolFeature = feature;
-        
+
         if (!this.pendingSymbolUpdate) {
             this.pendingSymbolUpdate = true;
             this.symbolRafId = requestAnimationFrame(this.performSymbolUpdate.bind(this));
@@ -217,13 +231,14 @@ class AddMilitarySymbolControl {
         try {
             // Gerar nova imagem e salvar no imageStore
             const symbolBlob = await this.symbolGenerator.generateSymbolBlob(feature.properties);
-            await imageStore.setItem(feature.properties.imageId, symbolBlob);
-            
-            // Atualizar imagem no mapa
-            if (this.map.hasImage(feature.properties.imageId)) {
-                this.map.removeImage(feature.properties.imageId);
+            await imageStore.setItem(feature.properties.id, symbolBlob);
+
+            // Atualizar imagem no mapa (seguindo padrão do map.js)
+            if (this.map.hasImage(feature.properties.id)) {
+                this.map.removeImage(feature.properties.id);
             }
-            await this.loadSymbolImageToMap(feature.properties.imageId, symbolBlob);
+            await this.loadSymbolImageToMap(feature.properties.id, symbolBlob);
+
         } catch (error) {
             console.error('Erro ao atualizar símbolo:', error);
         }
@@ -231,27 +246,27 @@ class AddMilitarySymbolControl {
 
     updateFeaturesProperty = async (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
-        
+
         for (const feature of features) {
-            const f = data.features.find(f => f.id == feature.id);
+            const f = data.features.find(f => f.properties.id == feature.properties.id);
             if (f) {
                 const oldSIDC = f.properties.sidc;
-                
+
                 f.properties[property] = value;
                 feature.properties[property] = value;
-                
+
                 // Propriedades que afetam o SIDC devem regenerar a imagem
                 const sidcProperties = [
                     'context', 'standardIdentity', 'status', 'hqTfDummy',
                     'echelon', 'mainIcon', 'modifier1', 'modifier2'
                 ];
-                
+
                 if (sidcProperties.includes(property)) {
                     // Calcular novo SIDC
                     const newSIDC = this.symbolGenerator.buildSIDC(f.properties);
                     f.properties.sidc = newSIDC;
                     feature.properties.sidc = newSIDC;
-                                        
+
                     // Only regenerate if SIDC actually changed
                     if (oldSIDC !== newSIDC) {
                         this.scheduleSymbolUpdate(feature);
@@ -259,7 +274,7 @@ class AddMilitarySymbolControl {
                 }
             }
         }
-        
+
         this.map.getSource('military_symbols').setData(data);
     }
 
@@ -280,9 +295,9 @@ class AddMilitarySymbolControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
-            
+
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -301,20 +316,30 @@ class AddMilitarySymbolControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        for (const f of features) {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                await updateFeature('military_symbols', f);
+        const currentData = this.map.getSource('military_symbols')._data;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
+                        properties: { ...selectedFeature.properties }
+                    };
+                    await updateFeature('military_symbols', featureToSave);
+                }
             }
         }
     }
 
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         for (const feature of features) {
-            if (initialPropertiesMap.has(feature.id)) {
-                const originalProps = initialPropertiesMap.get(feature.id);
+            if (initialPropertiesMap.has(feature.properties.id)) {
+                const originalProps = initialPropertiesMap.get(feature.properties.id);
                 const oldSIDC = feature.properties.sidc;
                 feature.properties = { ...originalProps };
-                
+
                 if (feature.properties.sidc !== oldSIDC) {
                     this.scheduleSymbolUpdate(feature);
                 }
@@ -325,28 +350,30 @@ class AddMilitarySymbolControl {
 
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
-        
+
         // Primeiro, remover features do source
         const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
-        const idsToDelete = new Set(Array.from(features).map(f => String(f.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
+        const idsToDelete = new Set(Array.from(features).map(f => String(f.properties.id)));
+        data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
         this.map.getSource('military_symbols').setData(data);
 
+        // Remover recursos e feições
         for (const feature of features) {
-            // Remover do imageStore
-            await imageStore.removeItem(feature.properties.imageId);
-            
-            // Remover do IndexedDB
-            await removeFeature('military_symbols', feature.id);
+            try {
+                // Remover imagem do imageStore usando f.properties.id (garantia de consistência)
+                await imageStore.removeItem(feature.properties.id);
+
+                // Remover do IndexedDB
+                await removeFeature('military_symbols', feature.properties.id);
+
+            } catch (error) {
+                console.error(`Erro ao deletar símbolo militar ${feature.properties.id}:`, error);
+            }
         }
     }
 
     setDefaultProperties = (properties) => {
         Object.assign(AddMilitarySymbolControl.DEFAULT_PROPERTIES, properties);
-    }
-
-    generateUniqueId() {
-        return 'mil-symbol-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {

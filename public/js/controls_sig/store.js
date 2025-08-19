@@ -71,7 +71,7 @@ function cleanFeature(feature) {
     // Retornar feature limpa no formato GeoJSON padrão
     return {
         type: feature.type,
-        id: feature.id,
+        id: feature.properties.id,
         properties: cleanedProperties,
         geometry: geometry
     };
@@ -111,11 +111,11 @@ function isInternalProperty(key) {
 function findRelatedProcessedFeatures(type, featureId, mapData) {
     if (type === 'los') {
         return mapData.features.processed_los.filter(pf => 
-            pf.id.startsWith(featureId + '-')
+            pf.properties.id.startsWith(featureId + '-')
         );
     } else if (type === 'visibility') {
         return mapData.features.processed_visibility.filter(pf => 
-            pf.id.startsWith(featureId + '-')
+            pf.properties.id.startsWith(featureId + '-')
         );
     }
     return [];
@@ -127,9 +127,9 @@ function findRelatedProcessedFeatures(type, featureId, mapData) {
 function removeProcessedFeaturesFromData(processedType, processedFeatures, mapData) {
     if (!processedType || !processedFeatures.length) return;
     
-    const processedIds = new Set(processedFeatures.map(pf => pf.id));
+    const processedIds = new Set(processedFeatures.map(pf => pf.properties.id));
     mapData.features[processedType] = mapData.features[processedType]
-        .filter(pf => !processedIds.has(pf.id));
+        .filter(pf => !processedIds.has(pf.properties.id));
 }
 
 // Função para resetar o estado da memória
@@ -252,7 +252,7 @@ export const addFeatureToMap = async (type, feature, mapName) => {
  */
 export const removeFeatureFromMap = async (type, id, mapName) => {
     const mapData = await mapStore.getItem(mapName) || getEmptyMapData();
-    const featureIndex = mapData.features[type].findIndex(f => f.id === id);
+    const featureIndex = mapData.features[type].findIndex(f => f.properties.id === id);
     
     if (featureIndex === -1) return null;
     
@@ -325,7 +325,7 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
             
             for (const feature of featuresOfType) {
                 // ✅ Remover do mapa origem (sem alterar currentMap)
-                const removedData = await removeFeatureFromMap(type, feature.id, sourceMapName);
+                const removedData = await removeFeatureFromMap(type, feature.properties.id, sourceMapName);
                 
                 if (removedData) {
                     // ✅ Adicionar ao mapa destino (sem alterar currentMap)
@@ -396,7 +396,7 @@ export const updateFeature = async (type, feature) => {
     }
 
     const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    const index = currentMapData.features[type].findIndex(f => f.id === cleanedFeature.id);
+    const index = currentMapData.features[type].findIndex(f => f.properties.id === cleanedFeature.properties.id);
     if (index !== -1) {
         const oldFeature = currentMapData.features[type][index];
         if (JSON.stringify(oldFeature) !== JSON.stringify(cleanedFeature)) {
@@ -415,7 +415,7 @@ export const updateFeature = async (type, feature) => {
 
 export const removeFeature = async (type, id) => {
     const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    const featureIndex = currentMapData.features[type].findIndex(f => f.id == id);
+    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id == id);
     
     if (featureIndex === -1) return;
     
@@ -450,12 +450,12 @@ export const removeFeature = async (type, id) => {
         try {                
             // Verify deletion
             const verifyMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-            const stillExists = verifyMapData.features[type].some(f => f.id === id);
+            const stillExists = verifyMapData.features[type].some(f => f.properties.id === id);
             
             if (stillExists) {
                 // Retry deletion
                 const retryMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-                const retryIndex = retryMapData.features[type].findIndex(f => f.id === id);
+                const retryIndex = retryMapData.features[type].findIndex(f => f.properties.id === id);
                 
                 if (retryIndex !== -1) {
                     retryMapData.features[type].splice(retryIndex, 1);
@@ -608,7 +608,7 @@ export const undoLastAction = async () => {
     try {
         switch (lastAction.type) {
             case 'add':
-                await removeFeature(lastAction.featureType, lastAction.feature.id);
+                await removeFeature(lastAction.featureType, lastAction.feature.properties.id);
                 break;
             case 'update':
                 await updateFeature(lastAction.featureType, lastAction.oldFeature);
@@ -629,7 +629,7 @@ export const undoLastAction = async () => {
             case 'addMultiple':
                 for (const [type, features] of Object.entries(lastAction.features)) {
                     for (const feature of features) {
-                        await removeFeature(type, feature.id);
+                        await removeFeature(type, feature.properties.id);
                     }
                 }
                 break;
@@ -638,7 +638,7 @@ export const undoLastAction = async () => {
                 for (const [type, typeOps] of Object.entries(lastAction.movedFeatures)) {
                     for (const featureOp of typeOps.mainFeatures) {
                         // Remover do destino
-                        await removeFeatureFromMap(type, featureOp.feature.id, lastAction.targetMapName);
+                        await removeFeatureFromMap(type, featureOp.feature.properties.id, lastAction.targetMapName);
                         
                         // Restaurar na origem
                         await addFeatureToMap(type, featureOp.removedData.mainFeature, lastAction.sourceMapName);
@@ -679,11 +679,11 @@ export const redoLastAction = async () => {
                 await updateFeature(lastUndoneAction.featureType, lastUndoneAction.newFeature);
                 break;
             case 'remove':
-                await removeFeature(lastUndoneAction.featureType, lastUndoneAction.feature.id);
+                await removeFeature(lastUndoneAction.featureType, lastUndoneAction.feature.properties.id);
                 break;
             case 'removeWithProcessed':
                 // Remover feature principal (que automaticamente remove processadas)
-                await removeFeature(lastUndoneAction.mainFeatureType, lastUndoneAction.mainFeature.id);
+                await removeFeature(lastUndoneAction.mainFeatureType, lastUndoneAction.mainFeature.properties.id);
                 break;
             case 'addMultiple':
                 for (const [type, features] of Object.entries(lastUndoneAction.features)) {
@@ -697,7 +697,7 @@ export const redoLastAction = async () => {
                 for (const [type, typeOps] of Object.entries(lastUndoneAction.movedFeatures)) {
                     for (const featureOp of typeOps.mainFeatures) {
                         // Remover da origem
-                        await removeFeatureFromMap(type, featureOp.removedData.mainFeature.id, lastUndoneAction.sourceMapName);
+                        await removeFeatureFromMap(type, featureOp.removedData.mainFeature.properties.id, lastUndoneAction.sourceMapName);
                         
                         // Adicionar no destino
                         await addFeatureToMap(type, featureOp.feature, lastUndoneAction.targetMapName);
