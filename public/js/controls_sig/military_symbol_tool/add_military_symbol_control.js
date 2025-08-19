@@ -377,6 +377,7 @@ class AddMilitarySymbolControl {
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
+    if (!initialProperties) return true;
         return (
             feature.properties.context !== initialProperties.context ||
             feature.properties.standardIdentity !== initialProperties.standardIdentity ||

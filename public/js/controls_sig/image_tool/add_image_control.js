@@ -321,10 +321,12 @@ class AddImageControl {
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
+        if (!initialProperties) return true;
+
         return (
+            feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.size !== initialProperties.size ||
-            feature.properties.rotation !== initialProperties.rotation ||
-            feature.properties.opacity !== initialProperties.opacity
+            feature.properties.rotation !== initialProperties.rotation
         );
     }
 }

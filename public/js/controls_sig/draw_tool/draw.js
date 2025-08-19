@@ -60,9 +60,9 @@ class DrawControl {
                 },
                 modes: {
                     ...MapboxDraw.modes,
-                    simple_select: { ...MapboxDraw.modes.simple_select, dragMove() {} },
-                    direct_select: { ...MapboxDraw.modes.direct_select, dragFeature() {} },
-                  },
+                    simple_select: { ...MapboxDraw.modes.simple_select, dragMove() { } },
+                    direct_select: { ...MapboxDraw.modes.direct_select, dragFeature() { } },
+                },
                 styles: drawStyles
             });
 
@@ -87,13 +87,13 @@ class DrawControl {
         try {
             // Encontrar o container criado pelo MapboxDraw
             const mapboxDrawContainers = document.querySelectorAll('.maplibregl-ctrl-top-right .mapboxgl-ctrl-group');
-            
+
             // Procurar o container que contém os botões de draw (line, polygon, point)
             for (let container of mapboxDrawContainers) {
                 const hasLineButton = container.querySelector('.mapbox-gl-draw_line');
                 const hasPolygonButton = container.querySelector('.mapbox-gl-draw_polygon');
                 const hasPointButton = container.querySelector('.mapbox-gl-draw_point');
-                
+
                 // Se tem os botões de draw, é o container que queremos modificar
                 if (hasLineButton && hasPolygonButton && hasPointButton) {
                     // Adicionar nossas classes ao container do MapboxDraw
@@ -146,6 +146,8 @@ class DrawControl {
             });
             const type = geomtype + 's';
 
+            f.properties.id = f.id
+
             // Salvar no IndexedDB
             await addFeature(type, f);
             this.updateFeatureMeasurement(f);
@@ -157,11 +159,11 @@ class DrawControl {
     handleDrawUpdate = async (e) => {
         for (const f of e.features) {
             const type = f.geometry.type.toLowerCase() + 's';
-            
+
             if (f.geometry.type === 'LineString') {
                 f.properties.profileData = JSON.stringify(await this.calculateProfile(f.geometry.coordinates));
             }
-            
+            f.properties.id = f.id
             // Atualizar no IndexedDB
             await updateFeature(type, f);
             this.updateFeatureMeasurement(f);
@@ -176,7 +178,7 @@ class DrawControl {
             if (feature.geometry.type === 'LineString') {
                 const line = turf.lineString(feature.geometry.coordinates);
                 const lengthInMeters = turf.length(line, { units: 'meters' });
-                const lengthFormatted = lengthInMeters >= 1000 
+                const lengthFormatted = lengthInMeters >= 1000
                     ? `${(lengthInMeters / 1000).toFixed(2)} km`
                     : `${lengthInMeters.toFixed(2)} m`;
                 const midpoint = turf.along(line, lengthInMeters / 2, { units: 'meters' });
@@ -184,7 +186,7 @@ class DrawControl {
             } else if (feature.geometry.type === 'Polygon') {
                 const polygon = turf.polygon(feature.geometry.coordinates);
                 const areaInSquareMeters = turf.area(polygon);
-                const areaFormatted = areaInSquareMeters >= 100000 
+                const areaFormatted = areaInSquareMeters >= 100000
                     ? `${(areaInSquareMeters / 1000000).toFixed(2)} km²`
                     : `${areaInSquareMeters.toFixed(2)} m²`;
                 const centroid = turf.centroid(polygon);
@@ -213,7 +215,7 @@ class DrawControl {
         label.className = 'measurement-label';
         label.innerText = measurement;
         label.dataset.featureId = featureId;
-        
+
         // Adicionar estilos para melhor legibilidade
         label.style.cssText = `
             background-color: rgba(255, 255, 255, 0.9);
@@ -232,7 +234,7 @@ class DrawControl {
             transform: translate(-50%, -50%);
             z-index: 1000;
         `;
-        
+
         return label;
     }
 
@@ -240,7 +242,7 @@ class DrawControl {
         for (const f of e.features) {
             this.removeFeatureMeasurement(f.id);
             const type = f.geometry.type.toLowerCase() + 's';
-            
+
             // Remover do IndexedDB
             await removeFeature(type, f.id);
         }
@@ -284,7 +286,7 @@ class DrawControl {
             this.removeFeatureMeasurement(f.id);
             this.draw.delete(f.id);
             const type = f.geometry.type.toLowerCase() + 's';
-            
+
             // Remover do IndexedDB
             await removeFeature(type, f.id);
         }
@@ -309,10 +311,11 @@ class DrawControl {
                     Object.assign(existingFeature.properties, feature.properties);
                     this.draw.add(existingFeature);
                 }
-                
+
                 if (save) {
                     const featureToUpdate = onlyUpdateProperties ? existingFeature : feature;
                     const type = featureToUpdate.geometry.type.toLowerCase() + 's';
+                    featureToUpdate.properties.id = feature.id
                     await updateFeature(type, featureToUpdate);
                 }
             }
@@ -321,10 +324,21 @@ class DrawControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        for (const f of features) {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                const type = f.geometry.type.toLowerCase() + 's';
-                await updateFeature(type, f);
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.id))) {
+                // Para draw control, buscar feature atual do MapboxDraw
+                const currentFeature = this.draw.get(selectedFeature.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,  // Geometria atual (pós-drag)
+                        properties: { ...selectedFeature.properties } // Propriedades do painel
+                    };
+
+                    const type = featureToSave.geometry.type.toLowerCase() + 's';
+                    featureToSave.properties.id = featureToSave.id
+                    await updateFeature(type, featureToSave);
+                }
             }
         }
     }
@@ -413,28 +427,30 @@ class DrawControl {
                 coordinates: [lng, lat]
             }
         };
-        
+
         // Adiciona o ponto ao draw
         const ids = this.draw.add(feature);
-        
+
         if (ids.length > 0) {
             // Obtém a feature com ID gerado
             const addedFeature = this.draw.get(ids[0]);
-            
+
+            addedFeature.properties.id = addedFeature.id
+
             // Salvar no IndexedDB
             await addFeature('points', addedFeature);
-            
+
             // Seleciona o ponto recém-criado
             this.draw.changeMode('simple_select', { featureIds: [ids[0]] });
-            
+
             // Atualiza a seleção no selectionManager
             if (this.selectionManager) {
                 this.selectionManager.handleDrawSelectionChange();
             }
-            
+
             return addedFeature;
         }
-        
+
         return null;
     }
 };

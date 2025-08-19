@@ -30,6 +30,27 @@ class MoveHandler {
         this.setupEventListeners();
     }
 
+    // ✅ NOVA FUNÇÃO: Helper para extrair ID de qualquer tipo de feature
+    getFeatureId(feature) {
+        // Para features customizadas e features do MapLibreDraw do SelectionManager
+        if (feature.properties && feature.properties.id !== undefined) {
+            return feature.properties.id;
+        }
+        // Para features do MapLibreDraw retornadas por queryRenderedFeatures
+        if (feature.id !== undefined) {
+            return feature.id;
+        }
+        console.warn('Feature without valid ID:', feature);
+        return null;
+    }
+
+    // ✅ NOVA FUNÇÃO: Helper para verificar se feature é do MapLibreDraw
+    isMapLibreDrawFeature(feature) {
+        return feature.source === 'mapbox-gl-draw-cold' || 
+               feature.source === 'mapbox-gl-draw-hot' ||
+               (feature.properties && feature.properties.source === 'draw');
+    }
+
     initializeFeatureStrategies() {
         return {
             'draw': this.updateDrawFeature.bind(this),
@@ -101,9 +122,11 @@ class MoveHandler {
 
         // Check for edit handles (maplibredraw midpoint/vertex handles)
         const hasMaplibreDrawEditHandles = filteredFeatures.some(feature =>
-            feature.properties.mode === 'direct_select' ||
-            feature.properties.meta === 'midpoint' ||
-            feature.properties.meta === 'vertex'
+            feature.properties && (
+                feature.properties.mode === 'direct_select' ||
+                feature.properties.meta === 'midpoint' ||
+                feature.properties.meta === 'vertex'
+            )
         );
 
         // Check for custom tool edit handles (circle, ellipse, etc.)
@@ -119,9 +142,18 @@ class MoveHandler {
             return;
         }
 
-        // Check if clicked feature is selected (using loose equality for type coercion)
+        // ✅ CORREÇÃO PRINCIPAL: Verificação corrigida para features do MapLibreDraw
         const isFeatureSelected = filteredFeatures.some(clickedFeature => {
-            return allSelectedFeatures.some(f => f.properties.id == clickedFeature.properties.id);
+            const clickedFeatureId = this.getFeatureId(clickedFeature);
+            
+            if (clickedFeatureId === null) {
+                return false;
+            }
+
+            return allSelectedFeatures.some(selectedFeature => {
+                const selectedFeatureId = this.getFeatureId(selectedFeature);
+                return selectedFeatureId == clickedFeatureId; // Use loose equality for type coercion
+            });
         });
 
         if (!isFeatureSelected) return;
@@ -149,40 +181,50 @@ class MoveHandler {
         // Check for circle edit handles
         const hasCircleEditHandles = clickedFeatures.some(feature =>
             feature.source === 'circle-edit-handles' &&
-            (feature.properties.user_isEditingHandle ||
+            feature.properties && (
+                feature.properties.user_isEditingHandle ||
                 feature.properties.meta === 'vertex' ||
-                feature.properties.mode === 'circle_editing')
+                feature.properties.mode === 'circle_editing'
+            )
         );
 
         // Check for ellipse edit handles (similar pattern)
         const hasEllipseEditHandles = clickedFeatures.some(feature =>
             feature.source === 'ellipse-edit-handles' &&
-            (feature.properties.user_isEditingHandle ||
+            feature.properties && (
+                feature.properties.user_isEditingHandle ||
                 feature.properties.meta === 'vertex' ||
-                feature.properties.mode === 'ellipse_editing')
+                feature.properties.mode === 'ellipse_editing'
+            )
         );
 
         const hasArrowEditHandles = clickedFeatures.some(feature =>
             feature.source === 'arrow-edit-handles' &&
-            (feature.properties.user_isEditingHandle ||
+            feature.properties && (
+                feature.properties.user_isEditingHandle ||
                 feature.properties.meta === 'vertex' ||
-                feature.properties.mode === 'arrow_editing')
+                feature.properties.mode === 'arrow_editing'
+            )
         );
 
         const hasBoundaryEditHandles = clickedFeatures.some(feature =>
             feature.source === 'boundary-edit-handles' &&
-            (feature.properties.handleType === 'vertex' ||
+            feature.properties && (
+                feature.properties.handleType === 'vertex' ||
                 feature.properties.handleType === 'midpoint' ||
                 feature.properties.handleType === 'symbol' ||
                 feature.properties.handleType === 'size' ||
-                feature.properties.mode === 'boundary_editing')
+                feature.properties.mode === 'boundary_editing'
+            )
         );
 
         const hasOccupiedFrontEditHandles = clickedFeatures.some(feature =>
             feature.source === 'occupied-front-edit-handles' &&
-            (feature.properties.user_isEditingHandle ||
+            feature.properties && (
+                feature.properties.user_isEditingHandle ||
                 feature.properties.meta === 'vertex' ||
-                feature.properties.mode === 'occupied_front_editing')
+                feature.properties.mode === 'occupied_front_editing'
+            )
         );
 
         return hasCircleEditHandles || hasEllipseEditHandles || hasArrowEditHandles || hasBoundaryEditHandles || hasOccupiedFrontEditHandles;
@@ -191,7 +233,7 @@ class MoveHandler {
     // Check if any selected feature is in editing mode
     hasSelectedFeatureInEditingMode(selectedFeatures) {
         for (const feature of selectedFeatures) {
-            const source = feature.properties.source;
+            const source = feature.properties ? feature.properties.source : null;
 
             // Check circle editing mode
             if (source === 'circle' &&
@@ -233,7 +275,7 @@ class MoveHandler {
             // Military symbols don't have editing mode, so no check needed
 
             // Check if feature has editing mode properties
-            if (feature.properties.mode &&
+            if (feature.properties && feature.properties.mode &&
                 (feature.properties.mode.includes('editing') ||
                     feature.properties.mode === 'direct_select')) {
                 return true;
@@ -323,19 +365,22 @@ class MoveHandler {
         const offsets = new Map();
 
         for (const feature of features) {
-            const offset = this.calculateOffsetForFeature(feature, referencePoint);
-            offsets.set(feature.properties.id, {
-                feature: feature,
-                source: feature.properties.source,
-                offset: offset
-            });
+            const featureId = this.getFeatureId(feature);
+            if (featureId !== null) {
+                const offset = this.calculateOffsetForFeature(feature, referencePoint);
+                offsets.set(featureId, {
+                    feature: feature,
+                    source: feature.properties ? feature.properties.source : 'draw',
+                    offset: offset
+                });
+            }
         }
 
         return offsets;
     }
 
     calculateOffsetForFeature(feature, referencePoint) {
-        const source = feature.properties.source;
+        const source = feature.properties ? feature.properties.source : 'draw';
         const coords = feature.geometry.coordinates;
 
         // Handle special cases first
@@ -393,20 +438,26 @@ class MoveHandler {
 
         for (let i = 0; i < features.length; i++) {
             const feature = features[i];
-            const { offset } = this.offsets.get(feature.properties.id);
+            const featureId = this.getFeatureId(feature);
+            
+            if (featureId !== null && this.offsets.has(featureId)) {
+                const { offset } = this.offsets.get(featureId);
 
-            // Reuse coordinate object
-            this.coordsPool.lng = newPos.lng + offset[0];
-            this.coordsPool.lat = newPos.lat + offset[1];
+                // Reuse coordinate object
+                this.coordsPool.lng = newPos.lng + offset[0];
+                this.coordsPool.lat = newPos.lat + offset[1];
 
-            updatedFeatures[i] = this.calculateUpdatedFeatureOptimized(feature, dx, dy, this.coordsPool);
+                updatedFeatures[i] = this.calculateUpdatedFeatureOptimized(feature, dx, dy, this.coordsPool);
+            } else {
+                updatedFeatures[i] = feature; // Keep original if no offset found
+            }
         }
 
         return updatedFeatures;
     }
 
     calculateUpdatedFeatureOptimized(feature, dx, dy, newCoords) {
-        const source = feature.properties.source;
+        const source = feature.properties ? feature.properties.source : 'draw';
         const strategy = this.featureUpdateStrategies[source];
 
         if (!strategy) {
@@ -636,11 +687,12 @@ class MoveHandler {
 
         // Batch process all features
         for (const feature of updatedFeatures) {
-            const source = feature.properties.source;
+            const source = feature.properties ? feature.properties.source : 'draw';
             const mapKey = this.featureManagersMap[source];
+            const featureId = this.getFeatureId(feature);
 
-            if (mapKey) {
-                featureMaps[mapKey].set(feature.properties.id, feature);
+            if (mapKey && featureId !== null) {
+                featureMaps[mapKey].set(featureId, feature);
             }
         }
 
