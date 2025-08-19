@@ -1,4 +1,4 @@
-// Path: js/controls_sig/image_tool/add_image_control.js
+// Path: js\controls_sig\image_tool\add_image_control.js
 import { addFeature, updateFeature, removeFeature, imageStore } from '../store.js';
 import { IDUtils } from '../id_utils.js';
 

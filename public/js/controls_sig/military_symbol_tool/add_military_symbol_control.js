@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/add_military_symbol_control.js
+// Path: js\controls_sig\military_symbol_tool\add_military_symbol_control.js
 
 import { addFeature, updateFeature, removeFeature, imageStore } from '../store.js';
 import { MilitarySymbolGenerator } from './military_symbol_generator.js';

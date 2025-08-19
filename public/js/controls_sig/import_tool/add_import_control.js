@@ -1,7 +1,15 @@
 // Path: js\controls_sig\import_tool\add_import_control.js
-import { addFeature } from '../store.js';
+import { addFeatures } from '../store.js';
+import { IDUtils } from '../id_utils.js';
 
 class AddImportControl {
+    // ✅ CORREÇÃO 7: Configurações de limite de arquivo
+    static FILE_LIMITS = {
+        maxSize: 50 * 1024 * 1024,    // 50MB
+        timeout: 30000,               // 30 segundos
+        chunkSize: 1024 * 1024        // 1MB chunks para progresso
+    };
+
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.isActive = false;
@@ -45,8 +53,11 @@ class AddImportControl {
         return this.container;
     }
 
-    changeButtonColor = () => {
-        $("#import-tool").html(`<img class="icon-sig-tool" src="./images/icon_import_black.svg" alt="IMPORT" />`);
+    changeButtonColor() {
+        const button = document.getElementById('import-tool');
+        if (button) {
+            button.innerHTML = `<img class="icon-sig-tool" src="./images/icon_import_black.svg" alt="IMPORT" />`;
+        }
     }
 
     onRemove() {
@@ -92,6 +103,134 @@ class AddImportControl {
         this.toolManager.deactivateCurrentTool();
     }
 
+    _validateFile(file) {
+        if (file.size > AddImportControl.FILE_LIMITS.maxSize) {
+            throw new Error(`Arquivo muito grande. Máximo: ${AddImportControl.FILE_LIMITS.maxSize / (1024*1024)}MB`);
+        }
+        
+        if (file.size === 0) {
+            throw new Error('Arquivo vazio');
+        }
+    }
+
+    _createFileReader(cleanup = true) {
+        const reader = new FileReader();
+        
+        if (cleanup) {
+            // Auto-cleanup após uso
+            const originalOnLoad = reader.onload;
+            const originalOnError = reader.onerror;
+            
+            reader.onload = (e) => {
+                try {
+                    if (originalOnLoad) originalOnLoad(e);
+                } finally {
+                    this._cleanupReader(reader);
+                }
+            };
+            
+            reader.onerror = (e) => {
+                try {
+                    if (originalOnError) originalOnError(e);
+                } finally {
+                    this._cleanupReader(reader);
+                }
+            };
+        }
+        
+        return reader;
+    }
+
+    _cleanupReader(reader) {
+        reader.onload = null;
+        reader.onerror = null;
+        reader.onprogress = null;
+        reader.abort(); // Cancela operação se ainda ativa
+    }
+
+    async _readFileWithProgress(file, method = 'text') {
+        this._validateFile(file);
+        
+        return new Promise((resolve, reject) => {
+            const reader = this._createFileReader();
+            let progressCallback = null;
+            
+            // Setup timeout
+            const timeout = setTimeout(() => {
+                reader.abort();
+                reject(new Error('Timeout na leitura do arquivo'));
+            }, AddImportControl.FILE_LIMITS.timeout);
+            
+            // Setup progress (se arquivo grande)
+            if (file.size > AddImportControl.FILE_LIMITS.chunkSize) {
+                progressCallback = this._showProgressIndicator();
+                
+                reader.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        progressCallback(percentComplete);
+                    }
+                };
+            }
+            
+            reader.onload = (e) => {
+                clearTimeout(timeout);
+                if (progressCallback) this._hideProgressIndicator();
+                resolve(e.target.result);
+            };
+            
+            reader.onerror = () => {
+                clearTimeout(timeout);
+                if (progressCallback) this._hideProgressIndicator();
+                reject(new Error(`Erro ao ler arquivo como ${method}`));
+            };
+            
+            // Iniciar leitura
+            switch (method) {
+                case 'text': reader.readAsText(file); break;
+                case 'arraybuffer': reader.readAsArrayBuffer(file); break;
+                default: reject(new Error(`Método ${method} não suportado`));
+            }
+        });
+    }
+
+    _showProgressIndicator() {
+        const progressDiv = document.createElement('div');
+        progressDiv.id = 'import-progress';
+        progressDiv.style.cssText = `
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: white; padding: 20px; border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 10000;
+        `;
+        progressDiv.innerHTML = `
+            <div>Importando arquivo...</div>
+            <div style="margin-top: 10px; background: #f0f0f0; border-radius: 4px; height: 8px;">
+                <div id="progress-bar" style="background: #007bff; height: 100%; border-radius: 4px; width: 0%; transition: width 0.3s;"></div>
+            </div>
+        `;
+        
+        document.body.appendChild(progressDiv);
+        
+        return (percent) => {
+            const bar = document.getElementById('progress-bar');
+            if (bar) bar.style.width = `${percent}%`;
+        };
+    }
+
+    _hideProgressIndicator() {
+        const progress = document.getElementById('import-progress');
+        if (progress) progress.remove();
+    }
+
+    async _processFileWithReader(file, readerMethod, processor, errorMessage) {
+        try {
+            const content = await this._readFileWithProgress(file, readerMethod);
+            return await processor(content);
+        } catch (error) {
+            throw new Error(`${errorMessage}: ${error.message}`);
+        }
+    }
+
     async processFile(file) {
         const fileName = file.name.toLowerCase();
         
@@ -110,118 +249,107 @@ class AddImportControl {
         }
     }
 
+    // ✅ CORREÇÃO 9: Usar apenas async/await, eliminar Promise constructors
     async readGeoJSON(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const geoJSON = JSON.parse(e.target.result);
-                    if (!geoJSON.features || !Array.isArray(geoJSON.features)) {
-                        throw new Error('GeoJSON inválido');
-                    }
-                    resolve(geoJSON);
-                } catch (error) {
-                    reject(new Error('Arquivo GeoJSON inválido'));
+        return this._processFileWithReader(
+            file,
+            'text',
+            (content) => {
+                const geoJSON = JSON.parse(content);
+                if (!geoJSON.features || !Array.isArray(geoJSON.features)) {
+                    throw new Error('Estrutura GeoJSON inválida');
                 }
-            };
-            reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
-            reader.readAsText(file);
-        });
+                return geoJSON;
+            },
+            'Arquivo GeoJSON inválido'
+        );
     }
 
     async readShapefile(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    const zipFile = await JSZip.loadAsync(e.target.result);
-                    
-                    const shpFile = Object.values(zipFile.files).find(f => f.name.toLowerCase().endsWith('.shp'));
-                    const dbfFile = Object.values(zipFile.files).find(f => f.name.toLowerCase().endsWith('.dbf'));
-                    
-                    if (!shpFile) {
-                        throw new Error('Arquivo .shp não encontrado');
-                    }
-                    
-                    const shpBuffer = await shpFile.async('arraybuffer');
-                    const dbfBuffer = dbfFile ? await dbfFile.async('arraybuffer') : null;
-                    
-                    const features = await shp.parseShp(shpBuffer, dbfBuffer);
-                    resolve({
-                        type: 'FeatureCollection',
-                        features: features
-                    });
-                } catch (error) {
-                    reject(new Error('Erro ao processar Shapefile'));
+        return this._processFileWithReader(
+            file,
+            'arraybuffer',
+            async (buffer) => {
+                const zipFile = await JSZip.loadAsync(buffer);
+                
+                const shpFile = Object.values(zipFile.files).find(f => 
+                    f.name.toLowerCase().endsWith('.shp')
+                );
+                const dbfFile = Object.values(zipFile.files).find(f => 
+                    f.name.toLowerCase().endsWith('.dbf')
+                );
+                
+                if (!shpFile) {
+                    throw new Error('Arquivo .shp não encontrado');
                 }
-            };
-            reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
-            reader.readAsArrayBuffer(file);
-        });
+                
+                const shpBuffer = await shpFile.async('arraybuffer');
+                const dbfBuffer = dbfFile ? await dbfFile.async('arraybuffer') : null;
+                
+                const features = await shp.parseShp(shpBuffer, dbfBuffer);
+                return {
+                    type: 'FeatureCollection',
+                    features: features
+                };
+            },
+            'Erro ao processar Shapefile'
+        );
     }
 
     async readKML(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const kmlDoc = new DOMParser().parseFromString(e.target.result, 'text/xml');
-                    const geoJSON = toGeoJSON.kml(kmlDoc);
-                    resolve(geoJSON);
-                } catch (error) {
-                    reject(new Error('Arquivo KML inválido'));
-                }
-            };
-            reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
-            reader.readAsText(file);
-        });
+        return this._processFileWithReader(
+            file,
+            'text',
+            (content) => {
+                const kmlDoc = new DOMParser().parseFromString(content, 'text/xml');
+                return toGeoJSON.kml(kmlDoc);
+            },
+            'Arquivo KML inválido'
+        );
     }
 
     async readKMZ(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    const zip = await JSZip.loadAsync(e.target.result);
-                    const kmlFile = zip.file(/\.kml$/i)[0] || zip.file('doc.kml');
-                    
-                    if (!kmlFile) {
-                        throw new Error('Arquivo KML não encontrado no KMZ');
-                    }
-                    
-                    const kmlContent = await kmlFile.async('string');
-                    const kmlDoc = new DOMParser().parseFromString(kmlContent, 'text/xml');
-                    const geoJSON = toGeoJSON.kml(kmlDoc);
-                    resolve(geoJSON);
-                } catch (error) {
-                    reject(new Error('Arquivo KMZ inválido'));
+        return this._processFileWithReader(
+            file,
+            'arraybuffer',
+            async (buffer) => {
+                const zip = await JSZip.loadAsync(buffer);
+                const kmlFile = zip.file(/\.kml$/i)[0] || zip.file('doc.kml');
+                
+                if (!kmlFile) {
+                    throw new Error('Arquivo KML não encontrado no KMZ');
                 }
-            };
-            reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
-            reader.readAsArrayBuffer(file);
-        });
+                
+                const kmlContent = await kmlFile.async('string');
+                const kmlDoc = new DOMParser().parseFromString(kmlContent, 'text/xml');
+                return toGeoJSON.kml(kmlDoc);
+            },
+            'Arquivo KMZ inválido'
+        );
     }
 
     async readGPX(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const gpxDoc = new DOMParser().parseFromString(e.target.result, 'text/xml');
-                    const geoJSON = toGeoJSON.gpx(gpxDoc);
-                    resolve(geoJSON);
-                } catch (error) {
-                    reject(new Error('Arquivo GPX inválido'));
-                }
-            };
-            reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
-            reader.readAsText(file);
-        });
+        return this._processFileWithReader(
+            file,
+            'text',
+            (content) => {
+                const gpxDoc = new DOMParser().parseFromString(content, 'text/xml');
+                return toGeoJSON.gpx(gpxDoc);
+            },
+            'Arquivo GPX inválido'
+        );
     }
 
     async importGeoJSON(geoJSON) {
         const validFeatures = [];
+        const featuresByType = {
+            points: [],
+            linestrings: [],
+            polygons: []
+        };
 
+        const pendingFeatures = [];
+        
         for (const feature of geoJSON.features) {
             if (!feature.geometry || !feature.geometry.type) {
                 continue; // Ignorar features sem geometria
@@ -241,26 +369,62 @@ class AddImportControl {
                 continue; // Ignorar tipos não suportados
             }
 
-            // Criar feature com propriedades padrões do DrawControl
-            const processedFeature = {
-                ...feature,
-                id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            // Preparar feature SEM ID final (Draw vai gerar)
+            const preparedFeature = {
+                type: 'Feature',
                 properties: {
                     ...this.getDefaultProperties(targetType),
-                    ...feature.properties // Preservar propriedades originais quando possível
-                }
+                    ...feature.properties, // Preservar propriedades originais quando possível
+                    source: 'draw' // ✅ Marcar como draw para integração
+                },
+                geometry: feature.geometry
             };
 
-            // Adicionar ao DrawControl e IndexedDB
-            this.drawControl.draw.add(processedFeature);
-            await addFeature(targetType, processedFeature);
-            
-            validFeatures.push(processedFeature);
+            pendingFeatures.push({ feature: preparedFeature, targetType });
         }
 
-        // Zoom para as features importadas
-        if (validFeatures.length > 0) {
-            this.zoomToFeatures(validFeatures);
+        for (const { feature, targetType } of pendingFeatures) {
+            try {
+                // ✅ Draw gera ID primeiro
+                const ids = this.drawControl.draw.add(feature);
+                
+                if (ids.length > 0) {
+                    // ✅ Buscar feature com ID final do Draw
+                    const finalFeature = this.drawControl.draw.get(ids[0]);
+                    
+                    // ✅ Sincronizar IDs (padrão obrigatório do sistema)
+                    finalFeature.properties.id = finalFeature.id;
+                    
+                    // ✅ Agrupar para persistência
+                    featuresByType[targetType].push(finalFeature);
+                    validFeatures.push(finalFeature);
+                }
+            } catch (error) {
+                console.warn('Erro ao adicionar feature ao Draw:', error);
+                // Continuar com próximas features
+            }
+        }
+
+        // ✅ FASE 3: Persistir em batch (com IDs sincronizados)
+        if (Object.values(featuresByType).some(arr => arr.length > 0)) {
+            try {
+                // Usar addFeatures que registra ação única para undo/redo
+                await addFeatures(featuresByType);
+                
+                if (validFeatures.length > 0) {
+                    this.zoomToFeatures(validFeatures);
+                }
+            } catch (error) {
+                // ✅ ROLLBACK: Remover features do Draw se persistência falhou
+                validFeatures.forEach(f => {
+                    try {
+                        this.drawControl.draw.delete(f.id);
+                    } catch (deleteError) {
+                        console.warn('Erro no rollback da feature:', deleteError);
+                    }
+                });
+                throw error;
+            }
         }
 
         return validFeatures.length;
@@ -305,7 +469,6 @@ class AddImportControl {
             ? `1 geometria importada com sucesso`
             : `${count} geometrias importadas com sucesso`;
         
-        // Criar notificação temporária
         const notification = document.createElement('div');
         notification.style.cssText = `
             position: fixed;

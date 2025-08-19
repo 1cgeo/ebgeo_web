@@ -1,4 +1,4 @@
-// Path: js/controls_sig/id_utils.js
+// Path: js\controls_sig\id_utils.js
 
 /**
  * Utilitários simples para geração de IDs únicos
@@ -13,13 +13,16 @@ export class IDUtils {
     }
 
     /**
-     * Regenerar IDs de todas as feições em mapData e duplicar recursos
+     * Regenerar IDs de todas as features em mapData e duplicar recursos
+     * ✅ CORREÇÃO: Separação de fases para evitar conflito de timing
      */
     static async regenerateMapIds(mapData, mapName) {
         const idMapping = new Map();
         const newMapData = JSON.parse(JSON.stringify(mapData));
         
-        // Processar cada tipo de feição
+        // ✅ FASE 1: Coletar operações de recursos SEM alterar IDs das features
+        const resourceOperations = [];
+        
         for (const [featureType, features] of Object.entries(newMapData.features)) {
             if (!Array.isArray(features)) continue;
             
@@ -27,12 +30,39 @@ export class IDUtils {
                 const oldId = feature.properties.id;
                 const newId = this.generateUniqueId();
                 
-                // Atualizar ID da feição
-                feature.properties.id = newId;
+                // Mapear IDs para aplicação posterior
                 idMapping.set(oldId, newId);
                 
-                // Processar recursos de imagem
-                await this.duplicateImageResource(feature, oldId, newId, featureType);
+                // Se feature tem recurso de imagem, agendar duplicação
+                if (this.hasImageResource(featureType)) {
+                    resourceOperations.push({
+                        oldId,
+                        newId,
+                        featureType
+                    });
+                }
+            }
+        }
+        
+        // ✅ FASE 2: Duplicar recursos usando IDs originais
+        for (const operation of resourceOperations) {
+            await this.duplicateImageResource(
+                operation.oldId, 
+                operation.newId, 
+                operation.featureType
+            );
+        }
+        
+        // ✅ FASE 3: Aplicar novos IDs nas features
+        for (const [featureType, features] of Object.entries(newMapData.features)) {
+            if (!Array.isArray(features)) continue;
+            
+            for (const feature of features) {
+                const oldId = feature.properties.id;
+                const newId = idMapping.get(oldId);
+                if (newId) {
+                    feature.properties.id = newId;
+                }
             }
         }
         
@@ -40,36 +70,43 @@ export class IDUtils {
     }
     
     /**
+     * Verificar se tipo de feature tem recurso de imagem
+     */
+    static hasImageResource(featureType) {
+        return ['images', 'military_symbols'].includes(featureType);
+    }
+    
+    /**
      * Duplicar recurso de imagem quando necessário
      */
-    static async duplicateImageResource(feature, oldId, newId, featureType) {
+    static async duplicateImageResource(oldId, newId, featureType) {
         try {
             const { imageStore } = await import('./store.js');
-            let resourceId = null;
             
-            // Identificar ID do recurso baseado no tipo
-            if (featureType === 'images') {
-                resourceId = feature.properties?.id || oldId;
-            } else if (featureType === 'military_symbols') {
-                resourceId = feature.properties?.id;
+            // Verificar se tipo tem recurso de imagem
+            if (!this.hasImageResource(featureType)) {
+                return;
             }
             
-            if (!resourceId) return;
+            const resourceBlob = await imageStore.getItem(oldId);
+            if (!resourceBlob) {
+                console.warn(`Recurso ${oldId} não encontrado para ${featureType}`);
+                return;
+            }
             
-            // Verificar se recurso existe
-            const resourceBlob = await imageStore.getItem(resourceId);
-            if (!resourceBlob) return;
+            // ✅ CORREÇÃO: Verificar se novo ID já existe para evitar conflitos
+            const existingBlob = await imageStore.getItem(newId);
+            if (existingBlob) {
+                console.warn(`ID ${newId} já existe no imageStore, pulando duplicação`);
+                return;
+            }
             
             // Duplicar recurso com novo ID
             await imageStore.setItem(newId, resourceBlob);
             
-            // Atualizar referência na feição
-            if (feature.properties) {
-                feature.properties.id = newId;
-            }
-            
         } catch (error) {
             console.error('Erro ao duplicar recurso:', error);
+            throw error;
         }
     }
 }
