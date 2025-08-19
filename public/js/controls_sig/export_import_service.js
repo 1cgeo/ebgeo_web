@@ -6,19 +6,22 @@ import {
     getCurrentMapName,
     mapStore,
     imageStore,
-    appStore
+    appStore,
+    resetMemoryStore,
+    getCurrentBaseLayer
 } from './store.js';
 
 export class ExportImportService {
-    constructor(baseLayerControl) {
+    constructor(baseLayerControl, mapControl) {
         this.baseLayerControl = baseLayerControl;
+        this.mapControl = mapControl;
     }
 
     // Arredondar coordenadas para precisão de 1 metro (6 casas decimais)
     roundCoordinates(coords) {
         const precision = 6;
         const factor = Math.pow(10, precision);
-        
+
         if (Array.isArray(coords[0])) {
             return coords.map(coord => this.roundCoordinates(coord));
         } else {
@@ -29,29 +32,29 @@ export class ExportImportService {
     // Otimizar feature individual
     optimizeFeature(feature) {
         const optimized = { ...feature };
-        
+
         // Arredondar coordenadas
         if (optimized.geometry && optimized.geometry.coordinates) {
             optimized.geometry.coordinates = this.roundCoordinates(optimized.geometry.coordinates);
         }
-        
+
         return optimized;
     }
 
     // Otimizar dados do mapa
     optimizeMapData(mapData) {
         const optimized = { ...mapData };
-        
+
         if (optimized.features) {
             for (const [category, features] of Object.entries(optimized.features)) {
                 if (Array.isArray(features)) {
-                    optimized.features[category] = features.map(feature => 
+                    optimized.features[category] = features.map(feature =>
                         this.optimizeFeature(feature)
                     );
                 }
             }
         }
-        
+
         return optimized;
     }
 
@@ -203,7 +206,7 @@ export class ExportImportService {
             }
 
             // Gerar arquivo ZIP
-            const zipBlob = await zip.generateAsync({ 
+            const zipBlob = await zip.generateAsync({
                 type: 'blob',
                 compression: 'DEFLATE',
                 compressionOptions: { level: 9 },
@@ -251,19 +254,17 @@ export class ExportImportService {
             // Ler arquivo como array buffer
             const fileBuffer = await file.arrayBuffer();
             const fileArray = new Uint8Array(fileBuffer);
-            
+
             let zipData;
-            
+
             // Verificar se é arquivo XOR mascarado
             const identifier = new TextDecoder().decode(fileArray.slice(0, 6));
-            
+
             if (identifier === 'EBGXOR') {
-                console.log('Arquivo EBGEO XOR detectado, desmascarando...');
                 // Arquivo XOR - remover identificador e aplicar XOR reverso
                 const maskedData = fileArray.slice(6);
                 zipData = this.xorData(maskedData); // XOR reverso (mesmo key)
             } else {
-                console.log('Arquivo ZIP direto detectado (compatibilidade)');
                 // Arquivo ZIP direto ou formato antigo - compatibilidade
                 zipData = fileArray;
             }
@@ -272,6 +273,7 @@ export class ExportImportService {
             const zip = await JSZip.loadAsync(zipData);
 
             if (!isAdditiveImport) {
+                resetMemoryStore();
                 await mapStore.clear();
                 await imageStore.clear();
                 await appStore.clear();
@@ -291,24 +293,25 @@ export class ExportImportService {
             let importedMapsCount = 0;
             if (isAdditiveImport) {
                 const existingMapNames = await getAllMapNames();
-
+                const mapsToImport = Object.keys(data.maps).length;
+                if (existingMapNames.length + mapsToImport > 30) {
+                    throw new Error(`Limite de mapas excedido. Você tem ${existingMapNames.length} mapas, tentando importar ${mapsToImport}. Limite: 30 mapas.`);
+                }
                 for (const [originalMapName, mapData] of Object.entries(data.maps)) {
                     let finalMapName = originalMapName;
                     let counter = 1;
 
                     while (existingMapNames.includes(finalMapName)) {
-                        finalMapName = `${originalMapName}_importado${counter > 1 ? `_${counter}` : ''}`;
+                        finalMapName = `${originalMapName}_${counter}`;
                         counter++;
                     }
 
-                    await mapStore.setItem(finalMapName, mapData);
                     await addMap(finalMapName, mapData);
                     existingMapNames.push(finalMapName);
                     importedMapsCount++;
                 }
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
-                    await mapStore.setItem(mapName, mapData);
                     await addMap(mapName, mapData);
                     importedMapsCount++;
                 }
@@ -318,7 +321,7 @@ export class ExportImportService {
 
             // Carregar imagens - aceitar múltiplos formatos
             const imageFiles = Object.keys(zip.files).filter(name =>
-                name.startsWith('images/') && 
+                name.startsWith('images/') &&
                 /\.(png|jpe?g|svg|webp)$/i.test(name)
             );
 
@@ -334,13 +337,18 @@ export class ExportImportService {
             }
 
             // Recarregar mapa
-            let baseLayer = 'carta-topografica';
-            if (!isAdditiveImport) {
+            let baseLayer;
+            if (isAdditiveImport) {
+                // Modo aditivo: preservar layer atual do usuário
+                baseLayer = await getCurrentBaseLayer();
+            } else {
+                // Modo substituição: usar layer do arquivo
                 const currentMapData = await mapStore.getItem(data.currentMap);
                 baseLayer = currentMapData ? currentMapData.baseLayer : 'carta-topografica';
             }
 
             this.baseLayerControl.switchLayer(baseLayer);
+            await this.mapControl.updateMapList();
 
             const importType = isAdditiveImport ? 'adicionados' : 'carregados';
             this.showLoadSuccess(importedMapsCount, importType);
@@ -369,7 +377,7 @@ export class ExportImportService {
         }
 
         this.showToast(
-            mapCount === 1 ? 
+            mapCount === 1 ?
                 `1 mapa exportado!` :
                 `${mapCount} mapas exportados!`,
             'success'

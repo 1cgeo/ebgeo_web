@@ -105,6 +105,33 @@ function isInternalProperty(key) {
     return internalProps.includes(key) || key.startsWith('_');
 }
 
+/**
+ * Busca features processadas relacionadas a uma feature principal
+ */
+function findRelatedProcessedFeatures(type, featureId, mapData) {
+    if (type === 'los') {
+        return mapData.features.processed_los.filter(pf => 
+            pf.id.startsWith(featureId + '-')
+        );
+    } else if (type === 'visibility') {
+        return mapData.features.processed_visibility.filter(pf => 
+            pf.id.startsWith(featureId + '-')
+        );
+    }
+    return [];
+}
+
+/**
+ * Remove features processadas do array de dados
+ */
+function removeProcessedFeaturesFromData(processedType, processedFeatures, mapData) {
+    if (!processedType || !processedFeatures.length) return;
+    
+    const processedIds = new Set(processedFeatures.map(pf => pf.id));
+    mapData.features[processedType] = mapData.features[processedType]
+        .filter(pf => !processedIds.has(pf.id));
+}
+
 // Função para resetar o estado da memória
 export const resetMemoryStore = () => {
     memoryStore.maps = {
@@ -202,15 +229,66 @@ function getFeatureType(feature) {
     }
 }
 
+/**
+ * Adiciona uma feature a um mapa específico sem alterar currentMap
+ */
+export const addFeatureToMap = async (type, feature, mapName) => {
+    const cleanedFeature = cleanFeature(feature);
+    
+    if (!cleanedFeature) {
+        console.warn('Feature ignorada após limpeza:', feature);
+        return null;
+    }
+    
+    const mapData = await mapStore.getItem(mapName) || getEmptyMapData();
+    mapData.features[type].push(cleanedFeature);
+    await mapStore.setItem(mapName, mapData);
+    
+    return cleanedFeature;
+};
+
+/**
+ * Remove uma feature de um mapa específico sem alterar currentMap
+ */
+export const removeFeatureFromMap = async (type, id, mapName) => {
+    const mapData = await mapStore.getItem(mapName) || getEmptyMapData();
+    const featureIndex = mapData.features[type].findIndex(f => f.id === id);
+    
+    if (featureIndex === -1) return null;
+    
+    // Remover feature principal
+    const mainFeature = mapData.features[type].splice(featureIndex, 1)[0];
+    
+    // Buscar e remover features processadas relacionadas
+    const processedFeatures = findRelatedProcessedFeatures(type, id, mapData);
+    const processedType = type === 'los' ? 'processed_los' : 
+                         type === 'visibility' ? 'processed_visibility' : null;
+    
+    if (processedType && processedFeatures.length > 0) {
+        removeProcessedFeaturesFromData(processedType, processedFeatures, mapData);
+    }
+    
+    // Salvar alterações
+    await mapStore.setItem(mapName, mapData);
+    
+    return {
+        mainFeature,
+        processedFeatures: processedFeatures.length > 0 ? {
+            type: processedType,
+            features: processedFeatures
+        } : null
+    };
+};
+
 // Função para mover feições entre mapas
 export const moveFeaturesToMap = async (features, targetMapName) => {
     if (!features || features.length === 0) {
         return;
     }
 
-    const currentMapName = await getCurrentMapName();
+    const sourceMapName = await getCurrentMapName();
     
-    if (currentMapName === targetMapName) {
+    if (sourceMapName === targetMapName) {
         console.warn('Tentativa de mover feições para o mesmo mapa');
         return;
     }
@@ -229,85 +307,63 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
         return acc;
     }, {});
 
+    // Coletar todas as operações para batch de undo/redo
+    const batchOperation = {
+        type: 'moveBetweenMaps',
+        sourceMapName,
+        targetMapName,
+        movedFeatures: {}
+    };
+
     try {
         // Para cada tipo de feição
         for (const [type, featuresOfType] of Object.entries(featuresByType)) {
+            const typeOperations = {
+                mainFeatures: [],
+                processedFeatures: []
+            };
+            
             for (const feature of featuresOfType) {
-                // Remover do mapa atual
-                await removeFeature(type, feature.id);
+                // ✅ Remover do mapa origem (sem alterar currentMap)
+                const removedData = await removeFeatureFromMap(type, feature.id, sourceMapName);
                 
-                if (type === 'los') {
-                    await moveProcessedLOSFeatures(feature.id, targetMapName);
-                } else if (type === 'visibility') {
-                    await moveProcessedVisibilityFeatures(feature.id, targetMapName);
+                if (removedData) {
+                    // ✅ Adicionar ao mapa destino (sem alterar currentMap)
+                    const addedFeature = await addFeatureToMap(type, feature, targetMapName);
+                    
+                    if (addedFeature) {
+                        typeOperations.mainFeatures.push({
+                            feature: JSON.parse(JSON.stringify(addedFeature)),
+                            removedData: {
+                                mainFeature: JSON.parse(JSON.stringify(removedData.mainFeature)),
+                                processedFeatures: removedData.processedFeatures ? 
+                                    JSON.parse(JSON.stringify(removedData.processedFeatures)) : null
+                            }
+                        });
+                        
+                        // Se havia features processadas, também adicionar no destino
+                        if (removedData.processedFeatures) {
+                            for (const pf of removedData.processedFeatures.features) {
+                                await addFeatureToMap(removedData.processedFeatures.type, pf, targetMapName);
+                            }
+                        }
+                    }
                 }
-                
-                // Adicionar ao mapa de destino
-                const oldCurrentMap = memoryStore.currentMap;
-                setCurrentMap(targetMapName);
-                await addFeature(type, feature);
-                setCurrentMap(oldCurrentMap);
+            }
+            
+            if (typeOperations.mainFeatures.length > 0) {
+                batchOperation.movedFeatures[type] = typeOperations;
             }
         }
+        
+        // ✅ Registrar operação única para undo/redo (apenas no mapa atual)
+        if (Object.keys(batchOperation.movedFeatures).length > 0) {
+            recordAction(batchOperation);
+        }
+        
     } catch (error) {
         console.error('Erro ao mover feições:', error);
         throw error;
-    }
-};
-
-const moveProcessedLOSFeatures = async (losFeatureId, targetMapName) => {
-    try {
-        // Buscar features processadas relacionadas
-        const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-        const processedFeatures = currentMapData.features.processed_los.filter(
-            pf => pf.id.startsWith(losFeatureId + '-')
-        );
-
-        if (processedFeatures.length === 0) return;
-
-        // Remover do mapa atual
-        for (const pf of processedFeatures) {
-            await removeFeature('processed_los', pf.id);
-        }
-
-        // Adicionar ao mapa de destino
-        const oldCurrentMap = memoryStore.currentMap;
-        setCurrentMap(targetMapName);
-        for (const pf of processedFeatures) {
-            await addFeature('processed_los', pf);
-        }
-        setCurrentMap(oldCurrentMap);
-
-    } catch (error) {
-        console.error('Erro ao mover features processadas de LOS:', error);
-    }
-};
-
-const moveProcessedVisibilityFeatures = async (visibilityFeatureId, targetMapName) => {
-    try {
-        // Buscar features processadas relacionadas  
-        const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-        const processedFeatures = currentMapData.features.processed_visibility.filter(
-            pf => pf.id.startsWith(visibilityFeatureId + '-')
-        );
-
-        if (processedFeatures.length === 0) return;
-
-        // Remover do mapa atual
-        for (const pf of processedFeatures) {
-            await removeFeature('processed_visibility', pf.id);
-        }
-
-        // Adicionar ao mapa de destino
-        const oldCurrentMap = memoryStore.currentMap;
-        setCurrentMap(targetMapName);
-        for (const pf of processedFeatures) {
-            await addFeature('processed_visibility', pf);
-        }
-        setCurrentMap(oldCurrentMap);
-
-    } catch (error) {
-        console.error('Erro ao mover features processadas de Visibility:', error);
     }
 };
 
@@ -340,7 +396,7 @@ export const updateFeature = async (type, feature) => {
     }
 
     const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    const index = currentMapData.features[type].findIndex(f => f.id == cleanedFeature.id);
+    const index = currentMapData.features[type].findIndex(f => f.id === cleanedFeature.id);
     if (index !== -1) {
         const oldFeature = currentMapData.features[type][index];
         if (JSON.stringify(oldFeature) !== JSON.stringify(cleanedFeature)) {
@@ -361,38 +417,55 @@ export const removeFeature = async (type, id) => {
     const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
     const featureIndex = currentMapData.features[type].findIndex(f => f.id == id);
     
-    if (featureIndex !== -1) {
-        const feature = currentMapData.features[type].splice(featureIndex, 1)[0];
-        await mapStore.setItem(memoryStore.currentMap, currentMapData);
-        
-        recordAction({
-            type: 'remove',
-            featureType: type,
-            feature: JSON.parse(JSON.stringify(feature))
-        });
-        
-        // ROBUST DELETION: Verify and retry if needed
-        setTimeout(async () => {
-            try {                
-                // Verify deletion
-                const verifyMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-                const stillExists = verifyMapData.features[type].some(f => f.id == id);
-                
-                if (stillExists) {
-                    // Retry deletion
-                    const retryMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-                    const retryIndex = retryMapData.features[type].findIndex(f => f.id == id);
-                    
-                    if (retryIndex !== -1) {
-                        retryMapData.features[type].splice(retryIndex, 1);
-                        await mapStore.setItem(memoryStore.currentMap, retryMapData);
-                    }
-                }
-            } catch (error) {
-                console.error(`Robust deletion verification failed for ${type} ${id}:`, error);
-            }
-        }, 500);
+    if (featureIndex === -1) return;
+    
+    // Remover feature principal
+    const mainFeature = currentMapData.features[type].splice(featureIndex, 1)[0];
+    
+    // Buscar e remover features processadas relacionadas
+    const processedFeatures = findRelatedProcessedFeatures(type, id, currentMapData);
+    const processedType = type === 'los' ? 'processed_los' : 
+                         type === 'visibility' ? 'processed_visibility' : null;
+    
+    if (processedType && processedFeatures.length > 0) {
+        removeProcessedFeaturesFromData(processedType, processedFeatures, currentMapData);
     }
+    
+    // Salvar alterações
+    await mapStore.setItem(memoryStore.currentMap, currentMapData);
+    
+    // Registrar ação para undo/redo
+    recordAction({
+        type: 'removeWithProcessed',
+        mainFeatureType: type,
+        mainFeature: JSON.parse(JSON.stringify(mainFeature)),
+        processedFeatures: processedFeatures.length > 0 ? {
+            type: processedType,
+            features: JSON.parse(JSON.stringify(processedFeatures))
+        } : null
+    });
+    
+    // ROBUST DELETION: Verify and retry if needed (mantido para compatibilidade)
+    setTimeout(async () => {
+        try {                
+            // Verify deletion
+            const verifyMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+            const stillExists = verifyMapData.features[type].some(f => f.id === id);
+            
+            if (stillExists) {
+                // Retry deletion
+                const retryMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+                const retryIndex = retryMapData.features[type].findIndex(f => f.id === id);
+                
+                if (retryIndex !== -1) {
+                    retryMapData.features[type].splice(retryIndex, 1);
+                    await mapStore.setItem(memoryStore.currentMap, retryMapData);
+                }
+            }
+        } catch (error) {
+            console.error(`Robust deletion verification failed for ${type} ${id}:`, error);
+        }
+    }, 500);
 };
 
 export const addMap = async (mapName, mapData = null) => {
@@ -407,8 +480,44 @@ export const addMap = async (mapName, mapData = null) => {
 };
 
 export const removeMap = async (mapName) => {
+    // Validação: Verificar se o mapa existe
+    const mapData = await mapStore.getItem(mapName);
+    if (!mapData) {
+        console.warn(`Tentativa de remover mapa inexistente: ${mapName}`);
+        return { success: false, reason: 'MAP_NOT_FOUND' };
+    }
+
+    // Verificar se é o mapa atual
+    const currentMapName = await getCurrentMapName();
+    const isCurrentMap = mapName === currentMapName;
+    
+    // Verificar quantos mapas restam
+    const allMaps = await getAllMapNames();
+    const remainingMaps = allMaps.filter(name => name !== mapName);
+    
+    // Remover do storage
     await mapStore.removeItem(mapName);
     delete memoryStore.maps[mapName];
+    
+    // Se era o mapa atual, atualizar referências
+    if (isCurrentMap) {
+        if (remainingMaps.length > 0) {
+            // Trocar para outro mapa disponível
+            const newCurrentMap = remainingMaps[0];
+            await setCurrentMap(newCurrentMap);
+        } else {
+            // Último mapa removido - criar novo mapa Principal
+            await addMap('Principal');
+            await setCurrentMap('Principal');
+        }
+    }
+    
+    return { 
+        success: true, 
+        wasCurrentMap: isCurrentMap,
+        remainingMapsCount: remainingMaps.length,
+        newCurrentMap: isCurrentMap ? (remainingMaps.length > 0 ? remainingMaps[0] : 'Principal') : currentMapName
+    };
 };
 
 export const renameMap = async (oldName, newName) => {
@@ -507,12 +616,42 @@ export const undoLastAction = async () => {
             case 'remove':
                 await addFeature(lastAction.featureType, lastAction.feature);
                 break;
+            case 'removeWithProcessed':
+                // Restaurar feature principal
+                await addFeature(lastAction.mainFeatureType, lastAction.mainFeature);
+                // Restaurar features processadas se houver
+                if (lastAction.processedFeatures) {
+                    for (const pf of lastAction.processedFeatures.features) {
+                        await addFeature(lastAction.processedFeatures.type, pf);
+                    }
+                }
+                break;
             case 'addMultiple':
                 for (const [type, features] of Object.entries(lastAction.features)) {
                     for (const feature of features) {
                         await removeFeature(type, feature.id);
                     }
                 }
+                break;
+            case 'moveBetweenMaps':
+                // ✅ UNDO: Mover features de volta (destino → origem)
+                for (const [type, typeOps] of Object.entries(lastAction.movedFeatures)) {
+                    for (const featureOp of typeOps.mainFeatures) {
+                        // Remover do destino
+                        await removeFeatureFromMap(type, featureOp.feature.id, lastAction.targetMapName);
+                        
+                        // Restaurar na origem
+                        await addFeatureToMap(type, featureOp.removedData.mainFeature, lastAction.sourceMapName);
+                        
+                        // Restaurar processadas se houver
+                        if (featureOp.removedData.processedFeatures) {
+                            for (const pf of featureOp.removedData.processedFeatures.features) {
+                                await addFeatureToMap(featureOp.removedData.processedFeatures.type, pf, lastAction.sourceMapName);
+                            }
+                        }
+                    }
+                }
+                break;
             default:
                 break;
         }
@@ -542,13 +681,36 @@ export const redoLastAction = async () => {
             case 'remove':
                 await removeFeature(lastUndoneAction.featureType, lastUndoneAction.feature.id);
                 break;
+            case 'removeWithProcessed':
+                // Remover feature principal (que automaticamente remove processadas)
+                await removeFeature(lastUndoneAction.mainFeatureType, lastUndoneAction.mainFeature.id);
+                break;
             case 'addMultiple':
                 for (const [type, features] of Object.entries(lastUndoneAction.features)) {
                     for (const feature of features) {
                         await addFeature(type, feature);
                     }
                 }
-                break
+                break;
+            case 'moveBetweenMaps':
+                // ✅ REDO: Refazer o movimento (origem → destino)
+                for (const [type, typeOps] of Object.entries(lastUndoneAction.movedFeatures)) {
+                    for (const featureOp of typeOps.mainFeatures) {
+                        // Remover da origem
+                        await removeFeatureFromMap(type, featureOp.removedData.mainFeature.id, lastUndoneAction.sourceMapName);
+                        
+                        // Adicionar no destino
+                        await addFeatureToMap(type, featureOp.feature, lastUndoneAction.targetMapName);
+                        
+                        // Adicionar processadas se houver
+                        if (featureOp.removedData.processedFeatures) {
+                            for (const pf of featureOp.removedData.processedFeatures.features) {
+                                await addFeatureToMap(featureOp.removedData.processedFeatures.type, pf, lastUndoneAction.targetMapName);
+                            }
+                        }
+                    }
+                }
+                break;
             default:
                 break;
         }

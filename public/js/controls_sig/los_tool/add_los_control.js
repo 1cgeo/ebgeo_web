@@ -459,8 +459,6 @@ class AddLOSControl {
 
         for (const f of features) {
             await removeFeature('los', f.id);
-            await removeFeature('processed_los', f.id + '-obstructed');
-            await removeFeature('processed_los', f.id + '-visible');
             this.removeFeatureMeasurement(f.id);
         }
     }

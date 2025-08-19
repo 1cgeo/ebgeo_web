@@ -29,6 +29,7 @@ map.on('styledata', async () => {
 
     // Carregar dados do IndexedDB
     const features = await getCurrentMapFeatures();
+    await setImages(features);
 
     setupDrawLayers(features);
     setupEllipseLayers(features);
@@ -42,7 +43,6 @@ map.on('styledata', async () => {
     setupLOSLayers(features);
     setupTextLayers(features);
 
-    await setImages(features);
 
     // Restaurar medições e marcações
     requestAnimationFrame(() => {
@@ -216,46 +216,71 @@ function setupDrawLayers(features) {
 }
 
 async function setImages(features) {
-    // Carregar blobs das imagens normais do IndexedDB
-    for (const feature of features.images) {
+    const imagePromises = [];
+
+    // Coletar todas as features que precisam de imagens
+    const allImageFeatures = [
+        ...(features.images || []),
+        ...(features.military_symbols || [])
+    ];
+
+    for (const feature of allImageFeatures) {
         const imageId = feature.properties.imageId;
-        try {
-            const blob = await imageStore.getItem(imageId);
-            if (blob) {
-                const url = URL.createObjectURL(blob);
-                const image = new Image();
-                image.onload = () => {
-                    if (!map.hasImage(imageId)) {
-                        map.addImage(imageId, image);
-                    }
-                    URL.revokeObjectURL(url);
-                };
-                image.src = url;
-            }
-        } catch (error) {
-            console.warn(`Erro ao carregar imagem ${imageId}:`, error);
-        }
+        if (!imageId) continue;
+
+        // Verificar se já existe
+        if (map.hasImage(imageId)) continue;
+
+        const imagePromise = loadSingleImage(imageId);
+        imagePromises.push(imagePromise);
     }
 
-    // Carregar blobs dos símbolos militares do IndexedDB (análogo às imagens)
-    for (const feature of features.military_symbols || []) {
-        const imageId = feature.properties.imageId;
-        try {
-            const blob = await imageStore.getItem(imageId);
-            if (blob) {
-                const url = URL.createObjectURL(blob);
-                const image = new Image();
-                image.onload = () => {
+    // ✅ AGUARDAR todas as imagens carregarem
+    await Promise.allSettled(imagePromises);
+}
+
+async function loadSingleImage(imageId) {
+    try {
+        const blob = await imageStore.getItem(imageId);
+        if (!blob) {
+            console.warn(`Imagem ${imageId} não encontrada no store`);
+            return;
+        }
+
+        const url = URL.createObjectURL(blob);
+
+        // ✅ Promise que resolve quando imagem carrega
+        return new Promise((resolve, reject) => {
+            const image = new Image();
+
+            image.onload = () => {
+                try {
                     if (!map.hasImage(imageId)) {
                         map.addImage(imageId, image);
                     }
                     URL.revokeObjectURL(url);
-                };
-                image.src = url;
-            }
-        } catch (error) {
-            console.warn(`Erro ao carregar símbolo militar ${imageId}:`, error);
-        }
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            };
+
+            image.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error(`Falha ao carregar imagem ${imageId}`));
+            };
+
+            // ✅ Timeout para evitar travamento
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                reject(new Error(`Timeout ao carregar imagem ${imageId}`));
+            }, 10000);
+
+            image.src = url;
+        });
+
+    } catch (error) {
+        console.warn(`Erro ao processar imagem ${imageId}:`, error);
     }
 }
 

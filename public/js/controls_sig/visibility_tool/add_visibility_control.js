@@ -571,10 +571,6 @@ class AddVisibilityControl {
             await removeFeature('visibility', f.id);
         }
 
-        for (const cell of cellsToRemove) {
-            await removeFeature('processed_visibility', cell.id);
-        }
-
         // ✅ PASSO 3: Atualizar fontes visuais POR ÚLTIMO
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
@@ -688,7 +684,6 @@ class AddVisibilityControl {
             }
 
             // ✅ REMOVIDO: Não esconde mais o modal aqui (feito nas funções chamadoras)
-            console.log(`✅ Viewshed criado: ${cells.length} células`);
             return cells;
 
         } catch (error) {
@@ -702,8 +697,6 @@ class AddVisibilityControl {
     // ✅ NOVO: Dissolve células de visibilidade para otimizar performance
     dissolveVisibilityCells = (cells) => {
         try {
-            console.log(`🔄 Iniciando dissolve de ${cells.length} células...`);
-
             // Separar células por visibilidade
             const visibleCells = [];
             const obstructedCells = [];
@@ -747,7 +740,6 @@ class AddVisibilityControl {
                 });
             }
 
-            console.log(`✅ Dissolve concluído: ${cells.length} → ${optimizedCells.length} células (redução de ${Math.round((1 - optimizedCells.length / cells.length) * 100)}%)`);
             return optimizedCells;
 
         } catch (error) {

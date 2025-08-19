@@ -10,7 +10,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
     const debouncedRecalculate = () => {
         clearTimeout(observerHeightDebounceTimer);
         observerHeightDebounceTimer = setTimeout(() => {
-            console.log('🔄 Recalculando visibilidade após mudança na altura...');
             visibilityControl.updateFeatures(selectedFeatures, false, false, true);
         }, 500); // Aguarda 1.5 segundos após parar de mexer
     };
@@ -88,7 +87,6 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         
         // ✅ NOVO: Força recálculo imediato no blur (quando sai do campo)
         clearTimeout(observerHeightDebounceTimer);
-        console.log('🔄 Recalculando visibilidade após blur...');
         visibilityControl.updateFeatures(selectedFeatures, false, false, true);
     };
     

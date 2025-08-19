@@ -25,7 +25,7 @@ class MapControl {
     constructor(baseLayerControl) {
         this.baseLayerControl = baseLayerControl;
         this.selectionManager = null;
-        this.exportImportService = new ExportImportService(baseLayerControl);
+        this.exportImportService = new ExportImportService(baseLayerControl, this);
         this.setupDropdownPositionListeners();
 
         this.isCollapsed = false;
@@ -99,7 +99,7 @@ class MapControl {
         addButton.title = 'Adicionar novo mapa';
         addButton.onclick = async () => {
             const allMapNames = await getAllMapNames();
-            if (allMapNames.length < 10) {
+            if (allMapNames.length < 30) {
                 const mapName = prompt("Nome do novo mapa:");
                 if (mapName && mapName.trim()) {
                     await addMap(mapName.trim());
@@ -344,7 +344,7 @@ class MapControl {
             e.preventDefault();
             e.stopPropagation();
             const allMapNames = await getAllMapNames();
-            if (allMapNames.length < 10) {
+            if (allMapNames.length < 30) {
                 const newMapName = prompt("Nome para o novo mapa:");
                 if (newMapName && newMapName.trim()) {
                     const copiedMapData = await mapStore.getItem(mapName);
@@ -473,17 +473,60 @@ class MapControl {
         deleteBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (confirm(`Tem certeza que deseja deletar o mapa "${mapName}"?`)) {
-                await removeMap(mapName);
-                const remainingMaps = await getAllMapNames();
-                if (remainingMaps.length > 0) {
-                    setCurrentMap(remainingMaps[0]);
-                    await this.switchMap();
-                }
-                await this.updateMapList();
+
+            // ✅ VALIDAÇÃO: Verificar quantos mapas existem
+            const allMapNames = await getAllMapNames();
+            const currentMapName = await getCurrentMapName();
+
+            // ✅ PROTEÇÃO: Impedir deletar se é o último mapa
+            if (allMapNames.length <= 1) {
+                alert('Não é possível deletar o último mapa. O sistema precisa de pelo menos um mapa.');
                 this.closeAllDropdowns();
+                return;
             }
+
+            // ✅ VALIDAÇÃO: Verificar se é o mapa atual
+            const isCurrentMap = mapName === currentMapName;
+            const warningMessage = isCurrentMap
+                ? `Tem certeza que deseja deletar o mapa atual "${mapName}"?\n\nVocê será redirecionado para outro mapa.`
+                : `Tem certeza que deseja deletar o mapa "${mapName}"?`;
+
+            if (!confirm(warningMessage)) {
+                this.closeAllDropdowns();
+                return;
+            }
+
+            try {
+                // ✅ USAR O NOVO removeMap() que trata todos os casos
+                const result = await removeMap(mapName);
+
+                if (result.success) {
+                    // ✅ ATUALIZAÇÃO AUTOMÁTICA: removeMap() já cuida do currentMap
+                    if (result.wasCurrentMap) {
+                        await this.switchMap(); // Recarregar para o novo mapa atual
+                        this.showToast(`Mapa deletado. Você foi redirecionado para "${result.newCurrentMap}"`, 'info');
+                    } else {
+                        this.showToast(`Mapa "${mapName}" deletado com sucesso`, 'success');
+                    }
+
+                    // ✅ ATUALIZAÇÃO: Lista e interface
+                    await this.updateMapList();
+                } else {
+                    // ✅ TRATAMENTO DE ERRO: Se removeMap() falhar
+                    if (result.reason === 'MAP_NOT_FOUND') {
+                        alert('Erro: Mapa não encontrado');
+                    } else {
+                        alert('Erro inesperado ao deletar mapa');
+                    }
+                }
+            } catch (error) {
+                console.error('Erro ao deletar mapa:', error);
+                alert('Erro ao deletar mapa: ' + error.message);
+            }
+
+            this.closeAllDropdowns();
         });
+
         dropdownContent.appendChild(deleteBtn);
     }
 
@@ -674,10 +717,10 @@ class MapControl {
     async clearAllData() {
         if (confirm('Tem certeza que deseja limpar todos os dados? Esta ação é irreversível.')) {
             try {
+                await resetMemoryStore();
                 await mapStore.clear();
                 await imageStore.clear();
                 await appStore.clear();
-                await resetMemoryStore();
 
                 // Criar novo mapa padrão
                 await addMap('Principal');
