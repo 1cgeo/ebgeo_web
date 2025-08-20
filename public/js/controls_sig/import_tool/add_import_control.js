@@ -3,11 +3,10 @@ import { addFeatures } from '../store.js';
 import { IDUtils } from '../id_utils.js';
 
 class AddImportControl {
-    // ✅ CORREÇÃO 7: Configurações de limite de arquivo
     static FILE_LIMITS = {
-        maxSize: 50 * 1024 * 1024,    // 50MB
-        timeout: 30000,               // 30 segundos
-        chunkSize: 1024 * 1024        // 1MB chunks para progresso
+        maxSize: 50 * 1024 * 1024,
+        timeout: 30000,
+        chunkSize: 1024 * 1024
     };
 
     constructor(toolManager) {
@@ -39,7 +38,6 @@ class AddImportControl {
 
         this.container.appendChild(button);
 
-        // Input de arquivo oculto
         this.fileInput = document.createElement('input');
         this.fileInput.type = 'file';
         this.fileInput.accept = '.geojson,.json,.zip,.kml,.kmz,.gpx';
@@ -47,9 +45,7 @@ class AddImportControl {
         this.fileInput.addEventListener('change', this.handleFileSelect.bind(this));
         this.container.appendChild(this.fileInput);
 
-        // Atualizar cor do botão baseado no layer atual
         this.changeButtonColor();
-
         return this.container;
     }
 
@@ -68,7 +64,7 @@ class AddImportControl {
     activate() {
         this.isActive = true;
         this.changeButtonColor();
-        this.fileInput.click(); // Abrir dialog de arquivo imediatamente
+        this.fileInput.click();
     }
 
     deactivate() {
@@ -98,7 +94,6 @@ class AddImportControl {
             alert(`Erro ao importar arquivo: ${error.message}`);
         }
 
-        // Reset input
         this.fileInput.value = '';
         this.toolManager.deactivateCurrentTool();
     }
@@ -117,7 +112,6 @@ class AddImportControl {
         const reader = new FileReader();
         
         if (cleanup) {
-            // Auto-cleanup após uso
             const originalOnLoad = reader.onload;
             const originalOnError = reader.onerror;
             
@@ -145,7 +139,7 @@ class AddImportControl {
         reader.onload = null;
         reader.onerror = null;
         reader.onprogress = null;
-        reader.abort(); // Cancela operação se ainda ativa
+        reader.abort();
     }
 
     async _readFileWithProgress(file, method = 'text') {
@@ -155,13 +149,11 @@ class AddImportControl {
             const reader = this._createFileReader();
             let progressCallback = null;
             
-            // Setup timeout
             const timeout = setTimeout(() => {
                 reader.abort();
                 reject(new Error('Timeout na leitura do arquivo'));
             }, AddImportControl.FILE_LIMITS.timeout);
             
-            // Setup progress (se arquivo grande)
             if (file.size > AddImportControl.FILE_LIMITS.chunkSize) {
                 progressCallback = this._showProgressIndicator();
                 
@@ -185,7 +177,6 @@ class AddImportControl {
                 reject(new Error(`Erro ao ler arquivo como ${method}`));
             };
             
-            // Iniciar leitura
             switch (method) {
                 case 'text': reader.readAsText(file); break;
                 case 'arraybuffer': reader.readAsArrayBuffer(file); break;
@@ -249,7 +240,6 @@ class AddImportControl {
         }
     }
 
-    // ✅ CORREÇÃO 9: Usar apenas async/await, eliminar Promise constructors
     async readGeoJSON(file) {
         return this._processFileWithReader(
             file,
@@ -286,7 +276,33 @@ class AddImportControl {
                 const shpBuffer = await shpFile.async('arraybuffer');
                 const dbfBuffer = dbfFile ? await dbfFile.async('arraybuffer') : null;
                 
-                const features = await shp.parseShp(shpBuffer, dbfBuffer);
+                const result = await shp.parseShp(shpBuffer, dbfBuffer);
+                
+                // parseShp retorna array de geometrias, não features
+                if (!Array.isArray(result)) {
+                    throw new Error('Formato de shapefile inválido');
+                }
+                
+                // Converter geometrias em features
+                const features = result.map((geometry, index) => {
+                    // Verificar se já é uma feature
+                    if (geometry.type === 'Feature') {
+                        return geometry;
+                    }
+                    
+                    // Converter geometria em feature
+                    return {
+                        type: 'Feature',
+                        properties: {
+                            name: `Shapefile_${index + 1}`
+                        },
+                        geometry: {
+                            type: geometry.type,
+                            coordinates: geometry.coordinates
+                        }
+                    };
+                });
+                
                 return {
                     type: 'FeatureCollection',
                     features: features
@@ -340,7 +356,96 @@ class AddImportControl {
         );
     }
 
+    // Decompor multi-geometrias em geometrias simples
+    decomposeMultiGeometry(feature) {
+        const geometry = feature.geometry;
+        const properties = feature.properties;
+        const features = [];
+
+        switch (geometry.type) {
+            case 'MultiPoint':
+                geometry.coordinates.forEach(coord => {
+                    features.push({
+                        type: 'Feature',
+                        properties: { ...properties },
+                        geometry: {
+                            type: 'Point',
+                            coordinates: coord
+                        }
+                    });
+                });
+                break;
+
+            case 'MultiLineString':
+                geometry.coordinates.forEach(coords => {
+                    features.push({
+                        type: 'Feature',
+                        properties: { ...properties },
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: coords
+                        }
+                    });
+                });
+                break;
+
+            case 'MultiPolygon':
+                geometry.coordinates.forEach(coords => {
+                    features.push({
+                        type: 'Feature',
+                        properties: { ...properties },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: coords
+                        }
+                    });
+                });
+                break;
+
+            case 'GeometryCollection':
+                geometry.geometries.forEach(geom => {
+                    const subFeature = {
+                        type: 'Feature',
+                        properties: { ...properties },
+                        geometry: geom
+                    };
+                    // Recursivamente decompor se necessário
+                    if (geom.type.startsWith('Multi') || geom.type === 'GeometryCollection') {
+                        features.push(...this.decomposeMultiGeometry(subFeature));
+                    } else {
+                        features.push(subFeature);
+                    }
+                });
+                break;
+
+            default:
+                // Geometria simples, retornar como está
+                features.push(feature);
+        }
+
+        return features;
+    }
+
+    // Mapear tipo de geometria para categoria do sistema
+    getTargetType(geometryType) {
+        const type = geometryType.toLowerCase();
+        
+        if (type.includes('point')) {
+            return 'points';
+        } else if (type.includes('line')) {
+            return 'linestrings';
+        } else if (type.includes('polygon')) {
+            return 'polygons';
+        }
+        
+        return null; // Tipo não suportado
+    }
+
     async importGeoJSON(geoJSON) {
+        if (!geoJSON.features || !Array.isArray(geoJSON.features)) {
+            throw new Error('GeoJSON inválido - features não encontradas');
+        }
+
         const validFeatures = [];
         const featuresByType = {
             points: [],
@@ -350,72 +455,62 @@ class AddImportControl {
 
         const pendingFeatures = [];
         
-        for (const feature of geoJSON.features) {
-            if (!feature.geometry || !feature.geometry.type) {
-                continue; // Ignorar features sem geometria
+        for (const originalFeature of geoJSON.features) {
+            if (!originalFeature.geometry || !originalFeature.geometry.type) {
+                continue;
             }
 
-            const geomType = feature.geometry.type.toLowerCase();
-            let targetType;
+            // Decompor multi-geometrias em geometrias simples
+            const decomposedFeatures = this.decomposeMultiGeometry(originalFeature);
+            
+            for (const feature of decomposedFeatures) {
+                const targetType = this.getTargetType(feature.geometry.type);
+                
+                if (!targetType) {
+                    continue; // Ignorar tipos não suportados
+                }
 
-            // Mapear tipos de geometria
-            if (geomType.includes('point')) {
-                targetType = 'points';
-            } else if (geomType.includes('line')) {
-                targetType = 'linestrings';
-            } else if (geomType.includes('polygon')) {
-                targetType = 'polygons';
-            } else {
-                continue; // Ignorar tipos não suportados
+                const preparedFeature = {
+                    type: 'Feature',
+                    properties: {
+                        ...this.getDefaultProperties(targetType),
+                        ...feature.properties,
+                        source: 'draw'
+                    },
+                    geometry: feature.geometry
+                };
+
+                pendingFeatures.push({ feature: preparedFeature, targetType });
             }
-
-            // Preparar feature SEM ID final (Draw vai gerar)
-            const preparedFeature = {
-                type: 'Feature',
-                properties: {
-                    ...this.getDefaultProperties(targetType),
-                    ...feature.properties, // Preservar propriedades originais quando possível
-                    source: 'draw' // ✅ Marcar como draw para integração
-                },
-                geometry: feature.geometry
-            };
-
-            pendingFeatures.push({ feature: preparedFeature, targetType });
         }
 
+        // Processar features preparadas
         for (const { feature, targetType } of pendingFeatures) {
             try {
-                // ✅ Draw gera ID primeiro
                 const ids = this.drawControl.draw.add(feature);
                 
                 if (ids.length > 0) {
-                    // ✅ Buscar feature com ID final do Draw
                     const finalFeature = this.drawControl.draw.get(ids[0]);
-                    
-                    // ✅ Sincronizar IDs (padrão obrigatório do sistema)
                     finalFeature.properties.id = finalFeature.id;
                     
-                    // ✅ Agrupar para persistência
                     featuresByType[targetType].push(finalFeature);
                     validFeatures.push(finalFeature);
                 }
             } catch (error) {
                 console.warn('Erro ao adicionar feature ao Draw:', error);
-                // Continuar com próximas features
             }
         }
 
-        // ✅ FASE 3: Persistir em batch (com IDs sincronizados)
+        // Persistir em batch
         if (Object.values(featuresByType).some(arr => arr.length > 0)) {
             try {
-                // Usar addFeatures que registra ação única para undo/redo
                 await addFeatures(featuresByType);
                 
                 if (validFeatures.length > 0) {
                     this.zoomToFeatures(validFeatures);
                 }
             } catch (error) {
-                // ✅ ROLLBACK: Remover features do Draw se persistência falhou
+                // Rollback: remover features do Draw se persistência falhou
                 validFeatures.forEach(f => {
                     try {
                         this.drawControl.draw.delete(f.id);
@@ -431,7 +526,6 @@ class AddImportControl {
     }
 
     getDefaultProperties(targetType) {
-        // Usar as propriedades padrões do DrawControl
         if (targetType === 'points') {
             return { ...this.drawControl.defaultProperties.point };
         } else if (targetType === 'linestrings') {
@@ -452,11 +546,11 @@ class AddImportControl {
             });
 
             this.map.fitBounds([
-                [bbox[0], bbox[1]], // SW
-                [bbox[2], bbox[3]]  // NE
+                [bbox[0], bbox[1]],
+                [bbox[2], bbox[3]]
             ], {
                 padding: 50,
-                maxZoom: 16 // Evitar zoom excessivo
+                maxZoom: 16
             });
         } catch (error) {
             console.warn('Erro ao calcular zoom:', error);
@@ -464,7 +558,6 @@ class AddImportControl {
     }
 
     showImportSuccess(count) {
-        // Feedback simples de sucesso
         const message = count === 1 
             ? `1 geometria importada com sucesso`
             : `${count} geometrias importadas com sucesso`;
@@ -486,7 +579,6 @@ class AddImportControl {
         
         document.body.appendChild(notification);
         
-        // Remover após 3 segundos
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.parentNode.removeChild(notification);
