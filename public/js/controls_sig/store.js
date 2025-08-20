@@ -71,7 +71,7 @@ function cleanFeature(feature) {
     // Retornar feature limpa no formato GeoJSON padrão
     return {
         type: feature.type,
-        id: feature.properties.id,
+        id: feature.id,
         properties: cleanedProperties,
         geometry: geometry
     };
@@ -370,7 +370,7 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
 // Funções que trabalham direto com IndexedDB
 export const addFeature = async (type, feature) => {
     const cleanedFeature = cleanFeature(feature);
-    
+
     if (!cleanedFeature) {
         console.warn('Feature ignorada após limpeza:', feature);
         return;

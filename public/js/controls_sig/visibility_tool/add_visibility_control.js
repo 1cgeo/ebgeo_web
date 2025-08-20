@@ -1,5 +1,5 @@
 // Path: js\controls_sig\visibility_tool\add_visibility_control.js
-import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures  } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 import { IDUtils } from '../id_utils.js';
 // Configuração do grid polar adaptativo
@@ -372,6 +372,7 @@ class AddVisibilityControl {
                 id: `${feature.properties.id}-${index}`,
                 properties: {
                     ...feature.properties,
+                    id: `${feature.properties.id}-${index}`,
                     color: cellData.isVisible ? AddVisibilityControl.VISIBLE_COLOR : AddVisibilityControl.OBSTRUCTED_COLOR
                 },
                 geometry: {
@@ -571,29 +572,38 @@ class AddVisibilityControl {
             return;
         }
 
-        // ✅ PASSO 1: Buscar células processadas ANTES de filtrar os dados
-        const cellsToRemove = [];
-        for (const f of features) {
-            const currentProcessedData = this.map.getSource('processed-visibility')._data;
-            const relatedCells = currentProcessedData.features.filter(pf => pf.properties.id.startsWith(`${f.properties.id}-`));
-            cellsToRemove.push(...relatedCells);
+        // ✅ SOLUÇÃO 1: Usar o mesmo padrão do LOS Control
+        // Remover cada feature individualmente usando a função store
+        for (const feature of features) {
+            try {
+                const featureId = feature.properties.id;
+
+                // ✅ A função removeFeature no store.js já:
+                // - Remove a feature principal
+                // - Remove automaticamente as features processadas relacionadas
+                // - Registra a ação para undo/redo
+                await removeFeature('visibility', featureId);
+
+            } catch (error) {
+                console.error(`Error removing Visibility feature ${featureId}:`, error);
+            }
         }
 
-        // ✅ PASSO 2: Remover do IndexedDB PRIMEIRO
-        for (const f of features) {
-            await removeFeature('visibility', f.properties.id);
-        }
+        // ✅ SOLUÇÃO 2: Recarregar sources do zero (mais seguro)
+        // Ao invés de manipular dados manualmente, recarrega tudo do IndexedDB
+        const currentMapFeatures = await getCurrentMapFeatures();
 
-        // ✅ PASSO 3: Atualizar fontes visuais POR ÚLTIMO
-        const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
-        const idsToDelete = new Set(features.map(f => f.properties.id.toString()));
+        // Atualizar source principal
+        this.map.getSource('visibility').setData({
+            type: 'FeatureCollection',
+            features: currentMapFeatures.visibility
+        });
 
-        data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
-        processedData.features = processedData.features.filter(f => !idsToDelete.has(f.properties.id.split('-')[0]));
-
-        this.map.getSource('visibility').setData(data);
-        this.map.getSource('processed-visibility').setData(processedData);
+        // Atualizar source processada
+        this.map.getSource('processed-visibility').setData({
+            type: 'FeatureCollection',
+            features: currentMapFeatures.processed_visibility
+        });
     }
 
     hasFeatureChanged = (feature, initialProperties) => {

@@ -1,5 +1,5 @@
 // Path: js\controls_sig\los_tool\add_los_control.js
-import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 import { IDUtils } from '../id_utils.js';
 class AddLOSControl {
@@ -259,6 +259,7 @@ class AddLOSControl {
                 id: feature.properties.id + '-visible',
                 properties: {
                     ...properties,
+                    id: feature.properties.id + '-visible',
                     color: AddLOSControl.VISIBLE_COLOR
                 },
                 geometry: {
@@ -272,6 +273,7 @@ class AddLOSControl {
                 id: feature.properties.id + '-obstructed',
                 properties: {
                     ...properties,
+                    id: feature.properties.id + '-obstructed',
                     color: AddLOSControl.OBSTRUCTED_COLOR
                 },
                 geometry: {
@@ -285,6 +287,7 @@ class AddLOSControl {
                 id: feature.properties.id + '-visible',
                 properties: {
                     ...properties,
+                    id: feature.properties.id + '-visible',
                     color: AddLOSControl.VISIBLE_COLOR
                 },
                 geometry: feature.geometry
@@ -456,23 +459,39 @@ class AddLOSControl {
     }
 
     deleteFeatures = async (features) => {
-        if (features.length === 0) {
-            return;
-        }
-        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-        const idsToDelete = new Set(features.map(f => f.properties.id.toString()));
-        data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
-        processedData.features = processedData.features.filter(f => !idsToDelete.has(f.properties.id.split('-')[0]));
+    if (features.length === 0) return;
 
-        this.map.getSource('los').setData(data);
-        this.map.getSource('processed-los').setData(processedData);
-
-        for (const f of features) {
-            await removeFeature('los', f.properties.id);
-            this.removeFeatureMeasurement(f.properties.id);
+    // Remover de cada feature individualmente
+    for (const feature of features) {
+        try {
+            const featureId = feature.properties.id;
+            
+            // Remover medição
+            this.removeFeatureMeasurement(featureId);
+            
+            // Store remove automaticamente features principais E processadas
+            await removeFeature('los', featureId);
+            
+        } catch (error) {
+            console.error(`Error removing LOS feature ${featureId}:`, error);
         }
     }
+
+    // Recarregar sources do zero (mais seguro)
+    const currentMapFeatures = await getCurrentMapFeatures();
+    
+    // Atualizar source principal
+    this.map.getSource('los').setData({
+        type: 'FeatureCollection',
+        features: currentMapFeatures.los
+    });
+
+    // Atualizar source processada
+    this.map.getSource('processed-los').setData({
+        type: 'FeatureCollection',
+        features: currentMapFeatures.processed_los
+    });
+}
 
     hasFeatureChanged = (feature, initialProperties) => {
         return (
