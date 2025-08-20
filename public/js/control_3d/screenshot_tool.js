@@ -1,4 +1,4 @@
-// Path: js\control_3d\screenshot_tool.js
+// Path: js/control_3d/screenshot_tool.js
 let viewerInstance = null;
 
 /**
@@ -10,143 +10,320 @@ async function takeScreenshot(viewer) {
     viewerInstance = viewer;
     
     try {
-        // Garantir que a cena seja renderizada completamente
-        await ensureSceneRendered();
+        console.log('🎯 Iniciando captura de screenshot 3D...');
         
-        // Tentar capturar o screenshot com método robusto
+        // Verificar se preserveDrawingBuffer está ativo
+        if (!checkPreserveDrawingBuffer()) {
+            console.warn('⚠️ preserveDrawingBuffer não está ativo, tentando workaround...');
+        }
+        
+        // Aguardar que tudo esteja carregado e renderizado
+        await ensureFullyRendered();
+        
+        // Capturar o screenshot com método robusto
         const success = await captureScreenshotRobust();
+        
+        if (success) {
+            console.log('✅ Screenshot 3D capturado com sucesso');
+        } else {
+            console.error('❌ Falha ao capturar screenshot 3D');
+        }
+        
         return success;
         
     } catch (error) {
-        console.error('Erro ao capturar screenshot 3D:', error);
+        console.error('💥 Erro ao capturar screenshot 3D:', error);
         alert('Não foi possível capturar o screenshot 3D');
         return false;
     }
 }
 
 /**
- * Garante que a cena Cesium esteja completamente renderizada
+ * Verifica se preserveDrawingBuffer está ativo no contexto WebGL
  */
-function ensureSceneRendered() {
-    return new Promise((resolve) => {
-        // Forçar renderização
-        viewerInstance.render();
+function checkPreserveDrawingBuffer() {
+    try {
+        const canvas = viewerInstance.scene.canvas;
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
         
-        // Aguardar próximo frame para garantir renderização completa
-        requestAnimationFrame(() => {
-            // Render mais uma vez para garantir
-            viewerInstance.render();
-            requestAnimationFrame(resolve);
-        });
+        if (gl) {
+            const contextAttributes = gl.getContextAttributes();
+            return contextAttributes && contextAttributes.preserveDrawingBuffer;
+        }
+        
+        return false;
+    } catch (error) {
+        console.warn('Erro ao verificar preserveDrawingBuffer:', error);
+        return false;
+    }
+}
+
+/**
+ * Aguarda que a cena esteja completamente carregada e renderizada
+ */
+async function ensureFullyRendered() {
+    const scene = viewerInstance.scene;
+    const globe = scene.globe;
+    
+    // 1. Aguardar que imagery layers estejam prontos
+    await waitForImageryLayers();
+    
+    // 2. Aguardar que terrain esteja carregado
+    await waitForTerrain();
+    
+    // 3. Aguardar que tilesets estejam carregados
+    await waitForTilesets();
+    
+    // 4. Forçar várias renderizações para garantir que tudo foi desenhado
+    await renderMultipleFrames();
+    
+    console.log('🎨 Cena totalmente renderizada');
+}
+
+/**
+ * Aguarda que todos os imagery layers estejam prontos
+ */
+function waitForImageryLayers() {
+    return new Promise((resolve) => {
+        const imageryLayers = viewerInstance.imageryLayers;
+        console.log(imageryLayers)
+        if (imageryLayers._layers.length <=1) {
+            console.log(`aqui`)
+            resolve();
+            return;
+        }
+        
+        let readyCount = 0;
+        const totalLayers = imageryLayers.length;
+        
+        const checkReady = () => {
+            readyCount = 0;
+            for (let i = 0; i < imageryLayers.length; i++) {
+                const layer = imageryLayers.get(i);
+                if (layer.ready) {
+                    readyCount++;
+                }
+            }
+            
+            if (readyCount === totalLayers) {
+                console.log('🌍 Imagery layers prontos');
+                resolve();
+            } else {
+                setTimeout(checkReady, 100);
+            }
+        };
+        
+        checkReady();
     });
 }
 
 /**
- * Captura screenshot com estratégia robusta de fallbacks
+ * Aguarda que o terrain esteja carregado na view atual
+ */
+function waitForTerrain() {
+    return new Promise((resolve) => {
+        const scene = viewerInstance.scene;
+        const globe = scene.globe;
+        console.log(globe.terrainProvider)
+        // Se usando EllipsoidTerrainProvider, não precisa aguardar
+        if (!globe.terrainProvider._availability) {
+            console.log(`aqui 2`)
+            resolve();
+            return;
+        }
+        
+        // Para CesiumTerrainProvider, aguardar que esteja pronto
+        const checkTerrain = () => {
+            if (globe.terrainProvider.ready) {
+                console.log('🏔️ Terrain provider pronto');
+                // Aguardar um pouco mais para garantir que os tiles foram carregados
+                setTimeout(resolve, 200);
+            } else {
+                setTimeout(checkTerrain, 100);
+            }
+        };
+        
+        checkTerrain();
+    });
+}
+
+/**
+ * Aguarda que os tilesets 3D estejam carregados
+ */
+function waitForTilesets() {
+    return new Promise((resolve) => {
+        const primitives = viewerInstance.scene.primitives;
+        const tilesets = [];
+        
+        // Encontrar todos os tilesets
+        for (let i = 0; i < primitives.length; i++) {
+            const primitive = primitives.get(i);
+            if (primitive instanceof Cesium.Cesium3DTileset) {
+                tilesets.push(primitive);
+            }
+        }
+        
+        if (tilesets.length === 0) {
+            resolve();
+            return;
+        }
+        
+        // Aguardar que todos estejam prontos
+        const checkTilesets = () => {
+            const allReady = tilesets.every(tileset => tileset.ready);
+            
+            if (allReady) {
+                console.log('🏗️ Tilesets 3D prontos');
+                // Aguardar um pouco mais para carregamento de tiles na view atual
+                setTimeout(resolve, 300);
+            } else {
+                setTimeout(checkTilesets, 100);
+            }
+        };
+        
+        checkTilesets();
+    });
+}
+
+/**
+ * Renderiza múltiplos frames para garantir que tudo foi desenhado
+ */
+function renderMultipleFrames() {
+    return new Promise((resolve) => {
+        let frameCount = 0;
+        const maxFrames = 5;
+        
+        function renderFrame() {
+            frameCount++;
+            
+            // Forçar renderização
+            viewerInstance.render();
+            
+            if (frameCount >= maxFrames) {
+                // Aguardar mais um frame para garantir
+                requestAnimationFrame(() => {
+                    viewerInstance.render();
+                    console.log(`🎬 ${frameCount + 1} frames renderizados`);
+                    resolve();
+                });
+            } else {
+                requestAnimationFrame(renderFrame);
+            }
+        }
+        
+        renderFrame();
+    });
+}
+
+/**
+ * Captura screenshot com estratégia robusta
  */
 async function captureScreenshotRobust() {
     const canvas = viewerInstance.scene.canvas;
     
-    // Método 1: Tentar dataURL direto (mais compatível com HTTP)
+    // Método 1: Verificar se o canvas tem conteúdo válido
+    if (await isCanvasEmpty(canvas)) {
+        console.warn('⚠️ Canvas vazio detectado, tentando método alternativo...');
+        return await captureWithWorkaround();
+    }
+    
+    // Método 2: Captura direta do canvas (melhor qualidade)
     try {
         const dataURL = canvas.toDataURL('image/png');
-        await downloadImageFromDataURL(dataURL);
-        return true;
-    } catch (securityError) {
-        console.warn('Erro de segurança com dataURL, tentando com blob...');
-        return await captureWithBlob(canvas);
-    }
-}
-
-/**
- * Captura usando blob como alternativa
- */
-async function captureWithBlob(canvas) {
-    try {
-        // Criar um novo canvas para garantir que capturamos corretamente
-        const offscreenCanvas = document.createElement('canvas');
-        offscreenCanvas.width = canvas.width;
-        offscreenCanvas.height = canvas.height;
         
-        // Tentar blob primeiro, depois dataURL se falhar
-        return new Promise((resolve) => {
-            try {
-                offscreenCanvas.toBlob(async (blob) => {
-                    if (blob) {
-                        await downloadImageFromBlob(blob);
-                        resolve(true);
-                    } else {
-                        // Fallback para dataURL
-                        const dataURL = offscreenCanvas.toDataURL('image/png');
-                        await downloadImageFromDataURL(dataURL);
-                        resolve(true);
-                    }
-                }, 'image/png');
-            } catch (blobError) {
-                console.warn('Erro com blob, usando dataURL como fallback');
-                const dataURL = offscreenCanvas.toDataURL('image/png');
-                downloadImageFromDataURL(dataURL).then(() => resolve(true));
-            }
-        });
+        // Verificar se o dataURL é válido (não só header)
+        if (dataURL.length > 100) { // Um PNG válido tem mais que 100 caracteres
+            await downloadImageFromDataURL(dataURL);
+            return true;
+        } else {
+            throw new Error('DataURL muito pequeno, provavelmente vazio');
+        }
         
     } catch (error) {
-        console.error('Erro ao processar canvas com blob:', error);
-        return await captureWithAlternativeMethod();
+        console.warn('Erro na captura direta, tentando método alternativo:', error);
+        return await captureWithWorkaround();
     }
 }
 
 /**
- * Método alternativo usando Cesium's built-in screenshot functionality
+ * Verifica se o canvas está vazio (preto ou transparente)
  */
-async function captureWithAlternativeMethod() {
-    console.warn('Tentando método alternativo para captura de screenshot Cesium...');
+async function isCanvasEmpty(canvas) {
+    try {
+        // Criar um canvas temporário para testar
+        const testCanvas = document.createElement('canvas');
+        testCanvas.width = Math.min(canvas.width, 100); // Amostra pequena para performance
+        testCanvas.height = Math.min(canvas.height, 100);
+        
+        const ctx = testCanvas.getContext('2d');
+        
+        // Copiar uma pequena área do canvas original
+        ctx.drawImage(canvas, 0, 0, testCanvas.width, testCanvas.height);
+        
+        // Obter dados dos pixels
+        const imageData = ctx.getImageData(0, 0, testCanvas.width, testCanvas.height);
+        const data = imageData.data;
+        
+        // Verificar se há pixels não-pretos
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const a = data[i + 3];
+            
+            // Se encontrar qualquer pixel que não seja preto/transparente
+            if ((r > 0 || g > 0 || b > 0) && a > 0) {
+                return false; // Canvas não está vazio
+            }
+        }
+        
+        return true; // Canvas está vazio
+        
+    } catch (error) {
+        console.warn('Erro ao verificar se canvas está vazio:', error);
+        return false; // Em caso de erro, assumir que não está vazio
+    }
+}
+
+/**
+ * Método alternativo para captura quando o canvas está vazio
+ */
+async function captureWithWorkaround() {
+    console.log('🔄 Executando workaround para canvas vazio...');
     
     try {
-        // Método alternativo: usar requestAnimationFrame para garantir renderização
-        return new Promise((resolve) => {
-            // Aguardar alguns frames para garantir renderização completa
-            let frameCount = 0;
-            const maxFrames = 3;
-            
-            function waitForRender() {
-                frameCount++;
-                
-                if (frameCount >= maxFrames) {
-                    try {
-                        // Tentar capturar novamente após aguardar renderização
-                        const canvas = viewerInstance.scene.canvas;
-                        
-                        // Forçar preserveDrawingBuffer se possível
-                        if (viewerInstance.scene.context._gl) {
-                            const gl = viewerInstance.scene.context._gl;
-                            if (gl.getParameter) {
-                                // Verificar se preserveDrawingBuffer está ativo
-                                const preserveBuffer = gl.getParameter(gl.getContextAttributes()?.preserveDrawingBuffer);
-                                if (!preserveBuffer) {
-                                    console.warn('preserveDrawingBuffer não está ativo, screenshot pode não funcionar corretamente');
-                                }
-                            }
-                        }
-                        
-                        const dataURL = canvas.toDataURL('image/png');
-                        downloadImageFromDataURL(dataURL).then(() => resolve(true));
-                        
-                    } catch (error) {
-                        console.error('Erro no método alternativo:', error);
-                        // Último recurso: captura sem verificações
-                        captureLastResort().then(resolve);
-                    }
-                } else {
-                    viewerInstance.render();
-                    requestAnimationFrame(waitForRender);
-                }
-            }
-            
-            waitForRender();
-        });
+        // Salvar configurações atuais
+        const scene = viewerInstance.scene;
+        const originalRequestRenderMode = scene.requestRenderMode;
+        
+        // Desabilitar render mode otimizado temporariamente
+        scene.requestRenderMode = false;
+        
+        // Aguardar um tempo maior para recarregamento
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Forçar múltiplas renderizações
+        for (let i = 0; i < 10; i++) {
+            viewerInstance.render();
+            await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+        
+        // Tentar capturar novamente
+        const canvas = viewerInstance.scene.canvas;
+        const dataURL = canvas.toDataURL('image/png');
+        
+        // Restaurar configurações originais
+        scene.requestRenderMode = originalRequestRenderMode;
+        
+        if (dataURL.length > 100) {
+            await downloadImageFromDataURL(dataURL);
+            return true;
+        } else {
+            throw new Error('Ainda produzindo canvas vazio após workaround');
+        }
         
     } catch (error) {
-        console.error('Erro no método alternativo Cesium:', error);
+        console.error('Workaround falhou:', error);
         return await captureLastResort();
     }
 }
@@ -155,21 +332,36 @@ async function captureWithAlternativeMethod() {
  * Último recurso para captura
  */
 async function captureLastResort() {
+    console.warn('🆘 Usando último recurso para screenshot...');
+    
     try {
-        console.warn('Usando último recurso para screenshot...');
+        // Aguardar mais tempo
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Tentar capturar o canvas diretamente sem verificações
+        // Forçar renderização com configurações menos otimizadas
+        const scene = viewerInstance.scene;
+        const originalFXAA = scene.fxaa;
+        const originalRequestRenderMode = scene.requestRenderMode;
+        
+        scene.fxaa = true;
+        scene.requestRenderMode = false;
+        
+        // Múltiplas renderizações
+        for (let i = 0; i < 15; i++) {
+            viewerInstance.render();
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
         const canvas = viewerInstance.scene.canvas;
-        
-        // Aguardar um momento e tentar novamente
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        viewerInstance.render();
-        
         const dataURL = canvas.toDataURL('image/png');
         
-        if (dataURL === 'data:,') {
-            // Canvas completamente vazio
+        // Restaurar configurações
+        scene.fxaa = originalFXAA;
+        scene.requestRenderMode = originalRequestRenderMode;
+        
+        if (dataURL === 'data:,' || dataURL.length < 100) {
+            console.error('❌ Canvas permanece vazio mesmo após último recurso');
+            alert('Screenshot não pôde ser capturado. Tente aguardar o carregamento completo da cena.');
             return false;
         }
         
@@ -177,19 +369,18 @@ async function captureLastResort() {
         return true;
         
     } catch (error) {
-        console.error('Último recurso falhou:', error);
+        console.error('Último recurso falhou completamente:', error);
         return false;
     }
 }
 
 /**
- * Download usando dataURL (mais compatível com HTTP)
+ * Download usando dataURL
  */
 async function downloadImageFromDataURL(dataURL) {
     try {
-        // Método mais compatível com HTTP - usar dataURL diretamente
         const link = document.createElement('a');
-        link.download = `ebgeo-3d-${new Date().toISOString().slice(0, 10)}.png`;
+        link.download = `ebgeo-3d-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
         link.href = dataURL;
         
         // Simular clique para iniciar download
@@ -197,47 +388,11 @@ async function downloadImageFromDataURL(dataURL) {
         link.click();
         document.body.removeChild(link);
         
+        console.log('💾 Download iniciado:', link.download);
+        
     } catch (error) {
         console.error('Erro ao fazer download via dataURL:', error);
-    }
-}
-
-/**
- * Download usando blob com fallback
- */
-async function downloadImageFromBlob(blob) {
-    try {
-        // Primeiro tentar o método tradicional com blob
-        const url = URL.createObjectURL(blob);
-        
-        const link = document.createElement('a');
-        link.download = `ebgeo-3d-${new Date().toISOString().slice(0, 10)}.png`;
-        link.href = url;
-        
-        // Adicionar evento de cleanup
-        link.addEventListener('click', () => {
-            setTimeout(() => {
-                URL.revokeObjectURL(url);
-            }, 100);
-        });
-        
-        // Simular clique para iniciar download
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-    } catch (error) {
-        console.warn('Erro com blob URL, convertendo para dataURL');
-        // Fallback: converter blob para dataURL
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            downloadImageFromDataURL(event.target.result);
-        };
-        reader.onerror = () => {
-            console.error('Erro ao ler blob');
-            alert('Não foi possível processar a imagem 3D');
-        };
-        reader.readAsDataURL(blob);
+        throw error;
     }
 }
 

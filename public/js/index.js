@@ -1,4 +1,4 @@
-// Path: js\index.js
+// Path: js/index.js
 import './config-loader.js'; // Aplica as configurações automaticamente
 
 import { } from './map_sig.js'
@@ -97,7 +97,7 @@ async function switchTo3D() {
         openMobileMenu(queryMobile);
         
     } catch (error) {
-        console.error('❌ Erro ao alternar para 3D:', error);
+        console.error('⚠ Erro ao alternar para 3D:', error);
         showError('Falha ao carregar o mapa 3D. Tente novamente.');
         
         // Fallback para 2D
@@ -105,15 +105,20 @@ async function switchTo3D() {
     }
 }
 
+// ===== FUNÇÃO MODIFICADA - SEM DESTRUIÇÃO DO CESIUM =====
 function switchTo2D() {
     if (appState.currentMode === 'sig') return;
     
+    console.log('🔄 Alternando para 2D - SEM destruição do Cesium');
     
-    // Pausa renderização 3D PRIMEIRO
+    // ✅ APENAS PAUSA RENDERIZAÇÃO - NÃO DESTRÓI
     if (appState.cesiumState === 'loaded') {
         pauseRendering();
-        cleanup3DFeatures();
-        appState.cesiumState = 'unloaded'; 
+        
+        // ❌ REMOVIDO: cleanup3DFeatures() - Causa o erro
+        // ❌ REMOVIDO: appState.cesiumState = 'unloaded' - Mantém loaded
+        
+        console.log('⏸️ Cesium pausado mas preservado na memória');
     }
     
     // Hide 3D, show 2D
@@ -122,6 +127,8 @@ function switchTo2D() {
     
     appState.currentMode = 'sig';
     openMobileMenu(queryMobile);
+    
+    console.log('✅ Alternância para 2D concluída - Cesium preservado');
 }
 
 async function initializeCesium() {
@@ -228,6 +235,7 @@ function hideLoadingIndicator() {
         $(this).remove();
     });
 }
+
 function showError(message) {
     const errorHTML = `
         <div class="cesium-error-overlay" style="
@@ -399,11 +407,16 @@ function debounce(func, wait) {
     };
 }
 
-// ===== CLEANUP =====
+// ===== CLEANUP MODIFICADO - APENAS EM CASOS EXTREMOS =====
 window.addEventListener('beforeunload', () => {
-    // Cleanup recursos antes de sair
+    // ✅ MODIFICADO: Cleanup apenas ao sair da aplicação completa
     if (appState.cesiumState === 'loaded') {
-        cleanup3DFeatures();
+        console.log('🧹 Cleanup final do Cesium ao sair da aplicação');
+        try {
+            cleanup3DFeatures();
+        } catch (error) {
+            console.warn('⚠️ Erro no cleanup final (ignorado):', error);
+        }
     }
     
     attributesPanelObserver.disconnect();
@@ -411,6 +424,21 @@ window.addEventListener('beforeunload', () => {
 
 // ===== STREET VIEW SETUP =====
 $('#mini-map-street-view').css({ display: 'none' });
+
+// ===== FUNÇÃO ADICIONAL PARA CLEANUP MANUAL (SE NECESSÁRIO) =====
+// Função para forçar limpeza do Cesium se necessário (debug/manutenção)
+window.forceCesiumCleanup = function() {
+    console.log('🧹 Forçando cleanup manual do Cesium');
+    if (appState.cesiumState === 'loaded') {
+        try {
+            cleanup3DFeatures();
+            appState.cesiumState = 'unloaded';
+            console.log('✅ Cleanup manual concluído');
+        } catch (error) {
+            console.error('❌ Erro no cleanup manual:', error);
+        }
+    }
+};
 
 // ===== EXPORTS PARA COMPATIBILIDADE =====
 window.appState = appState; // Para debug

@@ -41,7 +41,6 @@ const config = {
     },
     viewer: {
       infoBox: false,
-      shouldAnimate: false,
       vrButton: false,
       geocoder: false,
       homeButton: false,
@@ -51,8 +50,6 @@ const config = {
       animation: false,
       timeline: false,
       fullscreenButton: false,
-      requestRenderMode: true,
-      maximumRenderTimeChange: Infinity
     },
     providers: {
       // ===== IMAGERY PROVIDER (Imagens de fundo) =====
@@ -65,7 +62,6 @@ const config = {
           minimumLevel: 0,
           tileWidth: 256,
           tileHeight: 256,
-          credit: 'Imagery Local Server'
         }
       },
       // ===== TERRAIN PROVIDER (Terreno 3D) =====
@@ -75,9 +71,6 @@ const config = {
         url: 'http://localhost/terrain/tilesets/terrain',
         options: {
           requestVertexNormals: true,
-          requestWaterMask: false,
-          requestMetadata: false,
-          credit: 'Terrain Local Server'
         }
       }
     }
@@ -108,19 +101,22 @@ config.createImageryProvider = () => {
       return {
         provider: 'UrlTemplateImageryProvider',
         url: imageryConfig.url,
-        ...imageryConfig.options
+        // Configurações essenciais para imagery
+        maximumLevel: imageryConfig.options.maximumLevel || 18,
+        minimumLevel: imageryConfig.options.minimumLevel || 0,
+        tileWidth: imageryConfig.options.tileWidth || 256,
+        tileHeight: imageryConfig.options.tileHeight || 256
       };
     case 'WMS':
       return {
         provider: 'WebMapServiceImageryProvider',
         url: imageryConfig.url,
-        ...imageryConfig.options
+        layers: imageryConfig.options.layers
       };
     case 'SingleTile':
       return {
         provider: 'SingleTileImageryProvider',
-        url: imageryConfig.url,
-        ...imageryConfig.options
+        url: imageryConfig.url
       };
     default:
       return false;
@@ -139,7 +135,8 @@ config.createTerrainProvider = () => {
       return {
         provider: 'CesiumTerrainProvider',
         url: terrainConfig.url,
-        ...terrainConfig.options
+        // Apenas options essenciais
+        requestVertexNormals: terrainConfig.options.requestVertexNormals || false
       };
     case 'Ellipsoid':
       return { provider: 'EllipsoidTerrainProvider' };
