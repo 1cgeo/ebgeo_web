@@ -135,7 +135,8 @@ class MapControl {
             baseLayerControl.appendTo('#header-map-list');
         }
 
-        await this.switchMap()
+        await this.updateMapList();
+        await this.switchMap();
     }
 
     showToast(message, type = 'info') {

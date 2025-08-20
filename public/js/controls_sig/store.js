@@ -1,5 +1,8 @@
 // Path: js\controls_sig\store.js
 
+const SCHEMA_VERSION = '1.2';
+const MIN_SCHEMA_VERSION = '1.2';
+
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
@@ -132,6 +135,54 @@ function removeProcessedFeaturesFromData(processedType, processedFeatures, mapDa
         .filter(pf => !processedIds.has(pf.properties.id));
 }
 
+// Função auxiliar para comparar versões simples (formato X.Y)
+export const compareVersions = (version1, version2) => {
+    const v1Parts = version1.split('.').map(Number);
+    const v2Parts = version2.split('.').map(Number);
+    
+    for (let i = 0; i < Math.max(v1Parts.length, v2Parts.length); i++) {
+        const v1Part = v1Parts[i] || 0;
+        const v2Part = v2Parts[i] || 0;
+        
+        if (v1Part < v2Part) return -1;
+        if (v1Part > v2Part) return 1;
+    }
+    return 0;
+};
+
+// ✅ NOVA FUNÇÃO: Verificar e limpar dados incompatíveis
+const checkAndCleanLegacyData = async () => {
+    try {
+        const currentSchemaVersion = await appStore.getItem('schemaVersion');
+        
+        // Se não há versão salva ou é menor que a mínima aceita, limpar tudo
+        if (!currentSchemaVersion || compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) < 0) {
+            console.log('🧹 Detectados dados de versão incompatível, limpando...');
+            
+            // Limpar todos os stores
+            await mapStore.clear();
+            await imageStore.clear();
+            await appStore.clear();
+            
+            // Definir nova versão
+            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+            
+            console.log('✅ Dados legados limpos, nova versão definida:', SCHEMA_VERSION);
+        }
+    } catch (error) {
+        console.warn('⚠️ Erro ao verificar versão do schema:', error);
+        // Em caso de erro, limpar tudo para garantir estado limpo
+        try {
+            await mapStore.clear();
+            await imageStore.clear();
+            await appStore.clear();
+            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        } catch (cleanupError) {
+            console.error('❌ Erro crítico na limpeza de dados:', cleanupError);
+        }
+    }
+};
+
 // Função para resetar o estado da memória
 export const resetMemoryStore = () => {
     memoryStore.maps = {
@@ -171,6 +222,15 @@ export const getCurrentMapName = async () => {
 
 export const initializeWithLastActiveMap = async () => {
     try {
+        // ✅ ADIÇÃO: Verificar e limpar dados legados
+        await checkAndCleanLegacyData();
+        
+        // ✅ ADIÇÃO: Garantir que a versão do schema esteja salva
+        const currentSchemaVersion = await appStore.getItem('schemaVersion');
+        if (!currentSchemaVersion) {
+            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        }
+        
         // Verificar se há mapas salvos
         const allMapNames = await getAllMapNames();
         
@@ -538,7 +598,6 @@ export const renameMap = async (oldName, newName) => {
 
 export const setCurrentMap = async (mapName) => {
     memoryStore.currentMap = mapName;
-    
     // Persistir último mapa ativo
     await setLastActiveMap(mapName);
     
@@ -762,7 +821,7 @@ export const clearMapPosition = async (mapName = null) => {
 };
 
 // Exportar stores para uso direto quando necessário
-export { mapStore, imageStore, appStore };
+export { mapStore, imageStore, appStore, SCHEMA_VERSION, MIN_SCHEMA_VERSION };
 
 // Manter compatibilidade com código existente
 const store = memoryStore;

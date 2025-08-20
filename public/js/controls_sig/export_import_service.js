@@ -8,7 +8,10 @@ import {
     imageStore,
     appStore,
     resetMemoryStore,
-    getCurrentBaseLayer
+    getCurrentBaseLayer,
+    MIN_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+    compareVersions
 } from './store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -154,7 +157,7 @@ export class ExportImportService {
             }
 
             const data = {
-                version: '1.0',
+                version: SCHEMA_VERSION,
                 currentMap: await getCurrentMapName(),
                 maps: {}
             };
@@ -282,6 +285,14 @@ export class ExportImportService {
 
             const dataJson = await dataFile.async('string');
             const data = JSON.parse(dataJson);
+
+            if (!data.version) {
+                throw new Error('Arquivo .ebgeo sem informação de versão. Use a versão mais recente da aplicação para gerar o arquivo.');
+            }
+
+            if (compareVersions(data.version, MIN_SCHEMA_VERSION) < 0) {
+                throw new Error(`Arquivo .ebgeo incompatível. Versão do arquivo: ${data.version}, versão mínima aceita: ${MIN_SCHEMA_VERSION}`);
+            }
 
             // Processar mapas
             let importedMapsCount = 0;
