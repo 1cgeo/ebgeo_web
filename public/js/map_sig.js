@@ -57,17 +57,17 @@ const boundaryControl = new AddBoundaryControl(toolManager);
 const occupiedFrontControl = new AddOccupiedFrontControl(toolManager);
 const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
 
-selectionManager.setDrawControl(drawControl);
-selectionManager.setTextControl(textControl);
-selectionManager.setImageControl(imageControl);
-selectionManager.setLosControl(losControl);
-selectionManager.setVisibilityControl(visibilityControl);
-selectionManager.setCircleControl(circleControl);
-selectionManager.setEllipseControl(ellipseControl);
-selectionManager.setArrowControl(arrowControl);
-selectionManager.setBoundaryControl(boundaryControl);
-selectionManager.setOccupiedFrontControl(occupiedFrontControl);
-selectionManager.setMilitarySymbolControl(militarySymbolControl);
+selectionManager.registerControl('draw', drawControl);
+selectionManager.registerControl('text', textControl);
+selectionManager.registerControl('image', imageControl);
+selectionManager.registerControl('los', losControl);
+selectionManager.registerControl('visibility', visibilityControl);
+selectionManager.registerControl('circle', circleControl);
+selectionManager.registerControl('ellipse', ellipseControl);
+selectionManager.registerControl('arrow', arrowControl);
+selectionManager.registerControl('boundary', boundaryControl);
+selectionManager.registerControl('occupied_front', occupiedFrontControl);
+selectionManager.registerControl('military_symbol', militarySymbolControl);
 
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);

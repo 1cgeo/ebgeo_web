@@ -1,4 +1,53 @@
 // Path: js\controls_sig\tool_manager\move_handler.js
+
+// ===== CONFIGURATION =====
+
+/**
+ * Configuration for edit handles detection
+ * Adding new edit handle types requires only adding an entry here
+ */
+const EDIT_HANDLE_CONFIG = {
+    'circle': {
+        source: 'circle-edit-handles',
+        editModeProperty: 'circle_editing',
+        controlKey: 'circle'
+    },
+    'ellipse': {
+        source: 'ellipse-edit-handles', 
+        editModeProperty: 'ellipse_editing',
+        controlKey: 'ellipse'
+    },
+    'arrow': {
+        source: 'arrow-edit-handles',
+        editModeProperty: 'arrow_editing', 
+        controlKey: 'arrow'
+    },
+    'boundary': {
+        source: 'boundary-edit-handles',
+        editModeProperty: 'boundary_editing',
+        controlKey: 'boundary'
+    },
+    'occupied_front': {
+        source: 'occupied-front-edit-handles',
+        editModeProperty: 'occupied_front_editing',
+        controlKey: 'occupied_front'
+    }
+};
+
+/**
+ * Controls that support editing mode
+ */
+const CONTROLS_WITH_EDIT_MODE = ['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front'];
+
+/**
+ * Valid sources for drag operations
+ */
+const VALID_DRAG_SOURCES = [
+    'los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 
+    'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys', 
+    'occupied_fronts', 'military_symbols'
+];
+
 class MoveHandler {
     constructor(map, selectionManager, uiManager) {
         this.map = map;
@@ -25,12 +74,15 @@ class MoveHandler {
 
         // Feature type strategies lookup
         this.featureUpdateStrategies = this.initializeFeatureStrategies();
-        this.featureManagersMap = this.initializeFeatureManagers();
 
         this.setupEventListeners();
     }
 
-    // ✅ NOVA FUNÇÃO: Helper para extrair ID de qualquer tipo de feature
+    // ===== HELPER METHODS =====
+
+    /**
+     * Helper to extract ID from any type of feature
+     */
     getFeatureId(feature) {
         // Para features customizadas e features do MapLibreDraw do SelectionManager
         if (feature.properties && feature.properties.id !== undefined) {
@@ -44,12 +96,55 @@ class MoveHandler {
         return null;
     }
 
-    // ✅ NOVA FUNÇÃO: Helper para verificar se feature é do MapLibreDraw
+    /**
+     * Helper to check if feature is from MapLibreDraw
+     */
     isMapLibreDrawFeature(feature) {
         return feature.source === 'mapbox-gl-draw-cold' || 
                feature.source === 'mapbox-gl-draw-hot' ||
                (feature.properties && feature.properties.source === 'draw');
     }
+
+    /**
+     * Generic method to get control by type - compatible with refactored SelectionManager
+     */
+    getControl(type) {
+        return this.selectionManager.controls.get(type);
+    }
+
+    /**
+     * Generic method to check if control is in editing mode
+     */
+    isControlInEditingMode(type) {
+        const control = this.getControl(type);
+        return control && control.isEditingMode && control.isEditingMode();
+    }
+
+    /**
+     * Generic method to check for edit handles of specific type
+     */
+    hasEditHandlesOfType(clickedFeatures, type) {
+        const config = EDIT_HANDLE_CONFIG[type];
+        if (!config) return false;
+        
+        return clickedFeatures.some(feature =>
+            feature.source === config.source &&
+            feature.properties && (
+                feature.properties.user_isEditingHandle ||
+                feature.properties.meta === 'vertex' ||
+                feature.properties.mode === config.editModeProperty ||
+                // Special case for boundary handles
+                (type === 'boundary' && (
+                    feature.properties.handleType === 'vertex' ||
+                    feature.properties.handleType === 'midpoint' ||
+                    feature.properties.handleType === 'symbol' ||
+                    feature.properties.handleType === 'size'
+                ))
+            )
+        );
+    }
+
+    // ===== INITIALIZATION =====
 
     initializeFeatureStrategies() {
         return {
@@ -67,25 +162,11 @@ class MoveHandler {
         };
     }
 
-    initializeFeatureManagers() {
-        return {
-            'draw': 'selectedDrawFeatures',
-            'text': 'selectedTextFeatures',
-            'image': 'selectedImageFeatures',
-            'los': 'selectedLOSFeatures',
-            'visibility': 'selectedVisibilityFeatures',
-            'circle': 'selectedCircleFeatures',
-            'ellipse': 'selectedEllipseFeatures',
-            'arrow': 'selectedArrowFeatures',
-            'boundary': 'selectedBoundaryFeatures',
-            'occupied_front': 'selectedOccupiedFrontFeatures',
-            'military_symbol': 'selectedMilitarySymbolFeatures'
-        };
-    }
-
     setupEventListeners() {
         this.map.on('mousedown', this.onMouseDown.bind(this));
     }
+
+    // ===== EVENT HANDLING =====
 
     onMouseDown(e) {
         this.startDrag(e);
@@ -117,8 +198,9 @@ class MoveHandler {
         if (allSelectedFeatures.length === 0) return;
 
         const clickedFeatures = this.map.queryRenderedFeatures(e.point);
-        const validSources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys', 'occupied_fronts', 'military_symbols'];
-        const filteredFeatures = clickedFeatures.filter(feature => validSources.includes(feature.source));
+        const filteredFeatures = clickedFeatures.filter(feature => 
+            VALID_DRAG_SOURCES.includes(feature.source)
+        );
 
         // Check for edit handles (maplibredraw midpoint/vertex handles)
         const hasMaplibreDrawEditHandles = filteredFeatures.some(feature =>
@@ -129,20 +211,20 @@ class MoveHandler {
             )
         );
 
-        // Check for custom tool edit handles (circle, ellipse, etc.)
+        // Check for custom tool edit handles using unified method
         const hasCustomToolEditHandles = this.hasCustomEditHandles(clickedFeatures);
 
         if (filteredFeatures.length === 0 || hasMaplibreDrawEditHandles || hasCustomToolEditHandles) {
             return;
         }
 
-        // Check if any selected feature is in editing mode (should not be draggable)
+        // Check if any selected feature is in editing mode using unified method
         const hasFeatureInEditingMode = this.hasSelectedFeatureInEditingMode(allSelectedFeatures);
         if (hasFeatureInEditingMode) {
             return;
         }
 
-        // ✅ CORREÇÃO PRINCIPAL: Verificação corrigida para features do MapLibreDraw
+        // Check if clicked feature is selected
         const isFeatureSelected = filteredFeatures.some(clickedFeature => {
             const clickedFeatureId = this.getFeatureId(clickedFeature);
             
@@ -176,113 +258,32 @@ class MoveHandler {
         this.offsets = this.calculateOffsetsOptimized(allSelectedFeatures, this.initialCoordinates);
     }
 
-    // Check for custom tool edit handles (circle, ellipse, etc.)
+    /**
+     * UNIFIED: Check for custom tool edit handles - replaces 5+ redundant methods
+     */
     hasCustomEditHandles(clickedFeatures) {
-        // Check for circle edit handles
-        const hasCircleEditHandles = clickedFeatures.some(feature =>
-            feature.source === 'circle-edit-handles' &&
-            feature.properties && (
-                feature.properties.user_isEditingHandle ||
-                feature.properties.meta === 'vertex' ||
-                feature.properties.mode === 'circle_editing'
-            )
+        return Object.keys(EDIT_HANDLE_CONFIG).some(type =>
+            this.hasEditHandlesOfType(clickedFeatures, type)
         );
-
-        // Check for ellipse edit handles (similar pattern)
-        const hasEllipseEditHandles = clickedFeatures.some(feature =>
-            feature.source === 'ellipse-edit-handles' &&
-            feature.properties && (
-                feature.properties.user_isEditingHandle ||
-                feature.properties.meta === 'vertex' ||
-                feature.properties.mode === 'ellipse_editing'
-            )
-        );
-
-        const hasArrowEditHandles = clickedFeatures.some(feature =>
-            feature.source === 'arrow-edit-handles' &&
-            feature.properties && (
-                feature.properties.user_isEditingHandle ||
-                feature.properties.meta === 'vertex' ||
-                feature.properties.mode === 'arrow_editing'
-            )
-        );
-
-        const hasBoundaryEditHandles = clickedFeatures.some(feature =>
-            feature.source === 'boundary-edit-handles' &&
-            feature.properties && (
-                feature.properties.handleType === 'vertex' ||
-                feature.properties.handleType === 'midpoint' ||
-                feature.properties.handleType === 'symbol' ||
-                feature.properties.handleType === 'size' ||
-                feature.properties.mode === 'boundary_editing'
-            )
-        );
-
-        const hasOccupiedFrontEditHandles = clickedFeatures.some(feature =>
-            feature.source === 'occupied-front-edit-handles' &&
-            feature.properties && (
-                feature.properties.user_isEditingHandle ||
-                feature.properties.meta === 'vertex' ||
-                feature.properties.mode === 'occupied_front_editing'
-            )
-        );
-
-        return hasCircleEditHandles || hasEllipseEditHandles || hasArrowEditHandles || hasBoundaryEditHandles || hasOccupiedFrontEditHandles;
     }
 
-    // Check if any selected feature is in editing mode
+    /**
+     * UNIFIED: Check if any selected feature is in editing mode - replaces 5+ redundant blocks
+     */
     hasSelectedFeatureInEditingMode(selectedFeatures) {
-        for (const feature of selectedFeatures) {
-            const source = feature.properties ? feature.properties.source : null;
-
-            // Check circle editing mode
-            if (source === 'circle' &&
-                this.selectionManager.circleControl &&
-                this.selectionManager.circleControl.isEditingMode &&
-                this.selectionManager.circleControl.isEditingMode()) {
-                return true;
+        return selectedFeatures.some(feature => {
+            const type = feature.properties?.source;
+            
+            // Check controls with editing mode using unified method
+            if (CONTROLS_WITH_EDIT_MODE.includes(type)) {
+                return this.isControlInEditingMode(type);
             }
-
-            // Check ellipse editing mode
-            if (source === 'ellipse' &&
-                this.selectionManager.ellipseControl &&
-                this.selectionManager.ellipseControl.isEditingMode &&
-                this.selectionManager.ellipseControl.isEditingMode()) {
-                return true;
-            }
-
-            if (source === 'arrow' &&
-                this.selectionManager.arrowControl &&
-                this.selectionManager.arrowControl.isEditingMode &&
-                this.selectionManager.arrowControl.isEditingMode()) {
-                return true;
-            }
-
-            if (source === 'boundary' &&
-                this.selectionManager.boundaryControl &&
-                this.selectionManager.boundaryControl.isEditingMode &&
-                this.selectionManager.boundaryControl.isEditingMode()) {
-                return true;
-            }
-
-            if (source === 'occupied_front' &&
-                this.selectionManager.occupiedFrontControl &&
-                this.selectionManager.occupiedFrontControl.isEditingMode &&
-                this.selectionManager.occupiedFrontControl.isEditingMode()) {
-                return true;
-            }
-
-            // Military symbols don't have editing mode, so no check needed
-
-            // Check if feature has editing mode properties
-            if (feature.properties && feature.properties.mode &&
-                (feature.properties.mode.includes('editing') ||
-                    feature.properties.mode === 'direct_select')) {
-                return true;
-            }
-        }
-
-        return false;
+            
+            // Check feature properties for editing mode
+            return feature.properties?.mode &&
+                   (feature.properties.mode.includes('editing') ||
+                    feature.properties.mode === 'direct_select');
+        });
     }
 
     onMouseMove(e) {
@@ -349,7 +350,15 @@ class MoveHandler {
             // Final UI update
             this.uiManager.shiftSelectionBoxes(dx, dy, true);
 
-            this.updateSelectionManagerFeaturesOptimized(updatedFeatures);
+            // UPDATED: Use new SelectionManager API
+            this.updateSelectionManagerFeatures(updatedFeatures);
+
+            //INVALIDAR CACHE
+            const movedFeatureIds = updatedFeatures
+                .map(feature => this.getFeatureId(feature))
+                .filter(id => id !== null);
+            
+            this.selectionManager.notifyMultipleGeometryChanges(movedFeatureIds);
 
             // Trigger final update
             this.selectionManager.updateSelectedFeatures();
@@ -360,6 +369,8 @@ class MoveHandler {
         this.offsets = null;
         this.initialCoordinates = null;
     }
+
+    // ===== FEATURE CALCULATION =====
 
     calculateOffsetsOptimized(features, referencePoint) {
         const offsets = new Map();
@@ -469,7 +480,27 @@ class MoveHandler {
         return { ...updatedFeature, source };
     }
 
-    // Feature update strategies
+    /**
+     * UPDATED: Compatible with refactored SelectionManager
+     * Replaces the obsolete updateSelectionManagerFeaturesOptimized method
+     */
+    updateSelectionManagerFeatures(updatedFeatures) {
+        // Clear existing selections using new API
+        this.selectionManager.selectedFeatures.clear();
+        
+        // Add updated features using new API
+        for (const feature of updatedFeatures) {
+            const type = feature.properties?.source || 'draw';
+            const featureId = this.getFeatureId(feature);
+            if (featureId) {
+                const key = `${type}:${featureId}`;
+                this.selectionManager.selectedFeatures.set(key, { type, feature });
+            }
+        }
+    }
+
+    // ===== FEATURE UPDATE STRATEGIES =====
+
     updateDrawFeature(feature, dx, dy, newCoords) {
         return this.uiManager.translateFeature(feature, dx, dy);
     }
@@ -485,7 +516,7 @@ class MoveHandler {
     }
 
     updateVisibilityFeature(feature, dx, dy, newCoords) {
-        // ✅ Calcular novo centro baseado no movimento
+        // Calcular novo centro baseado no movimento
         let oldCenter = feature.properties.center || [
             feature.geometry.coordinates[0][0][0][0],
             feature.geometry.coordinates[0][0][0][1]
@@ -496,13 +527,13 @@ class MoveHandler {
 
         const newCenter = [oldCenter[0]+dx, oldCenter[1]+dy];
 
-        // ✅ Preservar propriedades originais
+        // Preservar propriedades originais
         const updatedProperties = {
             ...feature.properties,
             center: newCenter
         };
 
-        // ✅ Para drag, apenas atualizar propriedades sem recalcular geometria
+        // Para drag, apenas atualizar propriedades sem recalcular geometria
         // A geometria será recalculada quando o drag terminar
         const updatedFeature = {
             ...feature,
@@ -525,6 +556,7 @@ class MoveHandler {
 
     updateCircleFeature(feature, dx, dy, newCoords) {
         const newCenter = [newCoords.lng, newCoords.lat];
+        const circleControl = this.getControl('circle');
 
         const updatedFeature = {
             ...feature,
@@ -532,16 +564,15 @@ class MoveHandler {
                 ...feature.properties,
                 center: newCenter
             },
-            geometry: this.selectionManager.circleControl.generateCircleGeometry(
+            geometry: circleControl.generateCircleGeometry(
                 newCenter,
                 feature.properties.radius
             )
         };
 
         // Atualizar X marks se disponível
-        if (this.selectionManager.circleControl &&
-            typeof this.selectionManager.circleControl.updateXMarks === 'function') {
-            this.selectionManager.circleControl.updateXMarks();
+        if (circleControl && typeof circleControl.updateXMarks === 'function') {
+            circleControl.updateXMarks();
         }
 
         return updatedFeature;
@@ -549,13 +580,15 @@ class MoveHandler {
 
     updateEllipseFeature(feature, dx, dy, newCoords) {
         const newCenter = [newCoords.lng, newCoords.lat];
+        const ellipseControl = this.getControl('ellipse');
+
         return {
             ...feature,
             properties: {
                 ...feature.properties,
                 center: newCenter
             },
-            geometry: this.selectionManager.ellipseControl.generateEllipseGeometry(
+            geometry: ellipseControl.generateEllipseGeometry(
                 newCenter,
                 feature.properties.majorRadius,
                 feature.properties.minorRadius,
@@ -564,19 +597,23 @@ class MoveHandler {
         };
     }
 
-    updateOccupiedFrontFeature = (feature, deltaLng, deltaLat) => {
+    /**
+     * STANDARDIZED: Updated signature to match other update methods
+     */
+    updateOccupiedFrontFeature(feature, dx, dy, newCoords) {
         // Atualizar pontos de controle base
         if (feature.properties.baseCoordinates && Array.isArray(feature.properties.baseCoordinates)) {
             const newBaseCoords = feature.properties.baseCoordinates.map(coord => [
-                coord[0] + deltaLng,
-                coord[1] + deltaLat
+                coord[0] + dx,
+                coord[1] + dy
             ]);
 
             feature.properties.baseCoordinates = newBaseCoords;
 
             // Recalcular geometria usando o método do controle
-            if (this.selectionManager.occupiedFrontControl) {
-                feature.geometry = this.selectionManager.occupiedFrontControl.createOccupiedFrontGeometry(newBaseCoords);
+            const occupiedFrontControl = this.getControl('occupied_front');
+            if (occupiedFrontControl) {
+                feature.geometry = occupiedFrontControl.createOccupiedFrontGeometry(newBaseCoords);
             }
         }
 
@@ -612,16 +649,15 @@ class MoveHandler {
             baseCoordinates: newBaseCoordinates
         };
 
+        const arrowControl = this.getControl('arrow');
         return {
             ...feature,
             properties: updatedProperties,
-            geometry: this.selectionManager.arrowControl.generateArrowGeometry(updatedProperties)
+            geometry: arrowControl.generateArrowGeometry(updatedProperties)
         };
     }
 
-    updateBoundaryFeature = (feature, dx, dy, newCoords) => {
-        // ✅ NOVO: Seguindo padrão da arrow tool
-
+    updateBoundaryFeature(feature, dx, dy, newCoords) {
         // Garantir que baseCoordinates é um array
         let baseCoordinates = feature.properties.baseCoordinates;
 
@@ -650,55 +686,25 @@ class MoveHandler {
             baseCoordinates: newBaseCoordinates
         };
 
+        const boundaryControl = this.getControl('boundary');
         const updatedFeature = {
             ...feature,
             properties: updatedProperties,
-            geometry: this.selectionManager.boundaryControl.generateBoundaryGeometry(updatedProperties)
+            geometry: boundaryControl.generateBoundaryGeometry(updatedProperties)
         };
 
-        // ✅ NOVO: Atualizar features dependentes também
-        if (this.selectionManager.boundaryControl &&
-            typeof this.selectionManager.boundaryControl.updateDependentFeatures === 'function') {
-
+        // Atualizar features dependentes também
+        if (boundaryControl && typeof boundaryControl.updateDependentFeatures === 'function') {
             // Atualizar círculos e textos
             requestAnimationFrame(() => {
-                this.selectionManager.boundaryControl.updateDependentFeatures(updatedFeature);
+                boundaryControl.updateDependentFeatures(updatedFeature);
             });
         }
 
         return updatedFeature;
     }
 
-    updateSelectionManagerFeaturesOptimized(updatedFeatures) {
-        // Initialize all maps at once
-        const featureMaps = {
-            selectedDrawFeatures: new Map(),
-            selectedTextFeatures: new Map(),
-            selectedImageFeatures: new Map(),
-            selectedLOSFeatures: new Map(),
-            selectedVisibilityFeatures: new Map(),
-            selectedCircleFeatures: new Map(),
-            selectedEllipseFeatures: new Map(),
-            selectedArrowFeatures: new Map(),
-            selectedBoundaryFeatures: new Map(),
-            selectedOccupiedFrontFeatures: new Map(),
-            selectedMilitarySymbolFeatures: new Map()
-        };
-
-        // Batch process all features
-        for (const feature of updatedFeatures) {
-            const source = feature.properties ? feature.properties.source : 'draw';
-            const mapKey = this.featureManagersMap[source];
-            const featureId = this.getFeatureId(feature);
-
-            if (mapKey && featureId !== null) {
-                featureMaps[mapKey].set(featureId, feature);
-            }
-        }
-
-        // Update selection manager in one batch
-        Object.assign(this.selectionManager, featureMaps);
-    }
+    // ===== UTILITY METHODS =====
 
     setCursorStyle(style) {
         this.map.getCanvas().style.cursor = style;
@@ -717,7 +723,6 @@ class MoveHandler {
         this.offsets = null;
         this.initialCoordinates = null;
         this.featureUpdateStrategies = null;
-        this.featureManagersMap = null;
     }
 }
 

@@ -1134,9 +1134,15 @@ class AddBoundaryControl {
 
     updateSelectionAfterEdit = () => {
         const featureId = this.selectedFeature.properties.id;
-        this.selectionManager.selectedBoundaryFeatures.set(featureId, this.selectedFeature);
-    }
+        const type = this.selectedFeature.properties.source; // 'circle', 'ellipse', etc.
+        const key = `${type}:${featureId}`;
 
+        this.selectionManager.selectedFeatures.set(key, {
+            type,
+            feature: this.selectedFeature
+        });
+    }
+    
     updateUIAfterEdit = () => {
         this.selectionManager.uiManager.updateSelectionHighlight();
         this.selectionManager.uiManager.updatePanels();

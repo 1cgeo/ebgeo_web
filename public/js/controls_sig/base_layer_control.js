@@ -4,27 +4,39 @@ import cartaTopografica from './baselayers/carta_topografica.js';
 import cartaOrtoimagem from './baselayers/carta_ortoimagem.js';
 import osmLayer from './baselayers/osm_layer.js';
 import imagensLayer from './baselayers/imagens_layer.js';
+import config from '../config.js';
 
 class BaseLayerControl {
     constructor(uiManager) {
         this.map = null;
         this.container = null;
         this.uiManager = uiManager;
+        
+        // Construir styleUrls baseado na configuração
         this.styleUrls = {
             'carta-topografica': cartaTopografica,
-            'carta-ortoimagem': cartaOrtoimagem,
-            'osm': osmLayer,
-            'imagens': imagensLayer
+            'carta-ortoimagem': cartaOrtoimagem
         };
+        
+        if (config.showOsmAndImages) {
+            this.styleUrls['osm'] = osmLayer;
+            this.styleUrls['imagens'] = imagensLayer;
+        }
     }
 
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl base-layer-control';
         
-        // HTML com disposição 2x2 e ícones
-        this.container.innerHTML = `
+        // Aplicar classe CSS baseada na configuração
+        if (config.showOsmAndImages) {
+            this.container.className = 'mapboxgl-ctrl base-layer-control base-layer-grid-2x2';
+        } else {
+            this.container.className = 'mapboxgl-ctrl base-layer-control base-layer-grid-1x2';
+        }
+        
+        // Construir HTML baseado na configuração
+        let htmlContent = `
             <label class="layer-switch">
                 <input type="radio" name="base-layer" value="carta-topografica" checked>
                 <span><img src="./images/dsg_symbol.svg" class="layer-icon">Topográfica</span>
@@ -33,6 +45,10 @@ class BaseLayerControl {
                 <input type="radio" name="base-layer" value="carta-ortoimagem">
                 <span><img src="./images/dsg_symbol.svg" class="layer-icon">Ortoimagem</span>
             </label>
+        `;
+        
+        if (config.showOsmAndImages) {
+            htmlContent += `
             <label class="layer-switch">
                 <input type="radio" name="base-layer" value="osm">
                 <span>🌐 OSM</span>
@@ -41,7 +57,10 @@ class BaseLayerControl {
                 <input type="radio" name="base-layer" value="imagens">
                 <span>🌐 Imagens</span>
             </label>
-        `;
+            `;
+        }
+        
+        this.container.innerHTML = htmlContent;
 
         this.container.querySelectorAll('input[name="base-layer"]').forEach((input) => {
             input.addEventListener('change', (event) => {

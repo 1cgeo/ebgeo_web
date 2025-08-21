@@ -4,7 +4,7 @@
 .controls-column-left {
     position: fixed !important;
     top: 60px !important;
-    right: 50px !important;
+    right: 40px !important;
     z-index: 999 !important;
     pointer-events: auto !important;
     margin: 0 !important;
@@ -20,71 +20,71 @@
     margin: 0 !important;
 }
 
-/* Posicionamento vertical específico para COLUNA ESQUERDA */
+/* Posicionamento vertical específico para COLUNA ESQUERDA - Ajustado para botões menores */
 .north-control.controls-column-left {
     top: 60px !important;
 }
 
 .import-control.controls-column-left {
-    top: 105px !important;
+    top: 94px !important;
 }
 
 .screenshot-control.controls-column-left {
-    top: 150px !important;
+    top: 128px !important;
 }
 
 .vector-info-control.controls-column-left {
-    top: 195px !important;
+    top: 162px !important;
 }
 
 .los-control.controls-column-left {
-    top: 240px !important;
+    top: 196px !important;
 }
 
 .visibility-control.controls-column-left {
-    top: 285px !important;
+    top: 230px !important;
 }
 
 .street-view-control.controls-column-left {
-    top: 330px !important;
+    top: 264px !important;
 }
 
-/* Posicionamento vertical específico para COLUNA DIREITA */
+/* Posicionamento vertical específico para COLUNA DIREITA - Ajustado para botões menores */
 .draw-control.controls-column-right {
     top: 60px !important;
 }
 
 .text-control.controls-column-right {
-    top: 193px !important;
+    top: 162px !important;
 }
 
 .image-control.controls-column-right {
-    top: 238px !important;
+    top: 196px !important;
 }
 
 .circle-control.controls-column-right {
-    top: 283px !important;
+    top: 230px !important;
 }
 
 .ellipse-control.controls-column-right {
-    top: 328px !important;
+    top: 264px !important;
 }
 
 .arrow-control.controls-column-right {
-    top: 373px !important;
+    top: 298px !important;
 
 }
 
 .boundary-control.controls-column-right {
-    top: 418px !important;
+    top: 332px !important;
 }
 
 .occupied-front-control.controls-column-right {
-    top: 463px !important;
+    top: 366px !important;
 }
 
 .military-symbol-control.controls-column-right {
-    top: 508px !important;
+    top: 400px !important;
 }
 
 /* ===== ESTILOS BASE DOS CONTROLES ===== */
@@ -121,9 +121,9 @@
     align-items: center !important;
     justify-content: center !important;
     transition: all 0.2s ease !important;
-    width: 40px !important;
-    height: 40px !important;
-    margin: 2px !important;
+    width: 32px !important;
+    height: 32px !important;
+    margin: 1px !important;
     padding: 0 !important;
 }
 
@@ -135,6 +135,67 @@
     width: 35px !important;
     height: 35px !important;
     transition: filter 0.2s ease;
+}
+
+/* ===== REDUÇÃO DE TAMANHO PARA CONTROLES DAS COLUNAS ===== */
+/* Aplicar apenas aos controles nas colunas esquerda e direita */
+
+/* Reduzir ícones SIG nas colunas */
+.controls-column-left .icon-sig-tool,
+.controls-column-right .icon-sig-tool {
+    width: 26px !important;
+    height: 26px !important;
+}
+
+/* Reduzir ícones SVG internos dos botões Mapbox Draw nas colunas */
+.controls-column-left .mapbox-gl-draw_ctrl-draw-btn img,
+.controls-column-right .mapbox-gl-draw_ctrl-draw-btn img {
+    width: 25px !important;
+    height: 25px !important;
+}
+
+/* Reduzir elementos path dentro dos SVGs do Mapbox Draw */
+.controls-column-left .mapbox-gl-draw_polygon svg,
+.controls-column-left .mapbox-gl-draw_line svg,
+.controls-column-left .mapbox-gl-draw_point svg,
+.controls-column-left .mapbox-gl-draw_trash svg,
+.controls-column-right .mapbox-gl-draw_polygon svg,
+.controls-column-right .mapbox-gl-draw_line svg,
+.controls-column-right .mapbox-gl-draw_point svg,
+.controls-column-right .mapbox-gl-draw_trash svg {
+    width: 20px !important;
+    height: 20px !important;
+    transform: scale(0.8);
+}
+
+/* Reduzir botões de ação do mapa nas colunas */
+.controls-column-left .map-action-button,
+.controls-column-right .map-action-button {
+    width: 32px !important;
+    height: 32px !important;
+    padding: 6px !important;
+}
+
+/* Reduzir ícones dentro dos botões de ação nas colunas */
+.controls-column-left .map-action-button img,
+.controls-column-right .map-action-button img {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+/* Reduzir controles do grupo mapbox nas colunas */
+.controls-column-left .mapboxgl-ctrl-group,
+.controls-column-right .mapboxgl-ctrl-group {
+    transform: scale(0.8);
+    transform-origin: top right;
+}
+
+/* Ajustar layer switches nas colunas */
+.controls-column-left .layer-switch,
+.controls-column-right .layer-switch {
+    padding: 6px 10px !important;
+    font-size: 12px !important;
+    min-width: 65px !important;
 }
 
 .layer-switch {
@@ -209,17 +270,6 @@
     transform: translateY(0);
 }
 
-/* ===== ANIMAÇÕES ===== */
-@keyframes controlPulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
-}
-
-.mapbox-gl-draw_ctrl-draw-btn.active {
-    animation: controlPulse 0.3s ease;
-}
-
 @keyframes successFeedback {
     0% { background-color: transparent; }
     50% { background-color: var(--success-color); }
@@ -241,74 +291,88 @@
     }
     
     .text-control.controls-column-right {
-        top: 180px !important;
+        top: 150px !important;
     }
     
     .image-control.controls-column-right {
-        top: 240px !important;
+        top: 182px !important;
     }
 
     .circle-control.controls-column-right {
-        top: 300px !important;
+        top: 214px !important;
     }
     
     .ellipse-control.controls-column-right {
-        top: 360px !important;
+        top: 246px !important;
     }
     
     /* Outras ferramentas depois */
     .north-control.controls-column-left {
-        top: 300px !important;
+        top: 278px !important;
     }
     
     .import-control.controls-column-left {
-        top: 360px !important;
+        top: 310px !important;
     }
     
     .screenshot-control.controls-column-left {
-        top: 420px !important;
+        top: 342px !important;
     }
     
     .vector-info-control.controls-column-left {
-        top: 480px !important;
+        top: 374px !important;
     }
     
     .los-control.controls-column-left {
-        top: 540px !important;
+        top: 406px !important;
     }
     
     .visibility-control.controls-column-left {
-        top: 600px !important;
+        top: 438px !important;
     }
     
     .street-view-control.controls-column-left {
-        top: 660px !important;
+        top: 470px !important;
     }
 
-    /* Controles mobile adjustments */
-    .mapboxgl-ctrl-group {
-        transform: scale(0.9);
+    /* Controles mobile adjustments - mantem redução */
+    .controls-column-left .mapboxgl-ctrl-group,
+    .controls-column-right .mapboxgl-ctrl-group {
+        transform: scale(0.7);
     }
 
-    /* Draw controls mobile */
-    .mapbox-gl-draw_ctrl-draw-btn {
-        width: 40px;
-        padding: 3px !important;
+    /* Draw controls mobile - ainda menores */
+    .controls-column-left .mapbox-gl-draw_ctrl-draw-btn,
+    .controls-column-right .mapbox-gl-draw_ctrl-draw-btn {
+        width: 28px !important;
+        height: 28px !important;
+        padding: 2px !important;
     }
 
-    .icon-sig-tool {
-        width: 25px;
-        height: 25px;
+    .controls-column-left .icon-sig-tool,
+    .controls-column-right .icon-sig-tool {
+        width: 20px !important;
+        height: 20px !important;
     }
 
-    .layer-switch {
-        min-width: 70px !important;
-        font-size: 12px !important;
-        padding: 6px 8px !important;
+    /* SVGs dos botões Mapbox Draw em mobile */
+    .controls-column-left .mapbox-gl-draw_ctrl-draw-btn img,
+    .controls-column-right .mapbox-gl-draw_ctrl-draw-btn img {
+        width: 16px !important;
+        height: 16px !important;
+        transform: scale(0.7);
     }
 
-    .layer-switch span {
-        padding: 4px 8px !important;
+    .controls-column-left .layer-switch,
+    .controls-column-right .layer-switch {
+        min-width: 55px !important;
+        font-size: 11px !important;
+        padding: 4px 6px !important;
+    }
+
+    .controls-column-left .layer-switch span,
+    .controls-column-right .layer-switch span {
+        padding: 3px 6px !important;
     }
 
     /* Feature search mobile */

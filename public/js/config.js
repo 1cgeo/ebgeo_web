@@ -8,6 +8,7 @@ const config = {
   search: {
     apiUrl: "http://localhost:3000/busca"
   },
+  showOsmAndImages: false,
 
   map2d: {
     bounds: [

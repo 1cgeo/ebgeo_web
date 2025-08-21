@@ -91,7 +91,7 @@ export default {
           "entity": "Command and Control",
           "entity_type": "Signal",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Sinal",
+          "entity_type_portugues": "Comunicações",
           "code": "111000"
         },
         {
@@ -99,7 +99,7 @@ export default {
           "entity_type": "Signal",
           "entity_subtype": "Radio",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Sinal",
+          "entity_type_portugues": "Comunicações",
           "entity_subtype_portugues": "Rádio",
           "code": "111001"
         },
@@ -108,7 +108,7 @@ export default {
           "entity_type": "Signal",
           "entity_subtype": "Radio Relay",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Sinal",
+          "entity_type_portugues": "Comunicações",
           "entity_subtype_portugues": "Rádio Retransmissor",
           "code": "111002"
         },
@@ -117,7 +117,7 @@ export default {
           "entity_type": "Signal",
           "entity_subtype": "Teletype",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Sinal",
+          "entity_type_portugues": "Comunicações",
           "entity_subtype_portugues": "Teletipo",
           "code": "111003"
         },
@@ -126,7 +126,7 @@ export default {
           "entity_type": "Signal",
           "entity_subtype": "Tactical Satellite",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Sinal",
+          "entity_type_portugues": "Comunicações",
           "entity_subtype_portugues": "Satélite Tático",
           "code": "111004"
         },
@@ -135,7 +135,7 @@ export default {
           "entity_type": "Signal",
           "entity_subtype": "Video Imagery (Combat Camera)",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Sinal",
+          "entity_type_portugues": "Comunicações",
           "entity_subtype_portugues": "Imagens de Vídeo (Câmera de Combate)",
           "code": "111005"
         },
@@ -157,14 +157,14 @@ export default {
           "entity": "Command and Control",
           "entity_type": "Space",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Espaço",
+          "entity_type_portugues": "Espacial",
           "code": "111300"
         },
         {
           "entity": "Command and Control",
           "entity_type": "Special Troops",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Tropas Especiais",
+          "entity_type_portugues": "Tropas Especializadas",
           "code": "111400"
         },
         {
@@ -176,7 +176,7 @@ export default {
           "entity": "Movement and Maneuver",
           "entity_type": "Air Assault with Organic Lift",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Assalto Aéreo com Transporte Orgânico",
+          "entity_type_portugues": "Assalto Aeromóvel com Transporte Orgânico",
           "code": "120100"
         },
         {
@@ -197,7 +197,7 @@ export default {
           "entity": "Movement and Maneuver",
           "entity_type": "Antitank/Antiarmor",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Antitanque/Antiblindagem",
+          "entity_type_portugues": "Anticarro/Antiblindagem",
           "code": "120400"
         },
         {
@@ -205,7 +205,7 @@ export default {
           "entity_type": "Antitank/Antiarmor",
           "entity_subtype": "Armored",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Antitanque/Antiblindagem",
+          "entity_type_portugues": "Anticarro/Antiblindagem",
           "entity_subtype_portugues": "Blindado",
           "code": "120401"
         },
@@ -214,7 +214,7 @@ export default {
           "entity_type": "Antitank/Antiarmor",
           "entity_subtype": "Motorized",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Antitanque/Antiblindagem",
+          "entity_type_portugues": "Anticarro/Antiblindagem",
           "entity_subtype_portugues": "Motorizado",
           "code": "120402"
         },
@@ -222,7 +222,7 @@ export default {
           "entity": "Movement and Maneuver",
           "entity_type": "Armor/Armored/Mechanized/Self–Propelled/ Tracked",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Blindado/Mecanizado/Autopropulsado/Rastreado",
+          "entity_type_portugues": "Blindado/Mecanizado/Autopropulsado/Sobre Lagartas",
           "code": "120500"
         },
         {
@@ -230,7 +230,7 @@ export default {
           "entity_type": "Armor/Armored/Mechanized/Self–Propelled/ Tracked",
           "entity_subtype": "Reconnaissance/Cavalry/Scout",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Blindado/Mecanizado/Autopropulsado/Rastreado",
+          "entity_type_portugues": "Blindado/Mecanizado/Autopropulsado/Sobre Lagartas",
           "entity_subtype_portugues": "Reconhecimento/Cavalaria/Batedor",
           "code": "120501"
         },
@@ -239,7 +239,7 @@ export default {
           "entity_type": "Armor/Armored/Mechanized/Self–Propelled/ Tracked",
           "entity_subtype": "Amphibious",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Blindado/Mecanizado/Autopropulsado/Rastreado",
+          "entity_type_portugues": "Blindado/Mecanizado/Autopropulsado/Sobre Lagartas",
           "entity_subtype_portugues": "Anfíbio",
           "code": "120502"
         },
@@ -318,7 +318,7 @@ export default {
           "entity_subtype": "Armored/Mechanized/Tracked",
           "entity_portugues": "Movimento e Manobra",
           "entity_type_portugues": "Infantaria",
-          "entity_subtype_portugues": "Blindado/Mecanizado/Rastreado",
+          "entity_subtype_portugues": "Blindado/Mecanizado/Sobre Lagartas",
           "code": "121102"
         },
         {
@@ -345,7 +345,7 @@ export default {
           "entity_subtype": "Infantry Fighting Vehicle",
           "entity_portugues": "Movimento e Manobra",
           "entity_type_portugues": "Infantaria",
-          "entity_subtype_portugues": "Veículo de Combate de Infantaria",
+          "entity_subtype_portugues": "Viatura de Combate de Infantaria",
           "code": "121105"
         },
         {
@@ -400,7 +400,7 @@ export default {
           "entity": "Movement and Maneuver",
           "entity_type": "Sniper",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Atirador de Elite",
+          "entity_type_portugues": "Caçador",
           "code": "121500"
         },
         {
@@ -448,7 +448,7 @@ export default {
           "entity_subtype": "Special Boat",
           "entity_portugues": "Movimento e Manobra",
           "entity_type_portugues": "Forças de Operações Especiais (SOF)",
-          "entity_subtype_portugues": "Barco Especial",
+          "entity_subtype_portugues": "Embarcação de Operações Especiais",
           "code": "121803"
         },
         {
@@ -466,7 +466,7 @@ export default {
           "entity_subtype": "Underwater Demolition Team",
           "entity_portugues": "Movimento e Manobra",
           "entity_type_portugues": "Forças de Operações Especiais (SOF)",
-          "entity_subtype_portugues": "Equipe de Demolição Subaquática",
+          "entity_subtype_portugues": "Equipe de Demolição Submarina",
           "code": "121805"
         },
         {
@@ -485,22 +485,22 @@ export default {
         },
         {
           "entity": "Fires",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "code": "130000"
         },
         {
           "entity": "Fires",
           "entity_type": "Air Defense",
-          "entity_portugues": "Fogos",
-          "entity_type_portugues": "Defesa Aérea",
+          "entity_portugues": "Apoio de Fogo",
+          "entity_type_portugues": "Defesa Antiaérea",
           "code": "130100"
         },
         {
           "entity": "Fires",
           "entity_type": "Air Defense",
           "entity_subtype": "Main Gun System",
-          "entity_portugues": "Fogos",
-          "entity_type_portugues": "Defesa Aérea",
+          "entity_portugues": "Apoio de Fogo",
+          "entity_type_portugues": "Defesa Antiaérea",
           "entity_subtype_portugues": "Sistema de Arma Principal",
           "code": "130101"
         },
@@ -508,31 +508,31 @@ export default {
           "entity": "Fires",
           "entity_type": "Air Defense",
           "entity_subtype": "Missile",
-          "entity_portugues": "Fogos",
-          "entity_type_portugues": "Defesa Aérea",
-          "entity_subtype_portugues": "Míssel",
+          "entity_portugues": "Apoio de Fogo",
+          "entity_type_portugues": "Defesa Antiaérea",
+          "entity_subtype_portugues": "Míssil",
           "code": "130102"
         },
         {
           "entity": "Fires",
           "entity_type": "Air Defense",
           "entity_subtype": "Air and Missile Defense",
-          "entity_portugues": "Fogos",
-          "entity_type_portugues": "Defesa Aérea",
-          "entity_subtype_portugues": "Defesa Aérea e de Mísseis",
+          "entity_portugues": "Apoio de Fogo",
+          "entity_type_portugues": "Defesa Antiaérea",
+          "entity_subtype_portugues": "Defesa Antiaérea e Antimíssil",
           "code": "130103"
         },
         {
           "entity": "Fires",
           "entity_type": "Air/Land Naval Gunfire Liaison",
-          "entity_portugues": "Fogos",
-          "entity_type_portugues": "Ligação de Fogo Naval Aéreo/Terrestre",
+          "entity_portugues": "Apoio de Fogo",
+          "entity_type_portugues": "Elemento de Ligação de Apoio de Fogo Naval",
           "code": "130200"
         },
         {
           "entity": "Fires",
           "entity_type": "Field Artillery",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "entity_type_portugues": "Artilharia de Campanha",
           "code": "130300"
         },
@@ -540,7 +540,7 @@ export default {
           "entity": "Fires",
           "entity_type": "Field Artillery",
           "entity_subtype": "Self–propelled",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "entity_type_portugues": "Artilharia de Campanha",
           "entity_subtype_portugues": "Autopropulsado",
           "code": "130301"
@@ -549,43 +549,43 @@ export default {
           "entity": "Fires",
           "entity_type": "Field Artillery",
           "entity_subtype": "Target Acquisition",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "entity_type_portugues": "Artilharia de Campanha",
-          "entity_subtype_portugues": "Aquisição de Alvo",
+          "entity_subtype_portugues": "Aquisição de Alvos",
           "code": "130302"
         },
         {
           "entity": "Fires",
           "entity_type": "Field Artillery Observer",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "entity_type_portugues": "Observador de Artilharia de Campanha",
           "code": "130400"
         },
         {
           "entity": "Fires",
           "entity_type": "Joint Fire Support",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "entity_type_portugues": "Apoio de Fogo Conjunto",
           "code": "130500"
         },
         {
           "entity": "Fires",
           "entity_type": "Meteorological",
-          "entity_portugues": "Fogos",
-          "entity_type_portugues": "Meteorológico",
+          "entity_portugues": "Apoio de Fogo",
+          "entity_type_portugues": "Meteorologia",
           "code": "130600"
         },
         {
           "entity": "Fires",
           "entity_type": "Missile",
-          "entity_portugues": "Fogos",
-          "entity_type_portugues": "Míssel",
+          "entity_portugues": "Apoio de Fogo",
+          "entity_type_portugues": "Míssil",
           "code": "130700"
         },
         {
           "entity": "Fires",
           "entity_type": "Mortar",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "entity_type_portugues": "Morteiro",
           "code": "130800"
         },
@@ -593,25 +593,25 @@ export default {
           "entity": "Fires",
           "entity_type": "Mortar",
           "entity_subtype": "Armored/Mechanized/Tracked",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "entity_type_portugues": "Morteiro",
-          "entity_subtype_portugues": "Blindado/Mecanizado/Rastreado",
+          "entity_subtype_portugues": "Blindado/Mecanizado/Sobre Lagartas",
           "code": "130801"
         },
         {
           "entity": "Fires",
           "entity_type": "Mortar",
           "entity_subtype": "Self-Propelled Wheeled",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "entity_type_portugues": "Morteiro",
-          "entity_subtype_portugues": "Autopropulsado com Rodas",
+          "entity_subtype_portugues": "Autopropulsado Sobre Rodas",
           "code": "130802"
         },
         {
           "entity": "Fires",
           "entity_type": "Mortar",
           "entity_subtype": "Towed",
-          "entity_portugues": "Fogos",
+          "entity_portugues": "Apoio de Fogo",
           "entity_type_portugues": "Morteiro",
           "entity_subtype_portugues": "Rebocado",
           "code": "130803"
@@ -619,8 +619,8 @@ export default {
         {
           "entity": "Fires",
           "entity_type": "Survey",
-          "entity_portugues": "Fogos",
-          "entity_type_portugues": "Levantamento",
+          "entity_portugues": "Apoio de Fogo",
+          "entity_type_portugues": "Topografia",
           "code": "130900"
         },
         {
@@ -632,7 +632,7 @@ export default {
           "entity": "Protection",
           "entity_type": "Chemical Biological Radiological Nuclear Defense",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear",
+          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear (DQBRN)",
           "code": "140100"
         },
         {
@@ -640,7 +640,7 @@ export default {
           "entity_type": "Chemical Biological Radiological Nuclear Defense",
           "entity_subtype": "Mechanized",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear",
+          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear (DQBRN)",
           "entity_subtype_portugues": "Mecanizado",
           "code": "140101"
         },
@@ -649,7 +649,7 @@ export default {
           "entity_type": "Chemical Biological Radiological Nuclear Defense",
           "entity_subtype": "Motorized",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear",
+          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear (DQBRN)",
           "entity_subtype_portugues": "Motorizado",
           "code": "140102"
         },
@@ -658,7 +658,7 @@ export default {
           "entity_type": "Chemical Biological Radiological Nuclear Defense",
           "entity_subtype": "Reconnaissance",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear",
+          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear (DQBRN)",
           "entity_subtype_portugues": "Reconhecimento",
           "code": "140103"
         },
@@ -667,7 +667,7 @@ export default {
           "entity_type": "Chemical Biological Radiological Nuclear Defense",
           "entity_subtype": "Reconnaissance Armored",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear",
+          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear (DQBRN)",
           "entity_subtype_portugues": "Reconhecimento Blindado",
           "code": "140104"
         },
@@ -676,7 +676,7 @@ export default {
           "entity_type": "Chemical Biological Radiological Nuclear Defense",
           "entity_subtype": "Reconnaissance Equipped",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear",
+          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear (DQBRN)",
           "entity_subtype_portugues": "Reconhecimento Equipado",
           "code": "140105"
         },
@@ -685,7 +685,7 @@ export default {
           "entity_type": "Chemical Biological Radiological Nuclear Defense",
           "entity_subtype": "Chemical, Biological, Radiological, Nuclear, and High-Yield Explosives",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear",
+          "entity_type_portugues": "Defesa Química, Biológica, Radiológica e Nuclear (DQBRN)",
           "entity_subtype_portugues": "Químico, Biológico, Radiológico, Nuclear e Explosivos de Alto Rendimento",
           "code": "140106"
         },
@@ -693,14 +693,14 @@ export default {
           "entity": "Protection",
           "entity_type": "Combat Support (Maneuver Enhancement)",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Apoio ao Combate (Melhoria da Manobra)",
+          "entity_type_portugues": "Apoio ao Combate (Apoio à Manobra)",
           "code": "140200"
         },
         {
           "entity": "Protection",
           "entity_type": "Criminal Investigation Division",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Divisão de Investigação Criminal",
+          "entity_type_portugues": "Polícia Judiciária Militar",
           "code": "140300"
         },
         {
@@ -728,7 +728,7 @@ export default {
           "entity": "Protection",
           "entity_type": "Engineer",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Engenheiro",
+          "entity_type_portugues": "Engenharia",
           "code": "140700"
         },
         {
@@ -736,7 +736,7 @@ export default {
           "entity_type": "Engineer",
           "entity_subtype": "Mechanized",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Engenheiro",
+          "entity_type_portugues": "Engenharia",
           "entity_subtype_portugues": "Mecanizado",
           "code": "140701"
         },
@@ -745,7 +745,7 @@ export default {
           "entity_type": "Engineer",
           "entity_subtype": "Motorized",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Engenheiro",
+          "entity_type_portugues": "Engenharia",
           "entity_subtype_portugues": "Motorizado",
           "code": "140702"
         },
@@ -754,7 +754,7 @@ export default {
           "entity_type": "Engineer",
           "entity_subtype": "Reconnaissance",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Engenheiro",
+          "entity_type_portugues": "Engenharia",
           "entity_subtype_portugues": "Reconhecimento",
           "code": "140703"
         },
@@ -762,7 +762,7 @@ export default {
           "entity": "Protection",
           "entity_type": "Explosive Ordnance Disposal (EOD)",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Eliminação de Munições Explosivas (EOD)",
+          "entity_type_portugues": "Desativação de Artefatos Explosivos (EOD)",
           "code": "140800"
         },
         {
@@ -776,7 +776,7 @@ export default {
           "entity": "Protection",
           "entity_type": "Fire Fighting/Fire Protection",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Combate a Incêndios/Proteção contra Incêndios",
+          "entity_type_portugues": "Combate a Incêndio",
           "code": "141000"
         },
         {
@@ -790,21 +790,21 @@ export default {
           "entity": "Protection",
           "entity_type": "Military Police",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Polícia Militar",
+          "entity_type_portugues": "Polícia do Exército",
           "code": "141200"
         },
         {
           "entity": "Protection",
           "entity_type": "Mine",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Mina",
+          "entity_type_portugues": "Minas",
           "code": "141300"
         },
         {
           "entity": "Protection",
           "entity_type": "Mine Clearing",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Limpeza de Minas",
+          "entity_type_portugues": "Desminagem",
           "code": "141400"
         },
         {
@@ -818,7 +818,7 @@ export default {
           "entity": "Protection",
           "entity_type": "Mine Laying",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Lançamento de Minas",
+          "entity_type_portugues": "Semeadura de Minas",
           "code": "141600"
         },
         {
@@ -857,28 +857,28 @@ export default {
           "entity": "Protection",
           "entity_type": "Security Police (Air)",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Polícia de Segurança (Aérea)",
+          "entity_type_portugues": "Polícia da Aeronáutica",
           "code": "141900"
         },
         {
           "entity": "Protection",
           "entity_type": "Shore Patrol",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Patrulha Costeira",
+          "entity_type_portugues": "Polícia Naval",
           "code": "142000"
         },
         {
           "entity": "Protection",
           "entity_type": "Topographic/Geospatial",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Topográfico/Geoespacial",
+          "entity_type_portugues": "Topografia/Geoespacial",
           "code": "142100"
         },
         {
           "entity": "Protection",
           "entity_type": "Missile Defense",
           "entity_portugues": "Proteção",
-          "entity_type_portugues": "Defesa de Mísseis",
+          "entity_type_portugues": "Defesa Antimíssil",
           "code": "142200"
         },
         {
@@ -954,7 +954,7 @@ export default {
           "entity_subtype": "Jamming",
           "entity_portugues": "Inteligência",
           "entity_type_portugues": "Guerra Eletrônica",
-          "entity_subtype_portugues": "Bloqueio",
+          "entity_subtype_portugues": "Interferência",
           "code": "150504"
         },
         {
@@ -984,14 +984,14 @@ export default {
           "entity": "Intelligence",
           "entity_type": "Jamming",
           "entity_portugues": "Inteligência",
-          "entity_type_portugues": "Bloqueio",
+          "entity_type_portugues": "Interferência",
           "code": "150800"
         },
         {
           "entity": "Intelligence",
           "entity_type": "Joint Intelligence Center",
           "entity_portugues": "Inteligência",
-          "entity_type_portugues": "Centro de Inteligência Conjunta",
+          "entity_type_portugues": "Centro de Inteligência Conjunto",
           "code": "150900"
         },
         {
@@ -1024,267 +1024,267 @@ export default {
         },
         {
           "entity": "Sustainment",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "code": "160000"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Administrative",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Administrativo",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Administração",
           "code": "160100"
         },
         {
           "entity": "Sustainment",
           "entity_type": "All Classes of Supply",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Todas as Classes de Suprimento",
           "code": "160200"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Airport of Debarkation/Airport of Embarkation",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Aeroporto de Desembarque/Aeroporto de Embarque",
           "code": "160300"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Ammunition",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Munição",
           "code": "160400"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Band",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Banda",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Banda de Música",
           "code": "160500"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Band",
           "entity_subtype": "Army Music",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Banda",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Banda de Música",
           "entity_subtype_portugues": "Música do Exército",
           "code": "160501"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Combat Service Support",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Apoio ao Serviço de Combate",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Apoio Logístico de Combate",
           "code": "160600"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Finance",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Finanças",
           "code": "160700"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Judge Advocate General",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Juiz Advogado Geral",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Justiça Militar",
           "code": "160800"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Labor",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Trabalho",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Mão de Obra",
           "code": "160900"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Laundry/Bath",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Lavanderia/Banho",
           "code": "161000"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Maintenance",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Manutenção",
           "code": "161100"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Material",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Material",
           "code": "161200"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Medical",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Médico",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Saúde",
           "code": "161300"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Medical Treatment Facility",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Instalação de Tratamento Médico",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Instalação de Saúde",
           "code": "161400"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Morale, Welfare and Recreation",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Moral, Bem-Estar e Recreação",
           "code": "161500"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Mortuary Affairs",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Assuntos Funerários",
           "code": "161600"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Multiple Classes of Supply",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Múltiplas Classes de Suprimento",
           "code": "161700"
         },
         {
           "entity": "Sustainment",
           "entity_type": "NATO Supply Class I",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento da OTAN I",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento I (OTAN)",
           "code": "161800"
         },
         {
           "entity": "Sustainment",
           "entity_type": "{Reserved for future use}",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "{Reservado para uso futuro}",
           "code": "161900"
         },
         {
           "entity": "Sustainment",
           "entity_type": "NATO Supply Class III",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento da OTAN III",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento III (OTAN)",
           "code": "162000"
         },
         {
           "entity": "Sustainment",
           "entity_type": "NATO Supply Class IV",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento da OTAN IV",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento IV (OTAN)",
           "code": "162100"
         },
         {
           "entity": "Sustainment",
           "entity_type": "{Reserved for future use}",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "{Reservado para uso futuro}",
           "code": "162200"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Ordnance",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Material Bélico",
           "code": "162300"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Personnel Services",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Serviços de Pessoal",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Pessoal",
           "code": "162400"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Petroleum, Oil and Lubricants",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Petróleo, Óleo e Lubrificantes",
           "code": "162500"
         },
         {
           "entity": "Sustainment",
           "entity_type": "{Reserved for future use}",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "{Reservado para uso futuro}",
           "code": "162600"
         },
         {
           "entity": "Sustainment",
           "entity_type": "{Reserved for future use}",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "{Reservado para uso futuro}",
           "code": "162700"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Public Affairs/Public Information",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Assuntos Públicos/Informação Pública",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Comunicação Social",
           "code": "162800"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Quartermaster",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Intendente",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Intendência",
           "code": "162900"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Railhead",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Terminal Ferroviário",
           "code": "163000"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Religious Support",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Apoio Religioso",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Serviço de Assistência Religiosa",
           "code": "163100"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Replacement Holding Unit",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Unidade de Retenção de Substituição",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Unidade de Reposição de Pessoal",
           "code": "163200"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Sea Port of Debarkation/Sea Port of Embarkation",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Porto Marítimo de Desembarque/Porto Marítimo de Embarque",
           "code": "163300"
         },
         {
           "entity": "Sustainment",
           "entity_type": "{Reserved for future use}",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "{Reservado para uso futuro}",
           "code": "163400"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Joint Information Bureau (JIB)",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Bureau de Informação Conjunta (JIB)",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Centro de Informação Conjunta (JIB)",
           "code": "163500"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Transportation",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Transporte",
           "code": "163600"
         },
@@ -1292,7 +1292,7 @@ export default {
           "entity": "Sustainment",
           "entity_type": "Transportation",
           "entity_subtype": "Floating Craft",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Transporte",
           "entity_subtype_portugues": "Embarcação Flutuante",
           "code": "163601"
@@ -1300,134 +1300,134 @@ export default {
         {
           "entity": "Sustainment",
           "entity_type": "US Supply Class I",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento dos EUA I",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento I (EUA)",
           "code": "163700"
         },
         {
           "entity": "Sustainment",
           "entity_type": "{Reserved for future use}",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "{Reservado para uso futuro}",
           "code": "163800"
         },
         {
           "entity": "Sustainment",
           "entity_type": "{Reserved for future use}",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "{Reservado para uso futuro}",
           "code": "163900"
         },
         {
           "entity": "Sustainment",
           "entity_type": "US Supply Class IV",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento dos EUA IV",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento IV (EUA)",
           "code": "164000"
         },
         {
           "entity": "Sustainment",
           "entity_type": "{Reserved for future use}",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "{Reservado para uso futuro}",
           "code": "164100"
         },
         {
           "entity": "Sustainment",
           "entity_type": "US Supply Class VI",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento dos EUA VI",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento VI (EUA)",
           "code": "164200"
         },
         {
           "entity": "Sustainment",
           "entity_type": "US Supply Class VII",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento dos EUA VII",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento VII (EUA)",
           "code": "164300"
         },
         {
           "entity": "Sustainment",
           "entity_type": "US Supply Class VIII",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento dos EUA VIII",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento VIII (EUA)",
           "code": "164400"
         },
         {
           "entity": "Sustainment",
           "entity_type": "US Supply Class IX",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento dos EUA IX",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento IX (EUA)",
           "code": "164500"
         },
         {
           "entity": "Sustainment",
           "entity_type": "US Supply Class X",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento dos EUA X",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento X (EUA)",
           "code": "164600"
         },
         {
           "entity": "Sustainment",
           "entity_type": "{Reserved for future use}",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "{Reservado para uso futuro}",
           "code": "164700"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Water Purification",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Purificação de Água",
           "code": "164800"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Broadcast",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Transmissão",
           "code": "164900"
         },
         {
           "entity": "Sustainment",
           "entity_type": "NATO Supply Class - ALL",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Classe de Suprimento da OTAN - TODAS",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Classe de Suprimento OTAN - TODAS",
           "code": "165000"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Interpreter/Translator",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Intérprete/Tradutor",
           "code": "165100"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Support",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Apoio",
           "code": "165200"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Army Field Support",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Apoio de Campo do Exército",
           "code": "165300"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Contracting Services",
-          "entity_portugues": "Sustentação",
+          "entity_portugues": "Logística",
           "entity_type_portugues": "Serviços de Contratação",
           "code": "165400"
         },
         {
           "entity": "Sustainment",
           "entity_type": "Parachute Rigger",
-          "entity_portugues": "Sustentação",
-          "entity_type_portugues": "Montador de Paraquedas",
+          "entity_portugues": "Logística",
+          "entity_type_portugues": "Dobrador e Manutenção de Paraquedas",
           "code": "165500"
         },
         {
@@ -1444,34 +1444,34 @@ export default {
         },
         {
           "entity": "Named Headquarters",
-          "entity_portugues": "Quartéis-Generais Nomeados",
+          "entity_portugues": "Quartel-General Designado",
           "code": "180000"
         },
         {
           "entity": "Named Headquarters",
           "entity_type": "Allied Command Europe Rapid Reaction Corps (ARRC)",
-          "entity_portugues": "Quartéis-Generais Nomeados",
+          "entity_portugues": "Quartel-General Designado",
           "entity_type_portugues": "Corpo de Reação Rápida do Comando Aliado na Europa (ARRC)",
           "code": "180100"
         },
         {
           "entity": "Named Headquarters",
           "entity_type": "Allied Command Operations",
-          "entity_portugues": "Quartéis-Generais Nomeados",
+          "entity_portugues": "Quartel-General Designado",
           "entity_type_portugues": "Comando Aliado de Operações",
           "code": "180200"
         },
         {
           "entity": "Named Headquarters",
           "entity_type": "International Security Assistance Force (ISAF)",
-          "entity_portugues": "Quartéis-Generais Nomeados",
+          "entity_portugues": "Quartel-General Designado",
           "entity_type_portugues": "Força Internacional de Assistência à Segurança (ISAF)",
           "code": "180300"
         },
         {
           "entity": "Named Headquarters",
           "entity_type": "Multinational (MN)",
-          "entity_portugues": "Quartéis-Generais Nomeados",
+          "entity_portugues": "Quartel-General Designado",
           "entity_type_portugues": "Multinacional (MN)",
           "code": "180400"
         },
@@ -1482,97 +1482,97 @@ export default {
         },
         {
           "entity": "Law Enforcement",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "code": "200000"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Bureau of Alcohol, Tobacco, Firearms and Explosives (ATF) (Department of Justice)",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Agência de Álcool, Tabaco, Armas de Fogo e Explosivos (ATF) (Departamento de Justiça)",
           "code": "200100"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Border Patrol",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Patrulha de Fronteira",
           "code": "200200"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Customs Service",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Serviço Aduaneiro",
           "code": "200300"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Drug Enforcement Administration (DEA)",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Administração de Repressão a Drogas (DEA)",
           "code": "200400"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Department of Justice (DOJ)",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Departamento de Justiça (DOJ)",
           "code": "200500"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Federal Bureau of Investigation (FBI)",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Agência Federal de Investigação (FBI)",
           "code": "200600"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Police",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Polícia",
           "code": "200700"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Prison",
-          "entity_portugues": "Aplicação da Lei",
-          "entity_type_portugues": "Prisão",
+          "entity_portugues": "Forças de Segurança",
+          "entity_type_portugues": "Sistema Prisional",
           "code": "200800"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "United States Secret Service (Treas) (USSS)",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Serviço Secreto dos Estados Unidos (Tesouro) (USSS)",
           "code": "200900"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Transportation Security Administration (TSA)",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Administração de Segurança de Transportes (TSA)",
           "code": "201000"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Coast Guard",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Guarda Costeira",
           "code": "201100"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "US Marshals Service",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Serviço de Delegados dos EUA",
           "code": "201200"
         },
         {
           "entity": "Law Enforcement",
           "entity_type": "Internal Security Force",
-          "entity_portugues": "Aplicação da Lei",
+          "entity_portugues": "Forças de Segurança",
           "entity_type_portugues": "Força de Segurança Interna",
           "code": "201300"
         }
@@ -1621,7 +1621,7 @@ export default {
         {
           "entity": "Bridging",
           "entity_type": "Capability",
-          "entity_portugues": "Ponte",
+          "entity_portugues": "Pontes",
           "entity_type_portugues": "Capacidade",
           "code": "06"
         },
@@ -1635,7 +1635,7 @@ export default {
         {
           "entity": "Close Protection",
           "entity_type": "Capability",
-          "entity_portugues": "Proteção Próxima",
+          "entity_portugues": "Proteção Aproximada",
           "entity_type_portugues": "Capacidade",
           "code": "08"
         },
@@ -1677,7 +1677,7 @@ export default {
         {
           "entity": "Crowd and Riot Control",
           "entity_type": "Capability",
-          "entity_portugues": "Controle de Multidões e Tumultos",
+          "entity_portugues": "Controle de Distúrbios Civis",
           "entity_type_portugues": "Capacidade",
           "code": "14"
         },
@@ -1747,7 +1747,7 @@ export default {
         {
           "entity": "Explosive Ordnance Disposal (EOD)",
           "entity_type": "Capability",
-          "entity_portugues": "Eliminação de Munições Explosivas (EOD)",
+          "entity_portugues": "Desativação de Artefatos Explosivos (EOD)",
           "entity_type_portugues": "Capacidade",
           "code": "24"
         },
@@ -1801,21 +1801,21 @@ export default {
         {
           "entity": "Meteorological",
           "entity_type": "Capability",
-          "entity_portugues": "Meteorológico",
+          "entity_portugues": "Meteorologia",
           "entity_type_portugues": "Capacidade",
           "code": "32"
         },
         {
           "entity": "Mine Countermeasure",
           "entity_type": "Capability",
-          "entity_portugues": "Contramedida de Minas",
+          "entity_portugues": "Contramedidas de Minagem",
           "entity_type_portugues": "Capacidade",
           "code": "33"
         },
         {
           "entity": "Missile",
           "entity_type": "Capability",
-          "entity_portugues": "Míssel",
+          "entity_portugues": "Míssil",
           "entity_type_portugues": "Capacidade",
           "code": "34"
         },
@@ -1869,28 +1869,28 @@ export default {
         {
           "entity": "NATO Medical Role 1",
           "entity_type": "Capability",
-          "entity_portugues": "Papel Médico da OTAN 1",
+          "entity_portugues": "Função Médica Nível 1 (OTAN)",
           "entity_type_portugues": "Capacidade",
           "code": "42"
         },
         {
           "entity": "NATO Medical Role 2",
           "entity_type": "Capability",
-          "entity_portugues": "Papel Médico da OTAN 2",
+          "entity_portugues": "Função Médica Nível 2 (OTAN)",
           "entity_type_portugues": "Capacidade",
           "code": "43"
         },
         {
           "entity": "NATO Medical Role 3",
           "entity_type": "Capability",
-          "entity_portugues": "Papel Médico da OTAN 3",
+          "entity_portugues": "Função Médica Nível 3 (OTAN)",
           "entity_type_portugues": "Capacidade",
           "code": "44"
         },
         {
           "entity": "NATO Medical Role 4",
           "entity_type": "Capability",
-          "entity_portugues": "Papel Médico da OTAN 4",
+          "entity_portugues": "Função Médica Nível 4 (OTAN)",
           "entity_type_portugues": "Capacidade",
           "code": "45"
         },
@@ -1904,7 +1904,7 @@ export default {
         {
           "entity": "Unmanned Aerial Systems (UAS)",
           "entity_type": "Capability",
-          "entity_portugues": "Sistemas Aéreos Não Tripulados (UAS)",
+          "entity_portugues": "Sistemas Aéreos Não Tripulados (SARP)",
           "entity_type_portugues": "Capacidade",
           "code": "47"
         },
@@ -1967,7 +1967,7 @@ export default {
         {
           "entity": "Weapons",
           "entity_type": "Capability",
-          "entity_portugues": "Armas",
+          "entity_portugues": "Armamento",
           "entity_type_portugues": "Capacidade",
           "code": "56"
         },
@@ -1988,7 +1988,7 @@ export default {
         {
           "entity": "Single Rocket Launcher",
           "entity_type": "Capability",
-          "entity_portugues": "Lançador Único de Foguetes",
+          "entity_portugues": "Lançador Singular de Foguetes",
           "entity_type_portugues": "Capacidade",
           "code": "59"
         },
@@ -2002,14 +2002,14 @@ export default {
         {
           "entity": "Sniper",
           "entity_type": "Capability",
-          "entity_portugues": "Atirador de Elite",
+          "entity_portugues": "Caçador",
           "entity_type_portugues": "Capacidade",
           "code": "61"
         },
         {
           "entity": "Sound Ranging",
           "entity_type": "Capability",
-          "entity_portugues": "Medição de Distância por Som",
+          "entity_portugues": "Localização Acústica",
           "entity_type_portugues": "Capacidade",
           "code": "62"
         },
@@ -2030,7 +2030,7 @@ export default {
         {
           "entity": "Survey",
           "entity_type": "Capability",
-          "entity_portugues": "Levantamento",
+          "entity_portugues": "Topografia",
           "entity_type_portugues": "Capacidade",
           "code": "65"
         },
@@ -2044,14 +2044,14 @@ export default {
         {
           "entity": "Target Acquisition",
           "entity_type": "Capability",
-          "entity_portugues": "Aquisição de Alvo",
+          "entity_portugues": "Aquisição de Alvos",
           "entity_type_portugues": "Capacidade",
           "code": "67"
         },
         {
           "entity": "Topographic/Geospatial",
           "entity_type": "Capability",
-          "entity_portugues": "Topográfico/Geoespacial",
+          "entity_portugues": "Topografia/Geoespacial",
           "entity_type_portugues": "Capacidade",
           "code": "68"
         },
@@ -2128,7 +2128,7 @@ export default {
         {
           "entity": "Route, Reconnaissance, and Clearance",
           "entity_type": "Capability",
-          "entity_portugues": "Rota, Reconhecimento e Limpeza",
+          "entity_portugues": "Reconhecimento e Desobstrução de Vias",
           "entity_type_portugues": "Capacidade",
           "code": "79"
         },
@@ -2142,7 +2142,7 @@ export default {
         {
           "entity": "Command Post Node",
           "entity_type": "Capability",
-          "entity_portugues": "Nó do Posto de Comando",
+          "entity_portugues": "Nó de Posto de Comando",
           "entity_type_portugues": "Capacidade",
           "code": "81"
         },
@@ -2156,7 +2156,7 @@ export default {
         {
           "entity": "Retransmission Site",
           "entity_type": "Capability",
-          "entity_portugues": "Sítio de Retransmissão",
+          "entity_portugues": "Estação Retransmissora",
           "entity_type_portugues": "Capacidade",
           "code": "83"
         },
@@ -2170,7 +2170,7 @@ export default {
         {
           "entity": "Weapons",
           "entity_type": "Capability",
-          "entity_portugues": "Armas",
+          "entity_portugues": "Armamento",
           "entity_type_portugues": "Capacidade",
           "code": "85"
         },
@@ -2233,7 +2233,7 @@ export default {
         {
           "entity": "Theater",
           "entity_type": "Capability",
-          "entity_portugues": "Teatro",
+          "entity_portugues": "Teatro de Operações",
           "entity_type_portugues": "Capacidade",
           "code": "94"
         },
@@ -2247,7 +2247,7 @@ export default {
         {
           "entity": "Corps",
           "entity_type": "Capability",
-          "entity_portugues": "Corpo",
+          "entity_portugues": "Corpo de Exército",
           "entity_type_portugues": "Capacidade",
           "code": "96"
         },
@@ -2261,7 +2261,7 @@ export default {
         {
           "entity": "Headquarters or headquarters staff element",
           "entity_type": "Capability",
-          "entity_portugues": "Quartel-General ou elemento do estado-maior do quartel-general",
+          "entity_portugues": "Quartel-General ou Elemento de Estado-Maior",
           "entity_type_portugues": "Capacidade",
           "code": "98"
         }
@@ -2275,7 +2275,7 @@ export default {
         {
           "entity": "Airborne",
           "entity_type": "Mobility",
-          "entity_portugues": "Aerotransportado",
+          "entity_portugues": "Aeroterrestre",
           "entity_type_portugues": "Mobilidade",
           "code": "01"
         },
@@ -2289,7 +2289,7 @@ export default {
         {
           "entity": "Battle Damage Repair",
           "entity_type": "Capability",
-          "entity_portugues": "Reparo de Danos de Batalha",
+          "entity_portugues": "Reparo de Avarias de Combate",
           "entity_type_portugues": "Capacidade",
           "code": "03"
         },
@@ -2303,14 +2303,14 @@ export default {
         {
           "entity": "Casualty Staging",
           "entity_type": "Capability",
-          "entity_portugues": "Estadiamento de Vítimas",
+          "entity_portugues": "Posto de Triagem de Baixas",
           "entity_type_portugues": "Capacidade",
           "code": "05"
         },
         {
           "entity": "Clearing",
           "entity_type": "Capability",
-          "entity_portugues": "Limpeza",
+          "entity_portugues": "Desobstrução",
           "entity_type_portugues": "Capacidade",
           "code": "06"
         },
@@ -2345,7 +2345,7 @@ export default {
         {
           "entity": "Dental",
           "entity_type": "Capability",
-          "entity_portugues": "Odontológico",
+          "entity_portugues": "Odontologia",
           "entity_type_portugues": "Capacidade",
           "code": "11"
         },
@@ -2506,21 +2506,21 @@ export default {
         {
           "entity": "Psychological",
           "entity_type": "Capability",
-          "entity_portugues": "Psicológico",
+          "entity_portugues": "Operações Psicológicas",
           "entity_type_portugues": "Capacidade",
           "code": "34"
         },
         {
           "entity": "Radio Relay Line of Sight",
           "entity_type": "Capability",
-          "entity_portugues": "Linha de Visada de Rádio Retransmissor",
+          "entity_portugues": "Retransmissor de Rádio por Visada Direta",
           "entity_type_portugues": "Capacidade",
           "code": "35"
         },
         {
           "entity": "Railroad",
           "entity_type": "Mobility",
-          "entity_portugues": "Ferrovia",
+          "entity_portugues": "Ferroviário",
           "entity_type_portugues": "Mobilidade",
           "code": "36"
         },
@@ -2555,7 +2555,7 @@ export default {
         {
           "entity": "Single Channel",
           "entity_type": "Capability",
-          "entity_portugues": "Canal Único",
+          "entity_portugues": "Monocanal",
           "entity_type_portugues": "Capacidade",
           "code": "41"
         },
@@ -2618,14 +2618,14 @@ export default {
         {
           "entity": "Veterinary",
           "entity_type": "Capability",
-          "entity_portugues": "Veterinário",
+          "entity_portugues": "Veterinária",
           "entity_type_portugues": "Capacidade",
           "code": "50"
         },
         {
           "entity": "Wheeled",
           "entity_type": "Mobility",
-          "entity_portugues": "Com Rodas",
+          "entity_portugues": "Sobre Rodas",
           "entity_type_portugues": "Mobilidade",
           "code": "51"
         },
@@ -2653,7 +2653,7 @@ export default {
         {
           "entity": "Refuel",
           "entity_type": "Capability",
-          "entity_portugues": "Reabastecer",
+          "entity_portugues": "Reabastecimento",
           "entity_type_portugues": "Capacidade",
           "code": "55"
         },
@@ -2681,7 +2681,7 @@ export default {
         {
           "entity": "Air Assault",
           "entity_type": "Mobility",
-          "entity_portugues": "Assalto Aéreo",
+          "entity_portugues": "Aeromóvel",
           "entity_type_portugues": "Mobilidade",
           "code": "59"
         },
@@ -2730,7 +2730,7 @@ export default {
         {
           "entity": "Launch",
           "entity_type": "Mobility",
-          "entity_portugues": "Lançamento",
+          "entity_portugues": "Lancha",
           "entity_type_portugues": "Mobilidade",
           "code": "66"
         },
@@ -2751,14 +2751,14 @@ export default {
         {
           "entity": "Service Craft/Yard",
           "entity_type": "Mobility",
-          "entity_portugues": "Embarcação de Serviço/Estaleiro",
+          "entity_portugues": "Embarcação de Serviço/Portuária",
           "entity_type_portugues": "Mobilidade",
           "code": "69"
         },
         {
           "entity": "Tug Harbor",
           "entity_type": "Mobility",
-          "entity_portugues": "Rebocador de Porto",
+          "entity_portugues": "Rebocador Portuário",
           "entity_type_portugues": "Mobilidade",
           "code": "70"
         },

@@ -808,7 +808,14 @@ class AddEllipseControl {
     }
 
     updateSelectionAfterEdit = () => {
-        this.selectionManager.selectedEllipseFeatures.set(this.selectedFeature.properties.id, this.selectedFeature);
+        const featureId = this.selectedFeature.properties.id;
+        const type = this.selectedFeature.properties.source; // 'circle', 'ellipse', etc.
+        const key = `${type}:${featureId}`;
+
+        this.selectionManager.selectedFeatures.set(key, {
+            type,
+            feature: this.selectedFeature
+        });
     }
 
     updateUIAfterEdit = () => {

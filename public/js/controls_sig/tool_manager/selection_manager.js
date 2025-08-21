@@ -1,68 +1,122 @@
 // Path: js\controls_sig\tool_manager\selection_manager.js
+
+/**
+ * Configuration for all control types
+ * Adding a new control type is as simple as adding an entry here
+ */
+const CONTROL_CONFIG = {
+    draw: {
+        layerIds: [], // Will be handled by maplibredraw
+        sourceNames: ['mapbox-gl-draw-cold', 'mapbox-gl-draw-hot'],
+        criticalProps: [],
+        hasEditingMode: true,
+        hasSpecialSelectionHandling: true
+    },
+    text: {
+        layerIds: ['text-layer'],
+        sourceNames: ['texts'],
+        criticalProps: [],
+        hasEditingMode: false,
+        hasSpecialSelectionHandling: false
+    },
+    image: {
+        layerIds: ['image-layer'],
+        sourceNames: ['images'],
+        criticalProps: [],
+        hasEditingMode: false,
+        hasSpecialSelectionHandling: false
+    },
+    los: {
+        layerIds: ['los-layer'],
+        sourceNames: ['los'],
+        criticalProps: [],
+        hasEditingMode: false,
+        hasSpecialSelectionHandling: false
+    },
+    visibility: {
+        layerIds: ['visibility-layer'],
+        sourceNames: ['visibility'],
+        criticalProps: [],
+        hasEditingMode: false,
+        hasSpecialSelectionHandling: false
+    },
+    circle: {
+        layerIds: ['circle-fill-layer', 'circle-layer'],
+        sourceNames: ['circles'],
+        criticalProps: ['center', 'radius'],
+        hasEditingMode: true,
+        hasSpecialSelectionHandling: true,
+        editHandleSource: 'circle-edit-handles'
+    },
+    ellipse: {
+        layerIds: ['ellipse-layer', 'ellipse-fill-layer'],
+        sourceNames: ['ellipses'],
+        criticalProps: ['center', 'majorRadius', 'minorRadius', 'bearing'],
+        hasEditingMode: true,
+        hasSpecialSelectionHandling: true,
+        editHandleSource: 'ellipse-edit-handles'
+    },
+    arrow: {
+        layerIds: ['arrow-layer', 'arrow-fill-layer'],
+        sourceNames: ['arrows'],
+        criticalProps: ['baseCoordinates'],
+        hasEditingMode: true,
+        hasSpecialSelectionHandling: true,
+        editHandleSource: 'arrow-edit-handles'
+    },
+    boundary: {
+        layerIds: ['boundary-main-layer'],
+        sourceNames: ['boundarys'],
+        criticalProps: ['center'],
+        hasEditingMode: true,
+        hasSpecialSelectionHandling: true,
+        editHandleSource: 'boundary-edit-handles'
+    },
+    occupied_front: {
+        layerIds: ['occupied-front-layer'],
+        sourceNames: ['occupied_fronts'],
+        criticalProps: ['baseCoordinates'],
+        hasEditingMode: true,
+        hasSpecialSelectionHandling: true,
+        editHandleSource: 'occupied_front-edit-handles'
+    },
+    military_symbol: {
+        layerIds: ['military-symbols-layer'],
+        sourceNames: ['military_symbols'],
+        criticalProps: ['sidc', 'affiliation', 'dimension', 'mainIcon', 'echelon'],
+        hasEditingMode: false,
+        hasSpecialSelectionHandling: false
+    }
+};
+
 class SelectionManager {
     constructor(map) {
         this.map = map;
         this.uiManager = null;
-        this.drawControl = null;
-        this.textControl = null;
-        this.imageControl = null;
-        this.losControl = null;
-        this.visibilityControl = null;
-        this.circleControl = null;
-        this.ellipseControl = null;
-        this.arrowControl = null;
-        this.boundaryControl = null;
-        this.occupiedFrontControl = null;
-        this.militarySymbolControl = null;
-        this.selectedDrawFeatures = new Map();
-        this.selectedTextFeatures = new Map();
-        this.selectedImageFeatures = new Map();
-        this.selectedLOSFeatures = new Map();
-        this.selectedVisibilityFeatures = new Map();
-        this.selectedCircleFeatures = new Map();
-        this.selectedEllipseFeatures = new Map();
-        this.selectedArrowFeatures = new Map();
-        this.selectedBoundaryFeatures = new Map();
-        this.selectedOccupiedFrontFeatures = new Map();
-        this.selectedMilitarySymbolFeatures = new Map();
+        this.vectorTileInfoControl = null;
+
+        // Control registry - unified storage for all controls
+        this.controls = new Map();
+
+        // Unified selection storage - one map instead of 11+
+        this.selectedFeatures = new Map(); // featureId -> { type, feature }
 
         this.setupEventListeners();
     }
 
-    setDrawControl(drawControl) {
-        this.drawControl = drawControl;
-    }
+    /**
+     * Register a control with the selection manager
+     * This replaces all the individual setXXXControl methods
+     */
+    registerControl(type, control) {
+        if (!CONTROL_CONFIG[type]) {
+            throw new Error(`Unknown control type: ${type}`);
+        }
 
-    setTextControl(textControl) {
-        this.textControl = textControl;
-    }
+        this.controls.set(type, control);
 
-    setImageControl(imageControl) {
-        this.imageControl = imageControl;
-    }
-
-    setLosControl(losControl) {
-        this.losControl = losControl;
-    }
-
-    setVisibilityControl(visibilityControl) {
-        this.visibilityControl = visibilityControl;
-    }
-
-    setCircleControl(circleControl) {
-        this.circleControl = circleControl;
-    }
-
-    setEllipseControl(ellipseControl) {
-        this.ellipseControl = ellipseControl;
-    }
-
-    setArrowControl(arrowControl) {
-        this.arrowControl = arrowControl;
-    }
-
-    setBoundaryControl(boundaryControl) {
-        this.boundaryControl = boundaryControl;
+        // Setup layer click listeners for this control type
+        this._setupControlEventListeners(type);
     }
 
     setUIManager(uiManager) {
@@ -73,31 +127,21 @@ class SelectionManager {
         this.vectorTileInfoControl = vectorTileInfoControl;
     }
 
-    setOccupiedFrontControl(occupiedFrontControl) {
-        this.occupiedFrontControl = occupiedFrontControl;
-    }
+    /**
+     * Setup event listeners for a specific control type
+     */
+    _setupControlEventListeners(type) {
+        const config = CONTROL_CONFIG[type];
 
-    setMilitarySymbolControl(militarySymbolControl) {
-        this.militarySymbolControl = militarySymbolControl;
+        // Setup click listeners for each layer
+        config.layerIds.forEach(layerId => {
+            this.map.on('click', layerId, this.handleElementClick);
+        });
     }
-
 
     setupEventListeners = () => {
         this.map.on('click', this.handleMapClick);
-        this.map.on('click', 'circle-fill-layer', this.handleElementClick);
-        this.map.on('click', 'circle-layer', this.handleElementClick);
-        this.map.on('click', 'ellipse-layer', this.handleElementClick);
-        this.map.on('click', 'ellipse-fill-layer', this.handleElementClick);
-        this.map.on('click', 'visibility-layer', this.handleElementClick);
-        this.map.on('click', 'image-layer', this.handleElementClick);
-        this.map.on('click', 'los-layer', this.handleElementClick);
-        this.map.on('click', 'arrow-layer', this.handleElementClick);
-        this.map.on('click', 'arrow-fill-layer', this.handleElementClick);
-        this.map.on('click', 'occupied-front-layer', this.handleElementClick);
-        this.map.on('click', 'boundary-main-layer', this.handleElementClick);
-        this.map.on('click', 'military-symbols-layer', this.handleElementClick);
         this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
-        this.map.on('click', 'text-layer', this.handleElementClick);
     }
 
     handleMapClick = (e) => {
@@ -110,7 +154,7 @@ class SelectionManager {
             // Check for maplibredraw features
             const clickedDrawFeature = this.getClickedDrawFeature(e.point);
 
-            // Check for custom tool features (circle, ellipse, etc.)
+            // Check for custom tool features
             const clickedCustomFeature = this.getClickedCustomFeature(e.point);
 
             // Check if we clicked on an edit handle
@@ -120,8 +164,11 @@ class SelectionManager {
 
             // Handle maplibredraw features
             if (clickedDrawFeature) {
-                if (this.selectedDrawFeatures.has(clickedDrawFeature.properties.id) && clickedDrawFeature.geometry.type !== 'Point') {
-                    this.drawControl.draw.changeMode('direct_select', { featureId: clickedDrawFeature.properties.id });
+                if (this.isFeatureSelected('draw', clickedDrawFeature.properties.id) &&
+                    clickedDrawFeature.geometry.type !== 'Point') {
+                    this.controls.get('draw').draw.changeMode('direct_select', {
+                        featureId: clickedDrawFeature.properties.id
+                    });
                 } else {
                     if (!e.originalEvent.shiftKey) {
                         this.deselectAllFeatures();
@@ -131,9 +178,12 @@ class SelectionManager {
                 return;
             }
 
-            // Handle custom tool features (circle, ellipse, etc.)
+            // Handle custom tool features
             if (clickedCustomFeature) {
-                const isAlreadySelected = this.isCustomFeatureSelected(clickedCustomFeature);
+                const isAlreadySelected = this.isFeatureSelected(
+                    clickedCustomFeature.toolType,
+                    clickedCustomFeature.properties.id
+                );
 
                 if (isAlreadySelected) {
                     // Feature is already selected - transition to editing mode
@@ -158,156 +208,47 @@ class SelectionManager {
         }
     }
 
-    // Get clicked custom tool feature (circle, ellipse, etc.)
     getClickedCustomFeature = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
-        // Look for circle features
-        const circleFeature = features.find(f =>
-            (f.source === 'circles' || f.layer?.id === 'circle-layer' || f.layer?.id === 'circle-fill-layer') &&
-            f.properties.source === 'circle'
-        );
-        if (circleFeature) return { ...circleFeature, toolType: 'circle' };
+        // Check each control type configuration
+        for (const [type, config] of Object.entries(CONTROL_CONFIG)) {
+            if (type === 'draw') continue; // Special handling for draw
 
-        // Look for ellipse features
-        const ellipseFeature = features.find(f =>
-            (f.source === 'ellipses' || f.layer?.id === 'ellipse-layer') &&
-            f.properties.source === 'ellipse'
-        );
-        if (ellipseFeature) return { ...ellipseFeature, toolType: 'ellipse' };
+            for (const sourceName of config.sourceNames) {
+                const feature = features.find(f =>
+                    (f.source === sourceName || config.layerIds.includes(f.layer?.id)) &&
+                    f.properties.source === type
+                );
 
-        // Look for military symbol features
-        const militarySymbolFeature = features.find(f =>
-            (f.source === 'military_symbols' || f.layer?.id === 'military-symbols-layer') &&
-            f.properties.source === 'military_symbol'
-        );
-        if (militarySymbolFeature) return { ...militarySymbolFeature, toolType: 'military_symbol' };
-
-        // Look for other custom tool features
-        const textFeature = features.find(f =>
-            (f.source === 'texts' || f.layer?.id === 'text-layer') &&
-            f.properties.source === 'text'
-        );
-        if (textFeature) return { ...textFeature, toolType: 'text' };
-
-        const imageFeature = features.find(f =>
-            (f.source === 'images' || f.layer?.id === 'image-layer') &&
-            f.properties.source === 'image'
-        );
-        if (imageFeature) return { ...imageFeature, toolType: 'image' };
-
-        const losFeature = features.find(f =>
-            (f.source === 'los' || f.layer?.id === 'los-layer') &&
-            f.properties.source === 'los'
-        );
-        if (losFeature) return { ...losFeature, toolType: 'los' };
-
-        const visibilityFeature = features.find(f =>
-            (f.source === 'visibility' || f.layer?.id === 'visibility-layer') &&
-            f.properties.source === 'visibility'
-        );
-        if (visibilityFeature) return { ...visibilityFeature, toolType: 'visibility' };
-
-        const arrowFeature = features.find(f =>
-            (f.source === 'arrows' || f.layer?.id === 'arrow-layer') &&
-            f.properties.source === 'arrow'
-        );
-        if (arrowFeature) return { ...arrowFeature, toolType: 'arrow' };
-
-        const boundaryFeature = features.find(f =>
-            (f.source === 'boundarys' || f.layer?.id === 'boundary-main-layer') &&
-            f.properties.source === 'boundary'
-        );
-        if (boundaryFeature) return { ...boundaryFeature, toolType: 'boundary' };
-
-        const occupiedFrontFeature = features.find(f =>
-            (f.source === 'occupied_fronts' || f.layer?.id === 'occupied-front-layer') &&
-            f.properties.source === 'occupied_front'
-        );
-        if (occupiedFrontFeature) return { ...occupiedFrontFeature, toolType: 'occupied_front' };
+                if (feature) {
+                    return { ...feature, toolType: type };
+                }
+            }
+        }
 
         return null;
     }
 
-    // Check if a custom feature is already selected
-    isCustomFeatureSelected = (feature) => {
-        const featureId = feature.properties.id;
-
-        switch (feature.toolType || feature.properties.source) {
-            case 'circle':
-                return this.selectedCircleFeatures.has(featureId);
-            case 'ellipse':
-                return this.selectedEllipseFeatures.has(featureId);
-            case 'arrow':
-                return this.selectedArrowFeatures.has(featureId);
-            case 'boundary':
-                return this.selectedBoundaryFeatures.has(featureId);
-            case 'occupied_front':
-                return this.selectedOccupiedFrontFeatures.has(featureId);
-            case 'military_symbol':
-                return this.selectedMilitarySymbolFeatures.has(featureId);
-            case 'text':
-                return this.selectedTextFeatures.has(featureId);
-            case 'image':
-                return this.selectedImageFeatures.has(featureId);
-            case 'los':
-                return this.selectedLOSFeatures.has(featureId);
-            case 'visibility':
-                return this.selectedVisibilityFeatures.has(featureId);
-            default:
-                return false;
-        }
+    isFeatureSelected = (type, featureId) => {
+        const key = `${type}:${featureId}`;
+        return this.selectedFeatures.has(key);
     }
 
-    // Transition feature to editing mode (analogous to maplibredraw's direct_select)
     transitionToEditingMode = (feature) => {
-        const source = feature.toolType || feature.properties.source;
+        const type = feature.toolType || feature.properties.source;
         const featureId = feature.properties.id;
 
-        switch (source) {
-            case 'circle':
-                if (this.selectedCircleFeatures.has(featureId)) {
-                    const selectedFeature = this.selectedCircleFeatures.get(featureId);
-                    // Trigger transition to editing mode in circle control
-                    this.circleControl.onFeatureSelected?.(selectedFeature);
-                }
-                break;
-            case 'ellipse':
-                if (this.selectedEllipseFeatures.has(featureId)) {
-                    const selectedFeature = this.selectedEllipseFeatures.get(featureId);
-                    // Trigger transition to editing mode in ellipse control
-                    this.ellipseControl.onFeatureSelected?.(selectedFeature);
-                }
-                break;
-            case 'arrow':
-                if (this.selectedArrowFeatures.has(featureId)) {
-                    const selectedFeature = this.selectedArrowFeatures.get(featureId);
-                    // Trigger transition to editing mode in arrow control
-                    this.arrowControl.onFeatureSelected?.(selectedFeature);
-                }
-                break;
-            case 'boundary':
-                if (this.selectedBoundaryFeatures.has(featureId)) {
-                    const selectedFeature = this.selectedBoundaryFeatures.get(featureId);
-                    // Trigger transition to editing mode in boundary control
-                    this.boundaryControl.onFeatureSelected?.(selectedFeature);
-                }
-                break;
-            case 'occupied_front':
-                if (this.selectedOccupiedFrontFeatures.has(featureId)) {
-                    const selectedFeature = this.selectedOccupiedFrontFeatures.get(featureId);
-                    // Trigger transition to editing mode in boundary control
-                    this.occupiedFrontControl.onFeatureSelected?.(selectedFeature);
-                }
-                break;
-            case 'military_symbol':
-                // Military symbols don't have editing mode like other tools
-                // They are just selected for property modification
-                break;
+        if (!this.isFeatureSelected(type, featureId)) return;
+
+        const control = this.controls.get(type);
+        const selectedFeature = this.getSelectedFeature(type, featureId);
+
+        if (control && selectedFeature && control.onFeatureSelected) {
+            control.onFeatureSelected(selectedFeature);
         }
     }
 
-    // Check if click is on an edit handle (for any tool in editing mode)
     isClickOnEditHandle = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
@@ -319,46 +260,18 @@ class SelectionManager {
         );
         if (hasMaplibreDrawEditHandles) return true;
 
-        // Check for circle edit handles
-        if (this.circleControl.isEditingMode && this.circleControl.isEditingMode()) {
-            const handleFeatures = features.filter(f =>
-                f.source === 'circle-edit-handles' &&
-                (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
-            );
-            if (handleFeatures.length > 0) return true;
-        }
+        // Check for custom control edit handles
+        for (const [type, config] of Object.entries(CONTROL_CONFIG)) {
+            if (!config.hasEditingMode || !config.editHandleSource) continue;
 
-        // Check for ellipse edit handles (similar pattern)
-        if (this.ellipseControl.isEditingMode && this.ellipseControl.isEditingMode()) {
-            const handleFeatures = features.filter(f =>
-                f.source === 'ellipse-edit-handles' &&
-                (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
-            );
-            if (handleFeatures.length > 0) return true;
-        }
-
-        if (this.arrowControl.isEditingMode && this.arrowControl.isEditingMode()) {
-            const handleFeatures = features.filter(f =>
-                f.source === 'arrow-edit-handles' &&
-                (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
-            );
-            if (handleFeatures.length > 0) return true;
-        }
-
-        if (this.boundaryControl.isEditingMode && this.boundaryControl.isEditingMode()) {
-            const handleFeatures = features.filter(f =>
-                f.source === 'boundary-edit-handles' &&
-                (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
-            );
-            if (handleFeatures.length > 0) return true;
-        }
-
-        if (this.occupiedFrontControl.isEditingMode && this.occupiedFrontControl.isEditingMode()) {
-            const handleFeatures = features.filter(f =>
-                f.source === 'occupied_front-edit-handles' &&
-                (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
-            );
-            if (handleFeatures.length > 0) return true;
+            const control = this.controls.get(type);
+            if (control && control.isEditingMode && control.isEditingMode()) {
+                const handleFeatures = features.filter(f =>
+                    f.source === config.editHandleSource &&
+                    (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
+                );
+                if (handleFeatures.length > 0) return true;
+            }
         }
 
         return false;
@@ -366,114 +279,95 @@ class SelectionManager {
 
     getClickedDrawFeature(point) {
         const features = this.map.queryRenderedFeatures(point);
-        return features.find(f => f.source === 'mapbox-gl-draw-cold' || f.source === 'mapbox-gl-draw-hot');
+        return features.find(f =>
+            f.source === 'mapbox-gl-draw-cold' ||
+            f.source === 'mapbox-gl-draw-hot' ||
+            f.source?.includes('draw')
+        );
     }
 
     handleElementClick = (e) => {
         e.preventDefault();
 
         const feature = e.features[0];
-        const source = feature.properties.source;
+
+        // Melhorar detecção se é feature do draw
+        const isDrawFeature = feature.source === 'mapbox-gl-draw-cold' ||
+            feature.source === 'mapbox-gl-draw-hot' ||
+            !feature.properties.source; // draw features podem não ter .source
+
+        const type = isDrawFeature ? 'draw' : feature.properties.source;
         const featureId = feature.properties.id;
 
         // Check if feature is already selected
-        const isFeatureSelected = this.isFeatureSelected(source, featureId);
+        const isFeatureSelected = this.isFeatureSelected(type, featureId);
 
         if (isFeatureSelected && e.originalEvent.shiftKey) {
             // Only deselect if holding shift and feature is already selected
-            this.toggleFeatureSelection(source, featureId, feature, true); // force toggle
+            this.toggleFeatureSelection(type, featureId, feature, true); // force toggle
         } else if (!isFeatureSelected) {
             // Select new feature
             if (!e.originalEvent.shiftKey) {
                 this.deselectAllFeatures();
             }
-            this.toggleFeatureSelection(source, featureId, feature, false); // don't force toggle
+            this.toggleFeatureSelection(type, featureId, feature, false); // don't force toggle
         }
         // If feature is selected and not holding shift, don't deselect (will transition to editing in handleMapClick)
 
-        const drawFeatureIds = Array.from(this.selectedDrawFeatures.keys());
-        this.drawControl.draw.changeMode('simple_select', { featureIds: drawFeatureIds });
+        // SEMPRE atualizar draw selections para manter seleção múltipla funcionando
+        if (this.controls.has('draw')) {
+            const drawFeatureIds = this.getSelectedFeatureIdsByType('draw');
+            this.controls.get('draw').draw.changeMode('simple_select', { featureIds: drawFeatureIds });
+        }
 
         this.updateUI();
     }
 
-    isFeatureSelected = (source, featureId) => {
-        switch (source) {
-            case 'text':
-                return this.selectedTextFeatures.has(featureId);
-            case 'image':
-                return this.selectedImageFeatures.has(featureId);
-            case 'los':
-                return this.selectedLOSFeatures.has(featureId);
-            case 'visibility':
-                return this.selectedVisibilityFeatures.has(featureId);
-            case 'draw':
-                return this.selectedDrawFeatures.has(featureId);
-            case 'circle':
-                return this.selectedCircleFeatures.has(featureId);
-            case 'ellipse':
-                return this.selectedEllipseFeatures.has(featureId);
-            case 'arrow':
-                return this.selectedArrowFeatures.has(featureId);
-            case 'boundary':
-                return this.selectedBoundaryFeatures.has(featureId);
-            case 'occupied_front':
-                return this.selectedOccupiedFrontFeatures.has(featureId);
-            case 'military_symbol':
-                return this.selectedMilitarySymbolFeatures.has(featureId);
-            default:
-                return false;
+    toggleFeatureSelection(type, featureId, feature, forceToggle = false) {
+        const key = `${type}:${featureId}`;
+        const control = this.controls.get(type);
+        const config = CONTROL_CONFIG[type];
+
+        if (this.selectedFeatures.has(key) && forceToggle) {
+            // Deselect feature
+            this.selectedFeatures.delete(key);
+
+            if (control && control.onFeatureDeselected) {
+                control.onFeatureDeselected(feature);
+            }
+        } else if (!this.selectedFeatures.has(key)) {
+            // Select feature
+            let featureToStore = feature;
+
+            // For problematic features, create optimized hybrid feature
+            if (config.criticalProps.length > 0) {
+                const completeFeature = this.getCompleteFeatureFromSource(type, featureId);
+                if (completeFeature) {
+                    featureToStore = this.createOptimalFeatureForDrag(feature, completeFeature, type, config);
+                }
+            }
+
+            this.selectedFeatures.set(key, { type, feature: featureToStore });
+
+            if (control && control.onFeatureSelected) {
+                control.onFeatureSelected(featureToStore);
+            }
         }
     }
 
-    getCompleteFeatureFromSource(source, featureId) {
-        let sourceName;
-        switch (source) {
-            case 'circle':
-                sourceName = 'circles';
-                break;
-            case 'ellipse':
-                sourceName = 'ellipses';
-                break;
-            case 'arrow':
-                sourceName = 'arrows';
-                break;
-            case 'boundary':
-                sourceName = 'boundarys';
-                break;
-            case 'occupied_front':
-                sourceName = 'occupied_fronts';
-                break;
-            case 'military_symbol':
-                sourceName = 'military_symbols';
-                break;
-            default:
-                return null;
-        }
+    getCompleteFeatureFromSource(type, featureId) {
+        const config = CONTROL_CONFIG[type];
+        if (!config.sourceNames.length) return null;
 
+        const sourceName = config.sourceNames[0];
         const mapSource = this.map.getSource(sourceName);
         if (!mapSource || !mapSource._data) return null;
 
         return mapSource._data.features.find(f => f.properties.id == featureId);
     }
 
-    // Create optimal feature for drag operations
-    createOptimalFeatureForDrag(queryFeature, completeFeature, source) {
-        if (!completeFeature) {
-            return queryFeature;
-        }
-
-        // Critical properties that need to be native (not serialized)
-        const criticalProps = {
-            'circle': ['center', 'radius'],
-            'ellipse': ['center', 'majorRadius', 'minorRadius', 'bearing'],
-            'arrow': ['baseCoordinates'],
-            'boundary': ['center'],
-            'occupied_front': ['baseCoordinates'],
-            'military_symbol': ['sidc', 'affiliation', 'dimension', 'mainIcon', 'echelon']
-        };
-
-        const relevantProps = criticalProps[source] || [];
+    createOptimalFeatureForDrag(queryFeature, completeFeature, type, config) {
+        if (!completeFeature) return queryFeature;
 
         // Start with query feature (has correct render properties)
         const hybridFeature = {
@@ -486,7 +380,7 @@ class SelectionManager {
                 ...queryFeature.properties,
                 // Override with critical properties from complete feature
                 ...Object.fromEntries(
-                    relevantProps
+                    config.criticalProps
                         .filter(prop => completeFeature.properties[prop] !== undefined)
                         .map(prop => [prop, completeFeature.properties[prop]])
                 )
@@ -496,155 +390,107 @@ class SelectionManager {
         return hybridFeature;
     }
 
-    toggleFeatureSelection(source, featureId, feature, forceToggle = false) {
-        let targetMap;
-
-        switch (source) {
-            case 'text':
-                targetMap = this.selectedTextFeatures;
-                break;
-            case 'image':
-                targetMap = this.selectedImageFeatures;
-                break;
-            case 'los':
-                targetMap = this.selectedLOSFeatures;
-                break;
-            case 'visibility':
-                targetMap = this.selectedVisibilityFeatures;
-                break;
-            case 'draw':
-                targetMap = this.selectedDrawFeatures;
-                break;
-            case 'circle':
-                targetMap = this.selectedCircleFeatures;
-                break;
-            case 'ellipse':
-                targetMap = this.selectedEllipseFeatures;
-                break;
-            case 'arrow':
-                targetMap = this.selectedArrowFeatures;
-                break;
-            case 'boundary':
-                targetMap = this.selectedBoundaryFeatures;
-                break;
-            case 'occupied_front':
-                targetMap = this.selectedOccupiedFrontFeatures;
-                break;
-            case 'military_symbol':
-                targetMap = this.selectedMilitarySymbolFeatures;
-                break;
-            default:
-                console.error('Invalid source:', source);
-                return;
-        }
-
-        if (targetMap.has(featureId) && forceToggle) {
-            // Only deselect if explicitly forced (shift+click)
-            targetMap.delete(featureId);
-            if (source === 'circle') {
-                this.circleControl.onFeatureDeselected?.(feature);
-            }
-            if (source === 'ellipse') {
-                this.ellipseControl.onFeatureDeselected?.(feature);
-            }
-            if (source === 'arrow') {
-                this.arrowControl.onFeatureDeselected?.(feature);
-            }
-            if (source === 'boundary') {
-                this.boundaryControl.onFeatureDeselected?.(feature);
-            }
-            if (source === 'occupied_front') {
-                this.occupiedFrontControl.onFeatureDeselected?.(feature);
-            }
-            // Military symbols don't need special deselection handling
-        } else if (!targetMap.has(featureId)) {
-            // Select feature
-            let featureToStore = feature;
-
-            // For problematic features, create optimized hybrid feature
-            if (['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front', 'military_symbol'].includes(source)) {
-                const completeFeature = this.getCompleteFeatureFromSource(source, featureId);
-
-                if (completeFeature) {
-                    // Create hybrid feature that combines the best of both worlds
-                    featureToStore = this.createOptimalFeatureForDrag(feature, completeFeature, source);
-                }
-            }
-
-            targetMap.set(featureId, featureToStore);
-
-            if (source === 'circle') {
-                this.circleControl.onFeatureSelected?.(featureToStore);
-            }
-            if (source === 'ellipse') {
-                this.ellipseControl.onFeatureSelected?.(featureToStore);
-            }
-            if (source === 'arrow') {
-                this.arrowControl.onFeatureSelected?.(featureToStore);
-            }
-            if (source === 'boundary') {
-                this.boundaryControl.onFeatureSelected?.(featureToStore);
-            }
-            if (source === 'occupied_front') {
-                this.occupiedFrontControl.onFeatureSelected?.(featureToStore);
-            }
-            // Military symbols don't need special selection handling
-        }
-    }
-
     handleDrawSelectionChange = (e) => {
-        const selectedFeatures = this.drawControl.draw.getSelected().features;
-        this.selectedDrawFeatures = new Map(
-            selectedFeatures.map(f => [f.properties.id, f])
-        );
+        // Obter features selecionadas do draw
+        const selectedFeatures = this.controls.get('draw').draw.getSelected().features;
+
+        // Limpar seleções draw existentes
+        this.clearSelectionsByType('draw');
+
+        // Adicionar novas seleções
+        selectedFeatures.forEach(f => {
+            const key = `draw:${f.properties.id}`;
+            this.selectedFeatures.set(key, { type: 'draw', feature: f });
+        });
+
         this.updateUI();
     }
-
+    
     deselectAllFeatures = (forceDraw = false) => {
-        this.selectedTextFeatures.clear();
-        this.selectedImageFeatures.clear();
-        this.selectedLOSFeatures.clear();
-        this.selectedVisibilityFeatures.clear();
-        this.selectedDrawFeatures.clear();
-        this.selectedCircleFeatures.clear();
-        this.selectedEllipseFeatures.clear();
-        this.selectedArrowFeatures.clear();
-        this.selectedBoundaryFeatures.clear();
-        this.selectedOccupiedFrontFeatures.clear();
-        this.selectedMilitarySymbolFeatures.clear();
+        // Notify controls before clearing
+        this.notifyControlsOfGlobalDeselect();
 
-        if (forceDraw && !this.drawControl.isActive) {
-            this.drawControl.draw.changeMode('simple_select', { featureIds: [] });
+        // Clear all selections
+        this.selectedFeatures.clear();
+
+        if (forceDraw && this.controls.has('draw') && !this.controls.get('draw').isActive) {
+            this.controls.get('draw').draw.changeMode('simple_select', { featureIds: [] });
         }
 
         this.updateUI();
-        this.notifyControlsOfGlobalDeselect();
     }
 
     notifyControlsOfGlobalDeselect = () => {
-        // Notify circle control about global deselect
-        this.circleControl.onGlobalDeselect();
-        this.ellipseControl.onGlobalDeselect();
-        this.arrowControl.onGlobalDeselect();
-        this.boundaryControl.onGlobalDeselect();
-        this.occupiedFrontControl.onGlobalDeselect();
-        // Military symbols don't need special global deselect handling
+        this.controls.forEach((control, type) => {
+            if (control.onGlobalDeselect) {
+                control.onGlobalDeselect();
+            }
+        });
     }
 
+    /**
+     * Get all selected features
+     */
     getAllSelectedFeatures() {
-        return [
-            ...this.selectedDrawFeatures.values(),
-            ...this.selectedTextFeatures.values(),
-            ...this.selectedImageFeatures.values(),
-            ...this.selectedLOSFeatures.values(),
-            ...this.selectedVisibilityFeatures.values(),
-            ...this.selectedCircleFeatures.values(),
-            ...this.selectedEllipseFeatures.values(),
-            ...this.selectedArrowFeatures.values(),
-            ...this.selectedBoundaryFeatures.values(),
-            ...this.selectedOccupiedFrontFeatures.values(),
-            ...this.selectedMilitarySymbolFeatures.values(),
-        ];
+        return Array.from(this.selectedFeatures.values()).map(item => item.feature);
+    }
+
+    /**
+     * Get selected features by type
+     */
+    getSelectedFeaturesByType(type) {
+        return Array.from(this.selectedFeatures.values()).filter(item => item.type === type);
+    }
+
+    /**
+     * Helper method para obter IDs das features selecionadas por tipo
+     */
+    getSelectedFeatureIdsByType(type) {
+        return this.getSelectedFeaturesByType(type).map(item => item.feature.properties.id);
+    }
+
+    /**
+     * Get a specific selected feature
+     */
+    getSelectedFeature(type, featureId) {
+        const key = `${type}:${featureId}`;
+        const item = this.selectedFeatures.get(key);
+        return item ? item.feature : null;
+    }
+
+    /**
+     * Clear selections of a specific type
+     */
+    clearSelectionsByType(type) {
+        const keysToDelete = [];
+        for (const [key, item] of this.selectedFeatures) {
+            if (item.type === type) {
+                keysToDelete.push(key);
+            }
+        }
+        keysToDelete.forEach(key => this.selectedFeatures.delete(key));
+    }
+
+    // ===== CACHE INTEGRATION =====
+
+    /**
+     * Notifica mudança de geometria para invalidar cache no UIManager
+     */
+    notifyGeometryChange(featureId) {
+        if (this.uiManager && this.uiManager.notifyGeometryChange) {
+            this.uiManager.notifyGeometryChange(featureId);
+        }
+    }
+
+    /**
+     * Notifica mudanças de múltiplas geometrias
+     */
+    notifyMultipleGeometryChanges(featureIds) {
+        if (this.uiManager && this.uiManager.notifyGeometryChange) {
+            featureIds.forEach(featureId => {
+                this.uiManager.notifyGeometryChange(featureId);
+            });
+        }
     }
 
     updateUI = () => {
@@ -657,49 +503,70 @@ class SelectionManager {
     }
 
     getActiveTool = () => {
-        if (this.textControl.isActive) return this.textControl;
-        if (this.imageControl.isActive) return this.imageControl;
-        if (this.losControl.isActive) return this.losControl;
-        if (this.visibilityControl.isActive) return this.visibilityControl;
-        if (this.vectorTileInfoControl.isActive) return this.vectorTileInfoControl;
-        if (this.drawControl.isActive) return this.drawControl;
-        if (this.circleControl.isActive) return this.circleControl;
-        if (this.ellipseControl.isActive) return this.ellipseControl;
-        if (this.arrowControl.isActive) return this.arrowControl;
-        if (this.boundaryControl.isActive) return this.boundaryControl;
-        if (this.occupiedFrontControl.isActive) return this.occupiedFrontControl;
-        if (this.militarySymbolControl && this.militarySymbolControl.isActive) return this.militarySymbolControl;
+        // Check vector tile info control first (special case)
+        if (this.vectorTileInfoControl && this.vectorTileInfoControl.isActive) {
+            return this.vectorTileInfoControl;
+        }
+
+        // Check all registered controls
+        for (const control of this.controls.values()) {
+            if (control.isActive) {
+                return control;
+            }
+        }
+
         return null;
     }
 
     deleteSelectedFeatures = () => {
-        this.textControl.deleteFeatures([...this.selectedTextFeatures.values()]);
-        this.imageControl.deleteFeatures([...this.selectedImageFeatures.values()]);
-        this.losControl.deleteFeatures([...this.selectedLOSFeatures.values()]);
-        this.visibilityControl.deleteFeatures([...this.selectedVisibilityFeatures.values()]);
-        this.drawControl.deleteFeatures([...this.selectedDrawFeatures.values()]);
-        this.circleControl.deleteFeatures([...this.selectedCircleFeatures.values()]);
-        this.ellipseControl.deleteFeatures([...this.selectedEllipseFeatures.values()]);
-        this.arrowControl.deleteFeatures([...this.selectedArrowFeatures.values()]);
-        this.boundaryControl.deleteFeatures([...this.selectedBoundaryFeatures.values()]);
-        this.occupiedFrontControl.deleteFeatures([...this.selectedOccupiedFrontFeatures.values()]);
-        this.militarySymbolControl.deleteFeatures([...this.selectedMilitarySymbolFeatures.values()]);
+        // Group features by type for efficient deletion
+        const featuresByType = new Map();
+
+        for (const item of this.selectedFeatures.values()) {
+            if (!featuresByType.has(item.type)) {
+                featuresByType.set(item.type, []);
+            }
+            featuresByType.get(item.type).push(item.feature);
+        }
+
+        // Delete features from each control
+        featuresByType.forEach((features, type) => {
+            const control = this.controls.get(type);
+            if (control && control.deleteFeatures) {
+                control.deleteFeatures(features);
+            }
+        });
 
         this.deselectAllFeatures(true);
     }
 
     updateSelectedFeatures() {
-        this.textControl.updateFeatures([...this.selectedTextFeatures.values()], true);
-        this.imageControl.updateFeatures([...this.selectedImageFeatures.values()], true);
-        this.drawControl.updateFeatures([...this.selectedDrawFeatures.values()], true);
-        this.losControl.updateFeatures([...this.selectedLOSFeatures.values()], true);
-        this.visibilityControl.updateFeatures([...this.selectedVisibilityFeatures.values()], true);
-        this.circleControl.updateFeatures([...this.selectedCircleFeatures.values()], true);
-        this.ellipseControl.updateFeatures([...this.selectedEllipseFeatures.values()], true);
-        this.arrowControl.updateFeatures([...this.selectedArrowFeatures.values()], true);
-        this.boundaryControl.updateFeatures([...this.selectedBoundaryFeatures.values()], true);
-        this.occupiedFrontControl.updateFeatures([...this.selectedOccupiedFrontFeatures.values()], true);
-        this.militarySymbolControl.updateFeatures([...this.selectedMilitarySymbolFeatures.values()], true);
+        // Group features by type for efficient updates
+        const featuresByType = new Map();
+        const allFeatureIds = [];
+
+        for (const item of this.selectedFeatures.values()) {
+            if (!featuresByType.has(item.type)) {
+                featuresByType.set(item.type, []);
+            }
+            featuresByType.get(item.type).push(item.feature);
+
+            // Coletar IDs das features para invalidar cache
+            if (item.feature.properties && item.feature.properties.id) {
+                allFeatureIds.push(item.feature.properties.id);
+            }
+        }
+
+        // Invalidar cache para todas as features que foram atualizadas
+        this.notifyMultipleGeometryChanges(allFeatureIds);
+
+        // Update features in each control
+        featuresByType.forEach((features, type) => {
+            const control = this.controls.get(type);
+            if (control && control.updateFeatures) {
+                control.updateFeatures(features, true);
+            }
+        });
     }
 }
 

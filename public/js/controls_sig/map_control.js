@@ -23,6 +23,8 @@ import { IDUtils } from './id_utils.js';
 
 import { ExportImportService } from './export_import_service.js';
 
+import config from '../config.js';
+
 class MapControl {
     constructor(baseLayerControl) {
         this.baseLayerControl = baseLayerControl;
@@ -194,52 +196,80 @@ class MapControl {
     }
 
     async updateMapList() {
-        this.mapList.innerHTML = '';
-
         const mapNames = await getAllMapNames();
         const currentMapName = await getCurrentMapName();
 
+        // 1. Mapear itens existentes no DOM por data-map-name
+        const existingItems = new Map();
+        this.mapList.querySelectorAll('li').forEach(item => {
+            const mapName = item.dataset.mapName;
+            if (mapName) {
+                existingItems.set(mapName, item);
+            }
+        });
+
+        // 2. Remover mapas que não existem mais
+        for (const [mapName, item] of existingItems) {
+            if (!mapNames.includes(mapName)) {
+                item.remove();
+            }
+        }
+
+        // 3. Processar cada mapa (adicionar novos e atualizar existentes)
         for (const mapName of mapNames) {
-            const listItem = document.createElement('li');
+            let listItem = existingItems.get(mapName);
+
+            if (!listItem) {
+                // Criar novo item apenas se não existir
+                listItem = document.createElement('li');
+                listItem.dataset.mapName = mapName; // Identificador único
+
+                const itemContent = document.createElement('div');
+                itemContent.className = 'map-item-main clickable-area';
+
+                const mapNameDisplay = document.createElement('div');
+                mapNameDisplay.className = 'map-name-display';
+
+                itemContent.appendChild(mapNameDisplay);
+
+                // Event listener para click no item
+                itemContent.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const currentMapName = await getCurrentMapName();
+                    if (mapName !== currentMapName) {
+                        await setCurrentMap(mapName);
+                        await this.switchMap();
+                        await this.updateMapList();
+                    }
+                });
+
+                // Botão "mais opções"
+                const moreInfo = document.createElement('button');
+                moreInfo.className = 'more-info-icon';
+                moreInfo.innerHTML = `<img src="./images/icon_more_info.svg" alt="Mais opções" />`;
+                moreInfo.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.toggleDropdown(moreInfo, mapName);
+                });
+
+                listItem.appendChild(itemContent);
+                listItem.appendChild(moreInfo);
+                this.mapList.appendChild(listItem);
+            }
+
+            // 4. Atualizar estado do item (sempre, para refletir mudanças)
+
+            // Atualizar classe current-map
             listItem.className = mapName === currentMapName ? 'current-map' : '';
 
-            const itemContent = document.createElement('div');
-            itemContent.className = 'map-item-main clickable-area';
-
-            const mapNameDisplay = document.createElement('div');
-            mapNameDisplay.className = 'map-name-display';
-
+            // Atualizar nome e indicador de posição
+            const mapNameDisplay = listItem.querySelector('.map-name-display');
             const hasSavedPosition = await hasMapSavedPosition(mapName);
             const positionIndicator = hasSavedPosition ? ' 📍' : '';
             mapNameDisplay.textContent = mapName + positionIndicator;
-
-            itemContent.appendChild(mapNameDisplay);
-
-            // Adicionar click em toda a área
-            itemContent.addEventListener('click', async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-
-                if (mapName !== currentMapName) {
-                    await setCurrentMap(mapName);
-                    await this.switchMap();
-                    await this.updateMapList();
-                }
-            });
-
-            // Botão "mais opções" (separado da área clicável)
-            const moreInfo = document.createElement('button');
-            moreInfo.className = 'more-info-icon';
-            moreInfo.innerHTML = `<img src="./images/icon_more_info.svg" alt="Mais opções" />`;
-            moreInfo.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggleDropdown(moreInfo, mapName);
-            });
-
-            listItem.appendChild(itemContent);
-            listItem.appendChild(moreInfo);
-            this.mapList.appendChild(listItem);
         }
     }
 
@@ -705,7 +735,20 @@ class MapControl {
     async switchMap() {
         const currentMapName = await getCurrentMapName();
 
-        const baseLayer = await getCurrentBaseLayer()
+        let baseLayer = await getCurrentBaseLayer();
+
+        // Validar se o baseLayer é permitido pela configuração
+        const allowedLayers = ['carta-topografica', 'carta-ortoimagem'];
+        if (config.showOsmAndImages) {
+            allowedLayers.push('osm', 'imagens');
+        }
+
+        // Se o baseLayer não é permitido, trocar para carta-topografica
+        if (!allowedLayers.includes(baseLayer)) {
+            console.warn(`Base layer "${baseLayer}" não permitido. Trocando para "carta-topografica".`);
+            baseLayer = 'carta-topografica';
+        }
+
         this.selectionManager.deselectAllFeatures(true);
         this.baseLayerControl.switchLayer(baseLayer);
 

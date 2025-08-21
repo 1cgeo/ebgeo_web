@@ -132,14 +132,6 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
     }
 
     // ========== PROPRIEDADES ESPECÍFICAS DA SETA ==========
-    
-    // Checkbox "Seta" para mostrar/ocultar cabeça
-    const showArrowHeadCheckbox = createCheckbox(feature.properties.showArrowHead !== false, (e) => {
-        arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', e.target.checked);
-        uiManager.updateSelectionHighlight();
-    });
-
-    $(panel).append(createAttributeRow('Seta:', showArrowHeadCheckbox));
 
     // Slider de Largura (m) - com step de 1 metro
     const widthControl = createSliderWithInput({
@@ -208,6 +200,14 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
     });
 
     $(panel).append(createAttributeRow('Aeromóvel / Aeroterrestre:', airmobileCheckbox));
+
+    // Checkbox "Seta" para mostrar/ocultar cabeça
+    const showArrowHeadCheckbox = createCheckbox(feature.properties.showArrowHead !== false, (e) => {
+        arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', e.target.checked);
+        uiManager.updateSelectionHighlight();
+    });
+
+    $(panel).append(createAttributeRow('Seta:', showArrowHeadCheckbox));
 
     // ========== BOTÕES DE AÇÃO PADRONIZADOS ==========
     
