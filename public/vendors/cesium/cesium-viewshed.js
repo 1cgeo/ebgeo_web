@@ -1674,7 +1674,7 @@ const ViewShead3D_FS = '\x0auniform\x20float\x20czzj;\x0auniform\x20float\x20dis
                 _0x5944f7['setInputAction'](function (_0x1b3e30) {
                     var _0x535700 = Cesium['getCurrentMousePosition'](_0x219cf7['scene'], _0x1b3e30['position']);
                     var cartPoint = Cesium['Cartographic']['fromCartesian'](_0x535700);
-                    cartPoint.height += 0.5;
+                    cartPoint.height += 1.5;
                     var _0x535700 = Cesium['Cartographic']['toCartesian'](cartPoint);
                     _0x535700 && (_0x4602f6['cameraPosition'] ? _0x4602f6['cameraPosition'] && !_0x4602f6['viewPosition'] && (_0x4602f6['viewPosition'] = _0x535700, _0x4602f6['_addToScene'](), _0x4602f6['_unbindMourseEvent'](), _0x4602f6['calback'] && _0x4602f6['calback']()) : _0x4602f6['cameraPosition'] = _0x535700);
                 }, Cesium['ScreenSpaceEventType']['LEFT_CLICK']), _0x5944f7['setInputAction'](function (_0x1cd9d1) {
