@@ -21,9 +21,8 @@ import {
 } from './store.js';
 
 import { IDUtils } from './id_utils.js';
-
 import { ExportImportService } from './export_import_service.js';
-
+import PDFExportTab from './pdf_export_tab.js';
 import config from '../config.js';
 
 class MapControl {
@@ -35,6 +34,10 @@ class MapControl {
 
         this.isCollapsed = false;
         this.reopenButton = null;
+        
+        // Sistema de abas
+        this.currentTab = 'maps';
+        this.pdfExportTab = null;
     }
 
     setSelectionManager(selectionManager) {
@@ -47,6 +50,8 @@ class MapControl {
 
     onAdd(map) {
         this.map = map;
+        this.pdfExportTab = new PDFExportTab(map);
+        
         this.container = document.createElement('div');
         this.container.id = 'map-list'
         this.container.className = 'list-map-container';
@@ -77,11 +82,27 @@ class MapControl {
         col.append(titleContainer);
         $(this.container).append(headerContainer);
 
-        // Criar lista de mapas
+        // Criar área de conteúdo das abas
+        this.contentArea = document.createElement('div');
+        this.contentArea.className = 'tab-content-area';
+        
+        // Criar lista de mapas (aba Maps) 
         this.mapList = document.createElement('ul');
         this.mapList.className = 'map-list';
+        
+        // Criar container PDF Export (aba PDF)
+        this.pdfExportContainer = document.createElement('div');
+        this.pdfExportContainer.className = 'pdf-export-tab-content';
+        this.pdfExportContainer.innerHTML = this.pdfExportTab.createUI();
+        this.pdfExportContainer.style.display = 'none';
+        
+        // Adicionar conteúdo ao content area (SEM as abas aqui)
+        this.contentArea.appendChild(this.mapList);
+        this.contentArea.appendChild(this.pdfExportContainer);
+        this.container.appendChild(this.contentArea);
+
+        // Atualizar lista de mapas
         this.updateMapList();
-        this.container.appendChild(this.mapList);
 
         // Criar botão de reabrir (inicialmente escondido)
         this.createReopenButton();
@@ -91,6 +112,31 @@ class MapControl {
 
     async loadMenu() {
         await initializeWithLastActiveMap();
+
+        // Limpar menu existente
+        $("#menu-map-list").empty();
+
+        // Criar seletor de abas
+        const tabSelector = document.createElement('div');
+        tabSelector.className = 'tab-selector';
+        
+        const mapsTab = document.createElement('button');
+        mapsTab.className = 'tab-button active';
+        mapsTab.textContent = 'Mapas';
+        mapsTab.addEventListener('click', () => this.switchToTab('maps'));
+        
+        const pdfTab = document.createElement('button');
+        pdfTab.className = 'tab-button';
+        pdfTab.textContent = 'PDF';
+        pdfTab.addEventListener('click', () => this.switchToTab('pdf'));
+        
+        tabSelector.appendChild(mapsTab);
+        tabSelector.appendChild(pdfTab);
+        
+        // Container para ações da aba Maps
+        const mapsActionsContainer = document.createElement('div');
+        mapsActionsContainer.className = 'maps-actions-container';
+        mapsActionsContainer.id = 'maps-actions-container';
 
         // Container único para todos os botões em uma fileira
         const allActionsContainer = document.createElement('div');
@@ -139,15 +185,59 @@ class MapControl {
         allActionsContainer.appendChild(addButton);
         allActionsContainer.appendChild(clearButton);
 
-        $('#menu-map-list').append(allActionsContainer);
+        // Adicionar ao container de ações
+        mapsActionsContainer.appendChild(allActionsContainer);
+        $("#menu-map-list").append(mapsActionsContainer);
 
         const baseLayerControl = $('.base-layer-control');
         if (baseLayerControl.length > 0) {
             baseLayerControl.appendTo('#header-map-list');
         }
 
+        // Adicionar seletor de abas APÓS o base layer
+        $("#menu-map-list").append(tabSelector);
+
         await this.updateMapList();
         await this.switchMap();
+    }
+
+    switchToTab(tabName) {
+        // Atualizar estado da aba atual
+        this.currentTab = tabName;
+        
+        // Atualizar botões visuais - buscar no container principal
+        const tabButtons = this.container.querySelectorAll('.tab-button');
+        tabButtons.forEach(btn => btn.classList.remove('active'));
+        
+        if (tabName === 'maps') {
+            tabButtons[0].classList.add('active');
+            this.showMapsTab();
+        } else if (tabName === 'pdf') {
+            tabButtons[1].classList.add('active');
+            this.showPDFTab();
+        }
+    }
+
+    showMapsTab() {
+        // Apenas trocar o conteúdo da lista - botões sempre visíveis
+        this.mapList.style.display = 'block';
+        this.pdfExportContainer.style.display = 'none';
+        
+        // Esconder preview PDF
+        if (this.pdfExportTab) {
+            this.pdfExportTab.hide();
+        }
+    }
+
+    showPDFTab() {
+        // Apenas trocar o conteúdo da lista - botões sempre visíveis
+        this.mapList.style.display = 'none';
+        this.pdfExportContainer.style.display = 'block';
+        
+        // Mostrar preview PDF
+        if (this.pdfExportTab) {
+            this.pdfExportTab.show();
+        }
     }
 
     showToast(message, type = 'info') {
@@ -1016,6 +1106,11 @@ class MapControl {
         this.createReopenButton();
         this.reopenButton.classList.add('show');
         this.isCollapsed = true;
+        
+        // Esconder preview PDF se estiver ativo
+        if (this.currentTab === 'pdf' && this.pdfExportTab) {
+            this.pdfExportTab.hide();
+        }
     }
 
     expandPanel() {
@@ -1024,6 +1119,11 @@ class MapControl {
             this.reopenButton.classList.remove('show');
         }
         this.isCollapsed = false;
+        
+        // Mostrar preview PDF se estiver na aba PDF
+        if (this.currentTab === 'pdf' && this.pdfExportTab) {
+            this.pdfExportTab.show();
+        }
     }
 
     // Método para alternar colapso

@@ -14,6 +14,10 @@ const config = {
     apiUrl: "http://localhost:3000/busca"  // URL da API de busca de features
   },
 
+  export: {
+    pdfApiUrl: "http://localhost:3001/api/export-georeferenced-pdf" // URL da API de exportação de PDF georreferenciado
+  },
+
   // ===== CONFIGURAÇÕES DE VISIBILIDADE DE CAMADAS =====
   // Define quais camadas base extras são mostradas (OSM e Imagens)
   showOsmAndImages: false,  // true = mostra OSM e Imagens | false = apenas DSG

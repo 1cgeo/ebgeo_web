@@ -29,3 +29,7 @@
 /* ===== 8. SISTEMA DE ATRIBUTOS ===== */
 /* Painéis de propriedades, formulários, sliders, color pickers */
 @import url('./attributes-panel.css');
+
+/* ===== 9. PDF EXPORT ===== */
+/* Aba de exportação PDF com preview e controles */
+@import url('./pdf-export.css');

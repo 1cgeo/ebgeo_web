@@ -1,0 +1,279 @@
+/* css/pdf-export.css - Estilos para PDF Export Tab */
+
+/* ===== INTEGRAÇÃO COM MAP CONTROL ===== */
+.tab-content-area {
+    width: 100%;
+    flex: 1;
+    background: inherit;
+}
+
+.maps-actions-container {
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+.pdf-export-tab-content {
+    width: 100%;
+}
+
+/* ===== SELETOR DE ABAS ===== */
+.tab-selector {
+    display: flex;
+    margin: 8px 16px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+}
+
+.tab-button {
+    flex: 1;
+    padding: 6px 10px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 12px;
+    transition: all 0.2s ease;
+    color: #333;
+    text-align: center;
+}
+
+.tab-button.active {
+    background: var(--primary-color);
+    color: white;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tab-button:hover:not(.active) {
+    background: rgba(248, 249, 250, 0.8);
+    color: var(--primary-color);
+}
+
+.tab-button:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+}
+
+/* ===== CONTAINER PRINCIPAL ===== */
+.pdf-export-container {
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 0 0 12px 12px;
+    margin: 0 16px;
+}
+
+/* ===== SELETOR DE ORIENTAÇÃO ===== */
+.orientation-selector {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid #e9ecef;
+}
+
+.orientation-selector label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    padding: 8px 10px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    font-size: 14px;
+    font-weight: 500;
+    color: #495057;
+}
+
+.orientation-selector label:last-child {
+    margin-bottom: 0;
+}
+
+.orientation-selector label:hover {
+    background: rgba(80, 141, 78, 0.1);
+    color: var(--primary-color);
+}
+
+.orientation-selector input[type="radio"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
+
+.orientation-selector label:has(input:checked) {
+    background: rgba(80, 141, 78, 0.15);
+    color: var(--primary-dark);
+    font-weight: 600;
+}
+
+/* ===== BOTÃO DE EXPORTAÇÃO ===== */
+.export-pdf-btn {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.export-pdf-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(80, 141, 78, 0.3);
+}
+
+.export-pdf-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.export-pdf-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* ===== STATUS DE EXPORTAÇÃO ===== */
+.export-status {
+    margin-top: 12px;
+    padding: 12px;
+    background: #e3f2fd;
+    border: 1px solid #bbdefb;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    color: #1976d2;
+    font-weight: 500;
+}
+
+.loading-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #bbdefb;
+    border-top: 2px solid #1976d2;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ===== RESPONSIVIDADE MOBILE ===== */
+@media (max-width: 768px) {
+    .pdf-export-container {
+        padding: 12px;
+        margin: 0 12px;
+    }
+
+    .tab-selector {
+        margin: 6px 12px;
+    }
+
+    .tab-button {
+        padding: 5px 8px;
+        font-size: 11px;
+    }
+
+    .orientation-selector {
+        padding: 10px;
+    }
+
+    .orientation-selector label {
+        padding: 6px 8px;
+        font-size: 13px;
+    }
+
+    .export-pdf-btn {
+        padding: 10px 14px;
+        font-size: 13px;
+    }
+
+    .export-status {
+        padding: 10px;
+        font-size: 13px;
+    }
+}
+
+/* ===== ESTADOS E ANIMAÇÕES ===== */
+.pdf-export-container.loading {
+    pointer-events: none;
+    opacity: 0.8;
+}
+
+.tab-button.switching {
+    animation: tabSwitchPulse 0.3s ease;
+}
+
+@keyframes tabSwitchPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(0.98); }
+    100% { transform: scale(1); }
+}
+
+.orientation-selector label.selecting {
+    animation: orientationSelect 0.2s ease;
+}
+
+@keyframes orientationSelect {
+    0% { background: rgba(80, 141, 78, 0.1); }
+    50% { background: rgba(80, 141, 78, 0.25); }
+    100% { background: rgba(80, 141, 78, 0.15); }
+}
+
+/* ===== ACCESSIBILITY ===== */
+.tab-button:focus,
+.orientation-selector label:focus-within,
+.export-pdf-btn:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tab-button,
+    .orientation-selector label,
+    .export-pdf-btn,
+    .loading-spinner {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
+/* ===== DARK MODE SUPPORT ===== */
+@media (prefers-color-scheme: dark) {
+    .pdf-export-container {
+        background: rgba(33, 37, 41, 0.95);
+        color: #e9ecef;
+    }
+
+    .tab-button {
+        background: #495057;
+        color: #e9ecef;
+        border-color: #6c757d;
+    }
+
+    .tab-button:hover:not(.active) {
+        background: #5a6268;
+    }
+
+    .orientation-selector {
+        background: #495057;
+        border-color: #6c757d;
+    }
+
+    .export-status {
+        background: #1a365d;
+        border-color: #2c5aa0;
+        color: #bee3f8;
+    }
+}
