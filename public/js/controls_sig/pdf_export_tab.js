@@ -8,7 +8,7 @@ export default class PDFExportTab {
         this.previewLayer = null;
         this.isVisible = false;
         this.bounds = null;
-        
+
         // Bind methods
         this.onOrientationChange = this.onOrientationChange.bind(this);
         this.onExportClick = this.onExportClick.bind(this);
@@ -46,7 +46,7 @@ export default class PDFExportTab {
         this.showPreview();
         this.updateBounds();
         this.attachEventListeners();
-        
+
         // Atualizar bounds quando o mapa se mover
         this.map.on('move', this.onMapMove);
     }
@@ -55,7 +55,7 @@ export default class PDFExportTab {
         this.isVisible = false;
         this.hidePreview();
         this.detachEventListeners();
-        
+
         // Remover listener do mapa
         this.map.off('move', this.onMapMove);
     }
@@ -139,13 +139,13 @@ export default class PDFExportTab {
 
     hidePreview() {
         const layerIds = ['pdf-export-preview-fill', 'pdf-export-preview-stroke'];
-        
+
         layerIds.forEach(layerId => {
             if (this.map.getLayer(layerId)) {
                 this.map.removeLayer(layerId);
             }
         });
-        
+
         if (this.map.getSource('pdf-export-preview')) {
             this.map.removeSource('pdf-export-preview');
         }
@@ -154,29 +154,26 @@ export default class PDFExportTab {
     calculateA4Bounds(orientation) {
         const center = this.map.getCenter();
         const bounds = this.map.getBounds();
-        
-        // Usar APENAS a altura da viewport como base para o cálculo
-        const viewportHeight = bounds.getNorth() - bounds.getSouth(); // latitude range
-        
-        // Usar 80% da altura da viewport como base
+
+        const viewportHeight = bounds.getNorth() - bounds.getSouth();
         const scaleFactor = 0.8;
         const baseHeight = viewportHeight * scaleFactor;
-        
-        // Ratio A4: 297mm x 210mm
-        const ratio = 297 / 210; // ~1.414
-        
+        const ratio = 297.0 / 210.0;
+        const baseWidth = baseHeight / ratio;
+
+        // 🔥 CORREÇÃO: Aplicar fator de latitude
+        const latCorrection = Math.cos(center.lat * Math.PI / 180);
+
         let offsetLng, offsetLat;
-        
-        if (orientation === 'landscape') {
-            // Paisagem: altura menor, largura maior
+
+        if (orientation === 'portrait') {
             offsetLat = baseHeight / 2;
-            offsetLng = (baseHeight * ratio) / 2;
+            offsetLng = (baseWidth / 2) / latCorrection;
         } else {
-            // Retrato: altura maior, largura menor  
-            offsetLat = baseHeight / 2;
-            offsetLng = (baseHeight / ratio) / 2;
+            offsetLat = baseWidth / 2;
+            offsetLng = (baseHeight / 2) / latCorrection;
         }
-        
+
         return {
             topLeft: [center.lng - offsetLng, center.lat + offsetLat],
             topRight: [center.lng + offsetLng, center.lat + offsetLat],
@@ -187,7 +184,6 @@ export default class PDFExportTab {
 
     updateBounds() {
         this.bounds = this.calculateA4Bounds(this.orientation);
-        
         // Atualizar preview no mapa
         const feature = {
             type: 'Feature',
@@ -198,7 +194,7 @@ export default class PDFExportTab {
                 type: 'Polygon',
                 coordinates: [[
                     this.bounds.topLeft,
-                    this.bounds.topRight, 
+                    this.bounds.topRight,
                     this.bounds.bottomRight,
                     this.bounds.bottomLeft,
                     this.bounds.topLeft
@@ -218,12 +214,12 @@ export default class PDFExportTab {
     async onExportClick() {
         try {
             this.setExportStatus(true, 'Capturando imagem do mapa...');
-            
+
             // Capturar screenshot do mapa
             const imageData = await this.captureMapImage();
-            
+
             this.setExportStatus(true, 'Enviando para processamento...');
-            
+
             // Preparar dados para o backend
             const exportData = {
                 image: imageData,
@@ -236,14 +232,14 @@ export default class PDFExportTab {
 
             // Enviar para o backend
             const pdfBlob = await this.sendToBackend(exportData);
-            
+
             this.setExportStatus(true, 'Fazendo download...');
-            
+
             // Fazer download do PDF
             this.downloadPDF(pdfBlob);
-            
+
             this.setExportStatus(false);
-            
+
         } catch (error) {
             console.error('Erro ao exportar PDF:', error);
             this.setExportStatus(false);
@@ -256,16 +252,16 @@ export default class PDFExportTab {
             try {
                 // Forçar renderização
                 this.map.triggerRepaint();
-                
+
                 requestAnimationFrame(() => {
                     try {
                         const canvas = this.map.getCanvas();
                         const dataURL = canvas.toDataURL('image/png', 0.9);
-                        
+
                         if (dataURL.length < 100) {
                             throw new Error('Canvas vazio - tente novamente');
                         }
-                        
+
                         resolve(dataURL);
                     } catch (error) {
                         reject(new Error('Erro ao capturar imagem: ' + error.message));
@@ -299,11 +295,11 @@ export default class PDFExportTab {
         const link = document.createElement('a');
         link.href = url;
         link.download = `mapa-georeferenciado-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
-        
+
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
+
         // Cleanup
         setTimeout(() => URL.revokeObjectURL(url), 100);
     }
@@ -311,7 +307,7 @@ export default class PDFExportTab {
     setExportStatus(isLoading, message = '') {
         const statusDiv = document.getElementById('export-status');
         const exportBtn = document.getElementById('export-pdf-btn');
-        
+
         if (statusDiv && exportBtn) {
             if (isLoading) {
                 statusDiv.style.display = 'flex';
