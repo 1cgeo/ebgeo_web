@@ -74,13 +74,19 @@ class BaseLayerControl {
     }
 
     onRemove() {
-        this.container.parentNode.removeChild(this.container);
+        if (this.container && this.container.parentNode) {
+            this.container.parentNode.removeChild(this.container);
+        }
         this.map = null;
     }
 
     async switchLayer(layer) {
         setBaseLayer(layer);
-        this.uiManager.saveChangesAndClosePanel();
+        
+        // Salvar mudanças e fechar painel se existir
+        if (this.uiManager && this.uiManager.saveChangesAndClosePanel) {
+            this.uiManager.saveChangesAndClosePanel();
+        }
 
         const styleUrl = this.styleUrls[layer];
 
@@ -99,7 +105,11 @@ class BaseLayerControl {
         // Update hillshade visibility based on new base layer
         this._updateHillshadeVisibility(layer);
 
-        this.container.querySelector(`input[value="${layer}"]`).checked = true;
+        // Atualizar radio button selecionado
+        const targetInput = this.container.querySelector(`input[value="${layer}"]`);
+        if (targetInput) {
+            targetInput.checked = true;
+        }
 
         // Forçar atualização visual
         this.updateActiveState(layer);
@@ -135,6 +145,21 @@ class BaseLayerControl {
             if (activeSpan) {
                 activeSpan.classList.add('active-layer');
             }
+        }
+    }
+
+    // Método helper para obter o layer ativo atualmente
+    getCurrentLayer() {
+        const checkedInput = this.container.querySelector('input[name="base-layer"]:checked');
+        return checkedInput ? checkedInput.value : 'carta-topografica';
+    }
+
+    // Método para definir programaticamente qual layer está ativo
+    setActiveLayer(layer) {
+        const targetInput = this.container.querySelector(`input[value="${layer}"]`);
+        if (targetInput) {
+            targetInput.checked = true;
+            this.updateActiveState(layer);
         }
     }
 }

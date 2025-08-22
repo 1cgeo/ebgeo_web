@@ -38,6 +38,7 @@ class MapControl {
         // Sistema de abas
         this.currentTab = 'maps';
         this.pdfExportTab = null;
+        this.mapsActionsContainer = null;
     }
 
     setSelectionManager(selectionManager) {
@@ -96,7 +97,7 @@ class MapControl {
         this.pdfExportContainer.innerHTML = this.pdfExportTab.createUI();
         this.pdfExportContainer.style.display = 'none';
         
-        // Adicionar conteúdo ao content area (SEM as abas aqui)
+        // Adicionar conteúdo ao content area
         this.contentArea.appendChild(this.mapList);
         this.contentArea.appendChild(this.pdfExportContainer);
         this.container.appendChild(this.contentArea);
@@ -116,7 +117,13 @@ class MapControl {
         // Limpar menu existente
         $("#menu-map-list").empty();
 
-        // Criar seletor de abas
+        // 1. PRIMEIRO: Adicionar base layer control ao header
+        const baseLayerControl = $('.base-layer-control');
+        if (baseLayerControl.length > 0) {
+            baseLayerControl.appendTo('#header-map-list');
+        }
+
+        // 2. SEGUNDO: Criar e adicionar seletor de abas ao header
         const tabSelector = document.createElement('div');
         tabSelector.className = 'tab-selector';
         
@@ -133,10 +140,13 @@ class MapControl {
         tabSelector.appendChild(mapsTab);
         tabSelector.appendChild(pdfTab);
         
-        // Container para ações da aba Maps
-        const mapsActionsContainer = document.createElement('div');
-        mapsActionsContainer.className = 'maps-actions-container';
-        mapsActionsContainer.id = 'maps-actions-container';
+        // Adicionar tab selector ao header (APÓS o base layer)
+        $("#header-map-list").append(tabSelector);
+
+        // 3. TERCEIRO: Criar container para ações da aba Maps
+        this.mapsActionsContainer = document.createElement('div');
+        this.mapsActionsContainer.className = 'maps-actions-container';
+        this.mapsActionsContainer.id = 'maps-actions-container';
 
         // Container único para todos os botões em uma fileira
         const allActionsContainer = document.createElement('div');
@@ -158,7 +168,6 @@ class MapControl {
             if (allMapNames.length < 30) {
                 const mapName = prompt("Nome do novo mapa:");
                 if (mapName && mapName.trim()) {
-
                     await addMap(mapName.trim());
                     setCurrentMap(mapName.trim());
                     await this.switchMap();
@@ -186,19 +195,28 @@ class MapControl {
         allActionsContainer.appendChild(clearButton);
 
         // Adicionar ao container de ações
-        mapsActionsContainer.appendChild(allActionsContainer);
-        $("#menu-map-list").append(mapsActionsContainer);
+        this.mapsActionsContainer.appendChild(allActionsContainer);
 
-        const baseLayerControl = $('.base-layer-control');
-        if (baseLayerControl.length > 0) {
-            baseLayerControl.appendTo('#header-map-list');
-        }
+        // 4. QUARTO: Adicionar actions container ao menu (será controlado pela aba ativa)
+        $("#menu-map-list").append(this.mapsActionsContainer);
 
-        // Adicionar seletor de abas APÓS o base layer
-        $("#menu-map-list").append(tabSelector);
+        // Garantir que os controles estejam visíveis na inicialização
+        this.updateActionsVisibility();
 
         await this.updateMapList();
         await this.switchMap();
+    }
+
+    updateActionsVisibility() {
+        // Os controles devem ficar sempre visíveis, independente da aba
+        // Só esconder se o painel estiver colapsado
+        if (!this.mapsActionsContainer) return;
+        
+        if (this.isCollapsed) {
+            this.mapsActionsContainer.style.display = 'none';
+        } else {
+            this.mapsActionsContainer.style.display = 'block';
+        }
     }
 
     switchToTab(tabName) {
@@ -216,10 +234,12 @@ class MapControl {
             tabButtons[1].classList.add('active');
             this.showPDFTab();
         }
+        
+        // Controles sempre visíveis (removido updateActionsVisibility)
     }
 
     showMapsTab() {
-        // Apenas trocar o conteúdo da lista - botões sempre visíveis
+        // Trocar conteúdo da lista
         this.mapList.style.display = 'block';
         this.pdfExportContainer.style.display = 'none';
         
@@ -230,7 +250,7 @@ class MapControl {
     }
 
     showPDFTab() {
-        // Apenas trocar o conteúdo da lista - botões sempre visíveis
+        // Trocar conteúdo da lista
         this.mapList.style.display = 'none';
         this.pdfExportContainer.style.display = 'block';
         
@@ -1107,6 +1127,9 @@ class MapControl {
         this.reopenButton.classList.add('show');
         this.isCollapsed = true;
         
+        // Atualizar visibilidade dos controles (agora baseado apenas no colapso)
+        this.updateActionsVisibility();
+        
         // Esconder preview PDF se estiver ativo
         if (this.currentTab === 'pdf' && this.pdfExportTab) {
             this.pdfExportTab.hide();
@@ -1119,6 +1142,9 @@ class MapControl {
             this.reopenButton.classList.remove('show');
         }
         this.isCollapsed = false;
+        
+        // Atualizar visibilidade dos controles (agora baseado apenas no colapso)
+        this.updateActionsVisibility();
         
         // Mostrar preview PDF se estiver na aba PDF
         if (this.currentTab === 'pdf' && this.pdfExportTab) {

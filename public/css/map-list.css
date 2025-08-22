@@ -65,7 +65,79 @@
     gap: 8px !important;
 }
 
+/* ===== SELETOR DE ABAS INTEGRADO ===== */
+.tab-selector {
+    display: flex !important;
+    width: 100% !important;
+    max-width: 240px !important;
+    border-radius: 6px !important;
+    overflow: hidden !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(8px) !important;
+    margin: 0 !important;
+    z-index: 20 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+.tab-button {
+    flex: 1 !important;
+    padding: 8px 12px !important;
+    border: none !important;
+    background: transparent !important;
+    cursor: pointer !important;
+    font-weight: 500 !important;
+    font-size: 13px !important;
+    transition: all 0.2s ease !important;
+    color: #333 !important;
+    text-align: center !important;
+    z-index: 21 !important;
+    pointer-events: auto !important;
+    height: 32px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.tab-button.active {
+    background: var(--primary-color) !important;
+    color: white !important;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+    font-weight: 600 !important;
+    z-index: 22 !important;
+}
+
+.tab-button:hover:not(.active) {
+    background: rgba(248, 249, 250, 0.8) !important;
+    color: var(--primary-color) !important;
+}
+
+.tab-button:focus {
+    outline: 2px solid var(--primary-color) !important;
+    outline-offset: -2px !important;
+}
+
+.tab-button.switching {
+    animation: tabSwitchPulse 0.3s ease;
+}
+
+@keyframes tabSwitchPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(0.98); }
+    100% { transform: scale(1); }
+}
+
 /* ===== CONTAINERS DE AÇÕES ===== */
+.maps-actions-container {
+    width: 100% !important;
+    margin-bottom: 0 !important;
+    transition: opacity 0.3s ease !important;
+}
+
+.maps-actions-container.hidden {
+    display: none !important;
+}
+
 .all-actions-container {
     display: flex !important;
     gap: 6px !important;
@@ -125,7 +197,7 @@
 
 .map-action-button img {
     width: 20px !important;
-    height: 20x !important;
+    height: 20px !important;
     transition: filter 0.2s ease;
     pointer-events: none !important;
 }
@@ -276,6 +348,16 @@
 .base-layer-control .layer-switch input[type="radio"]:focus + span {
     outline: 2px solid var(--primary-color) !important;
     outline-offset: 2px !important;
+}
+
+/* ===== ÁREA DE CONTEÚDO DAS ABAS ===== */
+.tab-content-area {
+    width: 100% !important;
+    flex: 1 !important;
+    background: inherit !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
 /* ===== LISTA DE MAPAS ===== */
@@ -605,6 +687,17 @@
         padding: 10px 12px !important;
     }
 
+    /* Tab selector mobile */
+    .tab-selector {
+        max-width: 200px !important;
+    }
+
+    .tab-button {
+        padding: 6px 8px !important;
+        font-size: 12px !important;
+        height: 28px !important;
+    }
+
     /* Botões de ação mobile */
     .map-action-button {
         padding: 4px !important;
@@ -698,7 +791,8 @@
 .map-item-main:focus,
 .more-info-icon:focus,
 .menu-button:focus,
-.map-action-button:focus {
+.map-action-button:focus,
+.tab-button:focus {
     outline: 2px solid var(--primary-color);
     outline-offset: 2px;
 }
@@ -708,7 +802,8 @@
 .menu-button,
 .more-info-icon,
 .map-item-main,
-.map-action-button {
+.map-action-button,
+.tab-button {
     will-change: transform, background-color;
 }
 
@@ -732,4 +827,15 @@
 .list-map-container ul::-webkit-scrollbar-thumb:hover {
     background-color: var(--primary-dark);
     opacity: 1;
+}
+
+/* ===== ESTADOS E ANIMAÇÕES ADICIONAIS ===== */
+@media (prefers-reduced-motion: reduce) {
+    .tab-button,
+    .map-action-button,
+    .more-info-icon,
+    .map-item-main {
+        animation: none !important;
+        transition: none !important;
+    }
 }
