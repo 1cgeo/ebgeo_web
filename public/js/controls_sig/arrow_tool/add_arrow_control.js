@@ -64,7 +64,7 @@ class AddArrowControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "arrow-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_arrow_black.svg" alt="ARROW" />';
-        button.title = 'Adicionar Seta (A)';
+        button.title = 'Adicionar Seta (S)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);

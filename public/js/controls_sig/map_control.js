@@ -16,7 +16,8 @@ import {
     imageStore,
     appStore,
     resetMemoryStore,
-    initializeWithLastActiveMap
+    initializeWithLastActiveMap,
+    SCHEMA_VERSION
 } from './store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -250,6 +251,8 @@ class MapControl {
                         await setCurrentMap(mapName);
                         await this.switchMap();
                         await this.updateMapList();
+                    } else {
+                        await this.applyMapSavedPosition(mapName);
                     }
                 });
 
@@ -807,6 +810,8 @@ class MapControl {
                 // Criar novo mapa padrão
                 await addMap('Principal');
                 setCurrentMap('Principal');
+                await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+
                 await this.switchMap();
                 await this.updateMapList();
 

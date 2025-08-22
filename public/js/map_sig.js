@@ -172,6 +172,11 @@ document.addEventListener('keydown', (e) => {
             toolManager.setActiveTool(drawControl);
             drawControl.draw.changeMode('draw_point');
             break;
+        case 'n':
+        case 'N':
+            e.preventDefault();
+            toolManager.setActiveTool(vectorTileInfoControl);
+            break;
         case 'a':
         case 'A':
             e.preventDefault();
@@ -230,8 +235,8 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             toolManager.setActiveTool(occupiedFrontControl);
             break;
-        case 'q':
-        case 'Q':
+        case 'm':
+        case 'M':
             e.preventDefault();
             toolManager.setActiveTool(militarySymbolControl);
             break;

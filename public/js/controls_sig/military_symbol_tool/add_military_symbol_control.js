@@ -52,7 +52,7 @@ class AddMilitarySymbolControl {
         this.button.setAttribute("id", "military-symbol-tool");
         this.button.type = 'button';
         this.button.innerHTML = '<img class="icon-military-tool" src="./images/icon_military_black.svg" alt="MILITARY" />';
-        this.button.title = 'Adicionar Símbolo Militar';
+        this.button.title = 'Adicionar Símbolo Militar (M)';
         this.button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(this.button);

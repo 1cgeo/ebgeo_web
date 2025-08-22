@@ -373,7 +373,7 @@ class DrawControl {
 
         $('.mapbox-gl-draw_polygon').html(
             `
-            <img src="./images/icon_polygon_black.svg" alt="Adicionar polígono" title="Adicionar polígono (A)" />
+            <img src="./images/icon_polygon_black.svg" alt="Adicionar área" title="Adicionar área (A)" />
             `
         )
 
