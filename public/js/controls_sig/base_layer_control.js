@@ -8,10 +8,11 @@ import config from '../config.js';
 import { setupMapFeatures } from './map.js';
 
 class BaseLayerControl {
-    constructor(uiManager) {
+    constructor(uiManager, hillshadeConfig) {
         this.map = null;
         this.container = null;
         this.uiManager = uiManager;
+        this.hillshadeConfig = hillshadeConfig;
 
         // Construir styleUrls baseado na configuração
         this.styleUrls = {
@@ -95,11 +96,29 @@ class BaseLayerControl {
         // Chamar setupMapFeatures após style estar pronto
         await setupMapFeatures();
 
+        // Update hillshade visibility based on new base layer
+        this._updateHillshadeVisibility(layer);
 
         this.container.querySelector(`input[value="${layer}"]`).checked = true;
 
         // Forçar atualização visual
         this.updateActiveState(layer);
+    }
+
+    // Control hillshade visibility based on current base layer
+    _updateHillshadeVisibility(currentLayer) {
+        if (!this.hillshadeConfig?.enabled || !this.map.getLayer('hillshade')) {
+            return;
+        }
+        
+        const shouldShow = this.hillshadeConfig.baseLayers.includes(currentLayer);
+        const visibility = shouldShow ? 'visible' : 'none';
+        
+        try {
+            this.map.setLayoutProperty('hillshade', 'visibility', visibility);
+        } catch (error) {
+            console.warn('Could not update hillshade visibility:', error);
+        }
     }
 
     // Método para garantir que o estado ativo seja aplicado

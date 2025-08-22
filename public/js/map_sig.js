@@ -25,6 +25,8 @@ import AddArrowControl from './controls_sig/arrow_tool/add_arrow_control.js';
 import AddBoundaryControl from './controls_sig/boundary_tool/add_boundary_control.js';
 import AddOccupiedFrontControl from './controls_sig/occupied_front_tool/add_occupied_front_control.js';
 import AddMilitarySymbolControl from './controls_sig/military_symbol_tool/add_military_symbol_control.js';
+import TerrainControl from './controls_sig/terrain_control.js';
+import config from './config.js';
 
 //-----------------------------------------------
 // CONTROLES
@@ -82,7 +84,7 @@ new MoveHandler(map, selectionManager, uiManager);
 const vectorTileInfoControl = new VectorTileInfoControl(toolManager, uiManager);
 
 selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
-const baseLayerControl = new BaseLayerControl(uiManager);
+const baseLayerControl = new BaseLayerControl(uiManager, config.map2d.hillshade);
 
 const mapControl = new MapControl(baseLayerControl);
 mapControl.setSelectionManager(selectionManager)
@@ -90,7 +92,7 @@ mapControl.setSelectionManager(selectionManager)
 importControl.setBaseLayerControl(baseLayerControl);
 
 const resetNorthControl = new ResetNorthControl();
-
+const terrainControl = new TerrainControl(config.map2d);
 const screenshotControl = new ScreenshotControl();
 
 const mouseCoordinatesControl = new MouseCoordinatesControl(drawControl);
@@ -107,6 +109,7 @@ map.addControl(featureSearchControl, 'bottom-left');
 map.addControl(mouseCoordinatesControl, 'bottom-right');
 
 map.addControl(resetNorthControl, 'top-right');
+map.addControl(terrainControl, 'top-right');
 map.addControl(importControl, 'top-right');
 map.addControl(screenshotControl, 'top-right');
 map.addControl(vectorTileInfoControl, 'top-right');
@@ -212,13 +215,17 @@ document.addEventListener('keydown', (e) => {
         case 'v':
         case 'V':
             e.preventDefault();
-            toolManager.setActiveTool(visibilityControl);
+            if (map.getSource('terrainSource')) {
+                toolManager.setActiveTool(visibilityControl);
+            }
             break;
         // 'o' para LOS (Line Of Sight)
         case 'o':
         case 'O':
             e.preventDefault();
-            toolManager.setActiveTool(losControl);
+            if (map.getSource('terrainSource')) {
+                toolManager.setActiveTool(losControl);
+            }
             break;
         case 's':
         case 'S':

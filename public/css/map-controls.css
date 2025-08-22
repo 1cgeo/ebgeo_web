@@ -20,33 +20,62 @@
     margin: 0 !important;
 }
 
+.los-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.los-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important; /* Sem opacidade */
+    pointer-events: auto !important; /* Mostra cursor */
+}
+
+.visibility-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.visibility-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important; /* Sem opacidade */
+    pointer-events: auto !important; /* Mostra cursor */
+}
+
 /* Posicionamento vertical específico para COLUNA ESQUERDA - Ajustado para botões menores */
 .north-control.controls-column-left {
     top: 60px !important;
 }
 
-.import-control.controls-column-left {
+.terrain-control.controls-column-left {
     top: 94px !important;
 }
 
+.terrain-control button:disabled {
+    cursor: not-allowed !important;
+}
+
+/* Adjust all other left column controls to accommodate terrain control */
+.import-control.controls-column-left {
+    top: 128px !important; /* was 94px, +34px */
+}
+
 .screenshot-control.controls-column-left {
-    top: 128px !important;
+    top: 162px !important; /* was 128px, +34px */
 }
 
 .vector-info-control.controls-column-left {
-    top: 162px !important;
+    top: 196px !important; /* was 162px, +34px */
 }
 
 .los-control.controls-column-left {
-    top: 196px !important;
+    top: 230px !important; /* was 196px, +34px */
 }
 
 .visibility-control.controls-column-left {
-    top: 230px !important;
+    top: 264px !important; /* was 230px, +34px */
 }
 
 .street-view-control.controls-column-left {
-    top: 264px !important;
+    top: 298px !important; /* was 264px, +34px */
 }
 
 /* Posicionamento vertical específico para COLUNA DIREITA - Ajustado para botões menores */
@@ -311,28 +340,33 @@
         top: 278px !important;
     }
     
+    .terrain-control.controls-column-left {
+        top: 310px !important; /* positioned after north in mobile */
+    }
+    
+    /* Adjust other mobile positions to accommodate terrain control */
     .import-control.controls-column-left {
-        top: 310px !important;
+        top: 342px !important; /* was 310px, +32px */
     }
     
     .screenshot-control.controls-column-left {
-        top: 342px !important;
+        top: 374px !important; /* was 342px, +32px */
     }
     
     .vector-info-control.controls-column-left {
-        top: 374px !important;
+        top: 406px !important; /* was 374px, +32px */
     }
     
     .los-control.controls-column-left {
-        top: 406px !important;
+        top: 438px !important; /* was 406px, +32px */
     }
     
     .visibility-control.controls-column-left {
-        top: 438px !important;
+        top: 470px !important; /* was 438px, +32px */
     }
     
     .street-view-control.controls-column-left {
-        top: 470px !important;
+        top: 502px !important; /* was 470px, +32px */
     }
 
     /* Controles mobile adjustments - mantem redução */

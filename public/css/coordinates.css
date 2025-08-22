@@ -113,6 +113,11 @@
     font-size: 14px !important;
 }
 
+.coordinates-elevation-button:disabled {
+    pointer-events: none !important;
+    cursor: not-allowed !important;
+}
+
 .coordinates-button:hover,
 .coordinates-copy-button:hover,
 .coordinates-flyto-button:hover,

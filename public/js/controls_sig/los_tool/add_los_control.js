@@ -73,12 +73,37 @@ class AddLOSControl {
     setupEventListeners = () => {
         this.map.on('mouseenter', 'los-layer', this.handleMouseEnter);
         this.map.on('mouseleave', 'los-layer', this.handleMouseLeave);
+        this.map.on('terrain', this._onTerrainChange);
+        this._onTerrainChange();
+    }
+
+    _onTerrainChange = () => {
+        const terrainEnabled = this.map.getTerrain() !== null;
+
+        if (terrainEnabled) {
+            // Enable LOS tool
+            this.container.classList.remove('disabled');
+            this.container.querySelector('button').disabled = false;
+            this.changeButtonColor();
+        } else {
+            // Disable LOS tool
+            this.container.classList.add('disabled'); // CSS class
+            this.container.querySelector('button').disabled = true;
+            // Set disabled icon
+            this.container.querySelector('button').innerHTML = '<img class="icon-sig-tool" src="./images/icon_los_disabled.svg" alt="LOS DISABLED" />';
+
+            // If tool is active, deactivate it
+            if (this.isActive) {
+                this.toolManager.setActiveTool(null);
+            }
+        }
     }
 
     removeEventListeners = () => {
         this.map.off('mouseenter', 'los-layer', this.handleMouseEnter);
         this.map.off('mouseleave', 'los-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handleMouseMove);
+        this.map.off('terrain', this._onTerrainChange);
         // ✅ CLEANUP: Cancel all pending operations
         this.cancelPendingUpdates();
     }
@@ -100,6 +125,9 @@ class AddLOSControl {
     }
 
     activate = () => {
+        if (!this.map.getTerrain()) {
+            return false; // Bloqueia ativação
+        }
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
         this.changeButtonColor();
@@ -362,7 +390,7 @@ class AddLOSControl {
                 this.updateFeatureMeasurement(feature);
 
                 // ✅ FIXED: Update processed-los source with exact ID matching
-                const processedFeatures = processedData.features.filter(f => 
+                const processedFeatures = processedData.features.filter(f =>
                     f.properties.id === feature.properties.id + '-visible' ||
                     f.properties.id === feature.properties.id + '-obstructed'
                 );
@@ -388,7 +416,7 @@ class AddLOSControl {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
 
                         // ✅ FIXED: Update processed features with exact ID matching
-                        const processedFeatures = processedData.features.filter(f => 
+                        const processedFeatures = processedData.features.filter(f =>
                             f.properties.id === feature.properties.id + '-visible' ||
                             f.properties.id === feature.properties.id + '-obstructed'
                         );
@@ -403,9 +431,9 @@ class AddLOSControl {
                         // Recalculate LOS and update both 'los' and 'processed-los' sources
                         const updatedFeature = await this.recalculateLOS(feature);
                         data.features[featureIndex] = updatedFeature;
-                        
+
                         // ✅ FIXED: Remove old processed features with exact ID matching
-                        processedData.features = processedData.features.filter(f => 
+                        processedData.features = processedData.features.filter(f =>
                             f.properties.id !== feature.properties.id + '-visible' &&
                             f.properties.id !== feature.properties.id + '-obstructed'
                         );
@@ -417,7 +445,7 @@ class AddLOSControl {
 
                     // ✅ FIXED: Use batch operation to prevent race conditions
                     if (save) {
-                        const processedFeatures = processedData.features.filter(f => 
+                        const processedFeatures = processedData.features.filter(f =>
                             f.properties.id === feature.properties.id + '-visible' ||
                             f.properties.id === feature.properties.id + '-obstructed'
                         );
@@ -447,7 +475,7 @@ class AddLOSControl {
                     await updateFeature('los', featureToSave);
 
                     // ✅ FIXED: Update processed features with exact ID matching
-                    const processedFeatures = processedData.features.filter(pf => 
+                    const processedFeatures = processedData.features.filter(pf =>
                         pf.properties.id === selectedFeature.properties.id + '-visible' ||
                         pf.properties.id === selectedFeature.properties.id + '-obstructed'
                     );
@@ -474,39 +502,39 @@ class AddLOSControl {
     }
 
     deleteFeatures = async (features) => {
-    if (features.length === 0) return;
+        if (features.length === 0) return;
 
-    // Remover de cada feature individualmente
-    for (const feature of features) {
-        try {
-            const featureId = feature.properties.id;
-            
-            // Remover medição
-            this.removeFeatureMeasurement(featureId);
-            
-            // Store remove automaticamente features principais E processadas
-            await removeFeature('los', featureId);
-            
-        } catch (error) {
-            console.error(`Error removing LOS feature ${featureId}:`, error);
+        // Remover de cada feature individualmente
+        for (const feature of features) {
+            try {
+                const featureId = feature.properties.id;
+
+                // Remover medição
+                this.removeFeatureMeasurement(featureId);
+
+                // Store remove automaticamente features principais E processadas
+                await removeFeature('los', featureId);
+
+            } catch (error) {
+                console.error(`Error removing LOS feature ${featureId}:`, error);
+            }
         }
+
+        // Recarregar sources do zero (mais seguro)
+        const currentMapFeatures = await getCurrentMapFeatures();
+
+        // Atualizar source principal
+        this.map.getSource('los').setData({
+            type: 'FeatureCollection',
+            features: currentMapFeatures.los
+        });
+
+        // Atualizar source processada
+        this.map.getSource('processed-los').setData({
+            type: 'FeatureCollection',
+            features: currentMapFeatures.processed_los
+        });
     }
-
-    // Recarregar sources do zero (mais seguro)
-    const currentMapFeatures = await getCurrentMapFeatures();
-    
-    // Atualizar source principal
-    this.map.getSource('los').setData({
-        type: 'FeatureCollection',
-        features: currentMapFeatures.los
-    });
-
-    // Atualizar source processada
-    this.map.getSource('processed-los').setData({
-        type: 'FeatureCollection',
-        features: currentMapFeatures.processed_los
-    });
-}
 
     hasFeatureChanged = (feature, initialProperties) => {
         return (

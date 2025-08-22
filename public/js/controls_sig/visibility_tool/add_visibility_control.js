@@ -187,14 +187,38 @@ class AddVisibilityControl {
     setupEventListeners = () => {
         this.map.on('mouseenter', 'visibility-layer', this.handleMouseEnter);
         this.map.on('mouseleave', 'visibility-layer', this.handleMouseLeave);
+        this.map.on('terrain', this._onTerrainChange);
     }
 
     removeEventListeners = () => {
         this.map.off('mouseenter', 'visibility-layer', this.handleMouseEnter);
         this.map.off('mouseleave', 'visibility-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handleMouseMove);
+        this.map.off('terrain', this._onTerrainChange);
         // ✅ CLEANUP: Cancel all pending operations
         this.cancelPendingUpdates();
+    }
+
+    _onTerrainChange = () => {
+        const terrainEnabled = this.map.getTerrain() !== null;
+
+        if (terrainEnabled) {
+            // Enable Viewshed tool
+            this.container.classList.remove('disabled');
+            this.container.querySelector('button').disabled = false;
+            this.changeButtonColor();
+        } else {
+            // Disable Viewshed tool
+            this.container.classList.add('disabled');
+            this.container.querySelector('button').disabled = true;
+            // Set disabled icon
+            this.container.querySelector('button').innerHTML = '<img class="icon-sig-tool" src="./images/icon_visibility_disabled.svg" alt="VIEWSHED DISABLED" />';
+
+            // If tool is active, deactivate it
+            if (this.isActive) {
+                this.toolManager.setActiveTool(null);
+            }
+        }
     }
 
     // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations (padrão LOS)
@@ -214,6 +238,9 @@ class AddVisibilityControl {
     }
 
     activate = () => {
+        if (!this.map.getTerrain()) {
+            return false;
+        }
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
         this.changeButtonColor();
@@ -447,7 +474,7 @@ class AddVisibilityControl {
                 feature.properties[property] = value;
 
                 // ✅ FIXED: Use safe prefix matching for processed features
-                const processedFeatures = processedData.features.filter(f => 
+                const processedFeatures = processedData.features.filter(f =>
                     f.properties.id.startsWith(feature.properties.id + '-')
                 );
                 processedFeatures.forEach(processedFeature => {
@@ -471,7 +498,7 @@ class AddVisibilityControl {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
 
                         // ✅ FIXED: Use safe prefix matching for processed features
-                        const processedFeatures = processedData.features.filter(f => 
+                        const processedFeatures = processedData.features.filter(f =>
                             f.properties.id.startsWith(feature.properties.id + '-')
                         );
                         processedFeatures.forEach(processedFeature => {
@@ -492,7 +519,7 @@ class AddVisibilityControl {
                         }
 
                         // ✅ FIXED: Use safe prefix matching to remove old processed features
-                        processedData.features = processedData.features.filter(f => 
+                        processedData.features = processedData.features.filter(f =>
                             !f.properties.id.startsWith(feature.properties.id + '-')
                         );
 
@@ -512,7 +539,7 @@ class AddVisibilityControl {
                             await this.delay(100);
                         }
 
-                        const processedFeatures = processedData.features.filter(f => 
+                        const processedFeatures = processedData.features.filter(f =>
                             f.properties.id.startsWith(feature.properties.id + '-')
                         );
                         await batchUpdateVisibilityFeatures(data.features[featureIndex], processedFeatures);
@@ -552,7 +579,7 @@ class AddVisibilityControl {
                     await updateFeature('visibility', featureToSave);
 
                     // ✅ FIXED: Use safe prefix matching for processed features
-                    const processedFeatures = processedData.features.filter(pf => 
+                    const processedFeatures = processedData.features.filter(pf =>
                         pf.properties.id.startsWith(selectedFeature.properties.id + '-')
                     );
                     for (const pf of processedFeatures) {

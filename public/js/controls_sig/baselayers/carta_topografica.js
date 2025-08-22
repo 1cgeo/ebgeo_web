@@ -10,11 +10,6 @@ export default {
             "attribution": "&copy; OpenStreetMap Contributors",
             "maxzoom": 19
         },
-        "terrainSource": {
-            "type": 'raster-dem',
-            "url": 'https://demotiles.maplibre.org/terrain-tiles/tiles.json',
-            "tileSize": 256
-        },
     },
     "layers": [
         {
@@ -22,9 +17,5 @@ export default {
             "type": "raster",
             "source": "osm"
         }
-    ],
-    "terrain": {
-        "source": 'terrainSource',
-        "exaggeration": 1
-    }
+    ]
 }
