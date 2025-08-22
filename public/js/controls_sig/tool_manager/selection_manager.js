@@ -319,6 +319,7 @@ class SelectionManager {
     }
 
     handleElementClick = (e) => {
+        if (this.vectorTileInfoControl && this.vectorTileInfoControl.isActive) return;
         e.preventDefault();
 
         const feature = e.features[0];
@@ -423,6 +424,10 @@ class SelectionManager {
     }
 
     handleDrawSelectionChange = (e) => {
+        if (this.vectorTileInfoControl && this.vectorTileInfoControl.isActive) {
+            this.controls.get('draw').draw.changeMode('simple_select', { featureIds: [] });
+            return;
+        };
         // Obter features selecionadas do draw
         const selectedFeatures = this.controls.get('draw').draw.getSelected().features;
 

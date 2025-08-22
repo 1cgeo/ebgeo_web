@@ -75,13 +75,9 @@ class AddMilitarySymbolControl {
     }
 
     setupEventListeners = () => {
-        this.map.on('mouseenter', 'military-symbols-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'military-symbols-layer', this.handleMouseLeave);
     }
 
     removeEventListeners = () => {
-        this.map.off('mouseenter', 'military-symbols-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'military-symbols-layer', this.handleMouseLeave);
     }
 
     changeButtonColor = () => {
@@ -111,14 +107,6 @@ class AddMilitarySymbolControl {
         await this.createMilitarySymbol(coordinates);
 
         this.toolManager.deactivateCurrentTool();
-    }
-
-    handleMouseEnter = (e) => {
-        this.map.getCanvas().style.cursor = 'pointer';
-    }
-
-    handleMouseLeave = (e) => {
-        this.map.getCanvas().style.cursor = '';
     }
 
     async createMilitarySymbol(coordinates) {

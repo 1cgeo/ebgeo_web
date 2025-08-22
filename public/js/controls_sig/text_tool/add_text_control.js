@@ -58,13 +58,9 @@ class AddTextControl {
     }
 
     setupEventListeners = () => {
-        this.map.on('mouseenter', 'text-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'text-layer', this.handleMouseLeave);
     }
 
     removeEventListeners = () => {
-        this.map.off('mouseenter', 'text-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'text-layer', this.handleMouseLeave);
     }
 
     activate = () => {
@@ -111,15 +107,7 @@ class AddTextControl {
             }
         };
     }
-
-    handleMouseEnter = (e) => {
-        this.map.getCanvas().style.cursor = 'pointer';
-    }
-
-    handleMouseLeave = (e) => {
-        this.map.getCanvas().style.cursor = '';
-    }
-
+    
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
         for (const feature of features) {

@@ -1160,29 +1160,13 @@ class AddBoundaryControl {
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
-        this.map.on('mouseenter', 'boundary-main-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'boundary-main-layer', this.handleMouseLeave);
     }
 
     removeAllEventListeners = () => {
-        this.map.off('mouseenter', 'boundary-main-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'boundary-main-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         // ✅ CLEANUP: Cancel all pending operations
         this.cancelPendingUpdates();
-    }
-
-    handleMouseEnter = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = 'pointer';
-        }
-    }
-
-    handleMouseLeave = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = '';
-        }
     }
 
     // ===== SELECTION SYSTEM INTERFACE METHODS =====

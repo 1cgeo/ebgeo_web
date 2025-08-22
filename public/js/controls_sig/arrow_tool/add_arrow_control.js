@@ -1048,35 +1048,15 @@ class AddArrowControl {
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
-        this.map.on('mouseenter', 'arrow-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'arrow-layer', this.handleMouseLeave);
-        this.map.on('mouseenter', 'arrow-fill-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'arrow-fill-layer', this.handleMouseLeave);
         this.map.on('dblclick', this.handleDoubleClick);
     }
 
     removeAllEventListeners = () => {
-        this.map.off('mouseenter', 'arrow-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'arrow-layer', this.handleMouseLeave);
-        this.map.off('mouseenter', 'arrow-fill-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'arrow-fill-layer', this.handleMouseLeave);
         this.map.off('dblclick', this.handleDoubleClick);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         // ✅ CLEANUP: Cancel all pending operations
         this.cancelPendingUpdates();
-    }
-
-    handleMouseEnter = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = 'pointer';
-        }
-    }
-
-    handleMouseLeave = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = '';
-        }
     }
 
     // ===== TOOL ACTIVATION/DEACTIVATION =====

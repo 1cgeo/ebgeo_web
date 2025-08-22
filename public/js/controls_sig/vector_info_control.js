@@ -53,17 +53,18 @@ class VectorTileInfoControl {
     handleMapClick(e) {
         if (this.isActive) {
             const features = this.map.queryRenderedFeatures(e.point);
-            if (features.length > 0) {
+            const vectorTileFeatures = features.filter(f => f.sourceLayer && !f.properties.source);
+            if (vectorTileFeatures.length > 0) {
                 const preferenceOrder = ['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'];
     
-                features.sort((a, b) => {
+                vectorTileFeatures.sort((a, b) => {
                     const aPriority = a.sourceLayer.startsWith('cobter_') ? 6 : preferenceOrder.indexOf(a.geometry.type);
                     const bPriority = b.sourceLayer.startsWith('cobter_') ? 6 : preferenceOrder.indexOf(b.geometry.type);
                     
                     return aPriority - bPriority;
                 });
 
-                this.uiManager.showVectorTileInfoPanel(features[0]);
+                this.uiManager.showVectorTileInfoPanel(vectorTileFeatures[0]);
             } else {
                 this.uiManager.saveChangesAndClosePanel();
             }

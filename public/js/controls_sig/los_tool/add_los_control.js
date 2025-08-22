@@ -71,8 +71,6 @@ class AddLOSControl {
     }
 
     setupEventListeners = () => {
-        this.map.on('mouseenter', 'los-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'los-layer', this.handleMouseLeave);
         this.map.on('terrain', this._onTerrainChange);
         this._onTerrainChange();
     }
@@ -100,8 +98,6 @@ class AddLOSControl {
     }
 
     removeEventListeners = () => {
-        this.map.off('mouseenter', 'los-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'los-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handleMouseMove);
         this.map.off('terrain', this._onTerrainChange);
         // ✅ CLEANUP: Cancel all pending operations
@@ -367,14 +363,6 @@ class AddLOSControl {
             visible: visibleLine,
             obstructed: obstructedLine
         };
-    }
-
-    handleMouseEnter = (e) => {
-        this.map.getCanvas().style.cursor = 'pointer';
-    }
-
-    handleMouseLeave = (e) => {
-        this.map.getCanvas().style.cursor = '';
     }
 
     updateFeaturesProperty = (features, property, value) => {

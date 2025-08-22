@@ -706,33 +706,13 @@ class AddEllipseControl {
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
-        this.map.on('mouseenter', 'ellipse-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'ellipse-layer', this.handleMouseLeave);
-        this.map.on('mouseenter', 'ellipse-fill-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'ellipse-fill-layer', this.handleMouseLeave);
     }
 
     removeAllEventListeners = () => {
-        this.map.off('mouseenter', 'ellipse-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'ellipse-layer', this.handleMouseLeave);
-        this.map.off('mouseenter', 'ellipse-fill-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'ellipse-fill-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         // ✅ CLEANUP: Cancel all pending operations
         this.cancelPendingUpdates();
-    }
-
-    handleMouseEnter = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = 'pointer';
-        }
-    }
-
-    handleMouseLeave = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = '';
-        }
     }
 
     // ===== UTILITY METHODS =====

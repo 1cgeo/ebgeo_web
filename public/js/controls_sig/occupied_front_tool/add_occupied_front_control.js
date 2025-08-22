@@ -755,28 +755,12 @@ class AddOccupiedFrontControl {
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
-        this.map.on('mouseenter', 'occupied-front-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'occupied-front-layer', this.handleMouseLeave);
     }
 
     removeAllEventListeners = () => {
-        this.map.off('mouseenter', 'occupied-front-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'occupied-front-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.cancelPendingUpdates();
-    }
-
-    handleMouseEnter = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = 'pointer';
-        }
-    }
-
-    handleMouseLeave = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = '';
-        }
     }
 
     // ===== UTILITY METHODS =====

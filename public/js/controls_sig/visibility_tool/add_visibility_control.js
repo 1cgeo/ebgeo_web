@@ -185,14 +185,10 @@ class AddVisibilityControl {
     }
 
     setupEventListeners = () => {
-        this.map.on('mouseenter', 'visibility-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'visibility-layer', this.handleMouseLeave);
         this.map.on('terrain', this._onTerrainChange);
     }
 
     removeEventListeners = () => {
-        this.map.off('mouseenter', 'visibility-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'visibility-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handleMouseMove);
         this.map.off('terrain', this._onTerrainChange);
         // ✅ CLEANUP: Cancel all pending operations
@@ -454,14 +450,6 @@ class AddVisibilityControl {
 
         return coordinates;
     };
-
-    handleMouseEnter = (e) => {
-        this.map.getCanvas().style.cursor = 'pointer';
-    }
-
-    handleMouseLeave = (e) => {
-        this.map.getCanvas().style.cursor = '';
-    }
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));

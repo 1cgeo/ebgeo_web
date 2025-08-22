@@ -58,13 +58,9 @@ class AddImageControl {
     }
 
     setupEventListeners = () => {
-        this.map.on('mouseenter', 'image-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'image-layer', this.handleMouseLeave);
     }
 
     removeEventListeners = () => {
-        this.map.off('mouseenter', 'image-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'image-layer', this.handleMouseLeave);
     }
 
     activate = () => {
@@ -225,14 +221,6 @@ class AddImageControl {
                 coordinates: [lngLat.lng, lngLat.lat]
             }
         };
-    }
-
-    handleMouseEnter = (e) => {
-        this.map.getCanvas().style.cursor = 'pointer';
-    }
-
-    handleMouseLeave = (e) => {
-        this.map.getCanvas().style.cursor = '';
     }
 
     updateFeaturesProperty = (features, property, value) => {

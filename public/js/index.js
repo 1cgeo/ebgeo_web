@@ -25,16 +25,16 @@ const queryMobile = window.matchMedia("(max-width: 650px)");
 // ===== INICIALIZAÇÃO =====
 $(document).ready(() => {
     appState.isMobile = queryMobile.matches;
-    
+
     // Setup inicial
     setupEventListeners();
     openMobileMenu(queryMobile);
-    
+
     // Performance monitoring (opcional)
     if (window.performance && window.performance.mark) {
         window.performance.mark('app-init');
     }
-    
+
     // Remove loading screen após recursos críticos
     setTimeout(() => {
         hideLoadingScreen();
@@ -48,10 +48,10 @@ function setupEventListeners() {
         appState.isMobile = queryMobile.matches;
         openMobileMenu(queryMobile);
     });
-    
+
     // Form toggle
     $('#open-close-form').on('click', toggleAttributesPanel);
-    
+
     // Mode switching (otimizado)
     $(".bar-center-buttons a").off('click').on('click', handleModeSwitch);
 }
@@ -59,14 +59,14 @@ function setupEventListeners() {
 function handleModeSwitch(event) {
     event.preventDefault();
     const targetMode = $(this).attr('id') === '3d-button' ? '3d' : 'sig';
-    
+
     if (targetMode === appState.currentMode) return;
-    
-    
+
+
     // Update UI state immediately
     $(".bar-center-buttons a").removeClass('active-button');
     $(this).addClass('active-button');
-    
+
     if (targetMode === '3d') {
         switchTo3D();
     } else {
@@ -77,14 +77,14 @@ function handleModeSwitch(event) {
 // ===== MODE SWITCHING =====
 async function switchTo3D() {
     if (appState.currentMode === '3d') return;
-    
+
     try {
         // Pausa 2D primeiro
         hideUIElements();
-        
+
         // Mostra container 3D
         $('#map-3d-container').show();
-        
+
         if (appState.cesiumState === 'unloaded') {
             await initializeCesium();
         } else if (appState.cesiumState === 'loaded') {
@@ -92,14 +92,14 @@ async function switchTo3D() {
             resumeRendering();
             init3DFeatures();
         }
-        
+
         appState.currentMode = '3d';
         openMobileMenu(queryMobile);
-        
+
     } catch (error) {
         console.error('⚠ Erro ao alternar para 3D:', error);
         showError('Falha ao carregar o mapa 3D. Tente novamente.');
-        
+
         // Fallback para 2D
         switchTo2D();
     }
@@ -108,56 +108,56 @@ async function switchTo3D() {
 // ===== FUNÇÃO MODIFICADA - SEM DESTRUIÇÃO DO CESIUM =====
 function switchTo2D() {
     if (appState.currentMode === 'sig') return;
-    
+
     console.log('🔄 Alternando para 2D - SEM destruição do Cesium');
-    
+
     // ✅ APENAS PAUSA RENDERIZAÇÃO - NÃO DESTRÓI
     if (appState.cesiumState === 'loaded') {
         pauseRendering();
-        
+
         // ❌ REMOVIDO: cleanup3DFeatures() - Causa o erro
         // ❌ REMOVIDO: appState.cesiumState = 'unloaded' - Mantém loaded
-        
+
         console.log('⏸️ Cesium pausado mas preservado na memória');
     }
-    
+
     // Hide 3D, show 2D
     $('#map-3d-container').hide();
     showUIElements();
-    
+
     appState.currentMode = 'sig';
     openMobileMenu(queryMobile);
-    
+
     console.log('✅ Alternância para 2D concluída - Cesium preservado');
 }
 
 async function initializeCesium() {
     if (appState.cesiumState === 'loading') return;
-    
+
     appState.cesiumState = 'loading';
-    
+
     // Mostra loading com timeout
     showLoadingIndicator();
-    
+
     appState.loadingTimeout = setTimeout(() => {
         if (appState.cesiumState === 'loading') {
             console.warn('⏰ Timeout no carregamento do Cesium');
             showError('Tempo limite excedido. Verifique sua conexão.');
         }
     }, 30000); // 30s timeout
-    
+
     try {
         await loadCesiumAndInit();
-        
+
         clearTimeout(appState.loadingTimeout);
         hideLoadingIndicator();
-        
+
         // Inicializa ferramentas
         init3DFeatures();
         resumeRendering();
-        
+
         appState.cesiumState = 'loaded';
-        
+
     } catch (error) {
         clearTimeout(appState.loadingTimeout);
         appState.cesiumState = 'error';
@@ -179,51 +179,39 @@ function showUIElements() {
 
 function showLoadingIndicator() {
     const loadingHTML = `
-        <div class="cesium-loading-overlay" style="
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(80, 141, 78, 0.9);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            color: white;
-            font-family: Arial, sans-serif;
-        ">
-            <div class="lds-ripple">
-                <div></div>
-                <div></div>
-            </div>
-            <h3 style="margin-top: 20px;">Carregando Mapa 3D...</h3>
-            <p style="font-size: 14px; opacity: 0.8; text-align: center; max-width: 300px;">
-                Aguarde enquanto carregamos os modelos tridimensionais.<br>
-                Isso pode levar alguns instantes.
-            </p>
-            <div style="margin-top: 20px;">
-                <div style="width: 200px; height: 4px; background: rgba(255,255,255,0.3); border-radius: 2px;">
-                    <div class="loading-progress" style="
-                        height: 100%;
-                        background: #B4E380;
-                        width: 0%;
-                        border-radius: 2px;
-                        animation: loadingProgress 15s linear infinite;
-                    "></div>
-                </div>
-            </div>
+    <div class="cesium-loading-overlay" style="
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(80, 141, 78, 0.9);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    ">
+        <img src="./images/logo_ebgeo.png" alt="EBGeo" style="width: 300px; height: auto;">
+        <div style="width: 200px; height: 4px; background: rgba(255,255,255,0.3); border-radius: 2px; margin-top: 20px;">
+            <div style="
+                height: 100%;
+                background: #B4E380;
+                width: 0%;
+                border-radius: 2px;
+                animation: loadingProgress 15s linear infinite;
+            "></div>
         </div>
-        <style>
-            @keyframes loadingProgress {
-                0% { width: 0%; }
-                70% { width: 85%; }
-                100% { width: 100%; }
-            }
-        </style>
-    `;
-    
+    </div>
+    <style>
+        @keyframes loadingProgress {
+            0% { width: 0%; }
+            70% { width: 85%; }
+            100% { width: 100%; }
+        }
+    </style>
+`;
+
     if (!$('#map-3d').length) {
         $('#map-3d-container').html('<div id="map-3d"></div>');
     }
@@ -231,7 +219,7 @@ function showLoadingIndicator() {
 }
 
 function hideLoadingIndicator() {
-    $('.cesium-loading-overlay').fadeOut(300, function() {
+    $('.cesium-loading-overlay').fadeOut(300, function () {
         $(this).remove();
     });
 }
@@ -272,9 +260,9 @@ function showError(message) {
             </button>
         </div>
     `;
-    
+
     $('#map-3d-container').html(errorHTML);
-    
+
     $('#retry-cesium').on('click', () => {
         appState.cesiumState = 'unloaded';
         switchTo3D();
@@ -303,10 +291,10 @@ function setupMobile2DMenu() {
 
     sigParents['map-list'] = $('#map-list').parent();
     $('#map-list').appendTo('#sidebarMenu');
-    
+
     $('.extra-bar-buttons button').css('display', 'none');
     $('.sidebarIconToggle').css('display', 'block');
-    
+
     if ($('#attributes-panel').length) {
         $('#open-close-form').css('display', 'flex');
         $('#attributes-panel').hide();
@@ -318,7 +306,7 @@ function setupMobile3DMenu() {
         $('#map-list').appendTo(sigParents['map-list']);
         delete sigParents['map-list'];
     }
-    
+
     $('#sidebarMenu').empty().append(`
         <div id="model-3d-container">
             <p><b>Modelos 3D</b></p>
@@ -334,7 +322,7 @@ function setupMobile3DMenu() {
             Tutorial
         </button>
     `);
-    
+
     $('#locate-3d-container-mobile button').off('click', handleClickGoTo);
     $('#locate-3d-container-mobile button').on('click', handleClickGoTo);
 
@@ -368,9 +356,9 @@ function toggleAttributesPanel() {
 const attributesPanelObserver = new MutationObserver(
     debounce((mutations) => {
         $('#open-close-form').css('display', 'none');
-        
+
         if (!$('#map-sig').is(":visible")) return;
-        
+
         if ($('#attributes-panel').length && appState.isMobile) {
             $('#open-close-form').css('display', 'flex');
             $('#attributes-panel').hide();
@@ -380,16 +368,16 @@ const attributesPanelObserver = new MutationObserver(
     }, 100)
 );
 
-attributesPanelObserver.observe(document, { 
-    attributes: false, 
-    childList: true, 
-    characterData: false, 
-    subtree: true 
+attributesPanelObserver.observe(document, {
+    attributes: false,
+    childList: true,
+    characterData: false,
+    subtree: true
 });
 
 // ===== LOADING SCREEN =====
 function hideLoadingScreen() {
-    $('.loading-background').fadeOut(500, function() {
+    $('.loading-background').fadeOut(500, function () {
         $(this).remove();
     });
 }
@@ -418,7 +406,7 @@ window.addEventListener('beforeunload', () => {
             console.warn('⚠️ Erro no cleanup final (ignorado):', error);
         }
     }
-    
+
     attributesPanelObserver.disconnect();
 });
 
@@ -427,7 +415,7 @@ $('#mini-map-street-view').css({ display: 'none' });
 
 // ===== FUNÇÃO ADICIONAL PARA CLEANUP MANUAL (SE NECESSÁRIO) =====
 // Função para forçar limpeza do Cesium se necessário (debug/manutenção)
-window.forceCesiumCleanup = function() {
+window.forceCesiumCleanup = function () {
     console.log('🧹 Forçando cleanup manual do Cesium');
     if (appState.cesiumState === 'loaded') {
         try {

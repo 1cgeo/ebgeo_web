@@ -675,33 +675,13 @@ class AddCircleControl {
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
-        this.map.on('mouseenter', 'circle-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'circle-layer', this.handleMouseLeave);
-        this.map.on('mouseenter', 'circle-fill-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'circle-fill-layer', this.handleMouseLeave);
     }
 
     removeAllEventListeners = () => {
-        this.map.off('mouseenter', 'circle-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'circle-layer', this.handleMouseLeave);
-        this.map.off('mouseenter', 'circle-fill-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'circle-fill-layer', this.handleMouseLeave);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         // ✅ CLEANUP: Cancel all pending operations
         this.cancelPendingUpdates();
-    }
-
-    handleMouseEnter = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = 'pointer';
-        }
-    }
-
-    handleMouseLeave = () => {
-        if (this.currentState === 'deselected') {
-            this.map.getCanvas().style.cursor = '';
-        }
     }
 
     // ===== UTILITY METHODS =====
