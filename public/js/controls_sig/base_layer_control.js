@@ -5,19 +5,20 @@ import cartaOrtoimagem from './baselayers/carta_ortoimagem.js';
 import osmLayer from './baselayers/osm_layer.js';
 import imagensLayer from './baselayers/imagens_layer.js';
 import config from '../config.js';
+import { setupMapFeatures } from './map.js';
 
 class BaseLayerControl {
     constructor(uiManager) {
         this.map = null;
         this.container = null;
         this.uiManager = uiManager;
-        
+
         // Construir styleUrls baseado na configuração
         this.styleUrls = {
             'carta-topografica': cartaTopografica,
             'carta-ortoimagem': cartaOrtoimagem
         };
-        
+
         if (config.showOsmAndImages) {
             this.styleUrls['osm'] = osmLayer;
             this.styleUrls['imagens'] = imagensLayer;
@@ -27,14 +28,14 @@ class BaseLayerControl {
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
-        
+
         // Aplicar classe CSS baseada na configuração
         if (config.showOsmAndImages) {
             this.container.className = 'mapboxgl-ctrl base-layer-control base-layer-grid-2x2';
         } else {
             this.container.className = 'mapboxgl-ctrl base-layer-control base-layer-grid-1x2';
         }
-        
+
         // Construir HTML baseado na configuração
         let htmlContent = `
             <label class="layer-switch">
@@ -46,7 +47,7 @@ class BaseLayerControl {
                 <span><img src="./images/dsg_symbol.svg" class="layer-icon">Ortoimagem</span>
             </label>
         `;
-        
+
         if (config.showOsmAndImages) {
             htmlContent += `
             <label class="layer-switch">
@@ -59,7 +60,7 @@ class BaseLayerControl {
             </label>
             `;
         }
-        
+
         this.container.innerHTML = htmlContent;
 
         this.container.querySelectorAll('input[name="base-layer"]').forEach((input) => {
@@ -76,25 +77,38 @@ class BaseLayerControl {
         this.map = null;
     }
 
-    switchLayer(layer) {
+    async switchLayer(layer) {
         setBaseLayer(layer);
         this.uiManager.saveChangesAndClosePanel();
 
         const styleUrl = this.styleUrls[layer];
+
+        // Criar Promise que resolve quando style carregar
+        const styleLoadPromise = new Promise((resolve) => {
+            this.map.once('styledata', resolve);
+        });
         this.map.setStyle(styleUrl);
+
+        // Aguardar style carregar
+        await styleLoadPromise;
+
+        // Chamar setupMapFeatures após style estar pronto
+        await setupMapFeatures();
+
+
         this.container.querySelector(`input[value="${layer}"]`).checked = true;
-        
+
         // Forçar atualização visual
         this.updateActiveState(layer);
     }
-    
+
     // Método para garantir que o estado ativo seja aplicado
     updateActiveState(activeLayer) {
         // Remove estado ativo de todos
         this.container.querySelectorAll('.layer-switch span').forEach(span => {
             span.classList.remove('active-layer');
         });
-        
+
         // Adiciona estado ativo ao selecionado
         const activeInput = this.container.querySelector(`input[value="${activeLayer}"]`);
         if (activeInput) {

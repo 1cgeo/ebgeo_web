@@ -147,6 +147,8 @@ export class ExportImportService {
     // Manipular exportação
     async handleExport() {
         try {
+            this.mapControl.deactivateActiveTools();
+            
             const zip = new JSZip();
 
             const mapsToExport = await getAllMapNames();
@@ -252,6 +254,8 @@ export class ExportImportService {
 
     // Manipular importação
     async handleImport(event, isAdditiveImport) {
+        this.mapControl.deactivateActiveTools();
+        
         const file = event.target.files[0];
         if (!file) return;
 
@@ -293,6 +297,7 @@ export class ExportImportService {
             if (compareVersions(data.version, MIN_SCHEMA_VERSION) < 0) {
                 throw new Error(`Arquivo .ebgeo incompatível. Versão do arquivo: ${data.version}, versão mínima aceita: ${MIN_SCHEMA_VERSION}`);
             }
+            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
 
             // Processar mapas
             let importedMapsCount = 0;
@@ -340,7 +345,7 @@ export class ExportImportService {
                 await getCurrentBaseLayer() :
                 (await mapStore.getItem(await getCurrentMapName()))?.baseLayer || 'carta-topografica';
 
-            this.baseLayerControl.switchLayer(baseLayer);
+            await this.baseLayerControl.switchLayer(baseLayer);
             await this.mapControl.updateMapList();
 
             const importType = isAdditiveImport ? 'adicionados' : 'carregados';

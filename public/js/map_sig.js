@@ -132,7 +132,9 @@ document.addEventListener('keydown', (e) => {
     if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
         return;
     }
-
+    if (addStreetViewControl.isOpen) {
+        return;
+    }
     switch (e.key) {
         case 'Delete':
         case 'Backspace':

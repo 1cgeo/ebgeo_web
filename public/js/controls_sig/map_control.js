@@ -40,6 +40,10 @@ class MapControl {
         this.selectionManager = selectionManager;
     }
 
+    deactivateActiveTools() {
+        this.selectionManager.uiManager.toolManager.deactivateCurrentTool();
+    }
+
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
@@ -103,16 +107,20 @@ class MapControl {
         addButton.title = 'Adicionar novo mapa';
         addButton.onclick = async () => {
             const allMapNames = await getAllMapNames();
+            this.deactivateActiveTools();
             if (allMapNames.length < 30) {
                 const mapName = prompt("Nome do novo mapa:");
                 if (mapName && mapName.trim()) {
+
                     await addMap(mapName.trim());
                     setCurrentMap(mapName.trim());
                     await this.switchMap();
                     await this.updateMapList();
+                } else {
+                    alert("Nome inválido.");
                 }
             } else {
-                alert("Limite de 10 mapas atingido.");
+                alert("Limite de 30 mapas atingido.");
             }
         };
 
@@ -284,6 +292,8 @@ class MapControl {
         if (isCurrentlyActive) {
             return;
         }
+
+        this.deactivateActiveTools();
 
         // Criar novo dropdown
         const dropdown = document.createElement('div');
@@ -749,10 +759,13 @@ class MapControl {
             baseLayer = 'carta-topografica';
         }
 
+        this.deactivateActiveTools();
+
         this.selectionManager.deselectAllFeatures(true);
-        this.baseLayerControl.switchLayer(baseLayer);
+        await this.baseLayerControl.switchLayer(baseLayer);
 
         await this.applyMapSavedPosition(currentMapName);
+
     }
 
     async applyMapSavedPosition(mapName = null) {
@@ -784,6 +797,8 @@ class MapControl {
     async clearAllData() {
         if (confirm('Tem certeza que deseja limpar todos os dados? Esta ação é irreversível.')) {
             try {
+                this.deactivateActiveTools();
+
                 await resetMemoryStore();
                 await mapStore.clear();
                 await imageStore.clear();

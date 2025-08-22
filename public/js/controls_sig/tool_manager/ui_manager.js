@@ -19,19 +19,19 @@ import { addMilitarySymbolAttributesToPanel } from '../military_symbol_tool/mili
  * Adding new types requires only adding an entry here
  */
 const SELECTION_BOX_STRATEGIES = {
-    // Geometric features that use bounding box
-    'circle': { strategy: 'bbox', errorMsg: 'círculo' },
-    'ellipse': { strategy: 'bbox', errorMsg: 'elipse' },
-    'arrow': { strategy: 'bbox', errorMsg: 'seta' },
-    'boundary': { strategy: 'bbox', errorMsg: 'boundary' },
-    'occupied_front': { strategy: 'bbox', errorMsg: 'frente ocupada' },
-    
-    // Linear features that now use bounding box
-    'draw': { strategy: 'bbox', errorMsg: 'desenho' },
-    'los': { strategy: 'bbox', errorMsg: 'linha de visada' },
-    'visibility': { strategy: 'bbox', errorMsg: 'visibilidade' },
-    
-    // Point-based features with custom boxes
+    // Geometric features that use bounding box with custom padding
+    'circle': { strategy: 'bbox', errorMsg: 'círculo', padding: 5 },
+    'ellipse': { strategy: 'bbox', errorMsg: 'elipse', padding: 5 },
+    'arrow': { strategy: 'bbox', errorMsg: 'seta', padding: 5 },
+    'boundary': { strategy: 'bbox', errorMsg: 'boundary', padding: 5 },
+    'occupied_front': { strategy: 'bbox', errorMsg: 'frente ocupada', padding: 5 },
+
+    // Linear features that now use bounding box with different padding based on geometry
+    'draw': { strategy: 'bbox', errorMsg: 'desenho', padding: 'auto' }, // Will detect Point/LineString/Polygon
+    'los': { strategy: 'bbox', errorMsg: 'linha de visada', padding: 5 }, // Always LineString
+    'visibility': { strategy: 'bbox', errorMsg: 'visibilidade', padding: 5 }, // Always LineString
+
+    // Point-based features with custom boxes (keep existing padding: 10px default)
     'text': { strategy: 'textBox' },
     'image': { strategy: 'imageBox' },
     'military_symbol': { strategy: 'imageBox' }
@@ -42,58 +42,58 @@ const SELECTION_BOX_STRATEGIES = {
  * Maps feature types to their corresponding panel functions and controls
  */
 const ATTRIBUTE_PANEL_REGISTRY = {
-    'text': { 
-        panelFunction: addTextAttributesToPanel, 
+    'text': {
+        panelFunction: addTextAttributesToPanel,
         controlKey: 'text',
         sectionClass: 'text-attributes-section'
     },
-    'image': { 
-        panelFunction: addImageAttributesToPanel, 
+    'image': {
+        panelFunction: addImageAttributesToPanel,
         controlKey: 'image',
         sectionClass: 'image-attributes-section'
     },
-    'draw': { 
-        panelFunction: addFeatureAttributesToPanel, 
+    'draw': {
+        panelFunction: addFeatureAttributesToPanel,
         controlKey: 'draw',
         sectionClass: 'draw-attributes-section'
     },
-    'los': { 
-        panelFunction: addLOSAttributesToPanel, 
+    'los': {
+        panelFunction: addLOSAttributesToPanel,
         controlKey: 'los',
         sectionClass: 'los-attributes-section'
     },
-    'visibility': { 
-        panelFunction: addVisibilityAttributesToPanel, 
+    'visibility': {
+        panelFunction: addVisibilityAttributesToPanel,
         controlKey: 'visibility',
         sectionClass: 'visibility-attributes-section'
     },
-    'circle': { 
-        panelFunction: addCircleAttributesToPanel, 
+    'circle': {
+        panelFunction: addCircleAttributesToPanel,
         controlKey: 'circle',
         sectionClass: 'circle-attributes-section'
     },
-    'ellipse': { 
-        panelFunction: addEllipseAttributesToPanel, 
+    'ellipse': {
+        panelFunction: addEllipseAttributesToPanel,
         controlKey: 'ellipse',
         sectionClass: 'ellipse-attributes-section'
     },
-    'arrow': { 
-        panelFunction: addArrowAttributesToPanel, 
+    'arrow': {
+        panelFunction: addArrowAttributesToPanel,
         controlKey: 'arrow',
         sectionClass: 'arrow-attributes-section'
     },
-    'boundary': { 
-        panelFunction: addBoundaryAttributesToPanel, 
+    'boundary': {
+        panelFunction: addBoundaryAttributesToPanel,
         controlKey: 'boundary',
         sectionClass: 'boundary-attributes-section'
     },
-    'occupied_front': { 
-        panelFunction: addOccupiedFrontAttributesToPanel, 
+    'occupied_front': {
+        panelFunction: addOccupiedFrontAttributesToPanel,
         controlKey: 'occupied_front',
         sectionClass: 'occupied-front-attributes-section'
     },
-    'military_symbol': { 
-        panelFunction: addMilitarySymbolAttributesToPanel, 
+    'military_symbol': {
+        panelFunction: addMilitarySymbolAttributesToPanel,
         controlKey: 'military_symbol',
         sectionClass: 'military-symbol-attributes-section'
     }
@@ -105,24 +105,45 @@ class UIManager {
         this.selectionManager = selectionManager;
         this.toolManager = toolManager;
         this.featureSearchControl = null;
-        
+
         // UI state
         this.selectionBoxes = [];
         this.isDragging = false;
-        
+
         // ===== CACHE SYSTEM =====
         /**
          * Cache para selection boxes
          * Key: featureId, Value: { geometryHash, selectionBox }
          */
         this.selectionBoxCache = new Map();
-        
+
         /**
          * Cache para hashes de geometrias
          * Key: featureId, Value: geometryHash
          */
         this.geometryHashes = new Map();
-        
+        this.rafId = null;
+        this.map.on('zoom', this.handleZoomChange);
+    }
+
+    handleZoomChange = () => {
+        if (this.rafId) {
+            cancelAnimationFrame(this.rafId);
+        }
+
+        // Agenda novo cálculo para próximo frame
+        this.rafId = requestAnimationFrame(() => {
+            if (this.selectionManager.hasSelectedFeatures()) {
+                this.updateSelectionHighlight();
+            }
+            this.rafId = null;
+        });
+    }
+
+    getCacheKey(featureId) {
+        const zoom = this.map.getZoom();
+        const zoomLevel = Math.round(zoom * 2) / 2;
+        return `${featureId}-${zoomLevel}`;
     }
 
     setFeatureSearchControl(featureSearchControl) {
@@ -152,7 +173,7 @@ class UIManager {
             width: feature.properties.width,
             height: feature.properties.height
         });
-        
+
         // Hash simples mas efetivo
         let hash = 0;
         const str = coords + props;
@@ -169,7 +190,15 @@ class UIManager {
      */
     invalidateCache(featureId) {
         if (featureId) {
-            this.selectionBoxCache.delete(featureId);
+            // MODIFICAR: invalidar todas as entradas de zoom para esta feature
+            const keysToDelete = [];
+            for (const key of this.selectionBoxCache.keys()) {
+                if (key.startsWith(`${featureId}-`)) {
+                    keysToDelete.push(key);
+                }
+            }
+            keysToDelete.forEach(key => this.selectionBoxCache.delete(key));
+
             this.geometryHashes.delete(featureId);
         }
     }
@@ -232,8 +261,9 @@ class UIManager {
         for (const feature of features) {
             const featureId = feature.properties.id;
             const currentHash = this.calculateGeometryHash(feature);
-            const cached = this.selectionBoxCache.get(featureId);
-            
+            const cacheKey = this.getCacheKey(featureId);
+            const cached = this.selectionBoxCache.get(cacheKey);
+
             if (cached && cached.geometryHash === currentHash) {
                 // Cache hit - usar selection box do cache
                 cachedBoxes.push(cached.selectionBox);
@@ -271,9 +301,10 @@ class UIManager {
                 const featureId = feature.properties.id;
                 const geometryHash = this.geometryHashes.get(featureId);
                 const selectionBox = newBoxes[i];
-                
+
                 if (selectionBox) {
-                    this.selectionBoxCache.set(featureId, {
+                    const cacheKey = this.getCacheKey(featureId);
+                    this.selectionBoxCache.set(cacheKey, {
                         geometryHash,
                         selectionBox
                     });
@@ -284,16 +315,77 @@ class UIManager {
         return [...cachedBoxes, ...newBoxes];
     }
 
+    expandBboxWithPadding(bbox, paddingPixels, map) {
+        // Get center of bbox for latitude calculation
+        const centerLat = (bbox[1] + bbox[3]) / 2;
+        const centerLng = (bbox[0] + bbox[2]) / 2;
+
+        // Use map center as fallback if bbox center is invalid
+        const mapCenter = this.map.getCenter();
+        const latitude = isNaN(centerLat) ? mapCenter.lat : centerLat;
+
+        // Convert padding from pixels to degrees
+        const zoom = this.map.getZoom();
+        const paddingDegrees = this.pixelsToDegrees(paddingPixels, latitude, zoom);
+
+        // Expand bbox
+        return [
+            bbox[0] - paddingDegrees, // minX
+            bbox[1] - paddingDegrees, // minY  
+            bbox[2] + paddingDegrees, // maxX
+            bbox[3] + paddingDegrees  // maxY
+        ];
+    }
+
+    /**
+     * Determines padding based on geometry type for 'auto' padding strategy
+     * @param {Object} feature - GeoJSON feature
+     * @returns {number} Padding in pixels
+     */
+    getAutoPadding(feature) {
+        const geometryType = feature.geometry.type;
+
+        switch (geometryType) {
+            case 'Point':
+                return 10; // Maior padding para pontos
+            case 'LineString':
+            case 'MultiLineString':
+                return 5; // Padding médio para linhas
+            case 'Polygon':
+            case 'MultiPolygon':
+                return 5; // Padding menor para áreas
+            default:
+                return 5; // Fallback
+        }
+    }
+
     /**
      * Creates bounding box selection boxes for geometric features
      */
     createBboxSelectionBoxes(features, type, errorMsg) {
         const boxes = [];
-        
+        const strategy = SELECTION_BOX_STRATEGIES[type];
+
         for (const feature of features) {
             try {
-                const bbox = turf.bbox(feature);
-                const boxFeature = turf.bboxPolygon(bbox);
+                // Calculate original bbox
+                const originalBbox = turf.bbox(feature);
+
+                // Determine padding
+                let paddingPixels;
+                if (strategy.padding === 'auto') {
+                    paddingPixels = this.getAutoPadding(feature);
+                } else if (typeof strategy.padding === 'number') {
+                    paddingPixels = strategy.padding;
+                } else {
+                    paddingPixels = 10; // Default fallback
+                }
+
+                // Expand bbox with padding
+                const expandedBbox = this.expandBboxWithPadding(originalBbox, paddingPixels, this.map);
+
+                // Create polygon from expanded bbox
+                const boxFeature = turf.bboxPolygon(expandedBbox);
                 boxFeature.properties = {
                     type: 'selection-box',
                     source: type,
@@ -304,7 +396,7 @@ class UIManager {
                 console.warn(`Erro ao criar selection box para ${errorMsg}:`, error);
             }
         }
-        
+
         return boxes;
     }
 
@@ -315,12 +407,12 @@ class UIManager {
         return features.map(feature => {
             const coordinates = feature.geometry.coordinates;
             const { width, height } = this.measureTextSize(
-                feature.properties.text, 
-                feature.properties.size, 
+                feature.properties.text,
+                feature.properties.size,
                 'Arial'
             );
             const polygon = this.createSelectionBox(coordinates, width, height, feature.properties.rotation);
-            
+
             return {
                 type: 'Feature',
                 geometry: polygon,
@@ -338,7 +430,7 @@ class UIManager {
             const width = feature.properties.width * feature.properties.size;
             const height = feature.properties.height * feature.properties.size;
             const polygon = this.createSelectionBox(coordinates, width, height, feature.properties.rotation || 0);
-            
+
             return {
                 type: 'Feature',
                 geometry: polygon,
@@ -354,7 +446,7 @@ class UIManager {
         const zoom = this.map.getZoom();
         const center = this.map.getCenter();
         const bufferSize = this.pixelsToDegrees(10, center.lat, zoom);
-        
+
         return features.map(feature => this.calculateBuffer(feature, bufferSize));
     }
 
@@ -409,7 +501,7 @@ class UIManager {
 
         // Add delete button
         this.addDeleteButton(panel);
-        
+
         // Add to DOM
         document.body.appendChild(panel);
     }

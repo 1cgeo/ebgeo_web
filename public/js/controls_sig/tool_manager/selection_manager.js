@@ -405,7 +405,7 @@ class SelectionManager {
 
         this.updateUI();
     }
-    
+
     deselectAllFeatures = (forceDraw = false) => {
         // Notify controls before clearing
         this.notifyControlsOfGlobalDeselect();
@@ -567,6 +567,10 @@ class SelectionManager {
                 control.updateFeatures(features, true);
             }
         });
+    }
+
+    hasSelectedFeatures() {
+        return this.selectedFeatures.size > 0;
     }
 }
 

@@ -43,13 +43,13 @@ class AddStreetViewControl {
             maxZoom: 17.9
         });
         this.isOpen = false
-        
+
         // Performance optimization properties
         this.animationId = null
         this.documentListeners = []
         this.arrowGeometry = null
         this.arrowTexture = null
-        
+
         // High-impact performance caches
         this.textureCache = new Map()
         this.metadataCache = new Map()
@@ -63,6 +63,66 @@ class AddStreetViewControl {
         this.onDocumentMouseWheel = this.onDocumentMouseWheel.bind(this);
         this.setCurrentMouse = this.setCurrentMouse.bind(this);
         this.onMouseMove = this.onMouseMove.bind(this);
+        this.onStreetViewKeyDown = this.onStreetViewKeyDown.bind(this);
+    }
+
+    onStreetViewKeyDown = (e) => {
+        // Ignorar se estiver digitando
+        if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+            return;
+        }
+
+        const rotationSpeed = 0.1;
+        let cameraRotated = false;
+
+        switch (e.key) {
+            // ESC para fechar street view
+            case 'Escape':
+                e.preventDefault();
+                this.closeStreetView();
+                break;
+
+            // Controles de câmera - Setas e WASD
+            case 'ArrowLeft':
+            case 'a':
+            case 'A':
+                e.preventDefault();
+                this.camera.rotation.y += rotationSpeed;
+                cameraRotated = true;
+                break;
+            case 'ArrowRight':
+            case 'd':
+            case 'D':
+                e.preventDefault();
+                this.camera.rotation.y -= rotationSpeed;
+                cameraRotated = true;
+                break;
+            case 'ArrowUp':
+            case 'w':
+            case 'W':
+                e.preventDefault();
+                this.camera.rotation.x = THREE.MathUtils.clamp(
+                    this.camera.rotation.x + rotationSpeed,
+                    -Math.PI / 2, Math.PI / 2
+                );
+                cameraRotated = true;
+                break;
+            case 'ArrowDown':
+            case 's':
+            case 'S':
+                e.preventDefault();
+                this.camera.rotation.x = THREE.MathUtils.clamp(
+                    this.camera.rotation.x - rotationSpeed,
+                    -Math.PI / 2, Math.PI / 2
+                );
+                cameraRotated = true;
+                break;
+        }
+
+        // Atualizar interface se câmera foi rotacionada
+        if (cameraRotated) {
+            this.setCurrentMouse();
+        }
     }
 
     // Cached metadata loader for performance
@@ -70,7 +130,7 @@ class AddStreetViewControl {
         if (this.metadataCache.has(name)) {
             return this.metadataCache.get(name);
         }
-        
+
         const data = await $.getJSON(`${this.METADATA_LOCATION}/${name}.json`);
         this.metadataCache.set(name, data);
         return data;
@@ -156,11 +216,11 @@ class AddStreetViewControl {
             this.sphereGeometry.dispose();
             this.sphereGeometry = null;
         }
-        
+
         // Clean texture cache
         this.textureCache.forEach(texture => texture.dispose());
         this.textureCache.clear();
-        
+
         // Clear metadata cache
         this.metadataCache.clear();
 
@@ -233,7 +293,7 @@ class AddStreetViewControl {
             this.miniMap.on('mouseleave', 'points', () => {
                 this.miniMap.getCanvas().style.cursor = '';
             });
-            
+
             // Optimize DOM queries for wheel events
             this.miniMap.getCanvas().addEventListener('mouseenter', () => {
                 this.miniMapHovered = true;
@@ -342,6 +402,7 @@ class AddStreetViewControl {
         const container = document.getElementById('street-view-container');
 
         // Use tracked document listeners
+        this.addDocumentListener('keydown', this.onStreetViewKeyDown);
         this.addDocumentListener('pointermove', this.setCurrentMouse, { passive: true });
         this.addDocumentListener('mousemove', this.onMouseMove, false);
 
@@ -358,12 +419,12 @@ class AddStreetViewControl {
             this.sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
             this.sphereGeometry.scale(- 1, 1, 1);
         }
-        
+
         this.setCurrentPhotoName(info.camera.img)
-        
+
         // Handle texture loading with cache (async safe)
         const imagePath = `${this.IMAGES_LOCATION}/${info.camera.img}.jpg`;
-        
+
         if (this.textureCache.has(imagePath)) {
             // Use cached texture immediately
             const texture = this.textureCache.get(imagePath);
@@ -527,10 +588,10 @@ class AddStreetViewControl {
             this.arrowTexture = new THREE.TextureLoader().load("/street_view/arrow.png");
         }
 
-        const material = new THREE.MeshBasicMaterial({ 
-            map: this.arrowTexture, 
-            side: THREE.DoubleSide, 
-            transparent: true 
+        const material = new THREE.MeshBasicMaterial({
+            map: this.arrowTexture,
+            side: THREE.DoubleSide,
+            transparent: true
         });
 
         for (let target of this.currentInfo.targets) {
@@ -586,8 +647,8 @@ class AddStreetViewControl {
                 object.geometry.dispose();
             }
             // Check if material map is not a cached texture before disposing
-            if (object.material && object.material.map && 
-                object.material.map !== this.arrowTexture && 
+            if (object.material && object.material.map &&
+                object.material.map !== this.arrowTexture &&
                 !Array.from(this.textureCache.values()).includes(object.material.map)) {
                 object.material.dispose();
             }
@@ -603,9 +664,9 @@ class AddStreetViewControl {
         this.setCurrentMouse()
         this.drawControl()
         this.setCurrentPhotoName(data.camera.img)
-        
+
         const imagePath = `${this.IMAGES_LOCATION}/${data.camera.img}.jpg`;
-        
+
         // Check if texture is already cached
         if (this.textureCache.has(imagePath)) {
             const texture = this.textureCache.get(imagePath);
@@ -647,7 +708,7 @@ class AddStreetViewControl {
 
     onPointerMove = (event) => {
         if (event.isPrimary === false || !this.isUserInteracting) return;
-        let factor = (0.00005 * 1768) / window.innerWidth
+        let factor = 0.00005
         this.mouse.x = (this.onPointerDownMouseX - event.clientX) * factor
         this.mouse.y = (event.clientY - this.onPointerDownMouseY) * factor * 0.8
         this.raycaster.setFromCamera(this.mouse, this.camera);
@@ -808,6 +869,10 @@ class AddStreetViewControl {
         this.map.getCanvas().style.cursor = '';
         this.hidePhotos()
         $('#close-street-view-button').off('click', this.closeStreetView)
+        if (this.isOpen) {
+            this.setFullMap(true);
+            this.isOpen = false;
+        }
         this.cleanupThreeJS()
     }
 

@@ -24,33 +24,40 @@ map.addControl(new maplibregl.AttributionControl({
     compact: true
 }), 'bottom-right');
 
-map.on('styledata', async () => {
-    setupAuxiliaryLayers();
+export async function setupMapFeatures() {
+    try {
+        setupAuxiliaryLayers();
 
-    // Carregar dados do IndexedDB
-    const features = await getCurrentMapFeatures();
-    await setImages(features);
+        // Carregar dados do IndexedDB
+        const features = await getCurrentMapFeatures();
+        await setImages(features);
 
-    setupDrawLayers(features);
-    setupEllipseLayers(features);
-    setupCircleLayers(features);
-    setupVisibilityLayers(features);
-    setupImageLayers(features);
-    setupMilitarySymbolsLayers(features);
-    setupBoundaryLayers(features);
-    setupOccupiedFrontLayers(features);
-    setupArrowLayers(features);
-    setupLOSLayers(features);
-    setupTextLayers(features);
+        setupDrawLayers(features);
+        setupEllipseLayers(features);
+        setupCircleLayers(features);
+        setupVisibilityLayers(features);
+        setupImageLayers(features);
+        setupMilitarySymbolsLayers(features);
+        setupBoundaryLayers(features);
+        setupOccupiedFrontLayers(features);
+        setupArrowLayers(features);
+        setupLOSLayers(features);
+        setupTextLayers(features);
 
+        // Restaurar medições e marcações
+        requestAnimationFrame(() => {
+            clearAllMeasurements();
+            restoreMeasurements(features);
+            restoreCircleXMarks(features);
+            restoreBoundaryDependentFeatures(features);
+        });
+    } catch (error) {
+        console.error('Erro ao configurar features do mapa:', error);
+    }
+}
 
-    // Restaurar medições e marcações
-    requestAnimationFrame(() => {
-        clearAllMeasurements();
-        restoreMeasurements(features);
-        restoreCircleXMarks(features);
-        restoreBoundaryDependentFeatures(features);
-    });
+map.on('load', async () => {
+    await setupMapFeatures();
 });
 
 function setupOccupiedFrontLayers(features) {

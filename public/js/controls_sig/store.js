@@ -154,7 +154,6 @@ export const compareVersions = (version1, version2) => {
 const checkAndCleanLegacyData = async () => {
     try {
         const currentSchemaVersion = await appStore.getItem('schemaVersion');
-        
         // Se não há versão salva ou é menor que a mínima aceita, limpar tudo
         if (!currentSchemaVersion || compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) < 0) {
             console.log('🧹 Detectados dados de versão incompatível, limpando...');
