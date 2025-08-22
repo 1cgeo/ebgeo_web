@@ -690,6 +690,12 @@ class UIManager {
         }
 
         const feature = selectedFeatures[0];
+
+        if (!('properties' in feature) || !('geometry' in feature)) {
+            this.hideProfilePanel();
+            return;
+        }
+
         const { source } = feature.properties;
         const isLineFeature = feature.geometry.type === 'LineString';
         const hasProfileData = feature.properties.profileData && feature.properties.profile;

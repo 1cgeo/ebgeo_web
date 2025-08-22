@@ -362,6 +362,7 @@ class MoveHandler {
 
             // Trigger final update
             this.selectionManager.updateSelectedFeatures();
+            this.selectionManager.updateProfile();
         }
 
         // Reset state

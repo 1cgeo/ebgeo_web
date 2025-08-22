@@ -208,6 +208,37 @@ class SelectionManager {
         }
     }
 
+    /**
+ * Garante que a feature está limpa (sem metadados de vector tile)
+ */
+    ensureCleanFeature(feature) {
+        // Se já tem geometry válida e não tem metadados, está limpa
+        if (feature.geometry && feature.geometry.coordinates && !feature._vectorTileFeature) {
+            return feature;
+        }
+
+        // Limpar feature contaminada
+        const cleanFeature = {
+            type: feature.type || 'Feature',
+            id: feature.id,
+            properties: { ...feature.properties },
+            geometry: feature.geometry || feature._geometry
+        };
+
+        // Remover metadados do vector tile
+        delete cleanFeature._vectorTileFeature;
+        delete cleanFeature._geometry;
+        delete cleanFeature._pbf;
+        delete cleanFeature._z;
+        delete cleanFeature._x;
+        delete cleanFeature._y;
+        delete cleanFeature.layer;
+        delete cleanFeature.source;
+        delete cleanFeature.state;
+
+        return cleanFeature;
+    }
+
     getClickedCustomFeature = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
@@ -222,7 +253,8 @@ class SelectionManager {
                 );
 
                 if (feature) {
-                    return { ...feature, toolType: type };
+                    const cleanFeature = this.ensureCleanFeature(feature);
+                    return { ...cleanFeature, toolType: type };
                 }
             }
         }
@@ -337,7 +369,7 @@ class SelectionManager {
             }
         } else if (!this.selectedFeatures.has(key)) {
             // Select feature
-            let featureToStore = feature;
+            let featureToStore = this.ensureCleanFeature(feature);
 
             // For problematic features, create optimized hybrid feature
             if (config.criticalProps.length > 0) {
@@ -400,7 +432,8 @@ class SelectionManager {
         // Adicionar novas seleções
         selectedFeatures.forEach(f => {
             const key = `draw:${f.properties.id}`;
-            this.selectedFeatures.set(key, { type: 'draw', feature: f });
+            const cleanFeature = this.ensureCleanFeature(f);
+            this.selectedFeatures.set(key, { type: 'draw', feature: cleanFeature });
         });
 
         this.updateUI();

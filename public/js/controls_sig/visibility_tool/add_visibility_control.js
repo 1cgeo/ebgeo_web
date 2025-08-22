@@ -1,5 +1,5 @@
 // Path: js\controls_sig\visibility_tool\add_visibility_control.js
-import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures  } from '../store.js';
+import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 import { IDUtils } from '../id_utils.js';
 // Configuração do grid polar adaptativo
@@ -446,7 +446,10 @@ class AddVisibilityControl {
                 f.properties[property] = value;
                 feature.properties[property] = value;
 
-                const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
+                // ✅ FIXED: Use safe prefix matching for processed features
+                const processedFeatures = processedData.features.filter(f => 
+                    f.properties.id.startsWith(feature.properties.id + '-')
+                );
                 processedFeatures.forEach(processedFeature => {
                     processedFeature.properties[property] = value;
                 });
@@ -467,7 +470,10 @@ class AddVisibilityControl {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
 
-                        const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
+                        // ✅ FIXED: Use safe prefix matching for processed features
+                        const processedFeatures = processedData.features.filter(f => 
+                            f.properties.id.startsWith(feature.properties.id + '-')
+                        );
                         processedFeatures.forEach(processedFeature => {
                             Object.keys(feature.properties).forEach(key => {
                                 if (key !== 'color') {
@@ -485,7 +491,10 @@ class AddVisibilityControl {
                             await this.delay(50);
                         }
 
-                        processedData.features = processedData.features.filter(f => !f.properties.id.startsWith(feature.properties.id));
+                        // ✅ FIXED: Use safe prefix matching to remove old processed features
+                        processedData.features = processedData.features.filter(f => 
+                            !f.properties.id.startsWith(feature.properties.id + '-')
+                        );
 
                         if (showModal) {
                             this.updateProgress(80, 'Criando novas células...');
@@ -496,17 +505,17 @@ class AddVisibilityControl {
                         processedData.features.push(...newProcessedFeatures);
                     }
 
+                    // ✅ FIXED: Use batch operation to prevent race conditions
                     if (save) {
                         if (showModal) {
                             this.updateProgress(90, 'Salvando alterações...');
                             await this.delay(100);
                         }
 
-                        await updateFeature('visibility', data.features[featureIndex]);
-                        const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
-                        for (const pf of processedFeatures) {
-                            await updateFeature('processed_visibility', pf);
-                        }
+                        const processedFeatures = processedData.features.filter(f => 
+                            f.properties.id.startsWith(feature.properties.id + '-')
+                        );
+                        await batchUpdateVisibilityFeatures(data.features[featureIndex], processedFeatures);
                     }
                 }
             };
@@ -542,8 +551,10 @@ class AddVisibilityControl {
                     };
                     await updateFeature('visibility', featureToSave);
 
-                    // Atualizar features processadas também
-                    const processedFeatures = processedData.features.filter(pf => pf.properties.id.startsWith(selectedFeature.properties.id));
+                    // ✅ FIXED: Use safe prefix matching for processed features
+                    const processedFeatures = processedData.features.filter(pf => 
+                        pf.properties.id.startsWith(selectedFeature.properties.id + '-')
+                    );
                     for (const pf of processedFeatures) {
                         const updatedProcessedFeature = {
                             ...pf,
@@ -766,7 +777,7 @@ class AddVisibilityControl {
             return optimizedCells;
 
         } catch (error) {
-            console.log(`❌ Erro no dissolve, usando geometrias originais:`, error);
+            console.log(`⚠ Erro no dissolve, usando geometrias originais:`, error);
             return cells; // Fallback para células originais
         }
     }

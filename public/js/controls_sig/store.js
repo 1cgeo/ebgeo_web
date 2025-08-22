@@ -527,6 +527,91 @@ export const removeFeature = async (type, id) => {
     }, 500);
 };
 
+export const addFeatureSilent = async (type, feature) => {
+    const cleanedFeature = cleanFeature(feature);
+    if (!cleanedFeature) return;
+    
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    currentMapData.features[type].push(cleanedFeature);
+    await mapStore.setItem(memoryStore.currentMap, currentMapData);
+    // SEM recordAction - não vai para undo stack
+};
+
+export const removeFeatureSilent = async (type, id) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id == id);
+    
+    if (featureIndex !== -1) {
+        currentMapData.features[type].splice(featureIndex, 1);
+        await mapStore.setItem(memoryStore.currentMap, currentMapData);
+    }
+    // SEM recordAction - não vai para undo stack
+};
+
+// Operação em lote para LOS
+export const batchUpdateLOSFeatures = async (losFeature, processedFeatures) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    
+    // 1. Atualizar LOS principal
+    const losIndex = currentMapData.features.los.findIndex(f => f.properties.id === losFeature.properties.id);
+    if (losIndex !== -1) {
+        const oldFeature = currentMapData.features.los[losIndex];
+        currentMapData.features.los[losIndex] = cleanFeature(losFeature);
+        
+        // 2. Remover processed antigas (fix do startsWith)
+        currentMapData.features.processed_los = currentMapData.features.processed_los.filter(f => 
+            f.properties.id !== losFeature.properties.id + '-visible' &&
+            f.properties.id !== losFeature.properties.id + '-obstructed'
+        );
+        
+        // 3. Adicionar processed novas
+        const cleanedProcessed = processedFeatures.map(cleanFeature).filter(Boolean);
+        currentMapData.features.processed_los.push(...cleanedProcessed);
+        
+        // 4. Salvar uma única vez
+        await mapStore.setItem(memoryStore.currentMap, currentMapData);
+        
+        // 5. Registrar no undo apenas a mudança principal
+        recordAction({
+            type: 'update',
+            featureType: 'los',
+            oldFeature: JSON.parse(JSON.stringify(oldFeature)),
+            newFeature: JSON.parse(JSON.stringify(cleanFeature(losFeature)))
+        });
+    }
+};
+
+export const batchUpdateVisibilityFeatures = async (visibilityFeature, processedFeatures) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    
+    // 1. Atualizar Visibility principal
+    const visIndex = currentMapData.features.visibility.findIndex(f => f.properties.id === visibilityFeature.properties.id);
+    if (visIndex !== -1) {
+        const oldFeature = currentMapData.features.visibility[visIndex];
+        currentMapData.features.visibility[visIndex] = cleanFeature(visibilityFeature);
+        
+        // 2. Remover processed antigas (usando pattern matching seguro)
+        currentMapData.features.processed_visibility = currentMapData.features.processed_visibility.filter(f => 
+            !f.properties.id.startsWith(visibilityFeature.properties.id + '-')
+        );
+        
+        // 3. Adicionar processed novas
+        const cleanedProcessed = processedFeatures.map(cleanFeature).filter(Boolean);
+        currentMapData.features.processed_visibility.push(...cleanedProcessed);
+        
+        // 4. Salvar uma única vez
+        await mapStore.setItem(memoryStore.currentMap, currentMapData);
+        
+        // 5. Registrar no undo apenas a mudança principal
+        recordAction({
+            type: 'update',
+            featureType: 'visibility',
+            oldFeature: JSON.parse(JSON.stringify(oldFeature)),
+            newFeature: JSON.parse(JSON.stringify(cleanFeature(visibilityFeature)))
+        });
+    }
+};
+
 export const addMap = async (mapName, mapData = null) => {
     const newMapData = mapData || getEmptyMapData();
     await mapStore.setItem(mapName, newMapData);

@@ -1,5 +1,5 @@
 // Path: js\controls_sig\los_tool\add_los_control.js
-import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures } from '../store.js';
+import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, removeFeatureSilent } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 import { IDUtils } from '../id_utils.js';
 class AddLOSControl {
@@ -361,8 +361,11 @@ class AddLOSControl {
                 feature.properties[property] = value;
                 this.updateFeatureMeasurement(feature);
 
-                // Update processed-los source
-                const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
+                // ✅ FIXED: Update processed-los source with exact ID matching
+                const processedFeatures = processedData.features.filter(f => 
+                    f.properties.id === feature.properties.id + '-visible' ||
+                    f.properties.id === feature.properties.id + '-obstructed'
+                );
                 processedFeatures.forEach(processedFeature => {
                     processedFeature.properties[property] = value;
                 });
@@ -384,7 +387,11 @@ class AddLOSControl {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
 
-                        const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
+                        // ✅ FIXED: Update processed features with exact ID matching
+                        const processedFeatures = processedData.features.filter(f => 
+                            f.properties.id === feature.properties.id + '-visible' ||
+                            f.properties.id === feature.properties.id + '-obstructed'
+                        );
                         processedFeatures.forEach(processedFeature => {
                             Object.keys(feature.properties).forEach(key => {
                                 if (key !== 'color') {
@@ -396,21 +403,26 @@ class AddLOSControl {
                         // Recalculate LOS and update both 'los' and 'processed-los' sources
                         const updatedFeature = await this.recalculateLOS(feature);
                         data.features[featureIndex] = updatedFeature;
-                        // Remove old processed features
-                        processedData.features = processedData.features.filter(f => !f.properties.id.startsWith(feature.properties.id));
+                        
+                        // ✅ FIXED: Remove old processed features with exact ID matching
+                        processedData.features = processedData.features.filter(f => 
+                            f.properties.id !== feature.properties.id + '-visible' &&
+                            f.properties.id !== feature.properties.id + '-obstructed'
+                        );
 
                         // Add new processed features
                         const newProcessedFeatures = this.preprocessLosFeature(updatedFeature);
                         processedData.features.push(...newProcessedFeatures);
                     }
 
+                    // ✅ FIXED: Use batch operation to prevent race conditions
                     if (save) {
-                        await updateFeature('los', data.features[featureIndex]);
+                        const processedFeatures = processedData.features.filter(f => 
+                            f.properties.id === feature.properties.id + '-visible' ||
+                            f.properties.id === feature.properties.id + '-obstructed'
+                        );
+                        await batchUpdateLOSFeatures(data.features[featureIndex], processedFeatures);
                         this.updateFeatureMeasurement(data.features[featureIndex]);
-                        const processedFeatures = processedData.features.filter(f => f.properties.id.startsWith(feature.properties.id));
-                        for (const pf of processedFeatures) {
-                            await updateFeature('processed_los', pf);
-                        }
                     }
                 }
             }
@@ -434,8 +446,11 @@ class AddLOSControl {
                     };
                     await updateFeature('los', featureToSave);
 
-                    // Atualizar features processadas
-                    const processedFeatures = processedData.features.filter(pf => pf.properties.id.startsWith(selectedFeature.properties.id));
+                    // ✅ FIXED: Update processed features with exact ID matching
+                    const processedFeatures = processedData.features.filter(pf => 
+                        pf.properties.id === selectedFeature.properties.id + '-visible' ||
+                        pf.properties.id === selectedFeature.properties.id + '-obstructed'
+                    );
                     for (const pf of processedFeatures) {
                         const updatedProcessedFeature = {
                             ...pf,
