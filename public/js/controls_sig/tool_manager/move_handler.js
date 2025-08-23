@@ -3,43 +3,6 @@
 // ===== CONFIGURATION =====
 
 /**
- * Configuration for edit handles detection
- * Adding new edit handle types requires only adding an entry here
- */
-const EDIT_HANDLE_CONFIG = {
-    'circle': {
-        source: 'circle-edit-handles',
-        editModeProperty: 'circle_editing',
-        controlKey: 'circle'
-    },
-    'ellipse': {
-        source: 'ellipse-edit-handles', 
-        editModeProperty: 'ellipse_editing',
-        controlKey: 'ellipse'
-    },
-    'arrow': {
-        source: 'arrow-edit-handles',
-        editModeProperty: 'arrow_editing', 
-        controlKey: 'arrow'
-    },
-    'boundary': {
-        source: 'boundary-edit-handles',
-        editModeProperty: 'boundary_editing',
-        controlKey: 'boundary'
-    },
-    'occupied_front': {
-        source: 'occupied-front-edit-handles',
-        editModeProperty: 'occupied_front_editing',
-        controlKey: 'occupied_front'
-    }
-};
-
-/**
- * Controls that support editing mode
- */
-const CONTROLS_WITH_EDIT_MODE = ['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front'];
-
-/**
  * Valid sources for drag operations
  */
 const VALID_DRAG_SOURCES = [
@@ -112,38 +75,6 @@ class MoveHandler {
         return this.selectionManager.controls.get(type);
     }
 
-    /**
-     * Generic method to check if control is in editing mode
-     */
-    isControlInEditingMode(type) {
-        const control = this.getControl(type);
-        return control && control.isEditingMode && control.isEditingMode();
-    }
-
-    /**
-     * Generic method to check for edit handles of specific type
-     */
-    hasEditHandlesOfType(clickedFeatures, type) {
-        const config = EDIT_HANDLE_CONFIG[type];
-        if (!config) return false;
-        
-        return clickedFeatures.some(feature =>
-            feature.source === config.source &&
-            feature.properties && (
-                feature.properties.user_isEditingHandle ||
-                feature.properties.meta === 'vertex' ||
-                feature.properties.mode === config.editModeProperty ||
-                // Special case for boundary handles
-                (type === 'boundary' && (
-                    feature.properties.handleType === 'vertex' ||
-                    feature.properties.handleType === 'midpoint' ||
-                    feature.properties.handleType === 'symbol' ||
-                    feature.properties.handleType === 'size'
-                ))
-            )
-        );
-    }
-
     // ===== INITIALIZATION =====
 
     initializeFeatureStrategies() {
@@ -211,17 +142,9 @@ class MoveHandler {
             )
         );
 
-        // Check for custom tool edit handles using unified method
-        const hasCustomToolEditHandles = this.hasCustomEditHandles(clickedFeatures);
-
-        if (filteredFeatures.length === 0 || hasMaplibreDrawEditHandles || hasCustomToolEditHandles) {
-            return;
-        }
-
-        // Check if any selected feature is in editing mode using unified method
-        const hasFeatureInEditingMode = this.hasSelectedFeatureInEditingMode(allSelectedFeatures);
-        if (hasFeatureInEditingMode) {
-            return;
+        // Early exit if clicking on ANY edit handle
+        if (filteredFeatures.length === 0 || hasMaplibreDrawEditHandles || this.isClickOnEditHandle(e.point)) {
+            return; // Let edit handlers take control
         }
 
         // Check if clicked feature is selected
@@ -258,32 +181,29 @@ class MoveHandler {
         this.offsets = this.calculateOffsetsOptimized(allSelectedFeatures, this.initialCoordinates);
     }
 
-    /**
-     * UNIFIED: Check for custom tool edit handles - replaces 5+ redundant methods
-     */
-    hasCustomEditHandles(clickedFeatures) {
-        return Object.keys(EDIT_HANDLE_CONFIG).some(type =>
-            this.hasEditHandlesOfType(clickedFeatures, type)
-        );
-    }
+    //Single method to check edit handles
+    isClickOnEditHandle = (point) => {
+        const features = this.map.queryRenderedFeatures(point);
 
-    /**
-     * UNIFIED: Check if any selected feature is in editing mode - replaces 5+ redundant blocks
-     */
-    hasSelectedFeatureInEditingMode(selectedFeatures) {
-        return selectedFeatures.some(feature => {
-            const type = feature.properties?.source;
-            
-            // Check controls with editing mode using unified method
-            if (CONTROLS_WITH_EDIT_MODE.includes(type)) {
-                return this.isControlInEditingMode(type);
-            }
-            
-            // Check feature properties for editing mode
-            return feature.properties?.mode &&
-                   (feature.properties.mode.includes('editing') ||
-                    feature.properties.mode === 'direct_select');
-        });
+        // Maplibre draw handles
+        const hasMaplibreDrawEditHandles = features.some(feature =>
+            feature.properties.mode === 'direct_select' ||
+            feature.properties.meta === 'midpoint' ||
+            feature.properties.meta === 'vertex'
+        );
+        if (hasMaplibreDrawEditHandles) return true;
+
+        // Custom handles - SIMPLIFIED
+        const customHandleSources = [
+            'circle-edit-handles', 'ellipse-edit-handles', 
+            'arrow-edit-handles', 'boundary-edit-handles', 
+            'occupied-front-edit-handles'
+        ];
+        
+        return features.some(f =>
+            customHandleSources.includes(f.source) &&
+            f.properties.user_isEditingHandle
+        );
     }
 
     onMouseMove(e) {
@@ -353,16 +273,10 @@ class MoveHandler {
             // UPDATED: Use new SelectionManager API
             this.updateSelectionManagerFeatures(updatedFeatures);
 
-            //INVALIDAR CACHE
-            const movedFeatureIds = updatedFeatures
-                .map(feature => this.getFeatureId(feature))
-                .filter(id => id !== null);
-            
-            this.selectionManager.notifyMultipleGeometryChanges(movedFeatureIds);
-
             // Trigger final update
             this.selectionManager.updateSelectedFeatures();
             this.selectionManager.updateProfile();
+            this.syncEditHandlesForMovedFeatures(updatedFeatures);
         }
 
         // Reset state
@@ -498,6 +412,30 @@ class MoveHandler {
                 this.selectionManager.selectedFeatures.set(key, { type, feature });
             }
         }
+    }
+
+    /**
+     * Identifica controls que podem ter features selecionadas que foram movidas
+     */
+    syncEditHandlesForMovedFeatures = (updatedFeatures) => {
+        // Identificar quais controls podem ter features selecionadas que foram movidas
+        const controlsToSync = ['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front'];
+        
+        controlsToSync.forEach(controlType => {
+            const control = this.getControl(controlType);
+            
+            // Verificar se control existe e tem método de sincronização
+            if (control && typeof control.syncEditHandlesAfterDrag === 'function') {
+                // Verificar se alguma feature movida pertence a este control
+                const movedFeatures = updatedFeatures.filter(feature => 
+                    feature.properties?.source === controlType
+                );
+                
+                if (movedFeatures.length > 0) {
+                    control.syncEditHandlesAfterDrag(movedFeatures);
+                }
+            }
+        });
     }
 
     // ===== FEATURE UPDATE STRATEGIES =====

@@ -762,7 +762,7 @@ class AddBoundaryControl {
                         coordinates: pBottom.geometry.coordinates
                     },
                     properties: {
-                        parent: boundaryFeatur.properties.id,
+                        parent: boundaryFeature.properties.id,
                         text: text_bottom,
                         rotation: textRotation,
                         text_size: text_size,

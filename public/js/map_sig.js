@@ -215,7 +215,7 @@ document.addEventListener('keydown', (e) => {
         case 'v':
         case 'V':
             e.preventDefault();
-            if (map.getSource('terrainSource')) {
+            if (map.getTerrain()) {
                 toolManager.setActiveTool(visibilityControl);
             }
             break;
@@ -223,7 +223,7 @@ document.addEventListener('keydown', (e) => {
         case 'o':
         case 'O':
             e.preventDefault();
-            if (map.getSource('terrainSource')) {
+            if (map.getTerrain()) {
                 toolManager.setActiveTool(losControl);
             }
             break;

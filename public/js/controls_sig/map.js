@@ -914,7 +914,8 @@ function setupArrowLayers(features) {
 
 // ===== CIRCLE LAYERS (Pontos - Prioridade 7) =====
 function setupCircleLayers(features) {
-    // Source
+    
+    // 1. Main circles source
     if (!map.getSource('circles')) {
         map.addSource('circles', {
             type: 'geojson',
@@ -930,15 +931,15 @@ function setupCircleLayers(features) {
         });
     }
 
-    // Preview source
-    if (!map.getSource('circle-preview')) {
-        map.addSource('circle-preview', {
+    // 2. Consolidated feedback source
+    if (!map.getSource('circle-feedback')) {
+        map.addSource('circle-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
-    // Edit handles source
+    // 3. Edit handles source (simplified)
     if (!map.getSource('circle-edit-handles')) {
         map.addSource('circle-edit-handles', {
             type: 'geojson',
@@ -946,7 +947,7 @@ function setupCircleLayers(features) {
         });
     }
 
-    // X marks source
+    // 4. X marks source
     if (!map.getSource('circle-x-marks')) {
         map.addSource('circle-x-marks', {
             type: 'geojson',
@@ -954,7 +955,7 @@ function setupCircleLayers(features) {
         });
     }
 
-    // 1. Preenchimento
+    // 1. Fill layer (editable parameters need separate layer)
     if (!map.getLayer('circle-fill-layer')) {
         map.addLayer({
             id: 'circle-fill-layer',
@@ -967,7 +968,7 @@ function setupCircleLayers(features) {
         });
     }
 
-    // 2. Linha
+    // 2. Stroke layer (editable parameters need separate layer)
     if (!map.getLayer('circle-layer')) {
         map.addLayer({
             id: 'circle-layer',
@@ -981,7 +982,7 @@ function setupCircleLayers(features) {
         });
     }
 
-    // 3. X marks
+    // 3. X marks layer (fundamental functionality)
     if (!map.getLayer('circle-x-layer')) {
         map.addLayer({
             id: 'circle-x-layer',
@@ -995,51 +996,22 @@ function setupCircleLayers(features) {
         });
     }
 
-    // 4. Preview preenchimento
-    if (!map.getLayer('circle-preview-fill-layer')) {
+    // 4. Feedback layer
+    if (!map.getLayer('circle-feedback-layer')) {
         map.addLayer({
-            id: 'circle-preview-fill-layer',
-            type: 'fill',
-            source: 'circle-preview',
-            paint: {
-                'fill-color': ['get', 'fillColor'],
-                'fill-opacity': 0.3
-            }
-        });
-    }
-
-    // 5. Preview linha
-    if (!map.getLayer('circle-preview-layer')) {
-        map.addLayer({
-            id: 'circle-preview-layer',
+            id: 'circle-feedback-layer',
             type: 'line',
-            source: 'circle-preview',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': 2,
-                'line-dasharray': [2, 2],
-                'line-opacity': 0.8
-            }
-        });
-    }
-
-    // 6. Seleção
-    if (!map.getLayer('circle-selected-layer')) {
-        map.addLayer({
-            id: 'circle-selected-layer',
-            type: 'line',
-            source: 'circle-edit-handles',
+            source: 'circle-feedback',
             paint: {
                 'line-color': '#ff0000',
                 'line-width': 3,
-                'line-dasharray': [2, 2],
+                'line-dasharray': [2, 2],                // Always dashed
                 'line-opacity': 0.8
-            },
-            filter: ['!=', ['get', 'role'], 'handle']
+            }
         });
     }
 
-    // 7. Edit handles
+    // 5. Edit handles layer
     if (!map.getLayer('circle-edit-handles-layer')) {
         map.addLayer({
             id: 'circle-edit-handles-layer',
@@ -1051,7 +1023,7 @@ function setupCircleLayers(features) {
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2
             },
-            filter: ['==', '$type', 'Point']
+            filter: ['==', '$type', 'Point']  // Only points (handles)
         });
     }
 }

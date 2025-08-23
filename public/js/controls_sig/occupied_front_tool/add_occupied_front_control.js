@@ -961,16 +961,6 @@ class AddOccupiedFrontControl {
         }
     }
 
-    // ✅ NOVO: Método hasUnsavedChanges para otimização
-    hasUnsavedChanges = (features, initialPropertiesMap) => {
-        return features.some(feature => {
-            const initialProperties = initialPropertiesMap.get(feature.properties.id);
-            if (!initialProperties) return false;
-
-            return this.hasFeatureChanged(feature, initialProperties);
-        });
-    }
-
     // ✅ OBRIGATÓRIO: Método hasFeatureChanged para otimização
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
@@ -1018,13 +1008,6 @@ class AddOccupiedFrontControl {
 
     setDefaultProperties = (properties) => {
         Object.assign(AddOccupiedFrontControl.DEFAULT_PROPERTIES, properties);
-    }
-
-    updateMapSource = () => {
-        if (this.map && this.map.getSource('occupied_fronts')) {
-            const currentData = this.map.getSource('occupied_fronts')._data;
-            this.map.getSource('occupied_fronts').setData(currentData);
-        }
     }
 }
 

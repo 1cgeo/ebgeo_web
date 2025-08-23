@@ -22,16 +22,16 @@ export default class PDFExportTab {
                 <div class="orientation-selector">
                     <label>
                         <input type="radio" name="pdf-orientation" value="landscape" checked> 
-                        📄 Paisagem (A4)
+                        Paisagem (A4)
                     </label>
                     <label>
                         <input type="radio" name="pdf-orientation" value="portrait"> 
-                        📄 Retrato (A4)
+                        Retrato (A4)
                     </label>
                 </div>
                 
                 <button id="export-pdf-btn" class="export-pdf-btn pure-material-button-contained">
-                    📥 Exportar PDF
+                    Exportar PDF
                 </button>
             </div>
         `;

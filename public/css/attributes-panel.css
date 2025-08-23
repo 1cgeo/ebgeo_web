@@ -1,4 +1,4 @@
-/* css/attributes-panel.css - Sistema de Atributos Melhorado */
+/* css/attributes-panel.css - Sistema de Atributos Compacto */
 
 /* ===== VARIÁVEIS PARA CORES ===== */
 :root {
@@ -13,13 +13,13 @@
     --primary-light: #6ba068;
 }
 
-/* ===== ESTRUTURA BASE DO PAINEL ===== */
+/* ===== ESTRUTURA BASE DO PAINEL (COMPACTA) ===== */
 .unified-attributes-panel {
-    min-width: 320px;
+    min-width: 300px;  /* Reduzido de 320px */
     position: absolute;
     bottom: 10px;
     right: 10px;
-    padding: 15px;
+    padding: 12px;  /* Reduzido de 15px */
     background-color: rgba(248, 248, 248, 0.95);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -28,17 +28,17 @@
     z-index: 100;
     display: flex;
     flex-direction: column;
-    width: 320px;
+    width: 300px;  /* Reduzido de 320px */
     max-height: calc(100vh - 100px);
     overflow-y: auto;
 }
 
 .unified-attributes-panel-mobile {
-    min-width: 320px;
+    min-width: 300px;  /* Reduzido de 320px */
     position: absolute;
     bottom: 10px;
     right: 10px;
-    padding: 10px;
+    padding: 10px;  /* Já compacto */
     background-color: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -56,43 +56,52 @@
 /* ===== TÍTULOS E HEADERS ===== */
 .unified-attributes-panel h3,
 .unified-attributes-panel-mobile h3 {
-    margin: 0 0 15px 0;
+    margin: 0 0 12px 0;  /* Reduzido de 15px */
     color: #333;
-    font-size: 16px;
+    font-size: 15px;  /* Reduzido de 16px */
     font-weight: 600;
     border-bottom: 2px solid var(--primary-color);
-    padding-bottom: 5px;
+    padding-bottom: 4px;  /* Reduzido de 5px */
 }
 
-/* ===== LAYOUTS DE ATRIBUTOS ===== */
+/* ===== LAYOUTS DE ATRIBUTOS (COMPACTOS) ===== */
 .attr-container-row {
     display: flex;
     flex-direction: row;
-    gap: 8px;
+    gap: 6px;  /* Reduzido de 8px */
     align-items: center;
     width: 100%;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: 10px;  /* Reduzido de 12px */
+}
+
+.attr-container-row:has(button) {
+    gap: 8px;
+}
+
+.attr-container-row button {
+    flex: 1; /* Cada botão ocupa 1/3 do espaço */
+    white-space: nowrap; /* Evita quebra de texto */
 }
 
 .attr-container-column {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;  /* Reduzido de 6px */
     align-items: flex-start;
     width: 100%;
     justify-content: start;
-    margin-bottom: 12px;
+    margin-bottom: 10px;  /* Reduzido de 12px */
 }
 
 .attr-name {
     width: 35%;
     font-weight: 500;
     color: #333;
-    font-size: 14px;
+    font-size: 13px;  /* Reduzido de 14px */
     display: flex;
     align-items: center;
-    min-height: 32px;
+    min-height: 28px;  /* Reduzido de 32px */
 }
 
 .attr-input {
@@ -107,68 +116,154 @@
     align-items: center;
 }
 
+/* ===== COMPONENTE NOME EDITÁVEL (NOVO) ===== */
+.feature-name-container {
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+.feature-name-editable {
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    color: #333;
+    background-color: rgba(80, 141, 78, 0.05);
+}
+
+.feature-name-editable:hover {
+    background-color: rgba(80, 141, 78, 0.1);
+    border-color: rgba(80, 141, 78, 0.3);
+    transform: translateY(-1px);
+}
+
+.feature-name-input {
+    display: none;
+    width: 100%;
+    font-size: 16px;
+    font-weight: bold;
+    padding: 6px;
+    border: 2px solid var(--primary-color);
+    border-radius: 4px;
+    outline: none;
+    background-color: white;
+}
+
+.feature-name-input:focus {
+    border-color: var(--primary-dark);
+    box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.1);
+}
+
+/* ===== SLIDERS E INPUTS NUMÉRICOS (COMPACTOS) ===== */
+.slider-numeric-container {
+    display: flex;
+    gap: 6px;  /* Reduzido de 8px */
+    align-items: center;
+    width: 100%;
+}
+
+.slider-numeric-container input[type="number"] {
+    width: 70px;  /* Padronizado e compacto */
+    min-width: 70px;          /* ✅ NOVO: Garante width mínimo */
+    max-width: 70px;          /* ✅ NOVO: Garante width máximo */
+    flex-shrink: 0;           /* ✅ NOVO: Nunca encolhe no flex */
+    padding: 6px 4px;         /* ✅ AUMENTADO: Era 3px */
+    min-height: 28px;         /* ✅ NOVO: Altura mínima */
+    box-sizing: border-box;   /* ✅ GARANTIA: Padding incluído no width */
+    padding: 3px;  /* Reduzido de 4px */
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-size: 11px;  /* Reduzido de 12px */
+    text-align: center;
+    transition: border-color 0.2s ease;
+}
+
+.slider-numeric-container input[type="number"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1);
+}
+
+.slider-numeric-container span {
+    font-size: 11px;  /* Reduzido de 12px */
+    color: #666;
+    min-width: 20px;
+    font-weight: 500;
+}
 
 /* ===== LABELS E INPUTS BÁSICOS ===== */
 .unified-attributes-panel label,
 .unified-attributes-panel-mobile label {
     display: block;
-    margin-bottom: 5px;
     font-weight: 500;
     color: #333;
-    font-size: 14px;
+    font-size: 13px;  /* Reduzido de 14px */
+    margin-bottom: 4px;  /* Reduzido de 5px */
 }
 
-#text-area {
-    display: flex;
-    align-items: center;
+.unified-attributes-panel input[type="text"],
+.unified-attributes-panel input[type="number"],
+.unified-attributes-panel textarea,
+.unified-attributes-panel select,
+.unified-attributes-panel-mobile input[type="text"],
+.unified-attributes-panel-mobile input[type="number"],
+.unified-attributes-panel-mobile textarea,
+.unified-attributes-panel-mobile select {
     width: 100%;
-    padding: 8px 8px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 14px;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    background-color: white;
-    color: #333;
-    font-family: inherit;
+    padding: 6px;  /* Reduzido de 8px */
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-size: 12px;  /* Reduzido de 13px */
+    transition: border-color 0.2s ease;
+    box-sizing: border-box;
 }
 
 .unified-attributes-panel input:focus,
 .unified-attributes-panel textarea:focus,
+.unified-attributes-panel select:focus,
 .unified-attributes-panel-mobile input:focus,
-.unified-attributes-panel-mobile textarea:focus {
+.unified-attributes-panel-mobile textarea:focus,
+.unified-attributes-panel-mobile select:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.2);
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1);
 }
 
+.unified-attributes-panel textarea,
+.unified-attributes-panel-mobile textarea {
+    resize: vertical;
+    min-height: 60px;  /* Reduzido de 70px */
+    font-family: inherit;
+}
 
-
-/* ===== SLIDERS MELHORADOS ===== */
+/* ===== SLIDERS (COMPACTOS) ===== */
 .slider {
+    -webkit-appearance: none;
     width: 100%;
-    height: 6px;
+    height: 6px;  /* Reduzido de 8px */
     border-radius: 3px;
     background: #ddd;
     outline: none;
-    opacity: 0.8;
-    transition: opacity 0.2s ease;
-    cursor: pointer;
+    transition: background 0.3s ease;
 }
 
 .slider:hover {
-    opacity: 1;
+    background: #ccc;
 }
 
 .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
     appearance: none;
-    width: 20px;
-    height: 20px;
+    width: 15px;  /* Reduzido de 20px */
+    height: 15px;  /* Reduzido de 20px */
     border-radius: 50%;
     background: var(--primary-color);
     cursor: pointer;
-    border: 2px solid white;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .slider::-webkit-slider-thumb:hover {
@@ -177,14 +272,14 @@
 }
 
 .slider::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
+    width: 15px;  /* Reduzido de 20px */
+    height: 15px;  /* Reduzido de 20px */
     border-radius: 50%;
     background: var(--primary-color);
     cursor: pointer;
-    border: 2px solid white;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    border: none;
     transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .slider::-moz-range-thumb:hover {
@@ -192,112 +287,28 @@
     transform: scale(1.1);
 }
 
-/* ===== INPUT NUMÉRICO ALINHADO ===== */
-.unified-attributes-panel input[type="number"],
-.unified-attributes-panel-mobile input[type="number"] {
-    width: 60px !important;
-    padding: 6px 8px !important;
-    margin-left: 8px !important;
-    text-align: center !important;
-    flex-shrink: 0;
-}
-
-/* ===== COLOR PICKER EXPANDIDO ===== */
+/* ===== COLOR PICKERS ===== */
 .picker-color {
-    width: 100% !important; /* MUDANÇA: de 50px para 100% */
-    min-width: 100px !important; /* MUDANÇA: largura mínima maior */
-    height: 32px !important;
-    padding: 2px !important;
-    border: 1px solid #ddd !important;
-    border-radius: 4px !important;
-    cursor: pointer !important;
-    transition: border-color 0.2s ease, transform 0.1s ease !important;
-    background: none !important;
-    flex-grow: 1; /* MUDANÇA: permite crescer no container */
+    width: 100% !important;
+    height: 30px;  /* Reduzido de 32px */
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .picker-color:hover {
-    border-color: var(--primary-color) !important;
-    transform: scale(1.02) !important; /* MUDANÇA: escala menor para não quebrar layout */
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-.picker-color:active {
-    transform: scale(0.98) !important; /* MUDANÇA: escala menor */
-}
-
-/* ===== CONTAINER PARA COLOR PICKER ===== */
-.attr-input .picker-color {
-    margin-right: 8px; /* Espaço para input numérico quando houver */
-}
-
-/* ===== LAYOUT ESPECIAL PARA JUSTIFICATIVA ===== */
-.justify-container {
-    display: flex !important;
-    flex-direction: row !important;
-    width: 100% !important;
-    gap: 8px !important;
-}
-
-.justify-label {
-    flex-shrink: 0 !important;
-    width: auto !important;
-    margin-right: 12px !important;
-    font-weight: 500 !important;
-    color: #333 !important;
-    font-size: 14px !important;
-}
-
-.justify-buttons {
-    display: flex !important;
-    gap: 4px !important;
-    align-items: center !important;
-}
-
-.justify-buttons button {
-    width: 32px !important;
-    height: 32px !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    border: 1px solid #ddd !important;
-    border-radius: 4px !important;
-    background-color: white !important;
-    color: #333 !important;
-    font-size: 12px !important;
-    font-weight: bold !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    min-height: auto !important;
-}
-
-.justify-buttons button:hover {
-    background-color: var(--primary-color) !important;
-    color: white !important;
-    border-color: var(--primary-color) !important;
-    transform: translateY(-1px) !important;
-}
-
-.justify-buttons button:active {
-    transform: translateY(0) !important;
-}
-
-.justify-buttons button:disabled {
-    background-color: #f5f5f5 !important;
-    color: #999 !important;
-    border-color: #e0e0e0 !important;
-    cursor: not-allowed !important;
-    transform: none !important;
-}
-
-/* ===== SWITCHES E CHECKBOXES ===== */
+/* ===== CHECKBOXES/SWITCHES (COMPACTOS) ===== */
 .switch {
     position: relative;
     display: inline-block;
-    width: 50px;
-    height: 28px;
-    cursor: pointer;
+    width: 45px;  /* Reduzido de 54px */
+    height: 23px;  /* Reduzido de 30px */
 }
 
 .switch input {
@@ -315,14 +326,14 @@
     bottom: 0;
     background-color: #ccc;
     transition: 0.3s ease;
-    border-radius: 14px;
+    border-radius: 14px;  /* Ajustado proporcionalmente */
 }
 
 .slider-check:before {
     position: absolute;
     content: "";
-    height: 20px;
-    width: 20px;
+    height: 15px;  /* Reduzido de 22px */
+    width: 20px;   /* Reduzido de 22px */
     left: 4px;
     bottom: 4px;
     background-color: white;
@@ -340,7 +351,7 @@
 }
 
 .slider-check-input:checked + .slider-check:before {
-    transform: translateX(22px);
+    transform: translateX(17px);  /* Ajustado para novo tamanho */
 }
 
 .slider-check:hover {
@@ -351,26 +362,25 @@
     background-color: var(--primary-dark);
 }
 
-/* ===== BOTÕES DO PAINEL - MELHORADOS ===== */
+/* ===== BOTÕES DO PAINEL (COMPACTOS) ===== */
 .unified-attributes-panel button,
 .unified-attributes-panel-mobile button {
-    margin-top: 10px;
-    margin-right: 8px;
-    padding: 8px 16px;
+    margin-top: 8px;  /* Reduzido de 10px */
+    margin-right: 6px;  /* Reduzido de 8px */
+    padding: 7px 14px;  /* Reduzido de 8px 16px */
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 13px;  /* Reduzido de 14px */
     font-weight: 500;
     transition: all 0.2s ease;
-    min-height: 36px;
+    min-height: 32px;  /* Reduzido de 36px */
     
-    /* MUDANÇA: Melhor centralização do texto */
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     text-align: center !important;
-    line-height: 1 !important; /* MUDANÇA: Remove line-height problemático */
+    line-height: 1 !important;
 }
 
 .tutorial-button,
@@ -393,7 +403,7 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* ===== BOTÃO DELETE VERMELHO - NOVO ===== */
+/* ===== BOTÃO DELETE VERMELHO ===== */
 .delete-button,
 .unified-attributes-panel .delete-button,
 .unified-attributes-panel-mobile .delete-button {
@@ -402,7 +412,6 @@
     box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2) !important;
     border: none !important;
     
-    /* Centralização igual aos outros botões */
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -414,377 +423,113 @@
 .unified-attributes-panel .delete-button:hover,
 .unified-attributes-panel-mobile .delete-button:hover {
     background-color: var(--error-dark) !important;
-    transform: translateY(-1px) !important;
+    transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3) !important;
 }
 
 .delete-button:active,
 .unified-attributes-panel .delete-button:active,
 .unified-attributes-panel-mobile .delete-button:active {
-    transform: translateY(0) !important;
+    transform: translateY(0);
     box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2) !important;
 }
 
-/* ===== MATERIAL DESIGN BUTTONS MELHORADOS ===== */
-.pure-material-button-contained,
-.pure-material-tool-button-contained {
-    position: relative;
-    display: inline-flex !important; /* MUDANÇA: flex para melhor alinhamento */
-    align-items: center !important;
-    justify-content: center !important;
-    box-sizing: border-box;
-    border: none;
-    border-radius: 4px;
-    padding: 0 16px;
-    min-width: 64px;
-    height: 36px;
-    vertical-align: middle;
-    text-align: center;
-    text-overflow: ellipsis;
-    color: rgb(var(--pure-material-onprimary-rgb, 255, 255, 255));
-    background-color: var(--primary-color);
-    box-shadow: 0 3px 1px -2px rgba(0, 0, 0, 0.2), 0 2px 2px 0 rgba(0, 0, 0, 0.14), 0 1px 5px 0 rgba(0, 0, 0, 0.12);
-    font-family: var(--pure-material-font, "Roboto", "Segoe UI", BlinkMacSystemFont, system-ui, -apple-system);
-    font-size: 14px;
-    font-weight: 500;
-    line-height: 1 !important; /* MUDANÇA: Remove line-height problemático */
-    overflow: hidden;
-    outline: none;
-    cursor: pointer;
-    transition: box-shadow 0.2s, background-color 0.2s, transform 0.1s;
-}
-
-.pure-material-button-contained:hover,
-.pure-material-tool-button-contained:hover {
-    box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.2), 0 4px 5px 0 rgba(0, 0, 0, 0.14), 0 1px 10px 0 rgba(0, 0, 0, 0.12);
-    background-color: var(--primary-dark);
-    transform: translateY(-1px);
-}
-
-.pure-material-button-contained:active,
-.pure-material-tool-button-contained:active {
-    transform: translateY(0);
-}
-
-/* ===== MATERIAL DESIGN DELETE BUTTON ===== */
-.pure-material-button-contained.delete-button,
-.pure-material-tool-button-contained.delete-button {
-    background-color: var(--error-color) !important;
-    box-shadow: 0 3px 1px -2px rgba(220, 53, 69, 0.2), 0 2px 2px 0 rgba(220, 53, 69, 0.14), 0 1px 5px 0 rgba(220, 53, 69, 0.12) !important;
-}
-
-.pure-material-button-contained.delete-button:hover,
-.pure-material-tool-button-contained.delete-button:hover {
-    background-color: var(--error-dark) !important;
-    box-shadow: 0 2px 4px -1px rgba(220, 53, 69, 0.2), 0 4px 5px 0 rgba(220, 53, 69, 0.14), 0 1px 10px 0 rgba(220, 53, 69, 0.12) !important;
-}
-
-.pure-material-button-contained::before,
-.pure-material-tool-button-contained::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.pure-material-button-contained:hover::before,
-.pure-material-tool-button-contained:hover::before {
-    opacity: 0.08;
-}
-
-/* ===== CONTAINER DE BOTÕES MELHORADO ===== */
-.attr-container-row:last-child {
-    margin-top: 20px;
-    padding-top: 15px;
-    border-top: 1px solid rgba(0, 0, 0, 0.1);
-    justify-content: center !important; /* MUDANÇA: centraliza os botões */
-    gap: 8px;
-    flex-wrap: nowrap !important; /* MUDANÇA: não permite quebra de linha */
-    display: flex !important;
-    flex-direction: row !important;
-}
-
-.attr-container-row button:last-child {
-    margin-right: 0;
-}
-
-/* ===== BOTÕES DE AÇÃO - SEMPRE NA MESMA LINHA ===== */
-.attr-container-row:last-child button {
-    flex: 1 !important; /* MUDANÇA: cada botão ocupa espaço igual */
-    max-width: 120px !important; /* MUDANÇA: largura máxima para não ficarem muito largos */
-    min-width: 80px !important; /* MUDANÇA: largura mínima para legibilidade */
-    white-space: nowrap !important; /* MUDANÇA: evita quebra de texto */
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-}
-
-/* ===== RADIO ITEMS ===== */
-.radio-item {
-    color: #333;
+/* ===== JUSTIFY BUTTONS (PARA TEXT TOOL) ===== */
+.justify-container {
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 0;
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-    border-radius: 4px;
-    padding: 6px 8px;
+    flex-direction: column;
+    gap: 6px;  /* Reduzido de 8px */
+    margin-bottom: 10px;  /* Reduzido de 12px */
 }
 
-.radio-item:hover {
-    background-color: rgba(0, 0, 0, 0.02);
+.justify-label {
+    font-weight: 500;
+    color: #333;
+    font-size: 13px;  /* Reduzido de 14px */
 }
 
-.radio-item input[type="radio"] {
+.justify-buttons {
+    display: flex;
+    gap: 4px;  /* Reduzido de 6px */
+}
+
+.justify-buttons button {
+    flex: 1;
+    padding: 6px;  /* Reduzido de 8px */
     margin: 0;
-    cursor: pointer;
+    min-height: 30px;  /* Reduzido de 32px */
+    font-size: 12px;  /* Reduzido de 13px */
 }
 
-.radio-item label {
-    margin: 0;
-    cursor: pointer;
-    font-weight: normal;
-}
-
-/* ===== BOTÃO FLUTUANTE MOBILE ===== */
-#open-close-form {
-    position: fixed;
-    width: 60px;
-    height: 60px;
-    bottom: 40px;
-    left: 10px;
-    color: #FFF;
-    background-color: var(--primary-color);
-    border-radius: 50px;
-    text-align: center;
-    box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
-    z-index: 100;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    backdrop-filter: blur(8px);
-    text-decoration: none;
-}
-
-#open-close-form:hover {
-    background-color: var(--primary-dark);
-    transform: scale(1.1);
-    box-shadow: 2px 2px 12px rgba(0, 0, 0, 0.5);
-}
-
-#open-close-form:active {
-    transform: scale(0.95);
-}
-
-#open-close-form svg {
-    stroke-width: 2;
-    transition: stroke-width 0.2s ease;
-}
-
-#open-close-form:hover svg {
-    stroke-width: 2.5;
-}
-
-/* ===== ANIMAÇÕES ===== */
-@keyframes slideInFromRight {
-    from {
-        transform: translateX(100%);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
-
-@keyframes slideOutToRight {
-    from {
-        transform: translateX(0);
-        opacity: 1;
-    }
-    to {
-        transform: translateX(100%);
-        opacity: 0;
-    }
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-/* ===== VALIDAÇÃO E FEEDBACK ===== */
-.attr-input input.error,
-.attr-input textarea.error {
-    border-color: var(--error-color);
-    box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.2);
-}
-
-.attr-input input.success,
-.attr-input textarea.success {
-    border-color: var(--success-color);
-    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
-}
-
-.error-message {
-    color: var(--error-color);
-    font-size: 12px;
-    margin-top: 4px;
-}
-
-.success-message {
-    color: var(--success-color);
-    font-size: 12px;
-    margin-top: 4px;
-}
-
-/* ===== LOADING STATES ===== */
-.button-loading {
-    position: relative;
-    color: transparent !important;
-    pointer-events: none;
-}
-
-.button-loading::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 18px;
-    height: 18px;
-    margin: -9px 0 0 -9px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top: 2px solid white;
-    border-radius: 50%;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-/* ===== RESPONSIVIDADE MOBILE ===== */
+/* ===== RESPONSIVIDADE (MOBILE) ===== */
 @media (max-width: 768px) {
-    /* Panel mobile adjustments */
     .unified-attributes-panel {
-        left: 10px;
-        right: 10px;
-        bottom: 10px;
+        position: fixed;
+        bottom: 5px;
+        right: 5px;
+        left: 5px;
         width: auto;
-        min-width: auto;
-        padding: 12px;
-        max-height: calc(100vh - 60px);
+        max-height: 50vh;
+        padding: 10px;  /* Mais compacto em mobile */
     }
-
-    .unified-attributes-panel-mobile {
-        left: 10px;
-        right: 10px;
-        width: auto;
-        min-width: auto;
-        max-height: calc(100vh - 60px);
-    }
-
-    /* Ajustes para attr-container-row em mobile - EXCETO botões */
-    .attr-container-row:not(:last-child) {
+    
+    .attr-container-row {
         flex-direction: column;
+        gap: 4px;  /* Ainda mais compacto em mobile */
         align-items: stretch;
-        gap: 8px;
     }
-
-    .attr-container-row:not(:last-child) .attr-name {
+    
+    .attr-name {
         width: 100%;
-        margin-bottom: 4px;
+        min-height: auto;
+        margin-bottom: 2px;
     }
-
-    .attr-container-row:not(:last-child) .attr-input {
+    
+    .attr-input {
         width: 100%;
     }
-
-    /* Container de botões em mobile - MANTER NA MESMA LINHA */
-    .attr-container-row:last-child {
-        flex-direction: row !important; /* MUDANÇA: força linha horizontal */
-        justify-content: center !important;
-        flex-wrap: nowrap !important;
-        gap: 6px !important; /* MUDANÇA: gap menor em mobile */
-    }
-
-    .attr-container-row:last-child button {
-        flex: 1 !important;
-        max-width: 100px !important; /* MUDANÇA: max-width menor em mobile */
-        min-width: 70px !important; /* MUDANÇA: min-width menor em mobile */
-        font-size: 12px !important; /* MUDANÇA: fonte menor em mobile */
-        padding: 8px 4px !important; /* MUDANÇA: padding menor em mobile */
-    }
-
-    /* Color picker em mobile */
-    .picker-color {
-        max-width: 100% !important;
-        min-width: 80px !important;
-    }
-
-    /* Justificativa em mobile */
-    .justify-container {
-        flex-direction: column !important;
-    }
-
-    .justify-label {
-        width: 100% !important;
-        margin-right: 0 !important;
-        margin-bottom: 4px !important;
-    }
-
-    .justify-buttons {
-        justify-content: center !important;
+    
+    .slider-numeric-container input[type="number"] {
+        width: 80px;  /* Ligeiramente maior em mobile */
     }
 }
 
-/* ===== ACESSIBILIDADE ===== */
-.unified-attributes-panel input:focus,
-.unified-attributes-panel button:focus,
-.unified-attributes-panel textarea:focus,
-.unified-attributes-panel-mobile input:focus,
-.unified-attributes-panel-mobile button:focus,
-.unified-attributes-panel-mobile textarea:focus,
-#open-close-form:focus {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
+/* ===== SCROLLBAR STYLING ===== */
+.unified-attributes-panel::-webkit-scrollbar,
+.unified-attributes-panel-mobile::-webkit-scrollbar {
+    width: 6px;
 }
 
-.switch:focus-within {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
-    border-radius: 14px;
+.unified-attributes-panel::-webkit-scrollbar-track,
+.unified-attributes-panel-mobile::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
 }
 
-/* ===== PERFORMANCE OPTIMIZATIONS ===== */
-.unified-attributes-panel,
-.unified-attributes-panel-mobile,
-#open-close-form,
-.slider,
-.picker-color,
-.tutorial-button,
-.tool-button,
-.delete-button {
-    will-change: transform, background-color, opacity;
+.unified-attributes-panel::-webkit-scrollbar-thumb,
+.unified-attributes-panel-mobile::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 3px;
+    transition: background 0.2s ease;
 }
 
-/* ===== Z-INDEX MANAGEMENT ===== */
-.unified-attributes-panel,
-.unified-attributes-panel-mobile {
-    z-index: 100;
+.unified-attributes-panel::-webkit-scrollbar-thumb:hover,
+.unified-attributes-panel-mobile::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-color);
 }
 
-#open-close-form {
-    z-index: 100;
+/* ===== ANIMAÇÕES SUAVES ===== */
+.unified-attributes-panel {
+    animation: slideInUp 0.3s ease-out;
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }

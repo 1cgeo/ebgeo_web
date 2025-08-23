@@ -8,84 +8,62 @@ const CONTROL_CONFIG = {
     draw: {
         layerIds: [], // Will be handled by maplibredraw
         sourceNames: ['mapbox-gl-draw-cold', 'mapbox-gl-draw-hot'],
-        criticalProps: [],
-        hasEditingMode: true,
-        hasSpecialSelectionHandling: true
+        criticalProps: []
     },
     text: {
         layerIds: ['text-layer'],
         sourceNames: ['texts'],
-        criticalProps: [],
-        hasEditingMode: false,
-        hasSpecialSelectionHandling: false
+        criticalProps: []
     },
     image: {
         layerIds: ['image-layer'],
         sourceNames: ['images'],
-        criticalProps: [],
-        hasEditingMode: false,
-        hasSpecialSelectionHandling: false
+        criticalProps: []
     },
     los: {
         layerIds: ['los-layer'],
         sourceNames: ['los'],
-        criticalProps: [],
-        hasEditingMode: false,
-        hasSpecialSelectionHandling: false
+        criticalProps: []
     },
     visibility: {
         layerIds: ['visibility-layer'],
         sourceNames: ['visibility'],
-        criticalProps: [],
-        hasEditingMode: false,
-        hasSpecialSelectionHandling: false
+        criticalProps: []
     },
     circle: {
         layerIds: ['circle-fill-layer', 'circle-layer'],
         sourceNames: ['circles'],
         criticalProps: ['center', 'radius'],
-        hasEditingMode: true,
-        hasSpecialSelectionHandling: true,
         editHandleSource: 'circle-edit-handles'
     },
     ellipse: {
         layerIds: ['ellipse-layer', 'ellipse-fill-layer'],
         sourceNames: ['ellipses'],
         criticalProps: ['center', 'majorRadius', 'minorRadius', 'bearing'],
-        hasEditingMode: true,
-        hasSpecialSelectionHandling: true,
         editHandleSource: 'ellipse-edit-handles'
     },
     arrow: {
         layerIds: ['arrow-layer', 'arrow-fill-layer'],
         sourceNames: ['arrows'],
         criticalProps: ['baseCoordinates'],
-        hasEditingMode: true,
-        hasSpecialSelectionHandling: true,
         editHandleSource: 'arrow-edit-handles'
     },
     boundary: {
         layerIds: ['boundary-main-layer'],
         sourceNames: ['boundarys'],
         criticalProps: ['center'],
-        hasEditingMode: true,
-        hasSpecialSelectionHandling: true,
         editHandleSource: 'boundary-edit-handles'
     },
     occupied_front: {
         layerIds: ['occupied-front-layer'],
         sourceNames: ['occupied_fronts'],
         criticalProps: ['baseCoordinates'],
-        hasEditingMode: true,
-        hasSpecialSelectionHandling: true,
         editHandleSource: 'occupied_front-edit-handles'
     },
     military_symbol: {
         layerIds: ['military-symbols-layer'],
         sourceNames: ['military_symbols'],
-        criticalProps: ['sidc', 'affiliation', 'dimension', 'mainIcon', 'echelon'],
-        hasEditingMode: false,
-        hasSpecialSelectionHandling: false
+        criticalProps: ['sidc', 'affiliation', 'dimension', 'mainIcon', 'echelon']
     }
 };
 
@@ -185,10 +163,7 @@ class SelectionManager {
                     clickedCustomFeature.properties.id
                 );
 
-                if (isAlreadySelected) {
-                    // Feature is already selected - transition to editing mode
-                    this.transitionToEditingMode(clickedCustomFeature);
-                } else {
+                if (!isAlreadySelected) {
                     // New feature selection
                     if (!e.originalEvent.shiftKey) {
                         this.deselectAllFeatures();
@@ -209,8 +184,8 @@ class SelectionManager {
     }
 
     /**
- * Garante que a feature está limpa (sem metadados de vector tile)
- */
+     * Garante que a feature está limpa (sem metadados de vector tile)
+     */
     ensureCleanFeature(feature) {
         // Se já tem geometry válida e não tem metadados, está limpa
         if (feature.geometry && feature.geometry.coordinates && !feature._vectorTileFeature) {
@@ -266,21 +241,6 @@ class SelectionManager {
         const key = `${type}:${featureId}`;
         return this.selectedFeatures.has(key);
     }
-
-    transitionToEditingMode = (feature) => {
-        const type = feature.toolType || feature.properties.source;
-        const featureId = feature.properties.id;
-
-        if (!this.isFeatureSelected(type, featureId)) return;
-
-        const control = this.controls.get(type);
-        const selectedFeature = this.getSelectedFeature(type, featureId);
-
-        if (control && selectedFeature && control.onFeatureSelected) {
-            control.onFeatureSelected(selectedFeature);
-        }
-    }
-
     isClickOnEditHandle = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
@@ -292,21 +252,17 @@ class SelectionManager {
         );
         if (hasMaplibreDrawEditHandles) return true;
 
-        // Check for custom control edit handles
-        for (const [type, config] of Object.entries(CONTROL_CONFIG)) {
-            if (!config.hasEditingMode || !config.editHandleSource) continue;
-
-            const control = this.controls.get(type);
-            if (control && control.isEditingMode && control.isEditingMode()) {
-                const handleFeatures = features.filter(f =>
-                    f.source === config.editHandleSource &&
-                    (f.properties.meta === 'vertex' || f.properties.user_isEditingHandle)
-                );
-                if (handleFeatures.length > 0) return true;
-            }
-        }
-
-        return false;
+        // Check for custom control edit handles - SIMPLIFIED
+        const customHandleSources = [
+            'circle-edit-handles', 'ellipse-edit-handles', 
+            'arrow-edit-handles', 'boundary-edit-handles', 
+            'occupied-front-edit-handles'
+        ];
+        
+        return features.some(f =>
+            customHandleSources.includes(f.source) &&
+            f.properties.user_isEditingHandle
+        );
     }
 
     getClickedDrawFeature(point) {
@@ -345,7 +301,7 @@ class SelectionManager {
             }
             this.toggleFeatureSelection(type, featureId, feature, false); // don't force toggle
         }
-        // If feature is selected and not holding shift, don't deselect (will transition to editing in handleMapClick)
+        // If feature is selected and not holding shift, it will show handles immediately
 
         // SEMPRE atualizar draw selections para manter seleção múltipla funcionando
         if (this.controls.has('draw')) {
@@ -445,8 +401,11 @@ class SelectionManager {
     }
 
     deselectAllFeatures = (forceDraw = false) => {
-        // Notify controls before clearing
-        this.notifyControlsOfGlobalDeselect();
+        this.controls.forEach((control, type) => {
+            if (control.onGlobalDeselect) {
+                control.onGlobalDeselect();
+            }
+        });
 
         // Clear all selections
         this.selectedFeatures.clear();
@@ -456,14 +415,6 @@ class SelectionManager {
         }
 
         this.updateUI();
-    }
-
-    notifyControlsOfGlobalDeselect = () => {
-        this.controls.forEach((control, type) => {
-            if (control.onGlobalDeselect) {
-                control.onGlobalDeselect();
-            }
-        });
     }
 
     /**

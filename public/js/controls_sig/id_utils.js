@@ -1,7 +1,7 @@
 // Path: js\controls_sig\id_utils.js
 
 /**
- * Utilitários simples para geração de IDs únicos
+ * Utilitários simples para geração de IDs únicos e nomes de features
  */
 export class IDUtils {
     
@@ -10,6 +10,98 @@ export class IDUtils {
      */
     static generateUniqueId() {
         return Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+    }
+
+    /**
+     * ✅ NOVO - Gera nome automático para feature baseado no source
+     * @param {string} source - Source da feature ('circle', 'ellipse', etc.)
+     * @param {Object} map - Instância do mapa MapLibre
+     * @param {Object} [geometry] - Geometria da feature (para draw)
+     * @returns {string} Nome gerado ('Círculo #3', 'Seta #1', etc.)
+     */
+    static generateFeatureName(source, map, geometry = null) {
+        try {
+            // Mapeamento source → nome em português
+            const SOURCE_DISPLAY_NAMES = {
+                'circle': 'Círculo',
+                'ellipse': 'Elipse',
+                'arrow': 'Seta',
+                'boundary': 'Limite',
+                'occupied_front': 'Frente Ocupada',
+                'military_symbol': 'Símbolo Militar',
+                'text': 'Texto',
+                'image': 'Imagem',
+                'los': 'Linha de Visada',
+                'visibility': 'Visibilidade',
+                // Draw types
+                'point': 'Ponto',
+                'linestring': 'Linha',
+                'polygon': 'Polígono'
+            };
+
+            // Mapeamento source → nome do source no mapa
+            const SOURCE_TO_MAP_SOURCE = {
+                'circle': 'circles',
+                'ellipse': 'ellipses',
+                'arrow': 'arrows',
+                'boundary': 'boundarys',
+                'occupied_front': 'occupied_fronts',
+                'military_symbol': 'military_symbols',
+                'text': 'texts',
+                'image': 'images',
+                'los': 'los',
+                'visibility': 'visibility'
+            };
+
+            let displayName;
+            let featureCount = 0;
+
+            // Tratamento especial para draw (baseado na geometria)
+            if (source === 'draw' && geometry) {
+                const geometryType = geometry.type.toLowerCase();
+                displayName = SOURCE_DISPLAY_NAMES[geometryType] || 'Feature';
+                
+                // Para draw, contar via DrawControl
+                const drawControl = map._controls.find(control => 
+                    control.constructor.name === 'DrawControl' ||
+                    control instanceof MapboxDraw
+                );
+                
+                if (drawControl) {
+                    const allDrawFeatures = drawControl.getAll().features;
+                    featureCount = allDrawFeatures.filter(f => 
+                        f.geometry.type.toLowerCase() === geometryType
+                    ).length;
+                }
+            } else {
+                // Sources normais
+                displayName = SOURCE_DISPLAY_NAMES[source] || 'Feature';
+                const mapSourceName = SOURCE_TO_MAP_SOURCE[source];
+                
+                if (mapSourceName) {
+                    const mapSource = map.getSource(mapSourceName);
+                    if (mapSource && mapSource._data && mapSource._data.features) {
+                        featureCount = mapSource._data.features.length;
+                    }
+                }
+            }
+
+            // Próximo número sempre crescente
+            const nextNumber = featureCount + 1;
+            
+            return `${displayName} #${nextNumber}`;
+            
+        } catch (error) {
+            console.warn('Erro ao gerar nome da feature:', error);
+            // Fallback seguro
+            const fallbackNames = {
+                'circle': 'Círculo',
+                'ellipse': 'Elipse', 
+                'arrow': 'Seta'
+            };
+            const fallbackName = fallbackNames[source] || 'Feature';
+            return `${fallbackName} #1`;
+        }
     }
 
     /**

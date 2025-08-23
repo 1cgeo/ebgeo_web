@@ -841,24 +841,6 @@ class AddEllipseControl {
         this.map.getSource('ellipses').setData(data);
     }
 
-    hasUnsavedChanges = (features, initialPropertiesMap) => {
-        return features.some(feature => {
-            const initialProperties = initialPropertiesMap.get(feature.properties.id);
-            if (!initialProperties) return false;
-
-            return (
-                feature.properties.lineColor !== initialProperties.lineColor ||
-                feature.properties.fillColor !== initialProperties.fillColor ||
-                feature.properties.lineWidth !== initialProperties.lineWidth ||
-                feature.properties.opacity !== initialProperties.opacity ||
-                feature.properties.majorRadius !== initialProperties.majorRadius ||
-                feature.properties.minorRadius !== initialProperties.minorRadius ||
-                feature.properties.bearing !== initialProperties.bearing ||
-                JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
-            );
-        });
-    }
-
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = this.map.getSource('ellipses')._data;
 
@@ -914,11 +896,6 @@ class AddEllipseControl {
 
     setDefaultProperties = (properties) => {
         Object.assign(AddEllipseControl.DEFAULT_PROPERTIES, properties);
-    }
-
-    updateMapSource = () => {
-        const currentData = this.map.getSource('ellipses')._data;
-        this.map.getSource('ellipses').setData(currentData);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {

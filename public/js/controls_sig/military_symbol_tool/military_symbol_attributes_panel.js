@@ -1,16 +1,105 @@
 // Path: js\controls_sig\military_symbol_tool\military_symbol_attributes_panel.js
 
 import { MILITARY_DATA } from './military_constants.js';
+import {
+    createSliderWithInput,
+    createAttributeRow,
+    createStandardButtons,
+    createEditableFeatureName,
+    getCommonConfig
+} from '../tool_manager/attribute_panel_helpers.js';
 
 export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, militarySymbolControl, selectionManager, uiManager) {
     if (!selectedFeatures || selectedFeatures.length === 0) return;
-    
+
     const feature = selectedFeatures[0];
+
+    // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
+
+    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
+    if (selectedFeatures.length === 1) {
+        const nameComponent = createEditableFeatureName(
+            feature.properties.nome,
+            (newName) => {
+                militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                uiManager.updateSelectionHighlight();
+            }
+        );
+        $(panel).append(nameComponent);
+    }
+
+    // ===== CONFIGURAÇÃO DE SÍMBOLO ESPECÍFICA =====
+    // ⚠️ MANTER: Modal específico do SIDC
+    if (selectedFeatures.length === 1) {
+
+    // Botão para abrir modal do símbolo
+    const symbolButton = document.createElement('button');
+    symbolButton.classList.add('tool-button', 'pure-material-button-contained');
+    symbolButton.textContent = 'Configurar Símbolo...';
+    symbolButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
+    symbolButton.onclick = () => openSymbolModal();
+
+    $(panel).append(createAttributeRow('SIDC:', symbolButton));
+    }
+    // ===== CONTROLES DE RENDERIZAÇÃO =====
+
+    // Tamanho
+    const sizeControl = createSliderWithInput(getCommonConfig('size',
+        feature.properties.size || 1.0, {
+        onChange: (value) => {
+            militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'size', value);
+            uiManager.updateSelectionHighlight();
+        }
+    }));
+
+    $(panel).append(createAttributeRow('Tamanho:', sizeControl));
+
+    // Opacidade (0-100%)
+    const opacityControl = createSliderWithInput(getCommonConfig('opacity',
+        Math.round((feature.properties.opacity || 1.0) * 100), {
+        onChange: (value) => {
+            // Convert from 0-100 range to 0-1 range for internal storage
+            militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
+            uiManager.updateSelectionHighlight();
+        }
+    }));
+
+    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+
+    // Rotação (usando steps de 15 graus)
+    const rotationControl = createSliderWithInput({
+        min: -180,
+        max: 180,
+        step: 15,
+        value: feature.properties.rotation || 0,
+        onChange: (value) => {
+            militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'rotation', value);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Rotação (°):', rotationControl));
+
+    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
+    // ✅ FIXED: Pass initialPropertiesMap captured at panel opening
+    const buttons = createStandardButtons({
+        selectedFeatures,
+        control: militarySymbolControl,
+        selectionManager,
+        initialPropertiesMap, // ✅ PASS THE ORIGINAL STATE
+        hasSetDefault: selectedFeatures.length === 1,
+        onSetDefault: () => militarySymbolControl.setDefaultProperties(feature.properties)
+    });
+
+    $(panel).append(buttons);
+
+    // ===== MODAL DO SÍMBOLO (LÓGICA ESPECÍFICA MANTIDA) =====
+    // ⚠️ MANTER: Modal complexo específico do military symbol
 
     // Variável global para rastrear dropdowns abertos
     const openDropdowns = [];
-    
+
     // Função para fechar todos os dropdowns
     function closeAllDropdowns() {
         openDropdowns.forEach(dropdown => {
@@ -142,7 +231,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             return option.label;
         }
 
-        // Função para obter texto de exibição hierárquico para dropdown
         function getDropdownDisplayText(option) {
             if (option.entity_portugues) {
                 let text = option.entity_portugues;
@@ -157,12 +245,13 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             return option.label;
         }
 
+
         // Encontrar e exibir valor atual
         const currentOption = options.find(opt => opt.value == currentValue || opt.code == currentValue);
         if (currentOption) {
             const displayText = getOptionDisplayText(currentOption);
             const tooltipText = getOptionTooltipText(currentOption);
-            
+
             textContainer.textContent = displayText;
             textContainer.title = tooltipText;
         }
@@ -172,7 +261,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             if (!searchTerm.trim()) {
                 return options;
             }
-            
+
             const term = searchTerm.toLowerCase();
             return options.filter(option => {
                 if (option.entity_portugues) {
@@ -198,10 +287,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 transition: background-color 0.2s;
                 ${isSelected ? 'background-color: #e3f2fd; font-weight: 600;' : ''}
             `;
-            
+
             if (option.entity_portugues) {
                 const hierarchy = document.createElement('div');
-                
+
                 const mainText = document.createElement('div');
                 mainText.textContent = option.entity_portugues;
                 mainText.style.cssText = `
@@ -236,7 +325,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     `;
                     hierarchy.appendChild(subtypeText);
                 }
-                
+
                 item.appendChild(hierarchy);
             } else {
                 item.textContent = option.label;
@@ -249,12 +338,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 item.onmouseenter = () => item.style.backgroundColor = '#f8f9fa';
                 item.onmouseleave = () => item.style.backgroundColor = '';
             }
-            
+
             item.onclick = () => {
                 const value = option.value || option.code;
                 const displayText = getOptionDisplayText(option);
                 const tooltipText = getOptionTooltipText(option);
-                
+
                 textContainer.textContent = displayText;
                 textContainer.title = tooltipText;
                 closeDropdown();
@@ -267,7 +356,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // Função para mostrar opções no dropdown
         function showOptions(filteredOptions) {
             optionsList.innerHTML = '';
-            
+
             if (filteredOptions.length === 0) {
                 const noResults = document.createElement('div');
                 noResults.textContent = 'Nenhum resultado encontrado';
@@ -286,29 +375,29 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             const selectRect = selectDisplay.getBoundingClientRect();
             const viewportHeight = window.innerHeight;
             const viewportWidth = window.innerWidth;
-            
+
             // Posição inicial (abaixo do select)
             let top = selectRect.bottom + 5;
             let left = selectRect.left;
             let width = selectRect.width;
-            
+
             // Verificar se cabe na tela verticalmente
             if (top + 250 > viewportHeight) {
                 // Se não cabe embaixo, colocar em cima
                 top = selectRect.top - 255;
-                
+
                 // Se ainda não cabe em cima, ajustar altura
                 if (top < 10) {
                     top = 10;
                     dropdown.style.maxHeight = (selectRect.top - 20) + 'px';
                 }
             }
-            
+
             // Verificar se cabe na tela horizontalmente
             if (left + width > viewportWidth) {
                 left = viewportWidth - width - 20;
             }
-            
+
             dropdown.style.top = top + 'px';
             dropdown.style.left = left + 'px';
             dropdown.style.width = width + 'px';
@@ -318,7 +407,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         function openDropdown() {
             // Fechar todos os outros dropdowns primeiro
             closeAllDropdowns();
-            
+
             positionDropdown();
             showOptions(options);
             dropdown.style.display = 'block';
@@ -355,7 +444,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         selectContainer.appendChild(selectDisplay);
         document.body.appendChild(dropdown);
-        
+
         container.appendChild(labelElement);
         container.appendChild(selectContainer);
 
@@ -366,7 +455,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             if (index > -1) {
                 openDropdowns.splice(index, 1);
             }
-            
+
             if (dropdown.parentNode) {
                 dropdown.parentNode.removeChild(dropdown);
             }
@@ -374,159 +463,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         return container;
     }
-
-    // Slider com input numérico
-    function createSliderWithInput(config) {
-        const container = document.createElement('div');
-        container.className = 'slider-numeric-container';
-        container.style.cssText = 'display: flex; gap: 8px; align-items: center; width: 100%;';
-        
-        const slider = document.createElement('input');
-        slider.classList.add("slider");
-        slider.type = 'range';
-        slider.min = config.min;
-        slider.max = config.max;
-        slider.step = config.step;
-        slider.value = config.value;
-        slider.style.cssText = 'flex-grow: 1;';
-        
-        const numericInput = document.createElement('input');
-        numericInput.type = 'number';
-        numericInput.min = config.min;
-        numericInput.max = config.max;
-        numericInput.step = config.step;
-        numericInput.value = config.value;
-        numericInput.style.cssText = 'width: 60px; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; text-align: center;';
-        
-        const clampValue = (value) => Math.max(config.min, Math.min(config.max, value));
-        
-        slider.oninput = (e) => {
-            const value = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
-            numericInput.value = value;
-            config.onChange(value);
-        };
-        
-        numericInput.oninput = (e) => {
-            let value = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
-            value = clampValue(value);
-            slider.value = value;
-            numericInput.value = value;
-            config.onChange(value);
-        };
-        
-        container.appendChild(slider);
-        container.appendChild(numericInput);
-        
-        if (config.unit) {
-            const unit = document.createElement('span');
-            unit.textContent = config.unit;
-            unit.style.cssText = 'font-size: 12px; color: #666; min-width: 20px;';
-            container.appendChild(unit);
-        }
-        
-        return container;
-    }
-
-    // Botão para abrir modal do símbolo
-    const symbolButton = document.createElement('button');
-    symbolButton.classList.add('tool-button', 'pure-material-button-contained');
-    symbolButton.textContent = 'Configurar Símbolo...';
-    symbolButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
-    symbolButton.onclick = () => openSymbolModal();
-    
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append($("<label>").text('SIDC:')))
-            .append($("<div>", { class: "attr-input" }).append(symbolButton))
-    );
-
-    // Controles de renderização
-    const sizeControl = createSliderWithInput({
-        min: 0.1,
-        max: 5.0,
-        step: 0.1,
-        value: feature.properties.size || 1.0,
-        onChange: (value) => {
-            militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'size', value);
-            uiManager.updateSelectionHighlight();
-        }
-    });
-    
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append($("<label>").text('Tamanho:')))
-            .append($("<div>", { class: "attr-input" }).append(sizeControl))
-    );
-
-    const opacityControl = createSliderWithInput({
-        min: 0.1,
-        max: 1,
-        step: 0.1,
-        value: feature.properties.opacity || 1.0,
-        onChange: (value) => {
-            militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'opacity', value);
-            uiManager.updateSelectionHighlight();
-        }
-    });
-    
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append($("<label>").text('Opacidade:')))
-            .append($("<div>", { class: "attr-input" }).append(opacityControl))
-    );
-
-    const rotationControl = createSliderWithInput({
-        min: -180,
-        max: 180,
-        step: 15,
-        value: feature.properties.rotation || 0,
-        unit: '°',
-        onChange: (value) => {
-            militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'rotation', value);
-            uiManager.updateSelectionHighlight();
-        }
-    });
-    
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append($("<label>").text('Rotação:')))
-            .append($("<div>", { class: "attr-input" }).append(rotationControl))
-    );
-
-    // Botões de ação
-    const buttonsContainer = $("<div>", { class: "attr-container-row" });
-
-    const saveButton = document.createElement('button');
-    saveButton.classList.add('tool-button', 'pure-material-tool-button-contained');
-    saveButton.textContent = 'Salvar';
-    saveButton.type = 'submit';
-    saveButton.onclick = () => {
-        militarySymbolControl.saveFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
-    };
-    buttonsContainer.append(saveButton);
-
-    const discardButton = document.createElement('button');
-    discardButton.classList.add('tool-button', 'pure-material-tool-button-contained');
-    discardButton.textContent = 'Descartar';
-    discardButton.onclick = () => {
-        militarySymbolControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
-    };
-    buttonsContainer.append(discardButton);
-
-    if (selectedFeatures.length === 1) {
-        const setDefaultButton = document.createElement('button');
-        setDefaultButton.classList.add('tool-button', 'pure-material-tool-button-contained');
-        setDefaultButton.textContent = 'Definir padrão';
-        setDefaultButton.onclick = () => {
-            militarySymbolControl.setDefaultProperties(feature.properties);
-            selectionManager.deselectAllFeatures();
-        };
-        buttonsContainer.append(setDefaultButton);
-    }
-
-    $(panel).append(buttonsContainer);
 
     // Modal do símbolo
     function openSymbolModal() {
@@ -693,7 +629,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
                 // Validar SIDC
                 const validation = militarySymbolControl.symbolGenerator.validateSIDC(sidc);
-                
+
                 sidcLabel.textContent = `SIDC: ${sidc}`;
 
                 if (!validation.valid) {

@@ -134,7 +134,7 @@ class MapControl {
         
         const pdfTab = document.createElement('button');
         pdfTab.className = 'tab-button';
-        pdfTab.textContent = 'PDF';
+        pdfTab.textContent = 'Exportar';
         pdfTab.addEventListener('click', () => this.switchToTab('pdf'));
         
         tabSelector.appendChild(mapsTab);

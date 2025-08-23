@@ -1188,15 +1188,6 @@ class AddArrowControl {
         );
     }
 
-    hasUnsavedChanges = (features, initialPropertiesMap) => {
-        return features.some(feature => {
-            const initialProperties = initialPropertiesMap.get(feature.properties.id);
-            if (!initialProperties) return false;
-
-            return this.hasFeatureChanged(feature, initialProperties);
-        });
-    }
-
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
@@ -1230,13 +1221,6 @@ class AddArrowControl {
 
     setDefaultProperties = (properties) => {
         Object.assign(AddArrowControl.DEFAULT_PROPERTIES, properties);
-    }
-
-    updateMapSource = () => {
-        if (this.map && this.map.getSource('arrows')) {
-            const currentData = this.map.getSource('arrows')._data;
-            this.map.getSource('arrows').setData(currentData);
-        }
     }
 
     // ===== UTILITY METHODS =====
