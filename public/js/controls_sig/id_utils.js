@@ -4,7 +4,7 @@
  * Utilitários simples para geração de IDs únicos e nomes de features
  */
 export class IDUtils {
-    
+
     /**
      * Gerar ID único simples
      */
@@ -13,8 +13,7 @@ export class IDUtils {
     }
 
     /**
-     * ✅ NOVO - Gera nome automático para feature baseado no source
-     * @param {string} source - Source da feature ('circle', 'ellipse', etc.)
+     * @param {string} source - Source da feature ('circle', 'ellipse', 'arrow', etc.)
      * @param {Object} map - Instância do mapa MapLibre
      * @param {Object} [geometry] - Geometria da feature (para draw)
      * @returns {string} Nome gerado ('Círculo #3', 'Seta #1', etc.)
@@ -60,16 +59,16 @@ export class IDUtils {
             if (source === 'draw' && geometry) {
                 const geometryType = geometry.type.toLowerCase();
                 displayName = SOURCE_DISPLAY_NAMES[geometryType] || 'Feature';
-                
+
                 // Para draw, contar via DrawControl
-                const drawControl = map._controls.find(control => 
+                const drawControl = map._controls.find(control =>
                     control.constructor.name === 'DrawControl' ||
                     control instanceof MapboxDraw
                 );
-                
+
                 if (drawControl) {
                     const allDrawFeatures = drawControl.getAll().features;
-                    featureCount = allDrawFeatures.filter(f => 
+                    featureCount = allDrawFeatures.filter(f =>
                         f.geometry.type.toLowerCase() === geometryType
                     ).length;
                 }
@@ -77,7 +76,7 @@ export class IDUtils {
                 // Sources normais
                 displayName = SOURCE_DISPLAY_NAMES[source] || 'Feature';
                 const mapSourceName = SOURCE_TO_MAP_SOURCE[source];
-                
+
                 if (mapSourceName) {
                     const mapSource = map.getSource(mapSourceName);
                     if (mapSource && mapSource._data && mapSource._data.features) {
@@ -88,16 +87,19 @@ export class IDUtils {
 
             // Próximo número sempre crescente
             const nextNumber = featureCount + 1;
-            
+
             return `${displayName} #${nextNumber}`;
-            
+
         } catch (error) {
             console.warn('Erro ao gerar nome da feature:', error);
             // Fallback seguro
             const fallbackNames = {
                 'circle': 'Círculo',
-                'ellipse': 'Elipse', 
-                'arrow': 'Seta'
+                'ellipse': 'Elipse',
+                'arrow': 'Seta',
+                'boundary': 'Limite',
+                'occupied_front': 'Frente Ocupada',
+                'los': 'Linha de Visada'
             };
             const fallbackName = fallbackNames[source] || 'Feature';
             return `${fallbackName} #1`;
@@ -106,25 +108,25 @@ export class IDUtils {
 
     /**
      * Regenerar IDs de todas as features em mapData e duplicar recursos
-     * ✅ CORREÇÃO: Separação de fases para evitar conflito de timing
+     * Separação de fases para evitar conflito de timing
      */
     static async regenerateMapIds(mapData, mapName) {
         const idMapping = new Map();
         const newMapData = JSON.parse(JSON.stringify(mapData));
-        
+
         // ✅ FASE 1: Coletar operações de recursos SEM alterar IDs das features
         const resourceOperations = [];
-        
+
         for (const [featureType, features] of Object.entries(newMapData.features)) {
             if (!Array.isArray(features)) continue;
-            
+
             for (const feature of features) {
                 const oldId = feature.properties.id;
                 const newId = this.generateUniqueId();
-                
+
                 // Mapear IDs para aplicação posterior
                 idMapping.set(oldId, newId);
-                
+
                 // Se feature tem recurso de imagem, agendar duplicação
                 if (this.hasImageResource(featureType)) {
                     resourceOperations.push({
@@ -135,70 +137,97 @@ export class IDUtils {
                 }
             }
         }
-        
+
         // ✅ FASE 2: Duplicar recursos usando IDs originais
         for (const operation of resourceOperations) {
             await this.duplicateImageResource(
-                operation.oldId, 
-                operation.newId, 
+                operation.oldId,
+                operation.newId,
                 operation.featureType
             );
         }
-        
+
         // ✅ FASE 3: Aplicar novos IDs nas features
         for (const [featureType, features] of Object.entries(newMapData.features)) {
             if (!Array.isArray(features)) continue;
-            
+
             for (const feature of features) {
                 const oldId = feature.properties.id;
                 const newId = idMapping.get(oldId);
+
                 if (newId) {
                     feature.properties.id = newId;
+                    feature.id = Date.now().toString() + Math.random(); // Novo ID do GeoJSON
                 }
             }
         }
-        
-        return { newMapData, idMapping };
+
+        // Atualizar nome do mapa
+        newMapData.nome = mapName;
+
+        return newMapData;
     }
-    
+
     /**
-     * Verificar se tipo de feature tem recurso de imagem
+     * Verifica se um tipo de feature tem recursos de imagem associados
      */
     static hasImageResource(featureType) {
-        return ['images', 'military_symbols'].includes(featureType);
+        const FEATURE_TYPES_WITH_IMAGES = ['images', 'military_symbols'];
+        return FEATURE_TYPES_WITH_IMAGES.includes(featureType);
     }
-    
+
     /**
-     * Duplicar recurso de imagem quando necessário
+     * Duplica recurso de imagem no imageStore
      */
     static async duplicateImageResource(oldId, newId, featureType) {
         try {
-            const { imageStore } = await import('./store.js');
-            
-            // Verificar se tipo tem recurso de imagem
-            if (!this.hasImageResource(featureType)) {
-                return;
+            const { imageStore } = await import('../store.js');
+
+            const oldBlob = await imageStore.getItem(oldId);
+            if (oldBlob) {
+                await imageStore.setItem(newId, oldBlob);
+                console.log(`✅ Recurso duplicado: ${oldId} → ${newId} (${featureType})`);
+            } else {
+                console.warn(`⚠️ Recurso não encontrado para duplicação: ${oldId} (${featureType})`);
             }
-            
-            const resourceBlob = await imageStore.getItem(oldId);
-            if (!resourceBlob) {
-                console.warn(`Recurso ${oldId} não encontrado para ${featureType}`);
-                return;
-            }
-            
-            // ✅ CORREÇÃO: Verificar se novo ID já existe para evitar conflitos
-            const existingBlob = await imageStore.getItem(newId);
-            if (existingBlob) {
-                console.warn(`ID ${newId} já existe no imageStore, pulando duplicação`);
-                return;
-            }
-            
-            // Duplicar recurso com novo ID
-            await imageStore.setItem(newId, resourceBlob);
-            
         } catch (error) {
-            console.error('Erro ao duplicar recurso:', error);
-            throw error;
+            console.error(`❌ Erro ao duplicar recurso ${oldId}:`, error);
         }
+    }
+
+    /**
+     * Converte coordenadas de string para array se necessário
+     */
+    static normalizeCoordinates(coordinates) {
+        if (typeof coordinates === 'string') {
+            try {
+                return JSON.parse(coordinates);
+            } catch (e) {
+                console.warn('Erro ao parsear coordenadas:', coordinates);
+                return [];
+            }
+        }
+        return Array.isArray(coordinates) ? coordinates : [];
+    }
+
+    /**
+     * Validar se coordenadas são válidas
+     */
+    static isValidCoordinate(coord) {
+        return Array.isArray(coord) &&
+            coord.length >= 2 &&
+            typeof coord[0] === 'number' &&
+            typeof coord[1] === 'number' &&
+            !isNaN(coord[0]) &&
+            !isNaN(coord[1]);
+    }
+
+    /**
+     * Filtrar coordenadas válidas de um array
+     */
+    static filterValidCoordinates(coordinates) {
+        if (!Array.isArray(coordinates)) return [];
+
+        return coordinates.filter(coord => this.isValidCoordinate(coord));
     }
 }

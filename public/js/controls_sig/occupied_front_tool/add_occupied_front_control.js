@@ -8,44 +8,33 @@ class AddOccupiedFrontControl {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
 
-        // ✅ SISTEMA DE 3 ESTADOS (baseado no Circle)
-        // 1. deselected: Estado padrão, sem interação especial
-        // 2. selected: Feature pode ser movida via MoveHandler
-        // 3. editing: Edição baseada em handles, drag da feature desabilitado
-        this.currentState = 'deselected';
-        this.selectedFeature = null;
-
-        // Drawing state
+        // ✅ ESTADO SIMPLIFICADO (6 variáveis máximo)
         this.isActive = false;
-        this.drawingMode = null;
+        this.selectedFeature = null;           // Substitui currentState system
         this.drawPoints = [];
+        this.isDraggingHandle = false;         // Estado de drag único
+        this.activeHandleType = null;          // Track qual handle está sendo arrastado
 
-        // Edit mode variables
-        this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.initialHandlePosition = null;
-        this.previewFeature = null;
-        this.editHandleIds = new Set();
-
-        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing (mesmo padrão do Circle)
+        // ✅ RAF CONSOLIDADO - um sistema apenas
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
-        this.lastPreviewCenter = null;
-        this.geometryDebounceTimer = null;
-
-        // ✅ EDIT PERFORMANCE: Same pattern as preview
-        this.editRafId = null;
-        this.pendingEditUpdate = false;
-        this.lastEditPosition = null;
+        this.lastPreviewCenter = null;         // Cache do centro durante preview
+        this.geometryDebounceTimer = null;     // Debounce para operações de geometria
     }
 
     static DEFAULT_PROPERTIES = {
         color: '#000000',
         lineWidth: 4,
         opacity: 1.0,
-        source: 'occupied_front', // ✅ CRÍTICO: usado pelo sistema de seleção
-        type: 'occupied_front'
+        source: 'occupied_front',
+        type: 'occupied_front',
+
+        // ✅ NOVOS ATRIBUTOS
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -83,146 +72,10 @@ class AddOccupiedFrontControl {
         }
     }
 
-    // ✅ OBRIGATÓRIO: Padrão visual consistente
-    updateButtonAppearance = () => {
-        const iconSrc = this.isActive ?
-            './images/icon_occupied_front_red.svg' :
-            './images/icon_occupied_front_black.svg';
-
-        $("#occupied-front-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="FRENTE OCUPADA" />`);
-    }
-
-    // ===== SISTEMA DE 3 ESTADOS (BASEADO NO CIRCLE) =====
-
-    transitionToState = (newState, feature = null) => {
-        this.exitCurrentState();
-        this.currentState = newState;
-        this.selectedFeature = feature;
-
-        switch (newState) {
-            case 'deselected':
-                this.enterDeselectedState();
-                break;
-            case 'selected':
-                this.enterSelectedState(feature);
-                break;
-            case 'editing':
-                this.enterEditingState(feature);
-                break;
-        }
-    }
-
-    exitCurrentState = () => {
-        switch (this.currentState) {
-            case 'selected':
-                this.exitSelectedState();
-                break;
-            case 'editing':
-                this.exitEditingState();
-                break;
-        }
-    }
-
-    forceTransitionToDeselected = () => {
-        this.exitCurrentState();
-        this.currentState = 'deselected';
-        this.selectedFeature = null;
-        this.enterDeselectedState();
-    }
-
-    // State 1: DESELECTED
-    enterDeselectedState = () => {
-        this.selectedFeature = null;
-        this.setCursorStyle('');
-    }
-
-    // State 2: SELECTED (uses MoveHandler for drag)
-    enterSelectedState = (feature) => {
-        this.selectedFeature = feature;
-        this.setCursorStyle('move');
-    }
-
-    exitSelectedState = () => { }
-
-    // State 3: EDITING (handle-based editing)
-    enterEditingState = (feature) => {
-        this.selectedFeature = feature;
-        this.createEditHandles(feature);
-        this.setupEditEventListeners();
-        this.setCursorStyle('crosshair');
-    }
-
-    exitEditingState = () => {
-        this.clearEditHandles();
-        this.clearEditPreview();
-        this.removeEditEventListeners();
-        this.resetEditVariables();
-    }
-
-    resetEditVariables = () => {
-        // ✅ CORREÇÃO: Reset em ordem segura
-        this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.initialHandlePosition = null;
-        this.previewFeature = null;
-        this.editHandleIds.clear();
-
-        // ✅ CORREÇÃO: Verificar se mapa ainda existe antes de manipular
-        if (this.map && this.map.dragPan) {
-            this.map.dragPan.enable();
-        }
-        if (this.map && this.map.getCanvas) {
-            this.map.getCanvas().style.cursor = '';
-        }
-
-        this.clearPreview();
-        this.clearEditPreview();
-        this.cancelPendingUpdates();
-    }
-
-    // ===== INTEGRAÇÃO COM SELECTION MANAGER =====
-
-    onFeatureSelected = (feature) => {
-        const featureId = feature.properties.id;
-        const isSameFeature = this.selectedFeature && this.selectedFeature.properties.id === featureId;
-
-        if (isSameFeature && this.currentState === 'selected') {
-            // Mesma feature selecionada novamente: SELECTED → EDITING
-            this.transitionToState('editing', feature);
-        } else {
-            // Nova feature ou primeira seleção: → SELECTED
-            this.transitionToState('selected', feature);
-        }
-    }
-
-    onFeatureDeselected = (feature) => {
-        const featureId = feature.properties.id;
-
-        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
-            this.transitionToState('deselected');
-        }
-    }
-
-    onGlobalDeselect = () => {
-        if (this.currentState !== 'deselected') {
-            this.forceTransitionToDeselected();
-        }
-    }
-
-    // ✅ Interface para integração com move_handler
-    isEditingMode = () => {
-        return this.currentState === 'editing';
-    }
-
-    hasEditHandle = (featureId) => {
-        return this.editHandleIds.has(featureId);
-    }
-
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
         this.isActive = true;
-        this.drawingMode = 'occupied_front';
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
         this.updateButtonAppearance();
@@ -230,20 +83,144 @@ class AddOccupiedFrontControl {
 
     deactivate = () => {
         this.isActive = false;
-        this.drawingMode = null;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
         this.updateButtonAppearance();
         this.clearPreview();
-        this.forceTransitionToDeselected();
+        this.deselectFeature();
     }
 
-    // ===== SISTEMA DE DESENHO =====
+    updateButtonAppearance = () => {
+        const iconSrc = this.isActive ?
+            './images/icon_occupied_front_red.svg' :
+            './images/icon_occupied_front_black.svg';
+        $("#occupied-front-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="FRENTE OCUPADA" />`);
+    }
+
+    // ===== SIMPLIFIED STATE MANAGEMENT =====
+
+    selectFeature = (feature) => {
+        this.selectedFeature = feature;
+        this.createEditHandles(feature);
+        this.setupEditEventListeners();
+        this.setupHoverListeners();
+    }
+
+    deselectFeature = () => {
+        this.selectedFeature = null;
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;
+        this.clearEditHandles();
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    // ✅ CLEANUP - cancelar operações pendentes
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+        this.activeHandleType = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
+    }
+
+    // ===== HOVER SYSTEM FOR DYNAMIC CURSOR =====
+
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
+    }
+
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
+    }
+
+    onHoverMove = (e) => {
+        if (!this.selectedFeature) return;
+
+        const features = this.map.queryRenderedFeatures(e.point);
+        const hasHandle = this.hasHandleAtPoint(features);
+        const hasFeature = this.hasSelectedFeatureAtPoint(features);
+
+        if (hasHandle) {
+            this.map.getCanvas().style.cursor = 'crosshair';
+        } else if (hasFeature) {
+            this.map.getCanvas().style.cursor = 'move';
+        } else {
+            this.map.getCanvas().style.cursor = '';
+        }
+    }
+
+    hasHandleAtPoint = (features) => {
+        return features.some(f =>
+            f.source === 'occupied-front-edit-handles' &&
+            f.properties.user_isEditingHandle
+        );
+    }
+
+    hasSelectedFeatureAtPoint = (features) => {
+        if (!this.selectedFeature) return false;
+        return features.some(f =>
+            f.source === 'occupied_fronts' &&
+            f.properties.id === this.selectedFeature.properties.id
+        );
+    }
+
+    // ===== SELECTION SYSTEM INTEGRATION =====
+
+    onFeatureSelected = (feature) => {
+        this.selectFeature(feature);
+    }
+
+    onFeatureDeselected = (feature) => {
+        const featureId = feature.properties.id;
+        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
+            this.deselectFeature();
+        }
+    }
+
+    onGlobalDeselect = () => {
+        if (this.selectedFeature) {
+            this.deselectFeature();
+        }
+    }
+
+    // Interface for move_handler integration
+    isEditingMode = () => {
+        return false;
+    }
+
+    hasEditHandle = (featureId) => {
+        return this.selectedFeature && this.selectedFeature.properties.id === featureId;
+    }
+
+    syncEditHandlesAfterDrag = (movedFeatures) => {
+        if (this.selectedFeature && !this.isDraggingHandle) {
+            const updatedFeature = movedFeatures.find(f =>
+                f.properties.id === this.selectedFeature.properties.id
+            );
+            if (updatedFeature) {
+                this.selectedFeature = updatedFeature;
+                this.createEditHandles(updatedFeature);
+            }
+        }
+    }
+
+    // ===== DRAWING SYSTEM =====
 
     handleMapClick = (e) => {
         if (!this.isActive) return;
 
-        // ✅ OBRIGATÓRIO: Validação de entrada
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
             console.warn('Coordenadas inválidas para frente ocupada');
             return;
@@ -252,62 +229,68 @@ class AddOccupiedFrontControl {
         this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
 
         if (this.drawPoints.length === 1) {
-            // Primeiro ponto - iniciar preview
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length === 2) {
-            // Segundo ponto - finalizar feature
             this.map.off('mousemove', this.handlePreviewMouseMove);
             this.createFeature();
             this.toolManager.deactivateCurrentTool();
         }
     }
 
-    // ✅ OPTIMIZED: RAF-based preview (mesmo padrão do Circle)
+    // ✅ RAF-based preview (com cache do centro)
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length === 1) {
-            this.lastPreviewCenter = this.drawPoints[0];
+            this.lastPreviewCenter = this.drawPoints[0];  // Cache do centro
             this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
             if (!this.pendingPreviewUpdate) {
                 this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
+                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
             }
         }
     }
 
-    // ✅ PERFORMANCE: RAF callback for smooth preview
+    // ✅ CONSOLIDATED RAF - handles both preview and edit
     performPreviewUpdate = () => {
-        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
+        if (!this.lastPreviewPosition) {
             this.pendingPreviewUpdate = false;
             return;
         }
 
-        const p1 = this.lastPreviewCenter; // Origem
-        const p2 = this.lastPreviewPosition; // Braço superior
+        // Edit mode - updating occupied front via handle drag
+        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
+            this.updateOccupiedFrontPreview(this.lastPreviewPosition);
+        }
+        // Drawing mode - showing occupied front preview
+        else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
+            const p1 = this.lastPreviewCenter; // Origem
+            const p2 = this.lastPreviewPosition; // Braço superior
 
-        // Calcular P3 automaticamente com ângulo de 50°
-        const distance = this.calculateDistance(p1, p2);
-        const bearing = this.calculateBearing(p1, p2);
-        const p3 = this.destination(p1, distance, bearing + 50);
+            // Calcular P3 automaticamente com ângulo de 50°
+            const distance = this.calculateDistance(p1, p2);
+            const bearing = this.calculateBearing(p1, p2);
+            const p3 = this.destination(p1, distance, bearing + 50);
 
-        if (distance >= 10) {
-            // Debounce geometry generation for complex occupied front
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = setTimeout(() => {
-                const previewGeometry = this.createOccupiedFrontGeometry([p1, p2, p3]);
-                this.showPreview(previewGeometry);
-            }, 12); // Slightly more debouncing for complex geometry
+            if (distance >= 10) {
+                // ✅ Debounce para operações de geometria complexa
+                clearTimeout(this.geometryDebounceTimer);
+                this.geometryDebounceTimer = setTimeout(() => {
+                    const previewGeometry = this.createOccupiedFrontGeometry([p1, p2, p3]);
+                    this.showPreview(previewGeometry);
+                }, 8); // 8ms para geometria mais complexa
+            }
         }
 
         this.pendingPreviewUpdate = false;
     }
 
+    // ✅ UPDATED - uses consolidated feedback source
     showPreview = (geometry) => {
-        this.map.getSource('occupied-front-preview').setData({
+        this.map.getSource('occupied-front-feedback').setData({
             type: 'Feature',
             geometry: geometry,
             properties: {
-                preview: true,
+                isPreview: true,
                 color: AddOccupiedFrontControl.DEFAULT_PROPERTIES.color,
                 lineWidth: AddOccupiedFrontControl.DEFAULT_PROPERTIES.lineWidth,
                 opacity: 0.7
@@ -315,13 +298,12 @@ class AddOccupiedFrontControl {
         });
     }
 
+    // ✅ UPDATED - clears consolidated feedback source
     clearPreview = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.cancelPendingUpdates();
-
-        // ✅ CORREÇÃO: Verificar se source existe antes de limpar
-        if (this.map && this.map.getSource('occupied-front-preview')) {
-            this.map.getSource('occupied-front-preview').setData({
+        if (this.map && this.map.getSource('occupied-front-feedback')) {
+            this.map.getSource('occupied-front-feedback').setData({
                 type: 'FeatureCollection',
                 features: []
             });
@@ -344,6 +326,7 @@ class AddOccupiedFrontControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
+        const featureName = IDUtils.generateFeatureName('occupied_front', this.map);
         const coordinates = [p1, p2, p3]; // LineString com 3 pontos
 
         const feature = {
@@ -352,16 +335,15 @@ class AddOccupiedFrontControl {
             properties: {
                 ...AddOccupiedFrontControl.DEFAULT_PROPERTIES,
                 id: featureId,
+                nome: featureName,
                 baseCoordinates: coordinates // Armazenar pontos de controle
             },
             geometry: this.createOccupiedFrontGeometry(coordinates)
         };
 
         try {
-            // ✅ OBRIGATÓRIO: Salvar no IndexedDB
             await addFeature('occupied_fronts', feature);
 
-            // Atualizar source do mapa
             const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
             data.features.push(feature);
             this.map.getSource('occupied_fronts').setData(data);
@@ -375,7 +357,7 @@ class AddOccupiedFrontControl {
         }
     }
 
-    // ===== GEOMETRIA DA FRENTE OCUPADA (BASEADA NO PROTÓTIPO) =====
+    // ===== GEOMETRIA DA FRENTE OCUPADA (MANTER LÓGICA ORIGINAL) =====
 
     /**
      * Cria a geometria MultiLineString da frente ocupada
@@ -403,11 +385,7 @@ class AddOccupiedFrontControl {
     }
 
     /**
-     * Cria a geometria para um único braço da "Frente Ocupada" (do protótipo).
-     * @param {Array} startPoint - Ponto de origem (P1).
-     * @param {Array} endPoint - Ponto final (P2 ou P3).
-     * @param {number} turnDirection - Direção da curva: -1 para direita, 1 para esquerda.
-     * @returns {Array<Array<number>>} - Um array de coordenadas de linha.
+     * Cria a geometria para um único braço da "Frente Ocupada" (MANTER LÓGICA ORIGINAL).
      */
     createRay = (startPoint, endPoint, turnDirection) => {
         const rayLines = [];
@@ -420,7 +398,6 @@ class AddOccupiedFrontControl {
         const p_turn1 = this.destination(startPoint, distance * 0.6, initialBearing);
 
         // 2. Ponto final da curva
-        // A curva tem um ângulo de 225 graus e um comprimento de 10% do raio total
         const turnBearing = initialBearing + (225 * turnDirection);
         const turnLength = distance * 0.1;
         const p_turn2 = this.destination(p_turn1, turnLength, turnBearing);
@@ -443,7 +420,7 @@ class AddOccupiedFrontControl {
         return rayLines;
     }
 
-    // ===== SISTEMA DE EDIÇÃO CUSTOMIZADA =====
+    // ===== EDITING MODE: HANDLE SYSTEM =====
 
     createEditHandles = (feature) => {
         const handles = [];
@@ -455,11 +432,9 @@ class AddOccupiedFrontControl {
         }
 
         // Handle P1 - origem (verde)
-        const handleId1 = `occupied-front-handle-${feature.properties.id}-p1`;
-        this.editHandleIds.add(handleId1);
         handles.push({
             type: 'Feature',
-            id: handleId1,
+            id: `occupied-front-handle-${feature.properties.id}-p1`,
             geometry: { type: 'Point', coordinates: coords[0] },
             properties: {
                 role: 'handle',
@@ -474,11 +449,9 @@ class AddOccupiedFrontControl {
         });
 
         // Handle P2 - braço superior (vermelho)
-        const handleId2 = `occupied-front-handle-${feature.properties.id}-p2`;
-        this.editHandleIds.add(handleId2);
         handles.push({
             type: 'Feature',
-            id: handleId2,
+            id: `occupied-front-handle-${feature.properties.id}-p2`,
             geometry: { type: 'Point', coordinates: coords[1] },
             properties: {
                 role: 'handle',
@@ -493,11 +466,9 @@ class AddOccupiedFrontControl {
         });
 
         // Handle P3 - braço inferior (azul)
-        const handleId3 = `occupied-front-handle-${feature.properties.id}-p3`;
-        this.editHandleIds.add(handleId3);
         handles.push({
             type: 'Feature',
-            id: handleId3,
+            id: `occupied-front-handle-${feature.properties.id}-p3`,
             geometry: { type: 'Point', coordinates: coords[2] },
             properties: {
                 role: 'handle',
@@ -511,17 +482,17 @@ class AddOccupiedFrontControl {
             }
         });
 
-        // Adicionar feature destacada para modo de edição
-        handles.push({
-            ...feature,
+        // Show selection feedback using consolidated source
+        this.map.getSource('occupied-front-feedback').setData({
+            type: 'Feature',
+            geometry: feature.geometry,
             properties: {
                 ...feature.properties,
-                role: 'selected-feature',
-                mode: 'occupied_front_editing'
+                isSelected: true
             }
         });
 
-        // Atualizar source
+        // Show handles
         this.map.getSource('occupied-front-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -529,82 +500,17 @@ class AddOccupiedFrontControl {
     }
 
     clearEditHandles = () => {
-        this.editHandleIds.clear();
-
-        // ✅ CORREÇÃO: Verificar se source existe antes de limpar
-        if (this.map && this.map.getSource('occupied-front-edit-handles')) {
-            this.map.getSource('occupied-front-edit-handles').setData({
-                type: 'FeatureCollection',
-                features: []
-            });
-        }
-    }
-
-    // ===== ✅ NOVO: PREVIEW SYSTEM FOR EDITING MODE =====
-
-    showEditPreview = (feature, handlePosition, handleId) => {
-        const handles = [];
-        const coords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
-
-        if (!coords || coords.length < 3) return;
-
-        // Atualizar coordenada sendo editada
-        const updatedCoords = [...coords];
-        if (handleId === 'p1') updatedCoords[0] = handlePosition;
-        else if (handleId === 'p2') updatedCoords[1] = handlePosition;  
-        else if (handleId === 'p3') updatedCoords[2] = handlePosition;
-
-        // Criar handles nas posições atualizadas
-        const handleTypes = ['center', 'primary', 'secondary'];
-        const handleIds = ['p1', 'p2', 'p3'];
-        
-        updatedCoords.forEach((coord, index) => {
-            const handleId = `occupied-front-handle-${feature.properties.id}-${handleIds[index]}`;
-            this.editHandleIds.add(handleId);
-            
-            handles.push({
-                type: 'Feature',
-                id: handleId,
-                geometry: { type: 'Point', coordinates: coord },
-                properties: {
-                    role: 'handle',
-                    handleType: handleTypes[index],
-                    handleId: handleIds[index],
-                    index,
-                    featureId: feature.properties.id,
-                    mode: 'occupied_front_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
-                }
-            });
-        });
-
-        // Preview feature
-        handles.push({
-            ...feature,
-            properties: {
-                ...feature.properties,
-                role: 'selected-feature',
-                mode: 'occupied_front_editing'
-            }
-        });
-
         this.map.getSource('occupied-front-edit-handles').setData({
             type: 'FeatureCollection',
-            features: handles
+            features: []
+        });
+        this.map.getSource('occupied-front-feedback').setData({
+            type: 'FeatureCollection',
+            features: []
         });
     }
 
-    clearEditPreview = () => {
-        if (this.map && this.map.getSource('occupied-front-edit-handles')) {
-            this.map.getSource('occupied-front-edit-handles').setData({
-                type: 'FeatureCollection',
-                features: []
-            });
-        }
-    }
-
-    // ===== SISTEMA DE EDIÇÃO: HANDLE INTERACTION =====
+    // ===== EDITING MODE: HANDLE INTERACTION =====
 
     setupEditEventListeners = () => {
         this.map.on('mousedown', this.onEditMouseDown);
@@ -618,9 +524,9 @@ class AddOccupiedFrontControl {
         this.map.off('mouseup', this.onEditMouseUp);
     }
 
-    // Detectar clique nos handles
+    // ✅ SIMPLIFIED - track do handle específico
     onEditMouseDown = (e) => {
-        if (!this.isEditingMode()) return;
+        if (!this.selectedFeature) return;
 
         const handleFeatures = this.map.queryRenderedFeatures(e.point, {
             layers: ['occupied-front-edit-handles-layer']
@@ -628,138 +534,114 @@ class AddOccupiedFrontControl {
 
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
-
-            // ✅ CORREÇÃO: Verificar se handle tem propriedades válidas
             if (handle && handle.properties && handle.properties.handleId) {
                 this.isDraggingHandle = true;
-                this.activeHandle = handle;
-                this.initialHandlePosition = [e.lngLat.lng, e.lngLat.lat];
+                this.activeHandleType = handle.properties.handleId; // Track qual handle
                 this.map.dragPan.disable();
                 this.map.getCanvas().style.cursor = 'grabbing';
-                
-                // ✅ NOVO: Criar preview feature
-                this.previewFeature = JSON.parse(JSON.stringify(this.selectedFeature));
                 e.preventDefault();
             }
         }
     }
 
-    // ✅ OPTIMIZED: RAF-based edit updates (mesmo padrão do Circle)
+    // ✅ SIMPLIFIED - uses consolidated RAF
     onEditMouseMove = (e) => {
-        if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) return;
+        if (!this.isDraggingHandle || !this.selectedFeature) return;
 
-        this.lastEditPosition = [e.lngLat.lng, e.lngLat.lat];
+        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
-        if (!this.pendingEditUpdate) {
-            this.pendingEditUpdate = true;
-            this.editRafId = requestAnimationFrame(this.performEditUpdate.bind(this));
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
         }
     }
 
-    // ✅ PERFORMANCE: RAF callback for smooth edit updates
-    performEditUpdate = () => {
-        // ✅ CORREÇÃO: Verificar se tudo está válido antes de continuar
-        if (!this.lastEditPosition || !this.selectedFeature || !this.activeHandle) {
-            this.pendingEditUpdate = false;
-            return;
+    onEditMouseUp = () => {
+        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
+            // Apply changes to selected feature
+            const coords = this.normalizeBaseCoordinates(this.selectedFeature.properties.baseCoordinates);
+
+            if (coords && coords.length >= 3 && this.lastPreviewPosition) {
+                // Update specific handle position
+                if (this.activeHandleType === 'p1') coords[0] = this.lastPreviewPosition;
+                else if (this.activeHandleType === 'p2') coords[1] = this.lastPreviewPosition;
+                else if (this.activeHandleType === 'p3') coords[2] = this.lastPreviewPosition;
+
+                // Regenerate geometry
+                this.selectedFeature.properties.baseCoordinates = coords;
+                this.selectedFeature.geometry = this.createOccupiedFrontGeometry(coords);
+
+                this.forceUpdateMainSource(this.selectedFeature);
+                this.createEditHandles(this.selectedFeature);
+                this.updateSelectionAfterEdit();
+                this.updateUIAfterEdit();
+                this.saveFeatureChanges(this.selectedFeature);
+            }
         }
 
-        // Light debouncing for geometry generation
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    updateOccupiedFrontPreview = (newPosition) => {
+        if (!this.selectedFeature || !this.activeHandleType) return;
+
+        const coords = this.normalizeBaseCoordinates(this.selectedFeature.properties.baseCoordinates);
+        if (!coords || coords.length < 3) return;
+
+        // ✅ Debounce para operações de geometria complexa
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
-            // ✅ CORREÇÃO: Verificar novamente antes do timeout
-            if (this.activeHandle && this.activeHandle.properties && this.lastEditPosition) {
-                this.updateGeometryFromHandle(this.activeHandle.properties.handleId, this.lastEditPosition);
-            }
-        }, 12);
+            // Update specific handle position for preview
+            const previewCoords = [...coords];
+            if (this.activeHandleType === 'p1') previewCoords[0] = newPosition;
+            else if (this.activeHandleType === 'p2') previewCoords[1] = newPosition;
+            else if (this.activeHandleType === 'p3') previewCoords[2] = newPosition;
 
-        this.pendingEditUpdate = false;
-    }
+            const previewGeometry = this.createOccupiedFrontGeometry(previewCoords);
 
-    // ✅ CORRIGIDO: Finalizar drag com atualizações completas
-    onEditMouseUp = () => {
-        if (this.isDraggingHandle && this.previewFeature) {
-            // ✅ NOVO: Apply preview changes to actual feature
-            this.selectedFeature.properties.baseCoordinates = this.previewFeature.properties.baseCoordinates;
-            this.selectedFeature.geometry = this.previewFeature.geometry;
+            // Show updated selection
+            this.map.getSource('occupied-front-feedback').setData({
+                type: 'Feature',
+                geometry: previewGeometry,
+                properties: {
+                    ...this.selectedFeature.properties,
+                    isSelected: true
+                }
+            });
 
-            // Reset drag state first
-            this.isDraggingHandle = false;
-            this.activeHandle = null;
-            this.initialHandlePosition = null;
-            const finalFeature = this.selectedFeature;
-            this.previewFeature = null;
-            this.map.dragPan.enable();
-            this.map.getCanvas().style.cursor = '';
+            // Update handles
+            const handles = previewCoords.map((coord, index) => ({
+                type: 'Feature',
+                id: `occupied-front-handle-${this.selectedFeature.properties.id}-p${index + 1}`,
+                geometry: { type: 'Point', coordinates: coord },
+                properties: {
+                    role: 'handle',
+                    handleType: ['center', 'primary', 'secondary'][index],
+                    handleId: `p${index + 1}`,
+                    user_isEditingHandle: true
+                }
+            }));
 
-            // ✅ CRÍTICO: Atualizações completas (como no Circle)
-            this.clearEditPreview();
-            this.forceUpdateMainSource(finalFeature);
-            this.createEditHandles(finalFeature);
-            this.updateSelectionAfterEdit();      // ✅ NOVO: Atualiza bounding box
-            this.updateUIAfterEdit();             // ✅ NOVO: Atualiza UI
-            this.saveFeatureChanges(finalFeature);
-        }
-    }
-
-    updateGeometryFromHandle = (handleId, newPosition) => {
-        // ✅ CORREÇÃO: Verificações de segurança
-        if (!this.previewFeature || !handleId || !newPosition) {
-            console.warn('updateGeometryFromHandle: parâmetros inválidos');
-            return;
-        }
-
-        const coords = this.normalizeBaseCoordinates(this.previewFeature.properties.baseCoordinates);
-
-        if (!coords || coords.length < 3) {
-            console.warn('updateGeometryFromHandle: coordenadas inválidas');
-            return;
-        }
-
-        // Atualizar apenas o ponto sendo arrastado, manter os outros fixos
-        if (handleId === 'p1') { // P1 - origem
-            coords[0] = newPosition;
-        } else if (handleId === 'p2') { // P2 - braço superior
-            coords[1] = newPosition;
-        } else if (handleId === 'p3') { // P3 - braço inferior
-            coords[2] = newPosition;
-        }
-
-        // Recalcular geometria completa
-        this.previewFeature.properties.baseCoordinates = coords;
-        this.previewFeature.geometry = this.createOccupiedFrontGeometry(coords);
-
-        // ✅ NOVO: Mostrar preview em tempo real
-        this.showEditPreview(this.previewFeature, newPosition, handleId);
-    }
-
-    // ===== ✅ NOVOS MÉTODOS CRÍTICOS PARA BOUNDING BOX =====
-
-    updateSelectionAfterEdit = () => {
-        const featureId = this.selectedFeature.properties.id;
-        const type = this.selectedFeature.properties.source; // 'occupied_front'
-        const key = `${type}:${featureId}`;
-
-        this.selectionManager.selectedFeatures.set(key, {
-            type,
-            feature: this.selectedFeature
-        });
-    }
-
-    updateUIAfterEdit = () => {
-        this.selectionManager.uiManager.updateSelectionHighlight();
-        this.selectionManager.uiManager.updatePanels();
-        this.selectionManager.updateUI();
+            this.map.getSource('occupied-front-edit-handles').setData({
+                type: 'FeatureCollection',
+                features: handles
+            });
+        }, 12); // 12ms para geometria complexa
     }
 
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
+        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
+        this.removeHoverListeners();
         this.cancelPendingUpdates();
     }
 
@@ -829,7 +711,6 @@ class AddOccupiedFrontControl {
     }
 
     forceUpdateMainSource = (feature) => {
-        // ✅ CORREÇÃO: Verificações de segurança
         if (!feature || !this.map) {
             console.warn('forceUpdateMainSource: feature ou map inválido');
             return;
@@ -849,12 +730,27 @@ class AddOccupiedFrontControl {
                 sourceFeature.properties = { ...feature.properties };
                 sourceFeature.geometry = { ...feature.geometry };
                 source.setData(data);
-            } else {
-                console.error(`Feature ${feature.properties.id} not found in occupied_fronts source for forced update`);
             }
         } catch (error) {
             console.error('Erro em forceUpdateMainSource:', error);
         }
+    }
+
+    updateSelectionAfterEdit = () => {
+        const featureId = this.selectedFeature.properties.id;
+        const type = this.selectedFeature.properties.source;
+        const key = `${type}:${featureId}`;
+
+        this.selectionManager.selectedFeatures.set(key, {
+            type,
+            feature: this.selectedFeature
+        });
+    }
+
+    updateUIAfterEdit = () => {
+        this.selectionManager.uiManager.updateSelectionHighlight();
+        this.selectionManager.uiManager.updatePanels();
+        this.selectionManager.updateUI();
     }
 
     saveFeatureChanges = async (feature) => {
@@ -865,49 +761,17 @@ class AddOccupiedFrontControl {
         }
     }
 
-    setCursorStyle = (style) => {
-        if (this.map && this.map.getCanvas) {
-            this.map.getCanvas().style.cursor = style;
-        }
-    }
-
-    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations
-    cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
-        this.lastPreviewPosition = null;
-        this.lastPreviewCenter = null;
-
-        if (this.editRafId) {
-            cancelAnimationFrame(this.editRafId);
-            this.editRafId = null;
-        }
-        this.pendingEditUpdate = false;
-        this.lastEditPosition = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
-    }
-
-    // ===== MÉTODOS OBRIGATÓRIOS PARA O SISTEMA DE SELEÇÃO =====
+    // ===== SELECTION SYSTEM INTERFACE METHODS =====
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
 
         for (const feature of features) {
-            feature.properties.id = feature.properties.id;
-
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Se alterar propriedades geométricas, recalcular geometria
                 if (['baseCoordinates'].includes(property)) {
                     const newGeometry = this.createOccupiedFrontGeometry(sourceFeature.properties.baseCoordinates);
                     sourceFeature.geometry = newGeometry;
@@ -917,9 +781,79 @@ class AddOccupiedFrontControl {
         }
 
         this.map.getSource('occupied_fronts').setData(data);
+
+        if (this.selectedFeature && !this.isDraggingHandle) {
+            this.createEditHandles(this.selectedFeature);
+        }
     }
 
-    // ✅ OBRIGATÓRIO: Método updateFeatures padronizado
+    saveFeatures = async (features, initialPropertiesMap) => {
+        const currentData = this.map.getSource('occupied_fronts')._data;
+        let hasChanges = false;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
+                        properties: { ...selectedFeature.properties }
+                    };
+                    await updateFeature('occupied_fronts', featureToSave);
+                    hasChanges = true;
+                }
+            }
+        }
+    }
+
+    discardChangeFeatures = async (features, initialPropertiesMap) => {
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
+            f.geometry = this.createOccupiedFrontGeometry(f.properties.baseCoordinates);
+        });
+
+        await this.updateFeatures(features, true, true);
+    }
+
+    deleteFeatures = async (features) => {
+        if (!features || features.length === 0) return;
+
+        try {
+            for (const feature of features) {
+                const featureId = feature.properties.id;
+                await removeFeature('occupied_fronts', featureId);
+            }
+
+            const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
+            const idsToDelete = new Set(features.map(f => String(f.properties.id)));
+            data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
+            this.map.getSource('occupied_fronts').setData(data);
+        } catch (error) {
+            console.error('Erro ao remover frentes ocupadas:', error);
+        }
+    }
+
+    setDefaultProperties = (properties) => {
+        Object.assign(AddOccupiedFrontControl.DEFAULT_PROPERTIES, properties);
+    }
+
+    hasFeatureChanged = (feature, initialProperties) => {
+        if (!initialProperties) return true;
+
+        return (
+            feature.properties.color !== initialProperties.color ||
+            feature.properties.opacity !== initialProperties.opacity ||
+            feature.properties.lineWidth !== initialProperties.lineWidth ||
+            // ✅ NOVOS ATRIBUTOS
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
+            JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
+        );
+    }
+
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
@@ -941,73 +875,6 @@ class AddOccupiedFrontControl {
 
             this.map.getSource('occupied_fronts').setData(data);
         }
-    }
-
-    saveFeatures = async (features, initialPropertiesMap) => {
-        const currentData = this.map.getSource('occupied_fronts')._data;
-
-        for (const selectedFeature of features) {
-            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
-
-                if (currentFeature) {
-                    const featureToSave = {
-                        ...currentFeature,  // Geometria atual (pós-drag)
-                        properties: { ...selectedFeature.properties } // Propriedades do painel
-                    };
-                    await updateFeature('occupied_fronts', featureToSave);
-                }
-            }
-        }
-    }
-
-    // ✅ OBRIGATÓRIO: Método hasFeatureChanged para otimização
-    hasFeatureChanged = (feature, initialProperties) => {
-        if (!initialProperties) return true;
-
-        return (
-            feature.properties.color !== initialProperties.color ||
-            feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.lineWidth !== initialProperties.lineWidth ||
-            JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
-        );
-    }
-
-    discardChangeFeatures = async (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
-
-            // Regenerar geometria com propriedades originais
-            f.geometry = this.createOccupiedFrontGeometry(f.properties.baseCoordinates);
-        });
-
-        // Usar o método updateFeatures que já existe e funciona corretamente
-        await this.updateFeatures(features, true, true);
-    }
-
-    deleteFeatures = async (features) => {
-        if (!features || features.length === 0) return;
-
-        try {
-            // ✅ CORREÇÃO: Remover do IndexedDB primeiro
-            for (const feature of features) {
-                const featureId = feature.properties.id;
-                await removeFeature('occupied_fronts', featureId);
-            }
-
-            // ✅ CORREÇÃO: Atualizar source do mapa imediatamente
-            const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
-            const idsToDelete = new Set(features.map(f => String(f.properties.id || f.properties.id)));
-            data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-            this.map.getSource('occupied_fronts').setData(data);
-
-        } catch (error) {
-            console.error('Erro ao remover frentes ocupadas:', error);
-        }
-    }
-
-    setDefaultProperties = (properties) => {
-        Object.assign(AddOccupiedFrontControl.DEFAULT_PROPERTIES, properties);
     }
 }
 

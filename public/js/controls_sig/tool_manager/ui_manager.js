@@ -401,7 +401,7 @@ class UIManager {
     }
 
     /**
-     * Creates selection boxes for text features
+     * Creates selection boxes for text features (bounding box without rotation but sized to fit rotated content)
      */
     createTextSelectionBoxes(features) {
         return features.map(feature => {
@@ -411,7 +411,19 @@ class UIManager {
                 feature.properties.size,
                 'Arial'
             );
-            const polygon = this.createSelectionBox(coordinates, width, height, feature.properties.rotation);
+            
+            const rotation = feature.properties.rotation || 0;
+            
+            // Calculate expanded dimensions to fit rotated content
+            const expandedDimensions = this.calculateExpandedDimensions(width, height, rotation);
+            
+            // Create selection box without rotation but with expanded dimensions
+            const polygon = this.createSelectionBox(
+                coordinates, 
+                expandedDimensions.width, 
+                expandedDimensions.height, 
+                0
+            );
 
             return {
                 type: 'Feature',
@@ -422,14 +434,25 @@ class UIManager {
     }
 
     /**
-     * Creates selection boxes for image-like features (image, military_symbol)
+     * Creates selection boxes for image-like features (image, military_symbol) (bounding box without rotation but sized to fit rotated content)
      */
     createImageSelectionBoxes(features) {
         return features.map(feature => {
             const coordinates = feature.geometry.coordinates;
             const width = feature.properties.width * feature.properties.size;
             const height = feature.properties.height * feature.properties.size;
-            const polygon = this.createSelectionBox(coordinates, width, height, feature.properties.rotation || 0);
+            const rotation = feature.properties.rotation || 0;
+            
+            // Calculate expanded dimensions to fit rotated content
+            const expandedDimensions = this.calculateExpandedDimensions(width, height, rotation);
+            
+            // Create selection box without rotation but with expanded dimensions
+            const polygon = this.createSelectionBox(
+                coordinates, 
+                expandedDimensions.width, 
+                expandedDimensions.height, 
+                0
+            );
 
             return {
                 type: 'Feature',
@@ -844,6 +867,46 @@ class UIManager {
     }
 
     // ===== UTILITY METHODS =====
+
+    /**
+     * Calculates expanded dimensions needed for a rectangular bounding box to contain a rotated feature
+     * @param {number} originalWidth - Original width of the feature
+     * @param {number} originalHeight - Original height of the feature  
+     * @param {number} rotationDegrees - Rotation angle in degrees
+     * @returns {Object} { width, height } - Expanded dimensions
+     */
+    calculateExpandedDimensions(originalWidth, originalHeight, rotationDegrees) {
+        if (rotationDegrees === 0) {
+            return { width: originalWidth, height: originalHeight };
+        }
+
+        const radians = rotationDegrees * (Math.PI / 180);
+        
+        // Calculate the 4 corners of the original rectangle (centered at origin)
+        const corners = [
+            { x: -originalWidth / 2, y: -originalHeight / 2 },  // top-left
+            { x: originalWidth / 2, y: -originalHeight / 2 },   // top-right  
+            { x: originalWidth / 2, y: originalHeight / 2 },    // bottom-right
+            { x: -originalWidth / 2, y: originalHeight / 2 }    // bottom-left
+        ];
+        
+        // Apply rotation to each corner
+        const rotatedCorners = corners.map(corner => ({
+            x: corner.x * Math.cos(radians) - corner.y * Math.sin(radians),
+            y: corner.x * Math.sin(radians) + corner.y * Math.cos(radians)
+        }));
+        
+        // Find the bounding box of the rotated corners
+        const minX = Math.min(...rotatedCorners.map(c => c.x));
+        const maxX = Math.max(...rotatedCorners.map(c => c.x));
+        const minY = Math.min(...rotatedCorners.map(c => c.y));
+        const maxY = Math.max(...rotatedCorners.map(c => c.y));
+        
+        return {
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
 
     pixelsToDegrees = (pixels, latitude, zoom) => {
         const earthCircumference = 40075017;

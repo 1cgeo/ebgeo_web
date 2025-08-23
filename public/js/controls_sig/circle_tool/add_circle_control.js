@@ -17,6 +17,8 @@ class AddCircleControl {
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;         // ✅ Cache do centro durante preview
+        this.geometryDebounceTimer = null;     // ✅ Debounce para operações de geometria
     }
 
     static DEFAULT_PROPERTIES = {
@@ -118,6 +120,12 @@ class AddCircleControl {
         }
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;         // ✅ Reset cache do centro
+        
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
     }
 
     // ===== HOVER SYSTEM FOR DYNAMIC CURSOR =====
@@ -222,9 +230,10 @@ class AddCircleControl {
         }
     }
 
-    // ✅ MAINTAIN RAF - same implementation for preview
+    // ✅ MAINTAIN RAF - com cache do centro
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length === 1) {
+            this.lastPreviewCenter = this.drawPoints[0];  // ✅ Cache do centro
             this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
             if (!this.pendingPreviewUpdate) {
@@ -246,13 +255,17 @@ class AddCircleControl {
             this.updateRadiusPreview(this.lastPreviewPosition);
         }
         // Drawing mode - showing preview
-        else if (this.drawPoints.length === 1) {
-            const center = this.drawPoints[0];
+        else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
+            const center = this.lastPreviewCenter;  // ✅ Usar cache
             const radius = this.calculateDistance(center, this.lastPreviewPosition);
 
             if (radius >= 10) {
-                const previewGeometry = this.generateCircleGeometry(center, radius);
-                this.showPreview(previewGeometry);
+                // ✅ Light debounce para consistência com outros controls
+                clearTimeout(this.geometryDebounceTimer);
+                this.geometryDebounceTimer = setTimeout(() => {
+                    const previewGeometry = this.generateCircleGeometry(center, radius);
+                    this.showPreview(previewGeometry);
+                }, 8); // 8ms como na Ellipse para consistência
             }
         }
 
@@ -538,38 +551,42 @@ class AddCircleControl {
 
         const newRadius = this.calculateDistance(center, newPosition);
         if (newRadius > 10) {
-            const previewGeometry = this.generateCircleGeometry(center, newRadius);
+            // ✅ Debounce para consistência com outros controls
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = setTimeout(() => {
+                const previewGeometry = this.generateCircleGeometry(center, newRadius);
 
-            // Update handle position
-            const radiusInDegrees = newRadius / 111320;
-            const handlePoint = [
-                center[0] + (radiusInDegrees / Math.cos(center[1] * Math.PI / 180)),
-                center[1]
-            ];
+                // Update handle position
+                const radiusInDegrees = newRadius / 111320;
+                const handlePoint = [
+                    center[0] + (radiusInDegrees / Math.cos(center[1] * Math.PI / 180)),
+                    center[1]
+                ];
 
-            // Show updated selection
-            this.map.getSource('circle-feedback').setData({
-                type: 'Feature',
-                geometry: previewGeometry,
-                properties: {
-                    ...this.selectedFeature.properties,
-                    isSelected: true
-                }
-            });
-
-            // Update handle
-            this.map.getSource('circle-edit-handles').setData({
-                type: 'FeatureCollection',
-                features: [{
+                // Show updated selection
+                this.map.getSource('circle-feedback').setData({
                     type: 'Feature',
-                    geometry: { type: 'Point', coordinates: handlePoint },
+                    geometry: previewGeometry,
                     properties: {
-                        role: 'handle',
-                        handleType: 'radius',
-                        user_isEditingHandle: true
+                        ...this.selectedFeature.properties,
+                        isSelected: true
                     }
-                }]
-            });
+                });
+
+                // Update handle
+                this.map.getSource('circle-edit-handles').setData({
+                    type: 'FeatureCollection',
+                    features: [{
+                        type: 'Feature',
+                        geometry: { type: 'Point', coordinates: handlePoint },
+                        properties: {
+                            role: 'handle',
+                            handleType: 'radius',
+                            user_isEditingHandle: true
+                        }
+                    }]
+                });
+            }, 8); // 8ms como na Ellipse para consistência
         }
     }
 

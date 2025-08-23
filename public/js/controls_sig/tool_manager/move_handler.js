@@ -419,7 +419,7 @@ class MoveHandler {
      */
     syncEditHandlesForMovedFeatures = (updatedFeatures) => {
         // Identificar quais controls podem ter features selecionadas que foram movidas
-        const controlsToSync = ['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front'];
+        const controlsToSync = ['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front', 'los'];
         
         controlsToSync.forEach(controlType => {
             const control = this.getControl(controlType);

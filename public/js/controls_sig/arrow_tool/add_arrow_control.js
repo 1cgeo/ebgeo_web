@@ -8,33 +8,20 @@ class AddArrowControl {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
 
-        this.currentState = 'deselected';
-        this.selectedFeature = null;
-
-        // Drawing state
+        // ✅ ESTADO SIMPLIFICADO (7 variáveis máximo)
         this.isActive = false;
-        this.drawingMode = null;
+        this.selectedFeature = null;           // Substitui currentState system
         this.drawPoints = [];
+        this.isDraggingHandle = false;         // Estado de drag único
+        this.activeHandle = null;              // ✅ RECUPERADO: Objeto handle completo (para midpoint)
+        this.activeHandleType = null;          // Qual handle está sendo arrastado (string)
 
-        // Edit mode variables
-        this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.initialHandlePosition = null;
-        this.previewFeature = null;
-        this.editHandleIds = new Set();
-
-        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing (same pattern as circle)
+        // ✅ RAF CONSOLIDADO - um sistema apenas
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
-        this.lastPreviewPoints = null;
-        this.geometryDebounceTimer = null;
-
-        // ✅ EDIT PERFORMANCE: Same pattern as circle
-        this.editRafId = null;
-        this.pendingEditUpdate = false;
-        this.lastEditHandleId = null;
-        this.lastEditPosition = null;
+        this.lastPreviewPoints = null;         // Cache dos pontos durante preview
+        this.geometryDebounceTimer = null;     // Debounce para operações de geometria
     }
 
     static DEFAULT_PROPERTIES = {
@@ -45,12 +32,18 @@ class AddArrowControl {
         fillOpacity: 0.8,
         lineOpacity: 1.0,
         headLengthRatio: 1.5,
-        showArrowHead: true,  // ✅ NOVA PROPRIEDADE
+        showArrowHead: true,
         airmobile: false,
         airmobilePosition: 0.7,
         source: 'arrow',
         geometryType: 'arrow',
-        baseCoordinates: []
+        baseCoordinates: [],
+
+        // ✅ NOVOS ATRIBUTOS
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -74,93 +67,68 @@ class AddArrowControl {
         return this.container;
     }
 
+    onRemove = () => {
+        try {
+            if (this.selectionManager && this.selectionManager.uiManager) {
+                this.selectionManager.uiManager.removeControl(this.container);
+            }
+            this.deactivate();
+            this.removeAllEventListeners();
+            this.map = undefined;
+        } catch (error) {
+            console.error('Error removing AddArrowControl:', error);
+            throw error;
+        }
+    }
+
+    // ===== TOOL ACTIVATION/DEACTIVATION =====
+
+    activate = () => {
+        this.isActive = true;
+        this.drawPoints = [];
+        this.map.getCanvas().style.cursor = 'crosshair';
+        this.updateButtonAppearance();
+    }
+
+    deactivate = () => {
+        this.isActive = false;
+        this.drawPoints = [];
+        this.map.getCanvas().style.cursor = '';
+        this.updateButtonAppearance();
+        this.clearPreview();
+        this.deselectFeature();
+    }
+
     updateButtonAppearance = () => {
         const iconSrc = this.isActive ?
             './images/icon_arrow_red.svg' :
             './images/icon_arrow_black.svg';
-
         $(`#arrow-tool`).html(`<img class="icon-sig-tool" src="${iconSrc}" alt="ARROW" />`);
     }
 
-    // ===== SISTEMA DE 3 ESTADOS =====
+    // ===== SIMPLIFIED STATE MANAGEMENT =====
 
-    transitionToState = (newState, feature = null) => {
-        this.exitCurrentState();
-        this.currentState = newState;
-        this.selectedFeature = feature;
-
-        switch (newState) {
-            case 'deselected':
-                this.enterDeselectedState();
-                break;
-            case 'selected':
-                this.enterSelectedState(feature);
-                break;
-            case 'editing':
-                this.enterEditingState(feature);
-                break;
-        }
-    }
-
-    exitCurrentState = () => {
-        switch (this.currentState) {
-            case 'selected':
-                this.exitSelectedState();
-                break;
-            case 'editing':
-                this.exitEditingState();
-                break;
-        }
-    }
-
-    forceTransitionToDeselected = () => {
-        this.exitCurrentState();
-        this.currentState = 'deselected';
-        this.selectedFeature = null;
-        this.enterDeselectedState();
-    }
-
-    // State 1: DESELECTED
-    enterDeselectedState = () => {
-        this.selectedFeature = null;
-    }
-
-    // State 2: SELECTED (uses MoveHandler for drag)
-    enterSelectedState = (feature) => {
-        this.selectedFeature = feature;
-    }
-
-    exitSelectedState = () => { }
-
-    // State 3: EDITING (handle-based editing)
-    enterEditingState = (feature) => {
+    selectFeature = (feature) => {
         this.selectedFeature = feature;
         this.createEditHandles(feature);
         this.setupEditEventListeners();
+        this.setupHoverListeners();
     }
 
-    exitEditingState = () => {
-        this.clearEditHandles();
-        this.clearEditPreview();
-        this.removeEditEventListeners();
-        this.resetEditVariables();
-    }
-
-    resetEditVariables = () => {
+    deselectFeature = () => {
+        this.selectedFeature = null;
         this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.initialHandlePosition = null;
-        this.previewFeature = null;
-        this.editHandleIds.clear();
+        this.activeHandle = null;              // ✅ Reset objeto handle
+        this.activeHandleType = null;
+        this.clearEditHandles();
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
-        this.clearEditPreview();
-
-        // ✅ CLEANUP: Cancel pending operations
-        this.cancelPendingUpdates();
     }
 
-    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations
+    // ✅ CLEANUP - cancelar operações pendentes
     cancelPendingUpdates = () => {
         if (this.previewRafId) {
             cancelAnimationFrame(this.previewRafId);
@@ -169,15 +137,8 @@ class AddArrowControl {
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
-
-        // ✅ EDIT RAF cleanup (same as circle)
-        if (this.editRafId) {
-            cancelAnimationFrame(this.editRafId);
-            this.editRafId = null;
-        }
-        this.pendingEditUpdate = false;
-        this.lastEditHandleId = null;
-        this.lastEditPosition = null;
+        this.activeHandle = null;              // ✅ Reset objeto handle
+        this.activeHandleType = null;
 
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);
@@ -185,45 +146,88 @@ class AddArrowControl {
         }
     }
 
+    // ===== HOVER SYSTEM FOR DYNAMIC CURSOR =====
+
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
+    }
+
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
+    }
+
+    onHoverMove = (e) => {
+        if (!this.selectedFeature) return;
+
+        const features = this.map.queryRenderedFeatures(e.point);
+        const hasHandle = this.hasHandleAtPoint(features);
+        const hasFeature = this.hasSelectedFeatureAtPoint(features);
+
+        if (hasHandle) {
+            this.map.getCanvas().style.cursor = 'crosshair';
+        } else if (hasFeature) {
+            this.map.getCanvas().style.cursor = 'move';
+        } else {
+            this.map.getCanvas().style.cursor = '';
+        }
+    }
+
+    hasHandleAtPoint = (features) => {
+        return features.some(f =>
+            f.source === 'arrow-edit-handles' &&
+            f.properties.user_isEditingHandle
+        );
+    }
+
+    hasSelectedFeatureAtPoint = (features) => {
+        if (!this.selectedFeature) return false;
+        return features.some(f =>
+            f.source === 'arrows' &&
+            f.properties.id === this.selectedFeature.properties.id
+        );
+    }
+
     // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        const featureId = feature.properties.id;
-        const isSameFeature = this.selectedFeature && this.selectedFeature.properties.id === featureId;
-
-        if (isSameFeature && this.currentState === 'selected') {
-            // Same feature selected again: SELECTED → EDITING
-            this.transitionToState('editing', feature);
-        } else {
-            // New feature or first selection: → SELECTED
-            this.transitionToState('selected', feature);
-        }
+        this.selectFeature(feature);
     }
 
     onFeatureDeselected = (feature) => {
         const featureId = feature.properties.id;
-
         if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
-            this.transitionToState('deselected');
+            this.deselectFeature();
         }
     }
 
     onGlobalDeselect = () => {
-        if (this.currentState !== 'deselected') {
-            this.forceTransitionToDeselected();
+        if (this.selectedFeature) {
+            this.deselectFeature();
         }
     }
 
     // Interface for move_handler integration
     isEditingMode = () => {
-        return this.currentState === 'editing';
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return this.editHandleIds.has(featureId);
+        return this.selectedFeature && this.selectedFeature.properties.id === featureId;
     }
 
-    // ===== SISTEMA DE DESENHO MULTI-CLIQUE =====
+    syncEditHandlesAfterDrag = (movedFeatures) => {
+        if (this.selectedFeature && !this.isDraggingHandle) {
+            const updatedFeature = movedFeatures.find(f =>
+                f.properties.id === this.selectedFeature.properties.id
+            );
+            if (updatedFeature) {
+                this.selectedFeature = updatedFeature;
+                this.createEditHandles(updatedFeature);
+            }
+        }
+    }
+
+    // ===== DRAWING SYSTEM =====
 
     handleMapClick = (e) => {
         if (!this.isActive) return;
@@ -257,7 +261,7 @@ class AddArrowControl {
         e.preventDefault();
     }
 
-    // ✅ OPTIMIZED: RAF-based preview
+    // ✅ RAF-based preview (com cache dos pontos)
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length >= 1) {
             this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
@@ -265,60 +269,67 @@ class AddArrowControl {
 
             if (!this.pendingPreviewUpdate) {
                 this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
+                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
             }
         }
     }
 
-    // ✅ PERFORMANCE: RAF callback for smooth preview
+    // ✅ CONSOLIDATED RAF - handles both preview and edit
     performPreviewUpdate = () => {
-        if (!this.lastPreviewPoints || this.lastPreviewPoints.length < 2) {
+        if (!this.lastPreviewPosition) {
             this.pendingPreviewUpdate = false;
             return;
         }
 
-        // Light debouncing for heavy turf.js operations (same as circle)
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            const previewGeometry = this.generateArrowGeometry({
-                baseCoordinates: this.lastPreviewPoints,
-                width: AddArrowControl.DEFAULT_PROPERTIES.width,
-                headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
-                showArrowHead: AddArrowControl.DEFAULT_PROPERTIES.showArrowHead,  // ✅ NOVA PROPRIEDADE
-                airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
-                airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
-            });
+        // Edit mode - updating arrow geometry via handle drag
+        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
+            this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
+        }
+        // Drawing mode - showing arrow preview
+        else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 2) {
+            const isAirmobile = AddArrowControl.DEFAULT_PROPERTIES.airmobile;
+            const debounceTime = isAirmobile ? 12 : 8; // 12ms para airmobile complexo, 8ms para normal
 
-            if (previewGeometry) {
-                this.showPreview(previewGeometry);
-            }
-        }, 8); // Same 8ms as circle for consistency
+            // ✅ Debounce para operações turf.js pesadas
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = setTimeout(() => {
+                const previewGeometry = this.generateArrowGeometry({
+                    baseCoordinates: this.lastPreviewPoints,
+                    width: AddArrowControl.DEFAULT_PROPERTIES.width,
+                    headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
+                    showArrowHead: AddArrowControl.DEFAULT_PROPERTIES.showArrowHead,
+                    airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
+                    airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
+                });
+
+                if (previewGeometry) {
+                    this.showPreview(previewGeometry);
+                }
+            }, debounceTime);
+        }
 
         this.pendingPreviewUpdate = false;
     }
 
+    // ✅ SIMPLIFICADO - uses consolidated feedback source (estilo fixo)
     showPreview = (geometry) => {
-        this.map.getSource('arrow-preview').setData({
+        this.map.getSource('arrow-feedback').setData({
             type: 'Feature',
             geometry: geometry,
-            properties: {
-                preview: true,
-                fillColor: AddArrowControl.DEFAULT_PROPERTIES.fillColor,
-                lineColor: AddArrowControl.DEFAULT_PROPERTIES.lineColor,
-                lineWidth: AddArrowControl.DEFAULT_PROPERTIES.lineWidth,
-                fillOpacity: 0.5,
-                lineOpacity: 0.8
-            }
+            properties: {}  // ✅ Sem propriedades - estilo sempre igual
         });
     }
 
+    // ✅ UPDATED - clears consolidated feedback source
     clearPreview = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.cancelPendingUpdates();
-        this.map.getSource('arrow-preview').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
+        if (this.map && this.map.getSource('arrow-feedback')) {
+            this.map.getSource('arrow-feedback').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
     }
 
     stopDrawing = () => {
@@ -334,6 +345,8 @@ class AddArrowControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
+        const featureName = IDUtils.generateFeatureName('arrow', this.map); // ✅ NOVO: Nome automático
+
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
@@ -341,6 +354,7 @@ class AddArrowControl {
                 ...AddArrowControl.DEFAULT_PROPERTIES,
                 baseCoordinates: [...this.drawPoints],
                 id: featureId,
+                nome: featureName, // ✅ NOVO: Nome automático
                 // ✅ GARANTIR que todas as propriedades visuais existam
                 fillColor: AddArrowControl.DEFAULT_PROPERTIES.fillColor,
                 lineColor: AddArrowControl.DEFAULT_PROPERTIES.lineColor,
@@ -348,7 +362,7 @@ class AddArrowControl {
                 fillOpacity: AddArrowControl.DEFAULT_PROPERTIES.fillOpacity,
                 lineOpacity: AddArrowControl.DEFAULT_PROPERTIES.lineOpacity,
                 headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
-                showArrowHead: AddArrowControl.DEFAULT_PROPERTIES.showArrowHead,  // ✅ NOVA PROPRIEDADE
+                showArrowHead: AddArrowControl.DEFAULT_PROPERTIES.showArrowHead,
                 airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
                 airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
             },
@@ -356,7 +370,7 @@ class AddArrowControl {
                 baseCoordinates: this.drawPoints,
                 width: AddArrowControl.DEFAULT_PROPERTIES.width,
                 headLengthRatio: AddArrowControl.DEFAULT_PROPERTIES.headLengthRatio,
-                showArrowHead: AddArrowControl.DEFAULT_PROPERTIES.showArrowHead,  // ✅ NOVA PROPRIEDADE
+                showArrowHead: AddArrowControl.DEFAULT_PROPERTIES.showArrowHead,
                 airmobile: AddArrowControl.DEFAULT_PROPERTIES.airmobile,
                 airmobilePosition: AddArrowControl.DEFAULT_PROPERTIES.airmobilePosition
             })
@@ -385,13 +399,13 @@ class AddArrowControl {
         this.clearPreview();
     }
 
-    // ===== GERAÇÃO DA GEOMETRIA DA SETA =====
+    // ===== GERAÇÃO DA GEOMETRIA DA SETA (MANTER LÓGICA ORIGINAL) =====
 
     generateArrowGeometry = (properties) => {
         const coords = this.normalizeBaseCoordinates(properties.baseCoordinates);
         const width = properties.width || 1000;
         const headLengthRatio = properties.headLengthRatio || 1.5;
-        const showArrowHead = properties.showArrowHead !== false;  // ✅ DEFAULT TRUE
+        const showArrowHead = properties.showArrowHead !== false;
         const airmobile = properties.airmobile || false;
         const airmobilePosition = properties.airmobilePosition || 0.7;
 
@@ -629,9 +643,210 @@ class AddArrowControl {
         }
     }
 
-    // ===== SISTEMA DE EDIÇÃO COM HANDLES =====
+    // ===== EDITING MODE: HANDLE SYSTEM =====
 
     createEditHandles = (feature) => {
+        if (!feature || !feature.properties) {
+            console.warn('Feature inválida para criar handles:', feature);
+            return;
+        }
+
+        // ✅ SIMPLIFICADO: Mostrar feature selecionada via arrow-feedback (estilo fixo)
+        this.map.getSource('arrow-feedback').setData({
+            type: 'Feature',
+            geometry: feature.geometry,
+            properties: {}  // ✅ Sem propriedades - estilo sempre igual
+        });
+
+        // ✅ CRIAR: Handles separadamente
+        this.createEditHandlesOnly(feature);
+    }
+
+    clearEditHandles = () => {
+        // ✅ CONSOLIDADO: Limpar feedback
+        this.map.getSource('arrow-feedback').setData({
+            type: 'FeatureCollection',
+            features: []
+        });
+
+        // ✅ LIMPAR: Handles
+        this.map.getSource('arrow-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: []
+        });
+    }
+
+    // ===== EDITING MODE: HANDLE INTERACTION =====
+
+    setupEditEventListeners = () => {
+        this.map.on('mousedown', this.onEditMouseDown);
+        this.map.on('mousemove', this.onEditMouseMove);
+        this.map.on('mouseup', this.onEditMouseUp);
+    }
+
+    removeEditEventListeners = () => {
+        this.map.off('mousedown', this.onEditMouseDown);
+        this.map.off('mousemove', this.onEditMouseMove);
+        this.map.off('mouseup', this.onEditMouseUp);
+    }
+
+    // ✅ CORRIGIDO - captura objeto handle completo + tipo
+    onEditMouseDown = (e) => {
+        if (!this.selectedFeature) return;
+
+        const handleFeatures = this.map.queryRenderedFeatures(e.point, {
+            layers: ['arrow-edit-handles-layer']
+        });
+
+        if (handleFeatures.length > 0) {
+            const handle = handleFeatures[0];
+            this.isDraggingHandle = true;
+            this.activeHandle = handle;                        // ✅ OBJETO COMPLETO (para midpoint)
+            this.activeHandleType = handle.properties.handleId; // ✅ STRING (para lógica)
+            this.map.dragPan.disable();
+            this.map.getCanvas().style.cursor = 'grabbing';
+            e.preventDefault();
+        }
+    }
+
+    // ✅ SIMPLIFIED - uses consolidated RAF
+    onEditMouseMove = (e) => {
+        if (!this.isDraggingHandle || !this.selectedFeature) return;
+
+        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
+        }
+    }
+
+    onEditMouseUp = () => {
+        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
+            // Apply changes to selected feature
+            this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
+
+            // Update final feature
+            this.selectedFeature.geometry = this.generateArrowGeometry(this.selectedFeature.properties);
+
+            this.forceUpdateMainSource(this.selectedFeature);
+            this.createEditHandles(this.selectedFeature);  // ✅ Usar completo para atualizar feedback final
+            this.updateSelectionAfterEdit();
+            this.updateUIAfterEdit();
+            this.saveFeatureChanges(this.selectedFeature);
+        }
+
+        this.isDraggingHandle = false;
+        this.activeHandle = null;              // ✅ Reset objeto handle
+        this.activeHandleType = null;
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    updateGeometryFromHandle = (handleId, newPosition) => {
+        if (!this.selectedFeature) return;
+
+        let coords = this.normalizeBaseCoordinates(this.selectedFeature.properties.baseCoordinates);
+
+        if (coords.length < 2) {
+            console.warn('Coordenadas insuficientes para atualizar geometria:', coords);
+            return;
+        }
+
+        coords = [...coords]; // Criar cópia
+
+        const isAirmobile = this.selectedFeature.properties.airmobile || false;
+        const debounceTime = isAirmobile ? 12 : 8; // 12ms para airmobile, 8ms para normal
+
+        // ✅ Debounce para operações turf.js pesadas
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            if (handleId.startsWith('vertex-')) {
+                // Mover vértice existente
+                const index = parseInt(handleId.split('-')[1]);
+                coords[index] = newPosition;
+                this.selectedFeature.properties.baseCoordinates = coords;
+            } else if (handleId.startsWith('midpoint-')) {
+                // Adicionar novo vértice
+                const insertIndex = parseInt(handleId.split('-')[1]) + 1;
+                coords.splice(insertIndex, 0, newPosition);
+                this.selectedFeature.properties.baseCoordinates = coords;
+
+                // ✅ CORRIGIR: Converter handle de midpoint → vertex
+                if (this.activeHandle && this.activeHandle.properties) {
+                    this.activeHandle.properties.handleType = 'vertex';
+                    this.activeHandle.properties.handleId = `vertex-${insertIndex}`;
+                    this.activeHandleType = `vertex-${insertIndex}`;  // ✅ Sincronizar string
+                }
+            } else if (handleId === 'width') {
+                // Handle de largura
+                const lastPoint = coords[coords.length - 1];
+                const secondLastPoint = coords[coords.length - 2];
+                const line = turf.lineString([secondLastPoint, lastPoint]);
+
+                let newWidth = turf.pointToLineDistance(turf.point(newPosition), line, { units: 'meters' });
+
+                // Determinar sinal baseado no lado da linha
+                const x1 = secondLastPoint[0], y1 = secondLastPoint[1];
+                const x2 = lastPoint[0], y2 = lastPoint[1];
+                const x = newPosition[0], y = newPosition[1];
+                if ((x - x1) * (y2 - y1) - (y - y1) * (x2 - x1) > 0) newWidth = -newWidth;
+
+                this.selectedFeature.properties.width = newWidth;
+            } else if (handleId === 'headLength') {
+                // Handle de comprimento da cabeça
+                const lastPoint = coords[coords.length - 1];
+                const secondLastPoint = coords[coords.length - 2];
+                const bearing = turf.bearing(secondLastPoint, lastPoint);
+
+                const line = turf.lineString([lastPoint, newPosition]);
+                const distance = turf.length(line, { units: 'meters' });
+
+                const tipBearing = turf.bearing(lastPoint, newPosition);
+                const angleDiff = Math.abs(bearing - tipBearing);
+                const isForward = angleDiff < 90 || angleDiff > 270;
+
+                if (isForward && distance > 100) {
+                    const width = this.selectedFeature.properties.width || 500;
+                    const headBaseWidth = Math.abs(width * 2.5);
+                    const newHeadLengthRatio = Math.max(0.5, distance / headBaseWidth);
+
+                    this.selectedFeature.properties.headLengthRatio = newHeadLengthRatio;
+                }
+            } else if (handleId === 'airmobile') {
+                // Handle de posição do X aeromóvel
+                const line = turf.lineString(coords);
+                const lineLength = turf.length(line, { units: 'meters' });
+
+                const snappedPoint = turf.nearestPointOnLine(line, turf.point(newPosition), { units: 'meters' });
+                const newDistance = snappedPoint.properties.location;
+
+                let newPositionNormalized = newDistance / lineLength;
+                newPositionNormalized = Math.max(0.01, Math.min(0.99, newPositionNormalized));
+
+                this.selectedFeature.properties.airmobilePosition = newPositionNormalized;
+            }
+
+            // Show preview
+            const previewGeometry = this.generateArrowGeometry(this.selectedFeature.properties);
+            this.showEditPreview(previewGeometry);
+        }, debounceTime);
+    }
+
+    showEditPreview = (geometry) => {
+        // ✅ SIMPLIFICADO: Mostrar preview da feature modificada via arrow-feedback (estilo fixo)
+        this.map.getSource('arrow-feedback').setData({
+            type: 'Feature',
+            geometry: geometry,
+            properties: {}  // ✅ Sem propriedades - estilo sempre igual
+        });
+
+        // ✅ RECRIAR: Handles na nova posição (sem alterar feedback)
+        this.createEditHandlesOnly(this.selectedFeature);
+    }
+
+    // ✅ NOVO: Criar apenas handles sem modificar arrow-feedback
+    createEditHandlesOnly = (feature) => {
         const handles = [];
         const coords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
 
@@ -643,7 +858,6 @@ class AddArrowControl {
         // 1. Handles nos vértices da linha base (vermelho)
         coords.forEach((coord, index) => {
             const handleId = `arrow-handle-${feature.properties.id}-vertex-${index}`;
-            this.editHandleIds.add(handleId);
 
             handles.push({
                 type: 'Feature',
@@ -666,7 +880,6 @@ class AddArrowControl {
         for (let i = 0; i < coords.length - 1; i++) {
             const midpoint = turf.midpoint(turf.point(coords[i]), turf.point(coords[i + 1]));
             const handleId = `arrow-handle-${feature.properties.id}-midpoint-${i}`;
-            this.editHandleIds.add(handleId);
 
             handles.push({
                 type: 'Feature',
@@ -696,7 +909,6 @@ class AddArrowControl {
         const widthHandlePoint = turf.destination(lastPoint, headBaseWidth / 2, perpendicularBearing, { units: 'meters' });
 
         const widthHandleId = `arrow-handle-${feature.properties.id}-width`;
-        this.editHandleIds.add(widthHandleId);
 
         handles.push({
             type: 'Feature',
@@ -713,7 +925,7 @@ class AddArrowControl {
             }
         });
 
-        // 4. Handle de comprimento da cabeça (verde) - ✅ APENAS SE showArrowHead = true
+        // 4. Handle de comprimento da cabeça (verde) - APENAS SE showArrowHead = true
         const showArrowHead = feature.properties.showArrowHead !== false;
         if (showArrowHead) {
             const headLengthRatio = feature.properties.headLengthRatio || 1.5;
@@ -721,7 +933,6 @@ class AddArrowControl {
             const headTipPoint = turf.destination(lastPoint, headLength, bearing, { units: 'meters' });
 
             const headLengthHandleId = `arrow-handle-${feature.properties.id}-headlength`;
-            this.editHandleIds.add(headLengthHandleId);
 
             handles.push({
                 type: 'Feature',
@@ -739,7 +950,7 @@ class AddArrowControl {
             });
         }
 
-        // 5. Handle de posição do X aeromóvel (roxo) - REPLICANDO EXATAMENTE O EXEMPLO
+        // 5. Handle de posição do X aeromóvel (roxo)
         const airmobile = feature.properties.airmobile || false;
 
         if (airmobile) {
@@ -777,16 +988,14 @@ class AddArrowControl {
                 }
 
                 const airmobileHandleId = `arrow-handle-${feature.properties.id}-airmobile`;
-                this.editHandleIds.add(airmobileHandleId);
 
-                // ✅ USAR EXATAMENTE A MESMA ESTRUTURA DO EXEMPLO
                 const handleFeature = {
                     type: 'Feature',
                     id: airmobileHandleId,
                     geometry: { type: 'Point', coordinates: handleCoord },
                     properties: {
                         role: 'handle',
-                        handleType: 'airmobile',  // ✅ Manter para compatibilidade com layers
+                        handleType: 'airmobile',
                         handleId: 'airmobile',
                         featureId: feature.properties.id,
                         mode: 'arrow_editing',
@@ -799,230 +1008,76 @@ class AddArrowControl {
             }
         }
 
-        // 6. Feature destacada para modo editing
-        handles.push({
-            ...feature,
-            properties: {
-                ...feature.properties,
-                role: 'selected-feature',
-                mode: 'arrow_editing'
-            }
-        });
-
+        // ✅ APENAS HANDLES: Não incluir feature destacada
         this.map.getSource('arrow-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
         });
     }
 
-    clearEditHandles = () => {
-        this.editHandleIds.clear();
-        this.map.getSource('arrow-edit-handles').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
+    // ===== EVENT LISTENER MANAGEMENT =====
+
+    setupBaseEventListeners = () => {
+        this.map.on('dblclick', this.handleDoubleClick);
     }
 
-    clearEditPreview = () => {
-        this.map.getSource('arrow-edit-handles').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
+    removeAllEventListeners = () => {
+        this.map.off('dblclick', this.handleDoubleClick);
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
     }
 
-    // ===== EVENT LISTENERS PARA EDIÇÃO =====
+    // ===== UTILITY METHODS =====
 
-    setupEditEventListeners = () => {
-        this.map.on('mousedown', this.onEditMouseDown);
-        this.map.on('mousemove', this.onEditMouseMove);
-        this.map.on('mouseup', this.onEditMouseUp);
-    }
-
-    removeEditEventListeners = () => {
-        this.map.off('mousedown', this.onEditMouseDown);
-        this.map.off('mousemove', this.onEditMouseMove);
-        this.map.off('mouseup', this.onEditMouseUp);
-    }
-
-    onEditMouseDown = (e) => {
-        if (this.currentState !== 'editing') return;
-
-        const handleFeatures = this.map.queryRenderedFeatures(e.point, {
-            layers: ['arrow-edit-handles-layer']
-        });
-
-        if (handleFeatures.length > 0) {
-            const handle = handleFeatures[0];
-            this.isDraggingHandle = true;
-            this.activeHandle = handle;
-            this.initialHandlePosition = [e.lngLat.lng, e.lngLat.lat];
-            this.map.dragPan.disable();
-            this.map.getCanvas().style.cursor = 'grabbing';
-
-            this.previewFeature = JSON.parse(JSON.stringify(this.selectedFeature));
-
-            e.preventDefault();
-        }
-    }
-
-    // ✅ OPTIMIZED: RAF-based edit updates (same pattern as circle)
-    onEditMouseMove = (e) => {
-        if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) {
-            return;
-        }
-
-        this.lastEditPosition = [e.lngLat.lng, e.lngLat.lat];
-        this.lastEditHandleId = this.activeHandle.properties.handleId;
-
-        if (!this.pendingEditUpdate) {
-            this.pendingEditUpdate = true;
-            this.editRafId = requestAnimationFrame(this.performEditUpdate.bind(this));
-        }
-    }
-
-    // ✅ PERFORMANCE: RAF callback for smooth edit updates
-    performEditUpdate = () => {
-        if (!this.lastEditPosition || !this.lastEditHandleId || !this.previewFeature) {
-            this.pendingEditUpdate = false;
-            return;
-        }
-
-        // Light debouncing for heavy turf.js operations (same as circle)
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            this.updateGeometryFromHandle(this.lastEditHandleId, this.lastEditPosition);
-        }, 8); // Same 8ms as circle for consistency
-
-        this.pendingEditUpdate = false;
-    }
-
-    onEditMouseUp = () => {
-        if (this.isDraggingHandle && this.previewFeature) {
-            this.selectedFeature.properties = { ...this.previewFeature.properties };
-            this.selectedFeature.geometry = { ...this.previewFeature.geometry };
-
-            // Reset drag state first
-            this.isDraggingHandle = false;
-            this.activeHandle = null;
-            this.initialHandlePosition = null;
-            const finalFeature = this.selectedFeature;
-            this.previewFeature = null;
-            this.map.dragPan.enable();
-            this.map.getCanvas().style.cursor = '';
-
-            this.clearEditPreview();
-            this.forceUpdateMainSource(finalFeature);
-            this.createEditHandles(finalFeature);
-            this.updateSelectionAfterEdit();
-            this.updateUIAfterEdit();
-            this.saveFeatureChanges(finalFeature);
-        }
-    }
-
-    updateGeometryFromHandle = (handleId, newPosition) => {
-        if (!this.previewFeature) return;
-
-        let coords = this.normalizeBaseCoordinates(this.previewFeature.properties.baseCoordinates);
-
-        if (coords.length < 2) {
-            console.warn('Coordenadas insuficientes para atualizar geometria:', coords);
-            return;
-        }
-
-        coords = [...coords]; // Criar cópia
-
-        if (handleId.startsWith('vertex-')) {
-            // Mover vértice existente
-            const index = parseInt(handleId.split('-')[1]);
-            coords[index] = newPosition;
-            this.previewFeature.properties.baseCoordinates = coords;
-        } else if (handleId.startsWith('midpoint-')) {
-            // Adicionar novo vértice
-            const insertIndex = parseInt(handleId.split('-')[1]) + 1;
-            coords.splice(insertIndex, 0, newPosition);
-            this.previewFeature.properties.baseCoordinates = coords;
-            // Converter para vertex handle
-            this.activeHandle.properties.handleType = 'vertex';
-            this.activeHandle.properties.handleId = `vertex-${insertIndex}`;
-        } else if (handleId === 'width') {
-            // Handle de largura (sem mudanças)
-            const lastPoint = coords[coords.length - 1];
-            const secondLastPoint = coords[coords.length - 2];
-            const line = turf.lineString([secondLastPoint, lastPoint]);
-
-            let newWidth = turf.pointToLineDistance(turf.point(newPosition), line, { units: 'meters' });
-
-            // Determinar sinal baseado no lado da linha
-            const x1 = secondLastPoint[0], y1 = secondLastPoint[1];
-            const x2 = lastPoint[0], y2 = lastPoint[1];
-            const x = newPosition[0], y = newPosition[1];
-            if ((x - x1) * (y2 - y1) - (y - y1) * (x2 - x1) > 0) newWidth = -newWidth;
-
-            this.previewFeature.properties.width = newWidth;
-        } else if (handleId === 'headLength') {
-            // Handle de comprimento da cabeça (sem mudanças)
-            const lastPoint = coords[coords.length - 1];
-            const secondLastPoint = coords[coords.length - 2];
-            const bearing = turf.bearing(secondLastPoint, lastPoint);
-
-            const line = turf.lineString([lastPoint, newPosition]);
-            const distance = turf.length(line, { units: 'meters' });
-
-            const tipBearing = turf.bearing(lastPoint, newPosition);
-            const angleDiff = Math.abs(bearing - tipBearing);
-            const isForward = angleDiff < 90 || angleDiff > 270;
-
-            if (isForward && distance > 100) {
-                const width = this.previewFeature.properties.width || 500;
-                const headBaseWidth = Math.abs(width * 2.5);
-                const newHeadLengthRatio = Math.max(0.5, distance / headBaseWidth);
-
-                this.previewFeature.properties.headLengthRatio = newHeadLengthRatio;
+    normalizeBaseCoordinates = (baseCoordinates) => {
+        if (typeof baseCoordinates === 'string') {
+            try {
+                return JSON.parse(baseCoordinates);
+            } catch (e) {
+                console.error('Erro ao parsear baseCoordinates:', e);
+                return [];
             }
-        } else if (handleId === 'airmobile') {
-            // ✅ IMPLEMENTAR EXATAMENTE COMO NO HTML DE REFERÊNCIA
-            const line = turf.lineString(coords);
-            const lineLength = turf.length(line, { units: 'meters' });
-
-            // ✅ Tentar usar turf.pointOnLine primeiro (como no HTML)
-            let snappedPoint;
-            let newDistance;
-
-            snappedPoint = turf.nearestPointOnLine(line, turf.point(newPosition), { units: 'meters' });
-            newDistance = snappedPoint.properties.location;
-
-            let newPositionNormalized = newDistance / lineLength;
-            newPositionNormalized = Math.max(0.01, Math.min(0.99, newPositionNormalized));
-
-            this.previewFeature.properties.airmobilePosition = newPositionNormalized;
         }
 
-        // Recalcular geometria da seta
-        this.previewFeature.geometry = this.generateArrowGeometry(this.previewFeature.properties);
+        if (!Array.isArray(baseCoordinates)) {
+            console.warn('baseCoordinates não é um array:', baseCoordinates);
+            return [];
+        }
 
-        // Mostrar preview
-        this.showEditPreview(this.previewFeature);
-    }
-
-    showEditPreview = (feature) => {
-        this.createEditHandles(feature);
+        return baseCoordinates;
     }
 
     forceUpdateMainSource = (feature) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-        if (sourceFeature) {
-            sourceFeature.properties = { ...feature.properties };
-            sourceFeature.geometry = { ...feature.geometry };
-            this.map.getSource('arrows').setData(data);
-        } else {
-            console.error(`Feature ${feature.properties.id} not found in arrows source for forced update`);
+        if (!feature || !this.map) {
+            console.warn('forceUpdateMainSource: feature ou map inválido');
+            return;
+        }
+
+        const source = this.map.getSource('arrows');
+        if (!source) {
+            console.warn('forceUpdateMainSource: source arrows não encontrado');
+            return;
+        }
+
+        try {
+            const data = JSON.parse(JSON.stringify(source._data));
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+
+            if (sourceFeature) {
+                sourceFeature.properties = { ...feature.properties };
+                sourceFeature.geometry = { ...feature.geometry };
+                source.setData(data);
+            }
+        } catch (error) {
+            console.error('Erro em forceUpdateMainSource:', error);
         }
     }
 
     updateSelectionAfterEdit = () => {
         const featureId = this.selectedFeature.properties.id;
-        const type = this.selectedFeature.properties.source; // 'circle', 'ellipse', etc.
+        const type = this.selectedFeature.properties.source;
         const key = `${type}:${featureId}`;
 
         this.selectionManager.selectedFeatures.set(key, {
@@ -1045,41 +1100,7 @@ class AddArrowControl {
         }
     }
 
-    // ===== EVENT LISTENER MANAGEMENT =====
-
-    setupBaseEventListeners = () => {
-        this.map.on('dblclick', this.handleDoubleClick);
-    }
-
-    removeAllEventListeners = () => {
-        this.map.off('dblclick', this.handleDoubleClick);
-        this.map.off('mousemove', this.handlePreviewMouseMove);
-        this.removeEditEventListeners();
-        // ✅ CLEANUP: Cancel all pending operations
-        this.cancelPendingUpdates();
-    }
-
-    // ===== TOOL ACTIVATION/DEACTIVATION =====
-
-    activate = () => {
-        this.isActive = true;
-        this.drawingMode = 'arrow';
-        this.drawPoints = [];
-        this.map.getCanvas().style.cursor = 'crosshair';
-        this.updateButtonAppearance();
-    }
-
-    deactivate = () => {
-        this.isActive = false;
-        this.drawingMode = null;
-        this.drawPoints = [];
-        this.map.getCanvas().style.cursor = '';
-        this.updateButtonAppearance();
-        this.clearPreview();
-        this.forceTransitionToDeselected();
-    }
-
-    // ===== MÉTODOS OBRIGATÓRIOS PARA O SISTEMA DE SELEÇÃO =====
+    // ===== SELECTION SYSTEM INTERFACE METHODS =====
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
@@ -1100,7 +1121,7 @@ class AddArrowControl {
                 sourceFeature.properties.lineWidth = sourceFeature.properties.lineWidth || AddArrowControl.DEFAULT_PROPERTIES.lineWidth;
 
                 // ✅ Se alterar propriedades geométricas, recalcular geometria
-                if (property === 'width' || property === 'headLengthRatio' || property === 'showArrowHead' || property === 'airmobile' || property === 'airmobilePosition') {
+                if (['width', 'headLengthRatio', 'showArrowHead', 'airmobile', 'airmobilePosition', 'baseCoordinates'].includes(property)) {
                     const newGeometry = this.generateArrowGeometry(sourceFeature.properties);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
@@ -1111,7 +1132,7 @@ class AddArrowControl {
         this.map.getSource('arrows').setData(data);
 
         // Atualizar handles se em modo editing
-        if (this.currentState === 'editing' && this.selectedFeature && !this.isDraggingHandle) {
+        if (this.selectedFeature && !this.isDraggingHandle) {
             this.createEditHandles(this.selectedFeature);
         }
     }
@@ -1165,7 +1186,7 @@ class AddArrowControl {
         const currentHeadRatio = feature.properties.headLengthRatio || 1.5;
         const initialHeadRatio = initialProperties.headLengthRatio || 1.5;
 
-        const currentShowHead = feature.properties.showArrowHead !== false;  // ✅ NOVA COMPARAÇÃO
+        const currentShowHead = feature.properties.showArrowHead !== false;
         const initialShowHead = initialProperties.showArrowHead !== false;
 
         const currentAirmobile = feature.properties.airmobile || false;
@@ -1181,9 +1202,14 @@ class AddArrowControl {
             feature.properties.fillOpacity !== initialProperties.fillOpacity ||
             feature.properties.width !== initialProperties.width ||
             currentHeadRatio !== initialHeadRatio ||
-            currentShowHead !== initialShowHead ||  // ✅ NOVA VERIFICAÇÃO
+            currentShowHead !== initialShowHead ||
             currentAirmobile !== initialAirmobile ||
             currentAirmobilePosition !== initialAirmobilePosition ||
+            // ✅ NOVOS ATRIBUTOS
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
             JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
         );
     }
@@ -1221,49 +1247,6 @@ class AddArrowControl {
 
     setDefaultProperties = (properties) => {
         Object.assign(AddArrowControl.DEFAULT_PROPERTIES, properties);
-    }
-
-    // ===== UTILITY METHODS =====
-
-    // Helper para garantir que baseCoordinates é sempre um array
-    normalizeBaseCoordinates = (baseCoordinates) => {
-        if (typeof baseCoordinates === 'string') {
-            try {
-                return JSON.parse(baseCoordinates);
-            } catch (e) {
-                console.error('Erro ao parsear baseCoordinates:', e);
-                return [];
-            }
-        }
-
-        if (!Array.isArray(baseCoordinates)) {
-            console.warn('baseCoordinates não é um array:', baseCoordinates);
-            return [];
-        }
-
-        return baseCoordinates;
-    }
-
-    setCursorStyle = (style) => {
-        this.map.getCanvas().style.cursor = style;
-    }
-
-    onRemove = () => {
-        try {
-            if (this.selectionManager && this.selectionManager.uiManager) {
-                this.selectionManager.uiManager.removeControl(this.container);
-            }
-            this.deactivate();
-            this.removeAllEventListeners();
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing AddArrowControl:', error);
-            throw error;
-        }
-    }
-
-    setSelectionManager = (selectionManager) => {
-        this.selectionManager = selectionManager;
     }
 }
 

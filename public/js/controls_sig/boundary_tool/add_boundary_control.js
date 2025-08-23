@@ -8,37 +8,20 @@ class AddBoundaryControl {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
 
-        // Drawing state
+        // ✅ ESTADO SIMPLIFICADO (7 variáveis - normalização defensiva implementada)
         this.isActive = false;
-        this.drawingMode = null;
+        this.selectedFeature = null;           // Substitui currentState system
         this.drawPoints = [];
+        this.isDraggingHandle = false;         // Estado de drag único
+        this.activeHandleType = null;          // Qual handle está sendo arrastado
+        this.activeHandleIndex = null;         // ✅ Índice do handle para vertex/midpoint
 
-        // 3-STATE SYSTEM (same as circle)
-        // 1. deselected: Default state, no special interaction
-        // 2. selected: Feature can be dragged via MoveHandler
-        // 3. editing: Handle-based editing, feature drag disabled
-        this.currentState = 'deselected';
-        this.selectedFeature = null;
-
-        // Edit mode variables
-        this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.initialHandlePosition = null;
-        this.previewFeature = null;
-        this.editHandleIds = new Set();
-
-        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing (same pattern as circle)
+        // ✅ RAF CONSOLIDADO - um sistema apenas
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
-        this.lastPreviewCenter = null; // Not used but kept for consistency
-        this.geometryDebounceTimer = null;
-
-        // ✅ EDIT PERFORMANCE: Same pattern as circle
-        this.editRafId = null;
-        this.pendingEditUpdate = false;
-        this.lastEditPosition = null;
-        this.lastEditHandleType = null;
+        this.lastPreviewPoints = null;         // Cache dos pontos durante preview
+        this.geometryDebounceTimer = null;     // Debounce para operações de geometria
 
         // Boundary-specific drawing
         this.clickTimer = null;
@@ -56,7 +39,13 @@ class AddBoundaryControl {
         text_size: 35,
         echelon: 'XXX',
         text_top: '',
-        text_bottom: ''
+        text_bottom: '',
+
+        // ✅ NOVOS ATRIBUTOS
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -96,7 +85,6 @@ class AddBoundaryControl {
 
     activate = () => {
         this.isActive = true;
-        this.drawingMode = 'boundary';
         this.drawPoints = [];
         this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -109,13 +97,12 @@ class AddBoundaryControl {
 
     deactivate = () => {
         this.isActive = false;
-        this.drawingMode = null;
         this.drawPoints = [];
         this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = '';
         this.updateButtonAppearance();
         this.clearPreview();
-        this.forceTransitionToDeselected();
+        this.deselectFeature();
 
         this.map.off('click', this.handleMapClick);
         this.map.off('dblclick', this.handleDoubleClick);
@@ -129,85 +116,29 @@ class AddBoundaryControl {
         $(`#boundary-tool`).html(`<img class="icon-sig-tool" src="${iconSrc}" alt="BOUNDARY" />`);
     }
 
-    // ===== STATE MANAGEMENT SYSTEM (same as circle) =====
+    // ===== SIMPLIFIED STATE MANAGEMENT =====
 
-    transitionToState = (newState, feature = null) => {
-        this.exitCurrentState();
-        this.currentState = newState;
-        this.selectedFeature = feature;
-
-        switch (newState) {
-            case 'deselected':
-                this.enterDeselectedState();
-                break;
-            case 'selected':
-                this.enterSelectedState(feature);
-                break;
-            case 'editing':
-                this.enterEditingState(feature);
-                break;
-        }
-    }
-
-    exitCurrentState = () => {
-        switch (this.currentState) {
-            case 'selected':
-                this.exitSelectedState();
-                break;
-            case 'editing':
-                this.exitEditingState();
-                break;
-        }
-    }
-
-    forceTransitionToDeselected = () => {
-        this.exitCurrentState();
-        this.currentState = 'deselected';
-        this.selectedFeature = null;
-        this.enterDeselectedState();
-    }
-
-    // State 1: DESELECTED
-    enterDeselectedState = () => {
-        this.selectedFeature = null;
-    }
-
-    // State 2: SELECTED (uses MoveHandler for drag)
-    enterSelectedState = (feature) => {
-        this.selectedFeature = feature;
-    }
-
-    exitSelectedState = () => { }
-
-    // State 3: EDITING (handle-based editing)
-    enterEditingState = (feature) => {
+    selectFeature = (feature) => {
         this.selectedFeature = feature;
         this.createEditHandles(feature);
         this.setupEditEventListeners();
+        this.setupHoverListeners();
     }
 
-    exitEditingState = () => {
-        this.clearEditHandles();
-        this.clearEditPreview();
-        this.removeEditEventListeners();
-        this.resetEditVariables();
-    }
-
-    resetEditVariables = () => {
+    deselectFeature = () => {
+        this.selectedFeature = null;
         this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.initialHandlePosition = null;
-        this.previewFeature = null;
-        this.editHandleIds.clear();
+        this.activeHandleType = null;
+        this.activeHandleIndex = null;         // ✅ Reset índice
+        this.clearEditHandles();
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
-        this.clearEditPreview();
-
-        // ✅ CLEANUP: Cancel pending operations
-        this.cancelPendingUpdates();
     }
 
-    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations (same as circle)
+    // ✅ CLEANUP - cancelar operações pendentes
     cancelPendingUpdates = () => {
         if (this.previewRafId) {
             cancelAnimationFrame(this.previewRafId);
@@ -215,16 +146,9 @@ class AddBoundaryControl {
         }
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
-        this.lastPreviewCenter = null;
-
-        // ✅ EDIT RAF cleanup (same as circle)
-        if (this.editRafId) {
-            cancelAnimationFrame(this.editRafId);
-            this.editRafId = null;
-        }
-        this.pendingEditUpdate = false;
-        this.lastEditPosition = null;
-        this.lastEditHandleType = null;
+        this.lastPreviewPoints = null;
+        this.activeHandleType = null;
+        this.activeHandleIndex = null;         // ✅ Reset índice
 
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);
@@ -237,48 +161,109 @@ class AddBoundaryControl {
         }
     }
 
-    // ===== SELECTION SYSTEM INTEGRATION (same as circle) =====
+    // ===== HOVER SYSTEM FOR DYNAMIC CURSOR =====
+
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
+    }
+
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
+    }
+
+    onHoverMove = (e) => {
+        if (!this.selectedFeature) return;
+
+        const features = this.map.queryRenderedFeatures(e.point);
+        const hasHandle = this.hasHandleAtPoint(features);
+        const hasFeature = this.hasSelectedFeatureAtPoint(features);
+
+        if (hasHandle) {
+            this.map.getCanvas().style.cursor = 'crosshair';
+        } else if (hasFeature) {
+            this.map.getCanvas().style.cursor = 'move';
+        } else {
+            this.map.getCanvas().style.cursor = '';
+        }
+    }
+
+    hasHandleAtPoint = (features) => {
+        return features.some(f =>
+            f.layer?.id === 'boundary-handles-layer'  // ✅ Layer-based detection
+        );
+    }
+
+    hasSelectedFeatureAtPoint = (features) => {
+        if (!this.selectedFeature) return false;
+        return features.some(f =>
+            f.source === 'boundarys' &&
+            f.properties.id === this.selectedFeature.properties.id
+        );
+    }
+
+    // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        const featureId = feature.properties.id;
-        const isSameFeature = this.selectedFeature && this.selectedFeature.properties.id === featureId;
-
-        if (isSameFeature && this.currentState === 'selected') {
-            // Same feature selected again: SELECTED → EDITING
-            this.transitionToState('editing', feature);
+        // ✅ NORMALIZAÇÃO DEFENSIVA - Features podem vir com coordenadas como string do IndexedDB
+        if (feature?.properties?.baseCoordinates) {
+            const normalizedCoords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+            if (normalizedCoords && normalizedCoords.length >= 2) {
+                feature.properties.baseCoordinates = normalizedCoords;
+                this.selectFeature(feature);
+            } else {
+                console.warn('Cannot select boundary feature - invalid coordinates:', feature.properties.baseCoordinates);
+                return;
+            }
         } else {
-            // New feature or first selection: → SELECTED
-            this.transitionToState('selected', feature);
+            this.selectFeature(feature);
         }
     }
 
     onFeatureDeselected = (feature) => {
         const featureId = feature.properties.id;
-
         if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
-            this.transitionToState('deselected');
+            this.deselectFeature();
         }
     }
 
     onGlobalDeselect = () => {
-        if (this.currentState !== 'deselected') {
-            this.forceTransitionToDeselected();
+        if (this.selectedFeature) {
+            this.deselectFeature();
         }
     }
 
     // Interface for move_handler integration
     isEditingMode = () => {
-        return this.currentState === 'editing';
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return this.editHandleIds.has(featureId);
+        return this.selectedFeature && this.selectedFeature.properties.id === featureId;
+    }
+
+    syncEditHandlesAfterDrag = (movedFeatures) => {
+        if (this.selectedFeature && !this.isDraggingHandle) {
+            const updatedFeature = movedFeatures.find(f =>
+                f.properties.id === this.selectedFeature.properties.id
+            );
+            if (updatedFeature) {
+                // ✅ NORMALIZAÇÃO DEFENSIVA - Features movidas podem vir com coordenadas como string
+                const normalizedCoords = this.normalizeBaseCoordinates(updatedFeature.properties.baseCoordinates);
+                if (normalizedCoords && normalizedCoords.length >= 2) {
+                    updatedFeature.properties.baseCoordinates = normalizedCoords;
+                    this.selectedFeature = updatedFeature;
+                    this.createEditHandles(updatedFeature);
+                } else {
+                    console.warn('Invalid coordinates in moved feature, keeping current selection');
+                }
+            }
+        }
     }
 
     // ===== DRAWING SYSTEM =====
 
     handleMapClick = (e) => {
-        if (!this.isActive || this.drawingMode !== 'boundary') return;
+        if (!this.isActive) return;
 
         this.lastClickCoords = [e.lngLat.lng, e.lngLat.lat];
         clearTimeout(this.clickTimer);
@@ -289,7 +274,7 @@ class AddBoundaryControl {
     }
 
     handleDoubleClick = (e) => {
-        if (!this.isActive || this.drawingMode !== 'boundary') return;
+        if (!this.isActive) return;
 
         clearTimeout(this.clickTimer);
         this.lastClickCoords = null;
@@ -303,11 +288,10 @@ class AddBoundaryControl {
         e.preventDefault();
     }
 
-    // ✅ OPTIMIZED: RAF-based preview (same pattern as circle)
+    // ✅ RAF-based preview (com cache dos pontos)
     handlePreviewMouseMove = (e) => {
-        if (this.drawingMode === 'boundary' && this.drawPoints.length >= 1) {
-            // Use boundary-specific logic but same RAF pattern
-            this.lastPreviewCenter = this.drawPoints; // Store current points
+        if (this.drawPoints.length >= 1) {
+            this.lastPreviewPoints = [...this.drawPoints]; // Cache dos pontos
             this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
             if (!this.pendingPreviewUpdate) {
@@ -317,58 +301,63 @@ class AddBoundaryControl {
         }
     }
 
-    // ✅ PERFORMANCE: RAF callback for smooth preview (same as circle)
+    // ✅ CONSOLIDATED RAF - handles both preview and edit
     performPreviewUpdate = () => {
-        if (!this.lastPreviewCenter || !this.lastPreviewPosition || this.lastPreviewCenter.length === 0) {
+        if (!this.lastPreviewPosition) {
             this.pendingPreviewUpdate = false;
             return;
         }
 
-        // Build preview points
-        let previewPoints = [...this.lastPreviewCenter];
-        if (this.lastClickCoords) {
-            previewPoints.push(this.lastClickCoords);
+        // Edit mode - updating boundary via handle drag
+        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
+            this.updateBoundaryPreview(this.lastPreviewPosition);
         }
-        previewPoints.push(this.lastPreviewPosition);
+        // Drawing mode - showing boundary preview
+        else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 1) {
+            // Build preview points
+            let previewPoints = [...this.lastPreviewPoints];
+            if (this.lastClickCoords) {
+                previewPoints.push(this.lastClickCoords);
+            }
+            previewPoints.push(this.lastPreviewPosition);
 
-        if (previewPoints.length >= 2) {
-            // Light debouncing for boundary geometry generation (same as circle)
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = setTimeout(() => {
-                const previewGeometry = this.generateBoundaryGeometry({
-                    baseCoordinates: previewPoints,
-                    ...AddBoundaryControl.DEFAULT_PROPERTIES
-                });
-                this.showPreview(previewGeometry);
-            }, 8); // Same 8ms as circle for consistency
+            if (previewPoints.length >= 2) {
+                // Light debouncing for boundary geometry generation
+                clearTimeout(this.geometryDebounceTimer);
+                this.geometryDebounceTimer = setTimeout(() => {
+                    const previewGeometry = this.generateBoundaryGeometry({
+                        baseCoordinates: previewPoints,
+                        ...AddBoundaryControl.DEFAULT_PROPERTIES
+                    });
+                    this.showPreview(previewGeometry);
+                }, 8); // 8ms como nos outros controles
+            }
         }
 
         this.pendingPreviewUpdate = false;
     }
 
+    // ✅ UPDATED - uses consolidated feedback source (estilo fixo)
     showPreview = (geometry) => {
-        this.map.getSource('boundary-preview').setData({
+        this.map.getSource('boundary-feedback').setData({
             type: 'Feature',
             geometry: geometry,
-            properties: {
-                preview: true,
-                color: AddBoundaryControl.DEFAULT_PROPERTIES.color,
-                lineWidth: AddBoundaryControl.DEFAULT_PROPERTIES.lineWidth,
-                opacity: 0.7
-            }
+            properties: {}  // Sem propriedades - estilo sempre igual
         });
     }
 
+    // ✅ UPDATED - clears consolidated feedback source
     clearPreview = () => {
         this.cancelPendingUpdates();
-        this.map.getSource('boundary-preview').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
+        if (this.map && this.map.getSource('boundary-feedback')) {
+            this.map.getSource('boundary-feedback').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
     }
 
     stopDrawing = () => {
-        this.drawingMode = null;
         this.drawPoints = [];
         this.lastClickCoords = null;
         this.clearPreview();
@@ -391,10 +380,12 @@ class AddBoundaryControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
+        const featureName = IDUtils.generateFeatureName('boundary', this.map);
         const properties = {
             ...AddBoundaryControl.DEFAULT_PROPERTIES,
             baseCoordinates: [...validPoints],
-            id: featureId
+            id: featureId,
+            nome: featureName
         };
 
         const geometry = this.generateBoundaryGeometry(properties);
@@ -429,7 +420,7 @@ class AddBoundaryControl {
         }
     }
 
-    // ===== BOUNDARY GEOMETRY GENERATION =====
+    // ===== BOUNDARY GEOMETRY GENERATION (PRESERVAR LÓGICA ORIGINAL) =====
 
     generateBoundaryGeometry = (properties) => {
         let { baseCoordinates, symbol_position_ratio, symbol_size, echelon } = properties;
@@ -462,7 +453,7 @@ class AddBoundaryControl {
         }
 
         try {
-            const lineWithGap = this.createLineWithGap(baseCoordinates, symbol_position_ratio, symbol_size);
+            const lineWithGap = this.createLineWithGap(baseCoordinates, symbol_position_ratio, symbol_size, echelon);
             const symbolLines = this.createEchelonSymbolLines(baseCoordinates, symbol_position_ratio, symbol_size, echelon);
             const allLines = [...lineWithGap, ...symbolLines];
 
@@ -488,24 +479,54 @@ class AddBoundaryControl {
     }
 
     normalizeBaseCoordinates = (coords) => {
-        if (typeof coords === 'string') {
-            try {
-                coords = JSON.parse(coords);
-            } catch (e) {
-                console.error('Erro ao parsear baseCoordinates:', coords, e);
+        // ✅ NORMALIZAÇÃO ROBUSTA - Handle múltiplos formatos
+        if (!coords) {
+            console.warn('baseCoordinates is null or undefined');
+            return null;
+        }
+
+        // Se já é um array válido, retornar
+        if (Array.isArray(coords)) {
+            // Validar que é realmente um array de coordenadas válidas
+            const isValidArray = coords.every(coord =>
+                Array.isArray(coord) &&
+                coord.length >= 2 &&
+                typeof coord[0] === 'number' &&
+                typeof coord[1] === 'number' &&
+                !isNaN(coord[0]) &&
+                !isNaN(coord[1])
+            );
+            
+            if (isValidArray) {
+                return coords;
+            } else {
+                console.warn('baseCoordinates array contains invalid coordinates:', coords);
                 return null;
             }
         }
 
-        if (!Array.isArray(coords)) {
-            console.warn('baseCoordinates não é um array:', coords);
-            return null;
+        // Se é string, tentar fazer parse
+        if (typeof coords === 'string') {
+            try {
+                const parsed = JSON.parse(coords);
+                if (Array.isArray(parsed)) {
+                    // Recursão para validar o resultado parseado
+                    return this.normalizeBaseCoordinates(parsed);
+                } else {
+                    console.warn('Parsed baseCoordinates is not an array:', parsed);
+                    return null;
+                }
+            } catch (e) {
+                console.error('Erro ao parsear baseCoordinates string:', coords, e);
+                return null;
+            }
         }
 
-        return coords;
+        console.warn('baseCoordinates is neither array nor string:', typeof coords, coords);
+        return null;
     }
 
-    createLineWithGap = (coordinates, ratio, symbolSize) => {
+    createLineWithGap = (coordinates, ratio, symbolSize, echelon) => {
         if (coordinates.length < 2) return [];
 
         const validCoords = coordinates.filter(coord =>
@@ -526,7 +547,8 @@ class AddBoundaryControl {
                 return [validCoords];
             }
 
-            const numSymbols = 3;
+            // ✅ GAP DINÂMICO: Baseado no número de símbolos do echelon
+            const numSymbols = (echelon && echelon.length > 0) ? echelon.length : 3;  // Fallback para 3
             const symbolWidth = numSymbols * symbolSize * 1.5;
             const gapWidth = symbolWidth * 1.2;
             const centerDistance = totalLength * ratio;
@@ -641,7 +663,7 @@ class AddBoundaryControl {
         return { lines: symbolLines, polygons: polygons };
     }
 
-    // ===== DEPENDENT FEATURES =====
+    // ===== DEPENDENT FEATURES (PRESERVAR LÓGICA ORIGINAL) =====
 
     updateDependentFeatures = (boundaryFeature) => {
         this.updateBoundaryCircles(boundaryFeature);
@@ -782,27 +804,23 @@ class AddBoundaryControl {
 
     createEditHandles = (feature) => {
         const handles = [];
-        const baseFeature = this.getSelectedFeature() || feature;
-        if (!baseFeature || !baseFeature.properties.baseCoordinates) return;
+        if (!feature || !feature.properties.baseCoordinates) return;
 
-        handles.push({
-            ...baseFeature,
-            properties: {
-                ...baseFeature.properties,
-                role: 'selected-feature',
-                mode: 'boundary_editing'
-            }
-        });
+        const controlPoints = this.getControlPoints(feature);
+        controlPoints.forEach(p => handles.push(p));
 
-        const controlPoints = this.getControlPoints(baseFeature);
-        controlPoints.forEach(p => {
-            this.editHandleIds.add(p.id);
-            handles.push(p);
-        });
-
-        this.map.getSource('boundary-edit-handles').setData({
+        // Show selection feedback using consolidated source (estilo fixo)
+        this.map.getSource('boundary-feedback').setData({
             type: 'FeatureCollection',
-            features: handles
+            features: [
+                // Selected feature with simple properties
+                {
+                    ...feature,
+                    properties: {}  // Sem propriedades - estilo sempre igual
+                },
+                // All handles
+                ...handles
+            ]
         });
     }
 
@@ -828,7 +846,7 @@ class AddBoundaryControl {
             return [];
         }
 
-        // Vertex handles
+        // 1. Vertex handles (vermelho)
         validCoords.forEach((coord, index) => {
             const handleId = `boundary-handle-${id}-vertex-${index}`;
             points.push({
@@ -852,7 +870,7 @@ class AddBoundaryControl {
             });
         });
 
-        // Midpoint handles
+        // 2. Midpoint handles (laranja)
         for (let i = 0; i < validCoords.length - 1; i++) {
             try {
                 const midpoint = turf.midpoint(turf.point(validCoords[i]), turf.point(validCoords[i + 1]));
@@ -878,13 +896,14 @@ class AddBoundaryControl {
             }
         }
 
-        // Symbol handles
+        // 3. Symbol handles (azul e verde)
         try {
             const ratio = baseFeature.properties.symbol_position_ratio || 0.5;
             const line = turf.lineString(validCoords);
             const totalLength = turf.length(line, { units: 'kilometers' });
 
             if (totalLength > 0.001) {
+                // Symbol position handle (azul)
                 const symbolPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
                 const symbolHandleId = `boundary-handle-${id}-symbol`;
                 points.push({
@@ -906,7 +925,7 @@ class AddBoundaryControl {
                     }
                 });
 
-                // Size handle
+                // Size handle (verde)
                 const size = baseFeature.properties.symbol_size || 2;
                 const distance1 = Math.max(0.001, totalLength * ratio - 0.01);
                 const distance2 = Math.min(totalLength - 0.001, totalLength * ratio + 0.01);
@@ -943,15 +962,7 @@ class AddBoundaryControl {
     }
 
     clearEditHandles = () => {
-        this.editHandleIds.clear();
-        this.map.getSource('boundary-edit-handles').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
-    }
-
-    clearEditPreview = () => {
-        this.map.getSource('boundary-edit-handles').setData({
+        this.map.getSource('boundary-feedback').setData({
             type: 'FeatureCollection',
             features: []
         });
@@ -972,130 +983,134 @@ class AddBoundaryControl {
     }
 
     onEditMouseDown = (e) => {
-        if (this.currentState !== 'editing') return;
+        if (!this.selectedFeature) return;
 
         const handleFeatures = this.map.queryRenderedFeatures(e.point, {
-            layers: ['boundary-edit-handles-layer']
-        });
-
-        const targetLine = this.map.queryRenderedFeatures(e.point, {
-            layers: ['boundary-selected-layer']
+            layers: ['boundary-handles-layer']  // ✅ CORRIGIDO: Query na layer certa
         });
 
         if (handleFeatures.length > 0) {
-            this.activeHandle = handleFeatures[0];
-        } else if (targetLine.length > 0) {
-            this.activeHandle = targetLine[0];
-        } else {
-            return;
-        }
-
-        this.map.dragPan.disable();
-        this.isDraggingHandle = true;
-        this.initialHandlePosition = [e.lngLat.lng, e.lngLat.lat];
-        this.map.getCanvas().style.cursor = 'grabbing';
-
-        const baseFeature = this.getSelectedFeature();
-        if (baseFeature) {
-            this.previewFeature = JSON.parse(JSON.stringify(baseFeature));
+            const handle = handleFeatures[0];
+            if (handle.properties.user_isEditingHandle) {
+                this.isDraggingHandle = true;
+                this.activeHandleType = handle.properties.type;
+                this.activeHandleIndex = handle.properties.index; // ✅ Store handle index
+                this.map.dragPan.disable();
+                this.map.getCanvas().style.cursor = 'grabbing';
+                e.preventDefault();
+            }
         }
     }
 
-    // ✅ OPTIMIZED: RAF-based edit updates (same pattern as circle)
+    // ✅ SIMPLIFIED - uses consolidated RAF
     onEditMouseMove = (e) => {
-        if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) return;
+        if (!this.isDraggingHandle || !this.selectedFeature) return;
 
-        this.lastEditPosition = [e.lngLat.lng, e.lngLat.lat];
-        this.lastEditHandleType = this.activeHandle.properties.type;
+        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
-        if (!this.pendingEditUpdate) {
-            this.pendingEditUpdate = true;
-            this.editRafId = requestAnimationFrame(this.performEditUpdate.bind(this));
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
         }
-    }
-
-    // ✅ PERFORMANCE: RAF callback for smooth edit updates (same as circle)
-    performEditUpdate = () => {
-        if (!this.lastEditPosition || !this.previewFeature) {
-            this.pendingEditUpdate = false;
-            return;
-        }
-
-        // Light debouncing for geometry generation (same as circle)
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            this.updateEditPreview(this.lastEditPosition);
-        }, 8); // Same 8ms as circle for consistency
-
-        this.pendingEditUpdate = false;
-    }
-
-    updateEditPreview = (currentCoords) => {
-        if (!this.previewFeature || !this.activeHandle) return;
-
-        const props = this.activeHandle.properties;
-        let coordinates = [...this.previewFeature.properties.baseCoordinates];
-
-        if (props.type === 'size_handle') {
-            const ratio = this.previewFeature.properties.symbol_position_ratio || 0.5;
-            const line = turf.lineString(coordinates);
-            const totalLength = turf.length(line, { units: 'kilometers' });
-            const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
-            const newSize = turf.distance(centerPoint, turf.point(currentCoords), { units: 'kilometers' }) * 2;
-            this.previewFeature.properties.symbol_size = Math.max(0.5, newSize);
-
-        } else if (props.type === 'symbol_handle') {
-            const line = turf.lineString(coordinates);
-            const pointOnLine = turf.nearestPointOnLine(line, turf.point(currentCoords), { units: 'kilometers' });
-            const distance = pointOnLine.properties.location;
-            const totalLength = turf.length(line, { units: 'kilometers' });
-            this.previewFeature.properties.symbol_position_ratio = Math.max(0.01, Math.min(0.99, distance / totalLength));
-
-        } else if (props.type === 'vertex') {
-            coordinates[props.index] = currentCoords;
-            this.previewFeature.properties.baseCoordinates = coordinates;
-
-        } else if (props.type === 'midpoint') {
-            coordinates.splice(props.index, 0, currentCoords);
-            this.previewFeature.properties.baseCoordinates = coordinates;
-            this.activeHandle.properties.type = 'vertex';
-
-        } else {
-            const dx = currentCoords[0] - this.initialHandlePosition[0];
-            const dy = currentCoords[1] - this.initialHandlePosition[1];
-
-            coordinates = coordinates.map(c => [c[0] + dx, c[1] + dy]);
-            this.previewFeature.properties.baseCoordinates = coordinates;
-        }
-
-        this.previewFeature.geometry = this.generateBoundaryGeometry(this.previewFeature.properties);
-
-        this.forceUpdateMainSource(this.previewFeature);
-        this.updateDependentFeatures(this.previewFeature);
-        this.createEditHandles(this.previewFeature);
     }
 
     onEditMouseUp = () => {
-        if (this.isDraggingHandle && this.previewFeature) {
-            this.selectedFeature.properties = { ...this.previewFeature.properties };
-            this.selectedFeature.geometry = { ...this.previewFeature.geometry };
+        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
+            // Apply changes to selected feature
+            this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
+            
+            // Regenerate geometry
+            this.selectedFeature.geometry = this.generateBoundaryGeometry(this.selectedFeature.properties);
 
-            this.isDraggingHandle = false;
-            this.activeHandle = null;
-            this.initialHandlePosition = null;
-            const finalFeature = this.selectedFeature;
-            this.previewFeature = null;
-            this.map.dragPan.enable();
-            this.map.getCanvas().style.cursor = '';
-
-            this.clearEditPreview();
-            this.forceUpdateMainSource(finalFeature);
-            this.updateDependentFeatures(finalFeature);
-            this.createEditHandles(finalFeature);
+            this.forceUpdateMainSource(this.selectedFeature);
+            this.updateDependentFeatures(this.selectedFeature);
+            this.createEditHandles(this.selectedFeature);
             this.updateSelectionAfterEdit();
             this.updateUIAfterEdit();
-            this.saveFeatureChanges(finalFeature);
+            this.saveFeatureChanges(this.selectedFeature);
         }
+
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;
+        this.activeHandleIndex = null;         // ✅ Reset índice
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    updateBoundaryPreview = (newPosition) => {
+        if (!this.selectedFeature || !this.activeHandleType) return;
+
+        // ✅ NORMALIZAÇÃO DEFENSIVA - Importante para preview após carregar
+        let coordinates = this.normalizeBaseCoordinates(this.selectedFeature.properties.baseCoordinates);
+        if (!coordinates || coordinates.length < 2) {
+            console.warn('Invalid coordinates for boundary preview:', this.selectedFeature.properties.baseCoordinates);
+            return;
+        }
+
+        // Light debouncing for boundary geometry generation
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            this.updateGeometryFromHandle(this.activeHandleType, newPosition);
+            const previewGeometry = this.generateBoundaryGeometry(this.selectedFeature.properties);
+            
+            // Show updated preview
+            this.showEditPreview(previewGeometry);
+        }, 8);
+    }
+
+    updateGeometryFromHandle = (handleType, newPosition) => {
+        if (!this.selectedFeature) return;
+
+        // ✅ NORMALIZAÇÃO DEFENSIVA - Crítico para coordenadas que vêm do IndexedDB
+        let coordinates = this.normalizeBaseCoordinates(this.selectedFeature.properties.baseCoordinates);
+        if (!coordinates || coordinates.length < 2) {
+            console.warn('Invalid coordinates for handle update:', this.selectedFeature.properties.baseCoordinates);
+            return;
+        }
+        coordinates = [...coordinates]; // Safe copy após validação
+
+        if (handleType === 'size_handle') {
+            // Size handle logic
+            const ratio = this.selectedFeature.properties.symbol_position_ratio || 0.5;
+            const line = turf.lineString(coordinates);
+            const totalLength = turf.length(line, { units: 'kilometers' });
+            const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
+            const newSize = turf.distance(centerPoint, turf.point(newPosition), { units: 'kilometers' }) * 2;
+            this.selectedFeature.properties.symbol_size = Math.max(0.5, newSize);
+
+        } else if (handleType === 'symbol_handle') {
+            // Symbol position handle logic
+            const line = turf.lineString(coordinates);
+            const pointOnLine = turf.nearestPointOnLine(line, turf.point(newPosition), { units: 'kilometers' });
+            const distance = pointOnLine.properties.location;
+            const totalLength = turf.length(line, { units: 'kilometers' });
+            this.selectedFeature.properties.symbol_position_ratio = Math.max(0.01, Math.min(0.99, distance / totalLength));
+
+        } else if (handleType === 'vertex' && this.activeHandleIndex !== null) {
+            // ✅ CORRIGIDO: Usar activeHandleIndex armazenado
+            coordinates[this.activeHandleIndex] = newPosition;
+            this.selectedFeature.properties.baseCoordinates = coordinates;
+
+        } else if (handleType === 'midpoint' && this.activeHandleIndex !== null) {
+            coordinates.splice(this.activeHandleIndex, 0, newPosition);
+            this.selectedFeature.properties.baseCoordinates = coordinates;
+            
+            this.activeHandleType = 'vertex';
+        }
+    }
+
+    showEditPreview = (geometry) => {
+        this.map.getSource('boundary-feedback').setData({
+            type: 'FeatureCollection',
+            features: [
+                {
+                    type: 'Feature',
+                    geometry: geometry,
+                    properties: {}  // Sem propriedades - estilo sempre igual
+                },
+                ...this.getControlPoints(this.selectedFeature)
+            ]
+        });
     }
 
     // ===== UTILITY METHODS =====
@@ -1134,7 +1149,7 @@ class AddBoundaryControl {
 
     updateSelectionAfterEdit = () => {
         const featureId = this.selectedFeature.properties.id;
-        const type = this.selectedFeature.properties.source; // 'circle', 'ellipse', etc.
+        const type = this.selectedFeature.properties.source;
         const key = `${type}:${featureId}`;
 
         this.selectionManager.selectedFeatures.set(key, {
@@ -1165,7 +1180,7 @@ class AddBoundaryControl {
     removeAllEventListeners = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
-        // ✅ CLEANUP: Cancel all pending operations
+        this.removeHoverListeners();
         this.cancelPendingUpdates();
     }
 
@@ -1213,7 +1228,7 @@ class AddBoundaryControl {
                 if (['baseCoordinates', 'symbol_position_ratio', 'symbol_size', 'echelon'].includes(property)) {
                     this.selectedFeature.geometry = sourceFeature.geometry;
 
-                    if (this.currentState === 'editing' && !this.isDraggingHandle) {
+                    if (!this.isDraggingHandle) {
                         this.createEditHandles(this.selectedFeature);
                     }
                 }
@@ -1268,6 +1283,11 @@ class AddBoundaryControl {
             feature.properties.text_bottom !== initialProperties.text_bottom ||
             feature.properties.symbol_size !== initialProperties.symbol_size ||
             feature.properties.symbol_position_ratio !== initialProperties.symbol_position_ratio ||
+            // ✅ NOVOS ATRIBUTOS
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
             JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
         );
     }
@@ -1310,7 +1330,7 @@ class AddBoundaryControl {
         const deletedIds = features.map(f => String(f.properties.id));
         if (this.selectedFeature &&
             deletedIds.includes(String(this.selectedFeature.properties.id))) {
-            this.transitionToState('deselected');
+            this.deselectFeature();
         }
     }
 

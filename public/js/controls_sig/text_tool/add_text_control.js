@@ -1,7 +1,17 @@
 // Path: js\controls_sig\text_tool\add_text_control.js
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 import { IDUtils } from '../id_utils.js';
+
 class AddTextControl {
+    constructor(toolManager) {
+        this.toolManager = toolManager;
+        this.selectionManager = toolManager.selectionManager;
+        this.toolManager.textControl = this;
+        
+        this.isActive = false;
+        this.selectedFeature = null;
+    }
+
     static DEFAULT_PROPERTIES = {
         text: '',
         size: 16,
@@ -9,15 +19,14 @@ class AddTextControl {
         backgroundColor: '#ffffff',
         rotation: 0,
         justify: 'center',
-        source: 'text'
+        source: 'text',
+        
+        // ✅ NOVOS ATRIBUTOS OBRIGATÓRIOS
+        nome: '',           // Será preenchido automaticamente
+        descricao: '',      // String vazia
+        visivel: true,      // Boolean true
+        bloqueado: false    // Boolean false
     };
-
-    constructor(toolManager) {
-        this.toolManager = toolManager;
-        this.selectionManager = toolManager.selectionManager;
-        this.toolManager.textControl = this;
-        this.isActive = false;
-    }
 
     onAdd = (map) => {
         this.map = map;
@@ -34,15 +43,14 @@ class AddTextControl {
         this.container.appendChild(button);
 
         this.setupEventListeners();
-
-        this.changeButtonColor()
+        this.changeButtonColor();
 
         return this.container;
     }
 
     changeButtonColor = () => {
         $("#text-tool").html(`<img class="icon-sig-tool" src="./images/icon_text_black.svg" alt="TEXT" />`);
-        if (!this.isActive) return
+        if (!this.isActive) return;
         $("#text-tool").html('<img class="icon-sig-tool" src="./images/icon_text_red.svg" alt="TEXT" />');
     }
 
@@ -58,21 +66,24 @@ class AddTextControl {
     }
 
     setupEventListeners = () => {
+        // Event listeners básicos se necessário
     }
 
     removeEventListeners = () => {
+        this.removeHoverListeners(); // ✅ NOVO - cleanup hover
     }
 
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.changeButtonColor()
+        this.changeButtonColor();
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
-        this.changeButtonColor()
+        this.changeButtonColor();
+        this.deselectFeature(); // ✅ NOVO - cleanup ao desativar
     }
 
     handleMapClick = (e) => {
@@ -82,9 +93,14 @@ class AddTextControl {
         }
     }
 
+    // ✅ ATUALIZADO - com geração automática de nomes
     addTextFeature = async (lngLat, text) => {
         const feature = this.createTextFeature(lngLat, text);
         feature.properties.id = IDUtils.generateUniqueId();
+        
+        // ✅ NOVO - Geração automática de nomes
+        feature.properties.nome = IDUtils.generateFeatureName('text', this.map);
+        
         // Salvar no IndexedDB
         await addFeature('texts', feature);
 
@@ -92,8 +108,8 @@ class AddTextControl {
         data.features.push(feature);
         this.map.getSource('texts').setData(data);
 
-        this.selectionManager.toggleFeatureSelection('text', feature.properties.id, feature)
-        this.selectionManager.updateUI()
+        this.selectionManager.toggleFeatureSelection('text', feature.properties.id, feature);
+        this.selectionManager.updateUI();
     }
 
     createTextFeature = (lngLat, text) => {
@@ -107,6 +123,70 @@ class AddTextControl {
             }
         };
     }
+
+    // ===== SELECTION SYSTEM INTEGRATION ===== 
+
+    // ✅ NOVO - Interface para SelectionManager
+    onFeatureSelected = (feature) => {
+        this.selectedFeature = feature;
+        this.setupHoverListeners(); // ✅ Hover dinâmico quando selecionado
+    }
+
+    onFeatureDeselected = (feature) => {
+        const featureId = feature.properties.id;
+        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
+            this.deselectFeature();
+        }
+    }
+
+    onGlobalDeselect = () => {
+        if (this.selectedFeature) {
+            this.deselectFeature();
+        }
+    }
+
+    // ✅ NOVO - Método de desseleção
+    deselectFeature = () => {
+        this.selectedFeature = null;
+        this.removeHoverListeners();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    // ✅ NOVO - Sistema hover dinâmico (padrão dos outros controls)
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
+    }
+
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
+    }
+
+    onHoverMove = (e) => {
+        if (!this.selectedFeature) return;
+        
+        const features = this.map.queryRenderedFeatures(e.point);
+        const hasSelectedFeature = features.some(f => 
+            f.source === 'texts' && 
+            f.properties.id === this.selectedFeature.properties.id
+        );
+        
+        this.map.getCanvas().style.cursor = hasSelectedFeature ? 'move' : '';
+    }
+
+    // ✅ NOVO - Interface methods para MoveHandler integration
+    isEditingMode = () => {
+        return false; // Text não tem editing mode com handles
+    }
+
+    hasEditHandle = (featureId) => {
+        return false; // Text não tem handles para editar
+    }
+
+    syncEditHandlesAfterDrag = (movedFeatures) => {
+        // N/A - Text não tem handles para sincronizar
+    }
+
+    // ===== FEATURE MANAGEMENT METHODS =====
     
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
@@ -189,14 +269,19 @@ class AddTextControl {
         Object.assign(AddTextControl.DEFAULT_PROPERTIES, properties);
     }
 
+    // ✅ ATUALIZADO - incluindo novos atributos + fix rotation
     hasFeatureChanged = (feature, initialProperties) => {
         return (
             feature.properties.text !== initialProperties.text ||
             feature.properties.size !== initialProperties.size ||
             feature.properties.color !== initialProperties.color ||
             feature.properties.backgroundColor !== initialProperties.backgroundColor ||
-            feature.properties.rotate !== initialProperties.rotate ||
-            feature.properties.justify !== initialProperties.justify
+            feature.properties.rotation !== initialProperties.rotation || // ✅ FIX: era 'rotate'
+            feature.properties.justify !== initialProperties.justify ||
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado
         );
     }
 }

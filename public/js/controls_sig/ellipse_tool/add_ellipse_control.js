@@ -11,37 +11,17 @@ class AddEllipseControl {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
 
-        // Drawing state
         this.isActive = false;
-        this.drawingMode = null;
+        this.selectedFeature = null;           // Substitui currentState system
         this.drawPoints = [];
+        this.isDraggingHandle = false;         // Estado de drag único
 
-        // 3-STATE SYSTEM (same as circle)
-        // 1. deselected: Default state, no special interaction
-        // 2. selected: Feature can be dragged via MoveHandler
-        // 3. editing: Handle-based editing, feature drag disabled
-        this.currentState = 'deselected';
-        this.selectedFeature = null;
-
-        // Edit mode variables
-        this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.initialHandlePosition = null;
-        this.previewFeature = null;
-        this.editHandleIds = new Set();
-
-        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing (same pattern as circle)
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
-
-        // ✅ EDIT PERFORMANCE: Same pattern as circle
-        this.editRafId = null;
-        this.pendingEditUpdate = false;
-        this.lastEditPosition = null;
-        this.lastEditHandleType = null;
+        this.activeHandleType = null;
     }
 
     static DEFAULT_PROPERTIES = {
@@ -49,7 +29,11 @@ class AddEllipseControl {
         fillColor: '#3f4fb5',
         lineWidth: 2,
         opacity: 0.5,
-        source: 'ellipse'
+        source: 'ellipse',
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -89,7 +73,6 @@ class AddEllipseControl {
 
     activate = () => {
         this.isActive = true;
-        this.drawingMode = 'ellipse';
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
         this.updateButtonAppearance();
@@ -97,12 +80,11 @@ class AddEllipseControl {
 
     deactivate = () => {
         this.isActive = false;
-        this.drawingMode = null;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
         this.updateButtonAppearance();
         this.clearPreview();
-        this.forceTransitionToDeselected();
+        this.deselectFeature();
     }
 
     updateButtonAppearance = () => {
@@ -112,85 +94,27 @@ class AddEllipseControl {
         $("#ellipse-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="ELLIPSE" />`);
     }
 
-    // ===== STATE MANAGEMENT SYSTEM (Same as circle) =====
+    // ===== SIMPLIFIED STATE MANAGEMENT =====
 
-    transitionToState = (newState, feature = null) => {
-        this.exitCurrentState();
-        this.currentState = newState;
-        this.selectedFeature = feature;
-
-        switch (newState) {
-            case 'deselected':
-                this.enterDeselectedState();
-                break;
-            case 'selected':
-                this.enterSelectedState(feature);
-                break;
-            case 'editing':
-                this.enterEditingState(feature);
-                break;
-        }
-    }
-
-    exitCurrentState = () => {
-        switch (this.currentState) {
-            case 'selected':
-                this.exitSelectedState();
-                break;
-            case 'editing':
-                this.exitEditingState();
-                break;
-        }
-    }
-
-    forceTransitionToDeselected = () => {
-        this.exitCurrentState();
-        this.currentState = 'deselected';
-        this.selectedFeature = null;
-        this.enterDeselectedState();
-    }
-
-    // State 1: DESELECTED
-    enterDeselectedState = () => {
-        this.selectedFeature = null;
-    }
-
-    // State 2: SELECTED (uses MoveHandler for drag)
-    enterSelectedState = (feature) => {
-        this.selectedFeature = feature;
-    }
-
-    exitSelectedState = () => { }
-
-    // State 3: EDITING (handle-based editing)
-    enterEditingState = (feature) => {
+    selectFeature = (feature) => {
         this.selectedFeature = feature;
         this.createEditHandles(feature);
         this.setupEditEventListeners();
+        this.setupHoverListeners();
     }
 
-    exitEditingState = () => {
-        this.clearEditHandles();
-        this.clearEditPreview();
-        this.removeEditEventListeners();
-        this.resetEditVariables();
-    }
-
-    resetEditVariables = () => {
+    deselectFeature = () => {
+        this.selectedFeature = null;
         this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.initialHandlePosition = null;
-        this.previewFeature = null;
-        this.editHandleIds.clear();
+        this.clearEditHandles();
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
-        this.clearEditPreview();
-
-        // ✅ CLEANUP: Cancel pending operations
-        this.cancelPendingUpdates();
     }
 
-    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations
+    // ✅ CLEANUP - cancelar operações pendentes
     cancelPendingUpdates = () => {
         if (this.previewRafId) {
             cancelAnimationFrame(this.previewRafId);
@@ -198,59 +122,94 @@ class AddEllipseControl {
         }
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
-        this.lastPreviewCenter = null;
-
-        // ✅ EDIT RAF cleanup (same as circle)
-        if (this.editRafId) {
-            cancelAnimationFrame(this.editRafId);
-            this.editRafId = null;
-        }
-        this.pendingEditUpdate = false;
-        this.lastEditPosition = null;
-        this.lastEditHandleType = null;
-
+        this.lastPreviewCenter = null;     // ✅ Reset cache do centro
+        this.activeHandleType = null;      // ✅ Reset handle type
+        
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);
             this.geometryDebounceTimer = null;
         }
     }
 
+    // ===== HOVER SYSTEM FOR DYNAMIC CURSOR =====
+
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
+    }
+
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
+    }
+
+    onHoverMove = (e) => {
+        if (!this.selectedFeature) return;
+
+        const features = this.map.queryRenderedFeatures(e.point);
+        const hasHandle = this.hasHandleAtPoint(features);
+        const hasFeature = this.hasSelectedFeatureAtPoint(features);
+
+        if (hasHandle) {
+            this.map.getCanvas().style.cursor = 'crosshair';
+        } else if (hasFeature) {
+            this.map.getCanvas().style.cursor = 'move';
+        } else {
+            this.map.getCanvas().style.cursor = '';
+        }
+    }
+
+    hasHandleAtPoint = (features) => {
+        return features.some(f =>
+            f.source === 'ellipse-edit-handles' &&
+            f.properties.user_isEditingHandle
+        );
+    }
+
+    hasSelectedFeatureAtPoint = (features) => {
+        if (!this.selectedFeature) return false;
+        return features.some(f =>
+            f.source === 'ellipses' &&
+            f.properties.id === this.selectedFeature.properties.id
+        );
+    }
+
     // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        const featureId = feature.properties.id;
-        const isSameFeature = this.selectedFeature && this.selectedFeature.properties.id === featureId;
-
-        if (isSameFeature && this.currentState === 'selected') {
-            // Same feature selected again: SELECTED → EDITING
-            this.transitionToState('editing', feature);
-        } else {
-            // New feature or first selection: → SELECTED
-            this.transitionToState('selected', feature);
-        }
+        this.selectFeature(feature);
     }
 
     onFeatureDeselected = (feature) => {
         const featureId = feature.properties.id;
-
         if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
-            this.transitionToState('deselected');
+            this.deselectFeature();
         }
     }
 
     onGlobalDeselect = () => {
-        if (this.currentState !== 'deselected') {
-            this.forceTransitionToDeselected();
+        if (this.selectedFeature) {
+            this.deselectFeature();
         }
     }
 
     // Interface for move_handler integration
     isEditingMode = () => {
-        return this.currentState === 'editing';
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return this.editHandleIds.has(featureId);
+        return this.selectedFeature && this.selectedFeature.properties.id === featureId;
+    }
+
+    syncEditHandlesAfterDrag = (movedFeatures) => {
+        if (this.selectedFeature && !this.isDraggingHandle) {
+            const updatedFeature = movedFeatures.find(f =>
+                f.properties.id === this.selectedFeature.properties.id
+            );
+            if (updatedFeature) {
+                this.selectedFeature = updatedFeature;
+                this.createEditHandles(updatedFeature);
+            }
+        }
     }
 
     // ===== DRAWING SYSTEM =====
@@ -274,53 +233,61 @@ class AddEllipseControl {
         }
     }
 
-    // ✅ OPTIMIZED: RAF-based preview (same pattern as circle)
+    // ✅ RAF-based preview (com cache do centro)
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length === 1) {
-            this.lastPreviewCenter = this.drawPoints[0];
+            this.lastPreviewCenter = this.drawPoints[0];  // ✅ Cache do centro
             this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
             if (!this.pendingPreviewUpdate) {
                 this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
+                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
             }
         }
     }
 
-    // ✅ PERFORMANCE: RAF callback for smooth preview
+    // ✅ CONSOLIDATED RAF - handles both preview and edit
     performPreviewUpdate = () => {
-        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
+        if (!this.lastPreviewPosition) {
             this.pendingPreviewUpdate = false;
             return;
         }
 
-        // Calculate using same logic as original
-        const majorRadius = this.calculateDistance(this.lastPreviewCenter, this.lastPreviewPosition, { units: 'kilometers' });
-        const bearing = this.calculateBearing(this.lastPreviewCenter, this.lastPreviewPosition);
+        // Edit mode - updating ellipse via handle drag
+        if (this.isDraggingHandle && this.selectedFeature) {
+            this.updateEllipsePreview(this.lastPreviewPosition);
+        }
+        // Drawing mode - showing ellipse preview
+        else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
+            const center = this.lastPreviewCenter;  // ✅ Usar cache
+            const majorRadius = this.calculateDistance(center, this.lastPreviewPosition, { units: 'kilometers' });
+            const bearing = this.calculateBearing(center, this.lastPreviewPosition);
 
-        if (majorRadius >= 0.01) { // Minimum 10 meters
-            // Light debouncing for geometry generation (same as circle)
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = setTimeout(() => {
-                const previewGeometry = this.generateEllipseGeometry(
-                    this.lastPreviewCenter,
-                    majorRadius,
-                    majorRadius * 0.6, // Initial minor radius
-                    bearing
-                );
-                this.showPreview(previewGeometry);
-            }, 8); // Same 8ms as circle for consistency
+            if (majorRadius >= 0.01) { // Minimum 10 meters
+                // ✅ Light debounce para operações turf.js pesadas
+                clearTimeout(this.geometryDebounceTimer);
+                this.geometryDebounceTimer = setTimeout(() => {
+                    const previewGeometry = this.generateEllipseGeometry(
+                        center,
+                        majorRadius,
+                        majorRadius * 0.6, // Initial minor radius
+                        bearing
+                    );
+                    this.showPreview(previewGeometry);
+                }, 8); // 8ms como no Circle Control
+            }
         }
 
         this.pendingPreviewUpdate = false;
     }
 
+    // ✅ UPDATED - uses consolidated feedback source
     showPreview = (geometry) => {
-        this.map.getSource('ellipse-preview').setData({
+        this.map.getSource('ellipse-feedback').setData({
             type: 'Feature',
             geometry: geometry,
             properties: {
-                preview: true,
+                isPreview: true,
                 lineColor: AddEllipseControl.DEFAULT_PROPERTIES.lineColor,
                 fillColor: AddEllipseControl.DEFAULT_PROPERTIES.fillColor,
                 opacity: 0.5
@@ -328,10 +295,11 @@ class AddEllipseControl {
         });
     }
 
+    // ✅ UPDATED - clears consolidated feedback source
     clearPreview = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.cancelPendingUpdates();
-        this.map.getSource('ellipse-preview').setData({
+        this.map.getSource('ellipse-feedback').setData({
             type: 'FeatureCollection',
             features: []
         });
@@ -341,7 +309,6 @@ class AddEllipseControl {
         const center = this.drawPoints[0];
         const majorAxisEnd = this.drawPoints[1];
 
-        // Use same calculations as HTML file
         const majorRadius = this.calculateDistance(center, majorAxisEnd, { units: 'kilometers' });
         const bearing = this.calculateBearing(center, majorAxisEnd);
 
@@ -352,6 +319,8 @@ class AddEllipseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
+        const featureName = IDUtils.generateFeatureName('ellipse', this.map);
+
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
@@ -361,7 +330,8 @@ class AddEllipseControl {
                 majorRadius: majorRadius,
                 minorRadius: majorRadius * 0.6, // Initial minor radius
                 bearing: bearing,
-                id: featureId
+                id: featureId,
+                nome: featureName
             },
             geometry: this.generateEllipseGeometry(center, majorRadius, majorRadius * 0.6, bearing)
         };
@@ -393,21 +363,16 @@ class AddEllipseControl {
             return;
         }
 
-        // CRITICAL FIX: Use original values (no swap) for handles like HTML example
-        // The swap only affects the geometry, not the handle positions
         const majorRadius = feature.properties.majorRadius;
         const minorRadius = feature.properties.minorRadius;
         const bearing = feature.properties.bearing;
 
-        // Major axis handle (red) - follow HTML logic exactly
+        // Major axis handle (red)
         const majorAxisEnd = turf.destination(center, majorRadius, bearing, { units: 'kilometers' });
-
-        const majorHandleId = `ellipse-handle-${feature.properties.id}-major`;
-        this.editHandleIds.add(majorHandleId);
 
         handles.push({
             type: 'Feature',
-            id: majorHandleId,
+            id: `ellipse-handle-${feature.properties.id}-major`,
             geometry: {
                 type: 'Point',
                 coordinates: majorAxisEnd.geometry.coordinates
@@ -427,12 +392,9 @@ class AddEllipseControl {
         const perpendicularBearing = bearing + 90;
         const minorAxisEnd = turf.destination(center, minorRadius, perpendicularBearing, { units: 'kilometers' });
 
-        const minorHandleId = `ellipse-handle-${feature.properties.id}-minor`;
-        this.editHandleIds.add(minorHandleId);
-
         handles.push({
             type: 'Feature',
-            id: minorHandleId,
+            id: `ellipse-handle-${feature.properties.id}-minor`,
             geometry: {
                 type: 'Point',
                 coordinates: minorAxisEnd.geometry.coordinates
@@ -448,16 +410,17 @@ class AddEllipseControl {
             }
         });
 
-        // Add highlighted feature for editing mode visual
-        handles.push({
-            ...feature,
+        // Show selection feedback using consolidated source
+        this.map.getSource('ellipse-feedback').setData({
+            type: 'Feature',
+            geometry: feature.geometry,
             properties: {
                 ...feature.properties,
-                role: 'selected-feature',
-                mode: 'ellipse_editing'
+                isSelected: true
             }
         });
 
+        // Show handles
         this.map.getSource('ellipse-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -465,79 +428,11 @@ class AddEllipseControl {
     }
 
     clearEditHandles = () => {
-        this.editHandleIds.clear();
         this.map.getSource('ellipse-edit-handles').setData({
             type: 'FeatureCollection',
             features: []
         });
-    }
-
-    // Preview system for editing mode
-    showEditPreview = (feature, majorHandlePosition, minorHandlePosition) => {
-        const handles = [];
-
-        // Major handle at current position (RED)
-        if (majorHandlePosition) {
-            const majorHandleId = `ellipse-handle-${feature.properties.id}-major`;
-            handles.push({
-                type: 'Feature',
-                id: majorHandleId,
-                geometry: {
-                    type: 'Point',
-                    coordinates: majorHandlePosition
-                },
-                properties: {
-                    role: 'handle',
-                    handleType: 'vertex', // RED color in map.js
-                    handleId: 'major-axis',
-                    featureId: feature.properties.id,
-                    mode: 'ellipse_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
-                }
-            });
-        }
-
-        // Minor handle at current position (BLUE)
-        if (minorHandlePosition) {
-            const minorHandleId = `ellipse-handle-${feature.properties.id}-minor`;
-            handles.push({
-                type: 'Feature',
-                id: minorHandleId,
-                geometry: {
-                    type: 'Point',
-                    coordinates: minorHandlePosition
-                },
-                properties: {
-                    role: 'handle',
-                    handleType: 'eccentricity', // BLUE color in map.js
-                    handleId: 'minor-axis',
-                    featureId: feature.properties.id,
-                    mode: 'ellipse_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
-                }
-            });
-        }
-
-        // Preview feature
-        handles.push({
-            ...feature,
-            properties: {
-                ...feature.properties,
-                role: 'selected-feature',
-                mode: 'ellipse_editing'
-            }
-        });
-
-        this.map.getSource('ellipse-edit-handles').setData({
-            type: 'FeatureCollection',
-            features: handles
-        });
-    }
-
-    clearEditPreview = () => {
-        this.map.getSource('ellipse-edit-handles').setData({
+        this.map.getSource('ellipse-feedback').setData({
             type: 'FeatureCollection',
             features: []
         });
@@ -557,8 +452,9 @@ class AddEllipseControl {
         this.map.off('mouseup', this.onEditMouseUp);
     }
 
+    // ✅ SIMPLIFIED - mas track do handle específico
     onEditMouseDown = (e) => {
-        if (this.currentState !== 'editing') return;
+        if (!this.selectedFeature) return;
 
         const handleFeatures = this.map.queryRenderedFeatures(e.point, {
             layers: ['ellipse-edit-handles-layer']
@@ -566,152 +462,190 @@ class AddEllipseControl {
 
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
-
-            if (handle.properties.handleType === 'vertex' || handle.properties.handleType === 'eccentricity') {
-                this.isDraggingHandle = true;
-                this.activeHandle = handle;
-                this.initialHandlePosition = [e.lngLat.lng, e.lngLat.lat];
-                this.map.dragPan.disable();
-                this.map.getCanvas().style.cursor = 'grabbing';
-
-                this.previewFeature = JSON.parse(JSON.stringify(this.selectedFeature));
-                e.preventDefault();
-            }
+            this.isDraggingHandle = true;
+            this.activeHandleType = handle.properties.handleType; // ✅ Track qual handle
+            this.map.dragPan.disable();
+            this.map.getCanvas().style.cursor = 'grabbing';
+            e.preventDefault();
         }
     }
 
-    // ✅ OPTIMIZED: RAF-based edit updates (same pattern as circle)
+    // ✅ SIMPLIFIED - uses consolidated RAF
     onEditMouseMove = (e) => {
-        if (!this.isDraggingHandle || !this.activeHandle || !this.selectedFeature) return;
+        if (!this.isDraggingHandle || !this.selectedFeature) return;
 
-        this.lastEditPosition = [e.lngLat.lng, e.lngLat.lat];
-        this.lastEditHandleType = this.activeHandle.properties.handleType;
+        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
-        if (!this.pendingEditUpdate) {
-            this.pendingEditUpdate = true;
-            this.editRafId = requestAnimationFrame(this.performEditUpdate.bind(this));
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
         }
-    }
-
-    // ✅ PERFORMANCE: RAF callback for smooth edit updates
-    performEditUpdate = () => {
-        if (!this.lastEditPosition || !this.lastEditHandleType || !this.previewFeature) {
-            this.pendingEditUpdate = false;
-            return;
-        }
-
-        // Light debouncing for turf.js operations (same as circle)
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            if (this.lastEditHandleType === 'vertex') {
-                this.updateMajorAxisPreview(this.lastEditPosition);
-            } else if (this.lastEditHandleType === 'eccentricity') {
-                this.updateMinorAxisPreview(this.lastEditPosition);
-            }
-        }, 8); // Same 8ms as circle for consistency
-
-        this.pendingEditUpdate = false;
     }
 
     onEditMouseUp = () => {
-        if (this.isDraggingHandle && this.previewFeature) {
-            // Apply preview changes to actual feature
-            this.selectedFeature.properties.majorRadius = this.previewFeature.properties.majorRadius;
-            this.selectedFeature.properties.minorRadius = this.previewFeature.properties.minorRadius;
-            this.selectedFeature.properties.bearing = this.previewFeature.properties.bearing;
-            this.selectedFeature.geometry = this.previewFeature.geometry;
+        if (this.isDraggingHandle && this.selectedFeature) {
+            const center = this.normalizeCenter(this.selectedFeature.properties.center);
+            
+            if (center && this.lastPreviewPosition) {
+                if (this.activeHandleType === 'vertex') {
+                    // Major axis handle
+                    const newMajorRadius = turf.distance(center, this.lastPreviewPosition, { units: 'kilometers' });
+                    const newBearing = turf.bearing(center, this.lastPreviewPosition);
+                    
+                    if (newMajorRadius > 0.01) {
+                        this.selectedFeature.properties.majorRadius = newMajorRadius;
+                        this.selectedFeature.properties.bearing = newBearing;
+                    }
+                } else if (this.activeHandleType === 'eccentricity') {
+                    // Minor axis handle
+                    const newMinorRadius = turf.distance(center, this.lastPreviewPosition, { units: 'kilometers' });
+                    
+                    if (newMinorRadius > 0.01) {
+                        this.selectedFeature.properties.minorRadius = newMinorRadius;
+                    }
+                }
 
-            // Reset drag state first
-            this.isDraggingHandle = false;
-            this.activeHandle = null;
-            this.initialHandlePosition = null;
-            const finalFeature = this.selectedFeature;
-            this.previewFeature = null;
-            this.map.dragPan.enable();
-            this.map.getCanvas().style.cursor = '';
+                // Regenerate geometry
+                this.selectedFeature.geometry = this.generateEllipseGeometry(
+                    center,
+                    this.selectedFeature.properties.majorRadius,
+                    this.selectedFeature.properties.minorRadius,
+                    this.selectedFeature.properties.bearing
+                );
 
-            this.clearEditPreview();
-            this.forceUpdateMainSource(finalFeature);
-            this.createEditHandles(finalFeature);
-            this.updateSelectionAfterEdit();
-            this.updateUIAfterEdit();
-            this.saveFeatureChanges(finalFeature);
+                this.forceUpdateMainSource(this.selectedFeature);
+                this.createEditHandles(this.selectedFeature);
+                this.updateSelectionAfterEdit();
+                this.updateUIAfterEdit();
+                this.saveFeatureChanges(this.selectedFeature);
+            }
         }
+
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;       // ✅ Reset handle type
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    updateEllipsePreview = (newPosition) => {
+        if (!this.selectedFeature || !this.activeHandleType) return;
+
+        const center = this.normalizeCenter(this.selectedFeature.properties.center);
+        if (!center) return;
+
+        // ✅ Debounce para operações turf.js pesadas
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            if (this.activeHandleType === 'vertex') {
+                this.updateMajorAxisPreview(newPosition);
+            } else if (this.activeHandleType === 'eccentricity') {
+                this.updateMinorAxisPreview(newPosition);
+            }
+        }, 8); // 8ms como no Circle Control
     }
 
     updateMajorAxisPreview = (newPosition) => {
-        if (!this.previewFeature) return;
+        if (!this.selectedFeature) return;
 
-        const center = this.normalizeCenter(this.previewFeature.properties.center);
-
-        if (!center) {
-            console.error('Center inválido, não é possível atualizar preview');
-            return;
-        }
+        const center = this.normalizeCenter(this.selectedFeature.properties.center);
+        if (!center) return;
 
         // Follow HTML logic exactly - use turf functions
         const newMajorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
         const newBearing = turf.bearing(center, newPosition);
 
         if (newMajorRadius > 0.01) { // Minimum radius (0.01 km = 10 meters)
-            this.previewFeature.properties.majorRadius = newMajorRadius;
-            this.previewFeature.properties.bearing = newBearing;
-            this.previewFeature.geometry = this.generateEllipseGeometry(
+            const previewGeometry = this.generateEllipseGeometry(
                 center,
                 newMajorRadius,
-                this.previewFeature.properties.minorRadius,
+                this.selectedFeature.properties.minorRadius,
                 newBearing
             );
 
             // Calculate minor handle position using original values (no swap)
             const perpendicularBearing = newBearing + 90;
-            const minorHandlePosition = turf.destination(center, this.previewFeature.properties.minorRadius, perpendicularBearing, { units: 'kilometers' });
+            const minorHandlePosition = turf.destination(center, this.selectedFeature.properties.minorRadius, perpendicularBearing, { units: 'kilometers' });
 
-            this.showEditPreview(this.previewFeature, newPosition, minorHandlePosition.geometry.coordinates);
+            this.showEditPreview(previewGeometry, newPosition, minorHandlePosition.geometry.coordinates);
         }
     }
 
     updateMinorAxisPreview = (newPosition) => {
-        if (!this.previewFeature) return;
+        if (!this.selectedFeature) return;
 
-        const center = this.normalizeCenter(this.previewFeature.properties.center);
-
-        if (!center) {
-            console.error('Center inválido, não é possível atualizar preview');
-            return;
-        }
+        const center = this.normalizeCenter(this.selectedFeature.properties.center);
+        if (!center) return;
 
         // Follow HTML logic exactly - use turf functions
         const newMinorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
 
         if (newMinorRadius > 0.01) { // Minimum radius (0.01 km = 10 meters)
-            this.previewFeature.properties.minorRadius = newMinorRadius;
-            this.previewFeature.geometry = this.generateEllipseGeometry(
+            const previewGeometry = this.generateEllipseGeometry(
                 center,
-                this.previewFeature.properties.majorRadius,
+                this.selectedFeature.properties.majorRadius,
                 newMinorRadius,
-                this.previewFeature.properties.bearing
+                this.selectedFeature.properties.bearing
             );
 
             // CRITICAL FIX: Calculate where the minor handle SHOULD be (not where mouse is)
             // Minor handle should always be at bearing + 90° from center
-            const majorHandlePosition = turf.destination(center, this.previewFeature.properties.majorRadius, this.previewFeature.properties.bearing, { units: 'kilometers' });
-            const perpendicularBearing = this.previewFeature.properties.bearing + 90;
+            const majorHandlePosition = turf.destination(center, this.selectedFeature.properties.majorRadius, this.selectedFeature.properties.bearing, { units: 'kilometers' });
+            const perpendicularBearing = this.selectedFeature.properties.bearing + 90;
             const minorHandlePosition = turf.destination(center, newMinorRadius, perpendicularBearing, { units: 'kilometers' });
 
-            this.showEditPreview(this.previewFeature, majorHandlePosition.geometry.coordinates, minorHandlePosition.geometry.coordinates);
+            this.showEditPreview(previewGeometry, majorHandlePosition.geometry.coordinates, minorHandlePosition.geometry.coordinates);
         }
+    }
+
+    showEditPreview = (geometry, majorHandlePosition, minorHandlePosition) => {
+        // Show updated selection feedback
+        this.map.getSource('ellipse-feedback').setData({
+            type: 'Feature',
+            geometry: geometry,
+            properties: {
+                ...this.selectedFeature.properties,
+                isSelected: true
+            }
+        });
+
+        // Update handles
+        const handles = [
+            {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: majorHandlePosition },
+                properties: {
+                    role: 'handle',
+                    handleType: 'vertex', // RED color
+                    user_isEditingHandle: true
+                }
+            },
+            {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: minorHandlePosition },
+                properties: {
+                    role: 'handle',
+                    handleType: 'eccentricity', // BLUE color
+                    user_isEditingHandle: true
+                }
+            }
+        ];
+
+        this.map.getSource('ellipse-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: handles
+        });
     }
 
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
+        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
-        // ✅ CLEANUP: Cancel all pending operations
+        this.removeHoverListeners();
         this.cancelPendingUpdates();
     }
 
@@ -735,7 +669,7 @@ class AddEllipseControl {
         return center;
     }
 
-    // Use turf.ellipse exactly like the HTML example
+    // MANTER: Use turf.ellipse exactly like the HTML example
     generateEllipseGeometry = (center, majorRadius, minorRadius, bearing) => {
         // Handle case where minor radius is larger than major radius (same as HTML)
         let actualMajorRadius = majorRadius;
@@ -760,19 +694,12 @@ class AddEllipseControl {
         return ellipsePolygon.geometry;
     }
 
-    // Corrected distance calculation following turf.distance logic
     calculateDistance = (point1, point2, options = {}) => {
         return turf.distance(point1, point2, options);
     }
 
-    // Corrected bearing calculation following turf.bearing logic
     calculateBearing = (start, end) => {
         return turf.bearing(start, end);
-    }
-
-    // Corrected destination calculation following turf.destination logic
-    calculateDestination = (origin, distance, bearing, options = {}) => {
-        return turf.destination(origin, distance, bearing, options);
     }
 
     forceUpdateMainSource = (feature) => {
@@ -782,14 +709,12 @@ class AddEllipseControl {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };
             this.map.getSource('ellipses').setData(data);
-        } else {
-            console.error(`Feature ${feature.properties.id} not found in ellipses source for forced update`);
         }
     }
 
     updateSelectionAfterEdit = () => {
         const featureId = this.selectedFeature.properties.id;
-        const type = this.selectedFeature.properties.source; // 'circle', 'ellipse', etc.
+        const type = this.selectedFeature.properties.source;
         const key = `${type}:${featureId}`;
 
         this.selectionManager.selectedFeatures.set(key, {
@@ -818,8 +743,6 @@ class AddEllipseControl {
         const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
 
         for (const feature of features) {
-            feature.properties.id = feature.properties.id;
-
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
@@ -839,11 +762,14 @@ class AddEllipseControl {
         }
 
         this.map.getSource('ellipses').setData(data);
+
+        if (this.selectedFeature && !this.isDraggingHandle) {
+            this.createEditHandles(this.selectedFeature);
+        }
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = this.map.getSource('ellipses')._data;
-
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
@@ -862,8 +788,6 @@ class AddEllipseControl {
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
-
-            // Regenerar geometria com propriedades originais
             f.geometry = this.generateEllipseGeometry(
                 f.properties.center,
                 f.properties.majorRadius,
@@ -872,7 +796,6 @@ class AddEllipseControl {
             );
         });
 
-        // Usar o método updateFeatures que já existe e funciona corretamente
         await this.updateFeatures(features, true, true);
     }
 
@@ -883,15 +806,14 @@ class AddEllipseControl {
             try {
                 const featureId = feature.properties.id;
                 await removeFeature('ellipses', featureId);
+                const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
+                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
+                this.map.getSource('ellipses').setData(data);
             } catch (error) {
-                console.error(`Error removing ellipse ${featureId}:`, error);
+                console.error(`Error removing ellipse ${feature.properties.id}:`, error);
             }
         }
-
-        const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-        const idsToDelete = new Set(features.map(f => String(f.properties.id || f.properties.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-        this.map.getSource('ellipses').setData(data);
     }
 
     setDefaultProperties = (properties) => {
@@ -909,60 +831,18 @@ class AddEllipseControl {
             feature.properties.majorRadius !== initialProperties.majorRadius ||
             feature.properties.minorRadius !== initialProperties.minorRadius ||
             feature.properties.bearing !== initialProperties.bearing ||
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
             JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
         );
-    }
-
-    updateFeaturesCenterProperty = (features, newCenter) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-
-        for (const feature of features) {
-            feature.properties.id = feature.properties.id;
-
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-            if (sourceFeature) {
-                sourceFeature.properties.center = newCenter;
-                feature.properties.center = newCenter;
-
-                const newGeometry = this.generateEllipseGeometry(
-                    newCenter,
-                    sourceFeature.properties.majorRadius,
-                    sourceFeature.properties.minorRadius,
-                    sourceFeature.properties.bearing
-                );
-                sourceFeature.geometry = newGeometry;
-                feature.geometry = newGeometry;
-            }
-        }
-
-        this.map.getSource('ellipses').setData(data);
-    }
-
-    updateFeatureFromUI = (feature) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-
-        if (sourceFeature) {
-            Object.assign(sourceFeature.properties, feature.properties);
-
-            const newGeometry = this.generateEllipseGeometry(
-                sourceFeature.properties.center,
-                sourceFeature.properties.majorRadius,
-                sourceFeature.properties.minorRadius,
-                sourceFeature.properties.bearing
-            );
-            sourceFeature.geometry = newGeometry;
-            this.map.getSource('ellipses').setData(data);
-        }
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
-
             for (const feature of features) {
-                feature.properties.id = feature.properties.id;
-
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {

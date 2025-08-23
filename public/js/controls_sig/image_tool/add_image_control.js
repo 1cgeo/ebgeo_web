@@ -3,22 +3,31 @@ import { addFeature, updateFeature, removeFeature, imageStore } from '../store.j
 import { IDUtils } from '../id_utils.js';
 
 class AddImageControl {
+    constructor(toolManager) {
+        this.toolManager = toolManager;
+        this.toolManager.imageControl = this;
+        this.selectionManager = toolManager.selectionManager;
+        
+        // ✅ CORE STATE - Simplificado (image é naturalmente simples)
+        this.isActive = false;
+        this.selectedFeature = null;  // ✅ NOVO - para integração com selection system
+    }
+
+    // ✅ NOVOS ATRIBUTOS PADRÃO - Seguindo padrão dos outros controls
     static DEFAULT_PROPERTIES = {
         size: 1,
         rotation: 0,
         opacity: 1,
-        source: 'image'
+        source: 'image',
+        nome: '',           // Será preenchido automaticamente
+        descricao: '',      // String vazia
+        visivel: true,      // Boolean true
+        bloqueado: false    // Boolean false
     };
 
+    // ✅ MANTIDO - Configurações de imagem inalteradas
     static MAX_IMAGE_DIMENSION = 800;
     static IMAGE_QUALITY = 0.7;
-
-    constructor(toolManager) {
-        this.toolManager = toolManager;
-        this.toolManager.imageControl = this;
-        this.isActive = false;
-        this.selectionManager = toolManager.selectionManager;
-    }
 
     onAdd(map) {
         this.map = map;
@@ -58,9 +67,12 @@ class AddImageControl {
     }
 
     setupEventListeners = () => {
+        // Event listeners básicos se necessário
     }
 
+    // ✅ ATUALIZADO - com cleanup hover
     removeEventListeners = () => {
+        this.removeHoverListeners(); // ✅ NOVO - cleanup hover
     }
 
     activate = () => {
@@ -69,10 +81,12 @@ class AddImageControl {
         this.changeButtonColor();
     }
 
+    // ✅ ATUALIZADO - com cleanup ao desativar
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
         this.changeButtonColor();
+        this.deselectFeature(); // ✅ NOVO - cleanup ao desativar
     }
 
     handleMapClick = (e) => {
@@ -107,6 +121,8 @@ class AddImageControl {
 
                 // Criar feature com imageId
                 const feature = this.createImageFeature(lngLat, imageId, width, height);
+                
+                feature.properties.nome = IDUtils.generateFeatureName('image', this.map);
 
                 // Salvar no IndexedDB
                 await addFeature('images', feature);
@@ -130,7 +146,71 @@ class AddImageControl {
         });
     }
 
-    // Método que segue exatamente o padrão do map.js
+    // ===== SELECTION SYSTEM INTEGRATION ===== 
+
+    // ✅ NOVO - Interface para SelectionManager
+    onFeatureSelected = (feature) => {
+        this.selectedFeature = feature;
+        this.setupHoverListeners(); // ✅ Hover dinâmico quando selecionado
+    }
+
+    onFeatureDeselected = (feature) => {
+        const featureId = feature.properties.id;
+        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
+            this.deselectFeature();
+        }
+    }
+
+    onGlobalDeselect = () => {
+        if (this.selectedFeature) {
+            this.deselectFeature();
+        }
+    }
+
+    // ✅ NOVO - Método de desseleção
+    deselectFeature = () => {
+        this.selectedFeature = null;
+        this.removeHoverListeners();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    // ✅ NOVO - Sistema hover dinâmico (padrão dos outros controls)
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
+    }
+
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
+    }
+
+    onHoverMove = (e) => {
+        if (!this.selectedFeature) return;
+        
+        const features = this.map.queryRenderedFeatures(e.point);
+        const hasSelectedFeature = features.some(f => 
+            f.source === 'images' && 
+            f.properties.id === this.selectedFeature.properties.id
+        );
+        
+        this.map.getCanvas().style.cursor = hasSelectedFeature ? 'move' : '';
+    }
+
+    // ✅ NOVO - Interface methods para MoveHandler integration
+    isEditingMode = () => {
+        return false; // Image não tem editing mode com handles
+    }
+
+    hasEditHandle = (featureId) => {
+        return false; // Image não tem handles para editar
+    }
+
+    syncEditHandlesAfterDrag = (movedFeatures) => {
+        // N/A - Image não tem handles para sincronizar
+    }
+
+    // ===== BLOB STORAGE METHODS - MANTIDOS INALTERADOS =====
+
+    // ✅ MANTIDO - Método que segue exatamente o padrão do map.js
     async loadImageToMap(imageId, blob) {
         const url = URL.createObjectURL(blob);
 
@@ -164,6 +244,7 @@ class AddImageControl {
         });
     }
 
+    // ✅ MANTIDO - Lógica de resize inalterada
     resizeImage = (imageBase64, callback) => {
         const img = new Image();
         img.onload = () => {
@@ -222,6 +303,8 @@ class AddImageControl {
             }
         };
     }
+
+    // ===== FEATURE MANAGEMENT METHODS =====
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
@@ -308,13 +391,21 @@ class AddImageControl {
         }
     }
 
+    setDefaultProperties = (properties) => {
+        Object.assign(AddImageControl.DEFAULT_PROPERTIES, properties);
+    }
+
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
 
         return (
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.size !== initialProperties.size ||
-            feature.properties.rotation !== initialProperties.rotation
+            feature.properties.rotation !== initialProperties.rotation ||
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado
         );
     }
 }

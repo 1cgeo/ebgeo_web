@@ -2,13 +2,18 @@
 import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, removeFeatureSilent } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 import { IDUtils } from '../id_utils.js';
+
 class AddLOSControl {
     static DEFAULT_PROPERTIES = {
         opacity: 1,
         width: 5,
         profile: true,
         measure: false,
-        source: 'los'
+        source: 'los',
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
     static VISIBLE_COLOR = '#00FF00';
@@ -22,16 +27,11 @@ class AddLOSControl {
         this.endPoint = null;
         this.selectionManager = toolManager.selectionManager;
 
-        // ✅ PERFORMANCE OPTIMIZATION: RAF & Debouncing (same pattern as circle)
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null; // startPoint
         this.geometryDebounceTimer = null;
-
-        // Remove old debouncing system
-        // this.debounceTime = 30;
-        // this.lastUpdateTime = 0;
     }
 
     onAdd = (map) => {
@@ -104,7 +104,7 @@ class AddLOSControl {
         this.cancelPendingUpdates();
     }
 
-    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations (same as circle)
+    // ✅ PERFORMANCE: Cancel pending RAF/debouncing operations
     cancelPendingUpdates = () => {
         if (this.previewRafId) {
             cancelAnimationFrame(this.previewRafId);
@@ -138,7 +138,7 @@ class AddLOSControl {
         this.changeButtonColor();
     }
 
-    // ✅ Clear preview (same pattern as circle)
+    // ✅ Clear preview
     clearPreview = () => {
         this.cancelPendingUpdates();
         this.map.getSource('temp-line').setData({
@@ -164,7 +164,7 @@ class AddLOSControl {
         }
     }
 
-    // ✅ OPTIMIZED: RAF-based preview (same pattern as circle)
+    // ✅ OPTIMIZED: RAF-based preview
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
@@ -177,18 +177,18 @@ class AddLOSControl {
         }
     }
 
-    // ✅ PERFORMANCE: RAF callback for smooth preview (same as circle)
+    // ✅ PERFORMANCE: RAF callback for smooth preview
     performPreviewUpdate = () => {
         if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
             this.pendingPreviewUpdate = false;
             return;
         }
 
-        // Light debouncing for line preview (same as circle)
+        // Light debouncing for line preview
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
             this.updateTempLine([this.lastPreviewCenter, this.lastPreviewPosition]);
-        }, 8); // Same 8ms as circle for consistency
+        }, 8); // 8ms debouncing
 
         this.pendingPreviewUpdate = false;
     }
@@ -249,7 +249,13 @@ class AddLOSControl {
                 }
             };
         }
-        losFeature.properties.id = IDUtils.generateUniqueId();
+        
+        // ✅ GERAÇÃO AUTOMÁTICA DE NOMES
+        const featureId = IDUtils.generateUniqueId();
+        const featureName = IDUtils.generateFeatureName('los', this.map);
+        
+        losFeature.properties.id = featureId;
+        losFeature.properties.nome = featureName;
 
         // Salvar no IndexedDB
         await addFeature('los', losFeature);
@@ -365,13 +371,123 @@ class AddLOSControl {
         };
     }
 
+    // ✅ NOVO: Método para recalcular LOS quando feature é movida
+    async recalculateLOSFromCoordinates(coordinates) {
+        const linestring = {
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: coordinates
+            }
+        };
+        
+        const losResult = await this.calculateLOS(linestring);
+        
+        if (losResult.obstructed) {
+            return {
+                type: 'MultiLineString',
+                coordinates: [
+                    losResult.visible.geometry.coordinates,
+                    losResult.obstructed.geometry.coordinates
+                ]
+            };
+        } else {
+            return {
+                type: 'LineString',
+                coordinates: losResult.visible.geometry.coordinates
+            };
+        }
+    }
+
+    // ✅ INTERFACE PARA MOVE HANDLER - Sincronização após drag
+    syncEditHandlesAfterDrag = async (movedFeatures) => {
+        // LOS precisa recalcular após movimento pois depende do terreno
+        for (const movedFeature of movedFeatures) {
+            if (movedFeature.properties.source === 'los') {
+                try {
+                    // Extrair coordenadas da nova geometria
+                    let coordinates;
+                    if (movedFeature.geometry.type === 'MultiLineString') {
+                        // Usar primeiro e último ponto das duas linhas
+                        const firstLine = movedFeature.geometry.coordinates[0];
+                        const secondLine = movedFeature.geometry.coordinates[1];
+                        coordinates = [firstLine[0], secondLine[secondLine.length - 1]];
+                    } else if (movedFeature.geometry.type === 'LineString') {
+                        const coords = movedFeature.geometry.coordinates;
+                        coordinates = [coords[0], coords[coords.length - 1]];
+                    }
+
+                    if (coordinates) {
+                        // Recalcular LOS com nova posição
+                        const newGeometry = await this.recalculateLOSFromCoordinates(coordinates);
+                        const newProfileData = await this.calculateProfile(coordinates);
+                        
+                        // Atualizar feature principal
+                        movedFeature.geometry = newGeometry;
+                        movedFeature.properties.profileData = JSON.stringify(newProfileData);
+                        
+                        // Salvar no IndexedDB
+                        await updateFeature('los', movedFeature);
+                        
+                        // Atualizar medição se habilitada
+                        if (movedFeature.properties.measure) {
+                            this.updateFeatureMeasurement(movedFeature);
+                        }
+                        
+                        // Reprocessar features secundárias
+                        const processedFeatures = this.preprocessLosFeature(movedFeature);
+                        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+                        
+                        // Remover features processadas antigas
+                        processedData.features = processedData.features.filter(f =>
+                            f.properties.id !== movedFeature.properties.id + '-visible' &&
+                            f.properties.id !== movedFeature.properties.id + '-obstructed'
+                        );
+                        
+                        // Adicionar novas features processadas
+                        for (const processedFeature of processedFeatures) {
+                            await updateFeature('processed_los', processedFeature);
+                            processedData.features.push(processedFeature);
+                        }
+                        
+                        // Atualizar source processada no mapa
+                        this.map.getSource('processed-los').setData(processedData);
+                    }
+                } catch (error) {
+                    console.error('Erro ao recalcular LOS após movimento:', error);
+                }
+            }
+        }
+    }
+
+    // ✅ INTERFACES OBRIGATÓRIAS PARA SELECTION SYSTEM
+    isEditingMode = () => {
+        return false; // LOS não tem modo de edição com handles
+    }
+
+    hasEditHandle = (featureId) => {
+        return false; // LOS não tem handles de edição
+    }
+
+    onFeatureSelected = (feature) => {
+        // LOS não precisa de handles, mas pode implementar highlight no futuro
+    }
+
+    onFeatureDeselected = (feature) => {
+        // LOS não precisa de cleanup especial
+    }
+
+    onGlobalDeselect = () => {
+        // LOS não precisa de cleanup especial
+    }
+
     updateFeaturesProperty = (features, property, value) => {
-        const losData = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
 
         for (const feature of features) {
             // Update los source
-            const losFeature = losData.features.find(f => f.properties.id == feature.properties.id);
+            const losFeature = data.features.find(f => f.properties.id == feature.properties.id);
             if (losFeature) {
                 losFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -388,7 +504,7 @@ class AddLOSControl {
             }
         }
 
-        this.map.getSource('los').setData(losData);
+        this.map.getSource('los').setData(data);
         this.map.getSource('processed-los').setData(processedData);
     }
 
@@ -456,26 +572,50 @@ class AddLOSControl {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
+                    // ✅ CORRIGIDO: Merge correto das propriedades
                     const featureToSave = {
                         ...currentFeature,  // Geometria atual (pós-drag)
-                        properties: { ...selectedFeature.properties } // Propriedades do painel
+                        properties: { 
+                            ...currentFeature.properties,      // Propriedades originais (como profileData)
+                            ...selectedFeature.properties      // Propriedades do painel (opacity, width, etc.)
+                        }
                     };
-                    await updateFeature('los', featureToSave);
 
-                    // ✅ FIXED: Update processed features with exact ID matching
+                    // ✅ USAR BATCH OPERATION para consistência
                     const processedFeatures = processedData.features.filter(pf =>
                         pf.properties.id === selectedFeature.properties.id + '-visible' ||
                         pf.properties.id === selectedFeature.properties.id + '-obstructed'
                     );
-                    for (const pf of processedFeatures) {
-                        const updatedProcessedFeature = {
-                            ...pf,
-                            properties: {
-                                ...selectedFeature.properties,
-                                color: pf.properties.color // Manter cor específica processada
+
+                    // ✅ ATUALIZAR features processadas com propriedades corretas
+                    const updatedProcessedFeatures = processedFeatures.map(pf => ({
+                        ...pf,
+                        properties: {
+                            ...pf.properties,                   // Manter ID e color específicos
+                            ...selectedFeature.properties,     // Atualizar propriedades do painel
+                            id: pf.properties.id,              // Garantir ID correto
+                            color: pf.properties.color         // Manter cor específica (verde/vermelho)
+                        }
+                    }));
+
+                    // ✅ USAR BATCH se disponível, senão individual
+                    try {
+                        if (typeof batchUpdateLOSFeatures === 'function') {
+                            await batchUpdateLOSFeatures(featureToSave, updatedProcessedFeatures);
+                        } else {
+                            // Fallback: atualização individual
+                            await updateFeature('los', featureToSave);
+                            for (const processedFeature of updatedProcessedFeatures) {
+                                await updateFeature('processed_los', processedFeature);
                             }
-                        };
-                        await updateFeature('processed_los', updatedProcessedFeature);
+                        }
+                    } catch (error) {
+                        console.error('Erro ao salvar features LOS:', error);
+                        // Fallback: atualização individual mesmo com batch
+                        await updateFeature('los', featureToSave);
+                        for (const processedFeature of updatedProcessedFeatures) {
+                            await updateFeature('processed_los', processedFeature);
+                        }
                     }
                 }
             }
@@ -529,7 +669,11 @@ class AddLOSControl {
             feature.properties.profile !== initialProperties.profile ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.width !== initialProperties.width ||
-            feature.properties.measure !== initialProperties.measure
+            feature.properties.measure !== initialProperties.measure ||
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado
         );
     }
 

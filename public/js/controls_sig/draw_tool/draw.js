@@ -2,12 +2,14 @@
 import drawStyles from './draw_styles.js';
 import { addFeature, updateFeature, removeFeature } from '../store.js';
 import { getTerrainElevation } from '../terrain_control.js';
+import { IDUtils } from '../id_utils.js';
 
 class DrawControl {
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
         this.isActive = false;
+
         this.defaultProperties = {
             polygon: {
                 color: '#fbb03b',
@@ -17,7 +19,11 @@ class DrawControl {
                 measure: false,
                 profile: false,
                 profileData: null,
-                source: 'draw'
+                source: 'draw',
+                nome: '',           // Será preenchido automaticamente
+                descricao: '',      // String vazia
+                visivel: true,      // Boolean true
+                bloqueado: false    // Boolean false
             },
             linestring: {
                 color: '#fbb03b',
@@ -27,7 +33,11 @@ class DrawControl {
                 measure: false,
                 profile: false,
                 profileData: null,
-                source: 'draw'
+                source: 'draw',
+                nome: '',           // Será preenchido automaticamente
+                descricao: '',      // String vazia
+                visivel: true,      // Boolean true
+                bloqueado: false    // Boolean false
             },
             point: {
                 color: '#fbb03b',
@@ -37,7 +47,11 @@ class DrawControl {
                 measure: false,
                 profile: false,
                 profileData: null,
-                source: 'draw'
+                source: 'draw',
+                nome: '',           // Será preenchido automaticamente
+                descricao: '',
+                visivel: true,
+                bloqueado: false
             }
         };
         this.controlPosition = 'top-right';
@@ -73,8 +87,7 @@ class DrawControl {
             }, 100);
 
             this.setupEventListeners();
-
-            this.changeButtonColors()
+            this.changeButtonColors();
 
             return this.container;
         } catch (error) {
@@ -135,7 +148,10 @@ class DrawControl {
         for (const f of e.features) {
             const geomtype = f.geometry.type.toLowerCase();
             const properties = { ...this.defaultProperties[geomtype], ...f.properties };
-            f.properties = properties
+
+            properties.nome = IDUtils.generateFeatureName(geomtype, this.map, f.geometry);
+
+            f.properties = properties;
 
             if (geomtype === 'linestring') {
                 f.properties.profileData = JSON.stringify(await this.calculateProfile(f.geometry.coordinates));
@@ -146,7 +162,7 @@ class DrawControl {
             });
             const type = geomtype + 's';
 
-            f.properties.id = f.id
+            f.properties.id = f.id;
 
             // Salvar no IndexedDB
             await addFeature(type, f);
@@ -163,13 +179,15 @@ class DrawControl {
             if (f.geometry.type === 'LineString') {
                 f.properties.profileData = JSON.stringify(await this.calculateProfile(f.geometry.coordinates));
             }
-            f.properties.id = f.id
+            f.properties.id = f.id;
             // Atualizar no IndexedDB
             await updateFeature(type, f);
             this.updateFeatureMeasurement(f);
         }
         this.selectionManager.handleDrawSelectionChange();
     }
+
+    // ===== MEASUREMENT SYSTEM - MANTIDO 100% INALTERADO =====
 
     updateFeatureMeasurement = (feature) => {
         this.removeFeatureMeasurement(feature.id);
@@ -209,7 +227,6 @@ class DrawControl {
             .addTo(this.map);
     }
 
-
     createMeasurementLabel = (measurement, featureId) => {
         const label = document.createElement('div');
         label.className = 'measurement-label';
@@ -238,6 +255,7 @@ class DrawControl {
         return label;
     }
 
+    // ✅ MANTIDO - handleDrawDelete inalterado
     handleDrawDelete = async (e) => {
         for (const f of e.features) {
             this.removeFeatureMeasurement(f.id);
@@ -248,6 +266,7 @@ class DrawControl {
         }
     }
 
+    // ✅ MANTIDO - handleDrawModeChange inalterado
     handleDrawModeChange = (e) => {
         const mode = e.mode;
         if (['draw_polygon', 'draw_line_string', 'draw_point'].includes(mode)) {
@@ -258,18 +277,20 @@ class DrawControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.changeButtonColors()
+        this.changeButtonColors();
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
-        this.changeButtonColors()
+        this.changeButtonColors();
     }
 
     handleMapClick = () => {
         //nothing to do here
     }
+
+    // ===== FEATURE MANAGEMENT METHODS =====
 
     updateFeaturesProperty = (features, property, value) => {
         for (const feature of features) {
@@ -297,7 +318,11 @@ class DrawControl {
             feature.properties.color !== initialProperties.color ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.size !== initialProperties.size ||
-            feature.properties.outlinecolor !== initialProperties.outlinecolor
+            feature.properties.outlinecolor !== initialProperties.outlinecolor ||
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado
         );
     }
 
@@ -315,7 +340,7 @@ class DrawControl {
                 if (save) {
                     const featureToUpdate = onlyUpdateProperties ? existingFeature : feature;
                     const type = featureToUpdate.geometry.type.toLowerCase() + 's';
-                    featureToUpdate.properties.id = feature.id
+                    featureToUpdate.properties.id = feature.id;
                     await updateFeature(type, featureToUpdate);
                 }
             }
@@ -336,7 +361,7 @@ class DrawControl {
                     };
 
                     const type = featureToSave.geometry.type.toLowerCase() + 's';
-                    featureToSave.properties.id = featureToSave.id
+                    featureToSave.properties.id = featureToSave.id;
                     await updateFeature(type, featureToSave);
                 }
             }
@@ -358,44 +383,48 @@ class DrawControl {
         });
     }
 
+    // ✅ MANTIDO - Button styling system inalterado
     changeButtonColors = () => {
         $('.mapbox-gl-draw_point').html(
             `
             <img src="./images/icon_point_black.svg" alt="Adicionar ponto" title="Adicionar ponto (P)" />
             `
-        )
+        );
 
         $('.mapbox-gl-draw_line').html(
             `
             <img src="./images/icon_line_black.svg" alt="Adicionar linha" title="Adicionar linha (L)" />
             `
-        )
+        );
 
         $('.mapbox-gl-draw_polygon').html(
             `
             <img src="./images/icon_polygon_black.svg" alt="Adicionar polígono" title="Adicionar polígono (A)" />
             `
-        )
+        );
 
         const currentBtn = {
             'draw_point': '.mapbox-gl-draw_point',
             'draw_line_string': '.mapbox-gl-draw_line',
             'draw_polygon': '.mapbox-gl-draw_polygon'
-        }[this.draw.getMode()]
+        }[this.draw.getMode()];
 
-        if (!(currentBtn && this.isActive)) return
+        if (!(currentBtn && this.isActive)) return;
+
         const imageName = {
             'draw_point': 'icon_point_',
             'draw_line_string': 'icon_line_',
             'draw_polygon': 'icon_polygon_'
-        }[this.draw.getMode()]
+        }[this.draw.getMode()];
 
         $(currentBtn).html(
             `
             <img src="./images/${imageName}red.svg" alt="Ferramenta ativa" title="Ferramenta ativa" />
             `
-        )
+        );
     }
+
+    // ===== PROFILE CALCULATION - MANTIDO 100% INALTERADO =====
 
     async calculateProfile(coordinates) {
         const line = turf.lineString(coordinates);
@@ -435,7 +464,7 @@ class DrawControl {
             // Obtém a feature com ID gerado
             const addedFeature = this.draw.get(ids[0]);
 
-            addedFeature.properties.id = addedFeature.id
+            addedFeature.properties.id = addedFeature.id;
 
             // Salvar no IndexedDB
             await addFeature('points', addedFeature);
@@ -453,5 +482,6 @@ class DrawControl {
 
         return null;
     }
-};
+}
+
 export default DrawControl;
