@@ -117,13 +117,7 @@ class MapControl {
         // Limpar menu existente
         $("#menu-map-list").empty();
 
-        // 1. PRIMEIRO: Adicionar base layer control ao header
-        const baseLayerControl = $('.base-layer-control');
-        if (baseLayerControl.length > 0) {
-            baseLayerControl.appendTo('#header-map-list');
-        }
-
-        // 2. SEGUNDO: Criar e adicionar seletor de abas ao header
+        // 1. PRIMEIRO: Criar e adicionar seletor de abas ao header
         const tabSelector = document.createElement('div');
         tabSelector.className = 'tab-selector';
         
@@ -140,8 +134,14 @@ class MapControl {
         tabSelector.appendChild(mapsTab);
         tabSelector.appendChild(pdfTab);
         
-        // Adicionar tab selector ao header (APÓS o base layer)
+        // Adicionar tab selector ao header PRIMEIRO
         $("#header-map-list").append(tabSelector);
+
+        // 2. SEGUNDO: Adicionar base layer control ao header
+        const baseLayerControl = $('.base-layer-control');
+        if (baseLayerControl.length > 0) {
+            baseLayerControl.appendTo('#header-map-list');
+        }
 
         // 3. TERCEIRO: Criar container para ações da aba Maps
         this.mapsActionsContainer = document.createElement('div');
@@ -200,8 +200,8 @@ class MapControl {
         // 4. QUARTO: Adicionar actions container ao menu (será controlado pela aba ativa)
         $("#menu-map-list").append(this.mapsActionsContainer);
 
-        // Garantir que os controles estejam visíveis na inicialização
-        this.updateActionsVisibility();
+        // Garantir que os controles estejam configurados corretamente na inicialização
+        this.updateVisibilityForCurrentTab();
 
         await this.updateMapList();
         await this.switchMap();
@@ -217,6 +217,27 @@ class MapControl {
         } else {
             this.mapsActionsContainer.style.display = 'block';
         }
+    }
+
+    updateBaseLayerControlVisibility() {
+        const baseLayerControl = $('.base-layer-control');
+        
+        if (baseLayerControl.length > 0) {
+            if (this.currentTab === 'maps' && !this.isCollapsed) {
+                // Mostrar base layer control
+                baseLayerControl[0].style.setProperty('display', 'grid', 'important');
+                baseLayerControl.removeClass('base-layer-hidden');
+            } else {
+                // Esconder base layer control
+                baseLayerControl[0].style.setProperty('display', 'none', 'important');
+                baseLayerControl.addClass('base-layer-hidden');
+            }
+        }
+    }
+
+    updateVisibilityForCurrentTab() {
+        this.updateActionsVisibility();
+        this.updateBaseLayerControlVisibility();
     }
 
     switchToTab(tabName) {
@@ -235,7 +256,8 @@ class MapControl {
             this.showPDFTab();
         }
         
-        // Controles sempre visíveis (removido updateActionsVisibility)
+        // Atualizar visibilidade dos controles baseado na aba atual
+        this.updateVisibilityForCurrentTab();
     }
 
     showMapsTab() {
@@ -1128,7 +1150,7 @@ class MapControl {
         this.isCollapsed = true;
         
         // Atualizar visibilidade dos controles (agora baseado apenas no colapso)
-        this.updateActionsVisibility();
+        this.updateVisibilityForCurrentTab();
         
         // Esconder preview PDF se estiver ativo
         if (this.currentTab === 'pdf' && this.pdfExportTab) {
@@ -1144,7 +1166,7 @@ class MapControl {
         this.isCollapsed = false;
         
         // Atualizar visibilidade dos controles (agora baseado apenas no colapso)
-        this.updateActionsVisibility();
+        this.updateVisibilityForCurrentTab();
         
         // Mostrar preview PDF se estiver na aba PDF
         if (this.currentTab === 'pdf' && this.pdfExportTab) {

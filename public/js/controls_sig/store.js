@@ -2,6 +2,7 @@
 
 const SCHEMA_VERSION = '1.2';
 const MIN_SCHEMA_VERSION = '1.2';
+const MAX_SCHEMA_VERSION = '1.2';
 
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
@@ -905,7 +906,7 @@ export const clearMapPosition = async (mapName = null) => {
 };
 
 // Exportar stores para uso direto quando necessário
-export { mapStore, imageStore, appStore, SCHEMA_VERSION, MIN_SCHEMA_VERSION };
+export { mapStore, imageStore, appStore, SCHEMA_VERSION, MIN_SCHEMA_VERSION, MAX_SCHEMA_VERSION  };
 
 // Manter compatibilidade com código existente
 const store = memoryStore;

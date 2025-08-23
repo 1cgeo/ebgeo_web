@@ -145,6 +145,7 @@ class DrawControl {
     }
 
     handleDrawCreate = async (e) => {
+        this.toolManager.deactivateCurrentTool();
         for (const f of e.features) {
             const geomtype = f.geometry.type.toLowerCase();
             const properties = { ...this.defaultProperties[geomtype], ...f.properties };
@@ -152,6 +153,7 @@ class DrawControl {
             properties.nome = IDUtils.generateFeatureName(geomtype, this.map, f.geometry);
 
             f.properties = properties;
+            f.properties.id = f.id;
 
             if (geomtype === 'linestring') {
                 f.properties.profileData = JSON.stringify(await this.calculateProfile(f.geometry.coordinates));
@@ -162,14 +164,11 @@ class DrawControl {
             });
             const type = geomtype + 's';
 
-            f.properties.id = f.id;
 
             // Salvar no IndexedDB
             await addFeature(type, f);
             this.updateFeatureMeasurement(f);
         };
-
-        this.toolManager.deactivateCurrentTool();
     }
 
     handleDrawUpdate = async (e) => {
@@ -472,10 +471,7 @@ class DrawControl {
             // Seleciona o ponto recém-criado
             this.draw.changeMode('simple_select', { featureIds: [ids[0]] });
 
-            // Atualiza a seleção no selectionManager
-            if (this.selectionManager) {
-                this.selectionManager.handleDrawSelectionChange();
-            }
+            this.selectionManager.handleDrawSelectionChange();
 
             return addedFeature;
         }

@@ -10,6 +10,7 @@ import {
     resetMemoryStore,
     getCurrentBaseLayer,
     MIN_SCHEMA_VERSION,
+    MAX_SCHEMA_VERSION,
     SCHEMA_VERSION,
     compareVersions
 } from './store.js';
@@ -148,7 +149,7 @@ export class ExportImportService {
     async handleExport() {
         try {
             this.mapControl.deactivateActiveTools();
-            
+
             const zip = new JSZip();
 
             const mapsToExport = await getAllMapNames();
@@ -255,7 +256,7 @@ export class ExportImportService {
     // Manipular importação
     async handleImport(event, isAdditiveImport) {
         this.mapControl.deactivateActiveTools();
-        
+
         const file = event.target.files[0];
         if (!file) return;
 
@@ -296,6 +297,9 @@ export class ExportImportService {
 
             if (compareVersions(data.version, MIN_SCHEMA_VERSION) < 0) {
                 throw new Error(`Arquivo .ebgeo incompatível. Versão do arquivo: ${data.version}, versão mínima aceita: ${MIN_SCHEMA_VERSION}`);
+            }
+            if (compareVersions(data.version, MAX_SCHEMA_VERSION) > 0) {
+                throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${MAX_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`);
             }
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
 
