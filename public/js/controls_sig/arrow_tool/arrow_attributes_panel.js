@@ -64,9 +64,9 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     // Opacidade do preenchimento (0-100% com conversão automática)
     const fillOpacityControl = createSliderWithInput({
-        min: 10, // 0.1 * 100
+        min: 0,
         max: 100,
-        step: 10, // 0.1 * 100
+        step: 1,
         value: Math.round((feature.properties.fillOpacity || 0.8) * 100),
         onChange: (value) => {
             // Convert from 0-100 range to 0-1 range for internal storage
