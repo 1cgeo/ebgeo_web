@@ -57,6 +57,7 @@ export async function setupMapFeatures() {
 }
 
 map.on('load', async () => {
+    map.doubleClickZoom.disable();
     await setupMapFeatures();
 });
 
