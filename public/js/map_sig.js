@@ -104,21 +104,24 @@ map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
 mapControl.loadMenu()
 
-map.addControl(featureSearchControl, 'bottom-left');
-
 map.addControl(mouseCoordinatesControl, 'bottom-right');
 
-map.addControl(resetNorthControl, 'top-right');
-map.addControl(terrainControl, 'top-right');
-map.addControl(importControl, 'top-right');
-map.addControl(screenshotControl, 'top-right');
-map.addControl(vectorTileInfoControl, 'top-right');
+map.addControl(featureSearchControl, 'top-right'); // Primeiro - Feature Search
+map.addControl(resetNorthControl, 'top-right');    // Segundo - North
+map.addControl(importControl, 'top-right');        // Terceiro - Import
+map.addControl(screenshotControl, 'top-right');    // Quarto - Screenshot
+map.addControl(vectorTileInfoControl, 'top-right'); // Quinto - Vector Info
+map.addControl(addStreetViewControl, 'top-right');  // Sexto - Street View
+
+// GRUPO TERRENO (últimos 3)
+map.addControl(terrainControl, 'top-right');        // Sétimo - Terrain
+map.addControl(losControl, 'top-right');            // Oitavo - LOS
+map.addControl(visibilityControl, 'top-right');     // Nono - Visibility
+
+// COLUNA DIREITA - Ferramentas de desenho
 map.addControl(drawControl, 'top-right');
 map.addControl(textControl, 'top-right');
 map.addControl(imageControl, 'top-right');
-map.addControl(losControl, 'top-right');
-map.addControl(visibilityControl, 'top-right');
-map.addControl(addStreetViewControl, 'top-right');
 map.addControl(circleControl, 'top-right');
 map.addControl(ellipseControl, 'top-right');
 map.addControl(arrowControl, 'top-right');
@@ -169,6 +172,7 @@ document.addEventListener('keydown', (e) => {
             break;
 
         // ✅ ATALHOS PARA ATIVAÇÃO DE FERRAMENTAS
+            
         case 'p':
         case 'P':
             e.preventDefault();

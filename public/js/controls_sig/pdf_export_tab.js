@@ -8,7 +8,11 @@ export default class PDFExportTab {
         this.orientation = 'landscape';
         this.previewLayer = null;
         this.isVisible = false;
-        this.bounds = null;
+
+        // Margens e bounds duplos
+        this.marginMM = 5; // 15mm de margem
+        this.paperBounds = null; // Bounds do A4 completo
+        this.usableBounds = null; // Bounds da área útil (com margens)
 
         // Bind methods
         this.onOrientationChange = this.onOrientationChange.bind(this);
@@ -106,12 +110,13 @@ export default class PDFExportTab {
             });
         }
 
-        // Criar layers se não existirem
+        // Camadas para papel A4 (fundo claro)
         if (!this.map.getLayer('pdf-export-preview-fill')) {
             this.map.addLayer({
                 id: 'pdf-export-preview-fill',
                 type: 'fill',
                 source: 'pdf-export-preview',
+                filter: ['==', 'type', 'paper'],
                 paint: {
                     'fill-color': '#508D4E',
                     'fill-opacity': 0.15
@@ -124,6 +129,7 @@ export default class PDFExportTab {
                 id: 'pdf-export-preview-stroke',
                 type: 'line',
                 source: 'pdf-export-preview',
+                filter: ['==', 'type', 'paper'],
                 paint: {
                     'line-color': '#508D4E',
                     'line-width': 2,
@@ -131,10 +137,27 @@ export default class PDFExportTab {
                 }
             });
         }
+
+        if (!this.map.getLayer('pdf-export-usable-stroke')) {
+            this.map.addLayer({
+                id: 'pdf-export-usable-stroke',
+                type: 'line',
+                source: 'pdf-export-preview',
+                filter: ['==', 'type', 'usable'],
+                paint: {
+                    'line-color': '#508D4E',
+                    'line-width': 2,
+                    'line-dasharray': [1]
+                }
+            });
+        }
     }
 
     hidePreview() {
-        const layerIds = ['pdf-export-preview-fill', 'pdf-export-preview-stroke'];
+        const layerIds = [
+            'pdf-export-preview-fill', 'pdf-export-preview-stroke', // Papel
+            'pdf-export-usable-stroke'    // Área útil
+        ];
 
         layerIds.forEach(layerId => {
             if (this.map.getLayer(layerId)) {
@@ -147,7 +170,25 @@ export default class PDFExportTab {
         }
     }
 
-    calculateA4Bounds(orientation) {
+    // Converter margem em mm para unidades do mapa (graus)
+    convertMMToMapUnits(marginMM) {
+        const center = this.map.getCenter();
+        const bounds = this.map.getBounds();
+
+        // Calcular escala atual baseada na viewport
+        const viewportHeight = bounds.getNorth() - bounds.getSouth();
+        const mapHeightPixels = this.map.getCanvas().height;
+
+        // Conversão aproximada: mm -> pixels -> graus
+        const pixelsPerMM = 3.78; // ~96 DPI padrão
+        const marginPixels = marginMM * pixelsPerMM;
+        const degreesPerPixel = viewportHeight / mapHeightPixels;
+
+        return marginPixels * degreesPerPixel;
+    }
+
+    // Calcular tanto papel A4 quanto área útil
+    calculatePaperAndUsableBounds(orientation) {
         const center = this.map.getCenter();
         const bounds = this.map.getBounds();
 
@@ -157,43 +198,72 @@ export default class PDFExportTab {
         const ratio = 297.0 / 210.0;
         const baseWidth = baseHeight / ratio;
 
-        // 🔥 CORREÇÃO: Aplicar fator de latitude
+        // Correção de latitude para papel
         const latCorrection = Math.cos(center.lat * Math.PI / 180);
 
-        let offsetLng, offsetLat;
+        let paperOffsetLng, paperOffsetLat;
 
         if (orientation === 'portrait') {
-            offsetLat = baseHeight / 2;
-            offsetLng = (baseWidth / 2) / latCorrection;
+            paperOffsetLat = baseHeight / 2;
+            paperOffsetLng = (baseWidth / 2) / latCorrection;
         } else {
-            offsetLat = baseWidth / 2;
-            offsetLng = (baseHeight / 2) / latCorrection;
+            paperOffsetLat = baseWidth / 2;
+            paperOffsetLng = (baseHeight / 2) / latCorrection;
         }
 
-        return {
-            topLeft: [center.lng - offsetLng, center.lat + offsetLat],
-            topRight: [center.lng + offsetLng, center.lat + offsetLat],
-            bottomRight: [center.lng + offsetLng, center.lat - offsetLat],
-            bottomLeft: [center.lng - offsetLng, center.lat - offsetLat]
+        // Bounds do papel A4 completo
+        const paper = {
+            topLeft: [center.lng - paperOffsetLng, center.lat + paperOffsetLat],
+            topRight: [center.lng + paperOffsetLng, center.lat + paperOffsetLat],
+            bottomRight: [center.lng + paperOffsetLng, center.lat - paperOffsetLat],
+            bottomLeft: [center.lng - paperOffsetLng, center.lat - paperOffsetLat]
         };
+
+        // Calcular área útil (papel - margens)
+        const marginDegrees = this.convertMMToMapUnits(this.marginMM);
+
+        const usable = {
+            topLeft: [paper.topLeft[0] + marginDegrees / latCorrection, paper.topLeft[1] - marginDegrees],
+            topRight: [paper.topRight[0] - marginDegrees / latCorrection, paper.topRight[1] - marginDegrees],
+            bottomRight: [paper.bottomRight[0] - marginDegrees / latCorrection, paper.bottomRight[1] + marginDegrees],
+            bottomLeft: [paper.bottomLeft[0] + marginDegrees / latCorrection, paper.bottomLeft[1] + marginDegrees]
+        };
+
+        return { paper, usable };
     }
 
     updateBounds() {
-        this.bounds = this.calculateA4Bounds(this.orientation);
-        // Atualizar preview no mapa
-        const feature = {
+        const bounds = this.calculatePaperAndUsableBounds(this.orientation);
+        this.paperBounds = bounds.paper;
+        this.usableBounds = bounds.usable;
+
+        // Criar features para papel e área útil
+        const paperFeature = {
             type: 'Feature',
-            properties: {
-                orientation: this.orientation
-            },
+            properties: { type: 'paper', orientation: this.orientation },
             geometry: {
                 type: 'Polygon',
                 coordinates: [[
-                    this.bounds.topLeft,
-                    this.bounds.topRight,
-                    this.bounds.bottomRight,
-                    this.bounds.bottomLeft,
-                    this.bounds.topLeft
+                    this.paperBounds.topLeft,
+                    this.paperBounds.topRight,
+                    this.paperBounds.bottomRight,
+                    this.paperBounds.bottomLeft,
+                    this.paperBounds.topLeft
+                ]]
+            }
+        };
+
+        const usableFeature = {
+            type: 'Feature',
+            properties: { type: 'usable', orientation: this.orientation },
+            geometry: {
+                type: 'Polygon',
+                coordinates: [[
+                    this.usableBounds.topLeft,
+                    this.usableBounds.topRight,
+                    this.usableBounds.bottomRight,
+                    this.usableBounds.bottomLeft,
+                    this.usableBounds.topLeft
                 ]]
             }
         };
@@ -202,7 +272,7 @@ export default class PDFExportTab {
         if (source) {
             source.setData({
                 type: 'FeatureCollection',
-                features: [feature]
+                features: [paperFeature, usableFeature]
             });
         }
     }
@@ -232,9 +302,9 @@ export default class PDFExportTab {
     }
 
     calculatePreviewPixelBounds() {
-        // Converter bounds do preview (lat/lng) para coordenadas pixel do canvas
-        const topLeft = this.map.project([this.bounds.topLeft[0], this.bounds.topLeft[1]]);
-        const bottomRight = this.map.project([this.bounds.bottomRight[0], this.bounds.bottomRight[1]]);
+        // Usar bounds da área útil para export
+        const topLeft = this.map.project([this.usableBounds.topLeft[0], this.usableBounds.topLeft[1]]);
+        const bottomRight = this.map.project([this.usableBounds.bottomRight[0], this.usableBounds.bottomRight[1]]);
 
         return {
             x: Math.round(topLeft.x),
@@ -259,6 +329,7 @@ export default class PDFExportTab {
 
         return cropCanvas;
     }
+
     scaleCanvas(sourceCanvas, scaleFactor) {
         const scaledCanvas = document.createElement('canvas');
         scaledCanvas.width = sourceCanvas.width * scaleFactor;
@@ -293,7 +364,7 @@ export default class PDFExportTab {
 
     captureMapCanvas(resolve, reject) {
         // Forçar uma renderização completa (igual screenshot_control)
-        
+
         this.map.triggerRepaint();
 
         // Usar requestAnimationFrame para garantir que a renderização foi concluída
@@ -301,10 +372,9 @@ export default class PDFExportTab {
             try {
                 const canvas = this.map.getCanvas();
 
-                // Calcular área do preview em pixels
+                // Calcular área do preview em pixels (área útil)
                 const previewPixels = this.calculatePreviewPixelBounds();
                 console.log('Preview size:', previewPixels.width, 'x', previewPixels.height);
-
 
                 // Verificar se as coordenadas são válidas
                 if (previewPixels.width <= 0 || previewPixels.height <= 0) {
@@ -316,7 +386,6 @@ export default class PDFExportTab {
                 const croppedCanvas = this.cropCanvasArea(canvas, previewPixels);
 
                 const baseDPI = 96 * window.devicePixelRatio; // DPI atual da tela
-
                 const targetDPI = 300; // DPI desejado
                 const scaleFactor = targetDPI / baseDPI;
                 const highResCanvas = this.scaleCanvas(croppedCanvas, scaleFactor);
@@ -337,7 +406,7 @@ export default class PDFExportTab {
         });
     }
 
-     async captureHighResArea() {
+    async captureHighResArea() {
         // --- 1. Definir Parâmetros de Qualidade ---
         const targetDPI = 200; // Qualidade de impressão padrão
         const screenDPI = 96; // DPI padrão de tela
@@ -348,7 +417,7 @@ export default class PDFExportTab {
         const originalHeight = mapContainer.clientHeight;
 
         // --- 2. Calcular a área de recorte na resolução da tela ---
-        // Isso nos diz qual porção do mapa queremos capturar
+        // Usar área útil em vez de área completa
         const screenCropArea = this.calculatePreviewPixelBounds();
         if (screenCropArea.width <= 0 || screenCropArea.height <= 0) {
             throw new Error('A área de pré-visualização para exportação é inválida.');
@@ -370,7 +439,7 @@ export default class PDFExportTab {
 
             // --- 5. Capturar a imagem do canvas em alta resolução ---
             const highResCanvas = this.map.getCanvas();
-            
+
             // Calcular as coordenadas de recorte no novo canvas gigante
             const highResCropArea = {
                 x: Math.round(screenCropArea.x * scaleFactor),
@@ -394,107 +463,114 @@ export default class PDFExportTab {
         }
     }
 
-async onExportClick() {
-    let modal;
-    let hiddenMapContainer;
-    let hiddenMap;
+    async onExportClick() {
+        let modal;
+        let hiddenMapContainer;
+        let hiddenMap;
 
-    try {
-        // 1. Mostrar modal de carregamento
-        modal = this.showExportModal();
-        await new Promise(resolve => setTimeout(resolve, 100));
+        try {
+            // 1. Mostrar modal de carregamento
+            modal = this.showExportModal();
+            await new Promise(resolve => setTimeout(resolve, 100));
 
-        // 2. Definir parâmetros de alta resolução
-        const targetDPI = 300;
-        const pageWidthInches = this.orientation === 'landscape' ? 11.7 : 8.3;
-        const pageHeightInches = this.orientation === 'landscape' ? 8.3 : 11.7;
-        const targetWidthPixels = Math.round(pageWidthInches * targetDPI);
-        const targetHeightPixels = Math.round(pageHeightInches * targetDPI);
-        
-        // 3. Criar o container invisível
-        hiddenMapContainer = document.createElement('div');
-        hiddenMapContainer.style.cssText = `
-            position: absolute; top: -9999px; left: -9999px;
-            width: ${targetWidthPixels}px; height: ${targetHeightPixels}px;
-        `;
-        document.body.appendChild(hiddenMapContainer);
+            // 2. Definir parâmetros de alta resolução baseados na área útil
+            const targetDPI = 300;
 
-        // 4. Inicializar o mapa invisível
-        hiddenMap = new maplibregl.Map({
-            container: hiddenMapContainer,
-            style: this.map.getStyle(),
-            center: this.map.getCenter(),
-            zoom: this.map.getZoom(),
-            preserveDrawingBuffer: true,
-            interactive: false,
-            fadeDuration: 0
-        });
+            // Calcular dimensões da área útil (A4 - margens)
+            const pageWidthInches = this.orientation === 'landscape' ? 11.7 : 8.3;
+            const pageHeightInches = this.orientation === 'landscape' ? 8.3 : 11.7;
+            const marginInches = this.marginMM / 25.4; // mm para inches
 
-        // 5. ⭐ NOVO E ESSENCIAL: Transferir todas as imagens/ícones ⭐
-        const loadedImages = this.map.listImages(); // Pega o ID de todas as imagens do mapa principal
-        
-        // Mapeia cada ID para uma promessa que carrega e adiciona a imagem no mapa invisível
-        const imagePromises = loadedImages.map(id => {
-            return new Promise((resolve, reject) => {
-                // Pega a imagem do mapa principal
-                const image = this.map.getImage(id);
-                if (image) {
-                    // Adiciona a imagem no mapa invisível
-                    hiddenMap.addImage(id, image.data, { sdf: image.sdf });
-                    resolve();
-                } else {
-                    // Se, por algum motivo, a imagem não for encontrada, avisa e continua
-                    console.warn(`Imagem com ID "${id}" não encontrada no mapa principal.`);
-                    resolve(); 
-                }
+            const usableWidthInches = pageWidthInches - (2 * marginInches);
+            const usableHeightInches = pageHeightInches - (2 * marginInches);
+
+            const targetWidthPixels = Math.round(usableWidthInches * targetDPI);
+            const targetHeightPixels = Math.round(usableHeightInches * targetDPI);
+
+            // 3. Criar o container invisível
+            hiddenMapContainer = document.createElement('div');
+            hiddenMapContainer.style.cssText = `
+                position: absolute; top: -9999px; left: -9999px;
+                width: ${targetWidthPixels}px; height: ${targetHeightPixels}px;
+            `;
+            document.body.appendChild(hiddenMapContainer);
+
+            // 4. Inicializar o mapa invisível
+            hiddenMap = new maplibregl.Map({
+                container: hiddenMapContainer,
+                style: this.map.getStyle(),
+                center: this.map.getCenter(),
+                zoom: this.map.getZoom(),
+                preserveDrawingBuffer: true,
+                interactive: false,
+                fadeDuration: 0
             });
-        });
 
-        // Espera todas as imagens serem adicionadas no mapa invisível
-        await Promise.all(imagePromises);
+            // 5. Transferir todas as imagens/ícones
+            const loadedImages = this.map.listImages();
 
-        // 6. Enquadrar o mapa na área de exportação
-        const mapBounds = [this.bounds.bottomLeft, this.bounds.topRight];
-        hiddenMap.fitBounds(mapBounds, { padding: 0, duration: 0 });
-        
-        // 7. Aguardar o mapa invisível renderizar TUDO (incluindo os ícones agora carregados)
-        await new Promise(resolve => hiddenMap.once('idle', resolve));
-        
-        // 8. Capturar a imagem do canvas em alta resolução
-        const imageData = hiddenMap.getCanvas().toDataURL('image/png', 1.0);
+            const imagePromises = loadedImages.map(id => {
+                return new Promise((resolve, reject) => {
+                    const image = this.map.getImage(id);
+                    if (image) {
+                        hiddenMap.addImage(id, image.data, { sdf: image.sdf });
+                        resolve();
+                    } else {
+                        console.warn(`Imagem com ID "${id}" não encontrada no mapa principal.`);
+                        resolve();
+                    }
+                });
+            });
 
-        // 9. Gerar o PDF
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({
-            orientation: this.orientation === 'landscape' ? 'l' : 'p',
-            unit: 'mm',
-            format: 'a4'
-        });
-        const pageWidthMM = this.orientation === 'landscape' ? 297 : 210;
-        const pageHeightMM = this.orientation === 'landscape' ? 210 : 297;
-        pdf.addImage(imageData, 'PNG', 0, 0, pageWidthMM, pageHeightMM);
+            await Promise.all(imagePromises);
 
-        // 10. Download
-        const fileName = `mapa-completo-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
-        pdf.save(fileName);
+            // 6. Enquadrar o mapa na área útil (não na área completa do papel)
+            const mapBounds = [this.usableBounds.bottomLeft, this.usableBounds.topRight];
+            hiddenMap.fitBounds(mapBounds, { padding: 0, duration: 0 });
 
-    } catch (error) {
-        console.error('Erro ao exportar PDF com imagens:', error);
-        alert('Não foi possível exportar o PDF: ' + error.message);
-    } finally {
-        // 11. Limpeza final
-        if (modal && modal.parentNode) {
-            document.body.removeChild(modal);
-        }
-        // Destruir o mapa invisível para liberar memória WebGL
-        if (hiddenMap) {
-            hiddenMap.remove();
-        }
-        if (hiddenMapContainer && hiddenMapContainer.parentNode) {
-            document.body.removeChild(hiddenMapContainer);
+            // 7. Aguardar o mapa invisível renderizar TUDO
+            await new Promise(resolve => hiddenMap.once('idle', resolve));
+
+            // 8. Capturar a imagem do canvas em alta resolução
+            const imageData = hiddenMap.getCanvas().toDataURL('image/png', 1.0);
+
+            // 9. Gerar o PDF com margens
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({
+                orientation: this.orientation === 'landscape' ? 'l' : 'p',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            const pageWidthMM = this.orientation === 'landscape' ? 297 : 210;
+            const pageHeightMM = this.orientation === 'landscape' ? 210 : 297;
+            const usableWidthMM = pageWidthMM - (2 * this.marginMM);
+            const usableHeightMM = pageHeightMM - (2 * this.marginMM);
+
+            // Adicionar imagem na posição com margem
+            pdf.addImage(imageData, 'PNG', this.marginMM, this.marginMM, usableWidthMM, usableHeightMM);
+
+            // 10. Download
+            const fileName = `mapa-completo-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
+            pdf.save(fileName);
+
+        } catch (error) {
+            console.error('Erro ao exportar PDF com margens:', error);
+            alert('Não foi possível exportar o PDF: ' + error.message);
+        } finally {
+            // 11. Limpeza final
+            if (modal && modal.parentNode) {
+                document.body.removeChild(modal);
+            }
+            if (hiddenMap) {
+                hiddenMap.remove();
+            }
+            if (hiddenMapContainer && hiddenMapContainer.parentNode) {
+                document.body.removeChild(hiddenMapContainer);
+            }
         }
     }
-}
+
     // ========== MÉTODOS PRESERVADOS PARA FUTURA IMPLEMENTAÇÃO GEOREFERENCIADA ==========
 
     /**

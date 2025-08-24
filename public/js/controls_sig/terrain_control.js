@@ -22,6 +22,7 @@ class TerrainControl {
         this.hillshadeSourceConfig = config.hillshadeSource;
         this.terrainConfig = config.terrain;
         this.hillshadeConfig = config.hillshade;
+        this._wasTerrainActive = false;
         this._map = null;
         this._container = null;
         this._button = null;
@@ -89,9 +90,11 @@ class TerrainControl {
 
         if (this._map.getTerrain()) {
             // Disable 3D terrain
+            this._wasTerrainActive = false;
             this._map.setTerrain(null);
         } else {
             // Enable 3D terrain
+            this._wasTerrainActive = true;
             this._map.setTerrain(this.terrainConfig);
         }
     }

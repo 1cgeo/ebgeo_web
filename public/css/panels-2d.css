@@ -316,265 +316,37 @@
     transform: translateY(0);
 }
 
-/* ===== FEATURE SEARCH CONTROL ===== */
-.feature-search-control {
-    position: fixed !important;
-    top: 60px !important;
-    right: 110px !important;
-    z-index: 1000 !important;
-    
-    /* Layout flexível */
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    
-    /* Visual aprimorado */
-    background: rgba(255, 255, 255, 0.98) !important;
-    backdrop-filter: blur(12px) !important;
-    border: 1px solid rgba(0, 0, 0, 0.08) !important;
-    border-radius: 12px !important;
-    padding: 3px 15px !important;
-    box-shadow: 
-        0 4px 20px rgba(0, 0, 0, 0.1),
-        0 1px 3px rgba(0, 0, 0, 0.08) !important;
-    
-    /* Animação suave */
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    
-    /* Largura máxima para não ocupar tela inteira */
-    max-width: 500px !important;
-    min-width: 320px !important;
-}
-
-/* Estado hover para melhor feedback visual */
-.feature-search-control:hover {
-    box-shadow: 
-        0 8px 30px rgba(0, 0, 0, 0.15),
-        0 2px 6px rgba(0, 0, 0, 0.1) !important;
-}
-
-/* Input da busca com design melhorado */
-.feature-search-input {
-    border: 1px solid #e1e5e9 !important;
-    border-radius: 8px !important;
-    font-size: 14px !important;
-    width: 100% !important;
-    outline: none !important;
-    background: white !important;
-    color: #2d3748 !important;
-    
-    /* Transições suaves */
-    transition: all 0.2s ease !important;
-    
-    /* Typography */
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-    font-weight: 400 !important;
-}
-
-/* Estados do input */
-.feature-search-input:focus {
-    border-color: var(--primary-color) !important;
-    box-shadow: 
-        0 0 0 3px rgba(80, 141, 78, 0.1),
-        0 1px 3px rgba(0, 0, 0, 0.1) !important;
-    background: #ffffff !important;
-}
-
-.feature-search-input::placeholder {
-    color: #a0aec0 !important;
-    font-style: normal !important;
-    font-weight: 400 !important;
-}
-
-/* Botão de busca melhorado */
-.feature-search-button {
-    background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)) !important;
-    color: white !important;
-    border: none !important;
-    padding: 10px 16px !important;
-    border-radius: 8px !important;
-    cursor: pointer !important;
-    font-size: 14px !important;
-    font-weight: 500 !important;
-    white-space: nowrap !important;
-    
-    /* Animações */
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    
-    /* Typography */
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-}
-
-.feature-search-button:hover {
-    background: linear-gradient(135deg, var(--primary-dark), #2d5a2b) !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 12px rgba(80, 141, 78, 0.3) !important;
-}
-
-.feature-search-button:active {
-    transform: translateY(0) !important;
-}
-
-/* CORREÇÃO: Dropdown de sugestões com posicionamento fixo simples */
-.feature-search-suggestions {
-    position: fixed !important;
-    top: 45px !important; /* 60px (control top) + ~40px (control height) + 8px gap */
-    right: 0px !important; /* Mesmo right do control */
-    background: white !important;
-    border: 1px solid rgba(0, 0, 0, 0.08) !important;
-    border-radius: 12px !important;
-    box-shadow: 
-        0 10px 40px rgba(0, 0, 0, 0.15),
-        0 4px 6px rgba(0, 0, 0, 0.05) !important;
-    max-height: 250px !important;
-    overflow-y: auto !important;
-    z-index: 10000 !important;
-    display: none;
-    list-style: none !important;
-    padding: 8px 0 !important;
-    margin: 0 !important;
-    min-width: 320px !important;
-    max-width: 500px !important;
-    
-    /* Animação de entrada */
-    opacity: 0 !important;
-    transform: translateY(-10px) !important;
-    transition: all 0.2s ease !important;
-}
-
-/* CORREÇÃO: Estado visível do dropdown */
-.feature-search-suggestions[style*="block"] {
-    opacity: 1 !important;
-    transform: translateY(0) !important;
-    animation: slideDown 0.2s ease forwards !important;
-}
-
-/* CORREÇÃO: Itens de sugestão melhorados */
-.feature-search-suggestion {
-    padding: 12px 16px !important;
-    cursor: pointer !important;
-    font-size: 14px !important;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.04) !important;
-    transition: all 0.15s ease !important;
-    display: block !important;
-    
-    /* Typography */
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-    line-height: 1.5 !important;
-    color: #333 !important;
-}
-
-.feature-search-suggestion:hover {
-    background: linear-gradient(90deg, rgba(80, 141, 78, 0.08), rgba(80, 141, 78, 0.04)) !important;
-}
-
-.feature-search-suggestion:last-child {
-    border-bottom: none !important;
-}
-
-.feature-search-suggestion strong {
-    color: var(--primary-color) !important;
-    font-weight: 600 !important;
-}
-
-/* Estado de erro para sugestões */
-.feature-search-suggestion.error {
-    color: #dc3545 !important;
-    cursor: default !important;
-}
-
-.feature-search-suggestion.error:hover {
-    background: rgba(220, 53, 69, 0.05) !important;
-}
-
-/* Estado de carregamento */
-.feature-search-control.searching .feature-search-input {
-    opacity: 0.7 !important;
-}
-
-.feature-search-control.searching::after {
-    content: '' !important;
-    position: absolute !important;
-    right: 12px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    width: 16px !important;
-    height: 16px !important;
-    border: 2px solid #e0e0e0 !important;
-    border-top: 2px solid var(--primary-color) !important;
-    border-radius: 50% !important;
-    animation: spin 1s linear infinite !important;
-    z-index: 10 !important;
-}
-
-/* ===== ANIMAÇÕES CORRIGIDAS ===== */
-@keyframes slideDown {
+/* ===== ANIMAÇÕES ===== */
+@keyframes slideInFromLeft {
     from {
         opacity: 0;
-        transform: translateY(-10px);
+        transform: translateX(-100%);
     }
     to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translateX(0);
     }
 }
 
-@keyframes spin {
-    0% { transform: translateY(-50%) rotate(0deg); }
-    100% { transform: translateY(-50%) rotate(360deg); }
-}
-
-/* ===== SCROLLBARS CUSTOMIZADOS ===== */
-.feature-search-suggestions::-webkit-scrollbar {
-    width: 6px;
-}
-
-.feature-search-suggestions::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.05);
-    border-radius: 3px;
-}
-
-.feature-search-suggestions::-webkit-scrollbar-thumb {
-    background-color: var(--primary-color);
-    border-radius: 3px;
-}
-
-.feature-search-suggestions::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-dark);
-}
-
-/* ===== RESPONSIVIDADE MOBILE ===== */
-@media (max-width: 768px) {
-    /* Feature Search Control mobile */
-    .feature-search-control {
-        top: 5px !important;
-        right: 5px !important;
-        left: 45px !important;
-        padding: 6px 8px !important;
-        min-width: auto !important;
-        max-width: none !important;
-        width: calc(100vw - 55px) !important;
+@keyframes slideInFromRight {
+    from {
+        opacity: 0;
+        transform: translateX(100%);
     }
-
-    .feature-search-input {
-        font-size: 12px !important;
-        padding: 8px 10px !important;
+    to {
+        opacity: 1;
+        transform: translateX(0);
     }
+}
 
-    .feature-search-suggestions {
-        top: 45px !important; /* 5px (control top mobile) + ~32px (control height mobile) + 8px gap */
-        right: 5px !important; /* Mesmo right do control mobile */
-        left: 45px !important; /* Mesmo left do control mobile */
-        max-height: 150px !important;
-        font-size: 12px !important;
-        min-width: auto !important;
-        max-width: none !important;
-        width: calc(100vw - 55px) !important;
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
     }
-
-    .feature-search-suggestion {
-        padding: 8px 12px !important;
-        font-size: 12px !important;
+    to {
+        opacity: 1;
+        transform: scale(1);
     }
 }
 
@@ -619,32 +391,42 @@
         max-height: 300px;
         padding: 12px;
     }
+
+    /* Feature Search Panel mobile */
+    .feature-search-panel {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        min-width: auto;
+        max-width: none;
+        padding: 12px;
+    }
 }
 
 /* ===== SCROLLBARS CUSTOMIZADOS ===== */
 .profile-panel::-webkit-scrollbar,
 .vector-tile-info-panel::-webkit-scrollbar,
-.feature-search-suggestions::-webkit-scrollbar {
+.feature-search-panel::-webkit-scrollbar {
     width: 6px;
 }
 
 .profile-panel::-webkit-scrollbar-track,
 .vector-tile-info-panel::-webkit-scrollbar-track,
-.feature-search-suggestions::-webkit-scrollbar-track {
+.feature-search-panel::-webkit-scrollbar-track {
     background: rgba(0, 0, 0, 0.05);
     border-radius: 3px;
 }
 
 .profile-panel::-webkit-scrollbar-thumb,
 .vector-tile-info-panel::-webkit-scrollbar-thumb,
-.feature-search-suggestions::-webkit-scrollbar-thumb {
+.feature-search-panel::-webkit-scrollbar-thumb {
     background-color: var(--primary-color);
     border-radius: 3px;
 }
 
 .profile-panel::-webkit-scrollbar-thumb:hover,
 .vector-tile-info-panel::-webkit-scrollbar-thumb:hover,
-.feature-search-suggestions::-webkit-scrollbar-thumb:hover {
+.feature-search-panel::-webkit-scrollbar-thumb:hover {
     background-color: var(--primary-dark);
 }
 
@@ -671,12 +453,6 @@
 }
 
 /* ===== ACESSIBILIDADE ===== */
-.feature-search-input:focus,
-.feature-search-button:focus {
-    outline: 2px solid var(--primary-color) !important;
-    outline-offset: 2px !important;
-}
-
 .profile-panel .close-button:focus,
 .feature-search-panel button:focus,
 #close-street-view-button:focus {
@@ -697,8 +473,4 @@
 .feature-search-panel,
 .vector-tile-info-panel {
     z-index: 100;
-}
-
-.feature-search-suggestions {
-    z-index: 1000;
 }

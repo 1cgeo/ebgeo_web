@@ -6,24 +6,59 @@ class FeatureSearchControl {
       this._apiUrl = config.search.apiUrl;
       this._marker = null;
       this._uiManager = uiManager;
+      this._isExpanded = false; // Estado do toggle
+      this._disabled = !this._apiUrl; // Disabled se não tiver apiUrl
     }
   
     onAdd(map) {
       this._map = map;
       this._container = document.createElement('div');
-      this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group feature-search-control';
-  
+      this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group feature-search-control controls-column-left';
+
+      // Criar botão com ícone de lupa
+      this._button = document.createElement('button');
+      this._button.type = 'button';
+      this._button.className = 'mapbox-gl-draw_ctrl-draw-btn';
+      this._button.setAttribute("id", "feature-search-tool");
+      this._button.title = 'Buscar';
+      
+      // SVG da lupa (cinza se disabled, preto se enabled)
+      const strokeColor = this._disabled ? '#999' : '#333';
+      const cursorStyle = this._disabled ? 'not-allowed' : 'pointer';
+      
+      this._button.innerHTML = `
+        <svg class="icon-sig-tool" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2">
+          <circle cx="11" cy="11" r="6"></circle>
+          <path d="m21 21-4.35-4.35"></path>
+        </svg>
+      `;
+      
+      this._button.style.cursor = cursorStyle;
+      this._button.disabled = this._disabled;
+
+      // Input de busca (inicialmente oculto)
       this._input = document.createElement('input');
       this._input.type = 'text';
       this._input.placeholder = 'Busque por nome';
       this._input.className = 'feature-search-input';
-  
+      this._input.style.display = 'none';
+
+      // Lista de sugestões
       this._suggestionsList = document.createElement('ul');
       this._suggestionsList.className = 'feature-search-suggestions';
-  
+
+      // Adicionar elementos ao container
+      this._container.appendChild(this._button);
       this._container.appendChild(this._input);
       this._container.appendChild(this._suggestionsList);
-  
+
+      // Event listeners
+      this._button.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (!this._disabled) {
+          this._toggleSearch();
+        }
+      });
       this._input.addEventListener('input', this._debounce(this._getSuggestions.bind(this), 300));
       this._input.addEventListener('focus', () => {
         if (this._input.value.length >= 3) {
@@ -34,10 +69,40 @@ class FeatureSearchControl {
       this._input.addEventListener('blur', () => {
         setTimeout(() => {
           this._suggestionsList.style.display = 'none';
-        }, 300); // Aumentado de 200ms para 300ms
+        }, 300);
       });
-  
+
+
+
       return this._container;
+    }
+
+    _toggleSearch() {
+      if (this._isExpanded) {
+        this._collapseSearch();
+      } else {
+        this._expandSearch();
+      }
+    }
+
+    _expandSearch() {
+      this._isExpanded = true;
+      this._input.style.display = 'block';
+      this._container.classList.add('expanded');
+      
+      // Foco no input com pequeno delay para garantir que está visível
+      setTimeout(() => {
+        this._input.focus();
+      }, 100);
+    }
+
+    _collapseSearch() {
+      this._isExpanded = false;
+      this._input.style.display = 'none';
+      this._input.value = '';
+      this._suggestionsList.style.display = 'none';
+      this._container.classList.remove('expanded');
+      this.removeMarker();
     }
   
     _debounce(func, delay) {
@@ -56,7 +121,6 @@ class FeatureSearchControl {
       }
   
       try {
-        // Adicionar indicador de carregamento
         this._container.classList.add('searching');
         
         const center = this._map.getCenter();
@@ -73,39 +137,29 @@ class FeatureSearchControl {
         console.error('Error fetching suggestions:', error);
         this._displayError();
       } finally {
-        // Remover indicador de carregamento
         this._container.classList.remove('searching');
       }
     }
 
-    /**
-     * Filtra sugestões removendo itens com atributos obrigatórios nulos/vazios
-     * @param {Array} suggestions - Array de sugestões da API
-     * @returns {Array} - Array filtrado
-     */
     _filterValidSuggestions(suggestions) {
       if (!Array.isArray(suggestions)) {
         return [];
       }
 
       return suggestions.filter(suggestion => {
-        // Verificar se todos os atributos obrigatórios estão presentes e válidos
         const requiredFields = ['tipo', 'nome', 'municipio', 'estado', 'longitude', 'latitude'];
         
         return requiredFields.every(field => {
           const value = suggestion[field];
           
-          // Verificar se o valor não é nulo, undefined ou string vazia
           if (value === null || value === undefined) {
             return false;
           }
           
-          // Para strings, verificar se não está vazia após trim
           if (typeof value === 'string' && value.trim() === '') {
             return false;
           }
           
-          // Para coordenadas, verificar se são números válidos
           if ((field === 'longitude' || field === 'latitude') && (isNaN(value) || !isFinite(value))) {
             return false;
           }
@@ -130,7 +184,6 @@ class FeatureSearchControl {
         li.className = 'feature-search-suggestion';
         li.innerHTML = `<strong>${suggestion.tipo}:</strong> ${suggestion.nome} (${suggestion.municipio}, ${suggestion.estado})`;
         
-        // Event handler principal - usando pointerdown que funciona com touchpad
         li.addEventListener('pointerdown', (e) => {
           e.preventDefault();
           this._selectFeature(suggestion);
@@ -155,7 +208,6 @@ class FeatureSearchControl {
         this._suggestionsList.appendChild(li);
       });
   
-      // Mostrar dropdown
       this._suggestionsList.style.display = 'block';
     }
     
@@ -180,10 +232,8 @@ class FeatureSearchControl {
   
       this._uiManager.saveChangesAndClosePanel();
   
-      // Remover marcador anterior se existir
       this.removeMarker();
       
-      // Criar novo marcador
       this._marker = new maplibregl.Marker()
         .setLngLat([feature.longitude, feature.latitude])
         .addTo(this._map);
@@ -193,7 +243,6 @@ class FeatureSearchControl {
         zoom: 14,
         essential: true
       });
-
 
       this._uiManager.showFeatureSearchPanel(feature);
     }
@@ -213,11 +262,8 @@ class FeatureSearchControl {
       }
     }
 
-
     clearSearch() {
-      this._input.value = '';
-      this._suggestionsList.style.display = 'none';
-      this.removeMarker();
+      this._collapseSearch();
     }
 }
   

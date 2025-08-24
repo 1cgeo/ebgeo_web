@@ -44,6 +44,8 @@ export async function setupMapFeatures() {
         setupLOSLayers(features);
         setupTextLayers(features);
 
+        restoreTerrainState();
+
         // Restaurar medições e marcações
         requestAnimationFrame(() => {
             clearAllMeasurements();
@@ -1071,6 +1073,32 @@ function setupAuxiliaryLayers() {
     }
 }
 
+function restoreTerrainState() {
+    try {
+
+        const terrainControl = map._controls.find(control => 
+            control.constructor.name === 'TerrainControl'
+        );
+
+        if (!terrainControl) {
+            return; // Nenhum controle de terreno encontrado
+        }
+        
+        if (terrainControl.terrainConfig) {
+            // Garantir que as sources de terreno estão configuradas
+            terrainControl._setupTerrainSources();
+            
+            // Reativar o terreno 3D
+            if (map.getSource('terrainSource') && terrainControl._wasTerrainActive) {
+                map.setTerrain(terrainControl.terrainConfig);
+            }
+        }
+
+    } catch (error) {
+        console.warn('Erro ao restaurar estado do terreno:', error);
+    }
+}
+
 function clearAllMeasurements() {
     try {
         // Remover todos os elementos de medição do DOM
@@ -1202,6 +1230,68 @@ function restoreBoundaryDependentFeatures(features) {
     } catch (error) {
         console.error('Error restoring boundary dependent features:', error);
     }
+}
+
+export function zoomToFeature(feature) {
+    if (!feature?.geometry) {
+        console.warn('Feature inválida para zoom');
+        return;
+    }
+    
+    try {
+        const geometry = feature.geometry;
+        
+        switch (geometry.type) {
+            case 'Point':
+                map.flyTo({
+                    center: geometry.coordinates,
+                    zoom: Math.max(map.getZoom(), 16),
+                    duration: 800
+                });
+                break;
+                
+            case 'LineString':
+            case 'Polygon':
+            case 'MultiLineString':
+            case 'MultiPolygon':
+                const bounds = new maplibregl.LngLatBounds();
+                extractAllCoordinates(geometry).forEach(coord => bounds.extend(coord));
+                
+                if (bounds.isEmpty()) {
+                    console.warn('Bounds vazio para feature');
+                    return;
+                }
+                
+                map.fitBounds(bounds, { 
+                    padding: 50, 
+                    duration: 800,
+                    maxZoom: 18 
+                });
+                break;
+                
+            default:
+                console.warn('Tipo de geometria não suportado:', geometry.type);
+        }
+    } catch (error) {
+        console.error('Erro ao fazer zoom para feature:', error);
+    }
+}
+
+function extractAllCoordinates(geometry) {
+    const coords = [];
+    
+    function extract(coordArray) {
+        if (Array.isArray(coordArray)) {
+            if (typeof coordArray[0] === 'number') {
+                coords.push(coordArray);
+            } else {
+                coordArray.forEach(extract);
+            }
+        }
+    }
+    
+    extract(geometry.coordinates);
+    return coords;
 }
 
 export { map };
