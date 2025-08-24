@@ -258,28 +258,36 @@
     top: 196px !important;
 }
 
-.circle-control.controls-column-right {
+.rectangle-control.controls-column-right {
     top: 230px !important;
 }
 
-.ellipse-control.controls-column-right {
+.circle-control.controls-column-right {
     top: 264px !important;
 }
 
-.arrow-control.controls-column-right {
+.ellipse-control.controls-column-right {
     top: 298px !important;
 }
 
-.boundary-control.controls-column-right {
+.brush-control.controls-column-right {
     top: 332px !important;
 }
 
-.occupied-front-control.controls-column-right {
+.arrow-control.controls-column-right {
     top: 366px !important;
 }
 
-.military-symbol-control.controls-column-right {
+.boundary-control.controls-column-right {
     top: 400px !important;
+}
+
+.occupied-front-control.controls-column-right {
+    top: 434px !important;
+}
+
+.military-symbol-control.controls-column-right {
+    top: 468px !important;
 }
 
 /* ===== ESTILOS BASE DOS CONTROLES ===== */

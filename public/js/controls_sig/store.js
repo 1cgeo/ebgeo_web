@@ -25,6 +25,7 @@ const memoryStore = {
 const getEmptyMapData = () => ({
     baseLayer: 'carta-topografica',
     features: {
+        rectangles: [],
         polygons: [],
         linestrings: [],
         points: [],
@@ -34,6 +35,8 @@ const getEmptyMapData = () => ({
         visibility: [],
         processed_los: [],
         processed_visibility: [],
+        brushes: [],
+        rectangles: [],
         circles: [],
         ellipses: [],
         arrows: [],
@@ -274,8 +277,12 @@ function getFeatureType(feature) {
             return 'visibility';
         case 'circle':
             return 'circles';
+        case 'rectangle':
+            return 'rectangles';
         case 'ellipse':
             return 'ellipses';
+        case 'brush':
+            return 'brushes';
         case 'arrow':
             return 'arrows';
         case 'boundary':
@@ -903,6 +910,27 @@ export const clearMapPosition = async (mapName = null) => {
     currentMapData.zoom = null;
     
     await mapStore.setItem(targetMapName, currentMapData);
+};
+
+export const updateFeatureProperty = async (featureType, featureId, property, value) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    const feature = currentMapData.features[featureType].find(f => f.properties.id === featureId);
+    
+    if (!feature) {
+        console.warn(`Feature ${featureId} não encontrada em ${featureType}`);
+        return false;
+    }
+    
+    feature.properties[property] = value;
+    
+    await mapStore.setItem(memoryStore.currentMap, currentMapData);
+    
+    return true;
+};
+
+export const getFeatureById = async (featureType, featureId) => {
+    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+    return currentMapData.features[featureType].find(f => f.properties.id === featureId);
 };
 
 // Exportar stores para uso direto quando necessário

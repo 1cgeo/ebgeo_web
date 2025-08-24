@@ -11,6 +11,8 @@ import { addArrowAttributesToPanel } from '../arrow_tool/arrow_attributes_panel.
 import { addBoundaryAttributesToPanel } from '../boundary_tool/boundary_attributes_panel.js';
 import { addOccupiedFrontAttributesToPanel } from '../occupied_front_tool/occupied_front_attributes_panel.js';
 import { addMilitarySymbolAttributesToPanel } from '../military_symbol_tool/military_symbol_attributes_panel.js';
+import { addRectangleAttributesToPanel } from '../rectangle_tool/rectangle_attributes_panel.js';
+import { addBrushAttributesToPanel } from '../brush_tool/brush_attributes_panel.js';
 
 // ===== CONFIGURATION =====
 
@@ -25,7 +27,8 @@ const SELECTION_BOX_STRATEGIES = {
     'arrow': { strategy: 'bbox', errorMsg: 'seta', padding: 5 },
     'boundary': { strategy: 'bbox', errorMsg: 'boundary', padding: 5 },
     'occupied_front': { strategy: 'bbox', errorMsg: 'frente ocupada', padding: 5 },
-
+    'rectangle': { strategy: 'bbox', errorMsg: 'retângulo', padding: 5 },
+    'brush': { strategy: 'bbox', errorMsg: 'pincel', padding: 5 },
     // Linear features that now use bounding box with different padding based on geometry
     'draw': { strategy: 'bbox', errorMsg: 'desenho', padding: 'auto' }, // Will detect Point/LineString/Polygon
     'los': { strategy: 'bbox', errorMsg: 'linha de visada', padding: 5 }, // Always LineString
@@ -67,6 +70,11 @@ const ATTRIBUTE_PANEL_REGISTRY = {
         controlKey: 'visibility',
         sectionClass: 'visibility-attributes-section'
     },
+    'rectangle': {
+        panelFunction: addRectangleAttributesToPanel,
+        controlKey: 'rectangle',
+        sectionClass: 'rectangle-attributes-section'
+    },
     'circle': {
         panelFunction: addCircleAttributesToPanel,
         controlKey: 'circle',
@@ -96,7 +104,12 @@ const ATTRIBUTE_PANEL_REGISTRY = {
         panelFunction: addMilitarySymbolAttributesToPanel,
         controlKey: 'military_symbol',
         sectionClass: 'military-symbol-attributes-section'
-    }
+    },
+    'brush': {
+        panelFunction: addBrushAttributesToPanel,
+        controlKey: 'brush',
+        sectionClass: 'brush-attributes-section'
+    },
 };
 
 class UIManager {

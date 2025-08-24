@@ -1,0 +1,66 @@
+// Path: js\controls_sig\brush_tool\brush_attributes_panel.js
+
+import {
+    createSliderWithInput,
+    createColorPicker,
+    createAttributeRow,
+    createStandardButtons,
+    createEditableFeatureName,
+    getCommonConfig
+} from '../tool_manager/attribute_panel_helpers.js';
+
+export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl, selectionManager, uiManager) {
+    if (selectedFeatures.length === 0) return;
+
+    const feature = selectedFeatures[0];
+    
+    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
+
+    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
+    if (selectedFeatures.length === 1) {
+        const nameComponent = createEditableFeatureName(
+            feature.properties.nome,
+            (newName) => {
+                brushControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                uiManager.updateSelectionHighlight();
+            }
+        );
+        $(panel).append(nameComponent);
+    }
+
+    // ===== PROPRIEDADES ESPECÍFICAS DO PINCEL =====
+
+    // Cor da linha
+    const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
+        brushControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
+        uiManager.updateSelectionHighlight();
+    }, 'Cor do pincel');
+
+    $(panel).append(createAttributeRow('Cor:', lineColorInput));
+
+    // Largura da linha (em pixels)
+    const lineWidthControl = createSliderWithInput({
+        min: 1,
+        max: 50,
+        step: 1,
+        value: feature.properties.lineWidth || 10,
+        onChange: (value) => {
+            brushControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
+
+    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
+    const buttons = createStandardButtons({
+        selectedFeatures,
+        control: brushControl,
+        selectionManager,
+        initialPropertiesMap,
+        hasSetDefault: selectedFeatures.length === 1,
+        onSetDefault: () => brushControl.setDefaultProperties(feature.properties)
+    });
+
+    $(panel).append(buttons);
+}

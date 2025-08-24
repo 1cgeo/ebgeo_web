@@ -6,9 +6,9 @@
  * Valid sources for drag operations
  */
 const VALID_DRAG_SOURCES = [
-    'los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 
-    'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys', 
-    'occupied_fronts', 'military_symbols'
+    'los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot',
+    'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys',
+    'occupied_fronts', 'military_symbols', 'rectangles', 'brushes'
 ];
 
 class MoveHandler {
@@ -63,9 +63,9 @@ class MoveHandler {
      * Helper to check if feature is from MapLibreDraw
      */
     isMapLibreDrawFeature(feature) {
-        return feature.source === 'mapbox-gl-draw-cold' || 
-               feature.source === 'mapbox-gl-draw-hot' ||
-               (feature.properties && feature.properties.source === 'draw');
+        return feature.source === 'mapbox-gl-draw-cold' ||
+            feature.source === 'mapbox-gl-draw-hot' ||
+            (feature.properties && feature.properties.source === 'draw');
     }
 
     /**
@@ -84,9 +84,11 @@ class MoveHandler {
             'visibility': this.updateVisibilityFeature.bind(this),
             'text': this.updatePointFeature.bind(this),
             'image': this.updatePointFeature.bind(this),
+            'rectangle': this.updateRectangleFeature.bind(this),
             'circle': this.updateCircleFeature.bind(this),
             'ellipse': this.updateEllipseFeature.bind(this),
             'arrow': this.updateArrowFeature.bind(this),
+            'brush': this.updateBrushFeature.bind(this),
             'boundary': this.updateBoundaryFeature.bind(this),
             'occupied_front': this.updateOccupiedFrontFeature.bind(this),
             'military_symbol': this.updateMilitarySymbolFeature.bind(this)
@@ -129,7 +131,7 @@ class MoveHandler {
         if (allSelectedFeatures.length === 0) return;
 
         const clickedFeatures = this.map.queryRenderedFeatures(e.point);
-        const filteredFeatures = clickedFeatures.filter(feature => 
+        const filteredFeatures = clickedFeatures.filter(feature =>
             VALID_DRAG_SOURCES.includes(feature.source)
         );
 
@@ -150,7 +152,7 @@ class MoveHandler {
         // Check if clicked feature is selected
         const isFeatureSelected = filteredFeatures.some(clickedFeature => {
             const clickedFeatureId = this.getFeatureId(clickedFeature);
-            
+
             if (clickedFeatureId === null) {
                 return false;
             }
@@ -195,11 +197,11 @@ class MoveHandler {
 
         // Custom handles - SIMPLIFIED
         const customHandleSources = [
-            'circle-edit-handles', 'ellipse-edit-handles', 
-            'arrow-edit-handles', 'boundary-edit-handles', 
-            'occupied-front-edit-handles'
+            'circle-edit-handles', 'ellipse-edit-handles',
+            'arrow-edit-handles', 'boundary-edit-handles',
+            'occupied-front-edit-handles', 'rectangle-edit-handles'
         ];
-        
+
         return features.some(f =>
             customHandleSources.includes(f.source) &&
             f.properties.user_isEditingHandle
@@ -310,7 +312,7 @@ class MoveHandler {
         const coords = feature.geometry.coordinates;
 
         // Handle special cases first
-        if (source === 'circle' || source === 'ellipse') {
+        if (source === 'circle' || source === 'ellipse' || source === 'rectangle') {
             let center = feature.properties.center;
             if (typeof center === 'string') {
                 center = JSON.parse(center);
@@ -365,7 +367,7 @@ class MoveHandler {
         for (let i = 0; i < features.length; i++) {
             const feature = features[i];
             const featureId = this.getFeatureId(feature);
-            
+
             if (featureId !== null && this.offsets.has(featureId)) {
                 const { offset } = this.offsets.get(featureId);
 
@@ -402,7 +404,7 @@ class MoveHandler {
     updateSelectionManagerFeatures(updatedFeatures) {
         // Clear existing selections using new API
         this.selectionManager.selectedFeatures.clear();
-        
+
         // Add updated features using new API
         for (const feature of updatedFeatures) {
             const type = feature.properties?.source || 'draw';
@@ -419,18 +421,18 @@ class MoveHandler {
      */
     syncEditHandlesForMovedFeatures = (updatedFeatures) => {
         // Identificar quais controls podem ter features selecionadas que foram movidas
-        const controlsToSync = ['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front', 'los'];
-        
+        const controlsToSync = ['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front', 'los', 'rectangle'];
+
         controlsToSync.forEach(controlType => {
             const control = this.getControl(controlType);
-            
+
             // Verificar se control existe e tem método de sincronização
             if (control && typeof control.syncEditHandlesAfterDrag === 'function') {
                 // Verificar se alguma feature movida pertence a este control
-                const movedFeatures = updatedFeatures.filter(feature => 
+                const movedFeatures = updatedFeatures.filter(feature =>
                     feature.properties?.source === controlType
                 );
-                
+
                 if (movedFeatures.length > 0) {
                     control.syncEditHandlesAfterDrag(movedFeatures);
                 }
@@ -461,10 +463,10 @@ class MoveHandler {
             feature.geometry.coordinates[0][0][0][1]
         ];
         if (typeof oldCenter === 'string') {
-                oldCenter = JSON.parse(oldCenter);
+            oldCenter = JSON.parse(oldCenter);
         }
 
-        const newCenter = [oldCenter[0]+dx, oldCenter[1]+dy];
+        const newCenter = [oldCenter[0] + dx, oldCenter[1] + dy];
 
         // Preservar propriedades originais
         const updatedProperties = {
@@ -493,6 +495,37 @@ class MoveHandler {
         };
     }
 
+    updateRectangleFeature(feature, dx, dy, newCoords) {
+        // ✅ newCoords é a NOVA POSIÇÃO DO CENTER, não delta!
+        const newCenter = [newCoords.lng, newCoords.lat];
+
+        // ✅ Manter dimensões, mas recalcular corners baseado no novo center
+        const width = feature.properties.width;
+        const height = feature.properties.height;
+
+        // ✅ Recalcular corners baseado no novo center + dimensões preservadas
+        const halfWidthDeg = (width / 2) / 111320 / Math.cos(newCenter[1] * Math.PI / 180);
+        const halfHeightDeg = (height / 2) / 111320;
+
+        const newCorner1 = [newCenter[0] - halfWidthDeg, newCenter[1] + halfHeightDeg];
+        const newCorner2 = [newCenter[0] + halfWidthDeg, newCenter[1] - halfHeightDeg];
+
+        const rectangleControl = this.getControl('rectangle');
+
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                corner1: newCorner1,    // ✅ Atualizar corners baseado no novo center
+                corner2: newCorner2,    // ✅ Atualizar corners baseado no novo center
+                center: newCenter,      // ✅ Centro vem do drag
+                width: width,           // ✅ Preservar dimensões
+                height: height          // ✅ Preservar dimensões
+            },
+            geometry: rectangleControl.generateRectangleGeometry(newCorner1, newCorner2)
+        };
+    }
+
     updateCircleFeature(feature, dx, dy, newCoords) {
         const newCenter = [newCoords.lng, newCoords.lat];
         const circleControl = this.getControl('circle');
@@ -515,6 +548,22 @@ class MoveHandler {
         }
 
         return updatedFeature;
+    }
+
+    updateBrushFeature(feature, dx, dy, newCoords) {
+        // Move all points in the LineString by the same delta
+        const movedCoordinates = feature.geometry.coordinates.map(coord => [
+            coord[0] + dx,
+            coord[1] + dy
+        ]);
+
+        return {
+            ...feature,
+            geometry: {
+                ...feature.geometry,
+                coordinates: movedCoordinates
+            }
+        };
     }
 
     updateEllipseFeature(feature, dx, dy, newCoords) {

@@ -27,6 +27,8 @@ import AddOccupiedFrontControl from './controls_sig/occupied_front_tool/add_occu
 import AddMilitarySymbolControl from './controls_sig/military_symbol_tool/add_military_symbol_control.js';
 import TerrainControl from './controls_sig/terrain_control.js';
 import config from './config.js';
+import AddRectangleControl from './controls_sig/rectangle_tool/add_rectangle_control.js';
+import AddBrushControl from './controls_sig/brush_tool/add_brush_control.js';
 
 //-----------------------------------------------
 // CONTROLES
@@ -53,11 +55,13 @@ const importControl = new AddImportControl(toolManager);
 const addStreetViewControl = new AddStreetViewControl(toolManager);
 
 const circleControl = new AddCircleControl(toolManager);
+const rectangleControl = new AddRectangleControl(toolManager);
 const ellipseControl = new AddEllipseControl(toolManager);
 const arrowControl = new AddArrowControl(toolManager);
 const boundaryControl = new AddBoundaryControl(toolManager);
 const occupiedFrontControl = new AddOccupiedFrontControl(toolManager);
 const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
+const brushControl = new AddBrushControl(toolManager);
 
 selectionManager.registerControl('draw', drawControl);
 selectionManager.registerControl('text', textControl);
@@ -65,11 +69,13 @@ selectionManager.registerControl('image', imageControl);
 selectionManager.registerControl('los', losControl);
 selectionManager.registerControl('visibility', visibilityControl);
 selectionManager.registerControl('circle', circleControl);
+selectionManager.registerControl('rectangle', rectangleControl);
 selectionManager.registerControl('ellipse', ellipseControl);
 selectionManager.registerControl('arrow', arrowControl);
 selectionManager.registerControl('boundary', boundaryControl);
 selectionManager.registerControl('occupied_front', occupiedFrontControl);
 selectionManager.registerControl('military_symbol', militarySymbolControl);
+selectionManager.registerControl('brush', brushControl);
 
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
@@ -122,8 +128,10 @@ map.addControl(visibilityControl, 'top-right');     // Nono - Visibility
 map.addControl(drawControl, 'top-right');
 map.addControl(textControl, 'top-right');
 map.addControl(imageControl, 'top-right');
+map.addControl(rectangleControl, 'top-right');
 map.addControl(circleControl, 'top-right');
 map.addControl(ellipseControl, 'top-right');
+map.addControl(brushControl, 'top-right');
 map.addControl(arrowControl, 'top-right');
 map.addControl(boundaryControl, 'top-right');
 map.addControl(occupiedFrontControl, 'top-right');
@@ -250,6 +258,16 @@ document.addEventListener('keydown', (e) => {
         case 'M':
             e.preventDefault();
             toolManager.setActiveTool(militarySymbolControl);
+            break;
+        case 'r':
+        case 'R':
+            e.preventDefault();
+            toolManager.setActiveTool(rectangleControl);
+            break;
+        case 'b':
+        case 'B':
+            e.preventDefault();
+            toolManager.setActiveTool(brushControl);
             break;
     }
 });

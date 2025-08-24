@@ -7,63 +7,61 @@
 const CONTROL_CONFIG = {
     draw: {
         layerIds: [], // Will be handled by maplibredraw
-        sourceNames: ['mapbox-gl-draw-cold', 'mapbox-gl-draw-hot'],
-        criticalProps: []
+        sourceNames: ['mapbox-gl-draw-cold', 'mapbox-gl-draw-hot']
     },
     text: {
         layerIds: ['text-layer'],
-        sourceNames: ['texts'],
-        criticalProps: []
+        sourceNames: ['texts']
     },
     image: {
         layerIds: ['image-layer'],
-        sourceNames: ['images'],
-        criticalProps: []
+        sourceNames: ['images']
     },
     los: {
         layerIds: ['los-layer'],
-        sourceNames: ['los'],
-        criticalProps: []
+        sourceNames: ['los']
     },
     visibility: {
         layerIds: ['visibility-layer'],
-        sourceNames: ['visibility'],
-        criticalProps: []
+        sourceNames: ['visibility']
+    },
+    rectangle: {
+        layerIds: ['rectangle-fill-layer', 'rectangle-layer'],
+        sourceNames: ['rectangles'],
+        editHandleSource: 'rectangle-edit-handles'
     },
     circle: {
         layerIds: ['circle-fill-layer', 'circle-layer'],
         sourceNames: ['circles'],
-        criticalProps: ['center', 'radius'],
         editHandleSource: 'circle-edit-handles'
     },
     ellipse: {
         layerIds: ['ellipse-layer', 'ellipse-fill-layer'],
         sourceNames: ['ellipses'],
-        criticalProps: ['center', 'majorRadius', 'minorRadius', 'bearing'],
         editHandleSource: 'ellipse-edit-handles'
+    },
+    brush: {
+        layerIds: ['brush-layer'],
+        sourceNames: ['brushes']
     },
     arrow: {
         layerIds: ['arrow-layer', 'arrow-fill-layer'],
         sourceNames: ['arrows'],
-        criticalProps: ['baseCoordinates'],
         editHandleSource: 'arrow-edit-handles'
     },
     boundary: {
         layerIds: ['boundary-main-layer'],
         sourceNames: ['boundarys'],
-        criticalProps: ['center'],
         editHandleSource: 'boundary-edit-handles'
     },
     occupied_front: {
         layerIds: ['occupied-front-layer'],
         sourceNames: ['occupied_fronts'],
-        criticalProps: ['baseCoordinates'],
         editHandleSource: 'occupied_front-edit-handles'
     },
     military_symbol: {
         layerIds: ['military-symbols-layer'],
-        sourceNames: ['military_symbols'],
-        criticalProps: ['sidc', 'affiliation', 'dimension', 'mainIcon', 'echelon']
+        sourceNames: ['military_symbols']
     }
 };
 
@@ -183,37 +181,6 @@ class SelectionManager {
         }
     }
 
-    /**
-     * Garante que a feature está limpa (sem metadados de vector tile)
-     */
-    ensureCleanFeature(feature) {
-        // Se já tem geometry válida e não tem metadados, está limpa
-        if (feature.geometry && feature.geometry.coordinates && !feature._vectorTileFeature) {
-            return feature;
-        }
-
-        // Limpar feature contaminada
-        const cleanFeature = {
-            type: feature.type || 'Feature',
-            id: feature.id,
-            properties: { ...feature.properties },
-            geometry: feature.geometry || feature._geometry
-        };
-
-        // Remover metadados do vector tile
-        delete cleanFeature._vectorTileFeature;
-        delete cleanFeature._geometry;
-        delete cleanFeature._pbf;
-        delete cleanFeature._z;
-        delete cleanFeature._x;
-        delete cleanFeature._y;
-        delete cleanFeature.layer;
-        delete cleanFeature.source;
-        delete cleanFeature.state;
-
-        return cleanFeature;
-    }
-
     getClickedCustomFeature = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
@@ -228,8 +195,7 @@ class SelectionManager {
                 );
 
                 if (feature) {
-                    const cleanFeature = this.ensureCleanFeature(feature);
-                    return { ...cleanFeature, toolType: type };
+                    return { ...feature, toolType: type };
                 }
             }
         }
@@ -256,7 +222,7 @@ class SelectionManager {
         const customHandleSources = [
             'circle-edit-handles', 'ellipse-edit-handles', 
             'arrow-edit-handles', 'boundary-edit-handles', 
-            'occupied-front-edit-handles'
+            'occupied-front-edit-handles', 'rectangle-edit-handles'
         ];
         
         return features.some(f =>
@@ -281,12 +247,7 @@ class SelectionManager {
 
         const feature = e.features[0];
 
-        // Melhorar detecção se é feature do draw
-        const isDrawFeature = feature.source === 'mapbox-gl-draw-cold' ||
-            feature.source === 'mapbox-gl-draw-hot' ||
-            !feature.properties.source; // draw features podem não ter .source
-
-        const type = isDrawFeature ? 'draw' : feature.properties.source;
+        const type = feature.properties.source;
         const featureId = feature.properties.id;
 
         // Check if feature is already selected
@@ -316,7 +277,6 @@ class SelectionManager {
     toggleFeatureSelection(type, featureId, feature, forceToggle = false) {
         const key = `${type}:${featureId}`;
         const control = this.controls.get(type);
-        const config = CONTROL_CONFIG[type];
 
         if (this.selectedFeatures.has(key) && forceToggle) {
             // Deselect feature
@@ -326,16 +286,9 @@ class SelectionManager {
                 control.onFeatureDeselected(feature);
             }
         } else if (!this.selectedFeatures.has(key)) {
-            // Select feature
-            let featureToStore = this.ensureCleanFeature(feature);
-
-            // For problematic features, create optimized hybrid feature
-            if (config.criticalProps.length > 0) {
-                const completeFeature = this.getCompleteFeatureFromSource(type, featureId);
-                if (completeFeature) {
-                    featureToStore = this.createOptimalFeatureForDrag(feature, completeFeature, type, config);
-                }
-            }
+            // Select feature - always use complete feature from source
+            const completeFeature = this.getCompleteFeatureFromSource(type, featureId);
+            const featureToStore = completeFeature || feature; // fallback to original if not found
 
             this.selectedFeatures.set(key, { type, feature: featureToStore });
 
@@ -356,30 +309,6 @@ class SelectionManager {
         return mapSource._data.features.find(f => f.properties.id == featureId);
     }
 
-    createOptimalFeatureForDrag(queryFeature, completeFeature, type, config) {
-        if (!completeFeature) return queryFeature;
-
-        // Start with query feature (has correct render properties)
-        const hybridFeature = {
-            ...queryFeature,
-            // Ensure consistent ID (use string like complete feature)
-            id: completeFeature.properties.id,
-            // Use geometry from complete feature (more reliable)
-            geometry: completeFeature.geometry,
-            properties: {
-                ...queryFeature.properties,
-                // Override with critical properties from complete feature
-                ...Object.fromEntries(
-                    config.criticalProps
-                        .filter(prop => completeFeature.properties[prop] !== undefined)
-                        .map(prop => [prop, completeFeature.properties[prop]])
-                )
-            }
-        };
-
-        return hybridFeature;
-    }
-
     handleDrawSelectionChange = (e) => {
         if (this.getActiveTool()) return;
 
@@ -396,8 +325,7 @@ class SelectionManager {
         // Adicionar novas seleções
         selectedFeatures.forEach(f => {
             const key = `draw:${f.properties.id}`;
-            const cleanFeature = this.ensureCleanFeature(f);
-            this.selectedFeatures.set(key, { type: 'draw', feature: cleanFeature });
+            this.selectedFeatures.set(key, { type: 'draw', feature: f });
         });
 
         this.updateUI();

@@ -43,6 +43,8 @@ export async function setupMapFeatures() {
         setupArrowLayers(features);
         setupLOSLayers(features);
         setupTextLayers(features);
+        setupRectangleLayers(features);
+        setupBrushLayers(features);
 
         restoreTerrainState();
 
@@ -62,6 +64,177 @@ map.on('load', async () => {
     map.doubleClickZoom.disable();
     await setupMapFeatures();
 });
+
+function setupBrushLayers(features) {
+    // ===== SOURCES (2 - simples) =====
+
+    const brushControl = map._controls.find(control => 
+        control.constructor.name === 'AddBrushControl'
+    );
+    
+    let correctedBrushes = features.brushes;
+    if (brushControl) {
+        correctedBrushes = brushControl.applyZoomCorrections(features.brushes);
+    }
+    
+    // 1. Source principal
+    if (!map.getSource('brushes')) {
+        map.addSource('brushes', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: correctedBrushes
+            }
+        });
+    } else {
+        map.getSource('brushes').setData({
+            type: 'FeatureCollection',
+            features: correctedBrushes
+        });
+    }
+
+    // 2. Feedback source (preview)
+    if (!map.getSource('brush-feedback')) {
+        map.addSource('brush-feedback', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // ===== LAYERS (2 - simples) =====
+
+    // 1. Main layer (editable parameters)
+    if (!map.getLayer('brush-layer')) {
+        map.addLayer({
+            id: 'brush-layer',
+            type: 'line',
+            source: 'brushes',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'calculatedLineWidth'],
+                'line-opacity': 1
+            }
+        });
+    }
+
+    // 2. Preview layer
+    if (!map.getLayer('brush-feedback-layer')) {
+        map.addLayer({
+            id: 'brush-feedback-layer',
+            type: 'line',
+            source: 'brush-feedback',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': 0.7
+            }
+        });
+    }
+}
+
+function setupRectangleLayers(features) {
+    // ===== SOURCES (3 - consolidados) =====
+    
+    // 1. Source principal
+    if (!map.getSource('rectangles')) {
+        map.addSource('rectangles', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.rectangles
+            }
+        });
+    } else {
+        map.getSource('rectangles').setData({
+            type: 'FeatureCollection',
+            features: features.rectangles
+        });
+    }
+
+    // 2. Feedback consolidado
+    if (!map.getSource('rectangle-feedback')) {
+        map.addSource('rectangle-feedback', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // 3. Edit handles source
+    if (!map.getSource('rectangle-edit-handles')) {
+        map.addSource('rectangle-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // ===== LAYERS (4 - seguindo padrão) =====
+
+    // 3. Feedback layer
+    if (!map.getLayer('rectangle-feedback-layer')) {
+        map.addLayer({
+            id: 'rectangle-feedback-layer',
+            type: 'line',
+            source: 'rectangle-feedback',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 3,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8
+            }
+        });
+    }
+
+    // 1. Fill layer (editable parameters)
+    if (!map.getLayer('rectangle-fill-layer')) {
+        map.addLayer({
+            id: 'rectangle-fill-layer',
+            type: 'fill',
+            source: 'rectangles',
+            paint: {
+                'fill-color': ['get', 'fillColor'],
+                'fill-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
+    // 2. Stroke layer (editable parameters)
+    if (!map.getLayer('rectangle-layer')) {
+        map.addLayer({
+            id: 'rectangle-layer',
+            type: 'line',
+            source: 'rectangles',
+            paint: {
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'lineWidth'],
+                'line-opacity': 1
+            }
+        });
+    }
+
+    // 4. Edit handles layer
+    if (!map.getLayer('rectangle-edit-handles-layer')) {
+        map.addLayer({
+            id: 'rectangle-edit-handles-layer',
+            type: 'circle',
+            source: 'rectangle-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': '#ff0000',
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2
+            },
+            filter: ['==', '$type', 'Point']
+        });
+    }
+}
 
 function setupOccupiedFrontLayers(features) {
     // ===== SOURCES (3 - consolidados) =====

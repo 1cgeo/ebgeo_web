@@ -22,9 +22,11 @@ export class IDUtils {
         try {
             // Mapeamento source → nome em português
             const SOURCE_DISPLAY_NAMES = {
+                'rectangle': 'Retângulo',
                 'circle': 'Círculo',
                 'ellipse': 'Elipse',
                 'arrow': 'Seta',
+                'brush': 'Pincel',
                 'boundary': 'Limite',
                 'occupied_front': 'Frente Ocupada',
                 'military_symbol': 'Símbolo Militar',
@@ -40,8 +42,10 @@ export class IDUtils {
 
             // Mapeamento source → nome do source no mapa
             const SOURCE_TO_MAP_SOURCE = {
+                'rectangle': 'rectangles',
                 'circle': 'circles',
                 'ellipse': 'ellipses',
+                'brush': 'brushes',
                 'arrow': 'arrows',
                 'boundary': 'boundarys',
                 'occupied_front': 'occupied_fronts',
