@@ -168,6 +168,9 @@ class AddBrushControl {
     }
 
     updateAllBrushWidths = () => {
+        if(!this.map.getSource('brushes')){
+            return
+        }
         const currentZoom = this.map.getZoom();
         const data = JSON.parse(JSON.stringify(this.map.getSource('brushes')._data));
         let hasChanges = false;

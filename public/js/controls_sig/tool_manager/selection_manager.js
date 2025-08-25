@@ -5,9 +5,19 @@
  * Adding a new control type is as simple as adding an entry here
  */
 const CONTROL_CONFIG = {
-    draw: {
-        layerIds: [], // Will be handled by maplibredraw
-        sourceNames: ['mapbox-gl-draw-cold', 'mapbox-gl-draw-hot']
+     point: {
+        layerIds: ['point-layer'],
+        sourceNames: ['points']
+    },
+    line: {
+        layerIds: ['line-layer'],
+        sourceNames: ['lines'],
+        editHandleSource: 'line-edit-handles'
+    },
+    polygon: {
+        layerIds: ['polygon-fill-layer', 'polygon-layer'],
+        sourceNames: ['polygons'],
+        editHandleSource: 'polygon-edit-handles'
     },
     text: {
         layerIds: ['text-layer'],
@@ -117,7 +127,6 @@ class SelectionManager {
 
     setupEventListeners = () => {
         this.map.on('click', this.handleMapClick);
-        this.map.on('draw.selectionchange', this.handleDrawSelectionChange);
     }
 
     handleMapClick = (e) => {
@@ -127,8 +136,6 @@ class SelectionManager {
         if (activeTool) {
             activeTool.handleMapClick(e);
         } else {
-            // Check for maplibredraw features
-            const clickedDrawFeature = this.getClickedDrawFeature(e.point);
 
             // Check for custom tool features
             const clickedCustomFeature = this.getClickedCustomFeature(e.point);
@@ -137,23 +144,7 @@ class SelectionManager {
             if (this.isClickOnEditHandle(e.point)) {
                 return; // Don't deselect if clicking on edit handles
             }
-
-            // Handle maplibredraw features
-            if (clickedDrawFeature) {
-                if (this.isFeatureSelected('draw', clickedDrawFeature.properties.id) &&
-                    clickedDrawFeature.geometry.type !== 'Point') {
-                    this.controls.get('draw').draw.changeMode('direct_select', {
-                        featureId: clickedDrawFeature.properties.id
-                    });
-                } else {
-                    if (!e.originalEvent.shiftKey) {
-                        this.deselectAllFeatures();
-                    }
-                }
-                this.updateUI();
-                return;
-            }
-
+            
             // Handle custom tool features
             if (clickedCustomFeature) {
                 const isAlreadySelected = this.isFeatureSelected(
@@ -186,7 +177,6 @@ class SelectionManager {
 
         // Check each control type configuration
         for (const [type, config] of Object.entries(CONTROL_CONFIG)) {
-            if (type === 'draw') continue; // Special handling for draw
 
             for (const sourceName of config.sourceNames) {
                 const feature = features.find(f =>
@@ -210,16 +200,9 @@ class SelectionManager {
     isClickOnEditHandle = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
-        // Check for maplibredraw edit handles
-        const hasMaplibreDrawEditHandles = features.some(feature =>
-            feature.properties.mode === 'direct_select' ||
-            feature.properties.meta === 'midpoint' ||
-            feature.properties.meta === 'vertex'
-        );
-        if (hasMaplibreDrawEditHandles) return true;
-
         // Check for custom control edit handles - SIMPLIFIED
         const customHandleSources = [
+            'line-edit-handles', 'polygon-edit-handles',
             'circle-edit-handles', 'ellipse-edit-handles', 
             'arrow-edit-handles', 'boundary-edit-handles', 
             'occupied-front-edit-handles', 'rectangle-edit-handles'
@@ -228,15 +211,6 @@ class SelectionManager {
         return features.some(f =>
             customHandleSources.includes(f.source) &&
             f.properties.user_isEditingHandle
-        );
-    }
-
-    getClickedDrawFeature(point) {
-        const features = this.map.queryRenderedFeatures(point);
-        return features.find(f =>
-            f.source === 'mapbox-gl-draw-cold' ||
-            f.source === 'mapbox-gl-draw-hot' ||
-            f.source?.includes('draw')
         );
     }
 
@@ -263,14 +237,6 @@ class SelectionManager {
             }
             this.toggleFeatureSelection(type, featureId, feature, false); // don't force toggle
         }
-        // If feature is selected and not holding shift, it will show handles immediately
-
-        // SEMPRE atualizar draw selections para manter seleção múltipla funcionando
-        if (this.controls.has('draw')) {
-            const drawFeatureIds = this.getSelectedFeatureIdsByType('draw');
-            this.controls.get('draw').draw.changeMode('simple_select', { featureIds: drawFeatureIds });
-        }
-
         this.updateUI();
     }
 
@@ -309,29 +275,7 @@ class SelectionManager {
         return mapSource._data.features.find(f => f.properties.id == featureId);
     }
 
-    handleDrawSelectionChange = (e) => {
-        if (this.getActiveTool()) return;
-
-        if (this.vectorTileInfoControl && this.vectorTileInfoControl.isActive) {
-            this.controls.get('draw').draw.changeMode('simple_select', { featureIds: [] });
-            return;
-        };
-        // Obter features selecionadas do draw
-        const selectedFeatures = this.controls.get('draw').draw.getSelected().features;
-
-        // Limpar seleções draw existentes
-        this.clearSelectionsByType('draw');
-
-        // Adicionar novas seleções
-        selectedFeatures.forEach(f => {
-            const key = `draw:${f.properties.id}`;
-            this.selectedFeatures.set(key, { type: 'draw', feature: f });
-        });
-
-        this.updateUI();
-    }
-
-    deselectAllFeatures = (forceDraw = false) => {
+    deselectAllFeatures = () => {
         this.controls.forEach((control, type) => {
             if (control.onGlobalDeselect) {
                 control.onGlobalDeselect();
@@ -340,10 +284,6 @@ class SelectionManager {
 
         // Clear all selections
         this.selectedFeatures.clear();
-
-        if (forceDraw && this.controls.has('draw') && !this.controls.get('draw').isActive) {
-            this.controls.get('draw').draw.changeMode('simple_select', { featureIds: [] });
-        }
 
         this.updateUI();
     }
@@ -457,7 +397,7 @@ class SelectionManager {
             }
         });
 
-        this.deselectAllFeatures(true);
+        this.deselectAllFeatures();
     }
 
     updateSelectedFeatures() {

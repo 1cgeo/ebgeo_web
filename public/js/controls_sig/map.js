@@ -3,6 +3,7 @@ import { getCurrentMapFeatures } from './store.js';
 import { imageStore } from './store.js';
 import baseStyle from './baselayers/carta_topografica.js'
 import config from '../config.js';
+import { hideLoadingScreen } from '../index.js';
 
 const map = new maplibregl.Map({
     container: 'map-sig',
@@ -32,7 +33,9 @@ export async function setupMapFeatures() {
         const features = await getCurrentMapFeatures();
         await setImages(features);
 
-        setupDrawLayers(features);
+        setupPointLayers(features);
+        setupLineLayers(features);
+        setupPolygonLayers(features);
         setupEllipseLayers(features);
         setupCircleLayers(features);
         setupVisibilityLayers(features);
@@ -62,7 +65,9 @@ export async function setupMapFeatures() {
 
 map.on('load', async () => {
     map.doubleClickZoom.disable();
+    map.boxZoom.disable();
     await setupMapFeatures();
+    hideLoadingScreen();
 });
 
 function setupBrushLayers(features) {
@@ -371,13 +376,267 @@ function setupMilitarySymbolsLayers(features) {
     }
 }
 
-function setupDrawLayers(features) {
-    const draw = map._controls.find(control => control instanceof MapboxDraw);
-    if (draw) {
-        draw.deleteAll();
-        draw.set({
+function setupPointLayers(features) {
+    // ===== SOURCES =====
+    
+    // 1. Source principal
+    if (!map.getSource('points')) {
+        map.addSource('points', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.points || []
+            }
+        });
+    } else {
+        map.getSource('points').setData({
             type: 'FeatureCollection',
-            features: features.polygons.concat(features.linestrings).concat(features.points)
+            features: features.points || []
+        });
+    }
+
+    // 2. Feedback source
+    if (!map.getSource('point-feedback')) {
+        map.addSource('point-feedback', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // ===== LAYERS =====
+
+    // 1. Main layer
+    if (!map.getLayer('point-layer')) {
+        map.addLayer({
+            id: 'point-layer',
+            type: 'circle',
+            source: 'points',
+            paint: {
+                'circle-radius': ['get', 'size'],
+                'circle-color': ['get', 'color'],
+                'circle-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
+    // 2. Feedback layer
+    if (!map.getLayer('point-feedback-layer')) {
+        map.addLayer({
+            id: 'point-feedback-layer',
+            type: 'circle',
+            source: 'point-feedback',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': '#ff0000',
+                'circle-opacity': 0.8
+            }
+        });
+    }
+}
+
+function setupLineLayers(features) {
+    // ===== SOURCES =====
+    
+    // 1. Source principal
+    if (!map.getSource('lines')) {
+        map.addSource('lines', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.lines || []
+            }
+        });
+    } else {
+        map.getSource('lines').setData({
+            type: 'FeatureCollection',
+            features: features.lines || []
+        });
+    }
+
+    // 2. Feedback source
+    if (!map.getSource('line-feedback')) {
+        map.addSource('line-feedback', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // 3. Edit handles source
+    if (!map.getSource('line-edit-handles')) {
+        map.addSource('line-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // ===== LAYERS =====
+
+    // 1. Main layer
+    if (!map.getLayer('line-layer')) {
+        map.addLayer({
+            id: 'line-layer',
+            type: 'line',
+            source: 'lines',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['get', 'size'],
+                'line-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
+    // 2. Feedback layer
+    if (!map.getLayer('line-feedback-layer')) {
+        map.addLayer({
+            id: 'line-feedback-layer',
+            type: 'line',
+            source: 'line-feedback',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 3,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8
+            }
+        });
+    }
+
+    // 3. Edit handles layer
+    if (!map.getLayer('line-edit-handles-layer')) {
+        map.addLayer({
+            id: 'line-edit-handles-layer',
+            type: 'circle',
+            source: 'line-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',      // Red: vertices
+                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',    // Orange: midpoints
+                    '#000000'                                                 // Fallback
+                ],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2,
+                'circle-opacity': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,          // Midpoints transparent
+                    1.0                                                       // Others opaque
+                ]
+            },
+            filter: ['==', '$type', 'Point']
+        });
+    }
+}
+
+function setupPolygonLayers(features) {
+    // ===== SOURCES =====
+    
+    // 1. Source principal
+    if (!map.getSource('polygons')) {
+        map.addSource('polygons', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: features.polygons || []
+            }
+        });
+    } else {
+        map.getSource('polygons').setData({
+            type: 'FeatureCollection',
+            features: features.polygons || []
+        });
+    }
+
+    // 2. Feedback source
+    if (!map.getSource('polygon-feedback')) {
+        map.addSource('polygon-feedback', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // 3. Edit handles source
+    if (!map.getSource('polygon-edit-handles')) {
+        map.addSource('polygon-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
+    // ===== LAYERS =====
+
+    // 1. Fill layer
+    if (!map.getLayer('polygon-fill-layer')) {
+        map.addLayer({
+            id: 'polygon-fill-layer',
+            type: 'fill',
+            source: 'polygons',
+            paint: {
+                'fill-color': ['get', 'color'],
+                'fill-opacity': ['get', 'opacity']
+            }
+        });
+    }
+
+    // 2. Stroke layer
+    if (!map.getLayer('polygon-layer')) {
+        map.addLayer({
+            id: 'polygon-layer',
+            type: 'line',
+            source: 'polygons',
+            paint: {
+                'line-color': ['get', 'outlinecolor'],
+                'line-width': ['get', 'size'],
+                'line-opacity': 1
+            }
+        });
+    }
+
+    // 3. Feedback layer
+    if (!map.getLayer('polygon-feedback-layer')) {
+        map.addLayer({
+            id: 'polygon-feedback-layer',
+            type: 'line',
+            source: 'polygon-feedback',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 3,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8
+            }
+        });
+    }
+
+    // 4. Edit handles layer
+    if (!map.getLayer('polygon-edit-handles-layer')) {
+        map.addLayer({
+            id: 'polygon-edit-handles-layer',
+            type: 'circle',
+            source: 'polygon-edit-handles',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',      // Red: vertices
+                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',    // Orange: midpoints
+                    '#000000'                                                 // Fallback
+                ],
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 2,
+                'circle-opacity': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,          // Midpoints transparent
+                    1.0                                                       // Others opaque
+                ]
+            },
+            filter: ['==', '$type', 'Point']
         });
     }
 }
@@ -1104,23 +1363,33 @@ function setupCircleLayers(features) {
 
 // ===== TEXT LAYERS (Maior Prioridade - 8) =====
 function setupTextLayers(features) {
+    // ✅ NOVO - Aplicar correções de zoom
+    const textControl = map._controls.find(control => 
+        control.constructor.name === 'AddTextControl'
+    );
+    
+    let correctedTexts = features.texts;
+    if (textControl) {
+        correctedTexts = textControl.applyZoomCorrections(features.texts);
+    }
+    
     // Source
     if (!map.getSource('texts')) {
         map.addSource('texts', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
-                features: features.texts
+                features: correctedTexts
             }
         });
     } else {
         map.getSource('texts').setData({
             type: 'FeatureCollection',
-            features: features.texts
+            features: correctedTexts
         });
     }
 
-    // Layer (mais alto na hierarquia)
+    // Layer
     if (!map.getLayer('text-layer')) {
         map.addLayer({
             id: 'text-layer',
@@ -1128,11 +1397,12 @@ function setupTextLayers(features) {
             source: 'texts',
             layout: {
                 'text-field': ['get', 'text'],
-                'text-size': ['get', 'size'],
+                'text-size': ['get', 'calculatedSize'],
                 'text-justify': ['get', 'justify'],
                 'text-anchor': 'center',
                 'text-rotate': ['get', 'rotation'],
                 'text-ignore-placement': true,
+                'text-allow-overlap': true,
                 "text-font": ["Noto Sans Regular"]
             },
             paint: {
@@ -1294,18 +1564,31 @@ function clearAllMeasurements() {
 
 function restoreMeasurements(features) {
     try {
-        const drawControl = map._controls.find(control =>
-            control.constructor.name === 'DrawControl'
+
+        const lineControl = map._controls.find(control =>
+            control.constructor.name === 'AddLineControl'
         );
+        const polygonControl = map._controls.find(control =>
+            control.constructor.name === 'AddPolygonControl'
+        );
+
         const losControl = map._controls.find(control =>
             control.constructor.name === 'AddLOSControl'
         );
 
-        // Restaurar medições do Draw
-        if (drawControl) {
-            [...features.linestrings, ...features.polygons].forEach(feature => {
+        // Restaurar medições de linha e poligono
+        if (lineControl && features.lines) {
+            features.lines.forEach(feature => {
                 if (feature.properties?.measure) {
-                    drawControl.updateFeatureMeasurement(feature);
+                    lineControl.updateFeatureMeasurement(feature);
+                }
+            });
+        }
+
+        if (polygonControl && features.polygons) {
+            features.polygons.forEach(feature => {
+                if (feature.properties?.measure) {
+                    polygonControl.updateFeatureMeasurement(feature);
                 }
             });
         }

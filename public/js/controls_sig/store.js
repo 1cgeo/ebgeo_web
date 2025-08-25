@@ -25,9 +25,8 @@ const memoryStore = {
 const getEmptyMapData = () => ({
     baseLayer: 'carta-topografica',
     features: {
-        rectangles: [],
         polygons: [],
-        linestrings: [],
+        lines: [],
         points: [],
         texts: [],
         images: [],
@@ -265,8 +264,12 @@ export const initializeWithLastActiveMap = async () => {
 function getFeatureType(feature) {
     const source = feature.properties?.source;
     switch (source) {
-        case 'draw':
-            return feature.geometry.type.toLowerCase() + 's';
+        case 'point':
+            return 'points';
+        case 'line':
+            return 'lines';
+        case 'polygon':
+            return 'polygons';
         case 'text':
             return 'texts';
         case 'image':

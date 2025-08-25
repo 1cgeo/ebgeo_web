@@ -3,12 +3,7 @@ class ToolManager {
     constructor(map) {
         this.map = map;
         this.activeTool = null;
-        this.drawControl = null;
         this.selectionManager = null;
-    }
-
-    setDrawControl(drawControl) {
-        this.drawControl = drawControl;
     }
 
     setSelectionManager(selectionManager) {
@@ -20,7 +15,7 @@ class ToolManager {
             return
         }
         
-        if (this.activeTool && this.activeTool === tool && tool !== this.drawControl) {
+        if (this.activeTool && this.activeTool === tool) {
             this.deactivateCurrentTool();
             return
         }
@@ -32,9 +27,8 @@ class ToolManager {
         this.activeTool = tool;
         tool.activate();
 
-        if (this.drawControl && this.activeTool !== this.drawControl && this.selectionManager) {
-            this.selectionManager.deselectAllFeatures(true);
-        }
+        this.selectionManager.deselectAllFeatures();
+
     }
 
     deactivateCurrentTool() {

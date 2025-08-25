@@ -34,11 +34,6 @@ $(document).ready(() => {
     if (window.performance && window.performance.mark) {
         window.performance.mark('app-init');
     }
-
-    // Remove loading screen após recursos críticos
-    setTimeout(() => {
-        hideLoadingScreen();
-    }, 2000);
 });
 
 // ===== EVENT LISTENERS =====
@@ -61,7 +56,6 @@ function handleModeSwitch(event) {
     const targetMode = $(this).attr('id') === '3d-button' ? '3d' : 'sig';
 
     if (targetMode === appState.currentMode) return;
-
 
     // Update UI state immediately
     $(".bar-center-buttons a").removeClass('active-button');
@@ -375,11 +369,21 @@ attributesPanelObserver.observe(document, {
     subtree: true
 });
 
-// ===== LOADING SCREEN =====
-function hideLoadingScreen() {
+// ===== ✅ LOADING SCREEN - EXPORTADA PARA USO EXTERNO =====
+export function hideLoadingScreen() {
     $('.loading-background').fadeOut(500, function () {
         $(this).remove();
     });
+    
+    // Mostra elementos que estavam ocultos durante loading
+    document.querySelectorAll('.loading-hidden').forEach(function (el) {
+        el.classList.add('loaded');
+    });
+
+    // Inicializa ícones se disponível
+    if (window.feather) {
+        feather.replace();
+    }
 }
 
 // ===== UTILITIES =====

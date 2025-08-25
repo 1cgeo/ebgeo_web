@@ -1,7 +1,6 @@
 // Path: js\map_sig.js
 import { map } from './controls_sig/map.js';
 import BaseLayerControl from './controls_sig/base_layer_control.js';
-import DrawControl from './controls_sig/draw_tool/draw.js';
 import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
 import AddLOSControl from './controls_sig/los_tool/add_los_control.js';
@@ -29,7 +28,9 @@ import TerrainControl from './controls_sig/terrain_control.js';
 import config from './config.js';
 import AddRectangleControl from './controls_sig/rectangle_tool/add_rectangle_control.js';
 import AddBrushControl from './controls_sig/brush_tool/add_brush_control.js';
-
+import AddPointControl from './controls_sig/draw_tools/add_point_control.js'
+import AddLineControl from './controls_sig/draw_tools/add_line_control.js'
+import AddPolygonControl from './controls_sig/draw_tools/add_polygon_control.js'
 //-----------------------------------------------
 // CONTROLES
 //-----------------------------------------------
@@ -38,9 +39,9 @@ const selectionManager = new SelectionManager(map);
 const toolManager = new ToolManager(map);
 toolManager.setSelectionManager(selectionManager)
 
-const drawControl = new DrawControl(toolManager);
-
-toolManager.setDrawControl(drawControl);
+const pointControl = new AddPointControl(toolManager);
+const lineControl = new AddLineControl(toolManager);
+const polygonControl = new AddPolygonControl(toolManager);
 
 const textControl = new AddTextControl(toolManager);
 
@@ -63,7 +64,9 @@ const occupiedFrontControl = new AddOccupiedFrontControl(toolManager);
 const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
 const brushControl = new AddBrushControl(toolManager);
 
-selectionManager.registerControl('draw', drawControl);
+selectionManager.registerControl('point', pointControl);
+selectionManager.registerControl('line', lineControl);
+selectionManager.registerControl('polygon', polygonControl);
 selectionManager.registerControl('text', textControl);
 selectionManager.registerControl('image', imageControl);
 selectionManager.registerControl('los', losControl);
@@ -80,8 +83,6 @@ selectionManager.registerControl('brush', brushControl);
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
 
-importControl.setDrawControl(drawControl);
-
 const featureSearchControl = new FeatureSearchControl(uiManager);
 uiManager.setFeatureSearchControl(featureSearchControl);
 
@@ -95,13 +96,13 @@ const baseLayerControl = new BaseLayerControl(uiManager, config.map2d.hillshade)
 const mapControl = new MapControl(baseLayerControl);
 mapControl.setSelectionManager(selectionManager)
 
-importControl.setBaseLayerControl(baseLayerControl);
+importControl.setControls(pointControl, lineControl, polygonControl);
 
 const resetNorthControl = new ResetNorthControl();
 const terrainControl = new TerrainControl(config.map2d);
 const screenshotControl = new ScreenshotControl();
 
-const mouseCoordinatesControl = new MouseCoordinatesControl(drawControl);
+const mouseCoordinatesControl = new MouseCoordinatesControl(pointControl);
 
 //-----------------------------------------------
 // ADICIONAR CONTROLES AO MAPA
@@ -125,7 +126,9 @@ map.addControl(losControl, 'top-right');            // Oitavo - LOS
 map.addControl(visibilityControl, 'top-right');     // Nono - Visibility
 
 // COLUNA DIREITA - Ferramentas de desenho
-map.addControl(drawControl, 'top-right');
+map.addControl(pointControl, 'top-right');
+map.addControl(lineControl, 'top-right');
+map.addControl(polygonControl, 'top-right');
 map.addControl(textControl, 'top-right');
 map.addControl(imageControl, 'top-right');
 map.addControl(rectangleControl, 'top-right');
@@ -158,7 +161,7 @@ document.addEventListener('keydown', (e) => {
         case 'Escape':
             e.preventDefault();
             toolManager.deactivateCurrentTool();
-            selectionManager.deselectAllFeatures(true);
+            selectionManager.deselectAllFeatures();
             break;
         case 'z':
         case 'Z':
@@ -180,29 +183,25 @@ document.addEventListener('keydown', (e) => {
             break;
 
         // ✅ ATALHOS PARA ATIVAÇÃO DE FERRAMENTAS
-            
-        case 'p':
-        case 'P':
-            e.preventDefault();
-            toolManager.setActiveTool(drawControl);
-            drawControl.draw.changeMode('draw_point');
-            break;
         case 'n':
         case 'N':
             e.preventDefault();
             toolManager.setActiveTool(vectorTileInfoControl);
             break;
-        case 'a':
-        case 'A':
+        case 'p':
+        case 'P':
             e.preventDefault();
-            toolManager.setActiveTool(drawControl);
-            drawControl.draw.changeMode('draw_polygon');
+            toolManager.setActiveTool(pointControl);
             break;
         case 'l':
         case 'L':
             e.preventDefault();
-            toolManager.setActiveTool(drawControl);
-            drawControl.draw.changeMode('draw_line_string');
+            toolManager.setActiveTool(lineControl);
+            break;
+        case 'a':
+        case 'A':
+            e.preventDefault();
+            toolManager.setActiveTool(polygonControl);
             break;
         case 't':
         case 'T':

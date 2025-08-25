@@ -12,16 +12,15 @@ class AddImportControl {
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.isActive = false;
-        this.drawControl = null;
-        this.baseLayerControl = null;
+        this.pointControl = null;
+        this.lineControl = null;
+        this.polygonControl = null;
     }
 
-    setDrawControl(drawControl) {
-        this.drawControl = drawControl;
-    }
-
-    setBaseLayerControl(baseLayerControl) {
-        this.baseLayerControl = baseLayerControl;
+    setControls(pointControl, lineControl, polygonControl) {
+        this.pointControl = pointControl;
+        this.lineControl = lineControl;
+        this.polygonControl = polygonControl;
     }
 
     onAdd(map) {
@@ -100,9 +99,9 @@ class AddImportControl {
 
     _validateFile(file) {
         if (file.size > AddImportControl.FILE_LIMITS.maxSize) {
-            throw new Error(`Arquivo muito grande. Máximo: ${AddImportControl.FILE_LIMITS.maxSize / (1024*1024)}MB`);
+            throw new Error(`Arquivo muito grande. Máximo: ${AddImportControl.FILE_LIMITS.maxSize / (1024 * 1024)}MB`);
         }
-        
+
         if (file.size === 0) {
             throw new Error('Arquivo vazio');
         }
@@ -110,11 +109,11 @@ class AddImportControl {
 
     _createFileReader(cleanup = true) {
         const reader = new FileReader();
-        
+
         if (cleanup) {
             const originalOnLoad = reader.onload;
             const originalOnError = reader.onerror;
-            
+
             reader.onload = (e) => {
                 try {
                     if (originalOnLoad) originalOnLoad(e);
@@ -122,7 +121,7 @@ class AddImportControl {
                     this._cleanupReader(reader);
                 }
             };
-            
+
             reader.onerror = (e) => {
                 try {
                     if (originalOnError) originalOnError(e);
@@ -131,7 +130,7 @@ class AddImportControl {
                 }
             };
         }
-        
+
         return reader;
     }
 
@@ -144,19 +143,19 @@ class AddImportControl {
 
     async _readFileWithProgress(file, method = 'text') {
         this._validateFile(file);
-        
+
         return new Promise((resolve, reject) => {
             const reader = this._createFileReader();
             let progressCallback = null;
-            
+
             const timeout = setTimeout(() => {
                 reader.abort();
                 reject(new Error('Timeout na leitura do arquivo'));
             }, AddImportControl.FILE_LIMITS.timeout);
-            
+
             if (file.size > AddImportControl.FILE_LIMITS.chunkSize) {
                 progressCallback = this._showProgressIndicator();
-                
+
                 reader.onprogress = (e) => {
                     if (e.lengthComputable) {
                         const percentComplete = (e.loaded / e.total) * 100;
@@ -164,19 +163,19 @@ class AddImportControl {
                     }
                 };
             }
-            
+
             reader.onload = (e) => {
                 clearTimeout(timeout);
                 if (progressCallback) this._hideProgressIndicator();
                 resolve(e.target.result);
             };
-            
+
             reader.onerror = () => {
                 clearTimeout(timeout);
                 if (progressCallback) this._hideProgressIndicator();
                 reject(new Error(`Erro ao ler arquivo como ${method}`));
             };
-            
+
             switch (method) {
                 case 'text': reader.readAsText(file); break;
                 case 'arraybuffer': reader.readAsArrayBuffer(file); break;
@@ -199,9 +198,9 @@ class AddImportControl {
                 <div id="progress-bar" style="background: #007bff; height: 100%; border-radius: 4px; width: 0%; transition: width 0.3s;"></div>
             </div>
         `;
-        
+
         document.body.appendChild(progressDiv);
-        
+
         return (percent) => {
             const bar = document.getElementById('progress-bar');
             if (bar) bar.style.width = `${percent}%`;
@@ -224,7 +223,7 @@ class AddImportControl {
 
     async processFile(file) {
         const fileName = file.name.toLowerCase();
-        
+
         if (fileName.endsWith('.geojson') || fileName.endsWith('.json')) {
             return await this.readGeoJSON(file);
         } else if (fileName.endsWith('.zip')) {
@@ -261,35 +260,35 @@ class AddImportControl {
             'arraybuffer',
             async (buffer) => {
                 const zipFile = await JSZip.loadAsync(buffer);
-                
-                const shpFile = Object.values(zipFile.files).find(f => 
+
+                const shpFile = Object.values(zipFile.files).find(f =>
                     f.name.toLowerCase().endsWith('.shp')
                 );
-                const dbfFile = Object.values(zipFile.files).find(f => 
+                const dbfFile = Object.values(zipFile.files).find(f =>
                     f.name.toLowerCase().endsWith('.dbf')
                 );
-                
+
                 if (!shpFile) {
                     throw new Error('Arquivo .shp não encontrado');
                 }
-                
+
                 const shpBuffer = await shpFile.async('arraybuffer');
                 const dbfBuffer = dbfFile ? await dbfFile.async('arraybuffer') : null;
-                
+
                 const result = await shp.parseShp(shpBuffer, dbfBuffer);
-                
+
                 // parseShp retorna array de geometrias, não features
                 if (!Array.isArray(result)) {
                     throw new Error('Formato de shapefile inválido');
                 }
-                
+
                 // Converter geometrias em features
                 const features = result.map((geometry, index) => {
                     // Verificar se já é uma feature
                     if (geometry.type === 'Feature') {
                         return geometry;
                     }
-                    
+
                     // Converter geometria em feature
                     return {
                         type: 'Feature',
@@ -302,7 +301,7 @@ class AddImportControl {
                         }
                     };
                 });
-                
+
                 return {
                     type: 'FeatureCollection',
                     features: features
@@ -331,11 +330,11 @@ class AddImportControl {
             async (buffer) => {
                 const zip = await JSZip.loadAsync(buffer);
                 const kmlFile = zip.file(/\.kml$/i)[0] || zip.file('doc.kml');
-                
+
                 if (!kmlFile) {
                     throw new Error('Arquivo KML não encontrado no KMZ');
                 }
-                
+
                 const kmlContent = await kmlFile.async('string');
                 const kmlDoc = new DOMParser().parseFromString(kmlContent, 'text/xml');
                 return toGeoJSON.kml(kmlDoc);
@@ -429,15 +428,15 @@ class AddImportControl {
     // Mapear tipo de geometria para categoria do sistema
     getTargetType(geometryType) {
         const type = geometryType.toLowerCase();
-        
+
         if (type.includes('point')) {
             return 'points';
         } else if (type.includes('line')) {
-            return 'linestrings';
+            return 'lines';
         } else if (type.includes('polygon')) {
             return 'polygons';
         }
-        
+
         return null; // Tipo não suportado
     }
 
@@ -446,94 +445,115 @@ class AddImportControl {
             throw new Error('GeoJSON inválido - features não encontradas');
         }
 
-        const validFeatures = [];
         const featuresByType = {
             points: [],
-            linestrings: [],
+            lines: [],
             polygons: []
         };
 
-        const pendingFeatures = [];
-        
+        // 1️⃣ PROCESSAR CADA FEATURE
         for (const originalFeature of geoJSON.features) {
-            if (!originalFeature.geometry || !originalFeature.geometry.type) {
-                continue;
-            }
+            if (!originalFeature.geometry?.type) continue;
 
-            // Decompor multi-geometrias em geometrias simples
+            // Decompor multi-geometrias
             const decomposedFeatures = this.decomposeMultiGeometry(originalFeature);
-            
+
             for (const feature of decomposedFeatures) {
                 const targetType = this.getTargetType(feature.geometry.type);
-                
-                if (!targetType) {
-                    continue; // Ignorar tipos não suportados
-                }
+                if (!targetType) continue;
 
-                const preparedFeature = {
-                    type: 'Feature',
-                    properties: {
-                        ...this.getDefaultProperties(targetType),
-                        ...feature.properties,
-                        source: 'draw'
-                    },
-                    geometry: feature.geometry
-                };
+                // 2️⃣ PREPARAR FEATURE COM ID E NOME
+                const preparedFeature = this.prepareFeatureForImport(feature, targetType);
 
-                pendingFeatures.push({ feature: preparedFeature, targetType });
+                // 3️⃣ ADICIONAR AO TIPO CORRETO
+                featuresByType[targetType].push(preparedFeature);
             }
         }
 
-        // Processar features preparadas
-        for (const { feature, targetType } of pendingFeatures) {
-            try {
-                const ids = this.drawControl.draw.add(feature);
-                
-                if (ids.length > 0) {
-                    const finalFeature = this.drawControl.draw.get(ids[0]);
-                    finalFeature.properties.id = finalFeature.id;
-                    
-                    featuresByType[targetType].push(finalFeature);
-                    validFeatures.push(finalFeature);
-                }
-            } catch (error) {
-                console.warn('Erro ao adicionar feature ao Draw:', error);
-            }
+        // 4️⃣ SALVAR EM BATCH E ATUALIZAR MAPA
+        const totalCount = await this.saveAndUpdateMap(featuresByType);
+
+        // 5️⃣ ZOOM PARA FEATURES IMPORTADAS
+        if (totalCount > 0) {
+            this.zoomToAllImportedFeatures(featuresByType);
         }
 
-        // Persistir em batch
-        if (Object.values(featuresByType).some(arr => arr.length > 0)) {
-            try {
-                await addFeatures(featuresByType);
-                
-                if (validFeatures.length > 0) {
-                    this.zoomToFeatures(validFeatures);
-                }
-            } catch (error) {
-                // Rollback: remover features do Draw se persistência falhou
-                validFeatures.forEach(f => {
-                    try {
-                        this.drawControl.draw.delete(f.id);
-                    } catch (deleteError) {
-                        console.warn('Erro no rollback da feature:', deleteError);
-                    }
-                });
-                throw error;
-            }
+        return totalCount;
+    }
+
+    prepareFeatureForImport(feature, targetType) {
+        const featureId = IDUtils.generateUniqueId();
+        const featureName = IDUtils.generateFeatureName(
+            targetType.slice(0, -1), // Remove 's' final (points→point)
+            this.map,
+            feature.geometry
+        );
+
+        return {
+            type: 'Feature',
+            id: Date.now().toString() + Math.random(), // ID único para o objeto
+            properties: {
+                ...this.getDefaultProperties(targetType),
+                ...feature.properties,
+                id: featureId,           // ID para identificação
+                nome: featureName,       // Nome gerado automaticamente
+                source: targetType.slice(0, -1) // point/line/polygon
+            },
+            geometry: feature.geometry
+        };
+    }
+
+    async saveAndUpdateMap(featuresByType) {
+        let totalCount = 0;
+
+        try {
+            // Salvar no IndexedDB
+            await addFeatures(featuresByType);
+
+            // Atualizar sources do mapa
+            this.updateMapSources(featuresByType);
+
+            // Contar total
+            totalCount = Object.values(featuresByType)
+                .reduce((sum, features) => sum + features.length, 0);
+
+        } catch (error) {
+            console.error('Erro ao salvar features importadas:', error);
+            throw error;
         }
 
-        return validFeatures.length;
+        return totalCount;
+    }
+
+    updateMapSources(featuresByType) {
+        // Atualizar cada source do mapa com as novas features
+        Object.entries(featuresByType).forEach(([type, features]) => {
+            if (features.length === 0) return;
+
+            const sourceName = type; // points, lines, polygons
+            const source = this.map.getSource(sourceName);
+
+            if (source && source._data) {
+                const currentData = JSON.parse(JSON.stringify(source._data));
+                currentData.features.push(...features);
+                source.setData(currentData);
+            }
+        });
+    }
+
+    zoomToAllImportedFeatures(featuresByType) {
+        const allFeatures = Object.values(featuresByType).flat();
+        this.zoomToFeatures(allFeatures);
     }
 
     getDefaultProperties(targetType) {
-        if (targetType === 'points') {
-            return { ...this.drawControl.defaultProperties.point };
-        } else if (targetType === 'linestrings') {
-            return { ...this.drawControl.defaultProperties.linestring };
-        } else if (targetType === 'polygons') {
-            return { ...this.drawControl.defaultProperties.polygon };
-        }
-        return {};
+        const controlDefaults = {
+            'points': this.pointControl.constructor.DEFAULT_PROPERTIES,
+            'lines': this.lineControl.constructor.DEFAULT_PROPERTIES,
+            'polygons': this.polygonControl.constructor.DEFAULT_PROPERTIES
+        };
+
+        return { ...controlDefaults[targetType] } || {};
     }
 
     zoomToFeatures(features) {
@@ -558,10 +578,10 @@ class AddImportControl {
     }
 
     showImportSuccess(count) {
-        const message = count === 1 
+        const message = count === 1
             ? `1 geometria importada com sucesso`
             : `${count} geometrias importadas com sucesso`;
-        
+
         const notification = document.createElement('div');
         notification.style.cssText = `
             position: fixed;
@@ -576,9 +596,9 @@ class AddImportControl {
             font-size: 14px;
         `;
         notification.textContent = message;
-        
+
         document.body.appendChild(notification);
-        
+
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.parentNode.removeChild(notification);

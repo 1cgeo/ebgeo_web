@@ -144,11 +144,12 @@
     background: white !important;
     color: #333 !important;
     box-sizing: border-box !important;
-    flex-shrink: 0 !important; /* Não encolhe */
-    
+    flex-shrink: 0 !important;
+    /* Não encolhe */
+
     /* Transições suaves */
     transition: all 0.2s ease !important;
-    
+
     /* Typography consistente */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
     font-weight: 400 !important;
@@ -167,8 +168,10 @@
 /* Lista de sugestões - ABAIXO DO INPUT */
 .feature-search-control .feature-search-suggestions {
     position: fixed !important;
-    top: 35px !important; /* 60px (control top) + ~40px (control height) + 8px gap */
-    right: 37px !important; /* Alinha com a coluna esquerda */
+    top: 35px !important;
+    /* 60px (control top) + ~40px (control height) + 8px gap */
+    right: 37px !important;
+    /* Alinha com a coluna esquerda */
     margin-top: 2px !important;
     background: white !important;
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
@@ -181,7 +184,8 @@
     list-style: none !important;
     padding: 0 !important;
     margin-left: 0 !important;
-    width: 245px !important; /* Mesma largura do input */
+    width: 245px !important;
+    /* Mesma largura do input */
 }
 
 .feature-search-control .feature-search-suggestion {
@@ -246,8 +250,16 @@
 }
 
 /* Posicionamento vertical específico para COLUNA DIREITA */
-.draw-control.controls-column-right {
+.point-control.controls-column-right {
     top: 60px !important;
+}
+
+.line-control.controls-column-right {
+    top: 94px !important;
+}
+
+.polygon-control.controls-column-right {
+    top: 128px !important;
 }
 
 .text-control.controls-column-right {
@@ -302,11 +314,6 @@
     border: 1px solid rgba(0, 0, 0, 0.1);
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.draw-control {
-    z-index: 10;
-    pointer-events: auto;
 }
 
 /* ===== MAPBOX DRAW CONTROLS ===== */
@@ -438,27 +445,36 @@
 
 /* ===== RESPONSIVIDADE MOBILE ===== */
 @media (max-width: 768px) {
+
     /* Em mobile, voltar ao posicionamento vertical em coluna única */
     .controls-column-left,
     .controls-column-right {
         right: 10px !important;
         left: auto !important;
     }
-    
+
     /* Nova ordem mobile com feature search primeiro */
     .feature-search-control.controls-column-left {
         top: 60px !important;
     }
-    
+
     /* Reposicionar verticalmente em mobile - ferramentas de desenho */
-    .draw-control.controls-column-right {
+    .point-control.controls-column-right {
         top: 100px !important;
     }
-    
+
+    .line-control.controls-column-right {
+        top: 132px !important;
+    }
+
+    .polygon-control.controls-column-right {
+        top: 164px !important;
+    }
+
     .text-control.controls-column-right {
         top: 190px !important;
     }
-    
+
     .image-control.controls-column-right {
         top: 222px !important;
     }
@@ -466,28 +482,28 @@
     .circle-control.controls-column-right {
         top: 254px !important;
     }
-    
+
     .ellipse-control.controls-column-right {
         top: 286px !important;
     }
-    
+
     /* Outras ferramentas depois */
     .north-control.controls-column-left {
         top: 318px !important;
     }
-    
+
     .import-control.controls-column-left {
         top: 350px !important;
     }
-    
+
     .screenshot-control.controls-column-left {
         top: 382px !important;
     }
-    
+
     .vector-info-control.controls-column-left {
         top: 414px !important;
     }
-    
+
     .street-view-control.controls-column-left {
         top: 446px !important;
     }
@@ -496,28 +512,32 @@
     .terrain-control.controls-column-left {
         top: 478px !important;
     }
-    
+
     .los-control.controls-column-left {
         top: 510px !important;
     }
-    
+
     .visibility-control.controls-column-left {
         top: 542px !important;
     }
 
     /* Feature search mobile - layout horizontal mantido */
     .feature-search-control .feature-search-input {
-        width: 120px !important; /* Menor em mobile */
+        width: 120px !important;
+        /* Menor em mobile */
         font-size: 11px !important;
         height: 24px !important;
         padding: 4px 6px !important;
     }
 
     .feature-search-control .feature-search-suggestions {
-        width: 120px !important; /* Match com input mobile */
+        width: 120px !important;
+        /* Match com input mobile */
         font-size: 11px !important;
-        left: 30px !important; /* Ajustado para mobile (28px botão + 2px) */
-        top: 28px !important; /* Altura menor em mobile */
+        left: 30px !important;
+        /* Ajustado para mobile (28px botão + 2px) */
+        top: 28px !important;
+        /* Altura menor em mobile */
     }
 
     .feature-search-control .feature-search-suggestion {
@@ -594,8 +614,13 @@
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
 }
 
 /* ===== ACESSIBILIDADE ===== */

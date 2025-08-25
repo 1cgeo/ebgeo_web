@@ -2,7 +2,9 @@
 
 import { addImageAttributesToPanel } from '../image_tool/image_attributes_panel.js';
 import { addTextAttributesToPanel } from '../text_tool/text_attributes_panel.js';
-import { addFeatureAttributesToPanel } from '../draw_tool/feature_attributes_panel.js';
+import { addPointAttributesToPanel } from '../draw_tools/point_attributes_panel.js';
+import { addLineAttributesToPanel } from '../draw_tools/line_attributes_panel.js';
+import { addPolygonAttributesToPanel } from '../draw_tools/polygon_attributes_panel.js';
 import { addLOSAttributesToPanel } from '../los_tool/los_attributes_panel.js';
 import { addVisibilityAttributesToPanel } from '../visibility_tool/visibility_attributes_panel.js';
 import { addCircleAttributesToPanel } from '../circle_tool/circle_attributes_panel.js';
@@ -30,7 +32,9 @@ const SELECTION_BOX_STRATEGIES = {
     'rectangle': { strategy: 'bbox', errorMsg: 'retângulo', padding: 5 },
     'brush': { strategy: 'bbox', errorMsg: 'pincel', padding: 5 },
     // Linear features that now use bounding box with different padding based on geometry
-    'draw': { strategy: 'bbox', errorMsg: 'desenho', padding: 'auto' }, // Will detect Point/LineString/Polygon
+    'point': { strategy: 'bbox', errorMsg: 'ponto', padding: 10 },
+    'line': { strategy: 'bbox', errorMsg: 'linha', padding: 5 },
+    'polygon': { strategy: 'bbox', errorMsg: 'polígono', padding: 5 },
     'los': { strategy: 'bbox', errorMsg: 'linha de visada', padding: 5 }, // Always LineString
     'visibility': { strategy: 'bbox', errorMsg: 'visibilidade', padding: 5 }, // Always LineString
 
@@ -55,10 +59,20 @@ const ATTRIBUTE_PANEL_REGISTRY = {
         controlKey: 'image',
         sectionClass: 'image-attributes-section'
     },
-    'draw': {
-        panelFunction: addFeatureAttributesToPanel,
-        controlKey: 'draw',
-        sectionClass: 'draw-attributes-section'
+    'point': {
+        panelFunction: addPointAttributesToPanel,
+        controlKey: 'point',
+        sectionClass: 'point-attributes-section'
+    },
+    'line': {
+        panelFunction: addLineAttributesToPanel,
+        controlKey: 'line',
+        sectionClass: 'line-attributes-section'
+    },
+    'polygon': {
+        panelFunction: addPolygonAttributesToPanel,
+        controlKey: 'polygon',
+        sectionClass: 'polygon-attributes-section'
     },
     'los': {
         panelFunction: addLOSAttributesToPanel,
@@ -351,28 +365,6 @@ class UIManager {
     }
 
     /**
-     * Determines padding based on geometry type for 'auto' padding strategy
-     * @param {Object} feature - GeoJSON feature
-     * @returns {number} Padding in pixels
-     */
-    getAutoPadding(feature) {
-        const geometryType = feature.geometry.type;
-
-        switch (geometryType) {
-            case 'Point':
-                return 10; // Maior padding para pontos
-            case 'LineString':
-            case 'MultiLineString':
-                return 5; // Padding médio para linhas
-            case 'Polygon':
-            case 'MultiPolygon':
-                return 5; // Padding menor para áreas
-            default:
-                return 5; // Fallback
-        }
-    }
-
-    /**
      * Creates bounding box selection boxes for geometric features
      */
     createBboxSelectionBoxes(features, type, errorMsg) {
@@ -386,12 +378,10 @@ class UIManager {
 
                 // Determine padding
                 let paddingPixels;
-                if (strategy.padding === 'auto') {
-                    paddingPixels = this.getAutoPadding(feature);
-                } else if (typeof strategy.padding === 'number') {
+                if (typeof strategy.padding === 'number') {
                     paddingPixels = strategy.padding;
                 } else {
-                    paddingPixels = 10; // Default fallback
+                    paddingPixels = 5; // Default fallback
                 }
 
                 // Expand bbox with padding
@@ -738,7 +728,7 @@ class UIManager {
 
         if (source === 'los' && hasProfileData) {
             this.createProfilePanel(feature.properties.profileData, true);
-        } else if (source === 'draw' && isLineFeature && hasProfileData) {
+        } else if (source === 'line' && isLineFeature && hasProfileData) {
             this.createProfilePanel(feature.properties.profileData, false);
         } else {
             this.hideProfilePanel();

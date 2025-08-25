@@ -4,12 +4,17 @@ import { IDUtils } from '../id_utils.js';
 
 class AddTextControl {
     constructor(toolManager) {
+        this.map = toolManager.map;
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
         this.toolManager.textControl = this;
         
         this.isActive = false;
         this.selectedFeature = null;
+
+        this.zoomRafId = null;
+        this.pendingZoomUpdate = false;
+        this.setupZoomListener();
     }
 
     static DEFAULT_PROPERTIES = {
@@ -21,11 +26,12 @@ class AddTextControl {
         justify: 'center',
         source: 'text',
         
-        // ✅ NOVOS ATRIBUTOS OBRIGATÓRIOS
-        nome: '',           // Será preenchido automaticamente
-        descricao: '',      // String vazia
-        visivel: true,      // Boolean true
-        bloqueado: false    // Boolean false
+        createdAtZoom: 0,
+        calculatedSize: 16,
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
     onAdd = (map) => {
@@ -57,6 +63,14 @@ class AddTextControl {
     onRemove = () => {
         try {
             this.uiManager.removeControl(this.container);
+            
+            this.map.off('zoom', this.handleZoomChange);
+            if (this.zoomRafId) {
+                cancelAnimationFrame(this.zoomRafId);
+                this.zoomRafId = null;
+            }
+            this.pendingZoomUpdate = false;
+            
             this.removeEventListeners();
             this.map = undefined;
         } catch (error) {
@@ -70,7 +84,55 @@ class AddTextControl {
     }
 
     removeEventListeners = () => {
-        this.removeHoverListeners(); // ✅ NOVO - cleanup hover
+        this.removeHoverListeners();
+    }
+
+    // ✅ NOVO - Sistema de zoom (mesmo padrão do brush)
+    setupZoomListener = () => {
+        this.map.on('zoom', this.handleZoomChange);
+    }
+
+    handleZoomChange = () => {
+        if (!this.pendingZoomUpdate) {
+            this.pendingZoomUpdate = true;
+            this.zoomRafId = requestAnimationFrame(this.updateAllTextSizes);
+        }
+    }
+
+    applyZoomCorrections = (features) => {
+        const currentZoom = this.map.getZoom();
+
+        return features.map(feature => {
+            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            feature.properties.calculatedSize = feature.properties.size * scaleFactor <= 255? feature.properties.size * scaleFactor : 255;
+            return feature;
+        });
+    }
+
+    updateAllTextSizes = () => {
+        if(!this.map.getSource('texts')){
+            return
+        }
+        const currentZoom = this.map.getZoom();
+        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        let hasChanges = false;
+
+        data.features.forEach(feature => {
+            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            const newCalculatedSize = feature.properties.size * scaleFactor <= 255? feature.properties.size * scaleFactor : 255;
+            if (feature.properties.calculatedSize !== newCalculatedSize) {
+                feature.properties.calculatedSize = newCalculatedSize;
+                hasChanges = true;
+            }
+        });
+
+        if (hasChanges) {
+            this.map.getSource('texts').setData(data);
+        }
+
+        this.pendingZoomUpdate = false;
     }
 
     activate = () => {
@@ -83,7 +145,7 @@ class AddTextControl {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
         this.changeButtonColor();
-        this.deselectFeature(); // ✅ NOVO - cleanup ao desativar
+        this.deselectFeature();
     }
 
     handleMapClick = (e) => {
@@ -93,13 +155,15 @@ class AddTextControl {
         }
     }
 
-    // ✅ ATUALIZADO - com geração automática de nomes
     addTextFeature = async (lngLat, text) => {
         const feature = this.createTextFeature(lngLat, text);
         feature.properties.id = IDUtils.generateUniqueId();
         
-        // ✅ NOVO - Geração automática de nomes
         feature.properties.nome = IDUtils.generateFeatureName('text', this.map);
+        
+        const currentZoom = this.map.getZoom();
+        feature.properties.createdAtZoom = currentZoom;
+        feature.properties.calculatedSize = feature.properties.size;
         
         // Salvar no IndexedDB
         await addFeature('texts', feature);
@@ -126,10 +190,9 @@ class AddTextControl {
 
     // ===== SELECTION SYSTEM INTEGRATION ===== 
 
-    // ✅ NOVO - Interface para SelectionManager
     onFeatureSelected = (feature) => {
         this.selectedFeature = feature;
-        this.setupHoverListeners(); // ✅ Hover dinâmico quando selecionado
+        this.setupHoverListeners();
     }
 
     onFeatureDeselected = (feature) => {
@@ -145,14 +208,12 @@ class AddTextControl {
         }
     }
 
-    // ✅ NOVO - Método de desseleção
     deselectFeature = () => {
         this.selectedFeature = null;
         this.removeHoverListeners();
         this.map.getCanvas().style.cursor = '';
     }
 
-    // ✅ NOVO - Sistema hover dinâmico (padrão dos outros controls)
     setupHoverListeners = () => {
         this.map.on('mousemove', this.onHoverMove);
     }
@@ -173,17 +234,16 @@ class AddTextControl {
         this.map.getCanvas().style.cursor = hasSelectedFeature ? 'move' : '';
     }
 
-    // ✅ NOVO - Interface methods para MoveHandler integration
     isEditingMode = () => {
-        return false; // Text não tem editing mode com handles
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return false; // Text não tem handles para editar
+        return false;
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
-        // N/A - Text não tem handles para sincronizar
+        // N/A
     }
 
     // ===== FEATURE MANAGEMENT METHODS =====
@@ -195,6 +255,15 @@ class AddTextControl {
             if (f) {
                 f.properties[property] = value;
                 feature.properties[property] = value;
+
+                if (property === 'size') {
+                    const currentZoom = this.map.getZoom();
+                    const zoomDifference = currentZoom - f.properties.createdAtZoom;
+                    const scaleFactor = Math.pow(2, zoomDifference);
+                    const newCalculatedSize = value * scaleFactor <= 255? value * scaleFactor : 255;
+                    f.properties.calculatedSize = newCalculatedSize;
+                    feature.properties.calculatedSize = newCalculatedSize;
+                }
             }
         }
         this.map.getSource('texts').setData(data);
@@ -207,10 +276,8 @@ class AddTextControl {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
-                        // Only update properties of the existing feature
                         Object.assign(data.features[featureIndex].properties, feature.properties);
                     } else {
-                        // Replace the entire feature
                         data.features[featureIndex] = feature;
                     }
 
@@ -233,8 +300,8 @@ class AddTextControl {
 
                 if (currentFeature) {
                     const featureToSave = {
-                        ...currentFeature,  // Geometria atual (pós-drag)
-                        properties: { ...selectedFeature.properties } // Propriedades do painel
+                        ...currentFeature,
+                        properties: { ...selectedFeature.properties }
                     };
                     await updateFeature('texts', featureToSave);
                 }
@@ -260,7 +327,6 @@ class AddTextControl {
         this.map.getSource('texts').setData(data);
 
         for (const f of features) {
-            // Remover do IndexedDB
             await removeFeature('texts', f.properties.id);
         }
     }
@@ -269,14 +335,13 @@ class AddTextControl {
         Object.assign(AddTextControl.DEFAULT_PROPERTIES, properties);
     }
 
-    // ✅ ATUALIZADO - incluindo novos atributos + fix rotation
     hasFeatureChanged = (feature, initialProperties) => {
         return (
             feature.properties.text !== initialProperties.text ||
             feature.properties.size !== initialProperties.size ||
             feature.properties.color !== initialProperties.color ||
             feature.properties.backgroundColor !== initialProperties.backgroundColor ||
-            feature.properties.rotation !== initialProperties.rotation || // ✅ FIX: era 'rotate'
+            feature.properties.rotation !== initialProperties.rotation ||
             feature.properties.justify !== initialProperties.justify ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||

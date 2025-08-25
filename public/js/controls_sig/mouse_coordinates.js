@@ -9,7 +9,7 @@ import {
 import { getTerrainElevation } from './terrain_control.js';
 
 class MouseCoordinatesControl {
-    constructor(drawControl) {
+    constructor(pointControl) {
         this._map = null;
         this._container = null;
         this._innerContainer = null;
@@ -19,7 +19,7 @@ class MouseCoordinatesControl {
         this._formatOptions = COORDINATE_FORMATS;
         this._modal = null;
         this._currentCoordinates = { lat: 0, lng: 0 };
-        this._drawControl = drawControl; // Referência ao DrawControl para criar pontos
+        this._pointControl = pointControl;
 
         // Elevation properties
         this._elevationEnabled = false;
@@ -378,9 +378,11 @@ class MouseCoordinatesControl {
         });
     }
 
-    _createPointAtCoordinates(lng, lat) {
-        this._drawControl.addPointFeatureAtCoordinates(lng, lat);
-        this._flyToCoordinates(lng, lat);
+    async _createPointAtCoordinates(lng, lat) {
+        const feature = await this._pointControl.createPointAtCoordinates(lng, lat);
+        if (feature) {
+            this._flyToCoordinates(lng, lat);
+        }
     }
 
     _copyCoordinates() {

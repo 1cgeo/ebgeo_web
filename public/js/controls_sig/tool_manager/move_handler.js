@@ -6,7 +6,7 @@
  * Valid sources for drag operations
  */
 const VALID_DRAG_SOURCES = [
-    'los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot',
+    'los', 'visibility', 'points', 'lines', 'polygons',
     'texts', 'images', 'circles', 'ellipses', 'arrows', 'boundarys',
     'occupied_fronts', 'military_symbols', 'rectangles', 'brushes'
 ];
@@ -42,32 +42,6 @@ class MoveHandler {
     }
 
     // ===== HELPER METHODS =====
-
-    /**
-     * Helper to extract ID from any type of feature
-     */
-    getFeatureId(feature) {
-        // Para features customizadas e features do MapLibreDraw do SelectionManager
-        if (feature.properties && feature.properties.id !== undefined) {
-            return feature.properties.id;
-        }
-        // Para features do MapLibreDraw retornadas por queryRenderedFeatures
-        if (feature.id !== undefined) {
-            return feature.id;
-        }
-        console.warn('Feature without valid ID:', feature);
-        return null;
-    }
-
-    /**
-     * Helper to check if feature is from MapLibreDraw
-     */
-    isMapLibreDrawFeature(feature) {
-        return feature.source === 'mapbox-gl-draw-cold' ||
-            feature.source === 'mapbox-gl-draw-hot' ||
-            (feature.properties && feature.properties.source === 'draw');
-    }
-
     /**
      * Generic method to get control by type - compatible with refactored SelectionManager
      */
@@ -79,8 +53,10 @@ class MoveHandler {
 
     initializeFeatureStrategies() {
         return {
-            'draw': this.updateDrawFeature.bind(this),
-            'los': this.updateDrawFeature.bind(this),
+            'point': this.updatePointFeature.bind(this),
+            'line': this.updateLineFeature.bind(this),
+            'polygon': this.updatePolygonFeature.bind(this),
+            'los': this.updateLOSFeature.bind(this),
             'visibility': this.updateVisibilityFeature.bind(this),
             'text': this.updatePointFeature.bind(this),
             'image': this.updatePointFeature.bind(this),
@@ -135,30 +111,21 @@ class MoveHandler {
             VALID_DRAG_SOURCES.includes(feature.source)
         );
 
-        // Check for edit handles (maplibredraw midpoint/vertex handles)
-        const hasMaplibreDrawEditHandles = filteredFeatures.some(feature =>
-            feature.properties && (
-                feature.properties.mode === 'direct_select' ||
-                feature.properties.meta === 'midpoint' ||
-                feature.properties.meta === 'vertex'
-            )
-        );
-
         // Early exit if clicking on ANY edit handle
-        if (filteredFeatures.length === 0 || hasMaplibreDrawEditHandles || this.isClickOnEditHandle(e.point)) {
+        if (filteredFeatures.length === 0 || this.isClickOnEditHandle(e.point)) {
             return; // Let edit handlers take control
         }
 
         // Check if clicked feature is selected
         const isFeatureSelected = filteredFeatures.some(clickedFeature => {
-            const clickedFeatureId = this.getFeatureId(clickedFeature);
+            const clickedFeatureId = clickedFeature.properties.id;
 
             if (clickedFeatureId === null) {
                 return false;
             }
 
             return allSelectedFeatures.some(selectedFeature => {
-                const selectedFeatureId = this.getFeatureId(selectedFeature);
+                const selectedFeatureId = selectedFeature.properties.id;
                 return selectedFeatureId == clickedFeatureId; // Use loose equality for type coercion
             });
         });
@@ -187,16 +154,8 @@ class MoveHandler {
     isClickOnEditHandle = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
-        // Maplibre draw handles
-        const hasMaplibreDrawEditHandles = features.some(feature =>
-            feature.properties.mode === 'direct_select' ||
-            feature.properties.meta === 'midpoint' ||
-            feature.properties.meta === 'vertex'
-        );
-        if (hasMaplibreDrawEditHandles) return true;
-
-        // Custom handles - SIMPLIFIED
         const customHandleSources = [
+            'line-edit-handles', 'polygon-edit-handles',
             'circle-edit-handles', 'ellipse-edit-handles',
             'arrow-edit-handles', 'boundary-edit-handles',
             'occupied-front-edit-handles', 'rectangle-edit-handles'
@@ -279,6 +238,9 @@ class MoveHandler {
             this.selectionManager.updateSelectedFeatures();
             this.selectionManager.updateProfile();
             this.syncEditHandlesForMovedFeatures(updatedFeatures);
+            
+            // ✅ FIXED: Update measurements after drag
+            this.updateMeasurementsForMovedFeatures(updatedFeatures);
         }
 
         // Reset state
@@ -293,12 +255,12 @@ class MoveHandler {
         const offsets = new Map();
 
         for (const feature of features) {
-            const featureId = this.getFeatureId(feature);
+            const featureId = feature.properties.id;
             if (featureId !== null) {
                 const offset = this.calculateOffsetForFeature(feature, referencePoint);
                 offsets.set(featureId, {
                     feature: feature,
-                    source: feature.properties ? feature.properties.source : 'draw',
+                    source: feature.properties.source,
                     offset: offset
                 });
             }
@@ -308,7 +270,7 @@ class MoveHandler {
     }
 
     calculateOffsetForFeature(feature, referencePoint) {
-        const source = feature.properties ? feature.properties.source : 'draw';
+        const source = feature.properties.source;
         const coords = feature.geometry.coordinates;
 
         // Handle special cases first
@@ -366,7 +328,7 @@ class MoveHandler {
 
         for (let i = 0; i < features.length; i++) {
             const feature = features[i];
-            const featureId = this.getFeatureId(feature);
+            const featureId = feature.properties.id;
 
             if (featureId !== null && this.offsets.has(featureId)) {
                 const { offset } = this.offsets.get(featureId);
@@ -385,7 +347,7 @@ class MoveHandler {
     }
 
     calculateUpdatedFeatureOptimized(feature, dx, dy, newCoords) {
-        const source = feature.properties ? feature.properties.source : 'draw';
+        const source = feature.properties.source;
         const strategy = this.featureUpdateStrategies[source];
 
         if (!strategy) {
@@ -407,11 +369,44 @@ class MoveHandler {
 
         // Add updated features using new API
         for (const feature of updatedFeatures) {
-            const type = feature.properties?.source || 'draw';
-            const featureId = this.getFeatureId(feature);
+            const type = feature.properties.source;
+            const featureId = feature.properties.id;
             if (featureId) {
                 const key = `${type}:${featureId}`;
                 this.selectionManager.selectedFeatures.set(key, { type, feature });
+            }
+        }
+    }
+
+    /**
+     * ✅ NEW: Update measurements for moved features
+     */
+    updateMeasurementsForMovedFeatures = (updatedFeatures) => {
+        for (const feature of updatedFeatures) {
+            const type = feature.properties.source;
+            
+            // Update line measurements
+            if (type === 'line' && feature.properties.measure) {
+                const lineControl = this.getControl('line');
+                if (lineControl && lineControl.updateFeatureMeasurement) {
+                    lineControl.updateFeatureMeasurement(feature);
+                }
+            }
+            
+            // Update polygon measurements  
+            else if (type === 'polygon' && feature.properties.measure) {
+                const polygonControl = this.getControl('polygon');
+                if (polygonControl && polygonControl.updateFeatureMeasurement) {
+                    polygonControl.updateFeatureMeasurement(feature);
+                }
+            }
+
+            // Update LOS measurements (if they have measure property)
+            else if (type === 'los' && feature.properties.measure) {
+                const losControl = this.getControl('los');
+                if (losControl && losControl.updateFeatureMeasurement) {
+                    losControl.updateFeatureMeasurement(feature);
+                }
             }
         }
     }
@@ -421,7 +416,7 @@ class MoveHandler {
      */
     syncEditHandlesForMovedFeatures = (updatedFeatures) => {
         // Identificar quais controls podem ter features selecionadas que foram movidas
-        const controlsToSync = ['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front', 'los', 'rectangle'];
+        const controlsToSync = ['circle', 'ellipse', 'arrow', 'boundary', 'occupied_front', 'los', 'rectangle', 'line', 'polygon'];
 
         controlsToSync.forEach(controlType => {
             const control = this.getControl(controlType);
@@ -442,7 +437,7 @@ class MoveHandler {
 
     // ===== FEATURE UPDATE STRATEGIES =====
 
-    updateDrawFeature(feature, dx, dy, newCoords) {
+    updateLOSFeature(feature, dx, dy, newCoords) {
         return this.uiManager.translateFeature(feature, dx, dy);
     }
 
@@ -452,6 +447,77 @@ class MoveHandler {
             geometry: {
                 ...feature.geometry,
                 coordinates: [newCoords.lng, newCoords.lat]
+            }
+        };
+    }
+
+    updateLineFeature(feature, dx, dy, newCoords) {
+        // Move all points in the LineString by the same delta
+        let baseCoordinates = feature.properties.baseCoordinates || feature.geometry.coordinates;
+
+        if (typeof baseCoordinates === 'string') {
+            try {
+                baseCoordinates = JSON.parse(baseCoordinates);
+            } catch (e) {
+                baseCoordinates = feature.geometry.coordinates;
+            }
+        }
+
+        const newBaseCoordinates = baseCoordinates.map(coord => [
+            coord[0] + dx,
+            coord[1] + dy
+        ]);
+
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                baseCoordinates: newBaseCoordinates
+            },
+            geometry: {
+                type: 'LineString',
+                coordinates: newBaseCoordinates
+            }
+        };
+    }
+
+    updatePolygonFeature(feature, dx, dy, newCoords) {
+        // Move all points in the polygon by the same delta
+        let baseCoordinates = feature.properties.baseCoordinates;
+
+        if (typeof baseCoordinates === 'string') {
+            try {
+                baseCoordinates = JSON.parse(baseCoordinates);
+            } catch (e) {
+                // Fallback: use geometry coordinates without closing point
+                const coords = feature.geometry.coordinates[0];
+                baseCoordinates = coords.slice(0, -1); // Remove closing point
+            }
+        }
+
+        if (!Array.isArray(baseCoordinates)) {
+            // Another fallback
+            const coords = feature.geometry.coordinates[0];
+            baseCoordinates = coords.slice(0, -1); // Remove closing point
+        }
+
+        const newBaseCoordinates = baseCoordinates.map(coord => [
+            coord[0] + dx,
+            coord[1] + dy
+        ]);
+
+        // Create closed coordinates for geometry
+        const closedCoordinates = [...newBaseCoordinates, newBaseCoordinates[0]];
+
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                baseCoordinates: newBaseCoordinates
+            },
+            geometry: {
+                type: 'Polygon',
+                coordinates: [closedCoordinates]
             }
         };
     }

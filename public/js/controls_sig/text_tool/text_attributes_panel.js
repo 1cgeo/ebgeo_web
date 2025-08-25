@@ -32,8 +32,6 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     // ===== TEXTAREA ESPECÍFICA PARA TEXTO (APENAS SELEÇÃO ÚNICA) =====
     // ⚠️ MANTER: Lógica específica do text tool
     if (selectedFeatures.length === 1) {
-        const textLabel = document.createElement('label');
-        textLabel.textContent = 'Texto:';
         const textInput = document.createElement('textarea');
         textInput.id = 'text-area';
         textInput.value = feature.properties.text;
@@ -45,7 +43,6 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         };
         $(panel).append(
             $("<div>", { class: "attr-container-column" })
-                .append($("<div>", { class: "attr-name" }).append(textLabel))
                 .append($("<div>", { class: "attr-input-full" }).append(textInput))
         );
     }

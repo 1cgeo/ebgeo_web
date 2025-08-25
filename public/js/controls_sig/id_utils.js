@@ -15,10 +15,9 @@ export class IDUtils {
     /**
      * @param {string} source - Source da feature ('circle', 'ellipse', 'arrow', etc.)
      * @param {Object} map - Instância do mapa MapLibre
-     * @param {Object} [geometry] - Geometria da feature (para draw)
      * @returns {string} Nome gerado ('Círculo #3', 'Seta #1', etc.)
      */
-    static generateFeatureName(source, map, geometry = null) {
+    static generateFeatureName(source, map) {
         try {
             // Mapeamento source → nome em português
             const SOURCE_DISPLAY_NAMES = {
@@ -34,9 +33,8 @@ export class IDUtils {
                 'image': 'Imagem',
                 'los': 'Linha de Visada',
                 'visibility': 'Visibilidade',
-                // Draw types
                 'point': 'Ponto',
-                'linestring': 'Linha',
+                'line': 'Linha',
                 'polygon': 'Polígono'
             };
 
@@ -53,39 +51,22 @@ export class IDUtils {
                 'text': 'texts',
                 'image': 'images',
                 'los': 'los',
-                'visibility': 'visibility'
+                'visibility': 'visibility',
+                'point': 'points',
+                'line': 'lines',
+                'polygon': 'polygons'
             };
 
             let displayName;
             let featureCount = 0;
 
-            // Tratamento especial para draw (baseado na geometria)
-            if (source === 'draw' && geometry) {
-                const geometryType = geometry.type.toLowerCase();
-                displayName = SOURCE_DISPLAY_NAMES[geometryType] || 'Feature';
+            displayName = SOURCE_DISPLAY_NAMES[source] || 'Feição';
+            const mapSourceName = SOURCE_TO_MAP_SOURCE[source];
 
-                // Para draw, contar via DrawControl
-                const drawControl = map._controls.find(control =>
-                    control.constructor.name === 'DrawControl' ||
-                    control instanceof MapboxDraw
-                );
-
-                if (drawControl) {
-                    const allDrawFeatures = drawControl.getAll().features;
-                    featureCount = allDrawFeatures.filter(f =>
-                        f.geometry.type.toLowerCase() === geometryType
-                    ).length;
-                }
-            } else {
-                // Sources normais
-                displayName = SOURCE_DISPLAY_NAMES[source] || 'Feature';
-                const mapSourceName = SOURCE_TO_MAP_SOURCE[source];
-
-                if (mapSourceName) {
-                    const mapSource = map.getSource(mapSourceName);
-                    if (mapSource && mapSource._data && mapSource._data.features) {
-                        featureCount = mapSource._data.features.length;
-                    }
+            if (mapSourceName) {
+                const mapSource = map.getSource(mapSourceName);
+                if (mapSource && mapSource._data && mapSource._data.features) {
+                    featureCount = mapSource._data.features.length;
                 }
             }
 
@@ -96,17 +77,8 @@ export class IDUtils {
 
         } catch (error) {
             console.warn('Erro ao gerar nome da feature:', error);
-            // Fallback seguro
-            const fallbackNames = {
-                'circle': 'Círculo',
-                'ellipse': 'Elipse',
-                'arrow': 'Seta',
-                'boundary': 'Limite',
-                'occupied_front': 'Frente Ocupada',
-                'los': 'Linha de Visada'
-            };
-            const fallbackName = fallbackNames[source] || 'Feature';
-            return `${fallbackName} #1`;
+
+            return `Feição #1`;
         }
     }
 
