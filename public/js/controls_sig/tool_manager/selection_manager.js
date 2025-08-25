@@ -159,7 +159,6 @@ class SelectionManager {
                     }
                     // The actual selection will be handled by handleElementClick
                 }
-                this.updateUI();
                 return;
             }
 
@@ -168,7 +167,6 @@ class SelectionManager {
                 this.uiManager.saveChangesAndClosePanel();
                 this.deselectAllFeatures();
             }
-            this.updateUI();
         }
     }
 
@@ -400,7 +398,7 @@ class SelectionManager {
         this.deselectAllFeatures();
     }
 
-    updateSelectedFeatures() {
+    updateSelectedFeatures = async () => {
         // Group features by type for efficient updates
         const featuresByType = new Map();
         const allFeatureIds = [];
@@ -420,13 +418,12 @@ class SelectionManager {
         // Invalidar cache para todas as features que foram atualizadas
         this.notifyMultipleGeometryChanges(allFeatureIds);
 
-        // Update features in each control
-        featuresByType.forEach((features, type) => {
+        for (const [type, features] of featuresByType) {
             const control = this.controls.get(type);
             if (control && control.updateFeatures) {
-                control.updateFeatures(features, true);
+                await control.updateFeatures(features, true);
             }
-        });
+        }
     }
 
     hasSelectedFeatures() {

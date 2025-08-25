@@ -182,7 +182,18 @@ class AddLineControl {
     // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        this.selectFeature(feature);
+        if (feature?.properties?.baseCoordinates) {
+            const normalizedCoords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+            if (normalizedCoords && normalizedCoords.length >= 2) {
+                feature.properties.baseCoordinates = normalizedCoords;
+                this.selectFeature(feature);
+            } else {
+                console.warn('Cannot select line feature - invalid coordinates:', feature.properties.baseCoordinates);
+                return;
+            }
+        } else {
+            this.selectFeature(feature);
+        }
     }
 
     onFeatureDeselected = (feature) => {
@@ -207,14 +218,21 @@ class AddLineControl {
         return this.selectedFeature && this.selectedFeature.properties.id === featureId;
     }
 
+    // ✅ CORREÇÃO 3: Validação defensiva no syncEditHandlesAfterDrag
     syncEditHandlesAfterDrag = (movedFeatures) => {
         if (this.selectedFeature && !this.isDraggingHandle) {
             const updatedFeature = movedFeatures.find(f =>
                 f.properties.id === this.selectedFeature.properties.id
             );
             if (updatedFeature) {
-                this.selectedFeature = updatedFeature;
-                this.createEditHandles(updatedFeature);
+                const normalizedCoords = this.normalizeBaseCoordinates(updatedFeature.properties.baseCoordinates);
+                if (normalizedCoords && normalizedCoords.length >= 2) {
+                    updatedFeature.properties.baseCoordinates = normalizedCoords;
+                    this.selectedFeature = updatedFeature;
+                    this.createEditHandles(updatedFeature);
+                } else {
+                    console.warn('Invalid coordinates in moved feature, keeping current selection');
+                }
             }
         }
     }
@@ -328,20 +346,20 @@ class AddLineControl {
 
         const featureId = IDUtils.generateUniqueId();
         const featureName = IDUtils.generateFeatureName('line', this.map);
-
+        let coord = [...this.drawPoints]
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
             properties: {
                 ...AddLineControl.DEFAULT_PROPERTIES,
-                baseCoordinates: [...this.drawPoints],
+                baseCoordinates: coord,
                 id: featureId,
                 nome: featureName,
-                profileData: JSON.stringify(await this.calculateProfile(this.drawPoints))
+                profileData: JSON.stringify(await this.calculateProfile(coord))
             },
             geometry: {
                 type: 'LineString',
-                coordinates: [...this.drawPoints]
+                coordinates: coord
             }
         };
 
@@ -484,7 +502,7 @@ class AddLineControl {
         const handles = [];
         const coords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
 
-        if (coords.length < 2) {
+        if (!coords || coords.length < 2) {
             console.warn('Coordenadas insuficientes para criar handles:', coords);
             return;
         }
@@ -612,7 +630,7 @@ class AddLineControl {
 
         let coords = this.normalizeBaseCoordinates(this.selectedFeature.properties.baseCoordinates);
 
-        if (coords.length < 2) {
+        if (!coords || coords.length < 2) {
             console.warn('Coordenadas insuficientes para atualizar geometria:', coords);
             return;
         }
@@ -677,22 +695,52 @@ class AddLineControl {
 
     // ===== UTILITY METHODS =====
 
-    normalizeBaseCoordinates = (baseCoordinates) => {
-        if (typeof baseCoordinates === 'string') {
-            try {
-                return JSON.parse(baseCoordinates);
-            } catch (e) {
-                console.error('Erro ao parsear baseCoordinates:', e);
-                return [];
+    normalizeBaseCoordinates = (coords) => {
+        // ✅ NORMALIZAÇÃO ROBUSTA - Handle múltiplos formatos
+        if (!coords) {
+            console.warn('baseCoordinates is null or undefined');
+            return null;
+        }
+
+        // Se já é um array válido, retornar
+        if (Array.isArray(coords)) {
+            // Validar que é realmente um array de coordenadas válidas
+            const isValidArray = coords.every(coord =>
+                Array.isArray(coord) &&
+                coord.length >= 2 &&
+                typeof coord[0] === 'number' &&
+                typeof coord[1] === 'number' &&
+                !isNaN(coord[0]) &&
+                !isNaN(coord[1])
+            );
+            
+            if (isValidArray) {
+                return coords;
+            } else {
+                console.warn('baseCoordinates array contains invalid coordinates:', coords);
+                return null;
             }
         }
 
-        if (!Array.isArray(baseCoordinates)) {
-            console.warn('baseCoordinates não é um array:', baseCoordinates);
-            return [];
+        // Se é string, tentar fazer parse
+        if (typeof coords === 'string') {
+            try {
+                const parsed = JSON.parse(coords);
+                if (Array.isArray(parsed)) {
+                    // Recursão para validar o resultado parseado
+                    return this.normalizeBaseCoordinates(parsed);
+                } else {
+                    console.warn('Parsed baseCoordinates is not an array:', parsed);
+                    return null;
+                }
+            } catch (e) {
+                console.error('Erro ao parsear baseCoordinates string:', coords, e);
+                return null;
+            }
         }
 
-        return baseCoordinates;
+        console.warn('baseCoordinates is neither array nor string:', typeof coords, coords);
+        return null;
     }
 
     forceUpdateMainSource = (feature) => {

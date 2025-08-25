@@ -99,6 +99,8 @@ class BaseLayerControl {
     }
 
     handleLayerChange = async (event) => {
+        const layer = event.target.value
+        this.syncVisualState(layer);
         if (this.changeDebounceTimer) {
             clearTimeout(this.changeDebounceTimer);
         }
@@ -108,7 +110,7 @@ class BaseLayerControl {
         }
 
         this.changeDebounceTimer = setTimeout(async () => {
-            await this.executeLayerChange(event.target.value);
+            await this.executeLayerChange(layer);
         }, 50);
     }
 
@@ -118,7 +120,7 @@ class BaseLayerControl {
 
         try {
             // Atualizar store
-            setBaseLayer(newLayer);
+            await setBaseLayer(newLayer);
             
             // Executar mudança
             await this.switchMap(false);
@@ -172,11 +174,8 @@ class BaseLayerControl {
             await styleLoadPromise;
             this.currentLayer = layer;
         }
-
         // Update hillshade visibility based on new base layer
         this._updateHillshadeVisibility(layer);
-
-        // ✅ Sincronizar estado visual
         this.syncVisualState(layer);
     }
 

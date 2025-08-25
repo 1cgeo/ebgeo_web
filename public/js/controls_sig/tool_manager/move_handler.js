@@ -195,7 +195,7 @@ class MoveHandler {
         this.pendingUpdate = false;
     }
 
-    onMouseUp(e) {
+    onMouseUp = async (e) => {
         if (!this.isDragging) return;
 
         // Cancel any pending RAF updates
@@ -234,8 +234,8 @@ class MoveHandler {
             // UPDATED: Use new SelectionManager API
             this.updateSelectionManagerFeatures(updatedFeatures);
 
-            // Trigger final update
-            this.selectionManager.updateSelectedFeatures();
+            await this.selectionManager.updateSelectedFeatures();
+            
             this.selectionManager.updateProfile();
             this.syncEditHandlesForMovedFeatures(updatedFeatures);
             
