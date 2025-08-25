@@ -1,11 +1,10 @@
 // Path: js\map_sig.js
-import { map } from './controls_sig/map.js';
 import BaseLayerControl from './controls_sig/base_layer_control.js';
 import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
 import AddLOSControl from './controls_sig/los_tool/add_los_control.js';
 import AddVisibilityControl from './controls_sig/visibility_tool/add_visibility_control.js';
-import AddImportControl from './controls_sig/import_tool/add_import_control.js';
+import AddImportControl from './controls_sig/add_import_control.js';
 import ToolManager from './controls_sig/tool_manager/tool_manager.js';
 import SelectionManager from './controls_sig/tool_manager/selection_manager.js';
 import UIManager from './controls_sig/tool_manager/ui_manager.js';
@@ -17,7 +16,7 @@ import ResetNorthControl from './controls_sig/reset_north_control.js';
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import ScreenshotControl from './controls_sig/screenshot_control.js';
 import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
-import { undoLastAction, redoLastAction } from './controls_sig/store.js';
+import { undoLastAction, redoLastAction} from './controls_sig/store.js';
 import AddCircleControl from './controls_sig/circle_tool/add_circle_control.js';
 import AddEllipseControl from './controls_sig/ellipse_tool/add_ellipse_control.js';
 import AddArrowControl from './controls_sig/arrow_tool/add_arrow_control.js';
@@ -31,12 +30,116 @@ import AddBrushControl from './controls_sig/brush_tool/add_brush_control.js';
 import AddPointControl from './controls_sig/draw_tools/add_point_control.js'
 import AddLineControl from './controls_sig/draw_tools/add_line_control.js'
 import AddPolygonControl from './controls_sig/draw_tools/add_polygon_control.js'
+import baseStyle from './controls_sig/baselayers/carta_topografica.js'
+import { hideLoadingScreen } from './index.js';
+
+//-----------------------------------------------
+// CRIAÇÃO E CONFIGURAÇÃO DO MAPA
+//-----------------------------------------------
+
+const map = new maplibregl.Map({
+    container: 'map-sig',
+    style: baseStyle,
+    attributionControl: false,
+    minZoom: config.map2d.minZoom,
+    maxZoom: config.map2d.maxZoom,
+    maxPitch: config.map2d.maxPitch,
+    bounds: config.map2d.bounds
+});
+
+map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
+if (config.map2d.maxBounds) {
+    map.setMaxBounds(config.map2d.maxBounds);
+}
+
+map.addControl(new maplibregl.AttributionControl({
+    customAttribution: 'Diretoria de Serviço Geográfico - Exército Brasileiro',
+    compact: true
+}), 'bottom-right');
+
+//-----------------------------------------------
+// EVENTO LOAD DO MAPA
+//-----------------------------------------------
+
+map.on('load', async () => {
+    map.doubleClickZoom.disable();
+    map.boxZoom.disable();
+    await baseLayerControl.switchMap(true);
+    hideLoadingScreen();
+});
+
+//-----------------------------------------------
+// FUNÇÕES UTILITÁRIAS DO MAPA
+//-----------------------------------------------
+
+export function zoomToFeature(feature, mapInstance) {
+    if (!feature?.geometry) {
+        console.warn('Feature inválida para zoom');
+        return;
+    }
+    
+    try {
+        const geometry = feature.geometry;
+        
+        switch (geometry.type) {
+            case 'Point':
+                mapInstance.flyTo({
+                    center: geometry.coordinates,
+                    zoom: Math.max(mapInstance.getZoom(), 16),
+                    duration: 800
+                });
+                break;
+                
+            case 'LineString':
+            case 'Polygon':
+            case 'MultiLineString':
+            case 'MultiPolygon':
+                const bounds = new maplibregl.LngLatBounds();
+                extractAllCoordinates(geometry).forEach(coord => bounds.extend(coord));
+                
+                if (bounds.isEmpty()) {
+                    console.warn('Bounds vazio para feature');
+                    return;
+                }
+                
+                mapInstance.fitBounds(bounds, { 
+                    padding: 50, 
+                    duration: 800,
+                    maxZoom: 18 
+                });
+                break;
+                
+            default:
+                console.warn('Tipo de geometria não suportado:', geometry.type);
+        }
+    } catch (error) {
+        console.error('Erro ao fazer zoom para feature:', error);
+    }
+}
+
+function extractAllCoordinates(geometry) {
+    const coords = [];
+    
+    function extract(coordArray) {
+        if (Array.isArray(coordArray)) {
+            if (typeof coordArray[0] === 'number') {
+                coords.push(coordArray);
+            } else {
+                coordArray.forEach(extract);
+            }
+        }
+    }
+    
+    extract(geometry.coordinates);
+    return coords;
+}
+
 //-----------------------------------------------
 // CONTROLES
 //-----------------------------------------------
 
 const selectionManager = new SelectionManager(map);
-const toolManager = new ToolManager(map);
+const toolManager = new ToolManager();
 toolManager.setSelectionManager(selectionManager)
 
 const pointControl = new AddPointControl(toolManager);
@@ -95,6 +198,9 @@ const baseLayerControl = new BaseLayerControl(uiManager, config.map2d.hillshade)
 
 const mapControl = new MapControl(baseLayerControl);
 mapControl.setSelectionManager(selectionManager)
+
+baseLayerControl.setMapControl(mapControl);
+
 
 importControl.setControls(pointControl, lineControl, polygonControl);
 
@@ -168,7 +274,7 @@ document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && !e.shiftKey) {
                 e.preventDefault();
                 if (undoLastAction()) {
-                    mapControl.switchMap(false);
+                    baseLayerControl.switchMap(false);
                 }
             }
             break;
@@ -177,7 +283,7 @@ document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && !e.shiftKey) {
                 e.preventDefault();
                 if (redoLastAction()) {
-                    mapControl.switchMap(false);
+                    baseLayerControl.switchMap(false);
                 }
             }
             break;
@@ -282,3 +388,14 @@ window.addEventListener('unhandledrejection', (event) => {
 window.addEventListener('error', (event) => {
     console.error('Erro JavaScript:', event.error);
 });
+
+//-----------------------------------------------
+// EXPORTAÇÕES
+//-----------------------------------------------
+export { 
+    map, 
+    baseLayerControl, 
+    mapControl,
+    selectionManager,
+    toolManager
+};

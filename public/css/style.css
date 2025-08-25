@@ -33,3 +33,5 @@
 /* ===== 9. PDF EXPORT ===== */
 /* Aba de exportação PDF com preview e controles */
 @import url('./pdf-export.css');
+
+@import url('features-tab.css');

@@ -10,7 +10,6 @@ async function takeScreenshot(viewer) {
     viewerInstance = viewer;
     
     try {
-        console.log('🎯 Iniciando captura de screenshot 3D...');
         
         // Verificar se preserveDrawingBuffer está ativo
         if (!checkPreserveDrawingBuffer()) {
@@ -22,12 +21,6 @@ async function takeScreenshot(viewer) {
         
         // Capturar o screenshot com método robusto
         const success = await captureScreenshotRobust();
-        
-        if (success) {
-            console.log('✅ Screenshot 3D capturado com sucesso');
-        } else {
-            console.error('❌ Falha ao capturar screenshot 3D');
-        }
         
         return success;
         
@@ -77,7 +70,6 @@ async function ensureFullyRendered() {
     // 4. Forçar várias renderizações para garantir que tudo foi desenhado
     await renderMultipleFrames();
     
-    console.log('🎨 Cena totalmente renderizada');
 }
 
 /**
@@ -86,9 +78,7 @@ async function ensureFullyRendered() {
 function waitForImageryLayers() {
     return new Promise((resolve) => {
         const imageryLayers = viewerInstance.imageryLayers;
-        console.log(imageryLayers)
         if (imageryLayers._layers.length <=1) {
-            console.log(`aqui`)
             resolve();
             return;
         }
@@ -106,7 +96,6 @@ function waitForImageryLayers() {
             }
             
             if (readyCount === totalLayers) {
-                console.log('🌍 Imagery layers prontos');
                 resolve();
             } else {
                 setTimeout(checkReady, 100);
@@ -124,10 +113,8 @@ function waitForTerrain() {
     return new Promise((resolve) => {
         const scene = viewerInstance.scene;
         const globe = scene.globe;
-        console.log(globe.terrainProvider)
         // Se usando EllipsoidTerrainProvider, não precisa aguardar
         if (!globe.terrainProvider._availability) {
-            console.log(`aqui 2`)
             resolve();
             return;
         }
@@ -135,7 +122,6 @@ function waitForTerrain() {
         // Para CesiumTerrainProvider, aguardar que esteja pronto
         const checkTerrain = () => {
             if (globe.terrainProvider.ready) {
-                console.log('🏔️ Terrain provider pronto');
                 // Aguardar um pouco mais para garantir que os tiles foram carregados
                 setTimeout(resolve, 200);
             } else {
@@ -173,7 +159,6 @@ function waitForTilesets() {
             const allReady = tilesets.every(tileset => tileset.ready);
             
             if (allReady) {
-                console.log('🏗️ Tilesets 3D prontos');
                 // Aguardar um pouco mais para carregamento de tiles na view atual
                 setTimeout(resolve, 300);
             } else {
@@ -203,7 +188,6 @@ function renderMultipleFrames() {
                 // Aguardar mais um frame para garantir
                 requestAnimationFrame(() => {
                     viewerInstance.render();
-                    console.log(`🎬 ${frameCount + 1} frames renderizados`);
                     resolve();
                 });
             } else {
@@ -289,7 +273,6 @@ async function isCanvasEmpty(canvas) {
  * Método alternativo para captura quando o canvas está vazio
  */
 async function captureWithWorkaround() {
-    console.log('🔄 Executando workaround para canvas vazio...');
     
     try {
         // Salvar configurações atuais
@@ -387,9 +370,7 @@ async function downloadImageFromDataURL(dataURL) {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
-        console.log('💾 Download iniciado:', link.download);
-        
+                
     } catch (error) {
         console.error('Erro ao fazer download via dataURL:', error);
         throw error;

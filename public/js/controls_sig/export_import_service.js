@@ -1,7 +1,5 @@
-// Path: js\controls_sig\export_import_service.js
+// Path: js/controls_sig/export_import_service.js
 import {
-    addMap,
-    setCurrentMap,
     getAllMapNames,
     getCurrentMapName,
     mapStore,
@@ -9,18 +7,22 @@ import {
     appStore,
     resetMemoryStore,
     getCurrentBaseLayer,
+    setBaseLayer,
     MIN_SCHEMA_VERSION,
     MAX_SCHEMA_VERSION,
     SCHEMA_VERSION,
-    compareVersions
+    compareVersions,
+    addMap,
+    setCurrentMap
 } from './store.js';
 
 import { IDUtils } from './id_utils.js';
 
 export class ExportImportService {
-    constructor(baseLayerControl, mapControl) {
+    constructor(baseLayerControl, mapControl, mapManager) {
         this.baseLayerControl = baseLayerControl;
         this.mapControl = mapControl;
+        this.mapManager = mapManager;
     }
 
     // Arredondar coordenadas para precisão de 1 metro (6 casas decimais)
@@ -303,11 +305,9 @@ export class ExportImportService {
             }
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
 
-            // Processar mapas
             let importedMapsCount = 0;
 
             if (isAdditiveImport) {
-                // IMPORTAÇÃO ADITIVA: Regenerar IDs para evitar conflitos
                 const existingMapNames = await getAllMapNames();
                 const mapsToImport = Object.keys(data.maps).length;
 
@@ -344,12 +344,13 @@ export class ExportImportService {
             // Carregar imagens do ZIP
             await this.loadImagesFromZip(zip);
 
-            // Recarregar interface
             const baseLayer = isAdditiveImport ?
                 await getCurrentBaseLayer() :
                 (await mapStore.getItem(await getCurrentMapName()))?.baseLayer || 'carta-topografica';
 
-            await this.baseLayerControl.switchLayer(baseLayer);
+            setBaseLayer(baseLayer);
+            
+            await this.baseLayerControl.switchMap();
             await this.mapControl.updateMapList();
 
             const importType = isAdditiveImport ? 'adicionados' : 'carregados';

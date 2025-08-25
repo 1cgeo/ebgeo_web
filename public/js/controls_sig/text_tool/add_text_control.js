@@ -4,7 +4,6 @@ import { IDUtils } from '../id_utils.js';
 
 class AddTextControl {
     constructor(toolManager) {
-        this.map = toolManager.map;
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
         this.toolManager.textControl = this;
@@ -89,7 +88,9 @@ class AddTextControl {
 
     // ✅ NOVO - Sistema de zoom (mesmo padrão do brush)
     setupZoomListener = () => {
-        this.map.on('zoom', this.handleZoomChange);
+        if(this.map){
+            his.map.on('zoom', this.handleZoomChange);
+        }
     }
 
     handleZoomChange = () => {

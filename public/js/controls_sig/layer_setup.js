@@ -1,79 +1,49 @@
-// Path: js\controls_sig\map.js
+// Path: js\controls_sig\layer_setup.js
 import { getCurrentMapFeatures } from './store.js';
 import { imageStore } from './store.js';
-import baseStyle from './baselayers/carta_topografica.js'
-import config from '../config.js';
-import { hideLoadingScreen } from '../index.js';
 
-const map = new maplibregl.Map({
-    container: 'map-sig',
-    style: baseStyle,
-    attributionControl: false,
-    minZoom: config.map2d.minZoom,
-    maxZoom: config.map2d.maxZoom,
-    maxPitch: config.map2d.maxPitch,
-    bounds: config.map2d.bounds
-});
-
-map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
-if (config.map2d.maxBounds) {
-    map.setMaxBounds(config.map2d.maxBounds);
-}
-
-map.addControl(new maplibregl.AttributionControl({
-    customAttribution: 'Diretoria de Serviço Geográfico - Exército Brasileiro',
-    compact: true
-}), 'bottom-right');
-
-export async function setupMapFeatures() {
+export async function setupMapFeatures(mapInstance) {
     try {
-        setupAuxiliaryLayers();
+        setupAuxiliaryLayers(mapInstance);
 
         // Carregar dados do IndexedDB
         const features = await getCurrentMapFeatures();
-        await setImages(features);
+        await setImages(features, mapInstance);
 
-        setupPointLayers(features);
-        setupLineLayers(features);
-        setupPolygonLayers(features);
-        setupEllipseLayers(features);
-        setupCircleLayers(features);
-        setupVisibilityLayers(features);
-        setupImageLayers(features);
-        setupMilitarySymbolsLayers(features);
-        setupBoundaryLayers(features);
-        setupOccupiedFrontLayers(features);
-        setupArrowLayers(features);
-        setupLOSLayers(features);
-        setupTextLayers(features);
-        setupRectangleLayers(features);
-        setupBrushLayers(features);
+        setupPointLayers(features, mapInstance);
+        setupLineLayers(features, mapInstance);
+        setupPolygonLayers(features, mapInstance);
+        setupEllipseLayers(features, mapInstance);
+        setupCircleLayers(features, mapInstance);
+        setupVisibilityLayers(features, mapInstance);
+        setupImageLayers(features, mapInstance);
+        setupMilitarySymbolsLayers(features, mapInstance);
+        setupBoundaryLayers(features, mapInstance);
+        setupOccupiedFrontLayers(features, mapInstance);
+        setupArrowLayers(features, mapInstance);
+        setupLOSLayers(features, mapInstance);
+        setupTextLayers(features, mapInstance);
+        setupRectangleLayers(features, mapInstance);
+        setupBrushLayers(features, mapInstance);
 
-        restoreTerrainState();
+        restoreTerrainState(mapInstance);
 
         // Restaurar medições e marcações
         requestAnimationFrame(() => {
             clearAllMeasurements();
-            restoreMeasurements(features);
-            restoreCircleXMarks(features);
-            restoreBoundaryDependentFeatures(features);
+            restoreMeasurements(features, mapInstance);
+            restoreCircleXMarks(features, mapInstance);
+            restoreBoundaryDependentFeatures(features, mapInstance);
         });
     } catch (error) {
         console.error('Erro ao configurar features do mapa:', error);
     }
 }
 
-map.on('load', async () => {
-    map.doubleClickZoom.disable();
-    map.boxZoom.disable();
-    await setupMapFeatures();
-    hideLoadingScreen();
-});
-
-function setupBrushLayers(features) {
+function setupBrushLayers(features, mapInstance) {
     // ===== SOURCES (2 - simples) =====
 
-    const brushControl = map._controls.find(control => 
+    const brushControl = mapInstance._controls.find(control => 
         control.constructor.name === 'AddBrushControl'
     );
     
@@ -83,8 +53,8 @@ function setupBrushLayers(features) {
     }
     
     // 1. Source principal
-    if (!map.getSource('brushes')) {
-        map.addSource('brushes', {
+    if (!mapInstance.getSource('brushes')) {
+        mapInstance.addSource('brushes', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -92,15 +62,15 @@ function setupBrushLayers(features) {
             }
         });
     } else {
-        map.getSource('brushes').setData({
+        mapInstance.getSource('brushes').setData({
             type: 'FeatureCollection',
             features: correctedBrushes
         });
     }
 
     // 2. Feedback source (preview)
-    if (!map.getSource('brush-feedback')) {
-        map.addSource('brush-feedback', {
+    if (!mapInstance.getSource('brush-feedback')) {
+        mapInstance.addSource('brush-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -109,8 +79,8 @@ function setupBrushLayers(features) {
     // ===== LAYERS (2 - simples) =====
 
     // 1. Main layer (editable parameters)
-    if (!map.getLayer('brush-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('brush-layer')) {
+        mapInstance.addLayer({
             id: 'brush-layer',
             type: 'line',
             source: 'brushes',
@@ -127,8 +97,8 @@ function setupBrushLayers(features) {
     }
 
     // 2. Preview layer
-    if (!map.getLayer('brush-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('brush-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'brush-feedback-layer',
             type: 'line',
             source: 'brush-feedback',
@@ -145,12 +115,12 @@ function setupBrushLayers(features) {
     }
 }
 
-function setupRectangleLayers(features) {
+function setupRectangleLayers(features, mapInstance) {
     // ===== SOURCES (3 - consolidados) =====
     
     // 1. Source principal
-    if (!map.getSource('rectangles')) {
-        map.addSource('rectangles', {
+    if (!mapInstance.getSource('rectangles')) {
+        mapInstance.addSource('rectangles', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -158,23 +128,23 @@ function setupRectangleLayers(features) {
             }
         });
     } else {
-        map.getSource('rectangles').setData({
+        mapInstance.getSource('rectangles').setData({
             type: 'FeatureCollection',
             features: features.rectangles
         });
     }
 
     // 2. Feedback consolidado
-    if (!map.getSource('rectangle-feedback')) {
-        map.addSource('rectangle-feedback', {
+    if (!mapInstance.getSource('rectangle-feedback')) {
+        mapInstance.addSource('rectangle-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 3. Edit handles source
-    if (!map.getSource('rectangle-edit-handles')) {
-        map.addSource('rectangle-edit-handles', {
+    if (!mapInstance.getSource('rectangle-edit-handles')) {
+        mapInstance.addSource('rectangle-edit-handles', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -183,8 +153,8 @@ function setupRectangleLayers(features) {
     // ===== LAYERS (4 - seguindo padrão) =====
 
     // 3. Feedback layer
-    if (!map.getLayer('rectangle-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('rectangle-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'rectangle-feedback-layer',
             type: 'line',
             source: 'rectangle-feedback',
@@ -198,8 +168,8 @@ function setupRectangleLayers(features) {
     }
 
     // 1. Fill layer (editable parameters)
-    if (!map.getLayer('rectangle-fill-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('rectangle-fill-layer')) {
+        mapInstance.addLayer({
             id: 'rectangle-fill-layer',
             type: 'fill',
             source: 'rectangles',
@@ -211,8 +181,8 @@ function setupRectangleLayers(features) {
     }
 
     // 2. Stroke layer (editable parameters)
-    if (!map.getLayer('rectangle-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('rectangle-layer')) {
+        mapInstance.addLayer({
             id: 'rectangle-layer',
             type: 'line',
             source: 'rectangles',
@@ -225,8 +195,8 @@ function setupRectangleLayers(features) {
     }
 
     // 4. Edit handles layer
-    if (!map.getLayer('rectangle-edit-handles-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('rectangle-edit-handles-layer')) {
+        mapInstance.addLayer({
             id: 'rectangle-edit-handles-layer',
             type: 'circle',
             source: 'rectangle-edit-handles',
@@ -241,12 +211,12 @@ function setupRectangleLayers(features) {
     }
 }
 
-function setupOccupiedFrontLayers(features) {
+function setupOccupiedFrontLayers(features, mapInstance) {
     // ===== SOURCES (3 - consolidados) =====
     
     // 1. Source principal (inalterado)
-    if (!map.getSource('occupied_fronts')) {
-        map.addSource('occupied_fronts', {
+    if (!mapInstance.getSource('occupied_fronts')) {
+        mapInstance.addSource('occupied_fronts', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -254,23 +224,23 @@ function setupOccupiedFrontLayers(features) {
             }
         });
     } else {
-        map.getSource('occupied_fronts').setData({
+        mapInstance.getSource('occupied_fronts').setData({
             type: 'FeatureCollection',
             features: features.occupied_fronts
         });
     }
 
     // 2. ✅ NOVO: Feedback consolidado (substitui occupied-front-preview)
-    if (!map.getSource('occupied-front-feedback')) {
-        map.addSource('occupied-front-feedback', {
+    if (!mapInstance.getSource('occupied-front-feedback')) {
+        mapInstance.addSource('occupied-front-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 3. Edit handles source (inalterado)
-    if (!map.getSource('occupied-front-edit-handles')) {
-        map.addSource('occupied-front-edit-handles', {
+    if (!mapInstance.getSource('occupied-front-edit-handles')) {
+        mapInstance.addSource('occupied-front-edit-handles', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -279,8 +249,8 @@ function setupOccupiedFrontLayers(features) {
     // ===== LAYERS (3 - redução de 4→3) =====
 
     // 2. ✅ NOVO: Feedback consolidado (substitui preview + selected)
-    if (!map.getLayer('occupied-front-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('occupied-front-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'occupied-front-feedback-layer',
             type: 'line',
             source: 'occupied-front-feedback',
@@ -298,8 +268,8 @@ function setupOccupiedFrontLayers(features) {
     }
 
         // 1. Layer principal (MultiLineString) - inalterado
-    if (!map.getLayer('occupied-front-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('occupied-front-layer')) {
+        mapInstance.addLayer({
             id: 'occupied-front-layer',
             type: 'line',
             source: 'occupied_fronts',
@@ -316,8 +286,8 @@ function setupOccupiedFrontLayers(features) {
     }
 
     // 3. Edit handles layer (inalterado)
-    if (!map.getLayer('occupied-front-edit-handles-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('occupied-front-edit-handles-layer')) {
+        mapInstance.addLayer({
             id: 'occupied-front-edit-handles-layer',
             type: 'circle',
             source: 'occupied-front-edit-handles',
@@ -339,10 +309,10 @@ function setupOccupiedFrontLayers(features) {
     }
 }
 
-function setupMilitarySymbolsLayers(features) {
+function setupMilitarySymbolsLayers(features, mapInstance) {
     // Source
-    if (!map.getSource('military_symbols')) {
-        map.addSource('military_symbols', {
+    if (!mapInstance.getSource('military_symbols')) {
+        mapInstance.addSource('military_symbols', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -350,15 +320,15 @@ function setupMilitarySymbolsLayers(features) {
             }
         });
     } else {
-        map.getSource('military_symbols').setData({
+        mapInstance.getSource('military_symbols').setData({
             type: 'FeatureCollection',
             features: features.military_symbols
         });
     }
 
     // Layer
-    if (!map.getLayer('military-symbols-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('military-symbols-layer')) {
+        mapInstance.addLayer({
             id: 'military-symbols-layer',
             type: 'symbol',
             source: 'military_symbols',
@@ -376,12 +346,12 @@ function setupMilitarySymbolsLayers(features) {
     }
 }
 
-function setupPointLayers(features) {
+function setupPointLayers(features, mapInstance) {
     // ===== SOURCES =====
     
     // 1. Source principal
-    if (!map.getSource('points')) {
-        map.addSource('points', {
+    if (!mapInstance.getSource('points')) {
+        mapInstance.addSource('points', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -389,15 +359,15 @@ function setupPointLayers(features) {
             }
         });
     } else {
-        map.getSource('points').setData({
+        mapInstance.getSource('points').setData({
             type: 'FeatureCollection',
             features: features.points || []
         });
     }
 
     // 2. Feedback source
-    if (!map.getSource('point-feedback')) {
-        map.addSource('point-feedback', {
+    if (!mapInstance.getSource('point-feedback')) {
+        mapInstance.addSource('point-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -406,8 +376,8 @@ function setupPointLayers(features) {
     // ===== LAYERS =====
 
     // 1. Main layer
-    if (!map.getLayer('point-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('point-layer')) {
+        mapInstance.addLayer({
             id: 'point-layer',
             type: 'circle',
             source: 'points',
@@ -420,8 +390,8 @@ function setupPointLayers(features) {
     }
 
     // 2. Feedback layer
-    if (!map.getLayer('point-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('point-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'point-feedback-layer',
             type: 'circle',
             source: 'point-feedback',
@@ -434,12 +404,12 @@ function setupPointLayers(features) {
     }
 }
 
-function setupLineLayers(features) {
+function setupLineLayers(features, mapInstance) {
     // ===== SOURCES =====
     
     // 1. Source principal
-    if (!map.getSource('lines')) {
-        map.addSource('lines', {
+    if (!mapInstance.getSource('lines')) {
+        mapInstance.addSource('lines', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -447,23 +417,23 @@ function setupLineLayers(features) {
             }
         });
     } else {
-        map.getSource('lines').setData({
+        mapInstance.getSource('lines').setData({
             type: 'FeatureCollection',
             features: features.lines || []
         });
     }
 
     // 2. Feedback source
-    if (!map.getSource('line-feedback')) {
-        map.addSource('line-feedback', {
+    if (!mapInstance.getSource('line-feedback')) {
+        mapInstance.addSource('line-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 3. Edit handles source
-    if (!map.getSource('line-edit-handles')) {
-        map.addSource('line-edit-handles', {
+    if (!mapInstance.getSource('line-edit-handles')) {
+        mapInstance.addSource('line-edit-handles', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -472,8 +442,8 @@ function setupLineLayers(features) {
     // ===== LAYERS =====
 
     // 1. Main layer
-    if (!map.getLayer('line-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('line-layer')) {
+        mapInstance.addLayer({
             id: 'line-layer',
             type: 'line',
             source: 'lines',
@@ -490,8 +460,8 @@ function setupLineLayers(features) {
     }
 
     // 2. Feedback layer
-    if (!map.getLayer('line-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('line-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'line-feedback-layer',
             type: 'line',
             source: 'line-feedback',
@@ -509,8 +479,8 @@ function setupLineLayers(features) {
     }
 
     // 3. Edit handles layer
-    if (!map.getLayer('line-edit-handles-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('line-edit-handles-layer')) {
+        mapInstance.addLayer({
             id: 'line-edit-handles-layer',
             type: 'circle',
             source: 'line-edit-handles',
@@ -535,12 +505,12 @@ function setupLineLayers(features) {
     }
 }
 
-function setupPolygonLayers(features) {
+function setupPolygonLayers(features, mapInstance) {
     // ===== SOURCES =====
     
     // 1. Source principal
-    if (!map.getSource('polygons')) {
-        map.addSource('polygons', {
+    if (!mapInstance.getSource('polygons')) {
+        mapInstance.addSource('polygons', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -548,23 +518,23 @@ function setupPolygonLayers(features) {
             }
         });
     } else {
-        map.getSource('polygons').setData({
+        mapInstance.getSource('polygons').setData({
             type: 'FeatureCollection',
             features: features.polygons || []
         });
     }
 
     // 2. Feedback source
-    if (!map.getSource('polygon-feedback')) {
-        map.addSource('polygon-feedback', {
+    if (!mapInstance.getSource('polygon-feedback')) {
+        mapInstance.addSource('polygon-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 3. Edit handles source
-    if (!map.getSource('polygon-edit-handles')) {
-        map.addSource('polygon-edit-handles', {
+    if (!mapInstance.getSource('polygon-edit-handles')) {
+        mapInstance.addSource('polygon-edit-handles', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -573,8 +543,8 @@ function setupPolygonLayers(features) {
     // ===== LAYERS =====
 
     // 1. Fill layer
-    if (!map.getLayer('polygon-fill-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('polygon-fill-layer')) {
+        mapInstance.addLayer({
             id: 'polygon-fill-layer',
             type: 'fill',
             source: 'polygons',
@@ -586,8 +556,8 @@ function setupPolygonLayers(features) {
     }
 
     // 2. Stroke layer
-    if (!map.getLayer('polygon-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('polygon-layer')) {
+        mapInstance.addLayer({
             id: 'polygon-layer',
             type: 'line',
             source: 'polygons',
@@ -600,8 +570,8 @@ function setupPolygonLayers(features) {
     }
 
     // 3. Feedback layer
-    if (!map.getLayer('polygon-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('polygon-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'polygon-feedback-layer',
             type: 'line',
             source: 'polygon-feedback',
@@ -615,8 +585,8 @@ function setupPolygonLayers(features) {
     }
 
     // 4. Edit handles layer
-    if (!map.getLayer('polygon-edit-handles-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('polygon-edit-handles-layer')) {
+        mapInstance.addLayer({
             id: 'polygon-edit-handles-layer',
             type: 'circle',
             source: 'polygon-edit-handles',
@@ -641,7 +611,7 @@ function setupPolygonLayers(features) {
     }
 }
 
-async function setImages(features) {
+async function setImages(features, mapInstance) {
     const imagePromises = [];
 
     // Coletar todas as features que precisam de imagens
@@ -655,9 +625,9 @@ async function setImages(features) {
         if (!imageId) continue;
 
         // Verificar se já existe
-        if (map.hasImage(imageId)) continue;
+        if (mapInstance.hasImage(imageId)) continue;
 
-        const imagePromise = loadSingleImage(imageId);
+        const imagePromise = loadSingleImage(imageId, mapInstance);
         imagePromises.push(imagePromise);
     }
 
@@ -665,7 +635,7 @@ async function setImages(features) {
     await Promise.allSettled(imagePromises);
 }
 
-async function loadSingleImage(imageId) {
+async function loadSingleImage(imageId, mapInstance) {
     try {
         const blob = await imageStore.getItem(imageId);
         if (!blob) {
@@ -681,8 +651,8 @@ async function loadSingleImage(imageId) {
 
             image.onload = () => {
                 try {
-                    if (!map.hasImage(imageId)) {
-                        map.addImage(imageId, image);
+                    if (!mapInstance.hasImage(imageId)) {
+                        mapInstance.addImage(imageId, image);
                     }
                     URL.revokeObjectURL(url);
                     resolve();
@@ -710,14 +680,14 @@ async function loadSingleImage(imageId) {
     }
 }
 
-function setupBoundaryLayers(features) {
+function setupBoundaryLayers(features, mapInstance) {
     if (!features.boundarys) return;
 
     // ===== SOURCES CONSOLIDADOS (4 sources - reduzido de 5) =====
 
     // 1. Source principal - feature principal
-    if (!map.getSource('boundarys')) {
-        map.addSource('boundarys', {
+    if (!mapInstance.getSource('boundarys')) {
+        mapInstance.addSource('boundarys', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -725,31 +695,31 @@ function setupBoundaryLayers(features) {
             }
         });
     } else {
-        map.getSource('boundarys').setData({
+        mapInstance.getSource('boundarys').setData({
             type: 'FeatureCollection',
             features: features.boundarys
         });
     }
 
     // 2. Source para círculos do escalão (preservado - dependent features)
-    if (!map.getSource('boundary-circles')) {
-        map.addSource('boundary-circles', {
+    if (!mapInstance.getSource('boundary-circles')) {
+        mapInstance.addSource('boundary-circles', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 3. Source para textos (preservado - dependent features)
-    if (!map.getSource('boundary-texts')) {
-        map.addSource('boundary-texts', {
+    if (!mapInstance.getSource('boundary-texts')) {
+        mapInstance.addSource('boundary-texts', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 4. ✅ CONSOLIDADO: Feedback source (preview + selected + handles)
-    if (!map.getSource('boundary-feedback')) {
-        map.addSource('boundary-feedback', {
+    if (!mapInstance.getSource('boundary-feedback')) {
+        mapInstance.addSource('boundary-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -758,8 +728,8 @@ function setupBoundaryLayers(features) {
     // ===== LAYERS CONSOLIDADOS (6 layers - reduzido de 7+) =====
 
     // 5. ✅ FEEDBACK LAYER - Preview + Selected (estilo fixo como outros controles)
-    if (!map.getLayer('boundary-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('boundary-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'boundary-feedback-layer',
             type: 'line',
             source: 'boundary-feedback',
@@ -778,8 +748,8 @@ function setupBoundaryLayers(features) {
     }
 
     // 1. LAYER PRINCIPAL - MultiLineString (linha + símbolos)
-    if (!map.getLayer('boundary-main-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('boundary-main-layer')) {
+        mapInstance.addLayer({
             id: 'boundary-main-layer',
             type: 'line',
             source: 'boundarys',
@@ -796,8 +766,8 @@ function setupBoundaryLayers(features) {
     }
 
     // 2. LAYER CÍRCULOS - Preenchimento dos símbolos 'o'
-    if (!map.getLayer('boundary-circles-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('boundary-circles-layer')) {
+        mapInstance.addLayer({
             id: 'boundary-circles-layer',
             type: 'fill',
             source: 'boundary-circles',
@@ -809,8 +779,8 @@ function setupBoundaryLayers(features) {
     }
 
     // 3. LAYER CÍRCULOS CONTORNO - Contorno dos símbolos 'o'
-    if (!map.getLayer('boundary-circles-stroke-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('boundary-circles-stroke-layer')) {
+        mapInstance.addLayer({
             id: 'boundary-circles-stroke-layer',
             type: 'line',
             source: 'boundary-circles',
@@ -823,8 +793,8 @@ function setupBoundaryLayers(features) {
     }
 
     // 4. LAYER TEXTOS - Labels rotativos
-    if (!map.getLayer('boundary-text-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('boundary-text-layer')) {
+        mapInstance.addLayer({
             id: 'boundary-text-layer',
             type: 'symbol',
             source: 'boundary-texts',
@@ -846,8 +816,8 @@ function setupBoundaryLayers(features) {
     }
 
     // 6. ✅ HANDLES LAYER - Pontos de edição consolidados
-    if (!map.getLayer('boundary-handles-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('boundary-handles-layer')) {
+        mapInstance.addLayer({
             id: 'boundary-handles-layer',
             type: 'circle',
             source: 'boundary-feedback',
@@ -873,12 +843,13 @@ function setupBoundaryLayers(features) {
         });
     }
 }
-function setupEllipseLayers(features) {
+
+function setupEllipseLayers(features, mapInstance) {
     // ===== SOURCES (3 - consolidados) =====
 
     // 1. Source principal (inalterado)
-    if (!map.getSource('ellipses')) {
-        map.addSource('ellipses', {
+    if (!mapInstance.getSource('ellipses')) {
+        mapInstance.addSource('ellipses', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -886,23 +857,23 @@ function setupEllipseLayers(features) {
             }
         });
     } else {
-        map.getSource('ellipses').setData({
+        mapInstance.getSource('ellipses').setData({
             type: 'FeatureCollection',
             features: features.ellipses
         });
     }
 
     // 2. ✅ NOVO: Feedback consolidado (substitui ellipse-preview)
-    if (!map.getSource('ellipse-feedback')) {
-        map.addSource('ellipse-feedback', {
+    if (!mapInstance.getSource('ellipse-feedback')) {
+        mapInstance.addSource('ellipse-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 3. Edit handles source (inalterado)
-    if (!map.getSource('ellipse-edit-handles')) {
-        map.addSource('ellipse-edit-handles', {
+    if (!mapInstance.getSource('ellipse-edit-handles')) {
+        mapInstance.addSource('ellipse-edit-handles', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -911,8 +882,8 @@ function setupEllipseLayers(features) {
     // ===== LAYERS (5 - redução de 6→5) =====
 
         // 3. ✅ NOVO: Feedback consolidado (substitui preview + selected)
-    if (!map.getLayer('ellipse-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('ellipse-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'ellipse-feedback-layer',
             type: 'line',
             source: 'ellipse-feedback',
@@ -926,8 +897,8 @@ function setupEllipseLayers(features) {
     }
 
     // 1. Fill layer (inalterado - parâmetros editáveis precisam)
-    if (!map.getLayer('ellipse-fill-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('ellipse-fill-layer')) {
+        mapInstance.addLayer({
             id: 'ellipse-fill-layer',
             type: 'fill',
             source: 'ellipses',
@@ -939,8 +910,8 @@ function setupEllipseLayers(features) {
     }
 
     // 2. Stroke layer (inalterado - parâmetros editáveis precisam)
-    if (!map.getLayer('ellipse-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('ellipse-layer')) {
+        mapInstance.addLayer({
             id: 'ellipse-layer',
             type: 'line',
             source: 'ellipses',
@@ -953,8 +924,8 @@ function setupEllipseLayers(features) {
     }
 
     // 4. Edit handles (inalterado)
-    if (!map.getLayer('ellipse-edit-handles-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('ellipse-edit-handles-layer')) {
+        mapInstance.addLayer({
             id: 'ellipse-edit-handles-layer',
             type: 'circle',
             source: 'ellipse-edit-handles',
@@ -975,10 +946,10 @@ function setupEllipseLayers(features) {
 }
 
 // ===== VISIBILITY LAYERS (Áreas - Prioridade 3) =====
-function setupVisibilityLayers(features) {
+function setupVisibilityLayers(features, mapInstance) {
     // Source original
-    if (!map.getSource('visibility')) {
-        map.addSource('visibility', {
+    if (!mapInstance.getSource('visibility')) {
+        mapInstance.addSource('visibility', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -986,15 +957,15 @@ function setupVisibilityLayers(features) {
             }
         });
     } else {
-        map.getSource('visibility').setData({
+        mapInstance.getSource('visibility').setData({
             type: 'FeatureCollection',
             features: features.visibility
         });
     }
 
     // Source processada
-    if (!map.getSource('processed-visibility')) {
-        map.addSource('processed-visibility', {
+    if (!mapInstance.getSource('processed-visibility')) {
+        mapInstance.addSource('processed-visibility', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1002,15 +973,15 @@ function setupVisibilityLayers(features) {
             }
         });
     } else {
-        map.getSource('processed-visibility').setData({
+        mapInstance.getSource('processed-visibility').setData({
             type: 'FeatureCollection',
             features: features.processed_visibility
         });
     }
 
     // 1. Layer original (invisível)
-    if (!map.getLayer('visibility-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('visibility-layer')) {
+        mapInstance.addLayer({
             id: 'visibility-layer',
             type: 'fill',
             source: 'visibility',
@@ -1022,8 +993,8 @@ function setupVisibilityLayers(features) {
     }
 
     // 2. Layer processada (visível)
-    if (!map.getLayer('processed-visibility-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('processed-visibility-layer')) {
+        mapInstance.addLayer({
             id: 'processed-visibility-layer',
             type: 'fill',
             source: 'processed-visibility',
@@ -1036,10 +1007,10 @@ function setupVisibilityLayers(features) {
 }
 
 // ===== IMAGE LAYERS (Prioridade 4) =====
-function setupImageLayers(features) {
+function setupImageLayers(features, mapInstance) {
     // Source
-    if (!map.getSource('images')) {
-        map.addSource('images', {
+    if (!mapInstance.getSource('images')) {
+        mapInstance.addSource('images', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1047,15 +1018,15 @@ function setupImageLayers(features) {
             }
         });
     } else {
-        map.getSource('images').setData({
+        mapInstance.getSource('images').setData({
             type: 'FeatureCollection',
             features: features.images
         });
     }
 
     // Layer
-    if (!map.getLayer('image-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('image-layer')) {
+        mapInstance.addLayer({
             id: 'image-layer',
             type: 'symbol',
             source: 'images',
@@ -1074,10 +1045,10 @@ function setupImageLayers(features) {
 }
 
 // ===== LOS LAYERS (Linhas - Prioridade 5) =====
-function setupLOSLayers(features) {
+function setupLOSLayers(features, mapInstance) {
     // Source original
-    if (!map.getSource('los')) {
-        map.addSource('los', {
+    if (!mapInstance.getSource('los')) {
+        mapInstance.addSource('los', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1085,15 +1056,15 @@ function setupLOSLayers(features) {
             }
         });
     } else {
-        map.getSource('los').setData({
+        mapInstance.getSource('los').setData({
             type: 'FeatureCollection',
             features: features.los
         });
     }
 
     // Source processada
-    if (!map.getSource('processed-los')) {
-        map.addSource('processed-los', {
+    if (!mapInstance.getSource('processed-los')) {
+        mapInstance.addSource('processed-los', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1101,15 +1072,15 @@ function setupLOSLayers(features) {
             }
         });
     } else {
-        map.getSource('processed-los').setData({
+        mapInstance.getSource('processed-los').setData({
             type: 'FeatureCollection',
             features: features.processed_los
         });
     }
 
     // 1. Layer original (invisível)
-    if (!map.getLayer('los-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('los-layer')) {
+        mapInstance.addLayer({
             'id': 'los-layer',
             'type': 'line',
             'source': 'los',
@@ -1122,8 +1093,8 @@ function setupLOSLayers(features) {
     }
 
     // 2. Layer processada (visível)
-    if (!map.getLayer('processed-los-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('processed-los-layer')) {
+        mapInstance.addLayer({
             'id': 'processed-los-layer',
             'type': 'line',
             'source': 'processed-los',
@@ -1137,12 +1108,12 @@ function setupLOSLayers(features) {
 }
 
 // ===== ARROW LAYERS - CONSOLIDADO SIMPLES (Linhas - Prioridade 6) =====
-function setupArrowLayers(features) {
+function setupArrowLayers(features, mapInstance) {
     // ===== SOURCES (3 - otimizado) =====
     
     // 1. Source principal
-    if (!map.getSource('arrows')) {
-        map.addSource('arrows', {
+    if (!mapInstance.getSource('arrows')) {
+        mapInstance.addSource('arrows', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1150,23 +1121,23 @@ function setupArrowLayers(features) {
             }
         });
     } else {
-        map.getSource('arrows').setData({
+        mapInstance.getSource('arrows').setData({
             type: 'FeatureCollection',
             features: features.arrows
         });
     }
 
     // 2. ✅ CONSOLIDADO: Feedback source (preview + seleção)
-    if (!map.getSource('arrow-feedback')) {
-        map.addSource('arrow-feedback', {
+    if (!mapInstance.getSource('arrow-feedback')) {
+        mapInstance.addSource('arrow-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 3. Edit handles source
-    if (!map.getSource('arrow-edit-handles')) {
-        map.addSource('arrow-edit-handles', {
+    if (!mapInstance.getSource('arrow-edit-handles')) {
+        mapInstance.addSource('arrow-edit-handles', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
@@ -1174,8 +1145,8 @@ function setupArrowLayers(features) {
 
     // ===== LAYERS (4 - sem fill feedback) =====
     // 3. ✅ SIMPLIFICADO - Feedback layer (mesmo estilo do círculo)
-    if (!map.getLayer('arrow-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('arrow-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'arrow-feedback-layer',
             type: 'line',
             source: 'arrow-feedback',
@@ -1189,8 +1160,8 @@ function setupArrowLayers(features) {
     }
     
     // 1. ✅ MANTER - Preenchimento principal (parâmetros editáveis)
-    if (!map.getLayer('arrow-fill-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('arrow-fill-layer')) {
+        mapInstance.addLayer({
             id: 'arrow-fill-layer',
             type: 'fill',
             source: 'arrows',
@@ -1202,8 +1173,8 @@ function setupArrowLayers(features) {
     }
 
     // 2. ✅ MANTER - Linha principal (parâmetros editáveis)
-    if (!map.getLayer('arrow-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('arrow-layer')) {
+        mapInstance.addLayer({
             id: 'arrow-layer',
             type: 'line',
             source: 'arrows',
@@ -1216,8 +1187,8 @@ function setupArrowLayers(features) {
     }
 
     // 4. ✅ MANTER - Edit handles
-    if (!map.getLayer('arrow-edit-handles-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('arrow-edit-handles-layer')) {
+        mapInstance.addLayer({
             id: 'arrow-edit-handles-layer',
             type: 'circle',
             source: 'arrow-edit-handles',
@@ -1246,11 +1217,11 @@ function setupArrowLayers(features) {
 }
 
 // ===== CIRCLE LAYERS (Pontos - Prioridade 7) =====
-function setupCircleLayers(features) {
+function setupCircleLayers(features, mapInstance) {
 
     // 1. Main circles source
-    if (!map.getSource('circles')) {
-        map.addSource('circles', {
+    if (!mapInstance.getSource('circles')) {
+        mapInstance.addSource('circles', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1258,39 +1229,39 @@ function setupCircleLayers(features) {
             }
         });
     } else {
-        map.getSource('circles').setData({
+        mapInstance.getSource('circles').setData({
             type: 'FeatureCollection',
             features: features.circles
         });
     }
 
     // 2. Consolidated feedback source
-    if (!map.getSource('circle-feedback')) {
-        map.addSource('circle-feedback', {
+    if (!mapInstance.getSource('circle-feedback')) {
+        mapInstance.addSource('circle-feedback', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 3. Edit handles source (simplified)
-    if (!map.getSource('circle-edit-handles')) {
-        map.addSource('circle-edit-handles', {
+    if (!mapInstance.getSource('circle-edit-handles')) {
+        mapInstance.addSource('circle-edit-handles', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
     // 4. X marks source
-    if (!map.getSource('circle-x-marks')) {
-        map.addSource('circle-x-marks', {
+    if (!mapInstance.getSource('circle-x-marks')) {
+        mapInstance.addSource('circle-x-marks', {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
     }
 
         // 4. Feedback layer
-    if (!map.getLayer('circle-feedback-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('circle-feedback-layer')) {
+        mapInstance.addLayer({
             id: 'circle-feedback-layer',
             type: 'line',
             source: 'circle-feedback',
@@ -1304,8 +1275,8 @@ function setupCircleLayers(features) {
     }
 
     // 1. Fill layer (editable parameters need separate layer)
-    if (!map.getLayer('circle-fill-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('circle-fill-layer')) {
+        mapInstance.addLayer({
             id: 'circle-fill-layer',
             type: 'fill',
             source: 'circles',
@@ -1317,8 +1288,8 @@ function setupCircleLayers(features) {
     }
 
     // 2. Stroke layer (editable parameters need separate layer)
-    if (!map.getLayer('circle-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('circle-layer')) {
+        mapInstance.addLayer({
             id: 'circle-layer',
             type: 'line',
             source: 'circles',
@@ -1331,8 +1302,8 @@ function setupCircleLayers(features) {
     }
 
     // 3. X marks layer (fundamental functionality)
-    if (!map.getLayer('circle-x-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('circle-x-layer')) {
+        mapInstance.addLayer({
             id: 'circle-x-layer',
             type: 'line',
             source: 'circle-x-marks',
@@ -1345,8 +1316,8 @@ function setupCircleLayers(features) {
     }
 
     // 5. Edit handles layer
-    if (!map.getLayer('circle-edit-handles-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('circle-edit-handles-layer')) {
+        mapInstance.addLayer({
             id: 'circle-edit-handles-layer',
             type: 'circle',
             source: 'circle-edit-handles',
@@ -1362,9 +1333,9 @@ function setupCircleLayers(features) {
 }
 
 // ===== TEXT LAYERS (Maior Prioridade - 8) =====
-function setupTextLayers(features) {
+function setupTextLayers(features, mapInstance) {
     // ✅ NOVO - Aplicar correções de zoom
-    const textControl = map._controls.find(control => 
+    const textControl = mapInstance._controls.find(control => 
         control.constructor.name === 'AddTextControl'
     );
     
@@ -1374,8 +1345,8 @@ function setupTextLayers(features) {
     }
     
     // Source
-    if (!map.getSource('texts')) {
-        map.addSource('texts', {
+    if (!mapInstance.getSource('texts')) {
+        mapInstance.addSource('texts', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1383,15 +1354,15 @@ function setupTextLayers(features) {
             }
         });
     } else {
-        map.getSource('texts').setData({
+        mapInstance.getSource('texts').setData({
             type: 'FeatureCollection',
             features: correctedTexts
         });
     }
 
     // Layer
-    if (!map.getLayer('text-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('text-layer')) {
+        mapInstance.addLayer({
             id: 'text-layer',
             type: 'symbol',
             source: 'texts',
@@ -1415,10 +1386,10 @@ function setupTextLayers(features) {
 }
 
 // ===== AUXILIARY LAYERS =====
-function setupAuxiliaryLayers() {
+function setupAuxiliaryLayers(mapInstance) {
     // Selection boxes source
-    if (!map.getSource('selection-boxes')) {
-        map.addSource('selection-boxes', {
+    if (!mapInstance.getSource('selection-boxes')) {
+        mapInstance.addSource('selection-boxes', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1427,8 +1398,8 @@ function setupAuxiliaryLayers() {
         });
     }
 
-    if (!map.getLayer('selection-boxes-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('selection-boxes-layer')) {
+        mapInstance.addLayer({
             id: 'selection-boxes-layer',
             type: 'line',
             source: 'selection-boxes',
@@ -1441,8 +1412,8 @@ function setupAuxiliaryLayers() {
     }
 
     // Temp line source
-    if (!map.getSource('temp-line')) {
-        map.addSource('temp-line', {
+    if (!mapInstance.getSource('temp-line')) {
+        mapInstance.addSource('temp-line', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1451,8 +1422,8 @@ function setupAuxiliaryLayers() {
         });
     }
 
-    if (!map.getLayer('temp-line-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('temp-line-layer')) {
+        mapInstance.addLayer({
             id: 'temp-line-layer',
             type: 'line',
             source: 'temp-line',
@@ -1465,8 +1436,8 @@ function setupAuxiliaryLayers() {
     }
 
     // Temp polygon source
-    if (!map.getSource('temp-polygon')) {
-        map.addSource('temp-polygon', {
+    if (!mapInstance.getSource('temp-polygon')) {
+        mapInstance.addSource('temp-polygon', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1475,8 +1446,8 @@ function setupAuxiliaryLayers() {
         });
     }
 
-    if (!map.getLayer('temp-polygon-layer')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('temp-polygon-layer')) {
+        mapInstance.addLayer({
             id: 'temp-polygon-layer',
             type: 'fill',
             source: 'temp-polygon',
@@ -1489,8 +1460,8 @@ function setupAuxiliaryLayers() {
     }
 
     // Street view source
-    if (!map.getSource('lines-street-view')) {
-        map.addSource('lines-street-view', {
+    if (!mapInstance.getSource('lines-street-view')) {
+        mapInstance.addSource('lines-street-view', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -1499,8 +1470,8 @@ function setupAuxiliaryLayers() {
         });
     }
 
-    if (!map.getLayer('street-view')) {
-        map.addLayer({
+    if (!mapInstance.getLayer('street-view')) {
+        mapInstance.addLayer({
             'id': 'street-view',
             'type': 'line',
             'source': 'lines-street-view',
@@ -1516,10 +1487,10 @@ function setupAuxiliaryLayers() {
     }
 }
 
-function restoreTerrainState() {
+function restoreTerrainState(mapInstance) {
     try {
 
-        const terrainControl = map._controls.find(control => 
+        const terrainControl = mapInstance._controls.find(control => 
             control.constructor.name === 'TerrainControl'
         );
 
@@ -1532,8 +1503,8 @@ function restoreTerrainState() {
             terrainControl._setupTerrainSources();
             
             // Reativar o terreno 3D
-            if (map.getSource('terrainSource') && terrainControl._wasTerrainActive) {
-                map.setTerrain(terrainControl.terrainConfig);
+            if (mapInstance.getSource('terrainSource') && terrainControl._wasTerrainActive) {
+                mapInstance.setTerrain(terrainControl.terrainConfig);
             }
         }
 
@@ -1562,17 +1533,17 @@ function clearAllMeasurements() {
     }
 }
 
-function restoreMeasurements(features) {
+function restoreMeasurements(features, mapInstance) {
     try {
 
-        const lineControl = map._controls.find(control =>
+        const lineControl = mapInstance._controls.find(control =>
             control.constructor.name === 'AddLineControl'
         );
-        const polygonControl = map._controls.find(control =>
+        const polygonControl = mapInstance._controls.find(control =>
             control.constructor.name === 'AddPolygonControl'
         );
 
-        const losControl = map._controls.find(control =>
+        const losControl = mapInstance._controls.find(control =>
             control.constructor.name === 'AddLOSControl'
         );
 
@@ -1606,9 +1577,9 @@ function restoreMeasurements(features) {
     }
 }
 
-function restoreCircleXMarks() {
+function restoreCircleXMarks(features, mapInstance) {
     try {
-        const circleControl = map._controls.find(control =>
+        const circleControl = mapInstance._controls.find(control =>
             control.constructor.name === 'AddCircleControl'
         );
 
@@ -1621,9 +1592,9 @@ function restoreCircleXMarks() {
     }
 }
 
-function restoreBoundaryDependentFeatures(features) {
+function restoreBoundaryDependentFeatures(features, mapInstance) {
     try {
-        const boundaryControl = map._controls.find(control =>
+        const boundaryControl = mapInstance._controls.find(control =>
             control.constructor.name === 'AddBoundaryControl'
         );
 
@@ -1687,67 +1658,3 @@ function restoreBoundaryDependentFeatures(features) {
         console.error('Error restoring boundary dependent features:', error);
     }
 }
-
-export function zoomToFeature(feature) {
-    if (!feature?.geometry) {
-        console.warn('Feature inválida para zoom');
-        return;
-    }
-    
-    try {
-        const geometry = feature.geometry;
-        
-        switch (geometry.type) {
-            case 'Point':
-                map.flyTo({
-                    center: geometry.coordinates,
-                    zoom: Math.max(map.getZoom(), 16),
-                    duration: 800
-                });
-                break;
-                
-            case 'LineString':
-            case 'Polygon':
-            case 'MultiLineString':
-            case 'MultiPolygon':
-                const bounds = new maplibregl.LngLatBounds();
-                extractAllCoordinates(geometry).forEach(coord => bounds.extend(coord));
-                
-                if (bounds.isEmpty()) {
-                    console.warn('Bounds vazio para feature');
-                    return;
-                }
-                
-                map.fitBounds(bounds, { 
-                    padding: 50, 
-                    duration: 800,
-                    maxZoom: 18 
-                });
-                break;
-                
-            default:
-                console.warn('Tipo de geometria não suportado:', geometry.type);
-        }
-    } catch (error) {
-        console.error('Erro ao fazer zoom para feature:', error);
-    }
-}
-
-function extractAllCoordinates(geometry) {
-    const coords = [];
-    
-    function extract(coordArray) {
-        if (Array.isArray(coordArray)) {
-            if (typeof coordArray[0] === 'number') {
-                coords.push(coordArray);
-            } else {
-                coordArray.forEach(extract);
-            }
-        }
-    }
-    
-    extract(geometry.coordinates);
-    return coords;
-}
-
-export { map };

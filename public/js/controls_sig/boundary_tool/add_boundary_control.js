@@ -4,7 +4,6 @@ import { IDUtils } from '../id_utils.js';
 
 class AddBoundaryControl {
     constructor(toolManager) {
-        this.map = toolManager.map;
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
 

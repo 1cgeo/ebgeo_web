@@ -4,7 +4,6 @@ import { IDUtils } from '../id_utils.js';
 
 class AddPointControl {
     constructor(toolManager) {
-        this.map = toolManager.map;
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
 
@@ -160,7 +159,6 @@ class AddPointControl {
             console.warn('Coordenadas inválidas para ponto');
             return;
         }
-
         await this.createPointAtCoordinates(e.lngLat.lng, e.lngLat.lat);
         this.toolManager.deactivateCurrentTool();
     }

@@ -1,0 +1,233 @@
+/* css/features-tab.css - Features tab styling */
+
+.features-tab-content {
+    width: 100%;
+    height: 100%;
+    background: inherit;
+}
+
+.features-list {
+    max-height: calc(5 * 44px + 20px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary-color) transparent;
+    overscroll-behavior: contain;
+}
+
+.features-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.features-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.features-list::-webkit-scrollbar-thumb {
+    background-color: var(--primary-color);
+    border-radius: 3px;
+    opacity: 0.7;
+}
+
+.features-list::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-dark);
+    opacity: 1;
+}
+
+/* Grupos */
+.feature-group {
+    margin-bottom: 8px;
+}
+
+.group-header {
+    padding: 8px 12px;
+    background-color: rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+    font-size: 13px;
+    color: #333;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(8px);
+}
+
+/* Items das features */
+.feature-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    transition: background-color 0.2s ease;
+    min-height: 44px;
+    background: rgba(255, 255, 255, 0.95);
+}
+
+.feature-item:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+.feature-name {
+    flex-grow: 1;
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 0;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.feature-name:hover {
+    background-color: rgba(80, 141, 78, 0.1);
+    padding-left: 4px;
+    color: var(--primary-color);
+}
+
+/* Controles */
+.feature-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.visibility-toggle,
+.lock-toggle {
+    background: none;
+    border: none;
+    padding: 6px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+}
+
+.visibility-toggle:hover,
+.lock-toggle:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+    transform: scale(1.1);
+}
+
+.visibility-toggle:active,
+.lock-toggle:active {
+    transform: scale(0.9);
+}
+
+/* Imagens dos ícones */
+.visibility-toggle img,
+.lock-toggle img {
+    width: 16px;
+    height: 16px;
+    transition: filter 0.2s ease;
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+.visibility-toggle:hover img,
+.lock-toggle:hover img {
+    opacity: 1;
+    filter: brightness(0) saturate(100%) invert(42%) sepia(93%) saturate(1352%) hue-rotate(87deg) brightness(119%) contrast(119%);
+}
+
+/* Estados visuais */
+.feature-item.feature-hidden .feature-name {
+    opacity: 0.5;
+    color: #999;
+    font-style: italic;
+}
+
+.feature-item.feature-locked .feature-name {
+    color: #666;
+}
+
+.feature-item.feature-locked .feature-name::after {
+    content: ' (bloqueada)';
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.feature-item.feature-hidden.feature-locked .feature-name {
+    opacity: 0.3;
+    color: #999;
+    font-style: italic;
+}
+
+/* Estados dos botões */
+.feature-item.feature-hidden .visibility-toggle img {
+    opacity: 0.4;
+}
+
+.feature-item.feature-locked .lock-toggle img {
+    filter: brightness(0) saturate(100%) invert(15%) sepia(89%) saturate(3202%) hue-rotate(349deg) brightness(99%) contrast(94%);
+    opacity: 1;
+}
+
+.feature-item.feature-locked .lock-toggle:hover img {
+    filter: brightness(0) saturate(100%) invert(9%) sepia(92%) saturate(3207%) hue-rotate(348deg) brightness(88%) contrast(95%);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .feature-item {
+        padding: 6px 10px;
+        min-height: 40px;
+    }
+    
+    .feature-name {
+        font-size: 13px;
+    }
+    
+    .feature-controls {
+        gap: 6px;
+    }
+    
+    .visibility-toggle,
+    .lock-toggle {
+        padding: 4px;
+        width: 24px;
+        height: 24px;
+    }
+    
+    .visibility-toggle img,
+    .lock-toggle img {
+        width: 14px;
+        height: 14px;
+    }
+    
+    .group-header {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+    
+    .features-list {
+        max-height: calc(6 * 40px + 20px);
+    }
+}
+
+/* Performance optimizations */
+.feature-item,
+.visibility-toggle,
+.lock-toggle,
+.feature-name {
+    will-change: transform, background-color;
+}
+
+/* Accessibility */
+.visibility-toggle:focus,
+.lock-toggle:focus,
+.feature-name:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .feature-item,
+    .visibility-toggle,
+    .lock-toggle,
+    .feature-name {
+        animation: none !important;
+        transition: none !important;
+    }
+}

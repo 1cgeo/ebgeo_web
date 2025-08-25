@@ -4,7 +4,6 @@ import { IDUtils } from '../id_utils.js';
 
 class AddBrushControl {
     constructor(toolManager) {
-        this.map = toolManager.map;
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
 
@@ -146,7 +145,9 @@ class AddBrushControl {
     }
 
     setupZoomListener = () => {
-        this.map.on('zoom', this.handleZoomChange);
+        if(this.map){
+            this.map.on('zoom', this.handleZoomChange);
+        }
     }
 
     handleZoomChange = () => {

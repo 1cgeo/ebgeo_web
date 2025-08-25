@@ -128,7 +128,6 @@ function waitForGlobal(globalName, timeout = 5000) {
 }
 
 async function initCesiumMap() {
-    console.log('🎯 Inicializando Cesium com configuração mínima...');
 
     // Configuração básica do extent
     const { bounds } = config.map3d;
@@ -212,7 +211,6 @@ async function initCesiumMap() {
         },
     });
 
-    console.log('✅ Viewer criado com configuração mínima');
 
     // ===== APENAS CONFIGURAÇÕES ESSENCIAIS =====
 
@@ -231,7 +229,6 @@ async function initCesiumMap() {
     scene.globe.baseColor = Cesium.Color.BLACK;
     viewer.bottomContainer.style.display = "none";
 
-    console.log('🎨 Configurações de cena aplicadas (mínimas)');
 
     cesiumState.viewer = viewer;
 
@@ -240,7 +237,6 @@ async function initCesiumMap() {
     await loadTilesets(viewer);
     await setupTools(viewer);
 
-    console.log('🚀 Cesium inicializado com sucesso (configuração mínima)');
     return viewer;
 }
 

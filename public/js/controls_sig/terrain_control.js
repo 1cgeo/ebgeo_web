@@ -41,9 +41,7 @@ class TerrainControl {
         this._button.onclick = this._toggleTerrain;
         
         this._container.appendChild(this._button);
-        
-        this._map.on('load', this._setupTerrainSources);
-        
+                
         // Listen to terrain events to update button state
         this._map.on('terrain', this._updateTerrainIcon);
         

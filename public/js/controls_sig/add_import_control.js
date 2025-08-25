@@ -1,6 +1,6 @@
 // Path: js\controls_sig\import_tool\add_import_control.js
-import { addFeatures } from '../store.js';
-import { IDUtils } from '../id_utils.js';
+import { addFeatures } from './store.js';
+import { IDUtils } from './id_utils.js';
 
 class AddImportControl {
     static FILE_LIMITS = {

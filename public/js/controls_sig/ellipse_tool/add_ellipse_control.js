@@ -7,7 +7,6 @@ const turf = window.turf;
 
 class AddEllipseControl {
     constructor(toolManager) {
-        this.map = toolManager.map;
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
 

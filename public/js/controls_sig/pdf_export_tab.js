@@ -374,7 +374,6 @@ export default class PDFExportTab {
 
                 // Calcular área do preview em pixels (área útil)
                 const previewPixels = this.calculatePreviewPixelBounds();
-                console.log('Preview size:', previewPixels.width, 'x', previewPixels.height);
 
                 // Verificar se as coordenadas são válidas
                 if (previewPixels.width <= 0 || previewPixels.height <= 0) {

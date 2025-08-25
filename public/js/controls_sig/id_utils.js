@@ -162,7 +162,6 @@ export class IDUtils {
             const oldBlob = await imageStore.getItem(oldId);
             if (oldBlob) {
                 await imageStore.setItem(newId, oldBlob);
-                console.log(`✅ Recurso duplicado: ${oldId} → ${newId} (${featureType})`);
             } else {
                 console.warn(`⚠️ Recurso não encontrado para duplicação: ${oldId} (${featureType})`);
             }
