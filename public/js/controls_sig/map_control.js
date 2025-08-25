@@ -130,7 +130,7 @@ class MapControl {
 
         const featuresTab = document.createElement('button');
         featuresTab.className = 'tab-button';
-        featuresTab.textContent = 'Feições';
+        featuresTab.textContent = 'Camadas';
         featuresTab.addEventListener('click', () => this.switchToTab('features'));
 
         const pdfTab = document.createElement('button');

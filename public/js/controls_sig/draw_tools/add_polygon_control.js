@@ -28,6 +28,7 @@ class AddPolygonControl {
         opacity: 0.5,
         size: 3,
         outlinecolor: '#fbb03b',
+        lineStyle: 'solid',
         measure: false,
         source: 'polygon',
         baseCoordinates: [],
@@ -842,6 +843,7 @@ class AddPolygonControl {
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.size !== initialProperties.size ||
             feature.properties.outlinecolor !== initialProperties.outlinecolor ||
+            feature.properties.lineStyle !== initialProperties.lineStyle ||
             feature.properties.measure !== initialProperties.measure ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||

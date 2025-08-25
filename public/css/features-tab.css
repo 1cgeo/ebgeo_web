@@ -7,7 +7,7 @@
 }
 
 .features-list {
-    max-height: calc(5 * 44px + 20px);
+    max-height: calc(8 * 28px + 70px);
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: var(--primary-color) transparent;
@@ -33,44 +33,46 @@
     opacity: 1;
 }
 
-/* Grupos */
-.feature-group {
-    margin-bottom: 8px;
-}
-
-.group-header {
-    padding: 8px 12px;
-    background-color: rgba(0, 0, 0, 0.05);
-    font-weight: 600;
-    font-size: 13px;
-    color: #333;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-    backdrop-filter: blur(8px);
-}
-
-/* Items das features */
+/* Items das features - COMPACTADO */
 .feature-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
+    /* REDUZIDO: 8px 12px -> 4px 8px */
+    padding: 4px 8px;
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
     transition: background-color 0.2s ease;
-    min-height: 44px;
+    /* REDUZIDO: 44px -> 28px */
+    min-height: 28px;
     background: rgba(255, 255, 255, 0.95);
 }
 
-.feature-item:hover {
-    background-color: rgba(0, 0, 0, 0.03);
+/* NOVO: Container principal com ícone do tipo */
+.feature-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-grow: 1;
+}
+
+/* NOVO: Ícone do tipo de feature */
+.feature-type-icon {
+    width: 12px;
+    height: 12px;
+    opacity: 0.6;
+    flex-shrink: 0;
+    transition: opacity 0.2s ease;
 }
 
 .feature-name {
     flex-grow: 1;
-    font-size: 14px;
+    /* REDUZIDO: 14px -> 13px */
+    font-size: 13px;
     color: #333;
     cursor: pointer;
     user-select: none;
-    padding: 4px 0;
+    /* REDUZIDO: 4px -> 2px */
+    padding: 2px 0;
     border-radius: 4px;
     transition: all 0.2s ease;
     font-weight: 500;
@@ -82,10 +84,11 @@
     color: var(--primary-color);
 }
 
-/* Controles */
+/* Controles - COMPACTADO */
 .feature-controls {
     display: flex;
-    gap: 8px;
+    /* REDUZIDO: 8px -> 4px */
+    gap: 4px;
     align-items: center;
 }
 
@@ -93,15 +96,17 @@
 .lock-toggle {
     background: none;
     border: none;
-    padding: 6px;
+    /* REDUZIDO: 6px -> 4px */
+    padding: 4px;
     cursor: pointer;
     border-radius: 4px;
     transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    /* REDUZIDO: 28px -> 24px */
+    width: 24px;
+    height: 24px;
 }
 
 .visibility-toggle:hover,
@@ -115,20 +120,19 @@
     transform: scale(0.9);
 }
 
-/* Imagens dos ícones */
-.visibility-toggle img,
-.lock-toggle img {
-    width: 16px;
-    height: 16px;
-    transition: filter 0.2s ease;
+/* Ícones dos botões - SVGs inline */
+.visibility-toggle svg,
+.lock-toggle svg {
+    width: 12px;
+    height: 12px;
+    transition: color 0.2s ease;
     pointer-events: none;
-    opacity: 0.7;
+    color: #666;
 }
 
-.visibility-toggle:hover img,
-.lock-toggle:hover img {
-    opacity: 1;
-    filter: brightness(0) saturate(100%) invert(42%) sepia(93%) saturate(1352%) hue-rotate(87deg) brightness(119%) contrast(119%);
+.visibility-toggle:hover svg,
+.lock-toggle:hover svg {
+    color: var(--primary-color);
 }
 
 /* Estados visuais */
@@ -144,7 +148,7 @@
 
 .feature-item.feature-locked .feature-name::after {
     content: ' (bloqueada)';
-    font-size: 12px;
+    font-size: 11px;
     opacity: 0.7;
 }
 
@@ -154,55 +158,66 @@
     font-style: italic;
 }
 
-/* Estados dos botões */
-.feature-item.feature-hidden .visibility-toggle img {
-    opacity: 0.4;
+/* Estados dos botões - SVGs inline */
+.feature-item.feature-hidden .visibility-toggle svg {
+    color: #ccc;
 }
 
-.feature-item.feature-locked .lock-toggle img {
-    filter: brightness(0) saturate(100%) invert(15%) sepia(89%) saturate(3202%) hue-rotate(349deg) brightness(99%) contrast(94%);
-    opacity: 1;
+.feature-item.feature-locked .lock-toggle svg {
+    color: #dc3545;
 }
 
-.feature-item.feature-locked .lock-toggle:hover img {
-    filter: brightness(0) saturate(100%) invert(9%) sepia(92%) saturate(3207%) hue-rotate(348deg) brightness(88%) contrast(95%);
+.feature-item.feature-locked .lock-toggle:hover svg {
+    color: #c82333;
 }
 
-/* Mobile responsiveness */
+/* Mobile responsiveness - AJUSTADO */
 @media (max-width: 768px) {
     .feature-item {
-        padding: 6px 10px;
-        min-height: 40px;
+        /* REDUZIDO: 6px 10px -> 4px 6px */
+        padding: 4px 6px;
+        /* REDUZIDO: 40px -> 24px */
+        min-height: 24px;
     }
     
     .feature-name {
-        font-size: 13px;
+        /* REDUZIDO: 13px -> 12px */
+        font-size: 12px;
     }
     
     .feature-controls {
-        gap: 6px;
+        /* REDUZIDO: 6px -> 3px */
+        gap: 3px;
     }
     
     .visibility-toggle,
     .lock-toggle {
-        padding: 4px;
-        width: 24px;
-        height: 24px;
+        padding: 3px;
+        /* REDUZIDO: 24px -> 20px */
+        width: 20px;
+        height: 20px;
     }
     
-    .visibility-toggle img,
-    .lock-toggle img {
-        width: 14px;
-        height: 14px;
+    .visibility-toggle svg,
+    .lock-toggle svg {
+        /* REDUZIDO: 12px -> 10px */
+        width: 10px;
+        height: 10px;
     }
-    
-    .group-header {
-        padding: 6px 10px;
-        font-size: 12px;
+
+    .feature-type-icon {
+        /* REDUZIDO: 12px -> 10px */
+        width: 10px;
+        height: 10px;
+    }
+
+    .feature-main {
+        gap: 4px;
     }
     
     .features-list {
-        max-height: calc(6 * 40px + 20px);
+        /* AUMENTADO para mobile: calc(6 * 40px + 20px) -> calc(10 * 24px + 20px) */
+        max-height: calc(10 * 24px + 20px);
     }
 }
 
@@ -210,8 +225,11 @@
 .feature-item,
 .visibility-toggle,
 .lock-toggle,
-.feature-name {
-    will-change: transform, background-color;
+.feature-name,
+.feature-type-icon,
+.visibility-toggle svg,
+.lock-toggle svg {
+    will-change: transform, background-color, color;
 }
 
 /* Accessibility */
@@ -222,11 +240,19 @@
     outline-offset: 2px;
 }
 
+.visibility-toggle:focus svg,
+.lock-toggle:focus svg {
+    color: var(--primary-color);
+}
+
 @media (prefers-reduced-motion: reduce) {
     .feature-item,
     .visibility-toggle,
     .lock-toggle,
-    .feature-name {
+    .feature-name,
+    .feature-type-icon,
+    .visibility-toggle svg,
+    .lock-toggle svg {
         animation: none !important;
         transition: none !important;
     }

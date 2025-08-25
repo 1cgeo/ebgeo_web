@@ -28,6 +28,7 @@ class AddLineControl {
         color: '#fbb03b',
         opacity: 0.7,
         size: 7,
+        lineStyle: 'solid',
         measure: false,
         profile: false,
         profileData: null,
@@ -898,6 +899,7 @@ class AddLineControl {
             feature.properties.color !== initialProperties.color ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.size !== initialProperties.size ||
+            feature.properties.lineStyle !== initialProperties.lineStyle ||
             feature.properties.measure !== initialProperties.measure ||
             feature.properties.profile !== initialProperties.profile ||
             feature.properties.nome !== initialProperties.nome ||

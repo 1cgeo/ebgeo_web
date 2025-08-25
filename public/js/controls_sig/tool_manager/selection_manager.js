@@ -5,17 +5,28 @@
  * Adding a new control type is as simple as adding an entry here
  */
 const CONTROL_CONFIG = {
-     point: {
+    point: {
         layerIds: ['point-layer'],
         sourceNames: ['points']
     },
     line: {
-        layerIds: ['line-layer'],
+        layerIds: [
+            'line-layer',           // solid (main/default)
+            'line-layer-dashed',    // dashed style
+            'line-layer-dotted',    // dotted style
+            'line-layer-dash-dot',  // dash-dot style
+        ],
         sourceNames: ['lines'],
         editHandleSource: 'line-edit-handles'
     },
     polygon: {
-        layerIds: ['polygon-fill-layer', 'polygon-layer'],
+        layerIds: [
+            'polygon-fill-layer',       // fill layer
+            'polygon-layer',            // solid stroke (main/default)
+            'polygon-layer-dashed',     // dashed stroke
+            'polygon-layer-dotted',     // dotted stroke
+            'polygon-layer-dash-dot',   // dash-dot stroke
+        ],
         sourceNames: ['polygons'],
         editHandleSource: 'polygon-edit-handles'
     },
@@ -144,7 +155,7 @@ class SelectionManager {
             if (this.isClickOnEditHandle(e.point)) {
                 return; // Don't deselect if clicking on edit handles
             }
-            
+
             // Handle custom tool features
             if (clickedCustomFeature) {
                 const isAlreadySelected = this.isFeatureSelected(
@@ -201,11 +212,11 @@ class SelectionManager {
         // Check for custom control edit handles - SIMPLIFIED
         const customHandleSources = [
             'line-edit-handles', 'polygon-edit-handles',
-            'circle-edit-handles', 'ellipse-edit-handles', 
-            'arrow-edit-handles', 'boundary-edit-handles', 
+            'circle-edit-handles', 'ellipse-edit-handles',
+            'arrow-edit-handles', 'boundary-edit-handles',
             'occupied-front-edit-handles', 'rectangle-edit-handles'
         ];
-        
+
         return features.some(f =>
             customHandleSources.includes(f.source) &&
             f.properties.user_isEditingHandle
@@ -218,6 +229,9 @@ class SelectionManager {
         e.preventDefault();
 
         const feature = e.features[0];
+        if (feature.properties.bloqueado === true) {
+            return;
+        }
 
         const type = feature.properties.source;
         const featureId = feature.properties.id;
@@ -264,13 +278,30 @@ class SelectionManager {
 
     getCompleteFeatureFromSource(type, featureId) {
         const config = CONTROL_CONFIG[type];
-        if (!config.sourceNames.length) return null;
+
+        // Verificação de segurança para tipo inválido
+        if (!config || !config.sourceNames || !config.sourceNames.length) {
+            console.warn(`Tipo de feature não encontrado ou inválido: ${type}`);
+            return null;
+        }
 
         const sourceName = config.sourceNames[0];
         const mapSource = this.map.getSource(sourceName);
         if (!mapSource || !mapSource._data) return null;
 
         return mapSource._data.features.find(f => f.properties.id == featureId);
+    }
+
+    /**
+ * Método de conveniência para selecionar uma feature específica
+ */
+    selectFeature(type, featureId, feature = null) {
+        // Limpar seleções existentes primeiro
+        this.deselectAllFeatures();
+
+        // Selecionar a nova feature
+        this.toggleFeatureSelection(type, featureId, feature, false);
+        this.updateUI();
     }
 
     deselectAllFeatures = () => {

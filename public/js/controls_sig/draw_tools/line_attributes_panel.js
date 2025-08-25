@@ -7,6 +7,7 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createLineStyleSelect,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
@@ -51,6 +52,15 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
         }
     });
     $(panel).append(createAttributeRow('Largura:', sizeSlider));
+
+    // Estilo da linha
+    const lineStyleSelect = createLineStyleSelect(
+        feature.properties.lineStyle || 'solid',
+        (newValue) => {
+            lineControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+        }
+    );
+    $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
     // Opacidade
     const opacitySlider = createSliderWithInput(getCommonConfig('opacity',

@@ -92,6 +92,9 @@ const config = {
           'hillshade-accent-color': 'rgba(0, 0, 0, 0.5)',              // Cor dos acentos (hex)
           'hillshade-exaggeration': 0.5                     // Intensidade do relevo (0.0-1.0)
           // Dica: 0.2 = sutil, 0.5 = moderado, 0.8 = intenso
+        },
+        layout: {
+          'visibility': 'visible'
         }
       },
       

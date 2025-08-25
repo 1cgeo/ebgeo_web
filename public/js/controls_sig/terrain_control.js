@@ -1,5 +1,7 @@
 // Path: js\controls_sig\terrain_control.js
 
+import { getMapHillshadeState } from './store.js';
+
 export async function getTerrainElevation(map, coordinates, options = { exaggerated: false }) {
     // Fixed reference point outside the DEM
     const fixedPoint = [0, 0];
@@ -56,7 +58,7 @@ class TerrainControl {
         this._map = undefined;
     }
 
-    _setupTerrainSources = () => {
+    _setupTerrainSources = async () => {
         if (!this.terrainSourceConfig) {
             console.warn('Terrain source configuration not available');
             return;
@@ -67,14 +69,20 @@ class TerrainControl {
             this._map.addSource('terrainSource', this.terrainSourceConfig);
         }
 
-        // Add hillshadeSource and layer if configured
+        // Add hillshadeSource if configured, but NOT the layer yet
         if (this.hillshadeConfig?.enabled) {
             if (!this._map.getSource('hillshadeSource')) {
                 this._map.addSource('hillshadeSource', this.hillshadeSourceConfig);
             }
-            // Add hillshade layer after base layers
-            if (!this._map.getLayer('hillshade')) {
-                this._map.addLayer(this.hillshadeConfig.layer);
+
+            // NOVO: Restaurar estado do hillshade (que gerenciará a layer)
+            try {
+                const hillshadeEnabled = await getMapHillshadeState();
+                this.setHillshadeVisibility(hillshadeEnabled);
+            } catch (error) {
+                console.warn('Erro ao restaurar estado do hillshade:', error);
+                // Em caso de erro, usar padrão (habilitado)
+                this.setHillshadeVisibility(true);
             }
         }
         this._updateTerrainIcon()
@@ -127,6 +135,46 @@ class TerrainControl {
             this._button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_terrain_black.svg" alt="TERRAIN 3D OFF" />';
             this._button.disabled = false;
             this._button.title = 'Ligar terreno 3D';
+        }
+    }
+
+    // ===== NOVO: MÉTODO PÚBLICO PARA CONTROLE DE HILLSHADE =====
+
+    /**
+     * Método público para controlar visibilidade do hillshade
+     * Chamado pelo features_tab.js
+     * NOVO: Adiciona/remove layer dinamicamente para evitar requisições desnecessárias
+     * @param {boolean} enabled - true para mostrar, false para ocultar
+     */
+    setHillshadeVisibility = (enabled) => {
+        if (!this.hillshadeConfig?.enabled) {
+            return; // Hillshade não disponível
+        }
+
+        // Garantir que source existe antes de qualquer operação de layer
+        if (!this._map.getSource('hillshadeSource')) {
+            console.warn('Hillshade source não disponível');
+            return;
+        }
+        
+        if (enabled) {
+            // ADICIONAR layer se não existe
+            if (!this._map.getLayer('hillshade')) {
+                try {
+                    this._map.addLayer(this.hillshadeConfig.layer);
+                } catch (error) {
+                    console.error('Erro ao adicionar hillshade layer:', error);
+                }
+            }
+        } else {
+            // REMOVER layer se existe  
+            if (this._map.getLayer('hillshade')) {
+                try {
+                    this._map.removeLayer('hillshade');
+                } catch (error) {
+                    console.error('Erro ao remover hillshade layer:', error);
+                }
+            }
         }
     }
 }

@@ -7,6 +7,7 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createLineStyleSelect,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
@@ -66,6 +67,15 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
         }
     });
     $(panel).append(createAttributeRow('Largura da borda:', borderSizeSlider));
+
+    // Estilo da borda
+    const borderStyleSelect = createLineStyleSelect(
+        feature.properties.lineStyle || 'solid',
+        (newValue) => {
+            polygonControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+        }
+    );
+    $(panel).append(createAttributeRow('Estilo da borda:', borderStyleSelect));
 
     // Medição
     const measureCheckbox = createCheckbox(

@@ -1,6 +1,6 @@
-// Path: js/controls_sig/features_tab/features_tab.js
-import { getCurrentMapFeatures, updateFeatureProperty, getFeatureById } from './store.js';
-import { zoomToFeature } from '../map_sig.js';
+// Path: js/controls_sig/features_tab.js
+import { getCurrentMapFeatures, updateFeatureProperty, getFeatureById, getMapHillshadeState, setMapHillshadeState } from './store.js';
+import { FeatureNavigationUtils } from './utilities/feature_navigation_utils.js';
 
 class FeaturesTab {
     constructor(map, selectionManager = null) {
@@ -9,84 +9,60 @@ class FeaturesTab {
         this.container = null;
         
         this.FEATURE_TYPE_LABELS = {
-            'polygons': 'Polígonos',
-            'lines': 'Linhas', 
-            'points': 'Pontos',
-            'texts': 'Textos',
-            'images': 'Imagens',
+            'arrows': 'Setas',
+            'boundarys': 'Boundaries', 
+            'brushes': 'Pincel',
             'circles': 'Círculos',
             'ellipses': 'Elipses',
-            'rectangle': 'Retângulo',
-            'brushes': 'Pincel',
-            'arrows': 'Setas',
-            'boundarys': 'Boundaries',
-            'occupied_fronts': 'Frentes Ocupadas',
-            'military_symbols': 'Símbolos Militares',
+            'images': 'Imagens',
+            'lines': 'Linhas',
             'los': 'Linhas de Visada',
+            'military_symbols': 'Símbolos Militares',
+            'occupied_fronts': 'Frentes Ocupadas',
+            'points': 'Pontos',
+            'polygons': 'Polígonos',
+            'rectangle': 'Retângulo',
+            'texts': 'Textos',
             'visibility': 'Áreas de Visibilidade'
         };
 
-        this.OPACITY_MAPPINGS = {
-            'polygons': [
-                { layer: 'gl-draw-polygon-fill-inactive', property: 'fill-opacity' },
-                { layer: 'gl-draw-polygon-stroke-inactive', property: 'line-opacity' },
-                { layer: 'gl-draw-polygon-fill-active', property: 'fill-opacity' },
-                { layer: 'gl-draw-polygon-stroke-active', property: 'line-opacity' }
-            ],
-            'lines': [
-                { layer: 'gl-draw-line-inactive', property: 'line-opacity' },
-                { layer: 'gl-draw-line-active', property: 'line-opacity' }
-            ],
-            'points': [
-                { layer: 'gl-draw-point-inactive', property: 'circle-opacity' },
-                { layer: 'gl-draw-point-active', property: 'circle-opacity' },
-                { layer: 'gl-draw-point-stroke-inactive', property: 'circle-stroke-opacity' },
-                { layer: 'gl-draw-point-stroke-active', property: 'circle-stroke-opacity' }
-            ],
-            'circles': [
-                { layer: 'circle-fill-layer', property: 'fill-opacity' },
-                { layer: 'circle-layer', property: 'line-opacity' },
-                { layer: 'circle-x-layer', property: 'line-opacity' }
-            ],
-            'ellipses': [
-                { layer: 'ellipse-fill-layer', property: 'fill-opacity' },
-                { layer: 'ellipse-layer', property: 'line-opacity' }
-            ],
-            'arrows': [
-                { layer: 'arrow-fill-layer', property: 'fill-opacity' },
-                { layer: 'arrow-layer', property: 'line-opacity' }
-            ],
-            'boundarys': [
-                { layer: 'boundary-main-layer', property: 'line-opacity' },
-                { layer: 'boundary-circles-layer', property: 'fill-opacity' },
-                { layer: 'boundary-circles-stroke-layer', property: 'line-opacity' },
-                { layer: 'boundary-text-layer', property: 'text-opacity' }
-            ],
-            'occupied_fronts': [
-                { layer: 'occupied-front-layer', property: 'line-opacity' }
-            ],
-            'military_symbols': [
-                { layer: 'military-symbols-layer', property: 'icon-opacity' }
-            ],
-            'texts': [
-                { layer: 'text-layer', property: 'text-opacity' }
-            ],
-            'images': [
-                { layer: 'image-layer', property: 'icon-opacity' }
-            ],
-            'los': [
-                { layer: 'processed-los-layer', property: 'line-opacity' }
-            ],
-            'visibility': [
-                { layer: 'processed-visibility-layer', property: 'fill-opacity' }
-            ]
+        this.FEATURE_TYPE_ICONS = {
+            'arrows': './images/icon_arrow_black.svg',
+            'boundarys': './images/icon_boundary_black.svg',
+            'brushes': './images/icon_brush_black.svg',
+            'circles': './images/icon_circle_black.svg',
+            'ellipses': './images/icon_ellipse_black.svg',
+            'images': './images/icon_photo_black.svg',
+            'lines': './images/icon_line_black.svg',
+            'los': './images/icon_los_black.svg',
+            'military_symbols': './images/icon_military_black.svg',
+            'occupied_fronts': './images/icon_occupied_front_black.svg',
+            'points': './images/icon_point_black.svg',
+            'polygons': './images/icon_polygon_black.svg',
+            'rectangles': './images/icon_rectangle_black.svg',
+            'texts': './images/icon_text_black.svg',
+            'visibility': './images/icon_visibility_black.svg'
         };
 
-        this.ICON_PATHS = {
-            EYE_VISIBLE: './images/eye_visible.svg',
-            EYE_HIDDEN: './images/eye_hidden.svg',
-            LOCK_LOCKED: './images/lock_locked.svg',
-            LOCK_UNLOCKED: './images/lock_unlocked.svg'
+        this.INLINE_ICONS = {
+            EYE_VISIBLE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>`,
+            EYE_HIDDEN: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>`,
+            LOCK_LOCKED: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <circle cx="12" cy="16" r="1"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>`,
+            LOCK_UNLOCKED: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <circle cx="12" cy="16" r="1"/>
+                <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+            </svg>`
         };
     }
 
@@ -95,9 +71,64 @@ class FeaturesTab {
         this.container.className = 'features-tab-content';
         this.container.style.display = 'none';
         
+        // SEMPRE criar o hillshade control (visibilidade controlada no show())
+        const hillshadeContainer = document.createElement('div');
+        hillshadeContainer.className = 'hillshade-control';
+        hillshadeContainer.style.cssText = `
+            padding: 8px 12px;
+            border-bottom: 1px solid #e0e0e0;
+            background-color: #f8f9fa;
+            display: none;
+        `;
+        
+        hillshadeContainer.innerHTML = `
+            <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
+                <input type="checkbox" id="hillshade-toggle" style="margin-right: 6px;"> 
+                Sombreamento
+            </label>
+        `;
+        
+        const checkbox = hillshadeContainer.querySelector('#hillshade-toggle');
+        checkbox.onchange = this.handleHillshadeToggle.bind(this);
+        
+        this.container.appendChild(hillshadeContainer);
+        
+        // Header with refresh button
+        const header = document.createElement('div');
+        header.className = 'features-tab-header';
+        header.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid #e0e0e0;
+            background-color: #f8f9fa;
+        `;
+        
+        const title = document.createElement('span');
+        title.textContent = 'Feições';
+        title.style.cssText = 'font-weight: 500; font-size: 14px;';
+        
+        const refreshButton = document.createElement('button');
+        refreshButton.innerHTML = '🔄';
+        refreshButton.title = 'Atualizar lista';
+        refreshButton.style.cssText = `
+            background: none;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 14px;
+        `;
+        refreshButton.onclick = () => this.loadFeatures();
+        
+        header.appendChild(title);
+        header.appendChild(refreshButton);
+        
         const featuresList = document.createElement('div');
         featuresList.className = 'features-list';
         
+        this.container.appendChild(header);
         this.container.appendChild(featuresList);
         return this.container;
     }
@@ -106,254 +137,351 @@ class FeaturesTab {
         if (!this.container) return;
         
         const features = await getCurrentMapFeatures();
-        const grouped = this.groupFeaturesByType(features);
-        this.renderUI(grouped);
+        const flatFeatures = this.flattenAndSortFeatures(features);
+        this.renderUI(flatFeatures);
     }
 
-    groupFeaturesByType(features) {
-        const groups = {};
+    flattenAndSortFeatures(features) {
+        const flatFeatures = [];
         
+        // Converter features agrupadas em array plano
         Object.entries(features).forEach(([type, featureArray]) => {
             if (featureArray.length > 0) {
-                groups[type] = featureArray.map(feature => ({
-                    id: feature.properties.id,
-                    name: feature.properties.nome || 'Sem nome',
-                    visible: feature.properties.visivel ?? true,
-                    locked: feature.properties.bloqueado ?? false,
-                    rawFeature: feature
-                }));
+                featureArray.forEach(feature => {
+                    flatFeatures.push({
+                        id: feature.properties.id,
+                        name: feature.properties.nome || 'Sem nome',
+                        visible: feature.properties.visivel ?? true,
+                        locked: feature.properties.bloqueado ?? false,
+                        rawFeature: feature,
+                        type: type,
+                        typeLabel: this.FEATURE_TYPE_LABELS[type] || type
+                    });
+                });
             }
         });
         
-        return groups;
+        // Ordenar por tipo alfabético, depois por nome
+        flatFeatures.sort((a, b) => {
+            // Primeiro por tipo
+            const typeCompare = a.typeLabel.localeCompare(b.typeLabel, 'pt-BR');
+            if (typeCompare !== 0) return typeCompare;
+            
+            // Depois por nome
+            return a.name.localeCompare(b.name, 'pt-BR');
+        });
+        
+        return flatFeatures;
     }
 
-    renderUI(groupedFeatures) {
+    renderUI(flatFeatures) {
         const featuresList = this.container.querySelector('.features-list');
         featuresList.innerHTML = '';
         
-        Object.entries(groupedFeatures).forEach(([type, items]) => {
-            const group = this.createGroup(type, items);
-            featuresList.appendChild(group);
+        flatFeatures.forEach(feature => {
+            const item = this.createFeatureItem(feature);
+            featuresList.appendChild(item);
         });
     }
 
-    createGroup(featureType, features) {
-        const group = document.createElement('div');
-        group.className = 'feature-group';
-        
-        const header = document.createElement('div');
-        header.className = 'group-header';
-        header.textContent = `${this.FEATURE_TYPE_LABELS[featureType]} (${features.length})`;
-        
-        group.appendChild(header);
-        
-        features.forEach(feature => {
-            const item = this.createFeatureItem(feature, featureType);
-            group.appendChild(item);
-        });
-        
-        return group;
-    }
-
-    createFeatureItem(feature, featureType) {
+    createFeatureItem(feature) {
         const item = document.createElement('div');
         item.className = 'feature-item';
         item.dataset.featureId = feature.id;
-        item.dataset.featureType = featureType;
-        
-        const nameDiv = document.createElement('div');
-        nameDiv.className = 'feature-name';
-        nameDiv.textContent = feature.name;
-        nameDiv.addEventListener('click', () => zoomToFeature(feature.rawFeature));
-        
-        const controlsDiv = document.createElement('div');
-        controlsDiv.className = 'feature-controls';
-        
-        const visibilityBtn = document.createElement('button');
-        visibilityBtn.className = 'visibility-toggle';
-        const visibilityImg = document.createElement('img');
-        visibilityImg.src = feature.visible ? this.ICON_PATHS.EYE_VISIBLE : this.ICON_PATHS.EYE_HIDDEN;
-        visibilityImg.alt = feature.visible ? 'Visível' : 'Oculto';
-        visibilityBtn.appendChild(visibilityImg);
-        visibilityBtn.title = feature.visible ? 'Ocultar' : 'Mostrar';
+        item.dataset.featureType = feature.type;
+
+        const typeIconPath = this.FEATURE_TYPE_ICONS[feature.type] || './images/icon_default_black.svg';
+        const typeIconAlt = feature.typeLabel;
+        const visibilityIcon = feature.visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
+        const visibilityTitle = feature.visible ? 'Ocultar' : 'Mostrar';
+        const lockIcon = feature.locked ? this.INLINE_ICONS.LOCK_LOCKED : this.INLINE_ICONS.LOCK_UNLOCKED;
+        const lockTitle = feature.locked ? 'Desbloquear' : 'Bloquear';
+
+        item.innerHTML = `
+            <div class="feature-main">
+                <img class="feature-type-icon" src="${typeIconPath}" alt="${typeIconAlt}" />
+                <div class="feature-name">${feature.name}</div>
+            </div>
+            <div class="feature-controls">
+                <button class="visibility-toggle" title="${visibilityTitle}">
+                    ${visibilityIcon}
+                </button>
+                <button class="lock-toggle" title="${lockTitle}">
+                    ${lockIcon}
+                </button>
+            </div>
+        `;
+
+        // Event listeners após innerHTML
+        const nameDiv = item.querySelector('.feature-name');
+        nameDiv.addEventListener('click', () => this.handleFeatureClick(feature));
+
+        const visibilityBtn = item.querySelector('.visibility-toggle');
         visibilityBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.toggleVisibility(feature.id, featureType);
+            this.toggleVisibility(feature.id, feature.type);
         });
-        
-        const lockBtn = document.createElement('button');
-        lockBtn.className = 'lock-toggle';
-        const lockImg = document.createElement('img');
-        lockImg.src = feature.locked ? this.ICON_PATHS.LOCK_LOCKED : this.ICON_PATHS.LOCK_UNLOCKED;
-        lockImg.alt = feature.locked ? 'Bloqueado' : 'Desbloqueado';
-        lockBtn.appendChild(lockImg);
-        lockBtn.title = feature.locked ? 'Desbloquear' : 'Bloquear';
+
+        const lockBtn = item.querySelector('.lock-toggle');
         lockBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.toggleLock(feature.id, featureType);
+            this.toggleLock(feature.id, feature.type);
         });
-        
-        controlsDiv.appendChild(visibilityBtn);
-        controlsDiv.appendChild(lockBtn);
-        
-        item.appendChild(nameDiv);
-        item.appendChild(controlsDiv);
-        
-        this.updateItemVisualState(feature.id, feature.visible, feature.locked);
-        
+
+        if (!feature.visible) {
+            item.classList.add('feature-hidden');
+        }
+        if (feature.locked) {
+            item.classList.add('feature-locked');
+        }
         return item;
     }
 
+    /**
+     * Manipula o clique na feature: zoom + seleção (verifica bloqueio atual)
+     */
+    async handleFeatureClick(feature) {
+        try {
+            // Verificar estado atual da feature via IndexedDB (não rawFeature)
+            const currentFeature = await getFeatureById(feature.type, feature.id);
+            const isLocked = currentFeature?.properties?.bloqueado ?? false;
+
+            if (isLocked) {
+                await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, this.map);
+                return;
+            }
+
+            // Se não bloqueada: zoom + seleção normal
+            await FeatureNavigationUtils.zoomAndSelectFeature(
+                feature.rawFeature,
+                this.map,
+                this.selectionManager,
+                feature.type,
+                feature.id
+            );
+        } catch (error) {
+            console.error('Erro ao navegar para feature:', error);
+            
+            // Fallback: apenas fazer zoom sem seleção
+            try {
+                await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, this.map);
+            } catch (fallbackError) {
+                console.error('Erro no fallback de zoom:', fallbackError);
+            }
+        }
+    }
+
+    /**
+     * SIMPLIFICADO: Toggle de visibilidade usando filtros de layer
+     * Reutiliza lógica do toggleLock com propagateFeaturePropertyToSource
+     */
     async toggleVisibility(featureId, featureType) {
         const feature = await getFeatureById(featureType, featureId);
         if (!feature) return;
         
         const newVisibility = !(feature.properties.visivel ?? true);
+        
+        // 1. Atualizar propriedade no store
         await updateFeatureProperty(featureType, featureId, 'visivel', newVisibility);
         
-        await this.applyFeatureVisibility(featureType, featureId, newVisibility);
+        // 2. Propagar para source do mapa (reutiliza lógica do lock)
+        this.propagateFeaturePropertyToSource(featureType, featureId, 'visivel', newVisibility);
         
+        // 3. Atualizar botão visual (ícone de olho)
         this.updateVisibilityButton(featureId, newVisibility);
+        
+        // 4. Atualizar estado visual do item (classe CSS)
         this.updateItemVisualState(featureId, newVisibility, feature.properties.bloqueado ?? false);
         
-        if (!newVisibility && this.selectionManager?.isFeatureSelected?.(featureId)) {
-            this.selectionManager.deselectFeature(featureId, featureType);
+        // 5. Desselecionar feature se ficou invisível e está selecionada
+        if (!newVisibility && this.selectionManager?.isFeatureSelected) {
+            const selectionManagerType = FeatureNavigationUtils.mapFeatureType(featureType);
+            const isSelected = this.selectionManager.isFeatureSelected(selectionManagerType, featureId);
+            
+            if (isSelected && this.selectionManager.deselectFeature) {
+                this.selectionManager.deselectFeature(featureId, selectionManagerType);
+            }
         }
     }
 
+    /**
+     * Toggle de bloqueio com propagação para o source do mapa
+     */
     async toggleLock(featureId, featureType) {
         const feature = await getFeatureById(featureType, featureId);
         if (!feature) return;
         
         const newLockState = !(feature.properties.bloqueado ?? false);
+        
+        // 1. Atualizar propriedade no store
         await updateFeatureProperty(featureType, featureId, 'bloqueado', newLockState);
         
-        await this.applyFeatureVisibility(featureType, featureId, !newLockState);
+        // 2. Propagar para source do mapa
+        this.propagateFeaturePropertyToSource(featureType, featureId, 'bloqueado', newLockState);
         
+        // 3. Atualizar botão visual (ícone de cadeado)
         this.updateLockButton(featureId, newLockState);
+        
+        // 4. Atualizar estado visual do item (classe CSS)
         this.updateItemVisualState(featureId, feature.properties.visivel ?? true, newLockState);
         
-        if (newLockState && this.selectionManager?.isFeatureSelected?.(featureId)) {
-            this.selectionManager.deselectFeature(featureId, featureType);
-        }
-    }
-
-    async applyFeatureVisibility(featureType, featureId, visible) {
-        const mappings = this.OPACITY_MAPPINGS[featureType];
-        if (!mappings) return;
-        
-        mappings.forEach(({ layer, property }) => {
-            if (this.map.getLayer(layer)) {
-                this.updateLayerOpacityExpression(layer, property, featureId, visible);
-            }
-        });
-    }
-
-    updateLayerOpacityExpression(layerId, opacityProperty, featureId, visible) {
-        const layer = this.map.getLayer(layerId);
-        if (!layer) return;
-        
-        const currentPaint = this.map.getPaintProperty(layerId, opacityProperty);
-        let newExpression;
-        
-        if (visible) {
-            newExpression = this.removeFeatureFromOpacityExpression(currentPaint, featureId);
-        } else {
-            newExpression = this.addFeatureToOpacityExpression(currentPaint, featureId);
-        }
-        
-        this.map.setPaintProperty(layerId, opacityProperty, newExpression);
-    }
-
-    addFeatureToOpacityExpression(currentExpression, featureId) {
-        if (Array.isArray(currentExpression) && currentExpression[0] === 'case') {
-            return [
-                'case',
-                ['==', ['get', 'id'], featureId], 0,
-                ...currentExpression.slice(1)
-            ];
-        }
-        
-        return [
-            'case',
-            ['==', ['get', 'id'], featureId], 0,
-            currentExpression || 1
-        ];
-    }
-
-    removeFeatureFromOpacityExpression(currentExpression, featureId) {
-        if (!Array.isArray(currentExpression) || currentExpression[0] !== 'case') {
-            return currentExpression;
-        }
-        
-        const newExpression = ['case'];
-        
-        for (let i = 1; i < currentExpression.length - 1; i += 2) {
-            const condition = currentExpression[i];
-            const value = currentExpression[i + 1];
+        // 5. Desselecionar feature se foi bloqueada e está selecionada
+        if (newLockState && this.selectionManager?.isFeatureSelected) {
+            const selectionManagerType = FeatureNavigationUtils.mapFeatureType(featureType);
+            const isSelected = this.selectionManager.isFeatureSelected(selectionManagerType, featureId);
             
-            if (Array.isArray(condition) && 
-                condition[0] === '==' && 
-                Array.isArray(condition[2]) &&
-                condition[2][1] === 'id' &&
-                condition[1] === featureId) {
-                continue;
+            if (isSelected && this.selectionManager.deselectFeature) {
+                this.selectionManager.deselectFeature(featureId, selectionManagerType);
             }
+        }
+    }
+
+    /**
+     * Propaga alteração de propriedade para o source do Mapbox
+     * Pega todas as features do source, atualiza a específica e faz setData
+     */
+    propagateFeaturePropertyToSource(featureType, featureId, property, value) {
+        const source = this.map.getSource(featureType);
+        if (!source || !source._data) {
+            console.warn(`Source ${sourceName} não encontrado ou sem dados`);
+            return;
+        }
+
+        try {
+            // Pegar TODAS as features do source
+            const data = JSON.parse(JSON.stringify(source._data));
             
-            newExpression.push(condition, value);
+            const featureIndex = data.features.findIndex(f => 
+                (f.properties.id === featureId) || (f.id === featureId)
+            );
+
+            if (featureIndex !== -1) {
+                // Atualizar propriedade na feature encontrada
+                data.features[featureIndex].properties[property] = value;
+                
+                // Fazer setData com todo o conjunto atualizado
+                source.setData(data);
+                
+            } else {
+                console.warn(`Feature ${featureId} não encontrada no source ${featureType}`);
+            }
+        } catch (error) {
+            console.error(`Erro ao propagar propriedade para source ${featureType}:`, error);
         }
-        
-        const defaultValue = currentExpression[currentExpression.length - 1];
-        newExpression.push(defaultValue);
-        
-        if (newExpression.length === 2) {
-            return newExpression[1];
-        }
-        
-        return newExpression;
     }
 
     updateVisibilityButton(featureId, visible) {
-        const item = this.container.querySelector(`[data-feature-id="${featureId}"]`);
-        const btn = item?.querySelector('.visibility-toggle');
-        const img = btn?.querySelector('img');
-        if (btn && img) {
-            img.src = visible ? this.ICON_PATHS.EYE_VISIBLE : this.ICON_PATHS.EYE_HIDDEN;
-            img.alt = visible ? 'Visível' : 'Oculto';
-            btn.title = visible ? 'Ocultar' : 'Mostrar';
+        const btn = this.container.querySelector(`[data-feature-id="${featureId}"] .visibility-toggle`);
+        if (btn) {
+            const icon = visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
+            const title = visible ? 'Ocultar' : 'Mostrar';
+            btn.innerHTML = icon;
+            btn.title = title;
         }
     }
 
     updateLockButton(featureId, locked) {
-        const item = this.container.querySelector(`[data-feature-id="${featureId}"]`);
-        const btn = item?.querySelector('.lock-toggle');
-        const img = btn?.querySelector('img');
-        if (btn && img) {
-            img.src = locked ? this.ICON_PATHS.LOCK_LOCKED : this.ICON_PATHS.LOCK_UNLOCKED;
-            img.alt = locked ? 'Bloqueado' : 'Desbloqueado';
-            btn.title = locked ? 'Desbloquear' : 'Bloquear';
+        const btn = this.container.querySelector(`[data-feature-id="${featureId}"] .lock-toggle`);
+        if (btn) {
+            const icon = locked ? this.INLINE_ICONS.LOCK_LOCKED : this.INLINE_ICONS.LOCK_UNLOCKED;
+            const title = locked ? 'Desbloquear' : 'Bloquear';
+            btn.innerHTML = icon;
+            btn.title = title;
+            
+            // Garantir que o SVG tenha a cor correta baseado no CSS
+            const svg = btn.querySelector('svg');
+            if (svg && locked) {
+                svg.style.color = '#dc3545';
+            } else if (svg) {
+                // Remover estilo inline para usar CSS normal
+                svg.style.color = '';
+            }
         }
     }
 
     updateItemVisualState(featureId, visible, locked) {
         const item = this.container.querySelector(`[data-feature-id="${featureId}"]`);
         if (item) {
-            item.classList.toggle('feature-hidden', !visible);
-            item.classList.toggle('feature-locked', locked);
+            // Remover classes antigas primeiro para evitar conflitos
+            item.classList.remove('feature-hidden', 'feature-locked');
+            
+            // Aplicar classes baseado no estado atual
+            if (!visible) {
+                item.classList.add('feature-hidden');
+            }
+            
+            if (locked) {
+                item.classList.add('feature-locked');
+            }
+            
+        } else {
+            console.warn(`Item não encontrado para feature: ${featureId}`);
         }
     }
 
-    show() {
+    async show() {
         if (this.container) {
             this.container.style.display = 'block';
-            this.loadFeatures();
+            
+            // Controlar visibilidade do hillshade baseado no suporte atual
+            const hillshadeContainer = this.container.querySelector('.hillshade-control');
+            if (hillshadeContainer) {
+                if (this.hasHillshadeSupport()) {
+                    hillshadeContainer.style.display = 'block';
+                    await this.loadHillshadeState();
+                } else {
+                    hillshadeContainer.style.display = 'none';
+                }
+            }
+            
+            await this.loadFeatures();
         }
     }
 
     hide() {
         if (this.container) {
             this.container.style.display = 'none';
+        }
+    }
+
+    // ===== HILLSHADE CONTROL METHODS =====
+
+    hasHillshadeSupport() {
+        // Verificar se terrain control existe e tem hillshade config
+        const terrainControl = this.map._controls?.find(control =>
+            control.constructor.name === 'TerrainControl'
+        );
+        return terrainControl?.hillshadeConfig?.enabled;
+    }
+
+    async handleHillshadeToggle(event) {
+        const enabled = event.target.checked;
+        
+        // 1. Salvar no store
+        await setMapHillshadeState(enabled);
+        
+        // 2. Aplicar mudança via terrain control
+        this.applyHillshadeState(enabled);
+    }
+
+    applyHillshadeState(enabled) {
+        const terrainControl = this.map._controls?.find(control =>
+            control.constructor.name === 'TerrainControl'
+        );
+        
+        if (terrainControl && terrainControl.setHillshadeVisibility) {
+            terrainControl.setHillshadeVisibility(enabled);
+        }
+    }
+
+    async loadHillshadeState() {
+        if (this.hasHillshadeSupport()) {
+            const enabled = await getMapHillshadeState();
+            const checkbox = this.container.querySelector('#hillshade-toggle');
+            if (checkbox) {
+                checkbox.checked = enabled;
+                this.applyHillshadeState(enabled);
+            }
         }
     }
 }

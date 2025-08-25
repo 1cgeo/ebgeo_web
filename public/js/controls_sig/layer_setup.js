@@ -6,7 +6,6 @@ export async function setupMapFeatures(mapInstance) {
     try {
         setupAuxiliaryLayers(mapInstance);
 
-        // Carregar dados do IndexedDB
         const features = await getCurrentMapFeatures();
         await setImages(features, mapInstance);
 
@@ -28,7 +27,6 @@ export async function setupMapFeatures(mapInstance) {
 
         restoreTerrainState(mapInstance);
 
-        // Restaurar medições e marcações
         requestAnimationFrame(() => {
             clearAllMeasurements();
             restoreMeasurements(features, mapInstance);
@@ -41,18 +39,15 @@ export async function setupMapFeatures(mapInstance) {
 }
 
 function setupBrushLayers(features, mapInstance) {
-    // ===== SOURCES (2 - simples) =====
-
-    const brushControl = mapInstance._controls.find(control => 
+    const brushControl = mapInstance._controls.find(control =>
         control.constructor.name === 'AddBrushControl'
     );
-    
+
     let correctedBrushes = features.brushes;
     if (brushControl) {
         correctedBrushes = brushControl.applyZoomCorrections(features.brushes);
     }
-    
-    // 1. Source principal
+
     if (!mapInstance.getSource('brushes')) {
         mapInstance.addSource('brushes', {
             type: 'geojson',
@@ -68,7 +63,6 @@ function setupBrushLayers(features, mapInstance) {
         });
     }
 
-    // 2. Feedback source (preview)
     if (!mapInstance.getSource('brush-feedback')) {
         mapInstance.addSource('brush-feedback', {
             type: 'geojson',
@@ -76,9 +70,6 @@ function setupBrushLayers(features, mapInstance) {
         });
     }
 
-    // ===== LAYERS (2 - simples) =====
-
-    // 1. Main layer (editable parameters)
     if (!mapInstance.getLayer('brush-layer')) {
         mapInstance.addLayer({
             id: 'brush-layer',
@@ -92,11 +83,11 @@ function setupBrushLayers(features, mapInstance) {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'calculatedLineWidth'],
                 'line-opacity': 1
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 2. Preview layer
     if (!mapInstance.getLayer('brush-feedback-layer')) {
         mapInstance.addLayer({
             id: 'brush-feedback-layer',
@@ -116,9 +107,6 @@ function setupBrushLayers(features, mapInstance) {
 }
 
 function setupRectangleLayers(features, mapInstance) {
-    // ===== SOURCES (3 - consolidados) =====
-    
-    // 1. Source principal
     if (!mapInstance.getSource('rectangles')) {
         mapInstance.addSource('rectangles', {
             type: 'geojson',
@@ -134,7 +122,6 @@ function setupRectangleLayers(features, mapInstance) {
         });
     }
 
-    // 2. Feedback consolidado
     if (!mapInstance.getSource('rectangle-feedback')) {
         mapInstance.addSource('rectangle-feedback', {
             type: 'geojson',
@@ -142,7 +129,6 @@ function setupRectangleLayers(features, mapInstance) {
         });
     }
 
-    // 3. Edit handles source
     if (!mapInstance.getSource('rectangle-edit-handles')) {
         mapInstance.addSource('rectangle-edit-handles', {
             type: 'geojson',
@@ -150,9 +136,6 @@ function setupRectangleLayers(features, mapInstance) {
         });
     }
 
-    // ===== LAYERS (4 - seguindo padrão) =====
-
-    // 3. Feedback layer
     if (!mapInstance.getLayer('rectangle-feedback-layer')) {
         mapInstance.addLayer({
             id: 'rectangle-feedback-layer',
@@ -167,7 +150,6 @@ function setupRectangleLayers(features, mapInstance) {
         });
     }
 
-    // 1. Fill layer (editable parameters)
     if (!mapInstance.getLayer('rectangle-fill-layer')) {
         mapInstance.addLayer({
             id: 'rectangle-fill-layer',
@@ -176,11 +158,11 @@ function setupRectangleLayers(features, mapInstance) {
             paint: {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 2. Stroke layer (editable parameters)
     if (!mapInstance.getLayer('rectangle-layer')) {
         mapInstance.addLayer({
             id: 'rectangle-layer',
@@ -190,11 +172,11 @@ function setupRectangleLayers(features, mapInstance) {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
                 'line-opacity': 1
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 4. Edit handles layer
     if (!mapInstance.getLayer('rectangle-edit-handles-layer')) {
         mapInstance.addLayer({
             id: 'rectangle-edit-handles-layer',
@@ -212,9 +194,6 @@ function setupRectangleLayers(features, mapInstance) {
 }
 
 function setupOccupiedFrontLayers(features, mapInstance) {
-    // ===== SOURCES (3 - consolidados) =====
-    
-    // 1. Source principal (inalterado)
     if (!mapInstance.getSource('occupied_fronts')) {
         mapInstance.addSource('occupied_fronts', {
             type: 'geojson',
@@ -230,7 +209,6 @@ function setupOccupiedFrontLayers(features, mapInstance) {
         });
     }
 
-    // 2. ✅ NOVO: Feedback consolidado (substitui occupied-front-preview)
     if (!mapInstance.getSource('occupied-front-feedback')) {
         mapInstance.addSource('occupied-front-feedback', {
             type: 'geojson',
@@ -238,7 +216,6 @@ function setupOccupiedFrontLayers(features, mapInstance) {
         });
     }
 
-    // 3. Edit handles source (inalterado)
     if (!mapInstance.getSource('occupied-front-edit-handles')) {
         mapInstance.addSource('occupied-front-edit-handles', {
             type: 'geojson',
@@ -246,9 +223,6 @@ function setupOccupiedFrontLayers(features, mapInstance) {
         });
     }
 
-    // ===== LAYERS (3 - redução de 4→3) =====
-
-    // 2. ✅ NOVO: Feedback consolidado (substitui preview + selected)
     if (!mapInstance.getLayer('occupied-front-feedback-layer')) {
         mapInstance.addLayer({
             id: 'occupied-front-feedback-layer',
@@ -259,15 +233,14 @@ function setupOccupiedFrontLayers(features, mapInstance) {
                 'line-join': 'round'
             },
             paint: {
-                'line-color': '#ff0000',        // Vermelho sempre
+                'line-color': '#ff0000',
                 'line-width': 4,
-                'line-dasharray': [3, 3],       // Sempre tracejado
+                'line-dasharray': [3, 3],
                 'line-opacity': 0.8
             }
         });
     }
 
-        // 1. Layer principal (MultiLineString) - inalterado
     if (!mapInstance.getLayer('occupied-front-layer')) {
         mapInstance.addLayer({
             id: 'occupied-front-layer',
@@ -281,11 +254,11 @@ function setupOccupiedFrontLayers(features, mapInstance) {
                 'line-color': ['get', 'color'],
                 'line-width': ['get', 'lineWidth'],
                 'line-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 3. Edit handles layer (inalterado)
     if (!mapInstance.getLayer('occupied-front-edit-handles-layer')) {
         mapInstance.addLayer({
             id: 'occupied-front-edit-handles-layer',
@@ -295,22 +268,21 @@ function setupOccupiedFrontLayers(features, mapInstance) {
                 'circle-radius': 8,
                 'circle-color': [
                     'case',
-                    ['==', ['get', 'handleType'], 'center'], '#00ff00',    // Verde (P1 - origem)
-                    ['==', ['get', 'handleType'], 'primary'], '#ff0000',   // Vermelho (P2 - braço superior)
-                    ['==', ['get', 'handleType'], 'secondary'], '#0066ff', // Azul (P3 - braço inferior)
-                    '#888888' // Fallback cinza
+                    ['==', ['get', 'handleType'], 'center'], '#00ff00',
+                    ['==', ['get', 'handleType'], 'primary'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'secondary'], '#0066ff',
+                    '#888888'
                 ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2,
                 'circle-stroke-opacity': 1
             },
-            filter: ['==', '$type', 'Point'] // Só pontos (handles)
+            filter: ['==', '$type', 'Point']
         });
     }
 }
 
 function setupMilitarySymbolsLayers(features, mapInstance) {
-    // Source
     if (!mapInstance.getSource('military_symbols')) {
         mapInstance.addSource('military_symbols', {
             type: 'geojson',
@@ -326,7 +298,6 @@ function setupMilitarySymbolsLayers(features, mapInstance) {
         });
     }
 
-    // Layer
     if (!mapInstance.getLayer('military-symbols-layer')) {
         mapInstance.addLayer({
             id: 'military-symbols-layer',
@@ -336,20 +307,18 @@ function setupMilitarySymbolsLayers(features, mapInstance) {
                 'icon-opacity': ['get', 'opacity']
             },
             layout: {
-                'icon-image': ['get', 'id'], // Usa imageId igual ao image control
+                'icon-image': ['get', 'id'],
                 'icon-size': ['get', 'size'],
                 'icon-rotate': ['get', 'rotation'],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 }
 
 function setupPointLayers(features, mapInstance) {
-    // ===== SOURCES =====
-    
-    // 1. Source principal
     if (!mapInstance.getSource('points')) {
         mapInstance.addSource('points', {
             type: 'geojson',
@@ -365,7 +334,6 @@ function setupPointLayers(features, mapInstance) {
         });
     }
 
-    // 2. Feedback source
     if (!mapInstance.getSource('point-feedback')) {
         mapInstance.addSource('point-feedback', {
             type: 'geojson',
@@ -373,9 +341,6 @@ function setupPointLayers(features, mapInstance) {
         });
     }
 
-    // ===== LAYERS =====
-
-    // 1. Main layer
     if (!mapInstance.getLayer('point-layer')) {
         mapInstance.addLayer({
             id: 'point-layer',
@@ -385,11 +350,11 @@ function setupPointLayers(features, mapInstance) {
                 'circle-radius': ['get', 'size'],
                 'circle-color': ['get', 'color'],
                 'circle-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 2. Feedback layer
     if (!mapInstance.getLayer('point-feedback-layer')) {
         mapInstance.addLayer({
             id: 'point-feedback-layer',
@@ -405,9 +370,6 @@ function setupPointLayers(features, mapInstance) {
 }
 
 function setupLineLayers(features, mapInstance) {
-    // ===== SOURCES =====
-    
-    // 1. Source principal
     if (!mapInstance.getSource('lines')) {
         mapInstance.addSource('lines', {
             type: 'geojson',
@@ -423,7 +385,6 @@ function setupLineLayers(features, mapInstance) {
         });
     }
 
-    // 2. Feedback source
     if (!mapInstance.getSource('line-feedback')) {
         mapInstance.addSource('line-feedback', {
             type: 'geojson',
@@ -431,7 +392,6 @@ function setupLineLayers(features, mapInstance) {
         });
     }
 
-    // 3. Edit handles source
     if (!mapInstance.getSource('line-edit-handles')) {
         mapInstance.addSource('line-edit-handles', {
             type: 'geojson',
@@ -439,27 +399,6 @@ function setupLineLayers(features, mapInstance) {
         });
     }
 
-    // ===== LAYERS =====
-
-    // 1. Main layer
-    if (!mapInstance.getLayer('line-layer')) {
-        mapInstance.addLayer({
-            id: 'line-layer',
-            type: 'line',
-            source: 'lines',
-            layout: {
-                'line-cap': 'round',
-                'line-join': 'round'
-            },
-            paint: {
-                'line-color': ['get', 'color'],
-                'line-width': ['get', 'size'],
-                'line-opacity': ['get', 'opacity']
-            }
-        });
-    }
-
-    // 2. Feedback layer
     if (!mapInstance.getLayer('line-feedback-layer')) {
         mapInstance.addLayer({
             id: 'line-feedback-layer',
@@ -478,7 +417,93 @@ function setupLineLayers(features, mapInstance) {
         });
     }
 
-    // 3. Edit handles layer
+    if (!mapInstance.getLayer('line-layer')) {
+        mapInstance.addLayer({
+            id: 'line-layer',
+            type: 'line',
+            source: 'lines',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['get', 'size'],
+                'line-opacity': ['get', 'opacity']
+            },
+            filter: ['all',
+                ['==', ['get', 'lineStyle'], 'solid'],
+                ['!=', ['get', 'visivel'], false]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('line-layer-dashed')) {
+        mapInstance.addLayer({
+            id: 'line-layer-dashed',
+            type: 'line',
+            source: 'lines',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['get', 'size'],
+                'line-opacity': ['get', 'opacity'],
+                'line-dasharray': [8, 4]
+            },
+            filter: ['all',
+                ['==', ['get', 'lineStyle'], 'dashed'],
+                ['!=', ['get', 'visivel'], false]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('line-layer-dotted')) {
+        mapInstance.addLayer({
+            id: 'line-layer-dotted',
+            type: 'line',
+            source: 'lines',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['get', 'size'],
+                'line-opacity': ['get', 'opacity'],
+                'line-dasharray': [2, 3]
+            },
+            filter: ['all',
+                ['==', ['get', 'lineStyle'], 'dotted'],
+                ['!=', ['get', 'visivel'], false]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('line-layer-dash-dot')) {
+        mapInstance.addLayer({
+            id: 'line-layer-dash-dot',
+            type: 'line',
+            source: 'lines',
+            layout: {
+                'line-cap': 'round',
+                'line-join': 'round'
+            },
+            paint: {
+                'line-color': ['get', 'color'],
+                'line-width': ['get', 'size'],
+                'line-opacity': ['get', 'opacity'],
+                'line-dasharray': [8, 4, 2, 4]
+            },
+            filter: ['all',
+                ['==', ['get', 'lineStyle'], 'dash-dot'],
+                ['!=', ['get', 'visivel'], false]
+            ]
+        });
+    }
+
     if (!mapInstance.getLayer('line-edit-handles-layer')) {
         mapInstance.addLayer({
             id: 'line-edit-handles-layer',
@@ -488,16 +513,16 @@ function setupLineLayers(features, mapInstance) {
                 'circle-radius': 8,
                 'circle-color': [
                     'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',      // Red: vertices
-                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',    // Orange: midpoints
-                    '#000000'                                                 // Fallback
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',
+                    '#000000'
                 ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2,
                 'circle-opacity': [
                     'case',
-                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,          // Midpoints transparent
-                    1.0                                                       // Others opaque
+                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,
+                    1.0
                 ]
             },
             filter: ['==', '$type', 'Point']
@@ -506,9 +531,6 @@ function setupLineLayers(features, mapInstance) {
 }
 
 function setupPolygonLayers(features, mapInstance) {
-    // ===== SOURCES =====
-    
-    // 1. Source principal
     if (!mapInstance.getSource('polygons')) {
         mapInstance.addSource('polygons', {
             type: 'geojson',
@@ -524,7 +546,6 @@ function setupPolygonLayers(features, mapInstance) {
         });
     }
 
-    // 2. Feedback source
     if (!mapInstance.getSource('polygon-feedback')) {
         mapInstance.addSource('polygon-feedback', {
             type: 'geojson',
@@ -532,7 +553,6 @@ function setupPolygonLayers(features, mapInstance) {
         });
     }
 
-    // 3. Edit handles source
     if (!mapInstance.getSource('polygon-edit-handles')) {
         mapInstance.addSource('polygon-edit-handles', {
             type: 'geojson',
@@ -540,9 +560,6 @@ function setupPolygonLayers(features, mapInstance) {
         });
     }
 
-    // ===== LAYERS =====
-
-    // 1. Fill layer
     if (!mapInstance.getLayer('polygon-fill-layer')) {
         mapInstance.addLayer({
             id: 'polygon-fill-layer',
@@ -551,25 +568,11 @@ function setupPolygonLayers(features, mapInstance) {
             paint: {
                 'fill-color': ['get', 'color'],
                 'fill-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 2. Stroke layer
-    if (!mapInstance.getLayer('polygon-layer')) {
-        mapInstance.addLayer({
-            id: 'polygon-layer',
-            type: 'line',
-            source: 'polygons',
-            paint: {
-                'line-color': ['get', 'outlinecolor'],
-                'line-width': ['get', 'size'],
-                'line-opacity': 1
-            }
-        });
-    }
-
-    // 3. Feedback layer
     if (!mapInstance.getLayer('polygon-feedback-layer')) {
         mapInstance.addLayer({
             id: 'polygon-feedback-layer',
@@ -584,7 +587,77 @@ function setupPolygonLayers(features, mapInstance) {
         });
     }
 
-    // 4. Edit handles layer
+    if (!mapInstance.getLayer('polygon-layer')) {
+        mapInstance.addLayer({
+            id: 'polygon-layer',
+            type: 'line',
+            source: 'polygons',
+            paint: {
+                'line-color': ['get', 'outlinecolor'],
+                'line-width': ['get', 'size'],
+                'line-opacity': 1
+            },
+            filter: ['all',
+                ['==', ['get', 'lineStyle'], 'solid'],
+                ['!=', ['get', 'visivel'], false]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('polygon-layer-dashed')) {
+        mapInstance.addLayer({
+            id: 'polygon-layer-dashed',
+            type: 'line',
+            source: 'polygons',
+            paint: {
+                'line-color': ['get', 'outlinecolor'],
+                'line-width': ['get', 'size'],
+                'line-opacity': 1,
+                'line-dasharray': [8, 4]
+            },
+            filter: ['all',
+                ['==', ['get', 'lineStyle'], 'dashed'],
+                ['!=', ['get', 'visivel'], false]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('polygon-layer-dotted')) {
+        mapInstance.addLayer({
+            id: 'polygon-layer-dotted',
+            type: 'line',
+            source: 'polygons',
+            paint: {
+                'line-color': ['get', 'outlinecolor'],
+                'line-width': ['get', 'size'],
+                'line-opacity': 1,
+                'line-dasharray': [2, 3]
+            },
+            filter: ['all',
+                ['==', ['get', 'lineStyle'], 'dotted'],
+                ['!=', ['get', 'visivel'], false]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('polygon-layer-dash-dot')) {
+        mapInstance.addLayer({
+            id: 'polygon-layer-dash-dot',
+            type: 'line',
+            source: 'polygons',
+            paint: {
+                'line-color': ['get', 'outlinecolor'],
+                'line-width': ['get', 'size'],
+                'line-opacity': 1,
+                'line-dasharray': [8, 4, 2, 4]
+            },
+            filter: ['all',
+                ['==', ['get', 'lineStyle'], 'dash-dot'],
+                ['!=', ['get', 'visivel'], false]
+            ]
+        });
+    }
+
     if (!mapInstance.getLayer('polygon-edit-handles-layer')) {
         mapInstance.addLayer({
             id: 'polygon-edit-handles-layer',
@@ -594,16 +667,16 @@ function setupPolygonLayers(features, mapInstance) {
                 'circle-radius': 8,
                 'circle-color': [
                     'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',      // Red: vertices
-                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',    // Orange: midpoints
-                    '#000000'                                                 // Fallback
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',
+                    '#000000'
                 ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2,
                 'circle-opacity': [
                     'case',
-                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,          // Midpoints transparent
-                    1.0                                                       // Others opaque
+                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,
+                    1.0
                 ]
             },
             filter: ['==', '$type', 'Point']
@@ -614,7 +687,6 @@ function setupPolygonLayers(features, mapInstance) {
 async function setImages(features, mapInstance) {
     const imagePromises = [];
 
-    // Coletar todas as features que precisam de imagens
     const allImageFeatures = [
         ...(features.images),
         ...(features.military_symbols)
@@ -624,14 +696,12 @@ async function setImages(features, mapInstance) {
         const imageId = feature.properties.id;
         if (!imageId) continue;
 
-        // Verificar se já existe
         if (mapInstance.hasImage(imageId)) continue;
 
         const imagePromise = loadSingleImage(imageId, mapInstance);
         imagePromises.push(imagePromise);
     }
 
-    // ✅ AGUARDAR todas as imagens carregarem
     await Promise.allSettled(imagePromises);
 }
 
@@ -645,7 +715,6 @@ async function loadSingleImage(imageId, mapInstance) {
 
         const url = URL.createObjectURL(blob);
 
-        // ✅ Promise que resolve quando imagem carrega
         return new Promise((resolve, reject) => {
             const image = new Image();
 
@@ -666,7 +735,6 @@ async function loadSingleImage(imageId, mapInstance) {
                 reject(new Error(`Falha ao carregar imagem ${imageId}`));
             };
 
-            // ✅ Timeout para evitar travamento
             setTimeout(() => {
                 URL.revokeObjectURL(url);
                 reject(new Error(`Timeout ao carregar imagem ${imageId}`));
@@ -683,9 +751,6 @@ async function loadSingleImage(imageId, mapInstance) {
 function setupBoundaryLayers(features, mapInstance) {
     if (!features.boundarys) return;
 
-    // ===== SOURCES CONSOLIDADOS (4 sources - reduzido de 5) =====
-
-    // 1. Source principal - feature principal
     if (!mapInstance.getSource('boundarys')) {
         mapInstance.addSource('boundarys', {
             type: 'geojson',
@@ -701,7 +766,6 @@ function setupBoundaryLayers(features, mapInstance) {
         });
     }
 
-    // 2. Source para círculos do escalão (preservado - dependent features)
     if (!mapInstance.getSource('boundary-circles')) {
         mapInstance.addSource('boundary-circles', {
             type: 'geojson',
@@ -709,7 +773,6 @@ function setupBoundaryLayers(features, mapInstance) {
         });
     }
 
-    // 3. Source para textos (preservado - dependent features)
     if (!mapInstance.getSource('boundary-texts')) {
         mapInstance.addSource('boundary-texts', {
             type: 'geojson',
@@ -717,7 +780,6 @@ function setupBoundaryLayers(features, mapInstance) {
         });
     }
 
-    // 4. ✅ CONSOLIDADO: Feedback source (preview + selected + handles)
     if (!mapInstance.getSource('boundary-feedback')) {
         mapInstance.addSource('boundary-feedback', {
             type: 'geojson',
@@ -725,9 +787,6 @@ function setupBoundaryLayers(features, mapInstance) {
         });
     }
 
-    // ===== LAYERS CONSOLIDADOS (6 layers - reduzido de 7+) =====
-
-    // 5. ✅ FEEDBACK LAYER - Preview + Selected (estilo fixo como outros controles)
     if (!mapInstance.getLayer('boundary-feedback-layer')) {
         mapInstance.addLayer({
             id: 'boundary-feedback-layer',
@@ -738,16 +797,15 @@ function setupBoundaryLayers(features, mapInstance) {
                 'line-join': 'round'
             },
             paint: {
-                'line-color': '#ff0000',        // Vermelho sempre
+                'line-color': '#ff0000',
                 'line-width': 4,
-                'line-dasharray': [3, 3],       // Sempre tracejado
+                'line-dasharray': [3, 3],
                 'line-opacity': 0.8
             },
-            filter: ['!=', ['get', 'user_isEditingHandle'], true] // Não handles
+            filter: ['!=', ['get', 'user_isEditingHandle'], true]
         });
     }
 
-    // 1. LAYER PRINCIPAL - MultiLineString (linha + símbolos)
     if (!mapInstance.getLayer('boundary-main-layer')) {
         mapInstance.addLayer({
             id: 'boundary-main-layer',
@@ -761,11 +819,11 @@ function setupBoundaryLayers(features, mapInstance) {
                 'line-color': ['get', 'color'],
                 'line-width': ['get', 'lineWidth'],
                 'line-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 2. LAYER CÍRCULOS - Preenchimento dos símbolos 'o'
     if (!mapInstance.getLayer('boundary-circles-layer')) {
         mapInstance.addLayer({
             id: 'boundary-circles-layer',
@@ -774,11 +832,11 @@ function setupBoundaryLayers(features, mapInstance) {
             paint: {
                 'fill-color': ['get', 'color'],
                 'fill-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 3. LAYER CÍRCULOS CONTORNO - Contorno dos símbolos 'o'
     if (!mapInstance.getLayer('boundary-circles-stroke-layer')) {
         mapInstance.addLayer({
             id: 'boundary-circles-stroke-layer',
@@ -788,11 +846,11 @@ function setupBoundaryLayers(features, mapInstance) {
                 'line-color': ['get', 'color'],
                 'line-width': 2,
                 'line-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 4. LAYER TEXTOS - Labels rotativos
     if (!mapInstance.getLayer('boundary-text-layer')) {
         mapInstance.addLayer({
             id: 'boundary-text-layer',
@@ -811,11 +869,11 @@ function setupBoundaryLayers(features, mapInstance) {
                 'text-color': ['get', 'color'],
                 'text-halo-color': '#fff',
                 'text-halo-width': 2
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 6. ✅ HANDLES LAYER - Pontos de edição consolidados
     if (!mapInstance.getLayer('boundary-handles-layer')) {
         mapInstance.addLayer({
             id: 'boundary-handles-layer',
@@ -825,18 +883,18 @@ function setupBoundaryLayers(features, mapInstance) {
                 'circle-radius': 8,
                 'circle-color': [
                     'case',
-                    ['==', ['get', 'type'], 'vertex'], '#ff0000',        // Vermelho: vértices
-                    ['==', ['get', 'type'], 'midpoint'], '#ffaa00',      // Laranja: midpoints
-                    ['==', ['get', 'type'], 'symbol_handle'], '#0066ff', // Azul: posição símbolo
-                    ['==', ['get', 'type'], 'size_handle'], '#28a745',   // Verde: tamanho símbolo
-                    '#000000'                                             // Fallback
+                    ['==', ['get', 'type'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'type'], 'midpoint'], '#ffaa00',
+                    ['==', ['get', 'type'], 'symbol_handle'], '#0066ff',
+                    ['==', ['get', 'type'], 'size_handle'], '#28a745',
+                    '#000000'
                 ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2,
                 'circle-opacity': [
                     'case',
-                    ['==', ['get', 'type'], 'midpoint'], 0.6,            // Midpoints transparentes
-                    1.0                                                   // Outros opacos
+                    ['==', ['get', 'type'], 'midpoint'], 0.6,
+                    1.0
                 ]
             },
             filter: ['==', '$type', 'Point']
@@ -845,9 +903,6 @@ function setupBoundaryLayers(features, mapInstance) {
 }
 
 function setupEllipseLayers(features, mapInstance) {
-    // ===== SOURCES (3 - consolidados) =====
-
-    // 1. Source principal (inalterado)
     if (!mapInstance.getSource('ellipses')) {
         mapInstance.addSource('ellipses', {
             type: 'geojson',
@@ -863,7 +918,6 @@ function setupEllipseLayers(features, mapInstance) {
         });
     }
 
-    // 2. ✅ NOVO: Feedback consolidado (substitui ellipse-preview)
     if (!mapInstance.getSource('ellipse-feedback')) {
         mapInstance.addSource('ellipse-feedback', {
             type: 'geojson',
@@ -871,7 +925,6 @@ function setupEllipseLayers(features, mapInstance) {
         });
     }
 
-    // 3. Edit handles source (inalterado)
     if (!mapInstance.getSource('ellipse-edit-handles')) {
         mapInstance.addSource('ellipse-edit-handles', {
             type: 'geojson',
@@ -879,24 +932,20 @@ function setupEllipseLayers(features, mapInstance) {
         });
     }
 
-    // ===== LAYERS (5 - redução de 6→5) =====
-
-        // 3. ✅ NOVO: Feedback consolidado (substitui preview + selected)
     if (!mapInstance.getLayer('ellipse-feedback-layer')) {
         mapInstance.addLayer({
             id: 'ellipse-feedback-layer',
             type: 'line',
             source: 'ellipse-feedback',
             paint: {
-                'line-color': '#ff0000',        // Vermelho sempre
+                'line-color': '#ff0000',
                 'line-width': 3,
-                'line-dasharray': [2, 2],       // Sempre tracejado
+                'line-dasharray': [2, 2],
                 'line-opacity': 0.8
             }
         });
     }
 
-    // 1. Fill layer (inalterado - parâmetros editáveis precisam)
     if (!mapInstance.getLayer('ellipse-fill-layer')) {
         mapInstance.addLayer({
             id: 'ellipse-fill-layer',
@@ -905,11 +954,11 @@ function setupEllipseLayers(features, mapInstance) {
             paint: {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 2. Stroke layer (inalterado - parâmetros editáveis precisam)
     if (!mapInstance.getLayer('ellipse-layer')) {
         mapInstance.addLayer({
             id: 'ellipse-layer',
@@ -919,11 +968,11 @@ function setupEllipseLayers(features, mapInstance) {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
                 'line-opacity': 1
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 4. Edit handles (inalterado)
     if (!mapInstance.getLayer('ellipse-edit-handles-layer')) {
         mapInstance.addLayer({
             id: 'ellipse-edit-handles-layer',
@@ -945,9 +994,7 @@ function setupEllipseLayers(features, mapInstance) {
     }
 }
 
-// ===== VISIBILITY LAYERS (Áreas - Prioridade 3) =====
 function setupVisibilityLayers(features, mapInstance) {
-    // Source original
     if (!mapInstance.getSource('visibility')) {
         mapInstance.addSource('visibility', {
             type: 'geojson',
@@ -963,7 +1010,6 @@ function setupVisibilityLayers(features, mapInstance) {
         });
     }
 
-    // Source processada
     if (!mapInstance.getSource('processed-visibility')) {
         mapInstance.addSource('processed-visibility', {
             type: 'geojson',
@@ -979,7 +1025,6 @@ function setupVisibilityLayers(features, mapInstance) {
         });
     }
 
-    // 1. Layer original (invisível)
     if (!mapInstance.getLayer('visibility-layer')) {
         mapInstance.addLayer({
             id: 'visibility-layer',
@@ -992,7 +1037,6 @@ function setupVisibilityLayers(features, mapInstance) {
         });
     }
 
-    // 2. Layer processada (visível)
     if (!mapInstance.getLayer('processed-visibility-layer')) {
         mapInstance.addLayer({
             id: 'processed-visibility-layer',
@@ -1001,14 +1045,13 @@ function setupVisibilityLayers(features, mapInstance) {
             paint: {
                 'fill-color': ['get', 'color'],
                 'fill-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 }
 
-// ===== IMAGE LAYERS (Prioridade 4) =====
 function setupImageLayers(features, mapInstance) {
-    // Source
     if (!mapInstance.getSource('images')) {
         mapInstance.addSource('images', {
             type: 'geojson',
@@ -1024,7 +1067,6 @@ function setupImageLayers(features, mapInstance) {
         });
     }
 
-    // Layer
     if (!mapInstance.getLayer('image-layer')) {
         mapInstance.addLayer({
             id: 'image-layer',
@@ -1039,14 +1081,13 @@ function setupImageLayers(features, mapInstance) {
                 'icon-rotate': ['get', 'rotation'],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 }
 
-// ===== LOS LAYERS (Linhas - Prioridade 5) =====
 function setupLOSLayers(features, mapInstance) {
-    // Source original
     if (!mapInstance.getSource('los')) {
         mapInstance.addSource('los', {
             type: 'geojson',
@@ -1062,7 +1103,6 @@ function setupLOSLayers(features, mapInstance) {
         });
     }
 
-    // Source processada
     if (!mapInstance.getSource('processed-los')) {
         mapInstance.addSource('processed-los', {
             type: 'geojson',
@@ -1078,7 +1118,6 @@ function setupLOSLayers(features, mapInstance) {
         });
     }
 
-    // 1. Layer original (invisível)
     if (!mapInstance.getLayer('los-layer')) {
         mapInstance.addLayer({
             'id': 'los-layer',
@@ -1092,7 +1131,6 @@ function setupLOSLayers(features, mapInstance) {
         });
     }
 
-    // 2. Layer processada (visível)
     if (!mapInstance.getLayer('processed-los-layer')) {
         mapInstance.addLayer({
             'id': 'processed-los-layer',
@@ -1102,16 +1140,13 @@ function setupLOSLayers(features, mapInstance) {
                 'line-color': ['get', 'color'],
                 'line-opacity': ['get', 'opacity'],
                 'line-width': ['get', 'width']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 }
 
-// ===== ARROW LAYERS - CONSOLIDADO SIMPLES (Linhas - Prioridade 6) =====
 function setupArrowLayers(features, mapInstance) {
-    // ===== SOURCES (3 - otimizado) =====
-    
-    // 1. Source principal
     if (!mapInstance.getSource('arrows')) {
         mapInstance.addSource('arrows', {
             type: 'geojson',
@@ -1127,7 +1162,6 @@ function setupArrowLayers(features, mapInstance) {
         });
     }
 
-    // 2. ✅ CONSOLIDADO: Feedback source (preview + seleção)
     if (!mapInstance.getSource('arrow-feedback')) {
         mapInstance.addSource('arrow-feedback', {
             type: 'geojson',
@@ -1135,7 +1169,6 @@ function setupArrowLayers(features, mapInstance) {
         });
     }
 
-    // 3. Edit handles source
     if (!mapInstance.getSource('arrow-edit-handles')) {
         mapInstance.addSource('arrow-edit-handles', {
             type: 'geojson',
@@ -1143,23 +1176,20 @@ function setupArrowLayers(features, mapInstance) {
         });
     }
 
-    // ===== LAYERS (4 - sem fill feedback) =====
-    // 3. ✅ SIMPLIFICADO - Feedback layer (mesmo estilo do círculo)
     if (!mapInstance.getLayer('arrow-feedback-layer')) {
         mapInstance.addLayer({
             id: 'arrow-feedback-layer',
             type: 'line',
             source: 'arrow-feedback',
             paint: {
-                'line-color': '#ff0000',        // Vermelho sempre
+                'line-color': '#ff0000',
                 'line-width': 4,
-                'line-dasharray': [3, 3],       // Sempre tracejado
+                'line-dasharray': [3, 3],
                 'line-opacity': 0.8
             }
         });
     }
-    
-    // 1. ✅ MANTER - Preenchimento principal (parâmetros editáveis)
+
     if (!mapInstance.getLayer('arrow-fill-layer')) {
         mapInstance.addLayer({
             id: 'arrow-fill-layer',
@@ -1168,11 +1198,11 @@ function setupArrowLayers(features, mapInstance) {
             paint: {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'fillOpacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 2. ✅ MANTER - Linha principal (parâmetros editáveis)
     if (!mapInstance.getLayer('arrow-layer')) {
         mapInstance.addLayer({
             id: 'arrow-layer',
@@ -1182,11 +1212,11 @@ function setupArrowLayers(features, mapInstance) {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
                 'line-opacity': ['get', 'lineOpacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 4. ✅ MANTER - Edit handles
     if (!mapInstance.getLayer('arrow-edit-handles-layer')) {
         mapInstance.addLayer({
             id: 'arrow-edit-handles-layer',
@@ -1196,30 +1226,27 @@ function setupArrowLayers(features, mapInstance) {
                 'circle-radius': 8,
                 'circle-color': [
                     'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',      // Vermelho: vértices
-                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',    // Laranja: midpoints
-                    ['==', ['get', 'handleType'], 'width'], '#0066ff',       // Azul: largura
-                    ['==', ['get', 'handleType'], 'headLength'], '#00aa00',  // Verde: comprimento cabeça
-                    ['==', ['get', 'handleType'], 'airmobile'], '#aa00aa',   // Roxo: posição X aeromóvel
-                    '#000000'                                                 // Fallback preto
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'midpoint'], '#ffaa00',
+                    ['==', ['get', 'handleType'], 'width'], '#0066ff',
+                    ['==', ['get', 'handleType'], 'headLength'], '#00aa00',
+                    ['==', ['get', 'handleType'], 'airmobile'], '#aa00aa',
+                    '#000000'
                 ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2,
                 'circle-opacity': [
                     'case',
-                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,          // Midpoints mais transparentes
-                    1.0                                                       // Outros handles opacos
+                    ['==', ['get', 'handleType'], 'midpoint'], 0.6,
+                    1.0
                 ]
             },
-            filter: ['==', '$type', 'Point']                                  // Apenas pontos (handles)
+            filter: ['==', '$type', 'Point']
         });
     }
 }
 
-// ===== CIRCLE LAYERS (Pontos - Prioridade 7) =====
 function setupCircleLayers(features, mapInstance) {
-
-    // 1. Main circles source
     if (!mapInstance.getSource('circles')) {
         mapInstance.addSource('circles', {
             type: 'geojson',
@@ -1235,7 +1262,6 @@ function setupCircleLayers(features, mapInstance) {
         });
     }
 
-    // 2. Consolidated feedback source
     if (!mapInstance.getSource('circle-feedback')) {
         mapInstance.addSource('circle-feedback', {
             type: 'geojson',
@@ -1243,7 +1269,6 @@ function setupCircleLayers(features, mapInstance) {
         });
     }
 
-    // 3. Edit handles source (simplified)
     if (!mapInstance.getSource('circle-edit-handles')) {
         mapInstance.addSource('circle-edit-handles', {
             type: 'geojson',
@@ -1251,7 +1276,6 @@ function setupCircleLayers(features, mapInstance) {
         });
     }
 
-    // 4. X marks source
     if (!mapInstance.getSource('circle-x-marks')) {
         mapInstance.addSource('circle-x-marks', {
             type: 'geojson',
@@ -1259,7 +1283,6 @@ function setupCircleLayers(features, mapInstance) {
         });
     }
 
-        // 4. Feedback layer
     if (!mapInstance.getLayer('circle-feedback-layer')) {
         mapInstance.addLayer({
             id: 'circle-feedback-layer',
@@ -1268,13 +1291,12 @@ function setupCircleLayers(features, mapInstance) {
             paint: {
                 'line-color': '#ff0000',
                 'line-width': 3,
-                'line-dasharray': [2, 2],                // Always dashed
+                'line-dasharray': [2, 2],
                 'line-opacity': 0.8
             }
         });
     }
 
-    // 1. Fill layer (editable parameters need separate layer)
     if (!mapInstance.getLayer('circle-fill-layer')) {
         mapInstance.addLayer({
             id: 'circle-fill-layer',
@@ -1283,11 +1305,11 @@ function setupCircleLayers(features, mapInstance) {
             paint: {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 2. Stroke layer (editable parameters need separate layer)
     if (!mapInstance.getLayer('circle-layer')) {
         mapInstance.addLayer({
             id: 'circle-layer',
@@ -1297,11 +1319,11 @@ function setupCircleLayers(features, mapInstance) {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
                 'line-opacity': 1
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 3. X marks layer (fundamental functionality)
     if (!mapInstance.getLayer('circle-x-layer')) {
         mapInstance.addLayer({
             id: 'circle-x-layer',
@@ -1311,11 +1333,11 @@ function setupCircleLayers(features, mapInstance) {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
                 'line-opacity': 1
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
-    // 5. Edit handles layer
     if (!mapInstance.getLayer('circle-edit-handles-layer')) {
         mapInstance.addLayer({
             id: 'circle-edit-handles-layer',
@@ -1327,24 +1349,21 @@ function setupCircleLayers(features, mapInstance) {
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2
             },
-            filter: ['==', '$type', 'Point']  // Only points (handles)
+            filter: ['==', '$type', 'Point']
         });
     }
 }
 
-// ===== TEXT LAYERS (Maior Prioridade - 8) =====
 function setupTextLayers(features, mapInstance) {
-    // ✅ NOVO - Aplicar correções de zoom
-    const textControl = mapInstance._controls.find(control => 
+    const textControl = mapInstance._controls.find(control =>
         control.constructor.name === 'AddTextControl'
     );
-    
+
     let correctedTexts = features.texts;
     if (textControl) {
         correctedTexts = textControl.applyZoomCorrections(features.texts);
     }
-    
-    // Source
+
     if (!mapInstance.getSource('texts')) {
         mapInstance.addSource('texts', {
             type: 'geojson',
@@ -1360,7 +1379,6 @@ function setupTextLayers(features, mapInstance) {
         });
     }
 
-    // Layer
     if (!mapInstance.getLayer('text-layer')) {
         mapInstance.addLayer({
             id: 'text-layer',
@@ -1380,14 +1398,13 @@ function setupTextLayers(features, mapInstance) {
                 'text-color': ['get', 'color'],
                 'text-halo-color': ['get', 'backgroundColor'],
                 'text-halo-width': 2
-            }
+            },
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 }
 
-// ===== AUXILIARY LAYERS =====
 function setupAuxiliaryLayers(mapInstance) {
-    // Selection boxes source
     if (!mapInstance.getSource('selection-boxes')) {
         mapInstance.addSource('selection-boxes', {
             type: 'geojson',
@@ -1411,7 +1428,6 @@ function setupAuxiliaryLayers(mapInstance) {
         });
     }
 
-    // Temp line source
     if (!mapInstance.getSource('temp-line')) {
         mapInstance.addSource('temp-line', {
             type: 'geojson',
@@ -1435,7 +1451,6 @@ function setupAuxiliaryLayers(mapInstance) {
         });
     }
 
-    // Temp polygon source
     if (!mapInstance.getSource('temp-polygon')) {
         mapInstance.addSource('temp-polygon', {
             type: 'geojson',
@@ -1459,7 +1474,6 @@ function setupAuxiliaryLayers(mapInstance) {
         });
     }
 
-    // Street view source
     if (!mapInstance.getSource('lines-street-view')) {
         mapInstance.addSource('lines-street-view', {
             type: 'geojson',
@@ -1490,18 +1504,17 @@ function setupAuxiliaryLayers(mapInstance) {
 function restoreTerrainState(mapInstance) {
     try {
 
-        const terrainControl = mapInstance._controls.find(control => 
+        const terrainControl = mapInstance._controls.find(control =>
             control.constructor.name === 'TerrainControl'
         );
 
         if (!terrainControl) {
             return; // Nenhum controle de terreno encontrado
         }
-        
+
         if (terrainControl.terrainConfig) {
-            // Garantir que as sources de terreno estão configuradas
             terrainControl._setupTerrainSources();
-            
+
             // Reativar o terreno 3D
             if (mapInstance.getSource('terrainSource') && terrainControl._wasTerrainActive) {
                 mapInstance.setTerrain(terrainControl.terrainConfig);
@@ -1515,10 +1528,8 @@ function restoreTerrainState(mapInstance) {
 
 function clearAllMeasurements() {
     try {
-        // Remover todos os elementos de medição do DOM
         const measurementLabels = document.querySelectorAll('.measurement-label');
         measurementLabels.forEach(label => {
-            // Remover o marker do Mapbox que contém o label
             const parentMarker = label.closest('.maplibregl-marker');
             if (parentMarker) {
                 parentMarker.remove();
@@ -1547,7 +1558,6 @@ function restoreMeasurements(features, mapInstance) {
             control.constructor.name === 'AddLOSControl'
         );
 
-        // Restaurar medições de linha e poligono
         if (lineControl && features.lines) {
             features.lines.forEach(feature => {
                 if (feature.properties?.measure) {
@@ -1564,7 +1574,6 @@ function restoreMeasurements(features, mapInstance) {
             });
         }
 
-        // Restaurar medições do LOS
         if (losControl) {
             features.los.forEach(feature => {
                 if (feature.properties?.measure) {
@@ -1583,7 +1592,6 @@ function restoreCircleXMarks(features, mapInstance) {
             control.constructor.name === 'AddCircleControl'
         );
 
-        // Restaurar X marks dos círculos
         if (circleControl && typeof circleControl.updateXMarks === 'function') {
             circleControl.updateXMarks();
         }
@@ -1604,13 +1612,11 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
 
         features.boundarys.forEach((boundaryFeature, index) => {
             try {
-                // Validação básica da feature
                 if (!boundaryFeature?.properties) {
                     console.warn(`Invalid boundary feature ${index}:`, boundaryFeature);
                     return;
                 }
 
-                // Normalizar coordenadas (pode vir como string do IndexedDB)
                 let coords = boundaryFeature.properties.baseCoordinates;
 
                 if (typeof coords === 'string') {
@@ -1622,13 +1628,11 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
                     }
                 }
 
-                // Validar array de coordenadas
                 if (!Array.isArray(coords) || coords.length < 2) {
                     console.warn(`Invalid coordinates for boundary ${boundaryFeature.properties.id}`);
                     return;
                 }
 
-                // Filtrar apenas coordenadas válidas
                 const validCoords = coords.filter(coord =>
                     Array.isArray(coord) &&
                     coord.length >= 2 &&
@@ -1643,10 +1647,8 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
                     return;
                 }
 
-                // Atualizar coordenadas validadas
                 boundaryFeature.properties.baseCoordinates = validCoords;
 
-                // Regenerar textos e círculos dependentes
                 boundaryControl.updateDependentFeatures(boundaryFeature);
 
             } catch (featureError) {
