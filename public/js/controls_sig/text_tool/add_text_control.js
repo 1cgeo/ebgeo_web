@@ -13,20 +13,28 @@ class AddTextControl {
 
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
-        this.setupZoomListener();
     }
 
     static DEFAULT_PROPERTIES = {
         text: '',
         size: 16,
         color: '#000000',
-        backgroundColor: '#ffffff',
+        backgroundColor: '#ffffff', // Halo do texto
         rotation: 0,
         justify: 'center',
         source: 'text',
         
+        // Propriedades da caixa de fundo
+        showBackground: false,
+        backgroundFillColor: '#315730',
+        backgroundFillOpacity: 0.8,          // 80%
+        backgroundBorderColor: '#000000ff',
+        backgroundBorderOpacity: 1.0,        // 100%
+        backgroundBorderWidth: 1,            // 1px
+        
         createdAtZoom: 0,
         calculatedSize: 16,
+        selectionBox: null,  // GeoJSON Polygon geometry
         nome: '',
         descricao: '',
         visivel: true,
@@ -49,6 +57,7 @@ class AddTextControl {
 
         this.setupEventListeners();
         this.changeButtonColor();
+        this.setupZoomListener();
 
         return this.container;
     }
@@ -61,7 +70,7 @@ class AddTextControl {
 
     onRemove = () => {
         try {
-            this.uiManager.removeControl(this.container);
+            this.toolManager.uiManager.removeControl(this.container);
             
             this.map.off('zoom', this.handleZoomChange);
             if (this.zoomRafId) {
@@ -86,11 +95,8 @@ class AddTextControl {
         this.removeHoverListeners();
     }
 
-    // ✅ NOVO - Sistema de zoom (mesmo padrão do brush)
     setupZoomListener = () => {
-        if(this.map){
-            his.map.on('zoom', this.handleZoomChange);
-        }
+        this.map.on('zoom', this.handleZoomChange);
     }
 
     handleZoomChange = () => {
@@ -136,6 +142,91 @@ class AddTextControl {
         this.pendingZoomUpdate = false;
     }
 
+    // Método movido do UIManager
+    measureTextSize = (text, fontSize, fontFamily) => {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        context.font = `${fontSize}px ${fontFamily}`;
+        const lines = text.split('\n');
+        const width = Math.max(...lines.map(line => context.measureText(line).width));
+        const height = (fontSize - 8) * lines.length;
+        return { width, height };
+    }
+
+    // Método helper para garantir consistência total
+    ensureFeatureConsistency = (feature, currentZoom = null, forceRecalculateSelectionBox = false) => {
+        if (!currentZoom) {
+            currentZoom = this.map.getZoom();
+        }
+        
+        // Sempre recalcular calculatedSize baseado no zoom atual
+        const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+        const scaleFactor = Math.pow(2, zoomDifference);
+        feature.properties.calculatedSize = Math.min(
+            feature.properties.size * scaleFactor, 
+            255
+        );
+        
+        // Recalcular selectionBox apenas quando forçado ou se não existir
+        if (forceRecalculateSelectionBox || !feature.properties.selectionBox) {
+            feature.properties.selectionBox = this.calculateSelectionBoxGeometry(
+                feature.geometry.coordinates,
+                feature.properties.text,
+                feature.properties.size,  // Usar size original, não calculatedSize
+                feature.properties.rotation,
+                feature.properties.createdAtZoom  // CRUCIAL: zoom de criação
+            );
+        }
+        
+        return feature;
+    }
+
+    // Método funcional que retorna geometria usando zoom de criação
+    calculateSelectionBoxGeometry = (coordinates, text, size, rotation, createdAtZoom) => {
+        const { width, height } = this.measureTextSize(text, size, 'Arial');
+        const expandedDimensions = this.toolManager.uiManager.calculateExpandedDimensions(width, height, rotation);
+        const padding = 5;
+        
+        // CORRETO: Usar zoom de criação para conversão
+        const centerLat = coordinates[1];
+        const widthDegrees = this.toolManager.uiManager.pixelsToDegrees(
+            expandedDimensions.width + (padding * 2), 
+            centerLat, 
+            createdAtZoom
+        );
+        const heightDegrees = this.toolManager.uiManager.pixelsToDegrees(
+            expandedDimensions.height + (padding * 2), 
+            centerLat, 
+            createdAtZoom
+        );
+        
+        return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
+    }
+
+    // Criar selection box a partir de dimensões em graus
+    createSelectionBoxFromDegrees = (coordinates, widthDegrees, heightDegrees) => {
+        const [lng, lat] = coordinates;
+        const halfWidth = widthDegrees / 2;
+        const halfHeight = heightDegrees / 2;
+        
+        return {
+            type: 'Polygon',
+            coordinates: [[
+                [lng - halfWidth, lat - halfHeight], // bottom-left
+                [lng + halfWidth, lat - halfHeight], // bottom-right
+                [lng + halfWidth, lat + halfHeight], // top-right
+                [lng - halfWidth, lat + halfHeight], // top-left
+                [lng - halfWidth, lat - halfHeight]  // close
+            ]]
+        };
+    }
+
+    // Buscar dados atualizados do source
+    getLatestFeatureData = (featureId) => {
+        const data = this.map.getSource('texts')._data;
+        return data.features.find(f => f.properties.id == featureId);
+    }
+
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
@@ -165,6 +256,15 @@ class AddTextControl {
         const currentZoom = this.map.getZoom();
         feature.properties.createdAtZoom = currentZoom;
         feature.properties.calculatedSize = feature.properties.size;
+        
+        // Calcular selection box usando método com zoom de criação
+        feature.properties.selectionBox = this.calculateSelectionBoxGeometry(
+            feature.geometry.coordinates,
+            feature.properties.text,
+            feature.properties.size,
+            feature.properties.rotation,
+            feature.properties.createdAtZoom
+        );
         
         // Salvar no IndexedDB
         await addFeature('texts', feature);
@@ -251,20 +351,22 @@ class AddTextControl {
     
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        
         for (const feature of features) {
-            const f = data.features.find(f => f.properties.id == feature.properties.id);
-            if (f) {
-                f.properties[property] = value;
-                feature.properties[property] = value;
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            if (sourceFeature) {
+                sourceFeature.properties[property] = value;
+                feature.properties[property] = value; // Sync back
 
-                if (property === 'size') {
-                    const currentZoom = this.map.getZoom();
-                    const zoomDifference = currentZoom - f.properties.createdAtZoom;
-                    const scaleFactor = Math.pow(2, zoomDifference);
-                    const newCalculatedSize = value * scaleFactor <= 255? value * scaleFactor : 255;
-                    f.properties.calculatedSize = newCalculatedSize;
-                    feature.properties.calculatedSize = newCalculatedSize;
-                }
+                // CORRETO: Só recalcular selection box se propriedades intrínsecas mudaram
+                const shouldRecalculateSelectionBox = ['text', 'size', 'rotation'].includes(property);
+                
+                // DEFENSIVO: Garantir consistência (mas só forçar recálculo se necessário)
+                this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
+                
+                // Sincronizar de volta para feature externa
+                feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
+                feature.properties.selectionBox = sourceFeature.properties.selectionBox;
             }
         }
         this.map.getSource('texts').setData(data);
@@ -273,18 +375,25 @@ class AddTextControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+            
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
+                    const sourceFeature = data.features[featureIndex];
+                    
                     if (onlyUpdateProperties) {
-                        Object.assign(data.features[featureIndex].properties, feature.properties);
+                        Object.assign(sourceFeature.properties, feature.properties);
+                        // Não forçar recálculo da selection box para mudanças só de propriedades
+                        this.ensureFeatureConsistency(sourceFeature, null, false);
                     } else {
-                        data.features[featureIndex] = feature;
+                        // Atualizar geometria = drag operation
+                        sourceFeature.geometry = feature.geometry;
+                        // FORÇAR recálculo da selection box para nova posição
+                        this.ensureFeatureConsistency(sourceFeature, null, true);
                     }
 
                     if (save) {
-                        const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
-                        await updateFeature('texts', featureToUpdate);
+                        await updateFeature('texts', sourceFeature);
                     }
                 }
             }
@@ -347,7 +456,13 @@ class AddTextControl {
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
-            feature.properties.bloqueado !== initialProperties.bloqueado
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.showBackground !== initialProperties.showBackground ||
+            feature.properties.backgroundFillColor !== initialProperties.backgroundFillColor ||
+            feature.properties.backgroundFillOpacity !== initialProperties.backgroundFillOpacity ||
+            feature.properties.backgroundBorderColor !== initialProperties.backgroundBorderColor ||
+            feature.properties.backgroundBorderOpacity !== initialProperties.backgroundBorderOpacity ||
+            feature.properties.backgroundBorderWidth !== initialProperties.backgroundBorderWidth
         );
     }
 }

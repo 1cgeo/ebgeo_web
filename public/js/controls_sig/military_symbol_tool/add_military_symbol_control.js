@@ -10,44 +10,52 @@ class AddMilitarySymbolControl {
         this.toolManager.militarySymbolControl = this;
         this.selectionManager = toolManager.selectionManager;
         
-        // ✅ CORE STATE - Padronizado
+        // Core state
         this.isActive = false;
-        this.selectedFeature = null;  // ✅ NOVO - para integração com selection system
+        this.selectedFeature = null;
         this.symbolGenerator = new MilitarySymbolGenerator();
 
-        // ✅ MANTIDO - Performance optimization específica para símbolos (RAF & Debouncing)
+        // Performance optimization para símbolos (mantido)
         this.symbolRafId = null;
         this.pendingSymbolUpdate = false;
         this.lastSymbolFeature = null;
         this.symbolDebounceTimer = null;
+
+        // Zoom handling (seguindo padrão do text control)
+        this.zoomRafId = null;
+        this.pendingZoomUpdate = false;
     }
 
-    // ✅ ATUALIZADO - com novos atributos padrão + todos os campos SIDC específicos mantidos
     static DEFAULT_PROPERTIES = {
-        // ✅ MANTIDO - Campos do SIDC específicos (essenciais para símbolos militares)
-        context: "0",                   // B: Contexto (0=realidade)
-        standardIdentity: "3",          // C: Standard Identity (3=amigo)
-        status: "0",                    // E: Status (0=presente)
-        hqTfDummy: "0",                // F: HQ/TF/Dummy (0=não aplicável)
-        echelon: "16",                  // G: Escalão (16=batalhão)
-        mainIcon: "121100",             // H: Ícone principal (121100=infantaria)
-        modifier1: "00",                // I: Modificador 1
-        modifier2: "00",                // J: Modificador 2
+        // Campos do SIDC específicos (mantidos)
+        context: "0",
+        standardIdentity: "3",
+        status: "0",
+        hqTfDummy: "0",
+        echelon: "16",
+        mainIcon: "121100",
+        modifier1: "00",
+        modifier2: "00",
 
-        // ✅ MANTIDO - Propriedades de renderização específicas
+        // Propriedades de renderização
         size: 1.0,
         width: 100,
         height: 100,
         opacity: 1.0,
         rotation: 0,
 
+        // Zoom-invariant properties (seguindo text control)
+        createdAtZoom: 0,
+        calculatedSize: 1.0,
+        selectionBox: null,  // GeoJSON Polygon geometry
+
         // Identificadores
         id: null,
         source: 'military_symbol',
-        nome: '',           // Será preenchido automaticamente
-        descricao: '',      // String vazia
-        visivel: true,      // Boolean true
-        bloqueado: false    // Boolean false
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
     onAdd(map) {
@@ -65,6 +73,7 @@ class AddMilitarySymbolControl {
 
         this.container.appendChild(this.button);
         this.setupEventListeners();
+        this.setupZoomListener();
         this.changeButtonColor();
 
         return this.container;
@@ -72,6 +81,13 @@ class AddMilitarySymbolControl {
 
     onRemove() {
         try {
+            this.map.off('zoom', this.handleZoomChange);
+            if (this.zoomRafId) {
+                cancelAnimationFrame(this.zoomRafId);
+                this.zoomRafId = null;
+            }
+            this.pendingZoomUpdate = false;
+            
             this.removeEventListeners();
             this.cancelPendingUpdates();
             this.deactivate();
@@ -86,9 +102,8 @@ class AddMilitarySymbolControl {
         // Event listeners básicos se necessário
     }
 
-    // ✅ ATUALIZADO - com cleanup hover
     removeEventListeners = () => {
-        this.removeHoverListeners(); // ✅ NOVO - cleanup hover
+        this.removeHoverListeners();
     }
 
     changeButtonColor = () => {
@@ -98,19 +113,141 @@ class AddMilitarySymbolControl {
         $("#military-symbol-tool").html(`<img class="icon-military-tool" src="${iconSrc}" alt="MILITARY" />`);
     }
 
+    // ===== ZOOM-INVARIANT SYSTEM (seguindo text control) =====
+
+    setupZoomListener = () => {
+        this.map.on('zoom', this.handleZoomChange);
+    }
+
+    handleZoomChange = () => {
+        if (!this.pendingZoomUpdate) {
+            this.pendingZoomUpdate = true;
+            this.zoomRafId = requestAnimationFrame(this.updateAllSymbolSizes);
+        }
+    }
+
+    applyZoomCorrections = (features) => {
+        const currentZoom = this.map.getZoom();
+
+        return features.map(feature => {
+            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 10); // Limite máximo 10x
+            return feature;
+        });
+    }
+
+    updateAllSymbolSizes = () => {
+        if (!this.map.getSource('military_symbols')) {
+            return;
+        }
+        
+        const currentZoom = this.map.getZoom();
+        const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
+        let hasChanges = false;
+
+        data.features.forEach(feature => {
+            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            const newCalculatedSize = Math.min(feature.properties.size * scaleFactor, 10);
+            
+            if (feature.properties.calculatedSize !== newCalculatedSize) {
+                feature.properties.calculatedSize = newCalculatedSize;
+                hasChanges = true;
+            }
+        });
+
+        if (hasChanges) {
+            this.map.getSource('military_symbols').setData(data);
+        }
+
+        this.pendingZoomUpdate = false;
+    }
+
+    // Método para calcular selection box (seguindo text control)
+    calculateSelectionBoxGeometry = (coordinates, width, height, size, rotation, createdAtZoom) => {
+        // Aplicar size como fator de escala + correção de 62%
+        const scaledWidth = width * size * 0.625;
+        const scaledHeight = height * size * 0.625;
+        const expandedDimensions = this.toolManager.uiManager.calculateExpandedDimensions(scaledWidth, scaledHeight, rotation);
+        const padding = 5;
+        
+        // Usar zoom de criação para conversão
+        const centerLat = coordinates[1];
+        const widthDegrees = this.toolManager.uiManager.pixelsToDegrees(
+            expandedDimensions.width + (padding * 2), 
+            centerLat, 
+            createdAtZoom
+        );
+        const heightDegrees = this.toolManager.uiManager.pixelsToDegrees(
+            expandedDimensions.height + (padding * 2), 
+            centerLat, 
+            createdAtZoom
+        );
+        
+        return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
+    }
+
+    createSelectionBoxFromDegrees = (coordinates, widthDegrees, heightDegrees) => {
+        const [lng, lat] = coordinates;
+        const halfWidth = widthDegrees / 2;
+        const halfHeight = heightDegrees / 2;
+        
+        return {
+            type: 'Polygon',
+            coordinates: [[
+                [lng - halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat - halfHeight]
+            ]]
+        };
+    }
+
+    // Garantir consistência (seguindo text control)
+    ensureFeatureConsistency = (feature, currentZoom = null, forceRecalculateSelectionBox = false) => {
+        if (!currentZoom) {
+            currentZoom = this.map.getZoom();
+        }
+        
+        // Sempre recalcular calculatedSize baseado no zoom atual
+        const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+        const scaleFactor = Math.pow(2, zoomDifference);
+        feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 10);
+        
+        // Recalcular selectionBox apenas quando forçado ou se não existir
+        if (forceRecalculateSelectionBox || !feature.properties.selectionBox) {
+            feature.properties.selectionBox = this.calculateSelectionBoxGeometry(
+                feature.geometry.coordinates,
+                feature.properties.width,
+                feature.properties.height,
+                feature.properties.size,
+                feature.properties.rotation,
+                feature.properties.createdAtZoom
+            );
+        }
+        
+        return feature;
+    }
+
+    getLatestFeatureData = (featureId) => {
+        const data = this.map.getSource('military_symbols')._data;
+        return data.features.find(f => f.properties.id == featureId);
+    }
+
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
         this.changeButtonColor();
     }
 
-    // ✅ ATUALIZADO - com cleanup ao desativar
     deactivate = () => {
         this.isActive = false;
         this.cancelPendingUpdates();
         this.map.getCanvas().style.cursor = '';
         this.changeButtonColor();
-        this.deselectFeature(); // ✅ NOVO - cleanup ao desativar
+        this.deselectFeature();
     }
 
     handleMapClick = async (e) => {
@@ -122,10 +259,8 @@ class AddMilitarySymbolControl {
         this.toolManager.deactivateCurrentTool();
     }
 
-    // ✅ ATUALIZADO - com geração automática de nomes
     async createMilitarySymbol(coordinates) {
         try {
-            // Gerar ID único
             const symbolId = IDUtils.generateUniqueId();
 
             const properties = {
@@ -133,12 +268,16 @@ class AddMilitarySymbolControl {
                 id: symbolId
             };
 
-            // ✅ NOVO - Geração automática de nomes
             properties.nome = IDUtils.generateFeatureName('military_symbol', this.map);
 
-            // ✅ MANTIDO - Gerar SIDC usando propriedades padrão (lógica específica preservada)
+            // Gerar SIDC usando propriedades padrão
             const sidc = this.symbolGenerator.buildSIDC(properties);
             properties.sidc = sidc;
+
+            // Definir zoom properties
+            const currentZoom = this.map.getZoom();
+            properties.createdAtZoom = currentZoom;
+            properties.calculatedSize = properties.size;
 
             const feature = {
                 type: 'Feature',
@@ -150,7 +289,17 @@ class AddMilitarySymbolControl {
                 properties: properties
             };
 
-            // ✅ MANTIDO - Gerar blob do símbolo e salvar no imageStore (lógica específica preservada)
+            // Calcular selection box
+            feature.properties.selectionBox = this.calculateSelectionBoxGeometry(
+                feature.geometry.coordinates,
+                feature.properties.width,
+                feature.properties.height,
+                feature.properties.size,
+                feature.properties.rotation,
+                feature.properties.createdAtZoom
+            );
+
+            // Gerar blob do símbolo e salvar no imageStore
             const symbolBlob = await this.symbolGenerator.generateSymbolBlob(properties);
             await imageStore.setItem(symbolId, symbolBlob);
 
@@ -162,7 +311,7 @@ class AddMilitarySymbolControl {
             // Salvar feature no store
             await addFeature('military_symbols', feature);
 
-            // ✅ MANTIDO - Carregar imagem no mapa (seguindo padrão do map.js)
+            // Carregar imagem no mapa
             await this.loadSymbolImageToMap(symbolId, symbolBlob);
 
             // Selecionar o símbolo criado
@@ -175,12 +324,11 @@ class AddMilitarySymbolControl {
         }
     }
 
-    // ===== SELECTION SYSTEM INTEGRATION ===== 
+    // ===== SELECTION SYSTEM INTEGRATION =====
 
-    // ✅ NOVO - Interface para SelectionManager
     onFeatureSelected = (feature) => {
         this.selectedFeature = feature;
-        this.setupHoverListeners(); // ✅ Hover dinâmico quando selecionado
+        this.setupHoverListeners();
     }
 
     onFeatureDeselected = (feature) => {
@@ -196,14 +344,12 @@ class AddMilitarySymbolControl {
         }
     }
 
-    // ✅ NOVO - Método de desseleção
     deselectFeature = () => {
         this.selectedFeature = null;
         this.removeHoverListeners();
         this.map.getCanvas().style.cursor = '';
     }
 
-    // ✅ NOVO - Sistema hover dinâmico (padrão dos outros controls)
     setupHoverListeners = () => {
         this.map.on('mousemove', this.onHoverMove);
     }
@@ -224,22 +370,20 @@ class AddMilitarySymbolControl {
         this.map.getCanvas().style.cursor = hasSelectedFeature ? 'move' : '';
     }
 
-    // ✅ NOVO - Interface methods para MoveHandler integration
     isEditingMode = () => {
-        return false; // Military Symbol não tem editing mode com handles
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return false; // Military Symbol não tem handles para editar
+        return false;
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
-        // N/A - Military Symbol não tem handles para sincronizar
+        // N/A
     }
 
-    // ===== BLOB STORAGE E SYMBOL GENERATION - MANTIDOS INALTERADOS =====
+    // ===== BLOB STORAGE E SYMBOL GENERATION - MANTIDOS =====
 
-    // ✅ MANTIDO - Método que segue exatamente o padrão do map.js
     async loadSymbolImageToMap(imageId, blob) {
         const url = URL.createObjectURL(blob);
 
@@ -263,7 +407,6 @@ class AddMilitarySymbolControl {
                 reject(new Error(`Falha ao carregar símbolo ${imageId}`));
             };
 
-            // Timeout para evitar travamento
             setTimeout(() => {
                 URL.revokeObjectURL(url);
                 reject(new Error(`Timeout ao carregar símbolo ${imageId}`));
@@ -273,7 +416,7 @@ class AddMilitarySymbolControl {
         });
     }
 
-    // ✅ MANTIDO - Sistema RAF otimizado para símbolos (performance crítica)
+    // Sistema RAF otimizado para símbolos (mantido)
     scheduleSymbolUpdate = (feature) => {
         this.lastSymbolFeature = feature;
 
@@ -283,7 +426,6 @@ class AddMilitarySymbolControl {
         }
     }
 
-    // ✅ MANTIDO - Performance optimization específica para símbolos
     performSymbolUpdate = () => {
         if (!this.lastSymbolFeature) {
             this.pendingSymbolUpdate = false;
@@ -298,14 +440,13 @@ class AddMilitarySymbolControl {
         this.pendingSymbolUpdate = false;
     }
 
-    // ✅ MANTIDO - Atualização inteligente de símbolos
     async updateSymbolImage(feature) {
         try {
             // Gerar nova imagem e salvar no imageStore
             const symbolBlob = await this.symbolGenerator.generateSymbolBlob(feature.properties);
             await imageStore.setItem(feature.properties.id, symbolBlob);
 
-            // Atualizar imagem no mapa (seguindo padrão do map.js)
+            // Atualizar imagem no mapa
             if (this.map.hasImage(feature.properties.id)) {
                 this.map.removeImage(feature.properties.id);
             }
@@ -316,7 +457,6 @@ class AddMilitarySymbolControl {
         }
     }
 
-    // ✅ MANTIDO - Cleanup otimizado específico para símbolos
     cancelPendingUpdates = () => {
         if (this.symbolRafId) {
             cancelAnimationFrame(this.symbolRafId);
@@ -333,19 +473,18 @@ class AddMilitarySymbolControl {
 
     // ===== FEATURE MANAGEMENT METHODS =====
 
-    // ✅ MANTIDO - Lógica específica de detecção de mudanças SIDC preservada
     updateFeaturesProperty = async (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
 
         for (const feature of features) {
-            const f = data.features.find(f => f.properties.id == feature.properties.id);
-            if (f) {
-                const oldSIDC = f.properties.sidc;
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            if (sourceFeature) {
+                const oldSIDC = sourceFeature.properties.sidc;
 
-                f.properties[property] = value;
+                sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // ✅ MANTIDO - Propriedades que afetam o SIDC devem regenerar a imagem
+                // Propriedades que afetam o SIDC devem regenerar a imagem
                 const sidcProperties = [
                     'context', 'standardIdentity', 'status', 'hqTfDummy',
                     'echelon', 'mainIcon', 'modifier1', 'modifier2'
@@ -353,8 +492,8 @@ class AddMilitarySymbolControl {
 
                 if (sidcProperties.includes(property)) {
                     // Calcular novo SIDC
-                    const newSIDC = this.symbolGenerator.buildSIDC(f.properties);
-                    f.properties.sidc = newSIDC;
+                    const newSIDC = this.symbolGenerator.buildSIDC(sourceFeature.properties);
+                    sourceFeature.properties.sidc = newSIDC;
                     feature.properties.sidc = newSIDC;
 
                     // Only regenerate if SIDC actually changed
@@ -362,6 +501,16 @@ class AddMilitarySymbolControl {
                         this.scheduleSymbolUpdate(feature);
                     }
                 }
+
+                // Recalcular selection box se propriedades intrínsecas mudaram
+                const shouldRecalculateSelectionBox = ['size', 'rotation'].includes(property);
+                
+                // Garantir consistência
+                this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
+                
+                // Sincronizar de volta
+                feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
+                feature.properties.selectionBox = sourceFeature.properties.selectionBox;
             }
         }
 
@@ -375,14 +524,20 @@ class AddMilitarySymbolControl {
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
+                    const sourceFeature = data.features[featureIndex];
+                    
                     if (onlyUpdateProperties) {
-                        Object.assign(data.features[featureIndex].properties, feature.properties);
+                        Object.assign(sourceFeature.properties, feature.properties);
+                        this.ensureFeatureConsistency(sourceFeature, null, false);
                     } else {
-                        data.features[featureIndex] = feature;
+                        // Atualizar geometria = drag operation
+                        sourceFeature.geometry = feature.geometry;
+                        // Forçar recálculo da selection box para nova posição
+                        this.ensureFeatureConsistency(sourceFeature, null, true);
                     }
 
                     if (save) {
-                        const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
+                        const featureToUpdate = onlyUpdateProperties ? sourceFeature : sourceFeature;
                         await updateFeature('military_symbols', featureToUpdate);
                     }
                 }
@@ -409,7 +564,7 @@ class AddMilitarySymbolControl {
         }
     }
 
-    // ✅ MANTIDO - Lógica específica de discard com regeneração SIDC
+    // Lógica específica de discard com regeneração SIDC (mantida)
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         for (const feature of features) {
             if (initialPropertiesMap.has(feature.properties.id)) {
@@ -425,25 +580,18 @@ class AddMilitarySymbolControl {
         await this.updateFeatures(features, true, true);
     }
 
-    // ✅ MANTIDO - Delete com blob storage específico para símbolos
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        // Primeiro, remover features do source
         const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
         const idsToDelete = new Set(Array.from(features).map(f => String(f.properties.id)));
         data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
         this.map.getSource('military_symbols').setData(data);
 
-        // Remover recursos e feições
         for (const feature of features) {
             try {
-                // Remover imagem do imageStore usando f.properties.id (garantia de consistência)
                 await imageStore.removeItem(feature.properties.id);
-
-                // Remover do IndexedDB
                 await removeFeature('military_symbols', feature.properties.id);
-
             } catch (error) {
                 console.error(`Erro ao deletar símbolo militar ${feature.properties.id}:`, error);
             }
@@ -457,7 +605,7 @@ class AddMilitarySymbolControl {
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
         return (
-            // ✅ MANTIDO - Todas as propriedades específicas de símbolos militares
+            // Todas as propriedades específicas de símbolos militares (mantidas)
             feature.properties.context !== initialProperties.context ||
             feature.properties.standardIdentity !== initialProperties.standardIdentity ||
             feature.properties.status !== initialProperties.status ||

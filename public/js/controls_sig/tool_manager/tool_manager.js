@@ -3,10 +3,15 @@ class ToolManager {
     constructor() {
         this.activeTool = null;
         this.selectionManager = null;
+        this.uiManager = null
     }
 
     setSelectionManager(selectionManager) {
         this.selectionManager = selectionManager;
+    }
+
+    setUiManager(uiManager) {
+        this.uiManager = uiManager;
     }
 
     setActiveTool(tool) {

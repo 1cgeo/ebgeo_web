@@ -47,12 +47,14 @@ export class FeatureNavigationUtils {
         } = options;
         
         try {
-            const geometry = feature.geometry;
+            // Detectar se deve usar selectionBox
+            const useSelectionBox = this._shouldUseSelectionBox(feature);
+            const geometryToUse = useSelectionBox ? feature.properties.selectionBox : feature.geometry;
             
-            switch (geometry.type) {
+            switch (geometryToUse.type) {
                 case 'Point':
-                    await this._zoomToPoint(geometry.coordinates, mapInstance, {
-                        minZoom: Math.max(mapInstance.getZoom(), 16),
+                    await this._zoomToPoint(geometryToUse.coordinates, mapInstance, {
+                        minZoom: Math.max(mapInstance.getZoom(), 15),
                         duration
                     });
                     break;
@@ -61,7 +63,7 @@ export class FeatureNavigationUtils {
                 case 'Polygon':
                 case 'MultiLineString':
                 case 'MultiPolygon':
-                    await this._zoomToBounds(geometry, mapInstance, {
+                    await this._zoomToBounds(geometryToUse, mapInstance, {
                         paddingPercent,
                         minZoom,
                         maxZoom,
@@ -70,11 +72,24 @@ export class FeatureNavigationUtils {
                     break;
                     
                 default:
-                    console.warn('Tipo de geometria não suportado:', geometry.type);
+                    console.warn('Tipo de geometria não suportado:', geometryToUse.type);
             }
         } catch (error) {
             console.error('Erro ao fazer zoom para feature:', error);
         }
+    }
+
+    /**
+     * Determina se deve usar selectionBox em vez da geometria principal
+     * @param {Object} feature - Feature GeoJSON
+     * @returns {boolean} True se deve usar selectionBox
+     */
+    static _shouldUseSelectionBox(feature) {
+        // Tipos que têm selectionBox pré-calculado
+        const selectionBoxTypes = ['text', 'image', 'military_symbol'];
+        const featureType = feature.properties?.source;
+        const hasSelectionBox = feature.properties?.selectionBox?.type === 'Polygon';
+        return selectionBoxTypes.includes(featureType) && hasSelectionBox;
     }
 
     /**

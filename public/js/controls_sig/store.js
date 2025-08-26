@@ -1,8 +1,8 @@
 // Path: js\controls_sig\store.js
 
-const SCHEMA_VERSION = '1.2';
-const MIN_SCHEMA_VERSION = '1.2';
-const MAX_SCHEMA_VERSION = '1.2';
+const SCHEMA_VERSION = '1.3';
+const MIN_SCHEMA_VERSION = '1.3';
+const MAX_SCHEMA_VERSION = '1.3';
 
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const imageStore = localforage.createInstance({ name: 'ebgeo_images' });

@@ -58,8 +58,8 @@ class MoveHandler {
             'polygon': this.updatePolygonFeature.bind(this),
             'los': this.updateLOSFeature.bind(this),
             'visibility': this.updateVisibilityFeature.bind(this),
-            'text': this.updatePointFeature.bind(this),
-            'image': this.updatePointFeature.bind(this),
+            'text': this.updateTextFeature.bind(this),
+            'image': this.updateImageFeature.bind(this),
             'rectangle': this.updateRectangleFeature.bind(this),
             'circle': this.updateCircleFeature.bind(this),
             'ellipse': this.updateEllipseFeature.bind(this),
@@ -235,10 +235,10 @@ class MoveHandler {
             this.updateSelectionManagerFeatures(updatedFeatures);
 
             await this.selectionManager.updateSelectedFeatures();
-            
+
             this.selectionManager.updateProfile();
             this.syncEditHandlesForMovedFeatures(updatedFeatures);
-            
+
             // ✅ FIXED: Update measurements after drag
             this.updateMeasurementsForMovedFeatures(updatedFeatures);
         }
@@ -384,7 +384,7 @@ class MoveHandler {
     updateMeasurementsForMovedFeatures = (updatedFeatures) => {
         for (const feature of updatedFeatures) {
             const type = feature.properties.source;
-            
+
             // Update line measurements
             if (type === 'line' && feature.properties.measure) {
                 const lineControl = this.getControl('line');
@@ -392,7 +392,7 @@ class MoveHandler {
                     lineControl.updateFeatureMeasurement(feature);
                 }
             }
-            
+
             // Update polygon measurements  
             else if (type === 'polygon' && feature.properties.measure) {
                 const polygonControl = this.getControl('polygon');
@@ -439,6 +439,80 @@ class MoveHandler {
 
     updateLOSFeature(feature, dx, dy, newCoords) {
         return this.uiManager.translateFeature(feature, dx, dy);
+    }
+
+    updateTextFeature(feature, dx, dy, newCoords) {
+        const updatedFeature = {
+            ...feature,
+            geometry: {
+                ...feature.geometry,
+                coordinates: [newCoords.lng, newCoords.lat]
+            }
+        };
+
+        const textControl = this.getControl('text');
+        if (textControl && textControl.calculateSelectionBoxGeometry) {
+            updatedFeature.properties.selectionBox = textControl.calculateSelectionBoxGeometry(
+                updatedFeature.geometry.coordinates,
+                updatedFeature.properties.text,
+                updatedFeature.properties.size,
+                updatedFeature.properties.rotation,
+                updatedFeature.properties.createdAtZoom
+            );
+        }
+
+        return updatedFeature;
+    }
+
+    updateImageFeature(feature, dx, dy, newCoords) {
+        const updatedFeature = {
+            ...feature,
+            geometry: {
+                ...feature.geometry,
+                coordinates: [newCoords.lng, newCoords.lat]
+            }
+        };
+
+        // Recalcular selectionBox usando createdAtZoom
+        const imageControl = this.getControl('image');
+        if (imageControl && imageControl.calculateSelectionBoxGeometry) {
+            updatedFeature.properties.selectionBox = imageControl.calculateSelectionBoxGeometry(
+                updatedFeature.geometry.coordinates,
+                updatedFeature.properties.width,
+                updatedFeature.properties.height,
+                updatedFeature.properties.size,
+                updatedFeature.properties.rotation,
+                updatedFeature.properties.createdAtZoom
+            );
+        }
+
+        return updatedFeature;
+    }
+
+    // NOVO - Método específico para Military Symbol  
+    updateMilitarySymbolFeature(feature, dx, dy, newCoords) {
+        const updatedFeature = {
+            ...feature,
+            geometry: {
+                ...feature.geometry,
+                coordinates: [newCoords.lng, newCoords.lat]
+            }
+        };
+
+        // Recalcular selectionBox usando createdAtZoom
+        const militaryControl = this.getControl('military_symbol');
+        if (militaryControl && militaryControl.calculateSelectionBoxGeometry) {
+            updatedFeature.properties.selectionBox = militaryControl.calculateSelectionBoxGeometry(
+                updatedFeature.geometry.coordinates,
+                updatedFeature.properties.width,
+                updatedFeature.properties.height,
+                updatedFeature.properties.size,
+                updatedFeature.properties.rotation,
+                updatedFeature.properties.createdAtZoom
+            );
+        }
+
+        return updatedFeature;
     }
 
     updatePointFeature(feature, dx, dy, newCoords) {
@@ -548,17 +622,6 @@ class MoveHandler {
         };
 
         return updatedFeature;
-    }
-
-    updateMilitarySymbolFeature(feature, dx, dy, newCoords) {
-        // Military symbols are point features, so just update the coordinates
-        return {
-            ...feature,
-            geometry: {
-                ...feature.geometry,
-                coordinates: [newCoords.lng, newCoords.lat]
-            }
-        };
     }
 
     updateRectangleFeature(feature, dx, dy, newCoords) {

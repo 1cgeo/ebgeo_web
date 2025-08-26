@@ -19,7 +19,6 @@ class AddBrushControl {
 
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
-        this.setupZoomListener();
     }
 
     static DEFAULT_PROPERTIES = {
@@ -50,6 +49,7 @@ class AddBrushControl {
 
         this.container.appendChild(button);
         this.updateButtonAppearance();
+        this.setupZoomListener();
 
         return this.container;
     }
@@ -145,9 +145,7 @@ class AddBrushControl {
     }
 
     setupZoomListener = () => {
-        if(this.map){
-            this.map.on('zoom', this.handleZoomChange);
-        }
+        this.map.on('zoom', this.handleZoomChange);
     }
 
     handleZoomChange = () => {

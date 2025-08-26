@@ -283,18 +283,27 @@ function setupOccupiedFrontLayers(features, mapInstance) {
 }
 
 function setupMilitarySymbolsLayers(features, mapInstance) {
+    const militarySymbolControl = mapInstance._controls.find(control =>
+        control.constructor.name === 'AddMilitarySymbolControl'
+    );
+
+    let correctedSymbols = features.military_symbols;
+    if (militarySymbolControl) {
+        correctedSymbols = militarySymbolControl.applyZoomCorrections(features.military_symbols);
+    }
+
     if (!mapInstance.getSource('military_symbols')) {
         mapInstance.addSource('military_symbols', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
-                features: features.military_symbols
+                features: correctedSymbols
             }
         });
     } else {
         mapInstance.getSource('military_symbols').setData({
             type: 'FeatureCollection',
-            features: features.military_symbols
+            features: correctedSymbols
         });
     }
 
@@ -308,7 +317,7 @@ function setupMilitarySymbolsLayers(features, mapInstance) {
             },
             layout: {
                 'icon-image': ['get', 'id'],
-                'icon-size': ['get', 'size'],
+                'icon-size': ['get', 'calculatedSize'],
                 'icon-rotate': ['get', 'rotation'],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true
@@ -1052,18 +1061,27 @@ function setupVisibilityLayers(features, mapInstance) {
 }
 
 function setupImageLayers(features, mapInstance) {
+    const imageControl = mapInstance._controls.find(control =>
+        control.constructor.name === 'AddImageControl'
+    );
+
+    let correctedImages = features.images;
+    if (imageControl) {
+        correctedImages = imageControl.applyZoomCorrections(features.images);
+    }
+
     if (!mapInstance.getSource('images')) {
         mapInstance.addSource('images', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
-                features: features.images
+                features: correctedImages
             }
         });
     } else {
         mapInstance.getSource('images').setData({
             type: 'FeatureCollection',
-            features: features.images
+            features: correctedImages
         });
     }
 
@@ -1077,7 +1095,7 @@ function setupImageLayers(features, mapInstance) {
             },
             layout: {
                 'icon-image': ['get', 'id'],
-                'icon-size': ['get', 'size'],
+                'icon-size': ['get', 'calculatedSize'],
                 'icon-rotate': ['get', 'rotation'],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true
@@ -1379,6 +1397,69 @@ function setupTextLayers(features, mapInstance) {
         });
     }
 
+    // Source separado para backgrounds (usando selectionBox como geometria)
+    const backgroundFeatures = correctedTexts
+        .filter(feature => feature.properties.showBackground && feature.properties.selectionBox)
+        .map(feature => ({
+            type: 'Feature',
+            properties: {
+                ...feature.properties,
+                id: feature.properties.id + '_bg' // ID único para o background
+            },
+            geometry: feature.properties.selectionBox // Usar selectionBox como geometria
+        }));
+
+    if (!mapInstance.getSource('text-backgrounds')) {
+        mapInstance.addSource('text-backgrounds', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: backgroundFeatures
+            }
+        });
+    } else {
+        mapInstance.getSource('text-backgrounds').setData({
+            type: 'FeatureCollection',
+            features: backgroundFeatures
+        });
+    }
+
+    // Layer 1: Background Fill (primeiro layer - atrás de tudo)
+    if (!mapInstance.getLayer('text-background-fill-layer')) {
+        mapInstance.addLayer({
+            id: 'text-background-fill-layer',
+            type: 'fill',
+            source: 'text-backgrounds',
+            paint: {
+                'fill-color': ['get', 'backgroundFillColor'],
+                'fill-opacity': ['get', 'backgroundFillOpacity']
+            },
+            filter: ['all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'showBackground'], true]
+            ]
+        });
+    }
+
+    // Layer 2: Background Border (segundo layer)
+    if (!mapInstance.getLayer('text-background-border-layer')) {
+        mapInstance.addLayer({
+            id: 'text-background-border-layer',
+            type: 'line',
+            source: 'text-backgrounds',
+            paint: {
+                'line-color': ['get', 'backgroundBorderColor'],
+                'line-width': ['get', 'backgroundBorderWidth'],
+                'line-opacity': ['get', 'backgroundBorderOpacity']
+            },
+            filter: ['all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'showBackground'], true]
+            ]
+        });
+    }
+
+    // Layer 3: Texto (terceiro layer - na frente)
     if (!mapInstance.getLayer('text-layer')) {
         mapInstance.addLayer({
             id: 'text-layer',
@@ -1392,7 +1473,7 @@ function setupTextLayers(features, mapInstance) {
                 'text-rotate': ['get', 'rotation'],
                 'text-ignore-placement': true,
                 'text-allow-overlap': true,
-                "text-font": ["Noto Sans Regular"]
+                'text-font': ['Noto Sans Regular']
             },
             paint: {
                 'text-color': ['get', 'color'],
@@ -1401,6 +1482,37 @@ function setupTextLayers(features, mapInstance) {
             },
             filter: ['!=', ['get', 'visivel'], false]
         });
+    }
+
+    // Função helper para atualizar backgrounds quando textos mudarem
+    const updateBackgroundFeatures = () => {
+        const currentTexts = mapInstance.getSource('texts')._data.features;
+        const updatedBackgroundFeatures = currentTexts
+            .filter(feature => feature.properties.showBackground && feature.properties.selectionBox)
+            .map(feature => ({
+                type: 'Feature',
+                properties: {
+                    ...feature.properties,
+                    id: feature.properties.id + '_bg'
+                },
+                geometry: feature.properties.selectionBox
+            }));
+
+        mapInstance.getSource('text-backgrounds').setData({
+            type: 'FeatureCollection',
+            features: updatedBackgroundFeatures
+        });
+    };
+
+    // Event listener para sincronizar backgrounds quando textos mudarem
+    if (textControl && !textControl._backgroundUpdateListener) {
+        const originalSetData = mapInstance.getSource('texts').setData.bind(mapInstance.getSource('texts'));
+        mapInstance.getSource('texts').setData = function (data) {
+            originalSetData(data);
+            // Pequeno delay para garantir que o source principal foi atualizado
+            setTimeout(updateBackgroundFeatures, 0);
+        };
+        textControl._backgroundUpdateListener = true; // Flag para evitar múltiplas binding
     }
 }
 

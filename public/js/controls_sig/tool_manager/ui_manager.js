@@ -39,9 +39,9 @@ const SELECTION_BOX_STRATEGIES = {
     'visibility': { strategy: 'bbox', errorMsg: 'visibilidade', padding: 5 }, // Always LineString
 
     // Point-based features with custom boxes (keep existing padding: 10px default)
-    'text': { strategy: 'textBox' },
-    'image': { strategy: 'imageBox' },
-    'military_symbol': { strategy: 'imageBox' }
+    'text': { strategy: 'preCalculated' }, // Nova estratégia
+    'image': { strategy: 'preCalculated' },
+    'military_symbol': { strategy: 'preCalculated' }
 };
 
 /**
@@ -281,6 +281,12 @@ class UIManager {
         }
 
         const features = selectedItems.map(item => item.feature);
+        
+        // Para estratégia preCalculated, não usar cache
+        if (strategy.strategy === 'preCalculated') {
+            return this.createPreCalculatedSelectionBoxes(features);
+        }
+
         const cachedBoxes = [];
         const uncachedFeatures = [];
 
@@ -308,9 +314,6 @@ class UIManager {
             switch (strategy.strategy) {
                 case 'bbox':
                     newBoxes = this.createBboxSelectionBoxes(uncachedFeatures, type, strategy.errorMsg);
-                    break;
-                case 'textBox':
-                    newBoxes = this.createTextSelectionBoxes(uncachedFeatures);
                     break;
                 case 'imageBox':
                     newBoxes = this.createImageSelectionBoxes(uncachedFeatures);
@@ -340,6 +343,17 @@ class UIManager {
         }
 
         return [...cachedBoxes, ...newBoxes];
+    }
+
+    /**
+     * Usa geometria pré-calculada armazenada na feature
+     */
+    createPreCalculatedSelectionBoxes(features) {
+        return features.map(feature => ({
+            type: 'Feature',
+            geometry: feature.properties.selectionBox,
+            properties: {}
+        }));
     }
 
     expandBboxWithPadding(bbox, paddingPixels, map) {
@@ -401,39 +415,6 @@ class UIManager {
         }
 
         return boxes;
-    }
-
-    /**
-     * Creates selection boxes for text features (bounding box without rotation but sized to fit rotated content)
-     */
-    createTextSelectionBoxes(features) {
-        return features.map(feature => {
-            const coordinates = feature.geometry.coordinates;
-            const { width, height } = this.measureTextSize(
-                feature.properties.text,
-                feature.properties.size,
-                'Arial'
-            );
-            
-            const rotation = feature.properties.rotation || 0;
-            
-            // Calculate expanded dimensions to fit rotated content
-            const expandedDimensions = this.calculateExpandedDimensions(width, height, rotation);
-            
-            // Create selection box without rotation but with expanded dimensions
-            const polygon = this.createSelectionBox(
-                coordinates, 
-                expandedDimensions.width, 
-                expandedDimensions.height, 
-                0
-            );
-
-            return {
-                type: 'Feature',
-                geometry: polygon,
-                properties: {}
-            };
-        });
     }
 
     /**
@@ -945,17 +926,6 @@ class UIManager {
                 [rotatedPoints[0].lng, rotatedPoints[0].lat]
             ]]
         };
-    }
-
-    measureTextSize = (text, fontSize, fontFamily) => {
-        let adjustedFontSize = fontSize + 15;
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        context.font = `${adjustedFontSize}px ${fontFamily}`;
-        const lines = text.split('\n');
-        const width = Math.max(...lines.map(line => context.measureText(line).width));
-        const height = (adjustedFontSize - 8) * lines.length;
-        return { width, height };
     }
 }
 

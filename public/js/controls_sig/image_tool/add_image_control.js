@@ -8,24 +8,32 @@ class AddImageControl {
         this.toolManager.imageControl = this;
         this.selectionManager = toolManager.selectionManager;
         
-        // ✅ CORE STATE - Simplificado (image é naturalmente simples)
+        // Core state
         this.isActive = false;
-        this.selectedFeature = null;  // ✅ NOVO - para integração com selection system
+        this.selectedFeature = null;
+
+        // Zoom handling (seguindo padrão do text control)
+        this.zoomRafId = null;
+        this.pendingZoomUpdate = false;
     }
 
-    // ✅ NOVOS ATRIBUTOS PADRÃO - Seguindo padrão dos outros controls
     static DEFAULT_PROPERTIES = {
         size: 1,
         rotation: 0,
         opacity: 1,
         source: 'image',
-        nome: '',           // Será preenchido automaticamente
-        descricao: '',      // String vazia
-        visivel: true,      // Boolean true
-        bloqueado: false    // Boolean false
+        
+        // Zoom-invariant properties (seguindo text control)
+        createdAtZoom: 0,
+        calculatedSize: 1,
+        selectionBox: null,  // GeoJSON Polygon geometry
+        
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
-    // ✅ MANTIDO - Configurações de imagem inalteradas
     static MAX_IMAGE_DIMENSION = 800;
     static IMAGE_QUALITY = 0.7;
 
@@ -44,6 +52,7 @@ class AddImageControl {
         this.container.appendChild(button);
 
         this.setupEventListeners();
+        this.setupZoomListener();
         this.changeButtonColor();
 
         return this.container;
@@ -57,6 +66,13 @@ class AddImageControl {
 
     onRemove() {
         try {
+            this.map.off('zoom', this.handleZoomChange);
+            if (this.zoomRafId) {
+                cancelAnimationFrame(this.zoomRafId);
+                this.zoomRafId = null;
+            }
+            this.pendingZoomUpdate = false;
+            
             this.uiManager.removeControl(this.container);
             this.removeEventListeners();
             this.map = undefined;
@@ -70,9 +86,131 @@ class AddImageControl {
         // Event listeners básicos se necessário
     }
 
-    // ✅ ATUALIZADO - com cleanup hover
     removeEventListeners = () => {
-        this.removeHoverListeners(); // ✅ NOVO - cleanup hover
+        this.removeHoverListeners();
+    }
+
+    // ===== ZOOM-INVARIANT SYSTEM (seguindo text control) =====
+
+    setupZoomListener = () => {
+        this.map.on('zoom', this.handleZoomChange);
+    }
+
+    handleZoomChange = () => {
+        if (!this.pendingZoomUpdate) {
+            this.pendingZoomUpdate = true;
+            this.zoomRafId = requestAnimationFrame(this.updateAllImageSizes);
+        }
+    }
+
+    applyZoomCorrections = (features) => {
+        const currentZoom = this.map.getZoom();
+
+        return features.map(feature => {
+            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 10); // Limite máximo 10x
+            return feature;
+        });
+    }
+
+    updateAllImageSizes = () => {
+        if (!this.map.getSource('images')) {
+            return;
+        }
+        
+        const currentZoom = this.map.getZoom();
+        const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
+        let hasChanges = false;
+
+        data.features.forEach(feature => {
+            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            const newCalculatedSize = Math.min(feature.properties.size * scaleFactor, 10);
+            
+            if (feature.properties.calculatedSize !== newCalculatedSize) {
+                feature.properties.calculatedSize = newCalculatedSize;
+                hasChanges = true;
+            }
+        });
+
+        if (hasChanges) {
+            this.map.getSource('images').setData(data);
+        }
+
+        this.pendingZoomUpdate = false;
+    }
+
+    // Método para calcular selection box (seguindo text control)
+    calculateSelectionBoxGeometry = (coordinates, width, height, size, rotation, createdAtZoom) => {
+        // Aplicar size como fator de escala + correção de 62%
+        const scaledWidth = width * size * 0.625;
+        const scaledHeight = height * size * 0.625;
+        const expandedDimensions = this.toolManager.uiManager.calculateExpandedDimensions(scaledWidth, scaledHeight, rotation);
+        const padding = 5;
+        
+        // Usar zoom de criação para conversão
+        const centerLat = coordinates[1];
+        const widthDegrees = this.toolManager.uiManager.pixelsToDegrees(
+            expandedDimensions.width + (padding * 2), 
+            centerLat, 
+            createdAtZoom
+        );
+        const heightDegrees = this.toolManager.uiManager.pixelsToDegrees(
+            expandedDimensions.height + (padding * 2), 
+            centerLat, 
+            createdAtZoom
+        );
+        
+        return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
+    }
+
+    createSelectionBoxFromDegrees = (coordinates, widthDegrees, heightDegrees) => {
+        const [lng, lat] = coordinates;
+        const halfWidth = widthDegrees / 2;
+        const halfHeight = heightDegrees / 2;
+        
+        return {
+            type: 'Polygon',
+            coordinates: [[
+                [lng - halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat - halfHeight]
+            ]]
+        };
+    }
+
+    // Garantir consistência (seguindo text control)
+    ensureFeatureConsistency = (feature, currentZoom = null, forceRecalculateSelectionBox = false) => {
+        if (!currentZoom) {
+            currentZoom = this.map.getZoom();
+        }
+        
+        // Sempre recalcular calculatedSize baseado no zoom atual
+        const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+        const scaleFactor = Math.pow(2, zoomDifference);
+        feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 10);
+        
+        // Recalcular selectionBox apenas quando forçado ou se não existir
+        if (forceRecalculateSelectionBox || !feature.properties.selectionBox) {
+            feature.properties.selectionBox = this.calculateSelectionBoxGeometry(
+                feature.geometry.coordinates,
+                feature.properties.width,
+                feature.properties.height,
+                feature.properties.size,
+                feature.properties.rotation,
+                feature.properties.createdAtZoom
+            );
+        }
+        
+        return feature;
+    }
+
+    getLatestFeatureData = (featureId) => {
+        const data = this.map.getSource('images')._data;
+        return data.features.find(f => f.properties.id == featureId);
     }
 
     activate = () => {
@@ -81,12 +219,11 @@ class AddImageControl {
         this.changeButtonColor();
     }
 
-    // ✅ ATUALIZADO - com cleanup ao desativar
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
         this.changeButtonColor();
-        this.deselectFeature(); // ✅ NOVO - cleanup ao desativar
+        this.deselectFeature();
     }
 
     handleMapClick = (e) => {
@@ -109,7 +246,6 @@ class AddImageControl {
     }
 
     addImageFeature = async (lngLat, imageBase64) => {
-        // Gerar ID único
         const imageId = IDUtils.generateUniqueId();
 
         this.resizeImage(imageBase64, async (resizedImageBase64, width, height) => {
@@ -119,8 +255,23 @@ class AddImageControl {
                 const blob = await response.blob();
                 await imageStore.setItem(imageId, blob);
 
-                // Criar feature com imageId
+                // Criar feature com zoom-invariant properties
                 const feature = this.createImageFeature(lngLat, imageId, width, height);
+                
+                // Definir zoom properties
+                const currentZoom = this.map.getZoom();
+                feature.properties.createdAtZoom = currentZoom;
+                feature.properties.calculatedSize = feature.properties.size;
+                
+                // Calcular selection box
+                feature.properties.selectionBox = this.calculateSelectionBoxGeometry(
+                    feature.geometry.coordinates,
+                    feature.properties.width,
+                    feature.properties.height,
+                    feature.properties.size,
+                    feature.properties.rotation,
+                    feature.properties.createdAtZoom
+                );
                 
                 feature.properties.nome = IDUtils.generateFeatureName('image', this.map);
 
@@ -132,7 +283,7 @@ class AddImageControl {
                 data.features.push(feature);
                 this.map.getSource('images').setData(data);
 
-                // Adicionar imagem ao mapa (seguindo padrão do map.js)
+                // Adicionar imagem ao mapa
                 await this.loadImageToMap(imageId, blob);
 
                 // Selecionar a feição criada
@@ -146,12 +297,11 @@ class AddImageControl {
         });
     }
 
-    // ===== SELECTION SYSTEM INTEGRATION ===== 
+    // ===== SELECTION SYSTEM INTEGRATION =====
 
-    // ✅ NOVO - Interface para SelectionManager
     onFeatureSelected = (feature) => {
         this.selectedFeature = feature;
-        this.setupHoverListeners(); // ✅ Hover dinâmico quando selecionado
+        this.setupHoverListeners();
     }
 
     onFeatureDeselected = (feature) => {
@@ -167,14 +317,12 @@ class AddImageControl {
         }
     }
 
-    // ✅ NOVO - Método de desseleção
     deselectFeature = () => {
         this.selectedFeature = null;
         this.removeHoverListeners();
         this.map.getCanvas().style.cursor = '';
     }
 
-    // ✅ NOVO - Sistema hover dinâmico (padrão dos outros controls)
     setupHoverListeners = () => {
         this.map.on('mousemove', this.onHoverMove);
     }
@@ -195,22 +343,20 @@ class AddImageControl {
         this.map.getCanvas().style.cursor = hasSelectedFeature ? 'move' : '';
     }
 
-    // ✅ NOVO - Interface methods para MoveHandler integration
     isEditingMode = () => {
-        return false; // Image não tem editing mode com handles
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return false; // Image não tem handles para editar
+        return false;
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
-        // N/A - Image não tem handles para sincronizar
+        // N/A
     }
 
-    // ===== BLOB STORAGE METHODS - MANTIDOS INALTERADOS =====
+    // ===== BLOB STORAGE METHODS =====
 
-    // ✅ MANTIDO - Método que segue exatamente o padrão do map.js
     async loadImageToMap(imageId, blob) {
         const url = URL.createObjectURL(blob);
 
@@ -234,7 +380,6 @@ class AddImageControl {
                 reject(new Error(`Falha ao carregar imagem ${imageId}`));
             };
 
-            // Timeout para evitar travamento
             setTimeout(() => {
                 URL.revokeObjectURL(url);
                 reject(new Error(`Timeout ao carregar imagem ${imageId}`));
@@ -244,7 +389,6 @@ class AddImageControl {
         });
     }
 
-    // ✅ MANTIDO - Lógica de resize inalterada
     resizeImage = (imageBase64, callback) => {
         const img = new Image();
         img.onload = () => {
@@ -266,21 +410,16 @@ class AddImageControl {
             canvas.height = height;
             const ctx = canvas.getContext('2d');
 
-            // Set the background to transparent
             ctx.clearRect(0, 0, width, height);
-
-            // Draw the image
             ctx.drawImage(img, 0, 0, width, height);
 
-            // Determine the image type
-            let imageType = 'image/png';  // Default to PNG to support transparency
+            let imageType = 'image/png';
             if (imageBase64.startsWith('data:image/jpeg')) {
                 imageType = 'image/jpeg';
             } else if (imageBase64.startsWith('data:image/gif')) {
                 imageType = 'image/gif';
             }
 
-            // Use the original image type, defaulting to PNG for other formats
             const resizedImageBase64 = canvas.toDataURL(imageType, AddImageControl.IMAGE_QUALITY);
             callback(resizedImageBase64, width, height);
         };
@@ -308,11 +447,22 @@ class AddImageControl {
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
+        
         for (const feature of features) {
-            const f = data.features.find(f => f.properties.id == feature.properties.id);
-            if (f) {
-                f.properties[property] = value;
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            if (sourceFeature) {
+                sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
+
+                // Recalcular selection box se propriedades intrínsecas mudaram
+                const shouldRecalculateSelectionBox = ['size', 'rotation'].includes(property);
+                
+                // Garantir consistência
+                this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
+                
+                // Sincronizar de volta
+                feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
+                feature.properties.selectionBox = sourceFeature.properties.selectionBox;
             }
         }
         this.map.getSource('images').setData(data);
@@ -321,18 +471,24 @@ class AddImageControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
+            
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
+                    const sourceFeature = data.features[featureIndex];
+                    
                     if (onlyUpdateProperties) {
-                        Object.assign(data.features[featureIndex].properties, feature.properties);
+                        Object.assign(sourceFeature.properties, feature.properties);
+                        this.ensureFeatureConsistency(sourceFeature, null, false);
                     } else {
-                        data.features[featureIndex] = feature;
+                        // Atualizar geometria = drag operation
+                        sourceFeature.geometry = feature.geometry;
+                        // Forçar recálculo da selection box para nova posição
+                        this.ensureFeatureConsistency(sourceFeature, null, true);
                     }
 
                     if (save) {
-                        const featureToUpdate = onlyUpdateProperties ? data.features[featureIndex] : feature;
-                        await updateFeature('images', featureToUpdate);
+                        await updateFeature('images', sourceFeature);
                     }
                 }
             }
@@ -370,21 +526,15 @@ class AddImageControl {
             return;
         }
 
-        // Remover features do source
         const data = JSON.parse(JSON.stringify(this.map.getSource('images')._data));
         const idsToDelete = new Set(Array.from(features).map(f => String(f.properties.id)));
         data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
         this.map.getSource('images').setData(data);
 
-        // Remover recursos e feições
         for (const f of features) {
             try {
-                // Remover imagem do imageStore usando f.properties.id (garantia de consistência)
                 await imageStore.removeItem(f.properties.id);
-
-                // Remover do IndexedDB
                 await removeFeature('images', f.properties.id);
-
             } catch (error) {
                 console.error(`Erro ao deletar imagem ${f.properties.id}:`, error);
             }

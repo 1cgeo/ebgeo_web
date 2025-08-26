@@ -119,6 +119,7 @@ selectionManager.registerControl('brush', brushControl);
 
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
+toolManager.setUiManager(uiManager)
 
 const featureSearchControl = new FeatureSearchControl(uiManager);
 uiManager.setFeatureSearchControl(featureSearchControl);
