@@ -48,7 +48,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
     $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
 
     // Opacidade (0-100% com conversão automática)
-    const opacityControl = createSliderWithInput(getCommonConfig('opacity',
+    const opacityControl = createSliderWithInput(getCommonConfig('complete_opacity',
         Math.round((feature.properties.opacity || 0.7) * 100), {
         onChange: (value) => {
             // Convert from 0-100 range to 0-1 range for internal storage

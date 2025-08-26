@@ -358,7 +358,6 @@ class SelectionManager {
     }
 
     updateUI = () => {
-        console.log('updateUI')
         this.uiManager.updateSelectionHighlight();
         this.uiManager.updatePanels();
     }

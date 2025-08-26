@@ -344,8 +344,13 @@ export function createStandardButtons(config) {
  * Common configurations for different property types
  */
 export const COMMON_CONFIGS = {
-    opacity: {
+    complete_opacity: {
         min: 0,
+        max: 100,
+        step: 1
+    },
+    opacity: {
+        min: 10,
         max: 100,
         step: 1
     },

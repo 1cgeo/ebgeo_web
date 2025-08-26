@@ -48,12 +48,15 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     $(panel).append(createAttributeRow('Cor da borda:', outlineColorInput));
 
     // Opacidade do preenchimento
-    const fillOpacitySlider = createSliderWithInput(getCommonConfig('opacity',
-        Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.5) * 100), {
+    const fillOpacitySlider = createSliderWithInput({
+        min: 0,
+        max: 100,
+        step: 1,
+        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.5) * 100),
         onChange: (newValue) => {
             polygonControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
         }
-    }));
+    });
     $(panel).append(createAttributeRow('Opacidade preenchimento:', fillOpacitySlider));
 
     // Largura da borda

@@ -48,14 +48,17 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
 
     // Opacidade (0-100% com conversão automática)
-    const opacityControl = createSliderWithInput(getCommonConfig('opacity',
-        Math.round((feature.properties.opacity || 0.7) * 100), {
+    const opacityControl = createSliderWithInput({
+        min: 0,
+        max: 100,
+        step: 1,
+        value: Math.round((feature.properties.opacity || 0.7) * 100),
         onChange: (value) => {
             // Convert from 0-100 range to 0-1 range for internal storage
             rectangleControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
             uiManager.updateSelectionHighlight();
         }
-    }));
+    });
 
     $(panel).append(createAttributeRow('Opacidade:', opacityControl));
 
