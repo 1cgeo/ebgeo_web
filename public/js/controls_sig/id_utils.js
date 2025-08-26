@@ -85,6 +85,10 @@ export class IDUtils {
     /**
      * Regenerar IDs de todas as features em mapData e duplicar recursos
      * Separação de fases para evitar conflito de timing
+     * 
+     * @param {Object} mapData - Dados do mapa
+     * @param {string} mapName - Nome do novo mapa
+     * @returns {Object} Objeto contendo newMapData
      */
     static async regenerateMapIds(mapData, mapName) {
         const idMapping = new Map();
@@ -133,7 +137,7 @@ export class IDUtils {
 
                 if (newId) {
                     feature.properties.id = newId;
-                    feature.id = Date.now().toString() + Math.random(); // Novo ID do GeoJSON
+                    feature.id = this.generateGeoJSONId();
                 }
             }
         }
@@ -141,7 +145,14 @@ export class IDUtils {
         // Atualizar nome do mapa
         newMapData.nome = mapName;
 
-        return newMapData;
+        return { newMapData };
+    }
+
+    /**
+     * Gera ID único para features GeoJSON (apenas números inteiros)
+     */
+    static generateGeoJSONId() {
+        return Date.now() + Math.floor(Math.random() * 10000);
     }
 
     /**
