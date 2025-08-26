@@ -27,6 +27,51 @@ export class MilitarySymbolGenerator {
         return sidc;
     }
 
+    parseSIDC(sidc) {
+        // Validate first
+        const validation = this.validateSIDC(sidc);
+        if (!validation.valid) {
+            throw new Error(`Invalid SIDC: ${validation.error}`);
+        }
+
+        // Extract each component according to MIL-STD-2525D structure
+        const properties = {
+            formatId: sidc.substring(0, 2),        // A: positions 1-2
+            context: sidc.substring(2, 3),         // B: position 3
+            standardIdentity: sidc.substring(3, 4), // C: position 4
+            symbolSet: sidc.substring(4, 6),       // D: positions 5-6
+            status: sidc.substring(6, 7),          // E: position 7
+            hqTfDummy: sidc.substring(7, 8),       // F: position 8
+            echelon: sidc.substring(8, 10),        // G: positions 9-10
+            mainIcon: sidc.substring(10, 16),      // H: positions 11-16
+            modifier1: sidc.substring(16, 18),     // I: positions 17-18
+            modifier2: sidc.substring(18, 20)      // J: positions 19-20
+        };
+
+        return properties;
+    }
+
+    canParseSIDC(sidc) {
+        try {
+            const validation = this.validateSIDC(sidc);
+            if (!validation.valid) {
+                return { canParse: false, error: validation.error };
+            }
+
+            // Additional check: ensure we can extract meaningful properties
+            const parsed = this.parseSIDC(sidc);
+            
+            // Verify core components are present
+            if (!parsed.context || !parsed.standardIdentity || !parsed.echelon || !parsed.mainIcon) {
+                return { canParse: false, error: 'SIDC missing required components' };
+            }
+
+            return { canParse: true, properties: parsed };
+        } catch (error) {
+            return { canParse: false, error: error.message };
+        }
+    }
+
     // Converter qualquer imagem (SVG/PNG/etc) para PNG blob usando canvas
     async convertToPngBlob(dataURL, targetSize = DEFAULT_SIZE) {
         return new Promise((resolve, reject) => {

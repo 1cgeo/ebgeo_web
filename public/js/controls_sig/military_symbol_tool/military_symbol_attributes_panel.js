@@ -448,6 +448,18 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         container.appendChild(labelElement);
         container.appendChild(selectContainer);
 
+        // Add method to update programmatically
+        container.updateValue = (newValue) => {
+            currentValue = newValue;
+            const newOption = options.find(opt => opt.value == newValue || opt.code == newValue);
+            if (newOption) {
+                const displayText = getOptionDisplayText(newOption);
+                const tooltipText = getOptionTooltipText(newOption);
+                textContainer.textContent = displayText;
+                textContainer.title = tooltipText;
+            }
+        };
+
         // Cleanup function
         container._cleanup = () => {
             // Remover da lista global
@@ -527,26 +539,40 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         previewLabel.textContent = 'Visualização';
         previewLabel.style.cssText = 'margin-bottom: 15px; font-size: 16px; color: #333;';
 
-        // SIDC display
-        const sidcLabel = document.createElement('div');
-        sidcLabel.style.cssText = `
-            margin-top: 15px;
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 8px;
+        // ✅ NEW: Editable SIDC field
+        const sidcContainer = document.createElement('div');
+        sidcContainer.style.cssText = 'margin-top: 15px;';
+
+        const sidcInputLabel = document.createElement('label');
+        sidcInputLabel.textContent = 'SIDC:';
+        sidcInputLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 14px; color: #333;';
+
+        const sidcInput = document.createElement('input');
+        sidcInput.type = 'text';
+        sidcInput.maxLength = 40;
+        sidcInput.placeholder = '20 dígitos (ex: 10031000161211000000)';
+        sidcInput.style.cssText = `
+            width: 100%;
+            padding: 8px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
             font-family: monospace;
             font-size: 12px;
-            word-break: break-all;
-            color: #495057;
-            border: 1px solid #e9ecef;
+            text-align: center;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
         `;
+
+        sidcContainer.appendChild(sidcInputLabel);
+        sidcContainer.appendChild(sidcInput);
 
         previewColumn.appendChild(previewLabel);
         previewColumn.appendChild(previewContainer);
-        previewColumn.appendChild(sidcLabel);
+        previewColumn.appendChild(sidcContainer);
 
         // Propriedades temporárias para o modal
         let tempProperties = { ...feature.properties };
+        let isUpdatingFromSIDC = false; // Flag to prevent infinite loops
 
         // Layout de 8 comboboxes organizados em 2 colunas
         const comboboxesContainer = document.createElement('div');
@@ -558,85 +584,213 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         const column2 = document.createElement('div');
         column2.style.cssText = 'flex: 1;';
 
+        // Store combobox references for programmatic updates
+        const comboboxes = {};
+
         // Primeira coluna
-        column1.appendChild(createDigitalComboBox(
+        comboboxes.context = createDigitalComboBox(
             MILITARY_DATA.context,
             tempProperties.context || "0",
-            (value) => { tempProperties.context = value; updatePreview(); },
+            (value) => { 
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.context = value; 
+                    updatePreviewFromComboboxes(); 
+                }
+            },
             'Contexto'
-        ));
+        );
+        column1.appendChild(comboboxes.context);
 
-        column1.appendChild(createDigitalComboBox(
+        comboboxes.standardIdentity = createDigitalComboBox(
             MILITARY_DATA.standardIdentity,
             tempProperties.standardIdentity || "3",
-            (value) => { tempProperties.standardIdentity = value; updatePreview(); },
+            (value) => { 
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.standardIdentity = value; 
+                    updatePreviewFromComboboxes(); 
+                }
+            },
             'Identidade Padrão'
-        ));
+        );
+        column1.appendChild(comboboxes.standardIdentity);
 
-        column1.appendChild(createDigitalComboBox(
+        comboboxes.status = createDigitalComboBox(
             MILITARY_DATA.status,
             tempProperties.status || "0",
-            (value) => { tempProperties.status = value; updatePreview(); },
+            (value) => { 
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.status = value; 
+                    updatePreviewFromComboboxes(); 
+                }
+            },
             'Status'
-        ));
+        );
+        column1.appendChild(comboboxes.status);
 
-        column1.appendChild(createDigitalComboBox(
+        comboboxes.hqTfDummy = createDigitalComboBox(
             MILITARY_DATA.hqTfDummy,
             tempProperties.hqTfDummy || "0",
-            (value) => { tempProperties.hqTfDummy = value; updatePreview(); },
+            (value) => { 
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.hqTfDummy = value; 
+                    updatePreviewFromComboboxes(); 
+                }
+            },
             'QG/Força-Tarefa/Dummy'
-        ));
+        );
+        column1.appendChild(comboboxes.hqTfDummy);
 
         // Segunda coluna
-        column2.appendChild(createDigitalComboBox(
+        comboboxes.echelon = createDigitalComboBox(
             MILITARY_DATA.echelon,
             tempProperties.echelon || "16",
-            (value) => { tempProperties.echelon = value; updatePreview(); },
+            (value) => { 
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.echelon = value; 
+                    updatePreviewFromComboboxes(); 
+                }
+            },
             'Escalão'
-        ));
+        );
+        column2.appendChild(comboboxes.echelon);
 
-        column2.appendChild(createDigitalComboBox(
+        comboboxes.mainIcon = createDigitalComboBox(
             MILITARY_DATA.mainIcons,
             tempProperties.mainIcon || "121100",
-            (value) => { tempProperties.mainIcon = value; updatePreview(); },
+            (value) => { 
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.mainIcon = value; 
+                    updatePreviewFromComboboxes(); 
+                }
+            },
             'Ícone Principal'
-        ));
+        );
+        column2.appendChild(comboboxes.mainIcon);
 
-        column2.appendChild(createDigitalComboBox(
+        comboboxes.modifier1 = createDigitalComboBox(
             MILITARY_DATA.modifier1,
             tempProperties.modifier1 || "00",
-            (value) => { tempProperties.modifier1 = value; updatePreview(); },
+            (value) => { 
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.modifier1 = value; 
+                    updatePreviewFromComboboxes(); 
+                }
+            },
             'Modificador 1'
-        ));
+        );
+        column2.appendChild(comboboxes.modifier1);
 
-        column2.appendChild(createDigitalComboBox(
+        comboboxes.modifier2 = createDigitalComboBox(
             MILITARY_DATA.modifier2,
             tempProperties.modifier2 || "00",
-            (value) => { tempProperties.modifier2 = value; updatePreview(); },
+            (value) => { 
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.modifier2 = value; 
+                    updatePreviewFromComboboxes(); 
+                }
+            },
             'Modificador 2'
-        ));
+        );
+        column2.appendChild(comboboxes.modifier2);
 
         comboboxesContainer.appendChild(column1);
         comboboxesContainer.appendChild(column2);
         controlsColumn.appendChild(comboboxesContainer);
 
+        // ✅ NEW: Update preview when comboboxes change
+        function updatePreviewFromComboboxes() {
+            // Build SIDC from current tempProperties
+            const sidc = militarySymbolControl.symbolGenerator.buildSIDC(tempProperties);
+            tempProperties.sidc = sidc;
+            
+            // Update SIDC input field (without triggering its event)
+            sidcInput.value = sidc;
+            
+            updatePreview();
+        }
+
+        // ✅ NEW: Update comboboxes when SIDC changes
+        function updateComboboxesFromSIDC(sidc) {
+            try {
+                isUpdatingFromSIDC = true;
+                
+                const parseResult = militarySymbolControl.symbolGenerator.canParseSIDC(sidc);
+                if (!parseResult.canParse) {
+                    throw new Error(parseResult.error);
+                }
+
+                const parsed = parseResult.properties;
+                
+                // Update tempProperties
+                tempProperties.context = parsed.context;
+                tempProperties.standardIdentity = parsed.standardIdentity;
+                tempProperties.status = parsed.status;
+                tempProperties.hqTfDummy = parsed.hqTfDummy;
+                tempProperties.echelon = parsed.echelon;
+                tempProperties.mainIcon = parsed.mainIcon;
+                tempProperties.modifier1 = parsed.modifier1;
+                tempProperties.modifier2 = parsed.modifier2;
+                tempProperties.sidc = sidc;
+
+                // Update all comboboxes visually
+                Object.keys(comboboxes).forEach(key => {
+                    if (comboboxes[key].updateValue && tempProperties[key] !== undefined) {
+                        comboboxes[key].updateValue(tempProperties[key]);
+                    }
+                });
+
+                sidcInput.style.borderColor = '#28a745'; // Green for valid
+                
+            } catch (error) {
+                sidcInput.style.borderColor = '#dc3545'; // Red for invalid
+                console.warn('Invalid SIDC for parsing:', error.message);
+            } finally {
+                isUpdatingFromSIDC = false;
+            }
+        }
+
+        sidcInput.addEventListener('input', (e) => {
+            let cleanSIDC = e.target.value.replace(/\s/g, '').trim().substring(0, 20);
+            
+            // Update input field with cleaned value
+            if (e.target.value !== cleanSIDC) {
+                e.target.value = cleanSIDC;
+            }
+            
+            // Reset border color
+            sidcInput.style.borderColor = '#ddd';
+            
+            if (cleanSIDC.length === 20) {
+                updateComboboxesFromSIDC(cleanSIDC);
+                updatePreview();
+            } else if (cleanSIDC.length > 0) {
+                sidcInput.style.borderColor = '#ffc107'; // Yellow for incomplete
+            }
+        });
+
+        sidcInput.addEventListener('paste', (e) => {
+            setTimeout(() => {
+                const cleanSIDC = sidcInput.value.replace(/\s/g, '').trim().substring(0, 20);
+                sidcInput.value = cleanSIDC;
+                
+                if (cleanSIDC.length === 20) {
+                    updateComboboxesFromSIDC(cleanSIDC);
+                    updatePreview();
+                }
+            }, 10);
+        });
+
         // Função de preview - CORRIGIDA para usar o generator
         async function updatePreview() {
             try {
-                // Construir SIDC usando o generator
-                const sidc = militarySymbolControl.symbolGenerator.buildSIDC(tempProperties);
-                tempProperties.sidc = sidc;
+                const sidc = tempProperties.sidc;
 
                 // Validar SIDC
                 const validation = militarySymbolControl.symbolGenerator.validateSIDC(sidc);
 
-                sidcLabel.textContent = `SIDC: ${sidc}`;
-
                 if (!validation.valid) {
-                    sidcLabel.style.color = '#dc3545';
-                    sidcLabel.innerHTML += `<div style="color: #dc3545;">ERRO: ${validation.error}</div>`;
-                } else {
-                    sidcLabel.style.color = '#495057';
+                    previewImage.style.display = 'none';
+                    return;
                 }
 
                 // Usar a nova função generatePreviewDataURL que converte para PNG
@@ -653,9 +807,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             } catch (error) {
                 console.error('Erro ao gerar preview:', error);
                 previewImage.style.display = 'none';
-                sidcLabel.innerHTML = `<div style="color: #dc3545;">SIDC: ${tempProperties.sidc || 'N/A'}<br>Erro de renderização</div>`;
             }
         }
+
+        // Initialize SIDC input field
+        sidcInput.value = tempProperties.sidc || militarySymbolControl.symbolGenerator.buildSIDC(tempProperties);
 
         // Botões do modal
         const modalButtons = document.createElement('div');
@@ -677,7 +833,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
         applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
         applyButton.onclick = async () => {
-            // Aplicar mudanças às features selecionadas
+            // Apply changes to selected features
             for (const [key, value] of Object.entries(tempProperties)) {
                 if (key !== 'id' && key !== 'source') {
                     await militarySymbolControl.updateFeaturesProperty(selectedFeatures, key, value);
