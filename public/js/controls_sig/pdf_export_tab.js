@@ -10,7 +10,7 @@ export default class PDFExportTab {
         this.isVisible = false;
 
         // Margens e bounds duplos
-        this.marginMM = 5; // 15mm de margem
+        this.marginMM = 5; // 5mm de margem
         this.paperBounds = null; // Bounds do A4 completo
         this.usableBounds = null; // Bounds da área útil (com margens)
 
@@ -277,6 +277,131 @@ export default class PDFExportTab {
         }
     }
 
+    // Método para obter estilo limpo (sem camadas de preview)
+    getCleanStyle() {
+        try {
+            const currentStyle = this.map.getStyle();
+            
+            // Verificar se o estilo existe
+            if (!currentStyle) {
+                throw new Error('Estilo do mapa não disponível');
+            }
+            
+            const cleanStyle = JSON.parse(JSON.stringify(currentStyle));
+            
+            // Definir IDs das camadas de preview a serem removidas
+            const previewLayerIds = [
+                'pdf-export-preview-fill',
+                'pdf-export-preview-stroke', 
+                'pdf-export-usable-stroke'
+            ];
+            
+            // Filtrar camadas removendo as de preview
+            cleanStyle.layers = cleanStyle.layers.filter(layer => 
+                !previewLayerIds.includes(layer.id)
+            );
+            
+            // Remover source de preview
+            if (cleanStyle.sources && cleanStyle.sources['pdf-export-preview']) {
+                delete cleanStyle.sources['pdf-export-preview'];
+            }
+            
+            return cleanStyle;
+            
+        } catch (error) {
+            console.error('Erro ao criar estilo limpo:', error);
+            // Fallback: retorna estilo original se der erro
+            return this.map.getStyle();
+        }
+    }
+
+    // Corrigir tamanhos zoom-invariant após mudança de zoom
+    correctZoomInvariantFeatures(hiddenMap, finalZoom) {
+        console.log(`Corrigindo zoom-invariant features para zoom final: ${finalZoom}`);
+        
+        // Definir tipos e suas propriedades de correção
+        const zoomInvariantSources = [
+            {
+                sourceName: 'texts',
+                property: 'calculatedSize',
+                baseProperty: 'size',
+                maxValue: 255
+            },
+            {
+                sourceName: 'brushes',
+                property: 'calculatedLineWidth', 
+                baseProperty: 'lineWidth',
+                maxValue: Infinity
+            },
+            {
+                sourceName: 'images',
+                property: 'calculatedSize',
+                baseProperty: 'size', 
+                maxValue: 10
+            },
+            {
+                sourceName: 'military_symbols',
+                property: 'calculatedSize',
+                baseProperty: 'size',
+                maxValue: 10
+            }
+        ];
+
+        // Aplicar correções para cada source
+        zoomInvariantSources.forEach(sourceConfig => {
+            const source = hiddenMap.getSource(sourceConfig.sourceName);
+            const featureCount = source?._data?.features?.length || 0;
+            console.log(`Source ${sourceConfig.sourceName}: ${featureCount} features`);
+            
+            this.correctSourceFeatures(hiddenMap, sourceConfig, finalZoom);
+        });
+    }
+
+    correctSourceFeatures(hiddenMap, sourceConfig, finalZoom) {
+        try {
+            const source = hiddenMap.getSource(sourceConfig.sourceName);
+            if (!source) {
+                console.warn(`Source ${sourceConfig.sourceName} não encontrado no mapa oculto`);
+                return;
+            }
+
+            const data = source._data;
+            if (!data?.features?.length) return;
+
+            let hasChanges = false;
+
+            data.features.forEach(feature => {
+                // Validações robustas
+                if (!feature?.properties) return;
+                if (typeof feature.properties.createdAtZoom !== 'number') return;
+                if (typeof feature.properties[sourceConfig.baseProperty] !== 'number') return;
+
+                const zoomDifference = finalZoom - feature.properties.createdAtZoom;
+                const scaleFactor = Math.pow(2, zoomDifference);
+                const baseValue = feature.properties[sourceConfig.baseProperty];
+                
+                // Evitar valores inválidos
+                if (baseValue <= 0) return;
+                
+                const newValue = Math.min(baseValue * scaleFactor, sourceConfig.maxValue);
+
+                // Só atualizar se realmente mudou (evitar re-renders desnecessários)
+                if (Math.abs(feature.properties[sourceConfig.property] - newValue) > 0.001) {
+                    feature.properties[sourceConfig.property] = newValue;
+                    hasChanges = true;
+                }
+            });
+
+            if (hasChanges) {
+                source.setData(data);
+                console.log(`Corrigido ${sourceConfig.sourceName}: ${hasChanges ? 'atualizado' : 'sem mudanças'}`);
+            }
+
+        } catch (error) {
+            console.error(`Erro ao corrigir features do source ${sourceConfig.sourceName}:`, error);
+        }
+    }
+
     showExportModal() {
         const modal = document.createElement('div');
         modal.id = 'export-modal';
@@ -364,7 +489,6 @@ export default class PDFExportTab {
 
     captureMapCanvas(resolve, reject) {
         // Forçar uma renderização completa (igual screenshot_control)
-
         this.map.triggerRepaint();
 
         // Usar requestAnimationFrame para garantir que a renderização foi concluída
@@ -494,10 +618,9 @@ export default class PDFExportTab {
             `;
             document.body.appendChild(hiddenMapContainer);
 
-            // 4. Inicializar o mapa invisível
             hiddenMap = new maplibregl.Map({
                 container: hiddenMapContainer,
-                style: this.map.getStyle(),
+                style: this.getCleanStyle(), // Usar estilo sem camadas de preview
                 center: this.map.getCenter(),
                 zoom: this.map.getZoom(),
                 preserveDrawingBuffer: true,
@@ -526,6 +649,13 @@ export default class PDFExportTab {
             // 6. Enquadrar o mapa na área útil (não na área completa do papel)
             const mapBounds = [this.usableBounds.bottomLeft, this.usableBounds.topRight];
             hiddenMap.fitBounds(mapBounds, { padding: 0, duration: 0 });
+
+            // 7. Aguardar o mapa invisível renderizar TUDO
+            await new Promise(resolve => hiddenMap.once('idle', resolve));
+
+            // 6.1. Corrigir tamanhos zoom-invariant após mudança de zoom
+            const finalZoom = hiddenMap.getZoom();
+            this.correctZoomInvariantFeatures(hiddenMap, finalZoom);
 
             // 7. Aguardar o mapa invisível renderizar TUDO
             await new Promise(resolve => hiddenMap.once('idle', resolve));
