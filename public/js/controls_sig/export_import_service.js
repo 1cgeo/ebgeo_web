@@ -1,4 +1,4 @@
-// Path: js/controls_sig/export_import_service.js
+// Path: js\controls_sig\export_import_service.js
 import {
     getAllMapNames,
     getCurrentMapName,
@@ -14,7 +14,7 @@ import {
     compareVersions,
     addMap,
     setCurrentMap
-} from './store.js';
+} from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
 

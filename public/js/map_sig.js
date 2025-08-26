@@ -16,7 +16,7 @@ import ResetNorthControl from './controls_sig/reset_north_control.js';
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import ScreenshotControl from './controls_sig/screenshot_control.js';
 import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
-import { undoLastAction, redoLastAction} from './controls_sig/store.js';
+import { undoLastAction, redoLastAction} from './controls_sig/store/store.js';
 import AddCircleControl from './controls_sig/circle_tool/add_circle_control.js';
 import AddEllipseControl from './controls_sig/ellipse_tool/add_ellipse_control.js';
 import AddArrowControl from './controls_sig/arrow_tool/add_arrow_control.js';

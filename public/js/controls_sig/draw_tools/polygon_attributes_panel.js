@@ -1,4 +1,4 @@
-// Path: js/controls_sig/draw_tools/polygon_attributes_panel.js
+// Path: js\controls_sig\draw_tools\polygon_attributes_panel.js
 
 import { 
     createSliderWithInput, 

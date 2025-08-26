@@ -1,5 +1,5 @@
 // Path: js\controls_sig\los_tool\add_los_control.js
-import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, removeFeatureSilent } from '../store.js';
+import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, removeFeatureSilent } from '../store/store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 import { IDUtils } from '../id_utils.js';
 

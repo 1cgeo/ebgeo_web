@@ -1,4 +1,4 @@
-// Path: js/controls_sig/draw_tools/line_attributes_panel.js
+// Path: js\controls_sig\draw_tools\line_attributes_panel.js
 
 import { 
     createSliderWithInput, 

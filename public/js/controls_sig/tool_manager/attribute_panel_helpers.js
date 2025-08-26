@@ -1,4 +1,4 @@
-// Path: js/controls_sig/tool_manager/attribute_panel_helpers.js
+// Path: js\controls_sig\tool_manager\attribute_panel_helpers.js
 
 /**
  * Centralized helper functions for attribute panels

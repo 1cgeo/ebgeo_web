@@ -1,4 +1,4 @@
-// Path: js/controls_sig/pdf_export_tab.js
+// Path: js\controls_sig\pdf_export_tab.js
 
 import config from '../config.js';
 

@@ -1,6 +1,6 @@
 // Path: js\controls_sig\layer_setup.js
-import { getCurrentMapFeatures } from './store.js';
-import { imageStore } from './store.js';
+import { getCurrentMapFeatures } from './store/store.js';
+import { imageStore } from './store/store.js';
 
 export async function setupMapFeatures(mapInstance) {
     try {

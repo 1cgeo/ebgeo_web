@@ -1,4 +1,4 @@
-// Path: js/control_3d/screenshot_tool.js
+// Path: js\control_3d\screenshot_tool.js
 let viewerInstance = null;
 
 /**

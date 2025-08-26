@@ -1,5 +1,5 @@
-// Path: js/controls_sig/draw_tools/add_line_control.js
-import { addFeature, updateFeature, removeFeature } from '../store.js';
+// Path: js\controls_sig\draw_tools\add_line_control.js
+import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { getTerrainElevation } from '../terrain_control.js';
 import { IDUtils } from '../id_utils.js';
 

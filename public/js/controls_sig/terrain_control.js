@@ -1,6 +1,6 @@
 // Path: js\controls_sig\terrain_control.js
 
-import { getMapHillshadeState } from './store.js';
+import { getMapHillshadeState } from './store/store.js';
 
 export async function getTerrainElevation(map, coordinates, options = { exaggerated: false }) {
     // Fixed reference point outside the DEM

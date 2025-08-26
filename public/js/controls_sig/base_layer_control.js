@@ -5,7 +5,7 @@ import {
     getCurrentBaseLayer, 
     hasMapSavedPosition, 
     getMapPosition 
-} from './store.js';
+} from './store/store.js';
 import cartaTopografica from './baselayers/carta_topografica.js';
 import cartaOrtoimagem from './baselayers/carta_ortoimagem.js';
 import osmLayer from './baselayers/osm_layer.js';

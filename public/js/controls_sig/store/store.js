@@ -1,4 +1,4 @@
-// Path: js\controls_sig\store.js
+// Path: js\controls_sig\store\store.js
 
 const SCHEMA_VERSION = '1.3';
 const MIN_SCHEMA_VERSION = '1.3';

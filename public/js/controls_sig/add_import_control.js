@@ -1,5 +1,5 @@
-// Path: js\controls_sig\import_tool\add_import_control.js
-import { addFeatures } from './store.js';
+// Path: js\controls_sig\add_import_control.js
+import { addFeatures } from './store/store.js';
 import { IDUtils } from './id_utils.js';
 
 class AddImportControl {

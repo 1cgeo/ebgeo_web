@@ -1,5 +1,5 @@
 // Path: js\controls_sig\ellipse_tool\add_ellipse_control.js
-import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 
 // Note: turf is globally available as window.turf

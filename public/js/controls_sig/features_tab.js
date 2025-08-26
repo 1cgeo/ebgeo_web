@@ -1,5 +1,5 @@
-// Path: js/controls_sig/features_tab.js
-import { getCurrentMapFeatures, updateFeatureProperty, getFeatureById, getMapHillshadeState, setMapHillshadeState } from './store.js';
+// Path: js\controls_sig\features_tab.js
+import { getCurrentMapFeatures, updateFeatureProperty, getFeatureById, getMapHillshadeState, setMapHillshadeState } from './store/store.js';
 import { FeatureNavigationUtils } from './utilities/feature_navigation_utils.js';
 
 class FeaturesTab {

@@ -1,4 +1,4 @@
-// Path: js/controls_sig/map_manager.js
+// Path: js\controls_sig\map_manager.js
 import {
     addMap,
     removeMap,
@@ -13,7 +13,7 @@ import {
     mapStore,
     resetMemoryStore,
     SCHEMA_VERSION
-} from './store.js';
+} from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
 
@@ -193,7 +193,7 @@ class MapManager {
                                 };
 
                                 setCurrentMap(targetMapName);
-                                const { addFeature } = await import('./store.js');
+                                const { addFeature } = await import('./store/store.js');
                                 await addFeature(featureType, featureCopy);
                                 totalFeatures++;
                             }

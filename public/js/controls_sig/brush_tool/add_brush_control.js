@@ -1,5 +1,5 @@
 // Path: js\controls_sig\brush_tool\add_brush_control.js
-import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 
 class AddBrushControl {

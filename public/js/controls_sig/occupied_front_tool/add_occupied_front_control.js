@@ -1,5 +1,5 @@
 // Path: js\controls_sig\occupied_front_tool\add_occupied_front_control.js
-import { addFeature, updateFeature, removeFeature } from '../store.js';
+import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 
 class AddOccupiedFrontControl {
