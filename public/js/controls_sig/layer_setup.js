@@ -8,22 +8,22 @@ export async function setupMapFeatures(mapInstance) {
 
         const features = await getCurrentMapFeatures();
         await setImages(features, mapInstance);
-
-        setupPointLayers(features, mapInstance);
-        setupLineLayers(features, mapInstance);
+        
+        setupImageLayers(features, mapInstance);
         setupPolygonLayers(features, mapInstance);
         setupEllipseLayers(features, mapInstance);
         setupCircleLayers(features, mapInstance);
-        setupVisibilityLayers(features, mapInstance);
-        setupImageLayers(features, mapInstance);
-        setupMilitarySymbolsLayers(features, mapInstance);
-        setupBoundaryLayers(features, mapInstance);
-        setupOccupiedFrontLayers(features, mapInstance);
-        setupArrowLayers(features, mapInstance);
-        setupLOSLayers(features, mapInstance);
-        setupTextLayers(features, mapInstance);
         setupRectangleLayers(features, mapInstance);
+        setupArrowLayers(features, mapInstance);
+        setupVisibilityLayers(features, mapInstance);
+        setupOccupiedFrontLayers(features, mapInstance);
+        setupBoundaryLayers(features, mapInstance);
+        setupLineLayers(features, mapInstance);
         setupBrushLayers(features, mapInstance);
+        setupLOSLayers(features, mapInstance);
+        setupPointLayers(features, mapInstance);
+        setupMilitarySymbolsLayers(features, mapInstance);
+        setupTextLayers(features, mapInstance);
 
         restoreTerrainState(mapInstance);
 
