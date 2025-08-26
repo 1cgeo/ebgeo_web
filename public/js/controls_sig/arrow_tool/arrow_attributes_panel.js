@@ -62,12 +62,16 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Borda:', lineColorInput));
 
+    const setDefaultIfMissing = (value, defaultValue) => {
+        return (value !== null && value !== undefined) ? value : defaultValue;
+    };
+
     // Opacidade do preenchimento (0-100% com conversão automática)
     const fillOpacityControl = createSliderWithInput({
         min: 0,
         max: 100,
         step: 1,
-        value: Math.round((feature.properties.fillOpacity || 0.8) * 100),
+        value: Math.round(setDefaultIfMissing(feature.properties.fillOpacity, 0.8) * 100),
         onChange: (value) => {
             // Convert from 0-100 range to 0-1 range for internal storage
             arrowControl.updateFeaturesProperty(selectedFeatures, 'fillOpacity', value / 100);
