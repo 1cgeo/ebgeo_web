@@ -147,36 +147,11 @@ class SelectionManager {
         if (activeTool) {
             activeTool.handleMapClick(e);
         } else {
-
-            // Check for custom tool features
-            const clickedCustomFeature = this.getClickedCustomFeature(e.point);
-
-            // Check if we clicked on an edit handle
-            if (this.isClickOnEditHandle(e.point)) {
-                return; // Don't deselect if clicking on edit handles
-            }
-
-            // Handle custom tool features
-            if (clickedCustomFeature) {
-                const isAlreadySelected = this.isFeatureSelected(
-                    clickedCustomFeature.toolType,
-                    clickedCustomFeature.properties.id
-                );
-
-                if (!isAlreadySelected) {
-                    // New feature selection
-                    if (!e.originalEvent.shiftKey) {
-                        this.deselectAllFeatures();
-                    }
-                    // The actual selection will be handled by handleElementClick
-                }
-                return;
-            }
-
-            // No feature clicked - deselect all if not holding shift
-            if (!e.originalEvent.shiftKey) {
+            if (!e.originalEvent.shiftKey && this.hasSelectedFeatures()) {
                 this.uiManager.saveChangesAndClosePanel();
-                this.deselectAllFeatures();
+                if(this.hasSelectedFeatures()){
+                    this.deselectAllFeatures();
+                }
             }
         }
     }
@@ -383,6 +358,7 @@ class SelectionManager {
     }
 
     updateUI = () => {
+        console.log('updateUI')
         this.uiManager.updateSelectionHighlight();
         this.uiManager.updatePanels();
     }
