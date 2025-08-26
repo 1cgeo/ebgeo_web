@@ -796,6 +796,13 @@ function setupBoundaryLayers(features, mapInstance) {
         });
     }
 
+    if (!mapInstance.getSource('boundary-edit-handles')) {
+        mapInstance.addSource('boundary-edit-handles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
     if (!mapInstance.getLayer('boundary-feedback-layer')) {
         mapInstance.addLayer({
             id: 'boundary-feedback-layer',
@@ -887,7 +894,7 @@ function setupBoundaryLayers(features, mapInstance) {
         mapInstance.addLayer({
             id: 'boundary-handles-layer',
             type: 'circle',
-            source: 'boundary-feedback',
+            source: 'boundary-edit-handles',
             paint: {
                 'circle-radius': 8,
                 'circle-color': [

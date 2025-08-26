@@ -324,10 +324,11 @@ class AddBoundaryControl {
                 // Light debouncing for boundary geometry generation
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.generateBoundaryGeometry({
-                        baseCoordinates: previewPoints,
-                        ...AddBoundaryControl.DEFAULT_PROPERTIES
-                    });
+                    const previewProperties = {
+                        ...AddBoundaryControl.DEFAULT_PROPERTIES,
+                        baseCoordinates: previewPoints  // Sempre usar os pontos do preview
+                    };
+                    const previewGeometry = this.generateBoundaryGeometry(previewProperties);
                     this.showPreview(previewGeometry);
                 }, 8); // 8ms como nos outros controles
             }
@@ -336,7 +337,6 @@ class AddBoundaryControl {
         this.pendingPreviewUpdate = false;
     }
 
-    // ✅ UPDATED - uses consolidated feedback source (estilo fixo)
     showPreview = (geometry) => {
         this.map.getSource('boundary-feedback').setData({
             type: 'Feature',
@@ -345,7 +345,6 @@ class AddBoundaryControl {
         });
     }
 
-    // ✅ UPDATED - clears consolidated feedback source
     clearPreview = () => {
         this.cancelPendingUpdates();
         if (this.map && this.map.getSource('boundary-feedback')) {
@@ -495,7 +494,7 @@ class AddBoundaryControl {
                 !isNaN(coord[0]) &&
                 !isNaN(coord[1])
             );
-            
+
             if (isValidArray) {
                 return coords;
             } else {
@@ -808,18 +807,16 @@ class AddBoundaryControl {
         const controlPoints = this.getControlPoints(feature);
         controlPoints.forEach(p => handles.push(p));
 
-        // Show selection feedback using consolidated source (estilo fixo)
         this.map.getSource('boundary-feedback').setData({
+            type: 'Feature',
+            geometry: feature.geometry,
+            properties: {}  // Sem propriedades - estilo sempre igual
+        });
+
+        // ✅ SEPARAÇÃO: Handles em boundary-edit-handles
+        this.map.getSource('boundary-edit-handles').setData({
             type: 'FeatureCollection',
-            features: [
-                // Selected feature with simple properties
-                {
-                    ...feature,
-                    properties: {}  // Sem propriedades - estilo sempre igual
-                },
-                // All handles
-                ...handles
-            ]
+            features: handles
         });
     }
 
@@ -965,6 +962,10 @@ class AddBoundaryControl {
             type: 'FeatureCollection',
             features: []
         });
+        this.map.getSource('boundary-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: []
+        });
     }
 
     // ===== EDITING MODE: HANDLE INTERACTION =====
@@ -1017,7 +1018,7 @@ class AddBoundaryControl {
         if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
             // Apply changes to selected feature
             this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
-            
+
             // Regenerate geometry
             this.selectedFeature.geometry = this.generateBoundaryGeometry(this.selectedFeature.properties);
 
@@ -1051,7 +1052,7 @@ class AddBoundaryControl {
         this.geometryDebounceTimer = setTimeout(() => {
             this.updateGeometryFromHandle(this.activeHandleType, newPosition);
             const previewGeometry = this.generateBoundaryGeometry(this.selectedFeature.properties);
-            
+
             // Show updated preview
             this.showEditPreview(previewGeometry);
         }, 8);
@@ -1093,22 +1094,24 @@ class AddBoundaryControl {
         } else if (handleType === 'midpoint' && this.activeHandleIndex !== null) {
             coordinates.splice(this.activeHandleIndex, 0, newPosition);
             this.selectedFeature.properties.baseCoordinates = coordinates;
-            
+
             this.activeHandleType = 'vertex';
         }
     }
 
     showEditPreview = (geometry) => {
+        // Feature preview em boundary-feedback
         this.map.getSource('boundary-feedback').setData({
+            type: 'Feature',
+            geometry: geometry,
+            properties: {}  // Sem propriedades - estilo sempre igual
+        });
+
+        // Handles recalculados em boundary-edit-handles
+        const handles = this.getControlPoints(this.selectedFeature);
+        this.map.getSource('boundary-edit-handles').setData({
             type: 'FeatureCollection',
-            features: [
-                {
-                    type: 'Feature',
-                    geometry: geometry,
-                    properties: {}  // Sem propriedades - estilo sempre igual
-                },
-                ...this.getControlPoints(this.selectedFeature)
-            ]
+            features: handles
         });
     }
 
@@ -1156,7 +1159,7 @@ class AddBoundaryControl {
             feature: this.selectedFeature
         });
     }
-    
+
     updateUIAfterEdit = () => {
         this.selectionManager.uiManager.updateSelectionHighlight();
         this.selectionManager.uiManager.updatePanels();
@@ -1334,7 +1337,15 @@ class AddBoundaryControl {
     }
 
     setDefaultProperties = (properties) => {
-        Object.assign(AddBoundaryControl.DEFAULT_PROPERTIES, properties);
+        const {
+            id,                    // ID específico da feature
+            nome,                  // Nome específico da feature  
+            baseCoordinates,       // Coordenadas específicas da feature
+            ...styleProperties     // Apenas propriedades de estilo
+        } = properties;
+
+        // Atualizar apenas as propriedades de estilo/aparência
+        Object.assign(AddBoundaryControl.DEFAULT_PROPERTIES, styleProperties);
     }
 }
 

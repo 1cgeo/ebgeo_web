@@ -149,7 +149,7 @@ class SelectionManager {
         } else {
             if (!e.originalEvent.shiftKey && this.hasSelectedFeatures()) {
                 this.uiManager.saveChangesAndClosePanel();
-                if(this.hasSelectedFeatures()){
+                if (this.hasSelectedFeatures()) {
                     this.deselectAllFeatures();
                 }
             }
@@ -184,13 +184,12 @@ class SelectionManager {
     isClickOnEditHandle = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
-        // Check for custom control edit handles - SIMPLIFIED
-        const customHandleSources = [
-            'line-edit-handles', 'polygon-edit-handles',
-            'circle-edit-handles', 'ellipse-edit-handles',
-            'arrow-edit-handles', 'boundary-edit-handles',
-            'occupied-front-edit-handles', 'rectangle-edit-handles'
-        ];
+        const editHandleSources = [];
+        for (const [type, config] of Object.entries(CONTROL_CONFIG)) {
+            if (config.editHandleSource) {
+                editHandleSources.push(config.editHandleSource);
+            }
+        }
 
         return features.some(f =>
             customHandleSources.includes(f.source) &&
