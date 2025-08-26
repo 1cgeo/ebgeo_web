@@ -308,6 +308,8 @@ export class ExportImportService {
             let importedMapsCount = 0;
 
             if (isAdditiveImport) {
+                await this.loadImagesFromZip(zip);
+                
                 const existingMapNames = await getAllMapNames();
                 const mapsToImport = Object.keys(data.maps).length;
 
@@ -325,6 +327,7 @@ export class ExportImportService {
                     }
 
                     // Regenerar IDs das feições e duplicar recursos
+                    // Agora as imagens já estão carregadas no imageStore
                     const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
 
                     // Criar novo mapa
@@ -339,10 +342,10 @@ export class ExportImportService {
                     importedMapsCount++;
                 }
                 setCurrentMap(data.currentMap);
+                
+                // Carregar imagens após processamento dos mapas (import normal)
+                await this.loadImagesFromZip(zip);
             }
-
-            // Carregar imagens do ZIP
-            await this.loadImagesFromZip(zip);
 
             const baseLayer = isAdditiveImport ?
                 await getCurrentBaseLayer() :
