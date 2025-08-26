@@ -1116,7 +1116,7 @@ class AddArrowControl {
                 sourceFeature.properties.fillColor = sourceFeature.properties.fillColor || AddArrowControl.DEFAULT_PROPERTIES.fillColor;
                 sourceFeature.properties.lineColor = sourceFeature.properties.lineColor || AddArrowControl.DEFAULT_PROPERTIES.lineColor;
                 sourceFeature.properties.lineOpacity = sourceFeature.properties.lineOpacity || AddArrowControl.DEFAULT_PROPERTIES.lineOpacity;
-                sourceFeature.properties.fillOpacity = sourceFeature.properties.fillOpacity || AddArrowControl.DEFAULT_PROPERTIES.fillOpacity;
+                sourceFeature.properties.fillOpacity = sourceFeature.properties.fillOpacity !== null && sourceFeature.properties.fillOpacity !== undefined 
                 sourceFeature.properties.lineWidth = sourceFeature.properties.lineWidth || AddArrowControl.DEFAULT_PROPERTIES.lineWidth;
 
                 // ✅ Se alterar propriedades geométricas, recalcular geometria

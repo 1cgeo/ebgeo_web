@@ -7,10 +7,10 @@ class FeaturesTab {
         this.map = map;
         this.selectionManager = selectionManager;
         this.container = null;
-        
+
         this.FEATURE_TYPE_LABELS = {
             'arrows': 'Setas',
-            'boundarys': 'Boundaries', 
+            'boundarys': 'Boundaries',
             'brushes': 'Pincel',
             'circles': 'Círculos',
             'ellipses': 'Elipses',
@@ -70,7 +70,7 @@ class FeaturesTab {
         this.container = document.createElement('div');
         this.container.className = 'features-tab-content';
         this.container.style.display = 'none';
-        
+
         // SEMPRE criar o hillshade control (visibilidade controlada no show())
         const hillshadeContainer = document.createElement('div');
         hillshadeContainer.className = 'hillshade-control';
@@ -80,19 +80,19 @@ class FeaturesTab {
             background-color: #f8f9fa;
             display: none;
         `;
-        
+
         hillshadeContainer.innerHTML = `
             <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
                 <input type="checkbox" id="hillshade-toggle" style="margin-right: 6px;"> 
                 Sombreamento
             </label>
         `;
-        
+
         const checkbox = hillshadeContainer.querySelector('#hillshade-toggle');
         checkbox.onchange = this.handleHillshadeToggle.bind(this);
-        
+
         this.container.appendChild(hillshadeContainer);
-        
+
         // Header with refresh button
         const header = document.createElement('div');
         header.className = 'features-tab-header';
@@ -104,12 +104,13 @@ class FeaturesTab {
             border-bottom: 1px solid #e0e0e0;
             background-color: #f8f9fa;
         `;
-        
+
         const title = document.createElement('span');
         title.textContent = 'Feições';
         title.style.cssText = 'font-weight: 500; font-size: 14px;';
-        
+
         const refreshButton = document.createElement('button');
+        refreshButton.className = 'refresh-button'; // Adicionar classe
         refreshButton.innerHTML = '🔄';
         refreshButton.title = 'Atualizar lista';
         refreshButton.style.cssText = `
@@ -119,31 +120,125 @@ class FeaturesTab {
             padding: 4px 8px;
             cursor: pointer;
             font-size: 14px;
+            transition: opacity 0.2s ease;
         `;
-        refreshButton.onclick = () => this.loadFeatures();
-        
+
+        // Modificar o onclick para incluir feedback
+        refreshButton.onclick = async () => {
+            // Desabilitar botão durante carregamento
+            refreshButton.disabled = true;
+            refreshButton.style.opacity = '0.6';
+            refreshButton.style.cursor = 'not-allowed';
+
+            await this.loadFeatures();
+
+            // Reabilitar botão após carregamento
+            setTimeout(() => {
+                refreshButton.disabled = false;
+                refreshButton.style.opacity = '1';
+                refreshButton.style.cursor = 'pointer';
+            }, 100);
+        };
+
         header.appendChild(title);
         header.appendChild(refreshButton);
-        
+
         const featuresList = document.createElement('div');
         featuresList.className = 'features-list';
-        
+
         this.container.appendChild(header);
         this.container.appendChild(featuresList);
         return this.container;
     }
 
+    showLoadingSpinner() {
+        const featuresList = this.container.querySelector('.features-list');
+        featuresList.innerHTML = `
+        <div class="features-loading">
+            <div class="spinner"></div>
+            <div class="loading-text">Atualizando...</div>
+        </div>
+    `;
+
+        // Adicionar CSS do spinner dinamicamente se não existir
+        if (!document.querySelector('#features-spinner-styles')) {
+            const style = document.createElement('style');
+            style.id = 'features-spinner-styles';
+            style.textContent = `
+            .features-loading {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 40px 20px;
+                background-color: #ffffff;
+            }
+            
+            .spinner {
+                width: 24px;
+                height: 24px;
+                border: 3px solid #f3f3f3;
+                border-top: 3px solid #007bff;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin-bottom: 12px;
+            }
+            
+            .loading-text {
+                color: #666;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        `;
+            document.head.appendChild(style);
+        }
+    }
+
     async loadFeatures() {
         if (!this.container) return;
-        
-        const features = await getCurrentMapFeatures();
-        const flatFeatures = this.flattenAndSortFeatures(features);
-        this.renderUI(flatFeatures);
+
+        // Mostrar spinner
+        this.showLoadingSpinner();
+
+        try {
+            // Garantir pelo menos 500ms de delay para o feedback visual
+            const [features] = await Promise.all([
+                getCurrentMapFeatures(),
+                new Promise(resolve => setTimeout(resolve, 100))
+            ]);
+
+            const flatFeatures = this.flattenAndSortFeatures(features);
+            this.renderUI(flatFeatures);
+
+        } catch (error) {
+            console.error('Erro ao carregar features:', error);
+
+            // Em caso de erro, mostrar mensagem
+            const featuresList = this.container.querySelector('.features-list');
+            featuresList.innerHTML = `
+            <div class="features-error" style="
+                padding: 20px;
+                text-align: center;
+                color: #dc3545;
+                font-size: 14px;
+                background-color: #ffffff;
+                border-radius: 4px;
+            ">
+                Erro ao carregar feições
+            </div>
+        `;
+        }
     }
+
 
     flattenAndSortFeatures(features) {
         const flatFeatures = [];
-        
+
         // Converter features agrupadas em array plano
         Object.entries(features).forEach(([type, featureArray]) => {
             if (featureArray.length > 0) {
@@ -160,24 +255,41 @@ class FeaturesTab {
                 });
             }
         });
-        
+
         // Ordenar por tipo alfabético, depois por nome
         flatFeatures.sort((a, b) => {
             // Primeiro por tipo
             const typeCompare = a.typeLabel.localeCompare(b.typeLabel, 'pt-BR');
             if (typeCompare !== 0) return typeCompare;
-            
+
             // Depois por nome
             return a.name.localeCompare(b.name, 'pt-BR');
         });
-        
+
         return flatFeatures;
     }
 
     renderUI(flatFeatures) {
         const featuresList = this.container.querySelector('.features-list');
         featuresList.innerHTML = '';
-        
+
+        if (flatFeatures.length === 0) {
+            const emptyMessage = document.createElement('div');
+            emptyMessage.className = 'features-empty-message';
+            emptyMessage.style.cssText = `
+                padding: 20px;
+                text-align: center;
+                color: #666;
+                font-size: 14px;
+                font-style: italic;
+                background-color: #ffffff;
+                border-radius: 4px;
+            `;
+            emptyMessage.textContent = 'Sem feições no mapa';
+            featuresList.appendChild(emptyMessage);
+            return;
+        }
+
         flatFeatures.forEach(feature => {
             const item = this.createFeatureItem(feature);
             featuresList.appendChild(item);
@@ -261,7 +373,7 @@ class FeaturesTab {
             );
         } catch (error) {
             console.error('Erro ao navegar para feature:', error);
-            
+
             // Fallback: apenas fazer zoom sem seleção
             try {
                 await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, this.map);
@@ -278,26 +390,26 @@ class FeaturesTab {
     async toggleVisibility(featureId, featureType) {
         const feature = await getFeatureById(featureType, featureId);
         if (!feature) return;
-        
+
         const newVisibility = !(feature.properties.visivel ?? true);
-        
+
         // 1. Atualizar propriedade no store
         await updateFeatureProperty(featureType, featureId, 'visivel', newVisibility);
-        
+
         // 2. Propagar para source do mapa (reutiliza lógica do lock)
         this.propagateFeaturePropertyToSource(featureType, featureId, 'visivel', newVisibility);
-        
+
         // 3. Atualizar botão visual (ícone de olho)
         this.updateVisibilityButton(featureId, newVisibility);
-        
+
         // 4. Atualizar estado visual do item (classe CSS)
         this.updateItemVisualState(featureId, newVisibility, feature.properties.bloqueado ?? false);
-        
+
         // 5. Desselecionar feature se ficou invisível e está selecionada
         if (!newVisibility && this.selectionManager?.isFeatureSelected) {
             const selectionManagerType = FeatureNavigationUtils.mapFeatureType(featureType);
             const isSelected = this.selectionManager.isFeatureSelected(selectionManagerType, featureId);
-            
+
             if (isSelected && this.selectionManager.deselectFeature) {
                 this.selectionManager.deselectFeature(featureId, selectionManagerType);
             }
@@ -310,26 +422,26 @@ class FeaturesTab {
     async toggleLock(featureId, featureType) {
         const feature = await getFeatureById(featureType, featureId);
         if (!feature) return;
-        
+
         const newLockState = !(feature.properties.bloqueado ?? false);
-        
+
         // 1. Atualizar propriedade no store
         await updateFeatureProperty(featureType, featureId, 'bloqueado', newLockState);
-        
+
         // 2. Propagar para source do mapa
         this.propagateFeaturePropertyToSource(featureType, featureId, 'bloqueado', newLockState);
-        
+
         // 3. Atualizar botão visual (ícone de cadeado)
         this.updateLockButton(featureId, newLockState);
-        
+
         // 4. Atualizar estado visual do item (classe CSS)
         this.updateItemVisualState(featureId, feature.properties.visivel ?? true, newLockState);
-        
+
         // 5. Desselecionar feature se foi bloqueada e está selecionada
         if (newLockState && this.selectionManager?.isFeatureSelected) {
             const selectionManagerType = FeatureNavigationUtils.mapFeatureType(featureType);
             const isSelected = this.selectionManager.isFeatureSelected(selectionManagerType, featureId);
-            
+
             if (isSelected && this.selectionManager.deselectFeature) {
                 this.selectionManager.deselectFeature(featureId, selectionManagerType);
             }
@@ -350,18 +462,18 @@ class FeaturesTab {
         try {
             // Pegar TODAS as features do source
             const data = JSON.parse(JSON.stringify(source._data));
-            
-            const featureIndex = data.features.findIndex(f => 
+
+            const featureIndex = data.features.findIndex(f =>
                 (f.properties.id === featureId) || (f.id === featureId)
             );
 
             if (featureIndex !== -1) {
                 // Atualizar propriedade na feature encontrada
                 data.features[featureIndex].properties[property] = value;
-                
+
                 // Fazer setData com todo o conjunto atualizado
                 source.setData(data);
-                
+
             } else {
                 console.warn(`Feature ${featureId} não encontrada no source ${featureType}`);
             }
@@ -387,7 +499,7 @@ class FeaturesTab {
             const title = locked ? 'Desbloquear' : 'Bloquear';
             btn.innerHTML = icon;
             btn.title = title;
-            
+
             // Garantir que o SVG tenha a cor correta baseado no CSS
             const svg = btn.querySelector('svg');
             if (svg && locked) {
@@ -404,16 +516,16 @@ class FeaturesTab {
         if (item) {
             // Remover classes antigas primeiro para evitar conflitos
             item.classList.remove('feature-hidden', 'feature-locked');
-            
+
             // Aplicar classes baseado no estado atual
             if (!visible) {
                 item.classList.add('feature-hidden');
             }
-            
+
             if (locked) {
                 item.classList.add('feature-locked');
             }
-            
+
         } else {
             console.warn(`Item não encontrado para feature: ${featureId}`);
         }
@@ -422,7 +534,7 @@ class FeaturesTab {
     async show() {
         if (this.container) {
             this.container.style.display = 'block';
-            
+
             // Controlar visibilidade do hillshade baseado no suporte atual
             const hillshadeContainer = this.container.querySelector('.hillshade-control');
             if (hillshadeContainer) {
@@ -433,7 +545,7 @@ class FeaturesTab {
                     hillshadeContainer.style.display = 'none';
                 }
             }
-            
+
             await this.loadFeatures();
         }
     }
@@ -456,10 +568,10 @@ class FeaturesTab {
 
     async handleHillshadeToggle(event) {
         const enabled = event.target.checked;
-        
+
         // 1. Salvar no store
         await setMapHillshadeState(enabled);
-        
+
         // 2. Aplicar mudança via terrain control
         this.applyHillshadeState(enabled);
     }
@@ -468,7 +580,7 @@ class FeaturesTab {
         const terrainControl = this.map._controls?.find(control =>
             control.constructor.name === 'TerrainControl'
         );
-        
+
         if (terrainControl && terrainControl.setHillshadeVisibility) {
             terrainControl.setHillshadeVisibility(enabled);
         }
