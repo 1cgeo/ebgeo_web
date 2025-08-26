@@ -1,6 +1,7 @@
 // Path: js\controls_sig\add_import_control.js
 import { addFeatures } from './store/store.js';
 import { IDUtils } from './id_utils.js';
+import { getTerrainElevation } from './terrain_control.js';
 
 class AddImportControl {
     static FILE_LIMITS = {
@@ -440,6 +441,156 @@ class AddImportControl {
         return null; // Tipo não suportado
     }
 
+    /**
+     * Analisa o contexto atual do mapa para determinar próximos números disponíveis
+     */
+    getTypeCountersFromMapContext() {
+        const typeCounters = {
+            points: 1,
+            lines: 1,
+            polygons: 1
+        };
+
+        const typeMap = {
+            'points': 'Ponto',
+            'lines': 'Linha',
+            'polygons': 'Polígono'
+        };
+
+        // Analisar cada source do mapa
+        Object.keys(typeCounters).forEach(sourceType => {
+            try {
+                const source = this.map.getSource(sourceType);
+                if (source && source._data && source._data.features) {
+                    const existingNumbers = [];
+                    const expectedPrefix = typeMap[sourceType];
+
+                    // Extrair números dos nomes existentes
+                    source._data.features.forEach(feature => {
+                        if (feature.properties && feature.properties.nome) {
+                            const name = feature.properties.nome;
+                            // Regex para capturar número após "Tipo #"
+                            const match = name.match(new RegExp(`^${expectedPrefix}\\s*#(\\d+)$`));
+                            if (match) {
+                                existingNumbers.push(parseInt(match[1]));
+                            }
+                        }
+                    });
+
+                    // Encontrar próximo número disponível
+                    if (existingNumbers.length > 0) {
+                        const maxNumber = Math.max(...existingNumbers);
+                        typeCounters[sourceType] = maxNumber + 1;
+                    }
+                }
+            } catch (error) {
+                console.warn(`Erro ao analisar contexto do source ${sourceType}:`, error);
+                // Manter valor padrão se houver erro
+            }
+        });
+
+        return typeCounters;
+    }
+
+    /**
+     * Gera nome único baseado no tipo e contador
+     */
+    generateImportName(targetType, counters) {
+        const typeMap = {
+            'points': 'Ponto',
+            'lines': 'Linha',
+            'polygons': 'Polígono'
+        };
+
+        const name = `${typeMap[targetType]} #${counters[targetType]}`;
+        counters[targetType]++;
+        return name;
+    }
+
+    /**
+     * Calcular perfil de elevação para linhas (mesmo algoritmo dos controles nativos)
+     */
+    async calculateProfile(coordinates) {
+        try {
+            const line = turf.lineString(coordinates);
+            const length = turf.length(line, { units: 'meters' });
+            const steps = 25;
+            const stepLength = length / steps;
+
+            let profileData = [];
+
+            for (let i = 0; i <= steps; i++) {
+                const point = turf.along(line, i * stepLength, { units: 'meters' });
+                const elevation = await getTerrainElevation(this.map, point.geometry.coordinates);
+                profileData.push({
+                    distance: i * stepLength,
+                    elevation: elevation
+                });
+            }
+
+            return profileData;
+        } catch (error) {
+            console.warn('Erro ao calcular perfil de elevação:', error);
+            return []; // Retornar array vazio em caso de erro
+        }
+    }
+
+    /**
+     * Prepara feature para importação com TODOS os atributos necessários
+     */
+    async prepareFeatureForImportAsync(feature, targetType, typeCounters) {
+        const featureId = IDUtils.generateUniqueId();
+        const featureName = this.generateImportName(targetType, typeCounters);
+
+        const baseProperties = {
+            ...this.getDefaultProperties(targetType),
+            ...feature.properties,
+            id: featureId,
+            nome: featureName,
+            source: targetType.slice(0, -1) // Remove 's' final
+        };
+
+        // Atributos específicos por tipo de geometria
+        switch (targetType) {
+            case 'lines':
+                // Linhas precisam de baseCoordinates e profileData
+                baseProperties.baseCoordinates = feature.geometry.coordinates;
+                baseProperties.profileData = JSON.stringify(
+                    await this.calculateProfile(feature.geometry.coordinates)
+                );
+                break;
+
+            case 'polygons':
+                // Polígonos precisam de baseCoordinates sem o ponto de fechamento
+                const coords = feature.geometry.coordinates[0];
+                if (coords && coords.length > 0) {
+                    // Remover último ponto se for igual ao primeiro (ponto de fechamento)
+                    const lastPoint = coords[coords.length - 1];
+                    const firstPoint = coords[0];
+                    const isClosedPolygon = (
+                        lastPoint[0] === firstPoint[0] && 
+                        lastPoint[1] === firstPoint[1]
+                    );
+                    
+                    baseProperties.baseCoordinates = isClosedPolygon 
+                        ? coords.slice(0, -1)  // Remove ponto de fechamento
+                        : coords;              // Manter como está
+                }
+                break;
+
+            case 'points':
+                // Pontos não precisam de atributos especiais além dos padrão
+                break;
+        }
+
+        return {
+            type: 'Feature',
+            id: Date.now().toString() + Math.random(),
+            properties: baseProperties,
+            geometry: feature.geometry
+        };
+    }
+
     async importGeoJSON(geoJSON) {
         if (!geoJSON.features || !Array.isArray(geoJSON.features)) {
             throw new Error('GeoJSON inválido - features não encontradas');
@@ -451,7 +602,10 @@ class AddImportControl {
             polygons: []
         };
 
-        // 1️⃣ PROCESSAR CADA FEATURE
+        // 1️⃣ OBTER CONTADORES BASEADOS NO CONTEXTO ATUAL DO MAPA
+        const typeCounters = this.getTypeCountersFromMapContext();
+
+        // 2️⃣ PROCESSAR CADA FEATURE (AGORA ASSÍNCRONO)
         for (const originalFeature of geoJSON.features) {
             if (!originalFeature.geometry?.type) continue;
 
@@ -462,45 +616,27 @@ class AddImportControl {
                 const targetType = this.getTargetType(feature.geometry.type);
                 if (!targetType) continue;
 
-                // 2️⃣ PREPARAR FEATURE COM ID E NOME
-                const preparedFeature = this.prepareFeatureForImport(feature, targetType);
+                // 3️⃣ PREPARAR FEATURE COM TODOS OS ATRIBUTOS (ASYNC)
+                const preparedFeature = await this.prepareFeatureForImportAsync(
+                    feature, 
+                    targetType, 
+                    typeCounters
+                );
 
-                // 3️⃣ ADICIONAR AO TIPO CORRETO
+                // 4️⃣ ADICIONAR AO TIPO CORRETO
                 featuresByType[targetType].push(preparedFeature);
             }
         }
 
-        // 4️⃣ SALVAR EM BATCH E ATUALIZAR MAPA
+        // 5️⃣ SALVAR EM BATCH E ATUALIZAR MAPA
         const totalCount = await this.saveAndUpdateMap(featuresByType);
 
-        // 5️⃣ ZOOM PARA FEATURES IMPORTADAS
+        // 6️⃣ ZOOM PARA FEATURES IMPORTADAS
         if (totalCount > 0) {
             this.zoomToAllImportedFeatures(featuresByType);
         }
 
         return totalCount;
-    }
-
-    prepareFeatureForImport(feature, targetType) {
-        const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName(
-            targetType.slice(0, -1), // Remove 's' final (points→point)
-            this.map,
-            feature.geometry
-        );
-
-        return {
-            type: 'Feature',
-            id: Date.now().toString() + Math.random(), // ID único para o objeto
-            properties: {
-                ...this.getDefaultProperties(targetType),
-                ...feature.properties,
-                id: featureId,           // ID para identificação
-                nome: featureName,       // Nome gerado automaticamente
-                source: targetType.slice(0, -1) // point/line/polygon
-            },
-            geometry: feature.geometry
-        };
     }
 
     async saveAndUpdateMap(featuresByType) {
