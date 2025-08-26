@@ -157,7 +157,7 @@ export class IDUtils {
      */
     static async duplicateImageResource(oldId, newId, featureType) {
         try {
-            const { imageStore } = await import('../store/store.js');
+            const { imageStore } = await import('./store/store.js');
 
             const oldBlob = await imageStore.getItem(oldId);
             if (oldBlob) {
