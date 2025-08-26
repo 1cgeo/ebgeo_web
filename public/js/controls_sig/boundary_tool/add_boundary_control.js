@@ -39,6 +39,7 @@ class AddBoundaryControl {
         echelon: 'XXX',
         text_top: '',
         text_bottom: '',
+        text_distance_ratio: 0.9,
 
         // ✅ NOVOS ATRIBUTOS
         nome: '',
@@ -733,7 +734,7 @@ class AddBoundaryControl {
 
     generateBoundaryTexts = (boundaryFeature) => {
         const textFeatures = [];
-        const { text_top, text_bottom, text_size, baseCoordinates, symbol_position_ratio, symbol_size } = boundaryFeature.properties;
+        const { text_top, text_bottom, text_size, baseCoordinates, symbol_position_ratio, symbol_size, text_distance_ratio } = boundaryFeature.properties;
 
         if ((!text_top && !text_bottom) || baseCoordinates.length < 2) {
             return textFeatures;
@@ -748,7 +749,7 @@ class AddBoundaryControl {
             const p2 = turf.along(line, totalLength * symbol_position_ratio + 0.01, { units: 'kilometers' });
             const localBearing = turf.bearing(p1, p2);
 
-            const labelOffset = symbol_size * 0.8;
+            const labelOffset = symbol_size * (text_distance_ratio || 0.9);
             const textPlacementBearing = localBearing - 90;
             const textRotation = (localBearing <= 0 || localBearing >= 180) ? localBearing + 90 : localBearing - 90;
 
@@ -949,6 +950,34 @@ class AddBoundaryControl {
                         user_isEditingHandle: true
                     }
                 });
+
+                // ✅ NOVO: Text distance handle (roxo) - só aparece se há texto
+                const hasText = (baseFeature.properties.text_top || baseFeature.properties.text_bottom);
+                if (hasText) {
+                    const textDistanceRatio = baseFeature.properties.text_distance_ratio || 0.8;
+                    const textOffset = (baseFeature.properties.symbol_size || 2) * textDistanceRatio;
+                    const textPlacementBearing = localBearing - 90;
+                    const textDistanceHandlePoint = turf.destination(symbolPoint, textOffset, textPlacementBearing, { units: 'kilometers' });
+                    const textDistanceHandleId = `boundary-handle-${id}-text-distance`;
+                    points.push({
+                        type: 'Feature',
+                        id: textDistanceHandleId,
+                        geometry: {
+                            type: 'Point',
+                            coordinates: textDistanceHandlePoint.geometry.coordinates
+                        },
+                        properties: {
+                            parent: id,
+                            type: 'text_distance_handle',
+                            role: 'handle',
+                            handleType: 'text_distance_handle',
+                            featureId: id,
+                            mode: 'boundary_editing',
+                            meta: 'vertex',
+                            user_isEditingHandle: true
+                        }
+                    });
+                }
             }
         } catch (error) {
             console.warn('Error creating symbol handles:', error);
@@ -1086,6 +1115,21 @@ class AddBoundaryControl {
             const totalLength = turf.length(line, { units: 'kilometers' });
             this.selectedFeature.properties.symbol_position_ratio = Math.max(0.01, Math.min(0.99, distance / totalLength));
 
+        } else if (handleType === 'text_distance_handle') {
+            // ✅ NOVO: Text distance handle logic
+            const ratio = this.selectedFeature.properties.symbol_position_ratio || 0.5;
+            const line = turf.lineString(coordinates);
+            const totalLength = turf.length(line, { units: 'kilometers' });
+            const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
+            
+            // Calcular nova distância baseada na distância radial do centro do símbolo
+            const newDistance = turf.distance(centerPoint, turf.point(newPosition), { units: 'kilometers' });
+            const symbolSize = this.selectedFeature.properties.symbol_size || 2;
+            const newRatio = newDistance / symbolSize;
+            
+            // ✅ Aplicar limites definidos: 0.1 a 3.0
+            this.selectedFeature.properties.text_distance_ratio = Math.max(0.1, Math.min(3.0, newRatio));
+
         } else if (handleType === 'vertex' && this.activeHandleIndex !== null) {
             // ✅ CORRIGIDO: Usar activeHandleIndex armazenado
             coordinates[this.activeHandleIndex] = newPosition;
@@ -1208,12 +1252,12 @@ class AddBoundaryControl {
                 const coords = this.normalizeBaseCoordinates(sourceFeature.properties.baseCoordinates);
                 if (coords && coords.length >= 2) {
 
-                    if (['baseCoordinates', 'symbol_position_ratio', 'symbol_size', 'echelon'].includes(property)) {
+                    if (['baseCoordinates', 'symbol_position_ratio', 'symbol_size', 'echelon', 'text_distance_ratio'].includes(property)) {
                         sourceFeature.geometry = this.generateBoundaryGeometry(sourceFeature.properties);
                         feature.geometry = sourceFeature.geometry;
                     }
 
-                    if (['color', 'lineWidth', 'opacity', 'text_top', 'text_bottom', 'text_size', 'echelon', 'symbol_position_ratio', 'symbol_size'].includes(property)) {
+                    if (['color', 'lineWidth', 'opacity', 'text_top', 'text_bottom', 'text_size', 'text_distance_ratio', 'echelon', 'symbol_position_ratio', 'symbol_size'].includes(property)) {
                         this.updateDependentFeatures(sourceFeature);
                     }
 
@@ -1227,7 +1271,7 @@ class AddBoundaryControl {
 
                 this.selectedFeature.properties[property] = value;
 
-                if (['baseCoordinates', 'symbol_position_ratio', 'symbol_size', 'echelon'].includes(property)) {
+                if (['baseCoordinates', 'symbol_position_ratio', 'symbol_size', 'echelon', 'text_distance_ratio', 'text_top', 'text_bottom'].includes(property)) {
                     this.selectedFeature.geometry = sourceFeature.geometry;
 
                     if (!this.isDraggingHandle) {
@@ -1285,7 +1329,7 @@ class AddBoundaryControl {
             feature.properties.text_bottom !== initialProperties.text_bottom ||
             feature.properties.symbol_size !== initialProperties.symbol_size ||
             feature.properties.symbol_position_ratio !== initialProperties.symbol_position_ratio ||
-            // ✅ NOVOS ATRIBUTOS
+            feature.properties.text_distance_ratio !== initialProperties.text_distance_ratio ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||

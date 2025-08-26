@@ -903,6 +903,7 @@ function setupBoundaryLayers(features, mapInstance) {
                     ['==', ['get', 'type'], 'midpoint'], '#ffaa00',
                     ['==', ['get', 'type'], 'symbol_handle'], '#0066ff',
                     ['==', ['get', 'type'], 'size_handle'], '#28a745',
+                    ['==', ['get', 'type'], 'text_distance_handle'], '#9900cc',
                     '#000000'
                 ],
                 'circle-stroke-color': '#ffffff',
