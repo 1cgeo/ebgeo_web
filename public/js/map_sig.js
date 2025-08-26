@@ -193,6 +193,7 @@ document.addEventListener('keydown', (e) => {
     if (addStreetViewControl.isOpen) {
         return;
     }
+    
     switch (e.key) {
         case 'Delete':
         case 'Backspace':
@@ -226,88 +227,120 @@ document.addEventListener('keydown', (e) => {
         // ✅ ATALHOS PARA ATIVAÇÃO DE FERRAMENTAS
         case 'n':
         case 'N':
-            e.preventDefault();
-            toolManager.setActiveTool(vectorTileInfoControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(vectorTileInfoControl);
+            }
             break;
         case 'p':
         case 'P':
-            e.preventDefault();
-            toolManager.setActiveTool(pointControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(pointControl);
+            }
             break;
         case 'l':
         case 'L':
-            e.preventDefault();
-            toolManager.setActiveTool(lineControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(lineControl);
+            }
             break;
         case 'a':
         case 'A':
-            e.preventDefault();
-            toolManager.setActiveTool(polygonControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(polygonControl);
+            }
             break;
         case 't':
         case 'T':
-            e.preventDefault();
-            toolManager.setActiveTool(textControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(textControl);
+            }
             break;
         case 'i':
         case 'I':
-            e.preventDefault();
-            toolManager.setActiveTool(imageControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(imageControl);
+            }
             break;
         case 'c':
         case 'C':
-            e.preventDefault();
-            toolManager.setActiveTool(circleControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(circleControl);
+            }
             break;
         case 'e':
         case 'E':
-            e.preventDefault();
-            toolManager.setActiveTool(ellipseControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(ellipseControl);
+            }
             break;
         case 'v':
         case 'V':
-            e.preventDefault();
-            if (map.getTerrain()) {
-                toolManager.setActiveTool(visibilityControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                if (map.getTerrain()) {
+                    toolManager.setActiveTool(visibilityControl);
+                }
             }
             break;
         // 'o' para LOS (Line Of Sight)
         case 'o':
         case 'O':
-            e.preventDefault();
-            if (map.getTerrain()) {
-                toolManager.setActiveTool(losControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                if (map.getTerrain()) {
+                    toolManager.setActiveTool(losControl);
+                }
             }
             break;
         case 's':
         case 'S':
-            e.preventDefault();
-            toolManager.setActiveTool(arrowControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(arrowControl);
+            }
             break;
         case 'd':
         case 'D':
-            e.preventDefault();
-            toolManager.setActiveTool(boundaryControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(boundaryControl);
+            }
             break;
         case 'f':
         case 'F':
-            e.preventDefault();
-            toolManager.setActiveTool(occupiedFrontControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(occupiedFrontControl);
+            }
             break;
         case 'm':
         case 'M':
-            e.preventDefault();
-            toolManager.setActiveTool(militarySymbolControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(militarySymbolControl);
+            }
             break;
         case 'r':
         case 'R':
-            e.preventDefault();
-            toolManager.setActiveTool(rectangleControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(rectangleControl);
+            }
             break;
         case 'b':
         case 'B':
-            e.preventDefault();
-            toolManager.setActiveTool(brushControl);
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(brushControl);
+            }
             break;
     }
 });
