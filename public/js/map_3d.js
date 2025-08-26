@@ -494,6 +494,7 @@ export function activeTool() {
     switch (toolId) {
         case 'limpar':
             removeAllTools();
+            break;
         case 'distancia':
             if (window.measure && window.measure.drawLineMeasureGraphics) {
                 window.measure.drawLineMeasureGraphics({
