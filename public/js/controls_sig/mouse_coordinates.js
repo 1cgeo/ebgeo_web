@@ -531,6 +531,11 @@ class MouseCoordinatesControl {
         this._coordinatesText.innerHTML = '';
 
         try {
+            // Add zoom level first
+            const zoomSpan = document.createElement('span');
+            zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
+            this._coordinatesText.appendChild(zoomSpan);
+
             const displayFormat = getDisplayFormat(lat, lng, this._currentFormat);
 
             displayFormat.parts.forEach(part => {
@@ -548,6 +553,10 @@ class MouseCoordinatesControl {
         } catch (error) {
             console.error('Error converting coordinates:', error);
             // Fallback to lat/long if conversion fails
+            const zoomSpan = document.createElement('span');
+            zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
+            this._coordinatesText.appendChild(zoomSpan);
+
             const latSpan = document.createElement('span');
             latSpan.textContent = `Lat: ${lat.toFixed(5)}°`;
 

@@ -241,7 +241,7 @@ export class ExportImportService {
             const url = URL.createObjectURL(finalBlob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `projeto_${new Date().toISOString().slice(0, 10)}.ebgeo`;
+            a.download = `projeto-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.ebgeo`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
