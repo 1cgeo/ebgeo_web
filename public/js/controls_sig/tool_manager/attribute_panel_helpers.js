@@ -313,14 +313,7 @@ export function createStandardButtons(config) {
         control.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
     };
-
-    const discardButton = document.createElement('button');
-    discardButton.textContent = 'Descartar';
-    discardButton.classList.add('tool-button', 'pure-material-tool-button-contained');
-    discardButton.onclick = () => {
-        control.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
-    };
+    buttonContainer.append(saveButton)
 
     // Set Default Button (conditional)
     if (hasSetDefault && onSetDefault) {
@@ -334,7 +327,15 @@ export function createStandardButtons(config) {
         buttonContainer.append(setDefaultButton);
     }
 
-    buttonContainer.append(saveButton).append(discardButton);
+    const discardButton = document.createElement('button');
+    discardButton.textContent = 'Descartar';
+    discardButton.classList.add('tool-button', 'pure-material-tool-button-contained');
+    discardButton.onclick = () => {
+        control.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
+        selectionManager.deselectAllFeatures();
+    };
+    buttonContainer.append(discardButton);
+
     return buttonContainer;
 }
 
