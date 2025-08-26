@@ -167,7 +167,7 @@ class AddBrushControl {
     }
 
     updateAllBrushWidths = () => {
-        if(!this.map.getSource('brushes')){
+        if (!this.map.getSource('brushes')) {
             return
         }
         const currentZoom = this.map.getZoom();
@@ -178,7 +178,6 @@ class AddBrushControl {
             const zoomDifference = currentZoom - feature.properties.createdAtZoom;
             const scaleFactor = Math.pow(2, zoomDifference);
             const newCalculatedWidth = feature.properties.lineWidth * scaleFactor;
-
             if (feature.properties.calculatedLineWidth !== newCalculatedWidth) {
                 feature.properties.calculatedLineWidth = newCalculatedWidth;
                 hasChanges = true;
@@ -395,6 +394,20 @@ class AddBrushControl {
                     sourceFeature.properties.calculatedLineWidth = newCalculatedWidth;
                     feature.properties.calculatedLineWidth = newCalculatedWidth;
                 }
+
+                if (property === 'createdAtZoom') {
+                    const roundedValue = Math.round(value * 10) / 10;
+                    sourceFeature.properties[property] = roundedValue;
+                    feature.properties[property] = roundedValue;
+
+                    const currentZoom = this.map.getZoom();
+                    const zoomDifference = currentZoom - roundedValue;
+                    const scaleFactor = Math.pow(2, zoomDifference);
+
+                    const newCalculatedWidth = sourceFeature.properties.lineWidth * scaleFactor;
+                    sourceFeature.properties.calculatedLineWidth = newCalculatedWidth;
+                    feature.properties.calculatedLineWidth = newCalculatedWidth;
+                }
             }
         }
 
@@ -456,7 +469,8 @@ class AddBrushControl {
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
-            feature.properties.bloqueado !== initialProperties.bloqueado
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.createdAtZoom !== initialProperties.createdAtZoom
         );
     }
 

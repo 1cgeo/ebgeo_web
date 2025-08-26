@@ -358,15 +358,33 @@ class AddTextControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value; // Sync back
 
-                // CORRETO: Só recalcular selection box se propriedades intrínsecas mudaram
-                const shouldRecalculateSelectionBox = ['text', 'size', 'rotation'].includes(property);
-                
-                // DEFENSIVO: Garantir consistência (mas só forçar recálculo se necessário)
-                this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
-                
-                // Sincronizar de volta para feature externa
-                feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
-                feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                // Tratamento especial para createdAtZoom
+                if (property === 'createdAtZoom') {
+                    const roundedValue = Math.round(value * 10) / 10;
+                    sourceFeature.properties[property] = roundedValue;
+                    feature.properties[property] = roundedValue;
+                    
+                    const currentZoom = this.map.getZoom();
+                    const zoomDifference = currentZoom - roundedValue;
+                    const scaleFactor = Math.pow(2, zoomDifference);
+                    
+                    const newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
+                    sourceFeature.properties.calculatedSize = newCalculatedSize;
+                    feature.properties.calculatedSize = newCalculatedSize;
+                    
+                    this.ensureFeatureConsistency(sourceFeature, currentZoom, true);
+                    feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                } else {
+                    // CORRETO: Só recalcular selection box se propriedades intrínsecas mudaram
+                    const shouldRecalculateSelectionBox = ['text', 'size', 'rotation'].includes(property);
+                    
+                    // DEFENSIVO: Garantir consistência (mas só forçar recálculo se necessário)
+                    this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
+                    
+                    // Sincronizar de volta para feature externa
+                    feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
+                    feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                }
             }
         }
         this.map.getSource('texts').setData(data);
@@ -462,7 +480,8 @@ class AddTextControl {
             feature.properties.backgroundFillOpacity !== initialProperties.backgroundFillOpacity ||
             feature.properties.backgroundBorderColor !== initialProperties.backgroundBorderColor ||
             feature.properties.backgroundBorderOpacity !== initialProperties.backgroundBorderOpacity ||
-            feature.properties.backgroundBorderWidth !== initialProperties.backgroundBorderWidth
+            feature.properties.backgroundBorderWidth !== initialProperties.backgroundBorderWidth ||
+            feature.properties.createdAtZoom !== initialProperties.createdAtZoom
         );
     }
 }

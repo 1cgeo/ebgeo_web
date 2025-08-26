@@ -13,7 +13,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    
+
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
     // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
@@ -51,6 +51,20 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
     });
 
     $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
+
+    const createdAtZoomControl = createSliderWithInput({
+        min: 1,
+        max: 21,
+        step: 0.1,
+        value: Math.round(feature.properties.createdAtZoom * 10) / 10,
+        onChange: (value) => {
+            const roundedValue = Math.round(parseFloat(value) * 10) / 10;
+            brushControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     const buttons = createStandardButtons({

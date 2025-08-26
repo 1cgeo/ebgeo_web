@@ -33,14 +33,14 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     // ⚠️ MANTER: Modal específico do SIDC
     if (selectedFeatures.length === 1) {
 
-    // Botão para abrir modal do símbolo
-    const symbolButton = document.createElement('button');
-    symbolButton.classList.add('tool-button', 'pure-material-button-contained');
-    symbolButton.textContent = 'Configurar Símbolo...';
-    symbolButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
-    symbolButton.onclick = () => openSymbolModal();
+        // Botão para abrir modal do símbolo
+        const symbolButton = document.createElement('button');
+        symbolButton.classList.add('tool-button', 'pure-material-button-contained');
+        symbolButton.textContent = 'Configurar Símbolo...';
+        symbolButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
+        symbolButton.onclick = () => openSymbolModal();
 
-    $(panel).append(createAttributeRow('SIDC:', symbolButton));
+        $(panel).append(createAttributeRow('SIDC:', symbolButton));
     }
     // ===== CONTROLES DE RENDERIZAÇÃO =====
 
@@ -54,6 +54,21 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     }));
 
     $(panel).append(createAttributeRow('Tamanho:', sizeControl));
+
+    // Zoom de referência
+    const createdAtZoomControl = createSliderWithInput({
+        min: 1,
+        max: 21,
+        step: 0.1,
+        value: Math.round(feature.properties.createdAtZoom * 10) / 10,
+        onChange: (value) => {
+            const roundedValue = Math.round(parseFloat(value) * 10) / 10;
+            militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
 
     // Opacidade (0-100%)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
@@ -591,10 +606,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxes.context = createDigitalComboBox(
             MILITARY_DATA.context,
             tempProperties.context || "0",
-            (value) => { 
+            (value) => {
                 if (!isUpdatingFromSIDC) {
-                    tempProperties.context = value; 
-                    updatePreviewFromComboboxes(); 
+                    tempProperties.context = value;
+                    updatePreviewFromComboboxes();
                 }
             },
             'Contexto'
@@ -604,10 +619,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxes.standardIdentity = createDigitalComboBox(
             MILITARY_DATA.standardIdentity,
             tempProperties.standardIdentity || "3",
-            (value) => { 
+            (value) => {
                 if (!isUpdatingFromSIDC) {
-                    tempProperties.standardIdentity = value; 
-                    updatePreviewFromComboboxes(); 
+                    tempProperties.standardIdentity = value;
+                    updatePreviewFromComboboxes();
                 }
             },
             'Identidade Padrão'
@@ -617,10 +632,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxes.status = createDigitalComboBox(
             MILITARY_DATA.status,
             tempProperties.status || "0",
-            (value) => { 
+            (value) => {
                 if (!isUpdatingFromSIDC) {
-                    tempProperties.status = value; 
-                    updatePreviewFromComboboxes(); 
+                    tempProperties.status = value;
+                    updatePreviewFromComboboxes();
                 }
             },
             'Status'
@@ -630,10 +645,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxes.hqTfDummy = createDigitalComboBox(
             MILITARY_DATA.hqTfDummy,
             tempProperties.hqTfDummy || "0",
-            (value) => { 
+            (value) => {
                 if (!isUpdatingFromSIDC) {
-                    tempProperties.hqTfDummy = value; 
-                    updatePreviewFromComboboxes(); 
+                    tempProperties.hqTfDummy = value;
+                    updatePreviewFromComboboxes();
                 }
             },
             'QG/Força-Tarefa/Dummy'
@@ -644,10 +659,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxes.echelon = createDigitalComboBox(
             MILITARY_DATA.echelon,
             tempProperties.echelon || "16",
-            (value) => { 
+            (value) => {
                 if (!isUpdatingFromSIDC) {
-                    tempProperties.echelon = value; 
-                    updatePreviewFromComboboxes(); 
+                    tempProperties.echelon = value;
+                    updatePreviewFromComboboxes();
                 }
             },
             'Escalão'
@@ -657,10 +672,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxes.mainIcon = createDigitalComboBox(
             MILITARY_DATA.mainIcons,
             tempProperties.mainIcon || "121100",
-            (value) => { 
+            (value) => {
                 if (!isUpdatingFromSIDC) {
-                    tempProperties.mainIcon = value; 
-                    updatePreviewFromComboboxes(); 
+                    tempProperties.mainIcon = value;
+                    updatePreviewFromComboboxes();
                 }
             },
             'Ícone Principal'
@@ -670,10 +685,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxes.modifier1 = createDigitalComboBox(
             MILITARY_DATA.modifier1,
             tempProperties.modifier1 || "00",
-            (value) => { 
+            (value) => {
                 if (!isUpdatingFromSIDC) {
-                    tempProperties.modifier1 = value; 
-                    updatePreviewFromComboboxes(); 
+                    tempProperties.modifier1 = value;
+                    updatePreviewFromComboboxes();
                 }
             },
             'Modificador 1'
@@ -683,10 +698,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxes.modifier2 = createDigitalComboBox(
             MILITARY_DATA.modifier2,
             tempProperties.modifier2 || "00",
-            (value) => { 
+            (value) => {
                 if (!isUpdatingFromSIDC) {
-                    tempProperties.modifier2 = value; 
-                    updatePreviewFromComboboxes(); 
+                    tempProperties.modifier2 = value;
+                    updatePreviewFromComboboxes();
                 }
             },
             'Modificador 2'
@@ -702,10 +717,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             // Build SIDC from current tempProperties
             const sidc = militarySymbolControl.symbolGenerator.buildSIDC(tempProperties);
             tempProperties.sidc = sidc;
-            
+
             // Update SIDC input field (without triggering its event)
             sidcInput.value = sidc;
-            
+
             updatePreview();
         }
 
@@ -713,14 +728,14 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         function updateComboboxesFromSIDC(sidc) {
             try {
                 isUpdatingFromSIDC = true;
-                
+
                 const parseResult = militarySymbolControl.symbolGenerator.canParseSIDC(sidc);
                 if (!parseResult.canParse) {
                     throw new Error(parseResult.error);
                 }
 
                 const parsed = parseResult.properties;
-                
+
                 // Update tempProperties
                 tempProperties.context = parsed.context;
                 tempProperties.standardIdentity = parsed.standardIdentity;
@@ -740,7 +755,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 });
 
                 sidcInput.style.borderColor = '#28a745'; // Green for valid
-                
+
             } catch (error) {
                 sidcInput.style.borderColor = '#dc3545'; // Red for invalid
                 console.warn('Invalid SIDC for parsing:', error.message);
@@ -751,15 +766,15 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         sidcInput.addEventListener('input', (e) => {
             let cleanSIDC = e.target.value.replace(/\s/g, '').trim().substring(0, 20);
-            
+
             // Update input field with cleaned value
             if (e.target.value !== cleanSIDC) {
                 e.target.value = cleanSIDC;
             }
-            
+
             // Reset border color
             sidcInput.style.borderColor = '#ddd';
-            
+
             if (cleanSIDC.length === 20) {
                 updateComboboxesFromSIDC(cleanSIDC);
                 updatePreview();
@@ -772,7 +787,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             setTimeout(() => {
                 const cleanSIDC = sidcInput.value.replace(/\s/g, '').trim().substring(0, 20);
                 sidcInput.value = cleanSIDC;
-                
+
                 if (cleanSIDC.length === 20) {
                     updateComboboxesFromSIDC(cleanSIDC);
                     updatePreview();

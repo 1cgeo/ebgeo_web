@@ -1,8 +1,8 @@
 // Path: js\controls_sig\text_tool\text_attributes_panel.js
 
-import { 
-    createSliderWithInput, 
-    createColorPicker, 
+import {
+    createSliderWithInput,
+    createColorPicker,
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
@@ -14,7 +14,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    
+
     // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
@@ -116,6 +116,20 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
 
     $(textTabContent).append(createAttributeRow('Tamanho (px):', sizeControl));
 
+    const createdAtZoomControl = createSliderWithInput({
+        min: 1,
+        max: 21,
+        step: 0.1,
+        value: Math.round(feature.properties.createdAtZoom * 10) / 10,
+        onChange: (value) => {
+            const roundedValue = Math.round(parseFloat(value) * 10) / 10;
+            textControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(textTabContent).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
+
     // Cor do texto
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
@@ -146,7 +160,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     justifyLabel.textContent = 'Justificativa:';
     justifyLabel.className = 'justify-label';
     const justifyButtonsContainer = $("<div>", { class: "justify-buttons" });
-    
+
     // Initialize button variables
     let justifyLeftButton, justifyCenterButton, justifyRightButton;
     const justifyOptions = ['left', 'center', 'right'];
@@ -167,7 +181,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
             justifyRightButton = button;
         }
     });
-    
+
     $(textTabContent).append(
         $("<div>", { class: "justify-container" })
             .append(justifyLabel)
@@ -231,7 +245,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     // Opacidade da borda
     const backgroundBorderOpacityControl = createSliderWithInput({
         min: 0,
-        max: 100, 
+        max: 100,
         step: 1,
         value: Math.round(feature.properties.backgroundBorderOpacity * 100),
         onChange: (value) => {
@@ -245,7 +259,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     const backgroundBorderWidthControl = createSliderWithInput({
         min: 1,
         max: 10,
-        step: 1, 
+        step: 1,
         value: feature.properties.backgroundBorderWidth,
         onChange: (value) => {
             textControl.updateFeaturesProperty(selectedFeatures, 'backgroundBorderWidth', parseInt(value, 10));
@@ -266,7 +280,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
             backgroundBorderWidthControl.querySelector('input[type="range"]'),
             backgroundBorderWidthControl.querySelector('input[type="number"]')
         ];
-        
+
         controls.forEach(control => {
             if (control) {
                 control.disabled = !enabled;
@@ -284,12 +298,12 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         activeTabButton.style.background = '#f8f9fa';
         activeTabButton.style.fontWeight = 'bold';
         activeTabButton.classList.add('active');
-        
+
         // Estilo da aba inativa
         inactiveTabButton.style.background = '#e9ecef';
         inactiveTabButton.style.fontWeight = 'normal';
         inactiveTabButton.classList.remove('active');
-        
+
         // Mostrar/ocultar conteúdo
         activeTabContent.style.display = 'block';
         activeTabContent.classList.add('active');
@@ -309,10 +323,10 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     // Montar estrutura das abas
     tabsContent.appendChild(textTabContent);
     tabsContent.appendChild(backgroundTabContent);
-    
+
     tabsContainer.appendChild(tabsNav);
     tabsContainer.appendChild(tabsContent);
-    
+
     $(panel).append(tabsContainer);
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS (FORA DAS ABAS) =====

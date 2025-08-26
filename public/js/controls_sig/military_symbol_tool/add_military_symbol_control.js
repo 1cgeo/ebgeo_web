@@ -484,33 +484,51 @@ class AddMilitarySymbolControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Propriedades que afetam o SIDC devem regenerar a imagem
-                const sidcProperties = [
-                    'context', 'standardIdentity', 'status', 'hqTfDummy',
-                    'echelon', 'mainIcon', 'modifier1', 'modifier2'
-                ];
+                // Tratamento especial para createdAtZoom
+                if (property === 'createdAtZoom') {
+                    const roundedValue = Math.round(value * 10) / 10;
+                    sourceFeature.properties[property] = roundedValue;
+                    feature.properties[property] = roundedValue;
+                    
+                    const currentZoom = this.map.getZoom();
+                    const zoomDifference = currentZoom - roundedValue;
+                    const scaleFactor = Math.pow(2, zoomDifference);
+                    
+                    const newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
+                    sourceFeature.properties.calculatedSize = newCalculatedSize;
+                    feature.properties.calculatedSize = newCalculatedSize;
+                    
+                    this.ensureFeatureConsistency(sourceFeature, currentZoom, true);
+                    feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                } else {
+                    // Propriedades que afetam o SIDC devem regenerar a imagem
+                    const sidcProperties = [
+                        'context', 'standardIdentity', 'status', 'hqTfDummy',
+                        'echelon', 'mainIcon', 'modifier1', 'modifier2'
+                    ];
 
-                if (sidcProperties.includes(property)) {
-                    // Calcular novo SIDC
-                    const newSIDC = this.symbolGenerator.buildSIDC(sourceFeature.properties);
-                    sourceFeature.properties.sidc = newSIDC;
-                    feature.properties.sidc = newSIDC;
+                    if (sidcProperties.includes(property)) {
+                        // Calcular novo SIDC
+                        const newSIDC = this.symbolGenerator.buildSIDC(sourceFeature.properties);
+                        sourceFeature.properties.sidc = newSIDC;
+                        feature.properties.sidc = newSIDC;
 
-                    // Only regenerate if SIDC actually changed
-                    if (oldSIDC !== newSIDC) {
-                        this.scheduleSymbolUpdate(feature);
+                        // Only regenerate if SIDC actually changed
+                        if (oldSIDC !== newSIDC) {
+                            this.scheduleSymbolUpdate(feature);
+                        }
                     }
-                }
 
-                // Recalcular selection box se propriedades intrínsecas mudaram
-                const shouldRecalculateSelectionBox = ['size', 'rotation'].includes(property);
-                
-                // Garantir consistência
-                this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
-                
-                // Sincronizar de volta
-                feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
-                feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                    // Recalcular selection box se propriedades intrínsecas mudaram
+                    const shouldRecalculateSelectionBox = ['size', 'rotation'].includes(property);
+                    
+                    // Garantir consistência
+                    this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
+                    
+                    // Sincronizar de volta
+                    feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
+                    feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                }
             }
         }
 
@@ -620,7 +638,8 @@ class AddMilitarySymbolControl {
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
-            feature.properties.bloqueado !== initialProperties.bloqueado
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.createdAtZoom !== initialProperties.createdAtZoom
         );
     }
 }

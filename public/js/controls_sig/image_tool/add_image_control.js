@@ -454,15 +454,33 @@ class AddImageControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Recalcular selection box se propriedades intrínsecas mudaram
-                const shouldRecalculateSelectionBox = ['size', 'rotation'].includes(property);
-                
-                // Garantir consistência
-                this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
-                
-                // Sincronizar de volta
-                feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
-                feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                // Tratamento especial para createdAtZoom
+                if (property === 'createdAtZoom') {
+                    const roundedValue = Math.round(value * 10) / 10;
+                    sourceFeature.properties[property] = roundedValue;
+                    feature.properties[property] = roundedValue;
+                    
+                    const currentZoom = this.map.getZoom();
+                    const zoomDifference = currentZoom - roundedValue;
+                    const scaleFactor = Math.pow(2, zoomDifference);
+                    
+                    const newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
+                    sourceFeature.properties.calculatedSize = newCalculatedSize;
+                    feature.properties.calculatedSize = newCalculatedSize;
+                    
+                    this.ensureFeatureConsistency(sourceFeature, currentZoom, true);
+                    feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                } else {
+                    // Recalcular selection box se propriedades intrínsecas mudaram
+                    const shouldRecalculateSelectionBox = ['size', 'rotation'].includes(property);
+                    
+                    // Garantir consistência
+                    this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
+                    
+                    // Sincronizar de volta
+                    feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
+                    feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                }
             }
         }
         this.map.getSource('images').setData(data);
@@ -555,7 +573,8 @@ class AddImageControl {
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
-            feature.properties.bloqueado !== initialProperties.bloqueado
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.createdAtZoom !== initialProperties.createdAtZoom
         );
     }
 }

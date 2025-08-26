@@ -1,8 +1,8 @@
 // Path: js\controls_sig\image_tool\image_attributes_panel.js
 
-import { 
-    createSliderWithInput, 
-    createAttributeRow, 
+import {
+    createSliderWithInput,
+    createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
     getCommonConfig
@@ -12,7 +12,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    
+
     // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
@@ -40,6 +40,21 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     }));
 
     $(panel).append(createAttributeRow('Tamanho:', sizeControl));
+
+    // Zoom de referência
+    const createdAtZoomControl = createSliderWithInput({
+        min: 1,
+        max: 21,
+        step: 0.1,
+        value: Math.round(feature.properties.createdAtZoom * 10) / 10,
+        onChange: (value) => {
+            const roundedValue = Math.round(parseFloat(value) * 10) / 10;
+            imageControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
 
     // Rotação
     const rotationControl = createSliderWithInput(getCommonConfig('rotation',
