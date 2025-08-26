@@ -98,6 +98,11 @@ class SelectionManager {
         // Unified selection storage - one map instead of 11+
         this.selectedFeatures = new Map(); // featureId -> { type, feature }
 
+        // Context menu for multiple feature selection
+        this.contextMenu = null;
+        this.pendingFeatures = null;
+        this.pendingEvent = null;
+
         this.setupEventListeners();
     }
 
@@ -111,9 +116,6 @@ class SelectionManager {
         }
 
         this.controls.set(type, control);
-
-        // Setup layer click listeners for this control type
-        this._setupControlEventListeners(type);
     }
 
     setUIManager(uiManager) {
@@ -124,29 +126,54 @@ class SelectionManager {
         this.vectorTileInfoControl = vectorTileInfoControl;
     }
 
-    /**
-     * Setup event listeners for a specific control type
-     */
-    _setupControlEventListeners(type) {
-        const config = CONTROL_CONFIG[type];
-
-        // Setup click listeners for each layer
-        config.layerIds.forEach(layerId => {
-            this.map.on('click', layerId, this.handleElementClick);
+    setupEventListeners = () => {
+        this.map.on('click', this.handleMapClick);
+        
+        // Close context menu with ESC key (mantido - funciona bem)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.contextMenu) {
+                this._hideFeatureSelectionMenu();
+            }
+        });
+        
+        // Close menu on map move/zoom
+        this.map.on('movestart', () => {
+            if (this.contextMenu) {
+                this._hideFeatureSelectionMenu();
+            }
+        });
+        
+        this.map.on('zoomstart', () => {
+            if (this.contextMenu) {
+                this._hideFeatureSelectionMenu();
+            }
         });
     }
 
-    setupEventListeners = () => {
-        this.map.on('click', this.handleMapClick);
-    }
-
     handleMapClick = (e) => {
-        if (e.defaultPrevented) return;
-
+        // Early returns for special states
+        if (this.vectorTileInfoControl && this.vectorTileInfoControl.isActive) return;
+        
         const activeTool = this.getActiveTool();
         if (activeTool) {
             activeTool.handleMapClick(e);
+            return;
+        }
+
+        // Detect ALL clicked features (not just the first one)
+        const clickedFeatures = this.getAllClickedCustomFeatures([e.point.x, e.point.y]);
+        
+        if (clickedFeatures.length > 0) {
+            if (clickedFeatures.length === 1) {
+                // Single feature: process directly
+                this._handleFeatureClick(clickedFeatures[0], e);
+            } else {
+                // Multiple features: show context menu
+                this._showFeatureSelectionMenu(clickedFeatures, e);
+            }
         } else {
+            // Click on empty area
+            this._hideFeatureSelectionMenu(); // close menu if open
             if (!e.originalEvent.shiftKey && this.hasSelectedFeatures()) {
                 this.uiManager.saveChangesAndClosePanel();
                 if (this.hasSelectedFeatures()) {
@@ -156,31 +183,221 @@ class SelectionManager {
         }
     }
 
-    getClickedCustomFeature = (point) => {
+    /**
+     * Get ALL clicked custom features at a point
+     */
+    getAllClickedCustomFeatures = (point) => {
         const features = this.map.queryRenderedFeatures(point);
+        const clickedFeatures = [];
 
-        // Check each control type configuration
+        // Search through each configured control type
         for (const [type, config] of Object.entries(CONTROL_CONFIG)) {
-
             for (const sourceName of config.sourceNames) {
-                const feature = features.find(f =>
+                const matchingFeatures = features.filter(f =>
                     (f.source === sourceName || config.layerIds.includes(f.layer?.id)) &&
                     f.properties.source === type
                 );
 
-                if (feature) {
-                    return { ...feature, toolType: type };
-                }
+                // Add all matching features of this type
+                matchingFeatures.forEach(feature => {
+                    clickedFeatures.push({ ...feature, toolType: type });
+                });
             }
         }
 
-        return null;
+        // Remove duplicates based on type + id
+        const uniqueFeatures = [];
+        const seenKeys = new Set();
+        
+        clickedFeatures.forEach(feature => {
+            const key = `${feature.toolType}:${feature.properties.id}`;
+            if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                uniqueFeatures.push(feature);
+            }
+        });
+
+        return uniqueFeatures;
+    }
+
+    /**
+     * Get first clicked custom feature (for compatibility)
+     */
+    getClickedCustomFeature = (point) => {
+        const features = this.getAllClickedCustomFeatures(point);
+        return features.length > 0 ? features[0] : null;
+    }
+
+    /**
+     * Handle click on a specific feature
+     */
+    _handleFeatureClick = (clickedFeature, e) => {
+        // Check if feature is blocked
+        if (clickedFeature.properties.bloqueado === true) {
+            return;
+        }
+
+        const type = clickedFeature.toolType;
+        const featureId = clickedFeature.properties.id;
+        const isFeatureSelected = this.isFeatureSelected(type, featureId);
+
+        if (isFeatureSelected && e.originalEvent.shiftKey) {
+            // Deselect if Shift + already selected
+            this.toggleFeatureSelection(type, featureId, clickedFeature, true);
+        } else if (!isFeatureSelected) {
+            // Select new feature
+            if (!e.originalEvent.shiftKey) {
+                this.deselectAllFeatures();
+            }
+            this.toggleFeatureSelection(type, featureId, clickedFeature, false);
+        }
+        
+        this.updateUI();
+    }
+
+    /**
+     * Show context menu for multiple features
+     */
+    _showFeatureSelectionMenu = (features, e) => {
+        // Close previous menu if exists
+        this._hideFeatureSelectionMenu();
+        
+        // Filter out blocked features
+        const availableFeatures = features.filter(f => f.properties.bloqueado !== true);
+        
+        if (availableFeatures.length === 0) return;
+        if (availableFeatures.length === 1) {
+            // If only one remains after filtering, select directly
+            this._handleFeatureClick(availableFeatures[0], e);
+            return;
+        }
+
+        // Store references for later use
+        this.pendingFeatures = availableFeatures;
+        this.pendingEvent = e;
+
+        // Create and show menu
+        this.contextMenu = this._createContextMenuElement(availableFeatures, e);
+        document.body.appendChild(this.contextMenu);
+    }
+
+    /**
+     * Create HTML element for context menu
+     */
+    _createContextMenuElement = (features, e) => {
+        const menu = document.createElement('div');
+        menu.className = 'feature-selection-menu';
+        
+        // Clean production styles
+        menu.style.cssText = `
+            position: fixed !important;
+            background: white !important;
+            border: 1px solid #ccc !important;
+            border-radius: 6px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+            z-index: 999999 !important;
+            min-width: 200px !important;
+            max-height: 300px !important;
+            overflow-y: auto !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+            font-size: 14px !important;
+            line-height: 1.4 !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        `;
+
+        // Position menu near click point
+        const x = Math.min(e.originalEvent.clientX, window.innerWidth - 220);
+        const y = Math.min(e.originalEvent.clientY, window.innerHeight - 50);
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+
+        // Create menu header
+        const header = document.createElement('div');
+        header.textContent = `Selecionar feição (${features.length})`;
+        header.style.cssText = `
+            padding: 8px 12px !important;
+            background: #f5f5f5 !important;
+            color: #666 !important;
+            border-bottom: 1px solid #ddd !important;
+            font-weight: bold !important;
+            font-size: 12px !important;
+            margin: 0 !important;
+        `;
+        menu.appendChild(header);
+
+        // Create item for each feature
+        features.forEach((feature, index) => {
+            const item = document.createElement('div');
+            const featureName = this._getFeatureName(feature);
+            
+            item.textContent = featureName;
+            item.style.cssText = `
+                padding: 10px 12px !important;
+                cursor: pointer !important;
+                border-bottom: ${index < features.length - 1 ? '1px solid #eee' : 'none'} !important;
+                transition: background-color 0.2s !important;
+                background: white !important;
+                color: black !important;
+                font-size: 14px !important;
+                margin: 0 !important;
+            `;
+            
+            // Hover effects
+            item.addEventListener('mouseenter', () => {
+                item.style.backgroundColor = '#f0f8ff !important';
+            });
+            item.addEventListener('mouseleave', () => {
+                item.style.backgroundColor = 'white !important';
+            });
+
+            // Click handler
+            item.addEventListener('click', (evt) => {
+                evt.stopPropagation();
+                this._handleFeatureClick(feature, this.pendingEvent);
+                this._hideFeatureSelectionMenu();
+            });
+
+            menu.appendChild(item);
+        });
+
+        return menu;
+    }
+
+    /**
+     * Get display name for feature (simplified to always use properties.nome)
+     */
+    _getFeatureName = (feature) => {
+        const type = feature.toolType;
+        const nome = feature.properties.nome;
+        
+        if (nome && nome.trim()) {
+            return `${nome}`;
+        }
+        
+        // Fallback: type + ID
+        return `ID: ${feature.properties.id}`;
+    }
+
+    /**
+     * Hide context menu
+     */
+    _hideFeatureSelectionMenu = () => {
+        if (this.contextMenu) {
+            this.contextMenu.remove();
+            this.contextMenu = null;
+            this.pendingFeatures = null;
+            this.pendingEvent = null;
+        }
     }
 
     isFeatureSelected = (type, featureId) => {
         const key = `${type}:${featureId}`;
         return this.selectedFeatures.has(key);
     }
+
     isClickOnEditHandle = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
@@ -192,38 +409,9 @@ class SelectionManager {
         }
 
         return features.some(f =>
-            customHandleSources.includes(f.source) &&
+            editHandleSources.includes(f.source) &&
             f.properties.user_isEditingHandle
         );
-    }
-
-    handleElementClick = (e) => {
-        if (this.vectorTileInfoControl && this.vectorTileInfoControl.isActive) return;
-        if (this.getActiveTool()) return;
-        e.preventDefault();
-
-        const feature = e.features[0];
-        if (feature.properties.bloqueado === true) {
-            return;
-        }
-
-        const type = feature.properties.source;
-        const featureId = feature.properties.id;
-
-        // Check if feature is already selected
-        const isFeatureSelected = this.isFeatureSelected(type, featureId);
-
-        if (isFeatureSelected && e.originalEvent.shiftKey) {
-            // Only deselect if holding shift and feature is already selected
-            this.toggleFeatureSelection(type, featureId, feature, true); // force toggle
-        } else if (!isFeatureSelected) {
-            // Select new feature
-            if (!e.originalEvent.shiftKey) {
-                this.deselectAllFeatures();
-            }
-            this.toggleFeatureSelection(type, featureId, feature, false); // don't force toggle
-        }
-        this.updateUI();
     }
 
     toggleFeatureSelection(type, featureId, feature, forceToggle = false) {
@@ -267,8 +455,8 @@ class SelectionManager {
     }
 
     /**
- * Método de conveniência para selecionar uma feature específica
- */
+     * Método de conveniência para selecionar uma feature específica
+     */
     selectFeature(type, featureId, feature = null) {
         // Limpar seleções existentes primeiro
         this.deselectAllFeatures();
