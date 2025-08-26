@@ -82,6 +82,63 @@
     cursor: not-allowed !important;
 }
 
+.street-view-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.street-view-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    border-color: #e0e0e0 !important;
+    background-color: #f5f5f5 !important;
+}
+
+.street-view-control.disabled button:hover {
+    background-color: #f5f5f5 !important;
+    border-color: #e0e0e0 !important;
+}
+
+/* Vector Info Control Disabled */
+.vector-info-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.vector-info-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    border-color: #e0e0e0 !important;
+    background-color: #f5f5f5 !important;
+}
+
+.vector-info-control.disabled button:hover {
+    background-color: #f5f5f5 !important;
+    border-color: #e0e0e0 !important;
+}
+
+/* Feature Search Control Disabled - ajustar para consistência */
+.feature-search-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.feature-search-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    border-color: #e0e0e0 !important;
+    background-color: #f5f5f5 !important;
+}
+
+.feature-search-control.disabled button:hover {
+    background-color: #f5f5f5 !important;
+    border-color: #e0e0e0 !important;
+}
+
+.feature-search-control.disabled svg {
+    stroke: #999 !important;
+}
+
 /* ===== ESTILOS DO FEATURE SEARCH CONTROL ===== */
 .feature-search-control {
     display: flex !important;

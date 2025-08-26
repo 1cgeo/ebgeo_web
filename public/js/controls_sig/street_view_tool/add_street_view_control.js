@@ -2,6 +2,8 @@
 
 import * as THREE from 'three';
 import { DragControls } from 'DragControls';
+import config from '../../config.js';
+
 class AddStreetViewControl {
 
     constructor(toolManager) {
@@ -253,6 +255,13 @@ class AddStreetViewControl {
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
+
+        const isEnabled = config.features?.imagens_panoramicas ?? true;
+        if (!isEnabled) {
+            this.container.classList.add('disabled');
+            button.disabled = true;
+        }
+
         this.changeButtonColor()
 
         const setupMiniMap = async () => {
@@ -308,6 +317,15 @@ class AddStreetViewControl {
     }
 
     changeButtonColor = () => {
+        const isEnabled = config.features?.imagens_panoramicas ?? true;
+        if (!isEnabled) {
+            // Use setTimeout para garantir que DOM está pronto
+            setTimeout(() => {
+            $("#street-view-tool").html('<img class="icon-sig-tool" src="./images/icon_street_view_gray.svg" />');
+            }, 10);
+            return;
+        }
+
         $("#street-view-tool").html(`<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />`);
         if (!this.isActive) return
         $("#street-view-tool").html('<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />');
@@ -326,6 +344,11 @@ class AddStreetViewControl {
     }
 
     async activate() {
+        const isEnabled = config.features?.imagens_panoramicas ?? true;
+        if (!isEnabled) {
+            return false;
+        }
+
         if (this.isActive) {
             this.toolManager.deactivateCurrentTool();
             return

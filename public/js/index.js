@@ -1,5 +1,6 @@
 // Path: js\index.js
 import './config-loader.js'; // Aplica as configurações automaticamente
+import config from './config.js';
 
 import { } from './map_sig.js'
 import {
@@ -47,8 +48,15 @@ function setupEventListeners() {
     // Form toggle
     $('#open-close-form').on('click', toggleAttributesPanel);
 
-    // Mode switching (otimizado)
-    $(".bar-center-buttons a").off('click').on('click', handleModeSwitch);
+    // Verificar se modo 3D está habilitado
+    const map3dEnabled = config.features?.map_3d ?? true;
+    if (!map3dEnabled) {
+        // Remove completamente o botão 3D se desabilitado
+        $('#3d-button').remove();
+    } else {
+        // Mode switching (otimizado) - apenas se 3D estiver habilitado
+        $(".bar-center-buttons a").off('click').on('click', handleModeSwitch);
+    }
 }
 
 function handleModeSwitch(event) {
@@ -367,7 +375,7 @@ export function hideLoadingScreen() {
     $('.loading-background').fadeOut(500, function () {
         $(this).remove();
     });
-    
+
     // Mostra elementos que estavam ocultos durante loading
     document.querySelectorAll('.loading-hidden').forEach(function (el) {
         el.classList.add('loaded');
