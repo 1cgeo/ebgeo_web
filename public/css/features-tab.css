@@ -362,31 +362,3 @@
         transition: none !important;
     }
 }
-
-/* ===== MODO ESCURO (PREPARAÇÃO FUTURA) ===== */
-@media (prefers-color-scheme: dark) {
-    .scale-selector {
-        background: #2d3748;
-        border-color: #4a5568;
-    }
-
-    .scale-label {
-        color: #e2e8f0;
-    }
-
-    .scale-select {
-        background-color: #2d3748;
-        border-color: #4a5568;
-        color: #e2e8f0;
-        background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23e2e8f0' d='M8 12l-4-4h8l-4 4z'/%3E%3C/svg%3E");
-    }
-
-    .scale-select:hover {
-        background-color: #4a5568;
-    }
-
-    .scale-select option {
-        background-color: #2d3748;
-        color: #e2e8f0;
-    }
-}

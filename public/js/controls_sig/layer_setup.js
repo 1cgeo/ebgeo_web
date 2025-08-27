@@ -1,14 +1,15 @@
 // Path: js\controls_sig\layer_setup.js
-import { getCurrentMapFeatures } from './store/store.js';
-import { imageStore } from './store/store.js';
+import { getCurrentMapFeatures, getMapAnalysisLayersStates, imageStore } from './store/store.js';
+import config from '../config.js';
 
 export async function setupMapFeatures(mapInstance) {
     try {
-        setupAuxiliaryLayers(mapInstance);
+        await restoreTerrainState(mapInstance);
+        await setupAnalysisLayers(mapInstance);
 
         const features = await getCurrentMapFeatures();
         await setImages(features, mapInstance);
-        
+
         setupImageLayers(features, mapInstance);
         setupPolygonLayers(features, mapInstance);
         setupEllipseLayers(features, mapInstance);
@@ -24,8 +25,7 @@ export async function setupMapFeatures(mapInstance) {
         setupPointLayers(features, mapInstance);
         setupMilitarySymbolsLayers(features, mapInstance);
         setupTextLayers(features, mapInstance);
-
-        restoreTerrainState(mapInstance);
+        setupAuxiliaryLayers(mapInstance);
 
         requestAnimationFrame(() => {
             clearAllMeasurements();
@@ -1621,7 +1621,7 @@ function setupAuxiliaryLayers(mapInstance) {
     }
 }
 
-function restoreTerrainState(mapInstance) {
+async function restoreTerrainState(mapInstance) {
     try {
 
         const terrainControl = mapInstance._controls.find(control =>
@@ -1633,7 +1633,7 @@ function restoreTerrainState(mapInstance) {
         }
 
         if (terrainControl.terrainConfig) {
-            terrainControl._setupTerrainSources();
+            await terrainControl._setupTerrainSources();
 
             // Reativar o terreno 3D
             if (mapInstance.getSource('terrainSource') && terrainControl._wasTerrainActive) {
@@ -1778,5 +1778,84 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
 
     } catch (error) {
         console.error('Error restoring boundary dependent features:', error);
+    }
+}
+
+// Adicionar esta nova função no final do arquivo
+/**
+ * Configura as analysis layers raster baseadas na configuração
+ * @param {Object} mapInstance - Instância do mapa MapLibre
+ */
+async function setupAnalysisLayers(mapInstance) {
+    // Verificar se analysis layers estão habilitadas na configuração
+    if (!config.analysisLayers?.enabled || !config.analysisLayers.layers?.length) {
+        return;
+    }
+
+    try {
+        // Iterar pelas layers configuradas
+        for (const layerConfig of config.analysisLayers.layers) {
+            const sourceId = `analysis-${layerConfig.id}`;
+            const layerId = `analysis-${layerConfig.id}-layer`;
+
+            // Adicionar source se não existir
+            if (!mapInstance.getSource(sourceId)) {
+                mapInstance.addSource(sourceId, layerConfig.source);
+            }
+
+            // Adicionar layer se não existir
+            if (!mapInstance.getLayer(layerId)) {
+                const layer = {
+                    id: layerId,
+                    type: 'raster',
+                    source: sourceId,
+                    paint: {
+                        ...layerConfig.paint,
+                        'raster-opacity': layerConfig.opacity || 1.0
+                    },
+                    layout: {
+                        visibility: 'none' // Iniciar invisível, será controlado pelo estado salvo
+                    }
+                };
+
+                mapInstance.addLayer(layer);
+            }
+        }
+
+        await restoreAnalysisLayersState(mapInstance);
+    } catch (error) {
+        console.error('Erro ao configurar analysis layers:', error);
+    }
+}
+
+/**
+ * Restaura o estado das analysis layers a partir do store
+ * @param {Object} mapInstance - Instância do mapa MapLibre
+ */
+async function restoreAnalysisLayersState(mapInstance) {
+    // Verificar se analysis layers estão habilitadas
+    if (!config.analysisLayers?.enabled || !config.analysisLayers.layers?.length) {
+        return;
+    }
+
+    try {
+        // Carregar estados salvos
+        const layersStates = await getMapAnalysisLayersStates();
+
+        // Aplicar estados para cada layer configurada
+        for (const layerConfig of config.analysisLayers.layers) {
+            const layerId = `analysis-${layerConfig.id}-layer`;
+
+            // Obter estado salvo ou usar defaultVisibility
+            const isEnabled = layersStates[layerConfig.id] ?? layerConfig.defaultVisibility ?? false;
+
+            // Aplicar visibilidade na layer
+            if (mapInstance.getLayer(layerId)) {
+                const visibility = isEnabled ? 'visible' : 'none';
+                mapInstance.setLayoutProperty(layerId, 'visibility', visibility);
+            }
+        }
+    } catch (error) {
+        console.error('Erro ao restaurar estado das analysis layers:', error);
     }
 }

@@ -36,7 +36,7 @@ export default class PDFExportTab {
     }
 
     createUI() {
-        const scaleOptions = this.availableScales.map(scale => 
+        const scaleOptions = this.availableScales.map(scale =>
             `<option value="${scale.value}" ${scale.value === this.scale ? 'selected' : ''}>${scale.label}</option>`
         ).join('');
 
@@ -199,13 +199,13 @@ export default class PDFExportTab {
     // Nova lógica: calcular bounds baseado na escala cartográfica
     calculateBoundsFromScale(scale, orientation) {
         const center = this.map.getCenter();
-        
+
         // Extrair denominador da escala (ex: "1:25000" → 25000)
         const denominator = parseInt(scale.split(':')[1]);
-        
+
         // Dimensões do papel A4 em metros no terreno
         let realWidthMeters, realHeightMeters;
-        
+
         if (orientation === 'landscape') {
             realWidthMeters = (297 / 1000) * denominator;  // 297mm → metros → terreno
             realHeightMeters = (210 / 1000) * denominator; // 210mm → metros → terreno
@@ -216,7 +216,7 @@ export default class PDFExportTab {
 
         // Conversão metros → graus (considerando distorção da latitude)
         const latCorrection = Math.cos(center.lat * Math.PI / 180);
-        
+
         const heightDegrees = realHeightMeters / 111320;  // Latitude é constante
         const widthDegrees = realWidthMeters / (111320 * latCorrection);  // Longitude varia
 
@@ -301,7 +301,7 @@ export default class PDFExportTab {
     // Dar zoom para enquadrar a área do preview
     zoomToPreviewArea() {
         if (!this.paperBounds) return;
-        
+
         // Usar bounds do papel (não área útil) para dar margem visual
         const mapBounds = [
             this.paperBounds.bottomLeft,  // [lng_min, lat_min]
@@ -388,33 +388,33 @@ export default class PDFExportTab {
     getCleanStyle() {
         try {
             const currentStyle = this.map.getStyle();
-            
+
             // Verificar se o estilo existe
             if (!currentStyle) {
                 throw new Error('Estilo do mapa não disponível');
             }
-            
+
             const cleanStyle = JSON.parse(JSON.stringify(currentStyle));
-            
+
             // Definir IDs das camadas de preview a serem removidas
             const previewLayerIds = [
                 'pdf-export-preview-fill',
-                'pdf-export-preview-stroke', 
+                'pdf-export-preview-stroke',
                 'pdf-export-usable-stroke'
             ];
-            
+
             // Filtrar camadas removendo as de preview
-            cleanStyle.layers = cleanStyle.layers.filter(layer => 
+            cleanStyle.layers = cleanStyle.layers.filter(layer =>
                 !previewLayerIds.includes(layer.id)
             );
-            
+
             // Remover source de preview
             if (cleanStyle.sources && cleanStyle.sources['pdf-export-preview']) {
                 delete cleanStyle.sources['pdf-export-preview'];
             }
-            
+
             return cleanStyle;
-            
+
         } catch (error) {
             console.error('Erro ao criar estilo limpo:', error);
             // Fallback: retorna estilo original se der erro
@@ -424,8 +424,6 @@ export default class PDFExportTab {
 
     // Corrigir tamanhos zoom-invariant após mudança de zoom
     correctZoomInvariantFeatures(hiddenMap, finalZoom) {
-        console.log(`Corrigindo zoom-invariant features para zoom final: ${finalZoom}`);
-        
         // Definir tipos e suas propriedades de correção
         const zoomInvariantSources = [
             {
@@ -436,14 +434,14 @@ export default class PDFExportTab {
             },
             {
                 sourceName: 'brushes',
-                property: 'calculatedLineWidth', 
+                property: 'calculatedLineWidth',
                 baseProperty: 'lineWidth',
                 maxValue: Infinity
             },
             {
                 sourceName: 'images',
                 property: 'calculatedSize',
-                baseProperty: 'size', 
+                baseProperty: 'size',
                 maxValue: 10
             },
             {
@@ -454,14 +452,17 @@ export default class PDFExportTab {
             }
         ];
 
-        // Aplicar correções para cada source
+        let anyChanges = false;
+
+        // Aplicar correções para cada source e verificar se houve mudanças
         zoomInvariantSources.forEach(sourceConfig => {
-            const source = hiddenMap.getSource(sourceConfig.sourceName);
-            const featureCount = source?._data?.features?.length || 0;
-            console.log(`Source ${sourceConfig.sourceName}: ${featureCount} features`);
-            
-            this.correctSourceFeatures(hiddenMap, sourceConfig, finalZoom);
+            const sourceHasChanges = this.correctSourceFeatures(hiddenMap, sourceConfig, finalZoom);
+            if (sourceHasChanges) {
+                anyChanges = true;
+            }
         });
+
+        return anyChanges; // Retorna true se pelo menos um source teve mudanças
     }
 
     correctSourceFeatures(hiddenMap, sourceConfig, finalZoom) {
@@ -469,11 +470,11 @@ export default class PDFExportTab {
             const source = hiddenMap.getSource(sourceConfig.sourceName);
             if (!source) {
                 console.warn(`Source ${sourceConfig.sourceName} não encontrado no mapa oculto`);
-                return;
+                return false; // Retorna false se source não existe
             }
 
             const data = source._data;
-            if (!data?.features?.length) return;
+            if (!data?.features?.length) return false; // Retorna false se não há features
 
             let hasChanges = false;
 
@@ -486,10 +487,10 @@ export default class PDFExportTab {
                 const zoomDifference = finalZoom - feature.properties.createdAtZoom;
                 const scaleFactor = Math.pow(2, zoomDifference);
                 const baseValue = feature.properties[sourceConfig.baseProperty];
-                
+
                 // Evitar valores inválidos
                 if (baseValue <= 0) return;
-                
+
                 const newValue = Math.min(baseValue * scaleFactor, sourceConfig.maxValue);
 
                 // Só atualizar se realmente mudou (evitar re-renders desnecessários)
@@ -501,11 +502,13 @@ export default class PDFExportTab {
 
             if (hasChanges) {
                 source.setData(data);
-                console.log(`Corrigido ${sourceConfig.sourceName}: ${hasChanges ? 'atualizado' : 'sem mudanças'}`);
             }
+
+            return hasChanges; // Retorna se houve mudanças neste source
 
         } catch (error) {
             console.error(`Erro ao corrigir features do source ${sourceConfig.sourceName}:`, error);
+            return false; // Retorna false em caso de erro
         }
     }
 
@@ -528,7 +531,7 @@ export default class PDFExportTab {
             backdrop-filter: blur(2px);
             font-family: Arial, sans-serif;
         `;
-        
+
         modal.innerHTML = `
             <div style="text-align: center;">
                 <div style="font-size: 24px; font-weight: 600; margin-bottom: 20px;">
@@ -551,7 +554,7 @@ export default class PDFExportTab {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(modal);
         return modal;
     }
@@ -559,7 +562,7 @@ export default class PDFExportTab {
     updateProgress(percent, text) {
         const progressBar = document.getElementById('export-progress-bar');
         const progressText = document.getElementById('export-progress-text');
-        
+
         if (progressBar) {
             progressBar.style.width = percent + '%';
         }
@@ -571,7 +574,7 @@ export default class PDFExportTab {
     // Calcular dimensões fixas A4 em pixels
     calculateA4PixelSize() {
         const targetDPI = 300; // DPI fixo para qualidade
-        
+
         // Dimensões A4 em inches (sempre fixo!)
         let widthInches, heightInches;
         if (this.orientation === 'landscape') {
@@ -605,7 +608,7 @@ export default class PDFExportTab {
 
             // 2. Calcular dimensões FIXAS A4 (não baseado na escala!)
             const canvasSize = this.calculateA4PixelSize(); // Sempre A4 fixo
-            
+
             this.updateProgress(20, 'Preparando dados...');
 
             // 3. Criar container invisível com tamanho A4 fixo
@@ -652,17 +655,19 @@ export default class PDFExportTab {
 
             // 7. Aguardar renderização
             await new Promise(resolve => hiddenMap.once('idle', resolve));
-            
+
             this.updateProgress(70, 'Corrigindo elementos...');
 
             // 8. Corrigir zoom-invariant features
             const finalZoom = hiddenMap.getZoom();
-            this.correctZoomInvariantFeatures(hiddenMap, finalZoom);
+            const hadChanges = this.correctZoomInvariantFeatures(hiddenMap, finalZoom);
+
+            // 9. Aguardar renderização final
+            if (hadChanges) {
+                await new Promise(resolve => hiddenMap.once('idle', resolve));
+            }
 
             this.updateProgress(80, 'Finalizando...');
-            
-            // 9. Aguardar renderização final
-            await new Promise(resolve => hiddenMap.once('idle', resolve));
 
             // 10. Capturar imagem
             const imageData = hiddenMap.getCanvas().toDataURL('image/png', 1.0);

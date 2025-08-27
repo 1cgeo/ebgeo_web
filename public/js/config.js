@@ -28,6 +28,58 @@ const config = {
   // Define quais camadas base extras são mostradas (OSM e Imagens)
   showOsmAndImages: false,  // true = mostra OSM e Imagens | false = apenas DSG
 
+  analysisLayers: {
+    enabled: false, // Feature flag global
+    layers: [
+      // {
+      //   id: 'trafficability',
+      //   name: 'Trafegabilidade',
+      //   description: 'Análise de trafegabilidade do terreno',
+      //   defaultVisibility: false,
+      //   opacity: 0.7,
+      //   source: {
+      //     type: 'raster',
+      //     url: 'http://localhost/trafficability/{z}/{x}/{y}',
+      //     tileSize: 256
+      //   },
+      //   paint: {
+      //     'raster-color': [
+      //       'case',
+      //       ['==', ['raster-value'], 0], 'rgba(0,0,0,0)',      // transparente
+      //       ['==', ['raster-value'], 1], 'rgba(255,255,0,0.6)', // amarelo
+      //       ['==', ['raster-value'], 2], 'rgba(255,0,0,0.6)',   // vermelho
+      //       'rgba(0,0,0,0)' // fallback transparente
+      //     ],
+      //     'raster-opacity': 1.0 // controlado via opacity da layer config
+      //   }
+      // }
+      // Futuras layers: slope analysis, flood risk, etc.
+      // {
+      //   id: 'slope_analysis',
+      //   name: 'Análise de Declive',
+      //   description: 'Mapa de declividade do terreno',
+      //   defaultVisibility: false,
+      //   opacity: 0.6,
+      //   source: {
+      //     type: 'raster',
+      //     url: 'http://localhost/slope/{z}/{x}/{y}',
+      //     tileSize: 256
+      //   },
+      //   paint: {
+      //     'raster-color': [
+      //       'interpolate',
+      //       ['linear'],
+      //       ['raster-value'],
+      //       0, 'rgba(0,255,0,0.5)',    // verde para baixa declividade
+      //       30, 'rgba(255,255,0,0.6)',  // amarelo para média
+      //       60, 'rgba(255,0,0,0.7)'     // vermelho para alta
+      //     ],
+      //     'raster-opacity': 1.0
+      //   }
+      // }
+    ]
+  },
+
   // ===== CONFIGURAÇÕES DO MAPA 2D =====
   map2d: {
     // ----- Configurações Básicas do Mapa -----

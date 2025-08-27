@@ -1,6 +1,15 @@
 // Path: js\controls_sig\features_tab.js
-import { getCurrentMapFeatures, updateFeatureProperty, getFeatureById, getMapHillshadeState, setMapHillshadeState } from './store/store.js';
+import {
+    getCurrentMapFeatures,
+    updateFeatureProperty,
+    getFeatureById,
+    getMapHillshadeState,
+    setMapHillshadeState,
+    getMapAnalysisLayersStates,
+    setMapAnalysisLayerState
+} from './store/store.js';
 import { FeatureNavigationUtils } from './utilities/feature_navigation_utils.js';
+import config from '../config.js';
 
 class FeaturesTab {
     constructor(map, selectionManager = null) {
@@ -71,27 +80,32 @@ class FeaturesTab {
         this.container.className = 'features-tab-content';
         this.container.style.display = 'none';
 
-        // SEMPRE criar o hillshade control (visibilidade controlada no show())
-        const hillshadeContainer = document.createElement('div');
-        hillshadeContainer.className = 'hillshade-control';
-        hillshadeContainer.style.cssText = `
-            padding: 8px 12px;
-            border-bottom: 1px solid #e0e0e0;
-            background-color: #f8f9fa;
-            display: none;
-        `;
+        // Criar hillshade control apenas se habilitado no config
+        if (config.map2d?.hillshade?.enabled) {
+            const hillshadeContainer = document.createElement('div');
+            hillshadeContainer.className = 'hillshade-control';
+            hillshadeContainer.style.cssText = `
+                padding: 8px 12px;
+                border-bottom: 1px solid #e0e0e0;
+                background-color: #f8f9fa;
+            `;
 
-        hillshadeContainer.innerHTML = `
-            <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
-                <input type="checkbox" id="hillshade-toggle" style="margin-right: 6px;"> 
-                Sombreamento
-            </label>
-        `;
+            hillshadeContainer.innerHTML = `
+                <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
+                    <input type="checkbox" id="hillshade-toggle" style="margin-right: 6px;"> 
+                    Sombreamento
+                </label>
+            `;
 
-        const checkbox = hillshadeContainer.querySelector('#hillshade-toggle');
-        checkbox.onchange = this.handleHillshadeToggle.bind(this);
+            const checkbox = hillshadeContainer.querySelector('#hillshade-toggle');
+            checkbox.onchange = this.handleHillshadeToggle.bind(this);
 
-        this.container.appendChild(hillshadeContainer);
+            this.container.appendChild(hillshadeContainer);
+        }
+
+        // Analysis Layers Control
+        const analysisLayersContainer = this.createAnalysisLayersControl();
+        this.container.appendChild(analysisLayersContainer);
 
         // Header with refresh button
         const header = document.createElement('div');
@@ -149,6 +163,122 @@ class FeaturesTab {
         this.container.appendChild(header);
         this.container.appendChild(featuresList);
         return this.container;
+    }
+
+    createAnalysisLayersControl() {
+        const container = document.createElement('div');
+        container.className = 'analysis-layers-control';
+        container.style.cssText = `
+            border-bottom: 1px solid #e0e0e0;
+            background-color: #f8f9fa;
+            display: none;
+        `;
+
+        return container;
+    }
+
+    async renderAnalysisLayersControl() {
+        const container = this.container.querySelector('.analysis-layers-control');
+        if (!container) return;
+
+        // Verificar se analysis layers estão habilitadas
+        if (!config.analysisLayers?.enabled || !config.analysisLayers.layers?.length) {
+            container.style.display = 'none';
+            return;
+        }
+
+        // Limpar conteúdo existente
+        container.innerHTML = '';
+
+        // Header da seção
+        const header = document.createElement('div');
+        header.style.cssText = `
+            padding: 8px 12px 4px 12px;
+            font-weight: 500;
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        `;
+        header.textContent = 'Camadas de Análise';
+        container.appendChild(header);
+
+        // Carregar estados salvos
+        const layersStates = await getMapAnalysisLayersStates();
+
+        // Criar controles para cada layer
+        for (const layerConfig of config.analysisLayers.layers) {
+            const layerControl = document.createElement('div');
+            layerControl.style.cssText = `
+                padding: 4px 12px 4px 24px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            `;
+
+            const label = document.createElement('label');
+            label.style.cssText = `
+                display: flex;
+                align-items: center;
+                font-size: 12px;
+                cursor: pointer;
+                flex: 1;
+            `;
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.id = `analysis-layer-${layerConfig.id}`;
+            checkbox.checked = layersStates[layerConfig.id] ?? layerConfig.defaultVisibility ?? false;
+            checkbox.style.marginRight = '6px';
+
+            const labelText = document.createElement('span');
+            labelText.textContent = layerConfig.name;
+
+            // Tooltip com descrição se disponível
+            if (layerConfig.description) {
+                labelText.title = layerConfig.description;
+            }
+
+            label.appendChild(checkbox);
+            label.appendChild(labelText);
+
+            // Event listener para mudança de estado
+            checkbox.onchange = async (e) => {
+                await this.handleAnalysisLayerToggle(layerConfig.id, e.target.checked);
+            };
+
+            layerControl.appendChild(label);
+            container.appendChild(layerControl);
+        }
+
+        // Padding inferior
+        const footer = document.createElement('div');
+        footer.style.height = '4px';
+        container.appendChild(footer);
+
+        container.style.display = 'block';
+    }
+
+    async handleAnalysisLayerToggle(layerId, enabled) {
+        try {
+            // 1. Salvar estado no store
+            await setMapAnalysisLayerState(layerId, enabled);
+
+            // 2. Aplicar mudança no mapa
+            this.applyAnalysisLayerState(layerId, enabled);
+
+        } catch (error) {
+            console.error('Erro ao alterar estado da analysis layer:', error);
+        }
+    }
+
+    applyAnalysisLayerState(layerId, enabled) {
+        const layerMapId = `analysis-${layerId}-layer`;
+
+        if (this.map.getLayer(layerMapId)) {
+            const visibility = enabled ? 'visible' : 'none';
+            this.map.setLayoutProperty(layerMapId, 'visibility', visibility);
+        }
     }
 
     showLoadingSpinner() {
@@ -455,7 +585,7 @@ class FeaturesTab {
     propagateFeaturePropertyToSource(featureType, featureId, property, value) {
         const source = this.map.getSource(featureType);
         if (!source || !source._data) {
-            console.warn(`Source ${sourceName} não encontrado ou sem dados`);
+            console.warn(`Source ${featureType} não encontrado ou sem dados`);
             return;
         }
 
@@ -535,16 +665,14 @@ class FeaturesTab {
         if (this.container) {
             this.container.style.display = 'block';
 
-            // Controlar visibilidade do hillshade baseado no suporte atual
+            // Carregar estado do hillshade se o control existe
             const hillshadeContainer = this.container.querySelector('.hillshade-control');
             if (hillshadeContainer) {
-                if (this.hasHillshadeSupport()) {
-                    hillshadeContainer.style.display = 'block';
-                    await this.loadHillshadeState();
-                } else {
-                    hillshadeContainer.style.display = 'none';
-                }
+                await this.loadHillshadeState();
             }
+
+            // Renderizar analysis layers
+            await this.renderAnalysisLayersControl();
 
             await this.loadFeatures();
         }
@@ -557,14 +685,6 @@ class FeaturesTab {
     }
 
     // ===== HILLSHADE CONTROL METHODS =====
-
-    hasHillshadeSupport() {
-        // Verificar se terrain control existe e tem hillshade config
-        const terrainControl = this.map._controls?.find(control =>
-            control.constructor.name === 'TerrainControl'
-        );
-        return terrainControl?.hillshadeConfig?.enabled;
-    }
 
     async handleHillshadeToggle(event) {
         const enabled = event.target.checked;
@@ -587,13 +707,11 @@ class FeaturesTab {
     }
 
     async loadHillshadeState() {
-        if (this.hasHillshadeSupport()) {
-            const enabled = await getMapHillshadeState();
-            const checkbox = this.container.querySelector('#hillshade-toggle');
-            if (checkbox) {
-                checkbox.checked = enabled;
-                this.applyHillshadeState(enabled);
-            }
+        const enabled = await getMapHillshadeState();
+        const checkbox = this.container.querySelector('#hillshade-toggle');
+        if (checkbox) {
+            checkbox.checked = enabled;
+            this.applyHillshadeState(enabled);
         }
     }
 }

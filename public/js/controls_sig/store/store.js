@@ -25,6 +25,7 @@ const memoryStore = {
 const getEmptyMapData = () => ({
     baseLayer: 'carta-topografica',
     hillshadeEnabled: true,
+    analysisLayers: {},
     features: {
         polygons: [],
         lines: [],
@@ -968,6 +969,75 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
 export const getFeatureById = async (featureType, featureId) => {
     const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
     return currentMapData.features[featureType].find(f => f.properties.id === featureId);
+};
+
+/**
+ * Obtém o estado de uma analysis layer específica para um mapa
+ * @param {string} layerId - ID da layer (definido no config)
+ * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
+ * @returns {boolean} - true se habilitado, false se desabilitado
+ */
+export const getMapAnalysisLayerState = async (layerId, mapName = null) => {
+    const targetMap = mapName || memoryStore.currentMap;
+    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
+    
+    // Inicializar analysisLayers se não existir
+    if (!mapData.analysisLayers) {
+        mapData.analysisLayers = {};
+    }
+    
+    // Retornar estado salvo ou defaultVisibility do config
+    return mapData.analysisLayers[layerId] ?? false; // Default false se não especificado
+};
+
+/**
+ * Define o estado de uma analysis layer específica para um mapa
+ * @param {string} layerId - ID da layer (definido no config)
+ * @param {boolean} enabled - true para habilitar, false para desabilitar
+ * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
+ */
+export const setMapAnalysisLayerState = async (layerId, enabled, mapName = null) => {
+    const targetMap = mapName || memoryStore.currentMap;
+    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
+    
+    // Inicializar analysisLayers se não existir
+    if (!mapData.analysisLayers) {
+        mapData.analysisLayers = {};
+    }
+    
+    mapData.analysisLayers[layerId] = enabled;
+    await mapStore.setItem(targetMap, mapData);
+};
+
+/**
+ * Obtém todos os estados das analysis layers para um mapa
+ * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
+ * @returns {object} - Objeto com estados das layers { layerId: boolean }
+ */
+export const getMapAnalysisLayersStates = async (mapName = null) => {
+    const targetMap = mapName || memoryStore.currentMap;
+    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
+    
+    return mapData.analysisLayers || {};
+};
+
+/**
+ * Define múltiplos estados de analysis layers de uma vez
+ * @param {object} layersStates - Objeto com estados { layerId: boolean }
+ * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
+ */
+export const setMapAnalysisLayersStates = async (layersStates, mapName = null) => {
+    const targetMap = mapName || memoryStore.currentMap;
+    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
+    
+    // Inicializar analysisLayers se não existir
+    if (!mapData.analysisLayers) {
+        mapData.analysisLayers = {};
+    }
+    
+    // Merge dos estados
+    Object.assign(mapData.analysisLayers, layersStates);
+    await mapStore.setItem(targetMap, mapData);
 };
 
 // Exportar stores para uso direto quando necessário
