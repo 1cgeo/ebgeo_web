@@ -7,6 +7,7 @@ class VectorTileInfoControl {
         this.uiManager = uiManager;
         this.isActive = false;
         this.map = null;
+        this.handleMapClickBound = this.handleMapClick.bind(this);
     }
 
     onAdd(map) {
@@ -51,6 +52,11 @@ class VectorTileInfoControl {
     }
 
     onRemove() {
+        // Remove event listener if still active
+        if (this.isActive && this.map) {
+            this.map.off('click', this.handleMapClickBound);
+        }
+        
         this.container.parentNode.removeChild(this.container);
         this.map = undefined;
     }
@@ -63,12 +69,20 @@ class VectorTileInfoControl {
 
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'help';
+        
+        // Add click event listener to map
+        this.map.on('click', this.handleMapClickBound);
+        
         this.changeButtonColor()
     }
 
     deactivate() {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
+        
+        // Remove click event listener from map
+        this.map.off('click', this.handleMapClickBound);
+        
         this.changeButtonColor()
         this.uiManager.saveChangesAndClosePanel();
     }
