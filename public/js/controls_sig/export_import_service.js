@@ -17,6 +17,7 @@ import {
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
+import config from '../config.js';
 
 export class ExportImportService {
     constructor(baseLayerControl, mapControl, mapManager) {
@@ -347,11 +348,13 @@ export class ExportImportService {
                 await this.loadImagesFromZip(zip);
             }
 
-            const baseLayer = isAdditiveImport ?
+            const currentBaseLayer = isAdditiveImport ?
                 await getCurrentBaseLayer() :
-                (await mapStore.getItem(await getCurrentMapName()))?.baseLayer || 'carta-topografica';
+                (await mapStore.getItem(await getCurrentMapName()))?.baseLayer;
+            
+            const validBaseLayer = config.getValidBasemapFallback(currentBaseLayer);
 
-            setBaseLayer(baseLayer);
+            setBaseLayer(validBaseLayer);
 
             await this.baseLayerControl.switchMap();
             await this.mapControl.updateMapList();

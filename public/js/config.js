@@ -24,9 +24,34 @@ const config = {
     pdfApiUrl: "http://localhost:3001/api/export-georeferenced-pdf" // URL da API de exportação de PDF georreferenciado
   },
 
-  // ===== CONFIGURAÇÕES DE VISIBILIDADE DE CAMADAS =====
-  // Define quais camadas base extras são mostradas (OSM e Imagens)
-  showOsmAndImages: false,  // true = mostra OSM e Imagens | false = apenas DSG
+  // ===== CONFIGURAÇÃO DE BASEMAPS =====
+  // Define quais basemaps estão disponíveis e suas configurações
+  basemaps: {
+    'carta-topografica': { 
+      enabled: true, 
+      name: 'Topográfica', 
+      icon: './images/dsg_symbol.svg',
+      priority: 1
+    },
+    'carta-ortoimagem': { 
+      enabled: true, 
+      name: 'Ortoimagem', 
+      icon: './images/dsg_symbol.svg',
+      priority: 2 
+    },
+    'osm': { 
+      enabled: false, 
+      name: 'OSM', 
+      icon: '🌐',
+      priority: 3 
+    },
+    'imagens': { 
+      enabled: false, 
+      name: 'Imagens', 
+      icon: '🌐',
+      priority: 4 
+    }
+  },
 
   analysisLayers: {
     enabled: false, // Feature flag global
@@ -249,6 +274,49 @@ config.hasTilesets = () => config.tilesets && config.tilesets.length > 0;
 
 // Retorna o tileset padrão (primeiro da lista ou marcado como default)
 config.getDefaultTileset = () => config.tilesets.find(t => t.default) || config.tilesets[0];
+
+// ===== FUNÇÕES PARA BASEMAPS =====
+
+// Validação para não deixar todos os basemaps desabilitados
+config.validateBasemapsConfig = () => {
+  const enabled = Object.values(config.basemaps).filter(b => b.enabled);
+  if (enabled.length === 0) {
+    console.warn('⚠️ Todos basemaps desabilitados! Habilitando carta-topografica como fallback');
+    config.basemaps['carta-topografica'].enabled = true;
+  }
+};
+
+// Obter basemaps habilitados ordenados por prioridade  
+config.getEnabledBasemaps = () => {
+  return Object.entries(config.basemaps)
+    .filter(([id, basemapConfig]) => basemapConfig.enabled)
+    .sort(([,a], [,b]) => a.priority - b.priority);
+};
+
+// Determinar layout CSS baseado na quantidade de basemaps
+config.getBasemapLayoutClass = (count) => {
+  switch(count) {
+    case 1: return 'base-layer-grid-1x1';
+    case 2: return 'base-layer-grid-1x2'; 
+    case 3: return 'base-layer-grid-2x1-center';
+    case 4: return 'base-layer-grid-2x2';
+    default: return 'base-layer-grid-2x2';
+  }
+};
+
+// Obter fallback válido para basemap
+config.getValidBasemapFallback = (currentBasemap = null) => {
+  const enabled = config.getEnabledBasemaps();
+  if (enabled.length === 0) return 'carta-topografica';
+  
+  // Se o atual estiver habilitado, manter
+  if (currentBasemap && config.basemaps[currentBasemap]?.enabled) {
+    return currentBasemap;
+  }
+  
+  // Senão, primeiro da lista ordenada
+  return enabled[0][0];
+};
 
 // Helper para criar imagery provider baseado na configuração
 config.createImageryProvider = () => {

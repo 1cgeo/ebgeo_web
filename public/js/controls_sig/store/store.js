@@ -1,4 +1,5 @@
 // Path: js\controls_sig\store\store.js
+import config from '../../config.js';
 
 const SCHEMA_VERSION = '1.3';
 const MIN_SCHEMA_VERSION = '1.3';
@@ -725,9 +726,16 @@ export const getCurrentBaseLayer = async () => {
 };
 
 export const setBaseLayer = async (layer) => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    currentMapData.baseLayer = layer;
-    await mapStore.setItem(memoryStore.currentMap, currentMapData);
+  // Validar se o basemap está habilitado na configuração
+  if (!config.basemaps[layer]?.enabled) {
+    const fallback = config.getValidBasemapFallback();
+    console.warn(`Base layer "${layer}" não habilitado. Usando "${fallback}".`);
+    layer = fallback;
+  }
+  
+  const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+  currentMapData.baseLayer = layer;
+  await mapStore.setItem(memoryStore.currentMap, currentMapData);
 };
 
 export const updateMapPosition = async (center_lat, center_long, zoom) => {

@@ -274,6 +274,51 @@
     min-width: 240px !important;
 }
 
+/* Layout para 1 basemap apenas */
+.base-layer-control.base-layer-grid-1x1 {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr !important;
+    gap: 8px !important;
+    align-items: center !important;
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(8px) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    padding: 8px !important;
+    z-index: 15 !important;
+    pointer-events: auto !important;
+    width: auto !important;
+    min-width: 120px !important;
+}
+
+/* Layout para 3 basemaps (2 em cima, 1 centralizado embaixo) */
+.base-layer-control.base-layer-grid-2x1-center {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: 1fr 1fr !important;
+    gap: 8px !important;
+    align-items: center !important;
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(8px) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    padding: 8px !important;
+    z-index: 15 !important;
+    pointer-events: auto !important;
+    width: auto !important;
+    min-width: 240px !important;
+}
+
+/* Terceiro elemento (centralizado na segunda linha) */
+.base-layer-control.base-layer-grid-2x1-center .layer-switch:nth-child(3) {
+    grid-column: 1 / 3 !important;
+    justify-self: center !important;
+    max-width: 110px !important;
+}
+
 .base-layer-control .layer-switch {
     background-color: transparent !important;
     border: 1px solid #d0d0d0 !important;

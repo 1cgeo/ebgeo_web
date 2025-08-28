@@ -24,16 +24,27 @@ class BaseLayerControl {
         this.isChanging = false;
         this.changeDebounceTimer = null;
 
-        // Construir styleUrls baseado na configuração
-        this.styleUrls = {
-            'carta-topografica': cartaTopografica,
-            'carta-ortoimagem': cartaOrtoimagem
-        };
+        // Validar config primeiro
+        config.validateBasemapsConfig();
 
-        if (config.showOsmAndImages) {
-            this.styleUrls['osm'] = osmLayer;
-            this.styleUrls['imagens'] = imagensLayer;
-        }
+        // Construir styleUrls dinamicamente baseado nos basemaps habilitados
+        this.styleUrls = {};
+        config.getEnabledBasemaps().forEach(([id, basemapConfig]) => {
+            switch(id) {
+                case 'carta-topografica':
+                    this.styleUrls[id] = cartaTopografica;
+                    break;
+                case 'carta-ortoimagem':
+                    this.styleUrls[id] = cartaOrtoimagem;
+                    break;
+                case 'osm':
+                    this.styleUrls[id] = osmLayer;
+                    break;
+                case 'imagens':
+                    this.styleUrls[id] = imagensLayer;
+                    break;
+            }
+        });
     }
 
     // Método para resolver referência circular
@@ -45,37 +56,33 @@ class BaseLayerControl {
         this.map = map;
         this.container = document.createElement('div');
 
-        // Aplicar classe CSS baseada na configuração
-        if (config.showOsmAndImages) {
-            this.container.className = 'mapboxgl-ctrl base-layer-control base-layer-grid-2x2';
-        } else {
-            this.container.className = 'mapboxgl-ctrl base-layer-control base-layer-grid-1x2';
-        }
+        // Obter basemaps habilitados
+        const enabledBasemaps = config.getEnabledBasemaps();
+        const layoutClass = config.getBasemapLayoutClass(enabledBasemaps.length);
+        
+        // Aplicar classe CSS dinâmica baseada na quantidade de basemaps
+        this.container.className = `mapboxgl-ctrl base-layer-control ${layoutClass}`;
 
-        // Construir HTML baseado na configuração
-        let htmlContent = `
-            <label class="layer-switch">
-                <input type="radio" name="base-layer" value="carta-topografica" checked>
-                <span><img src="./images/dsg_symbol.svg" class="layer-icon">Topográfica</span>
-            </label>
-            <label class="layer-switch">
-                <input type="radio" name="base-layer" value="carta-ortoimagem">
-                <span><img src="./images/dsg_symbol.svg" class="layer-icon">Ortoimagem</span>
-            </label>
-        `;
-
-        if (config.showOsmAndImages) {
+        // Construir HTML dinamicamente baseado nos basemaps habilitados
+        let htmlContent = '';
+        enabledBasemaps.forEach(([id, basemapConfig], index) => {
+            const isFirst = index === 0;
+            
+            // Construir o ícone (imagem ou emoji)
+            let iconHtml = '';
+            if (basemapConfig.icon.startsWith('./')) {
+                iconHtml = `<img src="${basemapConfig.icon}" class="layer-icon">`;
+            } else {
+                iconHtml = basemapConfig.icon;
+            }
+            
             htmlContent += `
-            <label class="layer-switch">
-                <input type="radio" name="base-layer" value="osm">
-                <span>🌐 OSM</span>
-            </label>
-            <label class="layer-switch">
-                <input type="radio" name="base-layer" value="imagens">
-                <span>🌐 Imagens</span>
-            </label>
+                <label class="layer-switch">
+                    <input type="radio" name="base-layer" value="${id}" ${isFirst ? 'checked' : ''}>
+                    <span>${iconHtml}${basemapConfig.name}</span>
+                </label>
             `;
-        }
+        });
 
         this.container.innerHTML = htmlContent;
 
@@ -128,7 +135,7 @@ class BaseLayerControl {
         } catch (error) {
             console.error('Error changing base layer:', error);
             
-            // ✅ ROLLBACK: Voltar ao estado anterior
+            // ROLLBACK: Voltar ao estado anterior
             setBaseLayer(previousLayer);
             this.syncVisualState(previousLayer);
             
@@ -200,16 +207,13 @@ class BaseLayerControl {
 
         let baseLayer = await getCurrentBaseLayer();
 
-        // Validar se o baseLayer é permitido pela configuração
-        const allowedLayers = ['carta-topografica', 'carta-ortoimagem'];
-        if (config.showOsmAndImages) {
-            allowedLayers.push('osm', 'imagens');
-        }
-
-        // Se o baseLayer não é permitido, trocar para carta-topografica
-        if (!allowedLayers.includes(baseLayer)) {
-            console.warn(`Base layer "${baseLayer}" não permitido. Trocando para "carta-topografica".`);
-            baseLayer = 'carta-topografica';
+        // Validação robusta com fallback inteligente
+        const validFallback = config.getValidBasemapFallback(baseLayer);
+        
+        if (baseLayer !== validFallback) {
+            console.warn(`Base layer "${baseLayer}" não disponível. Usando "${validFallback}".`);
+            baseLayer = validFallback;
+            await setBaseLayer(baseLayer); // Salvar correção
         }
 
         this.mapControl.deactivateActiveTools();

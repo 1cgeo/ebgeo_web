@@ -45,8 +45,8 @@ class MapManager {
             }
 
             const allMapNames = await getAllMapNames();
-            if (allMapNames.length >= 30) {
-                return { success: false, message: 'Limite de 30 mapas atingido' };
+            if (allMapNames.length >= 100) {
+                return { success: false, message: 'Limite de 100 mapas atingido' };
             }
 
             await addMap(mapName.trim());
@@ -120,8 +120,8 @@ class MapManager {
             }
 
             const allMapNames = await getAllMapNames();
-            if (allMapNames.length >= 30) {
-                return { success: false, message: 'Limite de 30 mapas atingido' };
+            if (allMapNames.length >= 100) {
+                return { success: false, message: 'Limite de 100 mapas atingido' };
             }
 
             const originalMapData = await mapStore.getItem(mapName);
@@ -282,7 +282,7 @@ class MapManager {
 
     async canCreateNewMap() {
         const allMapNames = await getAllMapNames();
-        return allMapNames.length < 30;
+        return allMapNames.length < 100;
     }
 
     // ===== CLEAR ALL DATA =====
@@ -464,7 +464,7 @@ class MapManager {
                     }
                 }
             } else {
-                alert("Limite de 30 mapas atingido.");
+                alert("Limite de 100 mapas atingido.");
             }
         });
         dropdownContent.appendChild(copyBtn);
