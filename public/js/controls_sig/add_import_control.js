@@ -568,11 +568,11 @@ class AddImportControl {
                     const lastPoint = coords[coords.length - 1];
                     const firstPoint = coords[0];
                     const isClosedPolygon = (
-                        lastPoint[0] === firstPoint[0] && 
+                        lastPoint[0] === firstPoint[0] &&
                         lastPoint[1] === firstPoint[1]
                     );
-                    
-                    baseProperties.baseCoordinates = isClosedPolygon 
+
+                    baseProperties.baseCoordinates = isClosedPolygon
                         ? coords.slice(0, -1)  // Remove ponto de fechamento
                         : coords;              // Manter como está
                 }
@@ -605,27 +605,40 @@ class AddImportControl {
         // 1️⃣ OBTER CONTADORES BASEADOS NO CONTEXTO ATUAL DO MAPA
         const typeCounters = this.getTypeCountersFromMapContext();
 
-        // 2️⃣ PROCESSAR CADA FEATURE (AGORA ASSÍNCRONO)
+        // 2️⃣ DECOMPOSIÇÃO E CONTAGEM (loop síncrono rápido)
+        let totalFeaturesToImport = 0;
+        const decomposedFeatures = [];
+
         for (const originalFeature of geoJSON.features) {
             if (!originalFeature.geometry?.type) continue;
 
-            // Decompor multi-geometrias
-            const decomposedFeatures = this.decomposeMultiGeometry(originalFeature);
-
-            for (const feature of decomposedFeatures) {
+            const features = this.decomposeMultiGeometry(originalFeature);
+            for (const feature of features) {
                 const targetType = this.getTargetType(feature.geometry.type);
-                if (!targetType) continue;
-
-                // 3️⃣ PREPARAR FEATURE COM TODOS OS ATRIBUTOS (ASYNC)
-                const preparedFeature = await this.prepareFeatureForImportAsync(
-                    feature, 
-                    targetType, 
-                    typeCounters
-                );
-
-                // 4️⃣ ADICIONAR AO TIPO CORRETO
-                featuresByType[targetType].push(preparedFeature);
+                if (targetType) {
+                    decomposedFeatures.push({ feature, targetType });
+                    totalFeaturesToImport++;
+                }
             }
+        }
+
+        // 3️⃣ VALIDAÇÃO DE LIMITE
+        if (totalFeaturesToImport > 100) {
+            throw new Error(`Muitas geometrias para importar: ${totalFeaturesToImport}. Limite máximo: 100 geometrias.`);
+        }
+
+        if (totalFeaturesToImport === 0) {
+            throw new Error('Nenhuma geometria válida encontrada para importar');
+        }
+
+        // 4️⃣ PREPARAR FEATURES (loop assíncrono pesado - só se passou na validação)
+        for (const { feature, targetType } of decomposedFeatures) {
+            const preparedFeature = await this.prepareFeatureForImportAsync(
+                feature,
+                targetType,
+                typeCounters
+            );
+            featuresByType[targetType].push(preparedFeature);
         }
 
         // 5️⃣ SALVAR EM BATCH E ATUALIZAR MAPA
@@ -740,6 +753,21 @@ class AddImportControl {
                 notification.parentNode.removeChild(notification);
             }
         }, 3000);
+    }
+
+    /**
+     * Processa arquivo diretamente sem interface (para drag & drop)
+     */
+    async processFileDirectly(file) {
+        // Simular evento fake para reutilizar lógica existente
+        const fakeEvent = {
+            target: {
+                files: [file],
+                value: '' // Para resetar após processamento
+            }
+        };
+
+        await this.handleFileSelect(fakeEvent);
     }
 }
 

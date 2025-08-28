@@ -309,7 +309,7 @@ export class ExportImportService {
 
             if (isAdditiveImport) {
                 await this.loadImagesFromZip(zip);
-                
+
                 const existingMapNames = await getAllMapNames();
                 const mapsToImport = Object.keys(data.maps).length;
 
@@ -342,7 +342,7 @@ export class ExportImportService {
                     importedMapsCount++;
                 }
                 setCurrentMap(data.currentMap);
-                
+
                 // Carregar imagens após processamento dos mapas (import normal)
                 await this.loadImagesFromZip(zip);
             }
@@ -352,7 +352,7 @@ export class ExportImportService {
                 (await mapStore.getItem(await getCurrentMapName()))?.baseLayer || 'carta-topografica';
 
             setBaseLayer(baseLayer);
-            
+
             await this.baseLayerControl.switchMap();
             await this.mapControl.updateMapList();
 
@@ -466,5 +466,20 @@ export class ExportImportService {
                 }
             }, 300);
         }, 3000);
+    }
+
+    /**
+     * Processa arquivo .ebgeo diretamente (para drag & drop)
+     */
+    async processFileDirectly(file, isAdditiveImport = false) {
+        // Simular evento fake para reutilizar lógica existente
+        const fakeEvent = {
+            target: {
+                files: [file],
+                value: '' // Para resetar após processamento
+            }
+        };
+
+        await this.handleImport(fakeEvent, isAdditiveImport);
     }
 }

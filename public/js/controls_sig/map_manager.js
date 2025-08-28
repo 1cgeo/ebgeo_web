@@ -12,7 +12,9 @@ import {
     moveFeaturesToMap,
     mapStore,
     resetMemoryStore,
-    SCHEMA_VERSION
+    SCHEMA_VERSION,
+    imageStore,
+    appStore
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -287,15 +289,18 @@ class MapManager {
     async clearAllData() {
         try {
             await resetMemoryStore();
+            // Limpar também imageStore e appStore
+            await imageStore.clear();
+            await appStore.clear();
             await mapStore.clear();
+
+            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
             
             // Criar novo mapa padrão
             await addMap('Principal');
             setCurrentMap('Principal');
 
-            if (this.baseLayerControl) {
-                await this.baseLayerControl.switchMap();
-            }
+            await this.baseLayerControl.switchMap();
 
             return { success: true, message: 'Todos os dados foram limpos' };
         } catch (error) {

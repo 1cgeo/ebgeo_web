@@ -570,12 +570,7 @@ class MapControl {
     async clearAllData() {
         if (confirm('Tem certeza que deseja limpar todos os dados? Esta ação é irreversível.')) {
             this.deactivateActiveTools();
-            
-            // Limpar também imageStore e appStore
-            await imageStore.clear();
-            await appStore.clear();
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-            
+
             const result = await this.mapManager.clearAllData();
             this.showToast(result.message, result.success ? 'success' : 'error');
             if (result.success) {

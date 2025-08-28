@@ -32,6 +32,7 @@ import AddLineControl from './controls_sig/draw_tools/add_line_control.js'
 import AddPolygonControl from './controls_sig/draw_tools/add_polygon_control.js'
 import baseStyle from './controls_sig/baselayers/carta_topografica.js'
 import { hideLoadingScreen } from './index.js';
+import DragDropHandler from './controls_sig/drag_drop_handler.js';
 
 //-----------------------------------------------
 // CRIAÇÃO E CONFIGURAÇÃO DO MAPA
@@ -144,6 +145,14 @@ const terrainControl = new TerrainControl(config.map2d);
 const screenshotControl = new ScreenshotControl();
 
 const mouseCoordinatesControl = new MouseCoordinatesControl(pointControl);
+
+const dragDropHandler = new DragDropHandler(
+    map.getContainer(), 
+    toolManager, 
+    importControl, 
+    mapControl
+);
+dragDropHandler.enable();
 
 //-----------------------------------------------
 // ADICIONAR CONTROLES AO MAPA
