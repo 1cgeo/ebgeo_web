@@ -603,19 +603,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         const comboboxes = {};
 
         // Primeira coluna
-        comboboxes.context = createDigitalComboBox(
-            MILITARY_DATA.context,
-            tempProperties.context || "0",
-            (value) => {
-                if (!isUpdatingFromSIDC) {
-                    tempProperties.context = value;
-                    updatePreviewFromComboboxes();
-                }
-            },
-            'Contexto'
-        );
-        column1.appendChild(comboboxes.context);
-
         comboboxes.standardIdentity = createDigitalComboBox(
             MILITARY_DATA.standardIdentity,
             tempProperties.standardIdentity || "3",
@@ -655,7 +642,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         );
         column1.appendChild(comboboxes.hqTfDummy);
 
-        // Segunda coluna
         comboboxes.echelon = createDigitalComboBox(
             MILITARY_DATA.echelon,
             tempProperties.echelon || "16",
@@ -667,8 +653,9 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             },
             'Escalão'
         );
-        column2.appendChild(comboboxes.echelon);
+        column1.appendChild(comboboxes.echelon);
 
+        // Segunda coluna
         comboboxes.mainIcon = createDigitalComboBox(
             MILITARY_DATA.mainIcons,
             tempProperties.mainIcon || "121100",
@@ -737,7 +724,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 const parsed = parseResult.properties;
 
                 // Update tempProperties
-                tempProperties.context = parsed.context;
                 tempProperties.standardIdentity = parsed.standardIdentity;
                 tempProperties.status = parsed.status;
                 tempProperties.hqTfDummy = parsed.hqTfDummy;

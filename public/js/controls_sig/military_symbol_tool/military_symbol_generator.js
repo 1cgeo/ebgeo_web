@@ -1,5 +1,7 @@
 // Path: js\controls_sig\military_symbol_tool\military_symbol_generator.js
 
+import { applyBrazilianLabelsToSVG } from './brazilian_military_config.js';
+
 const DEFAULT_SIZE = 100;
 
 export class MilitarySymbolGenerator {
@@ -12,7 +14,7 @@ export class MilitarySymbolGenerator {
         // Estrutura: A-B-C-D-E-F-G-H-I-J = 10-0-3-10-0-0-16-121100-00-00
 
         const formatId = "10";                                              // A: 2 dígitos (sempre "10")
-        const context = properties.context || "0";                         // B: 1 dígito (0=realidade)
+        const context = "0";                         // B: 1 dígito (0=realidade)
         const standardIdentity = properties.standardIdentity || "3";       // C: 1 dígito (3=amigo)
         const symbolSet = "10";                                            // D: 2 dígitos (sempre "10"=terrestre)
         const status = properties.status || "0";                          // E: 1 dígito (0=presente)
@@ -167,11 +169,16 @@ export class MilitarySymbolGenerator {
                 console.warn('milsymbol.js returned invalid symbol for SIDC:', sidc);
             }
 
-            // Obter data URL do símbolo (pode ser SVG ou PNG)
-            const dataURL = symbol.toDataURL();
+            // ✅ NOVO: Pós-processar SVG para aplicar labels brasileiros
+            let svgString = symbol.asSVG();
+            const mainIcon = properties.mainIcon || sidc.substring(10, 16);
+            svgString = applyBrazilianLabelsToSVG(svgString, mainIcon);
 
-            // FORÇAR conversão para PNG usando canvas
-            const pngBlob = await this.convertToPngBlob(dataURL, DEFAULT_SIZE);
+            // Converter SVG modificado para data URL
+            const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+
+            // Converter para PNG usando canvas
+            const pngBlob = await this.convertToPngBlob(svgDataURL, DEFAULT_SIZE);
 
             // Adicionar ao cache
             this.symbolCache.set(cacheKey, pngBlob);
@@ -206,6 +213,7 @@ export class MilitarySymbolGenerator {
     // Gerar preview para UI (reutiliza a lógica de conversão PNG)
     async generatePreviewDataURL(sidc, size = 80) {
         try {
+            // Gerar símbolo normalmente
             const symbol = new ms.Symbol(sidc, {
                 size: size,
                 frame: true,
@@ -219,11 +227,16 @@ export class MilitarySymbolGenerator {
                 return null;
             }
 
-            // Obter data URL original
-            const originalDataURL = symbol.toDataURL();
+            // ✅ NOVO: Pós-processar SVG para aplicar labels brasileiros
+            let svgString = symbol.asSVG();
+            const mainIcon = sidc.substring(10, 16);
+            svgString = applyBrazilianLabelsToSVG(svgString, mainIcon);
+
+            // Converter SVG modificado para data URL
+            const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
 
             // Converter para PNG e depois para data URL
-            const pngBlob = await this.convertToPngBlob(originalDataURL, size);
+            const pngBlob = await this.convertToPngBlob(svgDataURL, size);
 
             // Converter blob para data URL
             return new Promise((resolve) => {
