@@ -45,37 +45,33 @@
     top: 60px !important;
 }
 
-.north-control.controls-column-left {
+.import-control.controls-column-left {
     top: 94px !important;
 }
 
-.import-control.controls-column-left {
+.screenshot-control.controls-column-left {
     top: 128px !important;
 }
 
-.screenshot-control.controls-column-left {
+.vector-info-control.controls-column-left {
     top: 162px !important;
 }
 
-.vector-info-control.controls-column-left {
-    top: 196px !important;
-}
-
 .street-view-control.controls-column-left {
-    top: 230px !important;
+    top: 196px !important;
 }
 
 /* Grupo de controles de terreno */
 .terrain-control.controls-column-left {
-    top: 264px !important;
+    top: 230px !important;
 }
 
 .los-control.controls-column-left {
-    top: 298px !important;
+    top: 264px !important;
 }
 
 .visibility-control.controls-column-left {
-    top: 332px !important;
+    top: 298px !important;
 }
 
 .terrain-control button:disabled {
@@ -544,38 +540,33 @@
         top: 286px !important;
     }
 
-    /* Outras ferramentas depois */
-    .north-control.controls-column-left {
+    .import-control.controls-column-left {
         top: 318px !important;
     }
 
-    .import-control.controls-column-left {
+    .screenshot-control.controls-column-left {
         top: 350px !important;
     }
 
-    .screenshot-control.controls-column-left {
+    .vector-info-control.controls-column-left {
         top: 382px !important;
     }
 
-    .vector-info-control.controls-column-left {
-        top: 414px !important;
-    }
-
     .street-view-control.controls-column-left {
-        top: 446px !important;
+        top: 414px !important;
     }
 
     /* Grupo terreno mobile */
     .terrain-control.controls-column-left {
-        top: 478px !important;
+        top: 446px !important;
     }
 
     .los-control.controls-column-left {
-        top: 510px !important;
+        top: 478px !important;
     }
 
     .visibility-control.controls-column-left {
-        top: 542px !important;
+        top: 510px !important;
     }
 
     /* Feature search mobile - layout horizontal mantido */
@@ -683,7 +674,6 @@
 /* ===== ACESSIBILIDADE ===== */
 .mapbox-gl-draw_ctrl-draw-btn:focus,
 #screenshot-tool:focus,
-#north-tool:focus,
 #feature-search-tool:focus {
     outline: 2px solid var(--primary-color);
     outline-offset: 2px;

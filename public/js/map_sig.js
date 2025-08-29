@@ -12,7 +12,6 @@ import MoveHandler from './controls_sig/tool_manager/move_handler.js';
 import MapControl from './controls_sig/map_control.js';
 import AddStreetViewControl from './controls_sig/street_view_tool/add_street_view_control.js';
 import VectorTileInfoControl from './controls_sig/vector_info_control.js'
-import ResetNorthControl from './controls_sig/reset_north_control.js';
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import ScreenshotControl from './controls_sig/screenshot_control.js';
 import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
@@ -142,7 +141,6 @@ baseLayerControl.setMapControl(mapControl);
 
 importControl.setControls(pointControl, lineControl, polygonControl);
 
-const resetNorthControl = new ResetNorthControl();
 const terrainControl = new TerrainControl(config.map2d);
 const screenshotControl = new ScreenshotControl();
 
@@ -174,7 +172,6 @@ map.addControl(mouseCoordinatesControl, 'bottom-right');
 map.addControl(contextMenuControl, 'top-left');
 
 map.addControl(featureSearchControl, 'top-right'); // Primeiro - Feature Search
-map.addControl(resetNorthControl, 'top-right');    // Segundo - North
 map.addControl(importControl, 'top-right');        // Terceiro - Import
 map.addControl(screenshotControl, 'top-right');    // Quarto - Screenshot
 map.addControl(vectorTileInfoControl, 'top-right'); // Quinto - Vector Info

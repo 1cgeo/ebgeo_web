@@ -259,8 +259,7 @@ class BaseLayerControl {
             return;
         }
         
-        const shouldShow = this.hillshadeConfig.baseLayers.includes(currentLayer);
-        const visibility = shouldShow ? 'visible' : 'none';
+        const visibility = 'visible';
         
         try {
             this.map.setLayoutProperty('hillshade', 'visibility', visibility);

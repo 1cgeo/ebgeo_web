@@ -180,10 +180,6 @@ const config = {
           'visibility': 'visible'
         }
       },
-      
-      // Define quais camadas base mostram o hillshade
-      baseLayers: ['carta-topografica']                     // Array com IDs das camadas base
-      // Opções: ['carta-topografica', 'carta-ortoimagem', 'osm', 'imagens']
     },
   },
 
@@ -271,11 +267,6 @@ const config = {
 
 // Verifica se há tilesets configurados
 config.hasTilesets = () => config.tilesets && config.tilesets.length > 0;
-
-// Retorna o tileset padrão (primeiro da lista ou marcado como default)
-config.getDefaultTileset = () => config.tilesets.find(t => t.default) || config.tilesets[0];
-
-// ===== FUNÇÕES PARA BASEMAPS =====
 
 // Validação para não deixar todos os basemaps desabilitados
 config.validateBasemapsConfig = () => {
