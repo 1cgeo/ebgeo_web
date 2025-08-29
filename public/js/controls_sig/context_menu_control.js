@@ -1,5 +1,6 @@
 // Path: js\controls_sig\context_menu_control.js
 import { formatCoordinates } from './utilities/coordinate_converter.js';
+import { showSuccess } from './utilities/toast_service.js';
 
 class ContextMenuControl {
     constructor(mouseCoordinatesControl, toolManager) {
@@ -188,7 +189,7 @@ class ContextMenuControl {
         // Try modern clipboard API first
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(text).then(() => {
-                this._showCopyFeedback();
+                showSuccess('Coordenadas copiadas!');
             }).catch(() => {
                 this._fallbackCopyTextToClipboard(text);
             });
@@ -209,38 +210,12 @@ class ContextMenuControl {
 
         try {
             document.execCommand('copy');
-            this._showCopyFeedback();
+            showSuccess('Coordenadas copiadas!');
         } catch (err) {
             console.error('Error copying text:', err);
         }
 
         document.body.removeChild(textArea);
-    }
-
-    _showCopyFeedback() {
-        // Create temporary feedback element
-        const feedback = document.createElement('div');
-        feedback.textContent = 'Coordenadas copiadas!';
-        feedback.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #28a745;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 4px;
-            font-size: 14px;
-            z-index: 10001;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        `;
-        
-        document.body.appendChild(feedback);
-        
-        setTimeout(() => {
-            if (feedback.parentNode) {
-                feedback.parentNode.removeChild(feedback);
-            }
-        }, 2000);
     }
 }
 

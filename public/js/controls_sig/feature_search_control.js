@@ -1,5 +1,6 @@
 // Path: js\controls_sig\feature_search_control.js
 import config from '../config.js';
+import { showError } from './utilities/toast_service.js';
 
 class FeatureSearchControl {
   constructor(uiManager) {
@@ -219,14 +220,8 @@ class FeatureSearchControl {
   }
 
   _displayError() {
-    this._suggestionsList.innerHTML = '';
-    const li = document.createElement('li');
-    li.className = 'feature-search-suggestion error';
-    li.innerHTML = '<strong>Erro:</strong> Não foi possível buscar sugestões';
-    li.style.color = '#dc3545';
-    li.style.cursor = 'default';
-    this._suggestionsList.appendChild(li);
-    this._suggestionsList.style.display = 'block';
+    this._suggestionsList.style.display = 'none';
+    showError('Não foi possível buscar sugestões. Verifique sua conexão.');
   }
 
   _selectFeature(feature) {

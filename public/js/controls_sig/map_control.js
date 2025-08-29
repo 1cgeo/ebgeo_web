@@ -12,12 +12,13 @@ import MapManager from './map_manager.js';
 import { ExportImportService } from './export_import_service.js';
 import PDFExportTab from './pdf_export_tab.js';
 import FeaturesTab from './features_tab.js';
+import { showToast as toastServiceShow } from './utilities/toast_service.js';
 
 class MapControl {
     constructor(baseLayerControl) {
         this.baseLayerControl = baseLayerControl;
         this.selectionManager = null;
-        
+
         // Componentes
         this.mapManager = new MapManager(baseLayerControl, this.selectionManager);
         this.exportImportService = new ExportImportService(baseLayerControl, this, this.mapManager);
@@ -35,7 +36,7 @@ class MapControl {
     setSelectionManager(selectionManager) {
         this.selectionManager = selectionManager;
         this.mapManager.selectionManager = selectionManager;
-        
+
         // Resolver referência circular
         this.mapManager.setMapControl(this);
     }
@@ -353,7 +354,7 @@ class MapControl {
     // ===== INTERFACE UPDATES =====
     async updateMapList() {
         const mapListData = await this.mapManager.generateMapListData();
-        
+
         // Mapear itens existentes no DOM por data-map-name
         const existingItems = new Map();
         this.mapList.querySelectorAll('li').forEach(item => {
@@ -382,7 +383,7 @@ class MapControl {
             }
 
             listItem.className = mapData.isCurrentMap ? 'current-map' : '';
-            
+
             const mapNameDisplay = listItem.querySelector('.map-name-display');
             const positionIndicator = mapData.hasSavedPosition ? ' 📍' : '';
             mapNameDisplay.textContent = mapData.name + positionIndicator;
@@ -400,7 +401,7 @@ class MapControl {
 
         const mapNameDisplay = document.createElement('div');
         mapNameDisplay.className = 'map-name-display';
-        
+
         const positionIndicator = mapData.hasSavedPosition ? ' 📍' : '';
         mapNameDisplay.textContent = mapData.name + positionIndicator;
 
@@ -580,40 +581,7 @@ class MapControl {
     }
 
     showToast(message, type = 'info') {
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.textContent = message;
-        toast.style.cssText = `
-            position: fixed;
-            top: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 12px 18px;
-            border-radius: 6px;
-            color: white;
-            font-size: 13px;
-            font-weight: 500;
-            z-index: 10000;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            background-color: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#17a2b8'};
-        `;
-
-        document.body.appendChild(toast);
-
-        requestAnimationFrame(() => {
-            toast.style.opacity = '1';
-        });
-
-        setTimeout(() => {
-            toast.style.opacity = '0';
-            setTimeout(() => {
-                if (toast.parentNode) {
-                    toast.parentNode.removeChild(toast);
-                }
-            }, 300);
-        }, 3000);
+        toastServiceShow(message, type);
     }
 
     onRemove() {

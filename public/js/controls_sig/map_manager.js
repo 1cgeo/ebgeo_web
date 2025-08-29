@@ -18,6 +18,7 @@ import {
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
+import { showError, showWarning } from './utilities/toast_service.js';
 
 class MapManager {
     constructor(baseLayerControl, selectionManager) {
@@ -25,7 +26,7 @@ class MapManager {
         this.selectionManager = selectionManager;
         this.mapControl = null;
         this.map = null;
-        
+
         this.setupDropdownPositionListeners();
     }
 
@@ -51,7 +52,7 @@ class MapManager {
 
             await addMap(mapName.trim());
             setCurrentMap(mapName.trim());
-            
+
             if (this.baseLayerControl) {
                 await this.baseLayerControl.switchMap();
             }
@@ -67,11 +68,11 @@ class MapManager {
         try {
             const allMapNames = await getAllMapNames();
             const currentMapName = await getCurrentMapName();
-            
+
             if (allMapNames.length <= 1) {
-                return { 
-                    success: false, 
-                    message: 'Não é possível deletar o último mapa. O sistema precisa de pelo menos um mapa.' 
+                return {
+                    success: false,
+                    message: 'Não é possível deletar o último mapa. O sistema precisa de pelo menos um mapa.'
                 };
             }
 
@@ -82,11 +83,11 @@ class MapManager {
                 if (result.wasCurrentMap && this.baseLayerControl) {
                     await this.baseLayerControl.switchMap();
                 }
-                
-                const message = result.wasCurrentMap 
+
+                const message = result.wasCurrentMap
                     ? `Mapa deletado. Você foi redirecionado para "${result.newCurrentMap}"`
                     : `Mapa "${mapName}" deletado com sucesso`;
-                
+
                 return { success: true, message, wasCurrentMap: result.wasCurrentMap };
             } else {
                 return { success: false, message: 'Erro ao deletar mapa' };
@@ -132,7 +133,7 @@ class MapManager {
             const { newMapData } = await IDUtils.regenerateMapIds(originalMapData, newMapName.trim());
             await addMap(newMapName.trim(), newMapData);
             setCurrentMap(newMapName.trim());
-            
+
             if (this.baseLayerControl) {
                 await this.baseLayerControl.switchMap();
             }
@@ -151,12 +152,12 @@ class MapManager {
 
             const center = this.map.getCenter();
             const zoom = this.map.getZoom();
-            
+
             await updateMapPosition(center.lat, center.lng, zoom);
-            
+
             const hadSavedPosition = await hasMapSavedPosition(mapName || await getCurrentMapName());
-            const message = hadSavedPosition 
-                ? `Posição atualizada para ${mapName || 'mapa atual'}` 
+            const message = hadSavedPosition
+                ? `Posição atualizada para ${mapName || 'mapa atual'}`
                 : `Posição salva para ${mapName || 'mapa atual'}`;
 
             return { success: true, message };
@@ -221,13 +222,13 @@ class MapManager {
     async moveFeaturesToMap(features, targetMapName) {
         try {
             const currentMapName = await getCurrentMapName();
-            
+
             if (currentMapName === targetMapName) {
                 return { success: false, message: 'As feições já estão neste mapa' };
             }
 
             await moveFeaturesToMap(features, targetMapName);
-            
+
             if (this.selectionManager) {
                 this.selectionManager.deselectAllFeatures();
             }
@@ -238,10 +239,10 @@ class MapManager {
 
             const featureCount = features.length;
             const featureText = featureCount === 1 ? 'feição' : 'feições';
-            
-            return { 
-                success: true, 
-                message: `${featureCount} ${featureText} movida(s) para "${targetMapName}"` 
+
+            return {
+                success: true,
+                message: `${featureCount} ${featureText} movida(s) para "${targetMapName}"`
             };
         } catch (error) {
             console.error('Erro ao mover feições:', error);
@@ -282,7 +283,13 @@ class MapManager {
 
     async canCreateNewMap() {
         const allMapNames = await getAllMapNames();
-        return allMapNames.length < 100;
+        const canCreate = allMapNames.length < 100;
+
+        if (!canCreate) {
+            showError(`Limite atingido: ${allMapNames.length}/100 mapas. Exclua alguns mapas antes de criar novos.`);
+        }
+
+        return canCreate;
     }
 
     // ===== CLEAR ALL DATA =====
@@ -295,7 +302,7 @@ class MapManager {
             await mapStore.clear();
 
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-            
+
             // Criar novo mapa padrão
             await addMap('Principal');
             setCurrentMap('Principal');
@@ -312,7 +319,7 @@ class MapManager {
     // ===== DROPDOWN MANAGEMENT =====
     toggleDropdown(button, mapName) {
         const isCurrentlyActive = button.classList.contains('dropdown-active');
-        
+
         // Sempre fechar todos os dropdowns primeiro
         this.closeAllDropdowns(false);
 
@@ -405,10 +412,10 @@ class MapManager {
         savePositionBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            
+
             const result = await this.saveMapPosition(mapName);
             this.closeAllDropdowns();
-            
+
             if (this.mapControl) {
                 this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
                 if (result.success) {
@@ -430,7 +437,7 @@ class MapManager {
                 if (confirm(`Tem certeza que deseja limpar a posição salva do mapa "${mapName}"?`)) {
                     const result = await this.clearMapPosition(mapName);
                     this.closeAllDropdowns();
-                    
+
                     if (this.mapControl) {
                         this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
                         if (result.success) {
@@ -455,7 +462,7 @@ class MapManager {
                 if (newMapName && newMapName.trim()) {
                     const result = await this.copyMap(mapName, newMapName.trim());
                     this.closeAllDropdowns();
-                    
+
                     if (this.mapControl) {
                         this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
                         if (result.success) {
@@ -463,8 +470,6 @@ class MapManager {
                         }
                     }
                 }
-            } else {
-                alert("Limite de 100 mapas atingido.");
             }
         });
         dropdownContent.appendChild(copyBtn);
@@ -476,12 +481,12 @@ class MapManager {
         renameBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            
+
             const newMapName = prompt("Novo nome do mapa:");
             if (newMapName && newMapName.trim()) {
                 const result = await this.renameMap(mapName, newMapName.trim());
                 this.closeAllDropdowns();
-                
+
                 if (this.mapControl) {
                     this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
                     if (result.success) {
@@ -511,10 +516,10 @@ class MapManager {
         if (mapName !== currentMapName && this.selectionManager) {
             const selectedFeatures = this.selectionManager.getAllSelectedFeatures();
             const selectedCount = selectedFeatures.length;
-            
+
             let buttonText = '↗️ Mover feições (nenhuma selecionada)';
             let buttonDisabled = selectedCount === 0;
-            
+
             if (selectedCount > 0) {
                 buttonText = `↗️ Mover ${selectedCount} ${selectedCount > 1 ? 'feições' : 'feição'} selecionada${selectedCount > 1 ? 's' : ''}`;
             }
@@ -526,19 +531,19 @@ class MapManager {
                 moveBtn.style.color = '#999';
                 moveBtn.style.cursor = 'not-allowed';
             }
-            
+
             moveBtn.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
 
                 if (buttonDisabled) {
-                    alert('Selecione pelo menos uma feição para mover');
+                    showWarning('Selecione pelo menos uma feição para mover primeiro.');
                     return;
                 }
 
                 const result = await this.moveFeaturesToMap(selectedFeatures, mapName);
                 this.closeAllDropdowns();
-                
+
                 if (this.mapControl) {
                     this.mapControl.showToast(result.message, result.success ? 'success' : 'error');
                     if (result.success) {
@@ -568,7 +573,7 @@ class MapManager {
             if (confirm(warningMessage)) {
                 const result = await this.deleteMap(mapName);
                 this.closeAllDropdowns();
-                
+
                 if (this.mapControl) {
                     this.mapControl.showToast(result.message, result.success ? 'success' : 'info');
                     if (result.success) {

@@ -1,4 +1,5 @@
 // Path: js\controls_sig\drag_drop_handler.js
+import { showError } from './utilities/toast_service.js';
 
 class DragDropHandler {
     static FILE_TYPES = {
@@ -80,7 +81,7 @@ class DragDropHandler {
         }
 
         if (files.length > 1) {
-            alert('Por favor, arraste apenas um arquivo por vez.');
+            showError('Por favor, arraste apenas um arquivo por vez.');
             return;
         }
 
@@ -88,7 +89,7 @@ class DragDropHandler {
         const fileType = this.getFileType(file.name);
 
         if (!this.isValidFile(file)) {
-            alert(`Tipo de arquivo não suportado: ${file.name}\n\nFormatos aceitos:\n• Projeto: .ebgeo\n• Geometrias: .geojson, .json, .zip, .kml, .kmz, .gpx`);
+            showError(`Tipo de arquivo não suportado: ${file.name}. Formatos aceitos: .ebgeo, .geojson, .json, .zip, .kml, .kmz, .gpx`);
             return;
         }
 
@@ -99,7 +100,7 @@ class DragDropHandler {
             await this.processFile(file, fileType);
         } catch (error) {
             console.error('Erro ao processar arquivo via drag & drop:', error);
-            alert(`Erro ao processar arquivo: ${error.message}`);
+            showError(`Erro ao processar arquivo: ${error.message}`);
         }
     }
 

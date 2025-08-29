@@ -18,6 +18,7 @@ import {
 
 import { IDUtils } from './id_utils.js';
 import config from '../config.js';
+import { showToast, showSuccess } from './utilities/toast_service.js';
 
 export class ExportImportService {
     constructor(baseLayerControl, mapControl, mapManager) {
@@ -351,7 +352,7 @@ export class ExportImportService {
             const currentBaseLayer = isAdditiveImport ?
                 await getCurrentBaseLayer() :
                 (await mapStore.getItem(await getCurrentMapName()))?.baseLayer;
-            
+
             const validBaseLayer = config.getValidBasemapFallback(currentBaseLayer);
 
             setBaseLayer(validBaseLayer);
@@ -402,12 +403,8 @@ export class ExportImportService {
             }, 1500);
         }
 
-        this.showToast(
-            mapCount === 1 ?
-                `1 mapa exportado!` :
-                `${mapCount} mapas exportados!`,
-            'success'
-        );
+        const message = mapCount === 1 ? '1 mapa exportado!' : `${mapCount} mapas exportados!`;
+        showSuccess(message);
     }
 
     // Mostrar sucesso no carregamento
@@ -425,50 +422,8 @@ export class ExportImportService {
             }, 1500);
         }
 
-        this.showToast(
-            mapCount === 1 ?
-                `1 mapa ${importType}!` :
-                `${mapCount} mapas ${importType}!`,
-            'success'
-        );
-    }
-
-    // Mostrar toast
-    showToast(message, type = 'info') {
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.textContent = message;
-        toast.style.cssText = `
-            position: fixed;
-            top: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 12px 18px;
-            border-radius: 6px;
-            color: white;
-            font-size: 13px;
-            font-weight: 500;
-            z-index: 10000;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            background-color: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#17a2b8'};
-        `;
-
-        document.body.appendChild(toast);
-
-        requestAnimationFrame(() => {
-            toast.style.opacity = '1';
-        });
-
-        setTimeout(() => {
-            toast.style.opacity = '0';
-            setTimeout(() => {
-                if (toast.parentNode) {
-                    toast.parentNode.removeChild(toast);
-                }
-            }, 300);
-        }, 3000);
+        const message = mapCount === 1 ? `1 mapa ${importType}!` : `${mapCount} mapas ${importType}!`;
+        showSuccess(message);
     }
 
     /**

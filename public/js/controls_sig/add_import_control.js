@@ -2,6 +2,7 @@
 import { addFeatures } from './store/store.js';
 import { IDUtils } from './id_utils.js';
 import { getTerrainElevation } from './terrain_control.js';
+import { showSuccess } from './utilities/toast_service.js';
 
 class AddImportControl {
     static FILE_LIMITS = {
@@ -87,7 +88,10 @@ class AddImportControl {
             const geoJSON = await this.processFile(file);
             if (geoJSON) {
                 const importedCount = await this.importGeoJSON(geoJSON);
-                this.showImportSuccess(importedCount);
+                const message = importedCount === 1
+                    ? '1 geometria importada com sucesso'
+                    : `${importedCount} geometrias importadas com sucesso`;
+                showSuccess(message);
             }
         } catch (error) {
             console.error('Erro ao importar arquivo:', error);
@@ -724,35 +728,6 @@ class AddImportControl {
         } catch (error) {
             console.warn('Erro ao calcular zoom:', error);
         }
-    }
-
-    showImportSuccess(count) {
-        const message = count === 1
-            ? `1 geometria importada com sucesso`
-            : `${count} geometrias importadas com sucesso`;
-
-        const notification = document.createElement('div');
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #28a745;
-            color: white;
-            padding: 12px 20px;
-            border-radius: 4px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-            z-index: 1000;
-            font-size: 14px;
-        `;
-        notification.textContent = message;
-
-        document.body.appendChild(notification);
-
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.parentNode.removeChild(notification);
-            }
-        }, 3000);
     }
 
     /**

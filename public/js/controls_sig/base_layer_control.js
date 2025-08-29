@@ -12,6 +12,7 @@ import osmLayer from './baselayers/osm_layer.js';
 import imagensLayer from './baselayers/imagens_layer.js';
 import config from '../config.js';
 import { setupMapFeatures } from './layer_setup.js';
+import { showError } from './utilities/toast_service.js';
 
 class BaseLayerControl {
     constructor(uiManager, hillshadeConfig) {
@@ -140,9 +141,8 @@ class BaseLayerControl {
             this.syncVisualState(previousLayer);
             
             // Feedback visual de erro (opcional)
-            if (this.mapControl && this.mapControl.showToast) {
-                this.mapControl.showToast('Erro ao trocar camada base', 'error');
-            }
+            showError('Erro ao trocar camada base');
+
         } finally {
             this.isChanging = false;
         }
