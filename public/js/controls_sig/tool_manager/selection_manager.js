@@ -128,21 +128,21 @@ class SelectionManager {
 
     setupEventListeners = () => {
         this.map.on('click', this.handleMapClick);
-        
+
         // Close context menu with ESC key (mantido - funciona bem)
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.contextMenu) {
                 this._hideFeatureSelectionMenu();
             }
         });
-        
+
         // Close menu on map move/zoom
         this.map.on('movestart', () => {
             if (this.contextMenu) {
                 this._hideFeatureSelectionMenu();
             }
         });
-        
+
         this.map.on('zoomstart', () => {
             if (this.contextMenu) {
                 this._hideFeatureSelectionMenu();
@@ -153,7 +153,7 @@ class SelectionManager {
     handleMapClick = (e) => {
         // Early returns for special states
         if (this.vectorTileInfoControl && this.vectorTileInfoControl.isActive) return;
-        
+
         const activeTool = this.getActiveTool();
         if (activeTool) {
             activeTool.handleMapClick(e);
@@ -162,7 +162,7 @@ class SelectionManager {
 
         // Detect ALL clicked features (not just the first one)
         const clickedFeatures = this.getAllClickedCustomFeatures([e.point.x, e.point.y]);
-        
+
         if (clickedFeatures.length > 0) {
             if (clickedFeatures.length === 1) {
                 // Single feature: process directly
@@ -208,7 +208,7 @@ class SelectionManager {
         // Remove duplicates based on type + id
         const uniqueFeatures = [];
         const seenKeys = new Set();
-        
+
         clickedFeatures.forEach(feature => {
             const key = `${feature.toolType}:${feature.properties.id}`;
             if (!seenKeys.has(key)) {
@@ -251,7 +251,7 @@ class SelectionManager {
             }
             this.toggleFeatureSelection(type, featureId, clickedFeature, false);
         }
-        
+
         this.updateUI();
     }
 
@@ -261,10 +261,10 @@ class SelectionManager {
     _showFeatureSelectionMenu = (features, e) => {
         // Close previous menu if exists
         this._hideFeatureSelectionMenu();
-        
+
         // Filter out blocked features
         const availableFeatures = features.filter(f => f.properties.bloqueado !== true);
-        
+
         if (availableFeatures.length === 0) return;
         if (availableFeatures.length === 1) {
             // If only one remains after filtering, select directly
@@ -287,7 +287,7 @@ class SelectionManager {
     _createContextMenuElement = (features, e) => {
         const menu = document.createElement('div');
         menu.className = 'feature-selection-menu';
-        
+
         // Clean production styles
         menu.style.cssText = `
             position: fixed !important;
@@ -332,7 +332,7 @@ class SelectionManager {
         features.forEach((feature, index) => {
             const item = document.createElement('div');
             const featureName = this._getFeatureName(feature);
-            
+
             item.textContent = featureName;
             item.style.cssText = `
                 padding: 10px 12px !important;
@@ -344,7 +344,7 @@ class SelectionManager {
                 font-size: 14px !important;
                 margin: 0 !important;
             `;
-            
+
             // Hover effects
             item.addEventListener('mouseenter', () => {
                 item.style.backgroundColor = '#f0f8ff !important';
@@ -363,7 +363,71 @@ class SelectionManager {
             menu.appendChild(item);
         });
 
+        // Linha divisória
+        const separator = document.createElement('div');
+        separator.style.cssText = `
+    height: 1px !important;
+    background: #ddd !important;
+    margin: 4px 0 !important;
+`;
+        menu.appendChild(separator);
+
+        // Opção "Selecionar Todas"
+        const selectAllItem = document.createElement('div');
+        selectAllItem.textContent = 'Selecionar Todas';
+        selectAllItem.style.cssText = `
+    padding: 10px 12px !important;
+    cursor: pointer !important;
+    background: white !important;
+    color: black !important;
+    font-size: 14px !important;
+    margin: 0 !important;
+    transition: background-color 0.2s !important;
+`;
+
+        // Hover effects para "Selecionar Todas"
+        selectAllItem.addEventListener('mouseenter', () => {
+            selectAllItem.style.backgroundColor = '#f0f8ff !important';
+        });
+        selectAllItem.addEventListener('mouseleave', () => {
+            selectAllItem.style.backgroundColor = 'white !important';
+        });
+
+        // Click handler para "Selecionar Todas"
+        selectAllItem.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            this._selectAllPendingFeatures();
+            this._hideFeatureSelectionMenu();
+        });
+
+        menu.appendChild(selectAllItem);
+
         return menu;
+    }
+
+    /**
+     * Select all features from the pending context menu
+     */
+    _selectAllPendingFeatures = () => {
+        if (!this.pendingFeatures || !this.pendingEvent) return;
+
+        // Check if Shift is pressed - if not, clear existing selections
+        if (!this.pendingEvent.originalEvent.shiftKey) {
+            this.deselectAllFeatures();
+        }
+
+        // Select each pending feature
+        this.pendingFeatures.forEach(feature => {
+            const type = feature.toolType;
+            const featureId = feature.properties.id;
+
+            // Only select if not already selected (avoid duplicate selections)
+            if (!this.isFeatureSelected(type, featureId)) {
+                this.toggleFeatureSelection(type, featureId, feature, false);
+            }
+        });
+
+        this.updateUI();
     }
 
     /**
@@ -372,11 +436,11 @@ class SelectionManager {
     _getFeatureName = (feature) => {
         const type = feature.toolType;
         const nome = feature.properties.nome;
-        
+
         if (nome && nome.trim()) {
             return `${nome}`;
         }
-        
+
         // Fallback: type + ID
         return `ID: ${feature.properties.id}`;
     }

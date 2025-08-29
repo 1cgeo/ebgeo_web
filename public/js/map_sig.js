@@ -15,7 +15,7 @@ import VectorTileInfoControl from './controls_sig/vector_info_control.js'
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import ScreenshotControl from './controls_sig/screenshot_control.js';
 import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
-import { undoLastAction, redoLastAction} from './controls_sig/store/store.js';
+import { undoLastAction, redoLastAction } from './controls_sig/store/store.js';
 import AddCircleControl from './controls_sig/circle_tool/add_circle_control.js';
 import AddEllipseControl from './controls_sig/ellipse_tool/add_ellipse_control.js';
 import AddArrowControl from './controls_sig/arrow_tool/add_arrow_control.js';
@@ -34,6 +34,7 @@ import { hideLoadingScreen } from './index.js';
 import DragDropHandler from './controls_sig/drag_drop_handler.js';
 import ContextMenuControl from './controls_sig/context_menu_control.js';
 import DragRotateHandler from './controls_sig/drag_rotate_handler.js';
+import ClipboardManager from './controls_sig/tool_manager/clipboard_manager.js';
 
 //-----------------------------------------------
 // CRIAÇÃO E CONFIGURAÇÃO DO MAPA
@@ -152,12 +153,15 @@ const dragRotateHandler = new DragRotateHandler(map);
 dragRotateHandler.enable();
 
 const dragDropHandler = new DragDropHandler(
-    map.getContainer(), 
-    toolManager, 
-    importControl, 
+    map.getContainer(),
+    toolManager,
+    importControl,
     mapControl
 );
 dragDropHandler.enable();
+
+const clipboardManager = new ClipboardManager(selectionManager, map);
+
 
 //-----------------------------------------------
 // ADICIONAR CONTROLES AO MAPA
@@ -199,7 +203,7 @@ map.addControl(militarySymbolControl, 'top-right');
 // ATALHOS DE TECLADO
 //-----------------------------------------------
 
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', async (e) => {
     // Verificar se não está digitando em um input/textarea
     if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
         return;
@@ -207,7 +211,7 @@ document.addEventListener('keydown', (e) => {
     if (addStreetViewControl.isOpen) {
         return;
     }
-    
+
     switch (e.key) {
         case 'Delete':
         case 'Backspace':
@@ -287,6 +291,11 @@ document.addEventListener('keydown', (e) => {
                 e.preventDefault();
                 toolManager.setActiveTool(circleControl);
             }
+
+            if (e.ctrlKey && !e.shiftKey) {
+                e.preventDefault();
+                clipboardManager.copy();
+            }
             break;
         case 'e':
         case 'E':
@@ -302,6 +311,11 @@ document.addEventListener('keydown', (e) => {
                 if (map.getTerrain()) {
                     toolManager.setActiveTool(visibilityControl);
                 }
+            }
+
+            if (e.ctrlKey && !e.shiftKey) {
+                e.preventDefault();
+                await clipboardManager.paste();
             }
             break;
         // 'o' para LOS (Line Of Sight)

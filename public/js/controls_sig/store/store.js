@@ -227,6 +227,10 @@ export const getCurrentMapName = async () => {
     return currentMapName;
 };
 
+export const getCurrentMapNameSync = () => {
+    return memoryStore.currentMap;
+};
+
 export const initializeWithLastActiveMap = async () => {
     try {
         // Verificar e limpar dados legados
