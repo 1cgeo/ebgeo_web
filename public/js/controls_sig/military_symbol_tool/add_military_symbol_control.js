@@ -113,6 +113,35 @@ class AddMilitarySymbolControl {
         $("#military-symbol-tool").html(`<img class="icon-military-tool" src="${iconSrc}" alt="MILITARY" />`);
     }
 
+    // ===== NEW: GALLERY METHODS =====
+
+    getDistinctSymbolsByUsage() {
+        if (!this.map.getSource('military_symbols')) {
+            return [];
+        }
+
+        const data = this.map.getSource('military_symbols')._data;
+        const symbolCounts = new Map(); // Map<sidc, {feature, count}>
+        
+        // Contar ocorrências de cada SIDC
+        data.features.forEach(feature => {
+            const sidc = feature.properties.sidc;
+            if (symbolCounts.has(sidc)) {
+                symbolCounts.get(sidc).count++;
+            } else {
+                symbolCounts.set(sidc, { feature, count: 1 });
+            }
+        });
+        
+        // Ordenar por contagem (mais usado primeiro) e limitar a 20
+        return Array.from(symbolCounts.values())
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 20)
+            .map(item => ({ ...item.feature, usageCount: item.count }));
+    }
+
+
+
     // ===== ZOOM-INVARIANT SYSTEM (seguindo text control) =====
 
     setupZoomListener = () => {

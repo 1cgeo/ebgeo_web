@@ -124,8 +124,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         });
     }
 
-    // Select com busca (estilo Select2)
-    function createDigitalComboBox(options, currentValue, onChange, label) {
+    function createDigitalComboBox(options, currentValue, onChange, label, simplifiedDisplay = false) {
         const container = document.createElement('div');
         container.className = 'digital-combo-container';
         container.style.cssText = 'margin-bottom: 20px; position: relative;';
@@ -215,18 +214,23 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // Adicionar dropdown à lista global para controle
         openDropdowns.push(dropdown);
 
-        // Função para obter texto de exibição da opção (versão melhorada)
+        let filteredOptions = [...options];
+        let highlightedIndex = -1;
+        let optionElements = [];
+
         function getOptionDisplayText(option) {
             if (option.entity_portugues) {
-                // Se tiver subtype: "entity_type_portugues - entity_subtype_portugues"
+                if (simplifiedDisplay) {
+                    return option.entity_portugues;
+                }
+
+                // Modo normal - hierarquia completa
                 if (option.entity_subtype_portugues && option.entity_type_portugues) {
                     return option.entity_type_portugues + ' - ' + option.entity_subtype_portugues;
                 }
-                // Se não tiver subtype mas tiver type: "entity_portugues - entity_type_portugues"
                 else if (option.entity_type_portugues) {
                     return option.entity_portugues + ' - ' + option.entity_type_portugues;
                 }
-                // Se não tiver type: apenas "entity_portugues"
                 else {
                     return option.entity_portugues;
                 }
@@ -234,7 +238,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             return option.label;
         }
 
-        // Função para obter tooltip completo
         function getOptionTooltipText(option) {
             if (option.entity_portugues) {
                 const parts = [];
@@ -246,21 +249,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             return option.label;
         }
 
-        function getDropdownDisplayText(option) {
-            if (option.entity_portugues) {
-                let text = option.entity_portugues;
-                if (option.entity_type_portugues) {
-                    text += ' → ' + option.entity_type_portugues;
-                }
-                if (option.entity_subtype_portugues) {
-                    text += ' → ' + option.entity_subtype_portugues;
-                }
-                return text;
-            }
-            return option.label;
-        }
-
-
         // Encontrar e exibir valor atual
         const currentOption = options.find(opt => opt.value == currentValue || opt.code == currentValue);
         if (currentOption) {
@@ -269,6 +257,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
             textContainer.textContent = displayText;
             textContainer.title = tooltipText;
+
+            highlightedIndex = options.findIndex(opt => opt.value == currentValue || opt.code == currentValue);
         }
 
         // Função para buscar opções
@@ -292,15 +282,103 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             });
         }
 
-        // Função para criar item do dropdown
-        function createDropdownItem(option, isSelected = false) {
+        function updateHighlight(index) {
+            optionElements.forEach(el => {
+                el.style.backgroundColor = '';
+                el.style.fontWeight = '';
+                el.classList.remove('highlighted');
+            });
+
+            if (index >= 0 && index < optionElements.length) {
+                highlightedIndex = index;
+                const highlightedElement = optionElements[index];
+                
+                highlightedElement.style.backgroundColor = '#e3f2fd';
+                highlightedElement.style.fontWeight = '600';
+                highlightedElement.classList.add('highlighted');
+
+                highlightedElement.scrollIntoView({
+                    behavior: 'auto',
+                    block: 'nearest'
+                });
+
+                const highlightedOption = filteredOptions[index];
+                if (highlightedOption) {
+                    const value = highlightedOption.value || highlightedOption.code;
+                    
+                    const displayText = getOptionDisplayText(highlightedOption);
+                    const tooltipText = getOptionTooltipText(highlightedOption);
+                    textContainer.textContent = displayText;
+                    textContainer.title = tooltipText;
+                    
+                    onChange(value);
+                }
+            }
+        }
+
+        function handleKeyDown(e) {
+            if (dropdown.style.display !== 'block') return;
+
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (highlightedIndex < filteredOptions.length - 1) {
+                        updateHighlight(highlightedIndex + 1);
+                    }
+                    break;
+
+                case 'ArrowUp':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (highlightedIndex > 0) {
+                        updateHighlight(highlightedIndex - 1);
+                    }
+                    break;
+
+                case 'Enter':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (highlightedIndex >= 0 && highlightedIndex < filteredOptions.length) {
+                        selectOption(filteredOptions[highlightedIndex]);
+                    }
+                    break;
+
+                case 'Escape':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeDropdown();
+                    break;
+
+                case 'Tab':
+                    // Allow tab to close dropdown and move to next element
+                    closeDropdown();
+                    break;
+            }
+        }
+
+        function selectOption(option) {
+            const value = option.value || option.code;
+            const displayText = getOptionDisplayText(option);
+            const tooltipText = getOptionTooltipText(option);
+
+            textContainer.textContent = displayText;
+            textContainer.title = tooltipText;
+            currentValue = value;
+            closeDropdown();
+            onChange(value);
+        }
+
+        function createDropdownItem(option, index, isCurrentValue = false) {
             const item = document.createElement('div');
+            item.className = 'dropdown-option';
+            item.setAttribute('data-index', index);
             item.style.cssText = `
                 padding: 8px 15px;
                 cursor: pointer;
                 border-bottom: 1px solid #ddd;
                 transition: background-color 0.2s;
-                ${isSelected ? 'background-color: #e3f2fd; font-weight: 600;' : ''}
+                ${isCurrentValue ? 'background-color: #e3f2fd; font-weight: 600;' : ''}
             `;
 
             if (option.entity_portugues) {
@@ -309,79 +387,102 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 const mainText = document.createElement('div');
                 mainText.textContent = option.entity_portugues;
                 mainText.style.cssText = `
-                    font-weight: ${isSelected ? '700' : '600'}; 
+                    font-weight: ${isCurrentValue ? '700' : '600'}; 
                     font-size: 14px; 
                     color: #333; 
                     margin-bottom: 2px;
                 `;
                 hierarchy.appendChild(mainText);
 
-                if (option.entity_type_portugues) {
-                    const typeText = document.createElement('div');
-                    typeText.textContent = '→ ' + option.entity_type_portugues;
-                    typeText.style.cssText = `
-                        font-size: 14px; 
-                        color: #666; 
-                        margin-bottom: 1px; 
-                        font-weight: 500;
-                        margin-left: 10px;
-                    `;
-                    hierarchy.appendChild(typeText);
-                }
+                if (!simplifiedDisplay) {
+                    if (option.entity_type_portugues) {
+                        const typeText = document.createElement('div');
+                        typeText.textContent = '→ ' + option.entity_type_portugues;
+                        typeText.style.cssText = `
+                            font-size: 14px; 
+                            color: #666; 
+                            margin-bottom: 1px; 
+                            font-weight: 500;
+                            margin-left: 10px;
+                        `;
+                        hierarchy.appendChild(typeText);
+                    }
 
-                if (option.entity_subtype_portugues) {
-                    const subtypeText = document.createElement('div');
-                    subtypeText.textContent = '→ ' + option.entity_subtype_portugues;
-                    subtypeText.style.cssText = `
-                        font-size: 13px; 
-                        color: #888; 
-                        font-weight: 400;
-                        margin-left: 20px;
-                    `;
-                    hierarchy.appendChild(subtypeText);
+                    if (option.entity_subtype_portugues) {
+                        const subtypeText = document.createElement('div');
+                        subtypeText.textContent = '→ ' + option.entity_subtype_portugues;
+                        subtypeText.style.cssText = `
+                            font-size: 13px; 
+                            color: #888; 
+                            font-weight: 400;
+                            margin-left: 20px;
+                        `;
+                        hierarchy.appendChild(subtypeText);
+                    }
                 }
 
                 item.appendChild(hierarchy);
             } else {
                 item.textContent = option.label;
                 item.style.fontSize = '14px';
-                item.style.fontWeight = isSelected ? '600' : '500';
+                item.style.fontWeight = isCurrentValue ? '600' : '500';
                 item.style.color = '#333';
             }
 
-            if (!isSelected) {
-                item.onmouseenter = () => item.style.backgroundColor = '#f8f9fa';
-                item.onmouseleave = () => item.style.backgroundColor = '';
+            if (!isCurrentValue) {
+                item.onmouseenter = () => {
+                    highlightedIndex = index;
+                    updateHighlight(index);
+                };
+                item.onmouseleave = () => {
+                    if (!item.classList.contains('highlighted')) {
+                        item.style.backgroundColor = '';
+                    }
+                };
             }
 
-            item.onclick = () => {
-                const value = option.value || option.code;
-                const displayText = getOptionDisplayText(option);
-                const tooltipText = getOptionTooltipText(option);
-
-                textContainer.textContent = displayText;
-                textContainer.title = tooltipText;
-                closeDropdown();
-                onChange(value);
+            item.onclick = (e) => {
+                e.stopPropagation();
+                selectOption(option);
             };
 
             return item;
         }
 
-        // Função para mostrar opções no dropdown
-        function showOptions(filteredOptions) {
+        function showOptions(newFilteredOptions) {
             optionsList.innerHTML = '';
+            filteredOptions = newFilteredOptions;
+            optionElements = [];
 
             if (filteredOptions.length === 0) {
                 const noResults = document.createElement('div');
                 noResults.textContent = 'Nenhum resultado encontrado';
                 noResults.style.cssText = 'padding: 15px; color: #999; font-style: italic; font-size: 14px; text-align: center;';
                 optionsList.appendChild(noResults);
-            } else {
-                filteredOptions.forEach(option => {
-                    const isSelected = (option.value || option.code) === currentValue;
-                    optionsList.appendChild(createDropdownItem(option, isSelected));
-                });
+                highlightedIndex = -1;
+                return;
+            }
+
+            if (highlightedIndex >= filteredOptions.length) {
+                highlightedIndex = Math.max(0, filteredOptions.length - 1);
+            }
+
+            const currentIndex = filteredOptions.findIndex(opt => 
+                (opt.value || opt.code) === currentValue
+            );
+            if (currentIndex >= 0) {
+                highlightedIndex = currentIndex;
+            }
+
+            filteredOptions.forEach((option, index) => {
+                const isSelected = (option.value || option.code) === currentValue;
+                const item = createDropdownItem(option, index, isSelected);
+                optionElements.push(item);
+                optionsList.appendChild(item);
+            });
+
+            if (highlightedIndex >= 0 && highlightedIndex < optionElements.length) {
+                updateHighlight(highlightedIndex);
             }
         }
 
@@ -418,21 +519,23 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             dropdown.style.width = width + 'px';
         }
 
-        // Função para abrir dropdown
         function openDropdown() {
-            // Fechar todos os outros dropdowns primeiro
             closeAllDropdowns();
 
             positionDropdown();
             showOptions(options);
             dropdown.style.display = 'block';
             searchInput.value = '';
+            
             searchInput.focus();
+            document.addEventListener('keydown', handleKeyDown);
         }
 
-        // Função para fechar dropdown
         function closeDropdown() {
             dropdown.style.display = 'none';
+            highlightedIndex = -1;
+            
+            document.removeEventListener('keydown', handleKeyDown);
         }
 
         // Event listeners
@@ -446,11 +549,22 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         };
 
         searchInput.oninput = () => {
-            const filteredOptions = searchOptions(searchInput.value);
-            showOptions(filteredOptions);
+            const newFilteredOptions = searchOptions(searchInput.value);
+            showOptions(newFilteredOptions);
+            
+            if (newFilteredOptions.length > 0) {
+                highlightedIndex = 0;
+                updateHighlight(0);
+            }
         };
 
-        // Fechar ao clicar fora
+        searchInput.onkeydown = (e) => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                // Let the global handler take care of navigation
+            }
+        };
+
         document.addEventListener('click', (e) => {
             if (!dropdown.contains(e.target) && !selectDisplay.contains(e.target)) {
                 closeDropdown();
@@ -472,11 +586,14 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 const tooltipText = getOptionTooltipText(newOption);
                 textContainer.textContent = displayText;
                 textContainer.title = tooltipText;
+                
+                highlightedIndex = options.findIndex(opt => opt.value == newValue || opt.code == newValue);
             }
         };
 
-        // Cleanup function
         container._cleanup = () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            
             // Remover da lista global
             const index = openDropdowns.indexOf(dropdown);
             if (index > -1) {
@@ -491,7 +608,93 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         return container;
     }
 
-    // Modal do símbolo
+    // ===== NEW: SYMBOL GALLERY =====
+    
+    async function createSymbolGallery(onSymbolClick) {
+        const galleryColumn = document.createElement('div');
+        galleryColumn.style.cssText = 'flex: 0 0 160px; border-left: 2px solid #e9ecef; padding-left: 20px;';
+
+        const galleryTitle = document.createElement('h4');
+        galleryTitle.textContent = 'Símbolos do Mapa';
+        galleryTitle.style.cssText = 'margin: 0 0 15px 0; font-size: 16px; color: #333; text-align: center;';
+
+        const scrollContainer = document.createElement('div');
+        scrollContainer.style.cssText = `
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 8px;
+        `;
+
+        const gallery = document.createElement('div');
+        gallery.style.cssText = `
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            justify-items: center;
+        `;
+
+        // Get distinct symbols by usage
+        const distinctSymbols = militarySymbolControl.getDistinctSymbolsByUsage();
+
+        if (distinctSymbols.length === 0) {
+            const emptyMessage = document.createElement('div');
+            emptyMessage.textContent = 'Nenhum símbolo no mapa';
+            emptyMessage.style.cssText = 'color: #999; font-style: italic; font-size: 14px; text-align: center; padding: 20px; grid-column: 1 / -1;';
+            gallery.appendChild(emptyMessage);
+        } else {
+            // Load gallery symbols
+            for (const feature of distinctSymbols) {
+                try {
+                    const sidc = feature.properties.sidc;
+                    const dataURL = await militarySymbolControl.symbolGenerator.generatePreviewDataURL(sidc, 60);
+                    
+                    if (dataURL) {
+                        const item = createGalleryItem(feature, dataURL, onSymbolClick);
+                        gallery.appendChild(item);
+                    }
+                } catch (error) {
+                    console.warn(`Erro ao gerar símbolo ${feature.properties.id}:`, error);
+                    // Skip símbolo com erro
+                }
+            }
+        }
+
+        scrollContainer.appendChild(gallery);
+        galleryColumn.appendChild(galleryTitle);
+        galleryColumn.appendChild(scrollContainer);
+        
+        return galleryColumn;
+    }
+
+    function createGalleryItem(feature, dataURL, onSymbolClick) {
+        const item = document.createElement('div');
+        item.style.cssText = `
+            width: 60px;
+            height: 60px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: white;
+        `;
+        
+        const img = document.createElement('img');
+        img.src = dataURL;
+        img.style.cssText = 'max-width: 50px; max-height: 50px;';
+        img.title = `${feature.properties.nome || 'Símbolo'} (${feature.usageCount}x)`;
+        
+        // Click handler simples
+        item.onclick = () => {
+            onSymbolClick(feature.properties.sidc);
+        };
+        
+        item.appendChild(img);
+        return item;
+    }
+
+    // Modal do símbolo - ATUALIZADO com galeria
     function openSymbolModal() {
         const modalOverlay = document.createElement('div');
         modalOverlay.style.cssText = `
@@ -513,7 +716,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             border-radius: 12px;
             padding: 30px;
             width: 95%;
-            max-width: 1200px;
+            max-width: 1400px;
             max-height: 95vh;
             overflow-y: auto;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
@@ -525,13 +728,13 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         modal.appendChild(modalTitle);
 
         const modalContent = document.createElement('div');
-        modalContent.style.cssText = 'display: flex; gap: 30px;';
+        modalContent.style.cssText = 'display: flex; gap: 20px;'; // Reduzido gap para 3 colunas
 
         const controlsColumn = document.createElement('div');
         controlsColumn.style.cssText = 'flex: 1;';
 
         const previewColumn = document.createElement('div');
-        previewColumn.style.cssText = 'flex: 0 0 250px; text-align: center;';
+        previewColumn.style.cssText = 'flex: 0 0 220px; text-align: center;'; // Reduzido ligeiramente
 
         // Preview container
         const previewContainer = document.createElement('div');
@@ -613,6 +816,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 }
             },
             'Identidade Padrão'
+            // simplifiedDisplay = false (default)
         );
         column1.appendChild(comboboxes.standardIdentity);
 
@@ -626,6 +830,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 }
             },
             'Status'
+            // simplifiedDisplay = false (default)
         );
         column1.appendChild(comboboxes.status);
 
@@ -639,6 +844,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 }
             },
             'QG/Força-Tarefa/Dummy'
+            // simplifiedDisplay = false (default)
         );
         column1.appendChild(comboboxes.hqTfDummy);
 
@@ -652,6 +858,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 }
             },
             'Escalão'
+            // simplifiedDisplay = false (default)
         );
         column1.appendChild(comboboxes.echelon);
 
@@ -678,7 +885,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     updatePreviewFromComboboxes();
                 }
             },
-            'Modificador 1'
+            'Modificador 1',
+            true // ✅ simplifiedDisplay = true
         );
         column2.appendChild(comboboxes.modifier1);
 
@@ -691,7 +899,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     updatePreviewFromComboboxes();
                 }
             },
-            'Modificador 2'
+            'Modificador 2',
+            true // ✅ simplifiedDisplay = true
         );
         column2.appendChild(comboboxes.modifier2);
 
@@ -865,8 +1074,9 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         modalButtons.appendChild(applyButton);
         modalButtons.appendChild(cancelButton);
 
-        // Função para fechar modal e fazer cleanup
         function closeModal() {
+            document.removeEventListener('keydown', handleModalKeyDown);
+            
             // Cleanup dos dropdowns
             const comboBoxes = [column1, column2].flatMap(col => Array.from(col.children));
             comboBoxes.forEach(combo => {
@@ -877,22 +1087,74 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             document.body.removeChild(modalOverlay);
         }
 
-        // Montar modal
-        modalContent.appendChild(controlsColumn);
-        modalContent.appendChild(previewColumn);
-        modal.appendChild(modalContent);
-        modal.appendChild(modalButtons);
-        modalOverlay.appendChild(modal);
-
-        // Fechar modal ao clicar no overlay
-        modalOverlay.onclick = (e) => {
-            if (e.target === modalOverlay) {
-                closeModal();
+        function handleModalKeyDown(e) {
+            if (e.key === 'Escape') {
+                // Only close modal if no dropdown is open
+                const hasOpenDropdown = openDropdowns.some(dropdown => 
+                    dropdown.style.display === 'block'
+                );
+                
+                if (!hasOpenDropdown) {
+                    e.preventDefault();
+                    closeModal();
+                }
             }
-        };
+        }
 
-        // Adicionar ao DOM e gerar preview inicial
-        document.body.appendChild(modalOverlay);
-        updatePreview();
+        // Criar e adicionar galeria ao modal - NOVO
+        async function initializeModal() {
+            try {
+                // Função callback para click na galeria
+                const onSymbolClick = (sidc) => {
+                    updateComboboxesFromSIDC(sidc);
+                    updatePreview();
+                };
+
+                const galleryColumn = await createSymbolGallery(onSymbolClick);
+                
+                // Montar modal com 3 colunas
+                modalContent.appendChild(controlsColumn);
+                modalContent.appendChild(previewColumn);
+                modalContent.appendChild(galleryColumn); // Nova coluna da galeria
+                modal.appendChild(modalContent);
+                modal.appendChild(modalButtons);
+                modalOverlay.appendChild(modal);
+
+                // Event listeners
+                modalOverlay.onclick = (e) => {
+                    if (e.target === modalOverlay) {
+                        closeModal();
+                    }
+                };
+
+                document.addEventListener('keydown', handleModalKeyDown);
+
+                // Adicionar ao DOM e gerar preview inicial
+                document.body.appendChild(modalOverlay);
+                updatePreview();
+
+            } catch (error) {
+                console.error('Erro ao inicializar modal:', error);
+                // Fallback: modal sem galeria
+                modalContent.appendChild(controlsColumn);
+                modalContent.appendChild(previewColumn);
+                modal.appendChild(modalContent);
+                modal.appendChild(modalButtons);
+                modalOverlay.appendChild(modal);
+
+                modalOverlay.onclick = (e) => {
+                    if (e.target === modalOverlay) {
+                        closeModal();
+                    }
+                };
+
+                document.addEventListener('keydown', handleModalKeyDown);
+                document.body.appendChild(modalOverlay);
+                updatePreview();
+            }
+        }
+
+        // Inicializar modal de forma assíncrona
+        initializeModal();
     }
 }
