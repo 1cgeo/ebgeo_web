@@ -4,6 +4,8 @@ import { getTerrainElevation } from '../terrain_control.js';
 import { IDUtils } from '../id_utils.js';
 
 class AddLineControl {
+    static MIN_DISTANCE_METERS = 5;
+
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
@@ -81,17 +83,21 @@ class AddLineControl {
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick); // NEW
         this.updateButtonAppearance();
     }
 
+    // MODIFY: deactivate
     deactivate = () => {
         this.isActive = false;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick); // NEW
         this.updateButtonAppearance();
         this.clearPreview();
         this.deselectFeature();
     }
+
 
     updateButtonAppearance = () => {
         const iconSrc = this.isActive ?
@@ -239,6 +245,18 @@ class AddLineControl {
     }
 
     // ===== DRAWING SYSTEM =====
+    isPointTooClose = (newPoint, existingPoints) => {
+        if (existingPoints.length === 0) return false;
+
+        const lastPoint = existingPoints[existingPoints.length - 1];
+        const distance = turf.distance(
+            turf.point(lastPoint),
+            turf.point(newPoint),
+            { units: 'meters' }
+        );
+
+        return distance < AddLineControl.MIN_DISTANCE_METERS;
+    }
 
     handleMapClick = (e) => {
         if (!this.isActive) return;
@@ -248,18 +266,30 @@ class AddLineControl {
             return;
         }
 
-        this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
+        const newPoint = [e.lngLat.lng, e.lngLat.lat];
+
+        if (this.isPointTooClose(newPoint, this.drawPoints)) {
+            return;
+        }
+
+        this.drawPoints.push(newPoint);
 
         if (this.drawPoints.length === 1) {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         }
     }
 
-    handleDoubleClick = (e) => {
-        if (!this.isActive) return;
+    handleRightClick = (e) => {
+        if (!this.isActive || this.drawPoints.length === 0) return;
 
-        if (this.drawPoints.length > 0) {
-            this.drawPoints.pop();
+        e.preventDefault();
+        e.stopPropagation();
+
+        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
+        const finalPoint = [coordinates.lng, coordinates.lat];
+
+        if (!this.isPointTooClose(finalPoint, this.drawPoints)) {
+            this.drawPoints.push(finalPoint);
         }
 
         if (this.drawPoints.length >= 2) {
@@ -269,7 +299,6 @@ class AddLineControl {
         } else {
             this.stopDrawing();
         }
-        e.preventDefault();
     }
 
     // RAF-based preview
@@ -683,11 +712,12 @@ class AddLineControl {
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
-        this.map.on('dblclick', this.handleDoubleClick);
+        this.map.on('click', this.handleMapClick);
     }
 
     removeAllEventListeners = () => {
-        this.map.off('dblclick', this.handleDoubleClick);
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
+        this.map.off('click', this.handleMapClick);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.removeHoverListeners();
@@ -714,7 +744,7 @@ class AddLineControl {
                 !isNaN(coord[0]) &&
                 !isNaN(coord[1])
             );
-            
+
             if (isValidArray) {
                 return coords;
             } else {
@@ -857,14 +887,14 @@ class AddLineControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-                        
+
                         // Update profile if geometry changed
                         if (!onlyUpdateProperties && feature.geometry.type === 'LineString') {
                             featureToUpdate.properties.profileData = JSON.stringify(
                                 await this.calculateProfile(feature.geometry.coordinates)
                             );
                         }
-                        
+
                         await updateFeature('lines', featureToUpdate);
                     }
                 }

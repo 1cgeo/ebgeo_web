@@ -3,6 +3,8 @@ import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 
 class AddBoundaryControl {
+    static MIN_DISTANCE_METERS = 5;
+
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
@@ -88,24 +90,25 @@ class AddBoundaryControl {
         this.drawPoints = [];
         this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick); // NEW
         this.updateButtonAppearance();
 
         this.map.on('click', this.handleMapClick);
-        this.map.on('dblclick', this.handleDoubleClick);
         this.map.on('mousemove', this.handlePreviewMouseMove);
     }
 
+    // MODIFY: deactivate
     deactivate = () => {
         this.isActive = false;
         this.drawPoints = [];
         this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = '';
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick); // NEW
         this.updateButtonAppearance();
         this.clearPreview();
         this.deselectFeature();
 
         this.map.off('click', this.handleMapClick);
-        this.map.off('dblclick', this.handleDoubleClick);
         this.map.off('mousemove', this.handlePreviewMouseMove);
     }
 
@@ -261,11 +264,30 @@ class AddBoundaryControl {
     }
 
     // ===== DRAWING SYSTEM =====
+    isPointTooClose = (newPoint, existingPoints) => {
+        if (existingPoints.length === 0) return false;
+
+        const lastPoint = existingPoints[existingPoints.length - 1];
+        const distance = turf.distance(
+            turf.point(lastPoint),
+            turf.point(newPoint),
+            { units: 'meters' }
+        );
+
+        return distance < AddBoundaryControl.MIN_DISTANCE_METERS;
+    }
 
     handleMapClick = (e) => {
         if (!this.isActive) return;
 
-        this.lastClickCoords = [e.lngLat.lng, e.lngLat.lat];
+        const newPoint = [e.lngLat.lng, e.lngLat.lat];
+
+        // NEW: Skip if too close
+        if (this.isPointTooClose(newPoint, this.drawPoints)) {
+            return;
+        }
+
+        this.lastClickCoords = newPoint;
         clearTimeout(this.clickTimer);
         this.clickTimer = setTimeout(() => {
             this.drawPoints.push(this.lastClickCoords);
@@ -273,19 +295,29 @@ class AddBoundaryControl {
         }, 250);
     }
 
-    handleDoubleClick = (e) => {
+    handleRightClick = (e) => {
         if (!this.isActive) return;
 
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Clear click timer logic
         clearTimeout(this.clickTimer);
+        this.clickTimer = null;
         this.lastClickCoords = null;
-        this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
+
+        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
+        const finalPoint = [coordinates.lng, coordinates.lat];
+
+        if (!this.isPointTooClose(finalPoint, this.drawPoints)) {
+            this.drawPoints.push(finalPoint);
+        }
 
         if (this.drawPoints.length >= 2) {
             this.createFeature();
         }
 
         this.stopDrawing();
-        e.preventDefault();
     }
 
     // ✅ RAF-based preview (com cache dos pontos)
@@ -321,7 +353,7 @@ class AddBoundaryControl {
             }
             previewPoints.push(this.lastPreviewPosition);
 
-            if (previewPoints.length >= 2) {
+            if (previewPoints.length >= 1) {
                 // Light debouncing for boundary geometry generation
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
@@ -1121,12 +1153,12 @@ class AddBoundaryControl {
             const line = turf.lineString(coordinates);
             const totalLength = turf.length(line, { units: 'kilometers' });
             const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
-            
+
             // Calcular nova distância baseada na distância radial do centro do símbolo
             const newDistance = turf.distance(centerPoint, turf.point(newPosition), { units: 'kilometers' });
             const symbolSize = this.selectedFeature.properties.symbol_size || 2;
             const newRatio = newDistance / symbolSize;
-            
+
             // ✅ Aplicar limites definidos: 0.1 a 3.0
             this.selectedFeature.properties.text_distance_ratio = Math.max(0.1, Math.min(3.0, newRatio));
 
@@ -1224,6 +1256,8 @@ class AddBoundaryControl {
     }
 
     removeAllEventListeners = () => {
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick); // NEW
+        this.map.off('click', this.handleMapClick); // NEW
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.removeHoverListeners();

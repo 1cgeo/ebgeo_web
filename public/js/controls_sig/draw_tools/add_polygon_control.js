@@ -3,6 +3,8 @@ import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 
 class AddPolygonControl {
+    static MIN_DISTANCE_METERS = 5;
+
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
@@ -79,13 +81,16 @@ class AddPolygonControl {
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick); // NEW
         this.updateButtonAppearance();
     }
 
+    // MODIFY: deactivate
     deactivate = () => {
         this.isActive = false;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick); // NEW
         this.updateButtonAppearance();
         this.clearPreview();
         this.deselectFeature();
@@ -219,37 +224,62 @@ class AddPolygonControl {
     }
 
     // ===== DRAWING SYSTEM =====
+    isPointTooClose = (newPoint, existingPoints) => {
+        if (existingPoints.length === 0) return false;
+
+        const lastPoint = existingPoints[existingPoints.length - 1];
+        const distance = turf.distance(
+            turf.point(lastPoint),
+            turf.point(newPoint),
+            { units: 'meters' }
+        );
+
+        return distance < AddPolygonControl.MIN_DISTANCE_METERS;
+    }
 
     handleMapClick = (e) => {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
-            console.warn('Coordenadas inválidas para polígono');
+            console.warn('Coordenadas inválidas para linha');
             return;
         }
 
-        this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
+        const newPoint = [e.lngLat.lng, e.lngLat.lat];
+
+        // NEW: Skip if too close
+        if (this.isPointTooClose(newPoint, this.drawPoints)) {
+            return;
+        }
+
+        this.drawPoints.push(newPoint);
 
         if (this.drawPoints.length === 1) {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         }
     }
 
-    handleDoubleClick = (e) => {
-        if (!this.isActive) return;
 
-        if (this.drawPoints.length > 0) {
-            this.drawPoints.pop();
+    handleRightClick = (e) => {
+        if (!this.isActive || this.drawPoints.length === 0) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
+        const finalPoint = [coordinates.lng, coordinates.lat];
+
+        if (!this.isPointTooClose(finalPoint, this.drawPoints)) {
+            this.drawPoints.push(finalPoint);
         }
 
-        if (this.drawPoints.length >= 3) {
+        if (this.drawPoints.length >= 3) { // MIN_POINTS = 3 for polygon
             this.map.off('mousemove', this.handlePreviewMouseMove);
             this.createFeature();
             this.toolManager.deactivateCurrentTool();
         } else {
             this.stopDrawing();
         }
-        e.preventDefault();
     }
 
     // RAF-based preview
@@ -257,7 +287,6 @@ class AddPolygonControl {
         if (this.drawPoints.length >= 1) {
             this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
             this.lastPreviewPoints = [...this.drawPoints, this.lastPreviewPosition];
-
             if (!this.pendingPreviewUpdate) {
                 this.pendingPreviewUpdate = true;
                 this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
@@ -281,14 +310,7 @@ class AddPolygonControl {
             clearTimeout(this.geometryDebounceTimer);
             this.geometryDebounceTimer = setTimeout(() => {
                 let previewGeometry;
-
-                if (this.lastPreviewPoints.length === 1) {
-                    // ✅ NEW: Show first point as a point feature
-                    previewGeometry = {
-                        type: 'Point',
-                        coordinates: this.lastPreviewPoints[0]
-                    };
-                } else if (this.lastPreviewPoints.length === 2) {
+                if (this.lastPreviewPoints.length === 2) {
                     // ✅ NEW: Show line between first two points
                     previewGeometry = {
                         type: 'LineString',
@@ -298,7 +320,7 @@ class AddPolygonControl {
                     // ✅ EXISTING: Show polygon preview (3+ points)
                     // Auto-close polygon for preview
                     const closedCoords = [...this.lastPreviewPoints, this.lastPreviewPoints[0]];
-                    
+
                     previewGeometry = {
                         type: 'Polygon',
                         coordinates: [closedCoords]
@@ -668,11 +690,12 @@ class AddPolygonControl {
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
-        this.map.on('dblclick', this.handleDoubleClick);
+        this.map.on('click', this.handleMapClick);
     }
 
     removeAllEventListeners = () => {
-        this.map.off('dblclick', this.handleDoubleClick);
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
+        this.map.off('click', this.handleMapClick);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.removeHoverListeners();

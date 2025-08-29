@@ -3,6 +3,8 @@ import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 
 class AddArrowControl {
+    static MIN_DISTANCE_METERS = 10;
+
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
@@ -82,21 +84,23 @@ class AddArrowControl {
 
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
-    activate = () => {
-        this.isActive = true;
-        this.drawPoints = [];
-        this.map.getCanvas().style.cursor = 'crosshair';
-        this.updateButtonAppearance();
-    }
+activate = () => {
+    this.isActive = true;
+    this.drawPoints = [];
+    this.map.getCanvas().style.cursor = 'crosshair';
+    this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
+    this.updateButtonAppearance();
+}
 
-    deactivate = () => {
-        this.isActive = false;
-        this.drawPoints = [];
-        this.map.getCanvas().style.cursor = '';
-        this.updateButtonAppearance();
-        this.clearPreview();
-        this.deselectFeature();
-    }
+deactivate = () => {
+    this.isActive = false;
+    this.drawPoints = [];
+    this.map.getCanvas().style.cursor = '';
+    this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
+    this.updateButtonAppearance();
+    this.clearPreview();
+    this.deselectFeature();
+}
 
     updateButtonAppearance = () => {
         const iconSrc = this.isActive ?
@@ -228,6 +232,19 @@ class AddArrowControl {
 
     // ===== DRAWING SYSTEM =====
 
+    isPointTooClose = (newPoint, existingPoints) => {
+        if (existingPoints.length === 0) return false;
+
+        const lastPoint = existingPoints[existingPoints.length - 1];
+        const distance = turf.distance(
+            turf.point(lastPoint),
+            turf.point(newPoint),
+            { units: 'meters' }
+        );
+
+        return distance < AddArrowControl.MIN_DISTANCE_METERS;
+    }
+
     handleMapClick = (e) => {
         if (!this.isActive) return;
 
@@ -236,19 +253,32 @@ class AddArrowControl {
             return;
         }
 
-        this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
+        const newPoint = [e.lngLat.lng, e.lngLat.lat];
+
+        if (this.isPointTooClose(newPoint, this.drawPoints)) {
+            return;
+        }
+
+        this.drawPoints.push(newPoint);
 
         if (this.drawPoints.length === 1) {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         }
     }
 
-    handleDoubleClick = (e) => {
-        if (!this.isActive) return;
+    handleRightClick = (e) => {
+        if (!this.isActive || this.drawPoints.length === 0) return;
 
-        if (this.drawPoints.length > 0) {
-            this.drawPoints.pop();
+        e.preventDefault();
+        e.stopPropagation(); // Critical: Prevent context menu
+
+        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
+        const finalPoint = [coordinates.lng, coordinates.lat];
+
+        if (!this.isPointTooClose(finalPoint, this.drawPoints)) {
+            this.drawPoints.push(finalPoint);
         }
+
 
         if (this.drawPoints.length >= 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
@@ -257,7 +287,6 @@ class AddArrowControl {
         } else {
             this.stopDrawing();
         }
-        e.preventDefault();
     }
 
     // ✅ RAF-based preview (com cache dos pontos)
@@ -1017,11 +1046,12 @@ class AddArrowControl {
     // ===== EVENT LISTENER MANAGEMENT =====
 
     setupBaseEventListeners = () => {
-        this.map.on('dblclick', this.handleDoubleClick);
+        this.map.on('click', this.handleMapClick);
     }
 
     removeAllEventListeners = () => {
-        this.map.off('dblclick', this.handleDoubleClick);
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
+        this.map.off('click', this.handleMapClick);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.removeHoverListeners();
@@ -1116,8 +1146,8 @@ class AddArrowControl {
                 sourceFeature.properties.fillColor = sourceFeature.properties.fillColor || AddArrowControl.DEFAULT_PROPERTIES.fillColor;
                 sourceFeature.properties.lineColor = sourceFeature.properties.lineColor || AddArrowControl.DEFAULT_PROPERTIES.lineColor;
                 sourceFeature.properties.lineOpacity = sourceFeature.properties.lineOpacity || AddArrowControl.DEFAULT_PROPERTIES.lineOpacity;
-                sourceFeature.properties.fillOpacity = sourceFeature.properties.fillOpacity !== null && sourceFeature.properties.fillOpacity !== undefined 
-                    ? sourceFeature.properties.fillOpacity 
+                sourceFeature.properties.fillOpacity = sourceFeature.properties.fillOpacity !== null && sourceFeature.properties.fillOpacity !== undefined
+                    ? sourceFeature.properties.fillOpacity
                     : AddArrowControl.DEFAULT_PROPERTIES.fillOpacity;
                 sourceFeature.properties.lineWidth = sourceFeature.properties.lineWidth || AddArrowControl.DEFAULT_PROPERTIES.lineWidth;
 
