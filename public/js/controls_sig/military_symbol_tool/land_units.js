@@ -421,7 +421,7 @@ export default {
           "entity": "Movement and Maneuver",
           "entity_type": "Special Operations Forces (SOF)",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Forças de Operações Especiais (SOF)",
+          "entity_type_portugues": "Forças de Operações Especiais",
           "code": "121800"
         },
         {
@@ -429,7 +429,7 @@ export default {
           "entity_type": "Special Operations Forces (SOF)",
           "entity_subtype": "Fixed Wing MISO",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Forças de Operações Especiais (SOF)",
+          "entity_type_portugues": "Forças de Operações Especiais",
           "entity_subtype_portugues": "MISO de Asa Fixa",
           "code": "121801"
         },
@@ -438,7 +438,7 @@ export default {
           "entity_type": "Special Operations Forces (SOF)",
           "entity_subtype": "Ground",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Forças de Operações Especiais (SOF)",
+          "entity_type_portugues": "Forças de Operações Especiais",
           "entity_subtype_portugues": "Terrestre",
           "code": "121802"
         },
@@ -447,7 +447,7 @@ export default {
           "entity_type": "Special Operations Forces (SOF)",
           "entity_subtype": "Special Boat",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Forças de Operações Especiais (SOF)",
+          "entity_type_portugues": "Forças de Operações Especiais",
           "entity_subtype_portugues": "Embarcação de Operações Especiais",
           "code": "121803"
         },
@@ -456,7 +456,7 @@ export default {
           "entity_type": "Special Operations Forces (SOF)",
           "entity_subtype": "Special SSNR",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Forças de Operações Especiais (SOF)",
+          "entity_type_portugues": "Forças de Operações Especiais",
           "entity_subtype_portugues": "SSNR Especial",
           "code": "121804"
         },
@@ -465,7 +465,7 @@ export default {
           "entity_type": "Special Operations Forces (SOF)",
           "entity_subtype": "Underwater Demolition Team",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Forças de Operações Especiais (SOF)",
+          "entity_type_portugues": "Forças de Operações Especiais",
           "entity_subtype_portugues": "Equipe de Demolição Submarina",
           "code": "121805"
         },
@@ -2016,7 +2016,7 @@ export default {
         {
           "entity": "Special Operations Forces (SOF)",
           "entity_type": "Capability",
-          "entity_portugues": "Forças de Operações Especiais (SOF)",
+          "entity_portugues": "Forças de Operações Especiais",
           "entity_type_portugues": "Capacidade",
           "code": "63"
         },
