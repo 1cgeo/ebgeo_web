@@ -64,14 +64,6 @@ class MouseCoordinatesControl {
         flyToButton.innerHTML = `<img src="./images/fly_to_icon.svg" alt="Fly to" width="16" height="16" />`;
         flyToButton.addEventListener('click', this._openFlyToModal.bind(this));
 
-        // Create copy button
-        const copyButton = document.createElement('div');
-        copyButton.className = 'coordinates-button coordinates-copy-button';
-        copyButton.title = "Copiar coordenadas";
-        copyButton.innerHTML = `📋`;
-        copyButton.style.fontSize = '14px';
-        copyButton.addEventListener('click', this._copyCoordinates.bind(this));
-
         // Create elevation toggle button
         this._elevationButton = document.createElement('div');
         this._elevationButton.className = 'coordinates-button coordinates-elevation-button';
@@ -121,7 +113,6 @@ class MouseCoordinatesControl {
             this._formatSelector.appendChild(option);
         });
 
-        controlsContainer.appendChild(copyButton);
         controlsContainer.appendChild(flyToButton);
         controlsContainer.appendChild(this._elevationButton);
         controlsContainer.appendChild(gearButton);
@@ -385,58 +376,6 @@ class MouseCoordinatesControl {
         }
     }
 
-    _copyCoordinates() {
-        const { lat, lng } = this._currentCoordinates;
-        const textToCopy = formatCoordinates(lat, lng, this._currentFormat);
-
-        if (!textToCopy || textToCopy.trim() === '') return;
-
-        // Try modern clipboard API first
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(textToCopy).then(() => {
-                this._showCopyFeedback();
-            }).catch(() => {
-                this._fallbackCopyTextToClipboard(textToCopy);
-            });
-        } else {
-            this._fallbackCopyTextToClipboard(textToCopy);
-        }
-    }
-
-    _fallbackCopyTextToClipboard(text) {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        textArea.style.position = "fixed";
-        textArea.style.left = "-9999px";
-
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-
-        try {
-            document.execCommand('copy');
-            this._showCopyFeedback();
-        } catch (err) {
-            console.error('Error copying text:', err);
-        }
-
-        document.body.removeChild(textArea);
-    }
-
-    _showCopyFeedback() {
-        const copyButton = this._container.querySelector('.coordinates-copy-button');
-        const originalContent = copyButton.innerHTML;
-
-        // Show check mark briefly
-        copyButton.innerHTML = '✅';
-        copyButton.style.color = '#28a745';
-
-        setTimeout(() => {
-            copyButton.innerHTML = originalContent;
-            copyButton.style.color = '';
-        }, 1000);
-    }
-
     _openFlyToModal() {
         if (this._modal) {
             // Set input to current format
@@ -573,6 +512,16 @@ class MouseCoordinatesControl {
                 this._coordinatesText.appendChild(elevSpan);
             }
         }
+    }
+
+    // Public methods for external access
+    getCurrentFormat() {
+        return this._currentFormat;
+    }
+
+    getCurrentCoordinatesText() {
+        const { lat, lng } = this._currentCoordinates;
+        return formatCoordinates(lat, lng, this._currentFormat);
     }
 
     onRemove() {

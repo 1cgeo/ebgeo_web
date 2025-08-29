@@ -41,6 +41,10 @@ class ToolManager {
             this.activeTool = null;
         }
     }
+
+    hasActiveTool() {
+        return this.activeTool !== null;
+    }
 }
 
 export default ToolManager;

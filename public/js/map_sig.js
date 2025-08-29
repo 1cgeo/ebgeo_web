@@ -33,6 +33,8 @@ import AddPolygonControl from './controls_sig/draw_tools/add_polygon_control.js'
 import baseStyle from './controls_sig/baselayers/carta_topografica.js'
 import { hideLoadingScreen } from './index.js';
 import DragDropHandler from './controls_sig/drag_drop_handler.js';
+import ContextMenuControl from './controls_sig/context_menu_control.js';
+import DragRotateHandler from './controls_sig/drag_rotate_handler.js';
 
 //-----------------------------------------------
 // CRIAÇÃO E CONFIGURAÇÃO DO MAPA
@@ -65,6 +67,7 @@ map.addControl(new maplibregl.AttributionControl({
 map.on('load', async () => {
     map.doubleClickZoom.disable();
     map.boxZoom.disable();
+    map.dragRotate.disable();
     await baseLayerControl.switchMap(true);
     hideLoadingScreen();
 });
@@ -137,7 +140,6 @@ mapControl.setSelectionManager(selectionManager)
 
 baseLayerControl.setMapControl(mapControl);
 
-
 importControl.setControls(pointControl, lineControl, polygonControl);
 
 const resetNorthControl = new ResetNorthControl();
@@ -145,6 +147,11 @@ const terrainControl = new TerrainControl(config.map2d);
 const screenshotControl = new ScreenshotControl();
 
 const mouseCoordinatesControl = new MouseCoordinatesControl(pointControl);
+
+// Context menu e drag rotate customizados
+const contextMenuControl = new ContextMenuControl(mouseCoordinatesControl, toolManager);
+const dragRotateHandler = new DragRotateHandler(map);
+dragRotateHandler.enable();
 
 const dragDropHandler = new DragDropHandler(
     map.getContainer(), 
@@ -163,14 +170,15 @@ mapControl.loadMenu()
 
 map.addControl(mouseCoordinatesControl, 'bottom-right');
 
+// Add context menu control (it doesn't create UI, just adds event handlers)
+map.addControl(contextMenuControl, 'top-left');
+
 map.addControl(featureSearchControl, 'top-right'); // Primeiro - Feature Search
 map.addControl(resetNorthControl, 'top-right');    // Segundo - North
 map.addControl(importControl, 'top-right');        // Terceiro - Import
 map.addControl(screenshotControl, 'top-right');    // Quarto - Screenshot
 map.addControl(vectorTileInfoControl, 'top-right'); // Quinto - Vector Info
 map.addControl(addStreetViewControl, 'top-right');  // Sexto - Street View
-
-// GRUPO TERRENO (últimos 3)
 map.addControl(terrainControl, 'top-right');        // Sétimo - Terrain
 map.addControl(losControl, 'top-right');            // Oitavo - LOS
 map.addControl(visibilityControl, 'top-right');     // Nono - Visibility
@@ -365,14 +373,3 @@ window.addEventListener('unhandledrejection', (event) => {
 window.addEventListener('error', (event) => {
     console.error('Erro JavaScript:', event.error);
 });
-
-//-----------------------------------------------
-// EXPORTAÇÕES
-//-----------------------------------------------
-export { 
-    map, 
-    baseLayerControl, 
-    mapControl,
-    selectionManager,
-    toolManager
-};
