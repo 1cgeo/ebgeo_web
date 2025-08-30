@@ -57,21 +57,25 @@
     top: 162px !important;
 }
 
-.street-view-control.controls-column-left {
+.rectangle-selection-control.controls-column-left {
     top: 196px !important;
+}
+
+.street-view-control.controls-column-left {
+    top: 230px !important;
 }
 
 /* Grupo de controles de terreno */
 .terrain-control.controls-column-left {
-    top: 230px !important;
-}
-
-.los-control.controls-column-left {
     top: 264px !important;
 }
 
-.visibility-control.controls-column-left {
+.los-control.controls-column-left {
     top: 298px !important;
+}
+
+.visibility-control.controls-column-left {
+    top: 332px !important;
 }
 
 .terrain-control button:disabled {
@@ -494,151 +498,6 @@
 
 .button-tool-3d:active {
     transform: scale(0.95);
-}
-
-/* ===== RESPONSIVIDADE MOBILE ===== */
-@media (max-width: 768px) {
-
-    /* Em mobile, voltar ao posicionamento vertical em coluna única */
-    .controls-column-left,
-    .controls-column-right {
-        right: 10px !important;
-        left: auto !important;
-    }
-
-    /* Nova ordem mobile com feature search primeiro */
-    .feature-search-control.controls-column-left {
-        top: 60px !important;
-    }
-
-    /* Reposicionar verticalmente em mobile - ferramentas de desenho */
-    .point-control.controls-column-right {
-        top: 100px !important;
-    }
-
-    .line-control.controls-column-right {
-        top: 132px !important;
-    }
-
-    .polygon-control.controls-column-right {
-        top: 164px !important;
-    }
-
-    .text-control.controls-column-right {
-        top: 190px !important;
-    }
-
-    .image-control.controls-column-right {
-        top: 222px !important;
-    }
-
-    .circle-control.controls-column-right {
-        top: 254px !important;
-    }
-
-    .ellipse-control.controls-column-right {
-        top: 286px !important;
-    }
-
-    .import-control.controls-column-left {
-        top: 318px !important;
-    }
-
-    .screenshot-control.controls-column-left {
-        top: 350px !important;
-    }
-
-    .vector-info-control.controls-column-left {
-        top: 382px !important;
-    }
-
-    .street-view-control.controls-column-left {
-        top: 414px !important;
-    }
-
-    /* Grupo terreno mobile */
-    .terrain-control.controls-column-left {
-        top: 446px !important;
-    }
-
-    .los-control.controls-column-left {
-        top: 478px !important;
-    }
-
-    .visibility-control.controls-column-left {
-        top: 510px !important;
-    }
-
-    /* Feature search mobile - layout horizontal mantido */
-    .feature-search-control .feature-search-input {
-        width: 120px !important;
-        /* Menor em mobile */
-        font-size: 11px !important;
-        height: 24px !important;
-        padding: 4px 6px !important;
-    }
-
-    .feature-search-control .feature-search-suggestions {
-        width: 120px !important;
-        /* Match com input mobile */
-        font-size: 11px !important;
-        left: 30px !important;
-        /* Ajustado para mobile (28px botão + 2px) */
-        top: 28px !important;
-        /* Altura menor em mobile */
-    }
-
-    .feature-search-control .feature-search-suggestion {
-        padding: 6px 10px !important;
-        font-size: 11px !important;
-    }
-
-    /* Controles mobile adjustments - mantém redução */
-    .controls-column-left .mapboxgl-ctrl-group,
-    .controls-column-right .mapboxgl-ctrl-group {
-        transform: scale(0.7);
-    }
-
-    /* Draw controls mobile - ainda menores */
-    .controls-column-left .mapbox-gl-draw_ctrl-draw-btn,
-    .controls-column-right .mapbox-gl-draw_ctrl-draw-btn {
-        width: 28px !important;
-        height: 28px !important;
-        padding: 2px !important;
-    }
-
-    .controls-column-left .icon-sig-tool,
-    .controls-column-right .icon-sig-tool {
-        width: 20px !important;
-        height: 20px !important;
-    }
-
-    /* Feature search mobile - ícone ainda menor */
-    .controls-column-left .feature-search-control .icon-sig-tool,
-    .controls-column-right .feature-search-control .icon-sig-tool {
-        width: 14px !important;
-        height: 14px !important;
-    }
-
-    /* SVGs dos botões Mapbox Draw em mobile */
-    .controls-column-left .mapbox-gl-draw_ctrl-draw-btn img,
-    .controls-column-right .mapbox-gl-draw_ctrl-draw-btn img {
-        width: 16px !important;
-        height: 16px !important;
-        transform: scale(0.7);
-    }
-
-    .controls-column-left .layer-switch,
-    .controls-column-right .layer-switch {
-        min-width: 55px !important;
-        font-size: 11px !important;
-        padding: 4px 6px !important;
-    }
-
-    .controls-column-left .layer-switch span,
-    .controls-column-right .layer-switch span {
-        padding: 3px 6px !important;
-    }
 }
 
 /* ===== ESTADOS DE CARREGAMENTO ===== */

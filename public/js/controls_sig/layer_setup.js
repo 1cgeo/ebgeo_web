@@ -1525,6 +1525,30 @@ function setupTextLayers(features, mapInstance) {
 }
 
 function setupAuxiliaryLayers(mapInstance) {
+
+    if (!mapInstance.getSource('rectangle-selection-preview')) {
+        mapInstance.addSource('rectangle-selection-preview', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+
+        // Add preview layer with dashed red stroke
+        mapInstance.addLayer({
+            id: 'rectangle-selection-preview-layer',
+            type: 'line',
+            source: 'rectangle-selection-preview',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 2,
+                'line-dasharray': [3, 3],
+                'line-opacity': 0.8
+            }
+        });
+    }
+
     if (!mapInstance.getSource('selection-boxes')) {
         mapInstance.addSource('selection-boxes', {
             type: 'geojson',

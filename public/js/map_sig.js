@@ -35,6 +35,7 @@ import DragDropHandler from './controls_sig/drag_drop_handler.js';
 import ContextMenuControl from './controls_sig/context_menu_control.js';
 import DragRotateHandler from './controls_sig/drag_rotate_handler.js';
 import ClipboardManager from './controls_sig/tool_manager/clipboard_manager.js';
+import RectangleSelectionControl from './controls_sig/selection_tools/rectangle_selection_control.js';
 
 //-----------------------------------------------
 // CRIAÇÃO E CONFIGURAÇÃO DO MAPA
@@ -162,6 +163,8 @@ dragDropHandler.enable();
 
 const clipboardManager = new ClipboardManager(selectionManager, map);
 
+const rectangleSelectionControl = new RectangleSelectionControl(toolManager);
+selectionManager.setRectangleSelectionControl(rectangleSelectionControl);
 
 //-----------------------------------------------
 // ADICIONAR CONTROLES AO MAPA
@@ -172,17 +175,17 @@ mapControl.loadMenu()
 
 map.addControl(mouseCoordinatesControl, 'bottom-right');
 
-// Add context menu control (it doesn't create UI, just adds event handlers)
 map.addControl(contextMenuControl, 'top-left');
 
-map.addControl(featureSearchControl, 'top-right'); // Primeiro - Feature Search
-map.addControl(importControl, 'top-right');        // Terceiro - Import
-map.addControl(screenshotControl, 'top-right');    // Quarto - Screenshot
-map.addControl(vectorTileInfoControl, 'top-right'); // Quinto - Vector Info
-map.addControl(addStreetViewControl, 'top-right');  // Sexto - Street View
-map.addControl(terrainControl, 'top-right');        // Sétimo - Terrain
-map.addControl(losControl, 'top-right');            // Oitavo - LOS
-map.addControl(visibilityControl, 'top-right');     // Nono - Visibility
+map.addControl(featureSearchControl, 'top-right');
+map.addControl(importControl, 'top-right');
+map.addControl(screenshotControl, 'top-right');
+map.addControl(vectorTileInfoControl, 'top-right');
+map.addControl(rectangleSelectionControl, 'top-right');
+map.addControl(addStreetViewControl, 'top-right');
+map.addControl(terrainControl, 'top-right');
+map.addControl(losControl, 'top-right');
+map.addControl(visibilityControl, 'top-right');
 
 // COLUNA DIREITA - Ferramentas de desenho
 map.addControl(pointControl, 'top-right');

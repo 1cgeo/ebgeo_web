@@ -91,6 +91,7 @@ class SelectionManager {
         this.map = map;
         this.uiManager = null;
         this.vectorTileInfoControl = null;
+        this.rectangleSelectionControl = null;
 
         // Control registry - unified storage for all controls
         this.controls = new Map();
@@ -126,6 +127,10 @@ class SelectionManager {
         this.vectorTileInfoControl = vectorTileInfoControl;
     }
 
+    setRectangleSelectionControl(rectangleSelectionControl) {
+        this.rectangleSelectionControl = rectangleSelectionControl;
+    }
+
     setupEventListeners = () => {
         this.map.on('click', this.handleMapClick);
 
@@ -153,6 +158,7 @@ class SelectionManager {
     handleMapClick = (e) => {
         // Early returns for special states
         if (this.vectorTileInfoControl && this.vectorTileInfoControl.isActive) return;
+        if (this.rectangleSelectionControl && this.rectangleSelectionControl.isActive) return;
 
         const activeTool = this.getActiveTool();
         if (activeTool) {
@@ -621,6 +627,10 @@ class SelectionManager {
         // Check vector tile info control first (special case)
         if (this.vectorTileInfoControl && this.vectorTileInfoControl.isActive) {
             return this.vectorTileInfoControl;
+        }
+
+        if (this.rectangleSelectionControl && this.rectangleSelectionControl.isActive) {
+            return this.rectangleSelectionControl;
         }
 
         // Check all registered controls
