@@ -246,6 +246,13 @@ document.addEventListener('keydown', async (e) => {
             break;
 
         // ✅ ATALHOS PARA ATIVAÇÃO DE FERRAMENTAS
+        case 'q':
+        case 'Q':
+            if (!e.shiftKey && !e.ctrlKey) {
+                e.preventDefault();
+                toolManager.setActiveTool(rectangleSelectionControl);
+            }
+            break;
         case 'n':
         case 'N':
             if (!e.shiftKey && !e.ctrlKey) {
