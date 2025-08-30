@@ -17,19 +17,13 @@ import {
 const appState = {
     currentMode: 'sig', // 'sig' ou '3d'
     cesiumState: 'unloaded', // 'unloaded', 'loading', 'loaded', 'error'
-    isMobile: false,
     loadingTimeout: null
 };
 
-const queryMobile = window.matchMedia("(max-width: 650px)");
-
 // ===== INICIALIZAÇÃO =====
 $(document).ready(() => {
-    appState.isMobile = queryMobile.matches;
-
     // Setup inicial
     setupEventListeners();
-    openMobileMenu(queryMobile);
 
     // Performance monitoring (opcional)
     if (window.performance && window.performance.mark) {
@@ -39,12 +33,6 @@ $(document).ready(() => {
 
 // ===== EVENT LISTENERS =====
 function setupEventListeners() {
-    // Mobile menu
-    queryMobile.addEventListener("change", () => {
-        appState.isMobile = queryMobile.matches;
-        openMobileMenu(queryMobile);
-    });
-
     // Form toggle
     $('#open-close-form').on('click', toggleAttributesPanel);
 
@@ -96,10 +84,9 @@ async function switchTo3D() {
         }
 
         appState.currentMode = '3d';
-        openMobileMenu(queryMobile);
 
     } catch (error) {
-        console.error('⚠ Erro ao alternar para 3D:', error);
+        console.error('Erro ao alternar para 3D:', error);
         showError('Falha ao carregar o mapa 3D. Tente novamente.');
 
         // Fallback para 2D
@@ -111,10 +98,9 @@ async function switchTo3D() {
 function switchTo2D() {
     if (appState.currentMode === 'sig') return;
 
-    // ✅ APENAS PAUSA RENDERIZAÇÃO - NÃO DESTRÓI
+    // APENAS PAUSA RENDERIZAÇÃO - NÃO DESTRÓI
     if (appState.cesiumState === 'loaded') {
         pauseRendering();
-
     }
 
     // Hide 3D, show 2D
@@ -122,8 +108,6 @@ function switchTo2D() {
     showUIElements();
 
     appState.currentMode = 'sig';
-    openMobileMenu(queryMobile);
-
 }
 
 async function initializeCesium() {
@@ -136,7 +120,7 @@ async function initializeCesium() {
 
     appState.loadingTimeout = setTimeout(() => {
         if (appState.cesiumState === 'loading') {
-            console.warn('⏰ Timeout no carregamento do Cesium');
+            console.warn('Timeout no carregamento do Cesium');
             showError('Tempo limite excedido. Verifique sua conexão.');
         }
     }, 30000); // 30s timeout
@@ -264,83 +248,6 @@ function showError(message) {
     });
 }
 
-// ===== MOBILE MENU MANAGEMENT =====
-let sigParents = {};
-
-function openMobileMenu(query) {
-    $('.button-tool-3d').off('click', activeTool);
-
-    if (query.matches && $('#map-sig').is(":visible")) {
-        setupMobile2DMenu();
-    } else if (query.matches && $('#map-3d-container').is(":visible")) {
-        setupMobile3DMenu();
-    } else {
-        setupDesktopMenu();
-    }
-
-    $('.button-tool-3d').on('click', activeTool);
-}
-
-function setupMobile2DMenu() {
-    $('#sidebarMenu').empty();
-
-    sigParents['map-list'] = $('#map-list').parent();
-    $('#map-list').appendTo('#sidebarMenu');
-
-    $('.extra-bar-buttons button').css('display', 'none');
-    $('.sidebarIconToggle').css('display', 'block');
-
-    if ($('#attributes-panel').length) {
-        $('#open-close-form').css('display', 'flex');
-        $('#attributes-panel').hide();
-    }
-}
-
-function setupMobile3DMenu() {
-    if (sigParents['map-list']) {
-        $('#map-list').appendTo(sigParents['map-list']);
-        delete sigParents['map-list'];
-    }
-
-    $('#sidebarMenu').empty().append(`
-        <div id="model-3d-container">
-            <p><b>Modelos 3D</b></p>
-            <hr class="solid">
-            <div id="locate-3d-container-mobile">
-                <button id="aman" class="tutorial-button pure-material-button-contained">AMAN</button>
-                <button id="aman-pcl" class="tutorial-button pure-material-button-contained">AMAN PCL</button>
-                <button id="esa" class="tutorial-button pure-material-button-contained">ESA</button>
-            </div>
-        </div>
-        <hr class="solid">
-        <button onclick="window.open('./docs/doc.html', '_blank')" class="tutorial-button pure-material-button-contained">
-            Tutorial
-        </button>
-    `);
-
-    $('#locate-3d-container-mobile button').off('click', handleClickGoTo);
-    $('#locate-3d-container-mobile button').on('click', handleClickGoTo);
-
-    $('.extra-bar-buttons button').css('display', 'none');
-    $('.sidebarIconToggle').css('display', 'block');
-    $('#map-3d-tool-bar').css('display', 'none');
-}
-
-function setupDesktopMenu() {
-    $('.extra-bar-buttons button').css('display', 'block');
-    $('.sidebarIconToggle').css('display', 'none');
-    $("#openSidebarMenu").prop("checked", false);
-
-    if ($('#map-3d-container').is(":visible")) {
-        $('#map-3d-tool-bar').css('display', 'block');
-    } else {
-        if (sigParents['map-list']) {
-            $('#map-list').appendTo(sigParents['map-list']);
-            delete sigParents['map-list'];
-        }
-    }
-}
-
 // ===== ATTRIBUTES PANEL MANAGEMENT =====
 function toggleAttributesPanel() {
     if (!$('#attributes-panel').length) return;
@@ -354,10 +261,7 @@ const attributesPanelObserver = new MutationObserver(
 
         if (!$('#map-sig').is(":visible")) return;
 
-        if ($('#attributes-panel').length && appState.isMobile) {
-            $('#open-close-form').css('display', 'flex');
-            $('#attributes-panel').hide();
-        } else if ($('#attributes-panel').length) {
+        if ($('#attributes-panel').length) {
             $('#attributes-panel').show();
         }
     }, 100)
@@ -370,7 +274,7 @@ attributesPanelObserver.observe(document, {
     subtree: true
 });
 
-// ===== ✅ LOADING SCREEN - EXPORTADA PARA USO EXTERNO =====
+// ===== LOADING SCREEN - EXPORTADA PARA USO EXTERNO =====
 export function hideLoadingScreen() {
     $('.loading-background').fadeOut(500, function () {
         $(this).remove();
@@ -425,7 +329,7 @@ window.forceCesiumCleanup = function () {
             cleanup3DFeatures();
             appState.cesiumState = 'unloaded';
         } catch (error) {
-            console.error('❌ Erro no cleanup manual:', error);
+            console.error('Erro no cleanup manual:', error);
         }
     }
 };

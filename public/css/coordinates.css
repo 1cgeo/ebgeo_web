@@ -322,43 +322,6 @@
     }
 }
 
-/* ===== RESPONSIVIDADE ===== */
-@media (max-width: 768px) {
-    .coordinates-control,
-    .coordinates-control-3d {
-        min-width: auto !important;
-        width: calc(100vw - 40px) !important;
-        max-width: 320px !important;
-        font-size: 11px !important;
-        padding: 6px 10px !important;
-    }
-    
-    .coordinates-display {
-        min-width: auto !important;
-        gap: 6px !important;
-    }
-    
-    .coordinates-text {
-        gap: 8px !important;
-        min-width: auto !important;
-    }
-    
-    .coordinates-controls {
-        gap: 6px !important;
-        margin-left: 6px !important;
-    }
-    
-    .coordinates-modal-content {
-        margin: 5% auto;
-        width: 95%;
-        padding: 15px;
-    }
-    
-    .coordinates-modal-header h3 {
-        font-size: 16px;
-    }
-}
-
 /* ===== Z-INDEX E ISOLAMENTO ===== */
 .coordinates-control-3d + div[style*="position: fixed"] {
     z-index: 1002 !important;

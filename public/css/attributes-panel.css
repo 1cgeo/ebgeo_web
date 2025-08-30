@@ -461,39 +461,6 @@
     font-size: 12px;  /* Reduzido de 13px */
 }
 
-/* ===== RESPONSIVIDADE (MOBILE) ===== */
-@media (max-width: 768px) {
-    .unified-attributes-panel {
-        position: fixed;
-        bottom: 5px;
-        right: 5px;
-        left: 5px;
-        width: auto;
-        max-height: 50vh;
-        padding: 10px;  /* Mais compacto em mobile */
-    }
-    
-    .attr-container-row {
-        flex-direction: column;
-        gap: 4px;  /* Ainda mais compacto em mobile */
-        align-items: stretch;
-    }
-    
-    .attr-name {
-        width: 100%;
-        min-height: auto;
-        margin-bottom: 2px;
-    }
-    
-    .attr-input {
-        width: 100%;
-    }
-    
-    .slider-numeric-container input[type="number"] {
-        width: 80px;  /* Ligeiramente maior em mobile */
-    }
-}
-
 /* ===== SCROLLBAR STYLING ===== */
 .unified-attributes-panel::-webkit-scrollbar,
 .unified-attributes-panel-mobile::-webkit-scrollbar {

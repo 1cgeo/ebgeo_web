@@ -350,59 +350,6 @@
     }
 }
 
-/* ===== RESPONSIVIDADE MOBILE ===== */
-@media (max-width: 768px) {
-    /* Street View mobile */
-    #mini-map-street-view {
-        width: 40%;
-        height: 25%;
-        top: 5px;
-        right: 5px;
-        border-width: 1px;
-    }
-
-    #close-street-view-button {
-        width: 50px;
-        height: 50px;
-        bottom: 20px;
-        right: 20px;
-    }
-
-    /* Profile Panel mobile */
-    .profile-panel {
-        left: 10px;
-        right: 10px;
-        bottom: 10px;
-        width: auto;
-        height: 200px;
-        padding: 10px;
-    }
-
-    .profile-panel h3 {
-        font-size: 14px;
-    }
-
-    /* Vector Tile Info mobile */
-    .vector-tile-info-panel {
-        left: 10px;
-        right: 10px;
-        bottom: 10px;
-        min-width: auto;
-        max-height: 300px;
-        padding: 12px;
-    }
-
-    /* Feature Search Panel mobile */
-    .feature-search-panel {
-        left: 10px;
-        right: 10px;
-        bottom: 10px;
-        min-width: auto;
-        max-width: none;
-        padding: 12px;
-    }
-}
-
 /* ===== SCROLLBARS CUSTOMIZADOS ===== */
 .profile-panel::-webkit-scrollbar,
 .vector-tile-info-panel::-webkit-scrollbar,

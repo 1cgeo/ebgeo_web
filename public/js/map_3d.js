@@ -233,28 +233,10 @@ async function initCesiumMap() {
     cesiumState.viewer = viewer;
 
     // Setup básico (sem over-engineering)
-    setupResizeObserver();
     await loadTilesets(viewer);
     await setupTools(viewer);
 
     return viewer;
-}
-
-function setupResizeObserver() {
-    if (!ResizeObserver) return;
-
-    cesiumState.resizeObserver = new ResizeObserver(
-        debounce(() => {
-            if (cesiumState.viewer && cesiumState.isVisible) {
-                cesiumState.viewer.resize();
-            }
-        }, 150)
-    );
-
-    const container = document.getElementById('map-3d-container');
-    if (container) {
-        cesiumState.resizeObserver.observe(container);
-    }
 }
 
 async function loadTilesets(viewer) {

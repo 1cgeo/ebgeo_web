@@ -119,12 +119,6 @@
     <!-- RESOURCE HINTS -->
     <link rel="prefetch" href="./vendors/cesium/Cesium.js"> <!-- Carrega quando idle -->
     <link rel="prefetch" href="./street_view/build/three.min.js">
-
-    <!-- PWA/MOBILE OPTIMIZATIONS -->
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="EBGeo">
 </head>
 
 <body>
@@ -137,7 +131,6 @@
             </div>
         </div>
     </div>
-
 
     <!-- TOP BAR EBGEO COMPACTA -->
     <div id="top-bar" class="loading-hidden">
@@ -164,29 +157,12 @@
             </div>
         </div>
 
-        <!-- Extra Buttons (Tutorial + Mobile Menu) -->
+        <!-- Extra Buttons -->
         <div class="extra-bar-buttons">
             <button onclick="window.open('./docs/doc.html', '_blank')" class="tutorial-button"
                 aria-label="Abrir tutorial">
                 Tutorial
             </button>
-
-            <!-- Mobile Sidebar Toggle -->
-            <div>
-                <input type="checkbox" class="openSidebarMenu" id="openSidebarMenu" aria-label="Abrir menu mobile">
-                <label for="openSidebarMenu" class="sidebarIconToggle" aria-label="Toggle menu">
-                    <div class="spinner diagonal part-1"></div>
-                    <div class="spinner horizontal"></div>
-                    <div class="spinner diagonal part-2"></div>
-                </label>
-                <div id="sidebarMenu" role="navigation">
-                    <div class="sidebar-content">
-                        <h3>Menu</h3>
-                        <p><a href="./docs/doc.html" target="_blank">Tutorial</a></p>
-                        <p><a href="https://geoportal.eb.mil.br/portal/" target="_blank">Portal EB</a></p>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 

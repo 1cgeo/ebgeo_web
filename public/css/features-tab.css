@@ -171,54 +171,6 @@
     color: #c82333;
 }
 
-/* Mobile responsiveness - AJUSTADO */
-@media (max-width: 768px) {
-    .feature-item {
-        /* REDUZIDO: 6px 10px -> 4px 6px */
-        padding: 4px 6px;
-        /* REDUZIDO: 40px -> 24px */
-        min-height: 24px;
-    }
-    
-    .feature-name {
-        /* REDUZIDO: 13px -> 12px */
-        font-size: 12px;
-    }
-    
-    .feature-controls {
-        /* REDUZIDO: 6px -> 3px */
-        gap: 3px;
-    }
-    
-    .visibility-toggle,
-    .lock-toggle {
-        padding: 3px;
-        /* REDUZIDO: 24px -> 20px */
-        width: 20px;
-        height: 20px;
-    }
-    
-    .visibility-toggle svg,
-    .lock-toggle svg {
-        width: 10px;
-        height: 10px;
-    }
-
-    .feature-type-icon {
-        width: 12px;
-        height: 12px;
-    }
-
-    .feature-main {
-        gap: 4px;
-    }
-    
-    .features-list {
-        /* AUMENTADO para mobile: calc(6 * 40px + 20px) -> calc(10 * 24px + 20px) */
-        max-height: calc(10 * 24px + 20px);
-    }
-}
-
 /* Performance optimizations */
 .feature-item,
 .visibility-toggle,
@@ -241,19 +193,6 @@
 .visibility-toggle:focus svg,
 .lock-toggle:focus svg {
     color: var(--primary-color);
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .feature-item,
-    .visibility-toggle,
-    .lock-toggle,
-    .feature-name,
-    .feature-type-icon,
-    .visibility-toggle svg,
-    .lock-toggle svg {
-        animation: none !important;
-        transition: none !important;
-    }
 }
 
 /* ===== SELETOR DE ESCALA ===== */
@@ -318,32 +257,6 @@
     background-color: rgba(80, 141, 78, 0.1);
 }
 
-/* ===== RESPONSIVIDADE MOBILE PARA ESCALA ===== */
-@media (max-width: 768px) {
-    .scale-selector {
-        padding: 10px;
-        margin-bottom: 12px;
-    }
-
-    .scale-label {
-        font-size: 13px;
-        margin-bottom: 6px;
-    }
-
-    .scale-select {
-        padding: 8px 10px;
-        font-size: 13px;
-        background-size: 10px;
-        background-position: right 8px center;
-        padding-right: 30px;
-    }
-
-    .scale-select option {
-        font-size: 13px;
-        padding: 6px 10px;
-    }
-}
-
 /* ===== ACESSIBILIDADE PARA ESCALA ===== */
 .scale-select:focus-visible {
     outline: 2px solid var(--primary-color);
@@ -354,11 +267,4 @@
 .scale-selector:has(.scale-select:focus) {
     border-color: rgba(80, 141, 78, 0.3);
     box-shadow: 0 0 0 1px rgba(80, 141, 78, 0.1);
-}
-
-/* ===== REDUÇÃO DE MOVIMENTO ===== */
-@media (prefers-reduced-motion: reduce) {
-    .scale-select {
-        transition: none !important;
-    }
 }

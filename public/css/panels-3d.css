@@ -256,69 +256,6 @@ PROBLEMAS RESOLVIDOS:
     fill: white;
 }
 
-/* ===== RESPONSIVE DESIGN ===== */
-@media (max-width: 768px) {
-    /* Toolbar mobile */
-    #map-3d-tool-bar {
-        width: calc(100vw - 30px) !important;
-        left: 15px !important;
-        right: 15px !important;
-        top: 50px !important;
-        padding: 10px !important;
-        /* CORREÇÃO: Espaçamento reduzido no mobile */
-        gap: 15px !important;
-        background-color: rgba(255, 255, 255, 0.95) !important;
-        background: rgba(255, 255, 255, 0.95) !important;
-    }
-
-    #model-3d-container p,
-    #tool-3d-container p {
-        font-size: 14px !important;
-        /* CORREÇÃO: Garantir texto preto no mobile */
-        color: #000 !important;
-    }
-
-    /* Grid de ferramentas mobile - manter 5 colunas mas ajustar tamanhos */
-    .tools-3d-bar {
-        grid-template-columns: repeat(5, 1fr);
-        gap: 4px;
-        padding: 4px 0;
-    }
-
-    .button-tool-3d {
-        min-width: 40px;
-        min-height: 40px;
-        padding: 3px;
-    }
-
-    .button-tool-3d img {
-        width: 22px;
-        height: 22px;
-    }
-
-    /* Localização mobile */
-    #locate-3d-container button,
-    #locate-3d-container-mobile button {
-        width: 100%;
-        min-height: 36px;
-        font-size: 13px;
-        padding: 6px 12px;
-    }
-
-    /* Float button mobile */
-    .panel-icon-float {
-        width: 50px;
-        height: 50px;
-        bottom: 20px;
-        left: 20px;
-    }
-
-    .panel-icon-float svg {
-        width: 20px;
-        height: 20px;
-    }
-}
-
 /* ===== ESTADOS DE CARREGAMENTO ===== */
 #map-3d-tool-bar.loading {
     opacity: 0.7;
@@ -383,52 +320,6 @@ PROBLEMAS RESOLVIDOS:
 #locate-3d-container button,
 #locate-3d-container-mobile button {
     will-change: transform, background-color;
-}
-
-/* ===== HIGH DPI SUPPORT ===== */
-@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
-    .button-tool-3d img {
-        image-rendering: -webkit-optimize-contrast;
-        image-rendering: crisp-edges;
-    }
-}
-
-/* ===== DARK MODE COMPATIBILITY ===== */
-@media (prefers-color-scheme: dark) {
-    #map-3d-tool-bar {
-        background-color: rgba(64, 64, 64, 0.95);
-    }
-
-    #model-3d-container p,
-    #tool-3d-container p {
-        color: #e0e0e0;
-    }
-
-    hr.solid {
-        border-top-color: rgba(255, 255, 255, 0.2);
-    }
-}
-
-/* ===== REDUCED MOTION ===== */
-@media (prefers-reduced-motion: reduce) {
-    #map-3d-tool-bar,
-    .panel-icon-float,
-    .button-tool-3d,
-    #locate-3d-container button,
-    #locate-3d-container-mobile button {
-        animation: none;
-        transition: none;
-    }
-
-    .button-tool-3d:hover,
-    .button-tool-3d:active {
-        transform: none;
-    }
-
-    .panel-icon-float:hover,
-    .panel-icon-float:active {
-        transform: none;
-    }
 }
 
 /* ===== Z-INDEX MANAGEMENT ===== */

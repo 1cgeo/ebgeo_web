@@ -130,41 +130,6 @@
     100% { transform: rotate(360deg); }
 }
 
-/* ===== RESPONSIVIDADE MOBILE ===== */
-@media (max-width: 768px) {
-    .pdf-export-container {
-        padding: 12px;
-        margin: 0;
-    }
-
-    .orientation-selector {
-        padding: 10px;
-        margin-bottom: 12px;
-    }
-
-    .orientation-selector label {
-        padding: 6px 8px;
-        font-size: 13px;
-        gap: 8px;
-    }
-
-    .export-pdf-btn {
-        padding: 10px 14px;
-        font-size: 13px;
-    }
-
-    .export-status {
-        padding: 10px;
-        font-size: 13px;
-        gap: 10px;
-    }
-
-    .loading-spinner {
-        width: 14px;
-        height: 14px;
-    }
-}
-
 /* ===== ESTADOS E ANIMAÇÕES ===== */
 .pdf-export-container.loading {
     pointer-events: none;
@@ -191,16 +156,6 @@
 .orientation-selector input[type="radio"]:focus {
     outline: 2px solid var(--primary-color);
     outline-offset: 2px;
-}
-
-/* ===== REDUÇÃO DE MOVIMENTO ===== */
-@media (prefers-reduced-motion: reduce) {
-    .orientation-selector label,
-    .export-pdf-btn,
-    .loading-spinner {
-        animation: none !important;
-        transition: none !important;
-    }
 }
 
 /* ===== INTEGRAÇÃO COM TEMA PRINCIPAL ===== */
