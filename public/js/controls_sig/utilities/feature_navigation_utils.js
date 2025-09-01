@@ -4,27 +4,7 @@
  * Utilitário para navegação e zoom em features do mapa
  * Centraliza lógica de zoom, seleção e navegação entre features
  */
-
-/**
- * Mapeamento entre tipos do store (plural) e tipos do SelectionManager (singular)
- */
-const FEATURE_TYPE_MAPPING = {
-    'arrows': 'arrow',
-    'boundarys': 'boundary',
-    'brushes': 'brush',
-    'circles': 'circle',
-    'ellipses': 'ellipse',
-    'images': 'image',
-    'lines': 'line',
-    'los': 'los',
-    'military_symbols': 'military_symbol',
-    'occupied_fronts': 'occupied_front',
-    'points': 'point',
-    'polygons': 'polygon',
-    'rectangle': 'rectangle',
-    'texts': 'text',
-    'visibility': 'visibility'
-};
+import { getSourceTypeFromStorage } from '../store/store.js';
 
 export class FeatureNavigationUtils {
     /**
@@ -38,19 +18,19 @@ export class FeatureNavigationUtils {
             console.warn('Feature inválida para zoom');
             return;
         }
-        
+
         const {
             paddingPercent = 0.2, // 20% de padding da bbox
             minZoom = 10,
             maxZoom = 18,
             duration = 800
         } = options;
-        
+
         try {
             // Detectar se deve usar selectionBox
             const useSelectionBox = this._shouldUseSelectionBox(feature);
             const geometryToUse = useSelectionBox ? feature.properties.selectionBox : feature.geometry;
-            
+
             switch (geometryToUse.type) {
                 case 'Point':
                     await this._zoomToPoint(geometryToUse.coordinates, mapInstance, {
@@ -58,7 +38,7 @@ export class FeatureNavigationUtils {
                         duration
                     });
                     break;
-                    
+
                 case 'LineString':
                 case 'Polygon':
                 case 'MultiLineString':
@@ -70,7 +50,7 @@ export class FeatureNavigationUtils {
                         duration
                     });
                     break;
-                    
+
                 default:
                     console.warn('Tipo de geometria não suportado:', geometryToUse.type);
             }
@@ -102,7 +82,7 @@ export class FeatureNavigationUtils {
                 zoom: options.minZoom,
                 duration: options.duration
             });
-            
+
             // Resolve quando a animação terminar
             setTimeout(resolve, options.duration);
         });
@@ -113,7 +93,7 @@ export class FeatureNavigationUtils {
      */
     static async _zoomToBounds(geometry, mapInstance, options) {
         const coordinates = this.extractAllCoordinates(geometry);
-        
+
         if (coordinates.length === 0) {
             console.warn('Nenhuma coordenada encontrada na geometria');
             return;
@@ -121,7 +101,7 @@ export class FeatureNavigationUtils {
 
         const bounds = new maplibregl.LngLatBounds();
         coordinates.forEach(coord => bounds.extend(coord));
-        
+
         if (bounds.isEmpty()) {
             console.warn('Bounds vazio para feature');
             return;
@@ -132,18 +112,18 @@ export class FeatureNavigationUtils {
         const sw = bounds.getSouthWest();
         const width = Math.abs(ne.lng - sw.lng);
         const height = Math.abs(ne.lat - sw.lat);
-        
+
         // Padding baseado no maior lado da bbox
         const bboxSize = Math.max(width, height);
         const paddingMeters = this._calculatePaddingFromBbox(bboxSize, options.paddingPercent);
 
         return new Promise((resolve) => {
-            mapInstance.fitBounds(bounds, { 
+            mapInstance.fitBounds(bounds, {
                 padding: paddingMeters,
                 duration: options.duration,
                 maxZoom: options.maxZoom
             });
-            
+
             // Resolve quando a animação terminar
             setTimeout(resolve, options.duration);
         });
@@ -166,7 +146,7 @@ export class FeatureNavigationUtils {
      */
     static extractAllCoordinates(geometry) {
         const coords = [];
-        
+
         function extract(coordArray) {
             if (Array.isArray(coordArray)) {
                 if (typeof coordArray[0] === 'number' && coordArray.length >= 2) {
@@ -178,7 +158,7 @@ export class FeatureNavigationUtils {
                 }
             }
         }
-        
+
         extract(geometry.coordinates);
         return coords;
     }
@@ -192,24 +172,24 @@ export class FeatureNavigationUtils {
         if (!feature?.geometry) return null;
 
         const geometry = feature.geometry;
-        
+
         switch (geometry.type) {
             case 'Point':
                 return geometry.coordinates;
-                
+
             case 'LineString':
             case 'Polygon':
             case 'MultiLineString':
             case 'MultiPolygon':
                 const coordinates = this.extractAllCoordinates(geometry);
                 if (coordinates.length === 0) return null;
-                
+
                 // Calcular centróide simples
                 const sumLng = coordinates.reduce((sum, coord) => sum + coord[0], 0);
                 const sumLat = coordinates.reduce((sum, coord) => sum + coord[1], 0);
-                
+
                 return [sumLng / coordinates.length, sumLat / coordinates.length];
-                
+
             default:
                 return null;
         }
@@ -219,7 +199,7 @@ export class FeatureNavigationUtils {
      * Converte tipo de feature do store para tipo do SelectionManager
      */
     static mapFeatureType(storeType) {
-        return FEATURE_TYPE_MAPPING[storeType] || storeType;
+        return getSourceTypeFromStorage(storeType);
     }
 
     /**
@@ -234,11 +214,12 @@ export class FeatureNavigationUtils {
         try {
             selectionManager.deselectAllFeatures();
 
-            const selectionManagerType = this.mapFeatureType(featureType);
+            // Usar função centralizada para conversão
+            const selectionManagerType = getSourceTypeFromStorage(featureType);
             selectionManager.selectFeature(selectionManagerType, featureId, feature);
 
             await this.zoomToFeature(feature, mapInstance, {
-                paddingPercent: 0.25, // 25% de padding para bom contexto
+                paddingPercent: 0.25,
                 minZoom: 12,
                 maxZoom: 18
             });

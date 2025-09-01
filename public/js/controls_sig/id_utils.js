@@ -1,4 +1,5 @@
 // Path: js\controls_sig\id_utils.js
+import { getFeatureDisplayName, getStorageTypeFromSource, hasImageResource as storeHasImageResource } from './store/store.js';
 
 /**
  * Utilitários simples para geração de IDs únicos e nomes de features
@@ -19,49 +20,11 @@ export class IDUtils {
      */
     static generateFeatureName(source, map) {
         try {
-            // Mapeamento source → nome em português
-            const SOURCE_DISPLAY_NAMES = {
-                'rectangle': 'Retângulo',
-                'circle': 'Círculo',
-                'ellipse': 'Elipse',
-                'arrow': 'Seta',
-                'brush': 'Pincel',
-                'boundary': 'Limite',
-                'occupied_front': 'Frente Ocupada',
-                'military_symbol': 'Símbolo Militar',
-                'text': 'Texto',
-                'image': 'Imagem',
-                'los': 'Linha de Visada',
-                'visibility': 'Visibilidade',
-                'point': 'Ponto',
-                'line': 'Linha',
-                'polygon': 'Polígono'
-            };
 
-            // Mapeamento source → nome do source no mapa
-            const SOURCE_TO_MAP_SOURCE = {
-                'rectangle': 'rectangles',
-                'circle': 'circles',
-                'ellipse': 'ellipses',
-                'brush': 'brushes',
-                'arrow': 'arrows',
-                'boundary': 'boundarys',
-                'occupied_front': 'occupied_fronts',
-                'military_symbol': 'military_symbols',
-                'text': 'texts',
-                'image': 'images',
-                'los': 'los',
-                'visibility': 'visibility',
-                'point': 'points',
-                'line': 'lines',
-                'polygon': 'polygons'
-            };
+            const displayName = getFeatureDisplayName(source);
+            const mapSourceName = getStorageTypeFromSource(source);
 
-            let displayName;
             let featureCount = 0;
-
-            displayName = SOURCE_DISPLAY_NAMES[source] || 'Feição';
-            const mapSourceName = SOURCE_TO_MAP_SOURCE[source];
 
             if (mapSourceName) {
                 const mapSource = map.getSource(mapSourceName);
@@ -159,8 +122,9 @@ export class IDUtils {
      * Verifica se um tipo de feature tem recursos de imagem associados
      */
     static hasImageResource(featureType) {
-        const FEATURE_TYPES_WITH_IMAGES = ['images', 'military_symbols'];
-        return FEATURE_TYPES_WITH_IMAGES.includes(featureType);
+        // Converter de storage type para source type se necessário
+        const sourceType = featureType.endsWith('s') ? featureType.slice(0, -1) : featureType;
+        return storeHasImageResource(sourceType);
     }
 
     /**
@@ -168,11 +132,12 @@ export class IDUtils {
      */
     static async duplicateImageResource(oldId, newId, featureType) {
         try {
-            const { imageStore } = await import('./store/store.js');
+            const { getImage, storeImage } = await import('./store/store.js');
 
-            const oldBlob = await imageStore.getItem(oldId);
+
+            const oldBlob = await getImage(oldId);
             if (oldBlob) {
-                await imageStore.setItem(newId, oldBlob);
+                await storeImage(newId, oldBlob);
             } else {
                 console.warn(`⚠️ Recurso não encontrado para duplicação: ${oldId} (${featureType})`);
             }

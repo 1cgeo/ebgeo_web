@@ -1,91 +1,5 @@
 // Path: js\controls_sig\tool_manager\selection_manager.js
 
-/**
- * Configuration for all control types
- * Adding a new control type is as simple as adding an entry here
- */
-const CONTROL_CONFIG = {
-    point: {
-        layerIds: ['point-layer'],
-        sourceNames: ['points']
-    },
-    line: {
-        layerIds: [
-            'line-layer',           // solid (main/default)
-            'line-layer-dashed',    // dashed style
-            'line-layer-dotted',    // dotted style
-            'line-layer-dash-dot',  // dash-dot style
-        ],
-        sourceNames: ['lines'],
-        editHandleSource: 'line-edit-handles'
-    },
-    polygon: {
-        layerIds: [
-            'polygon-fill-layer',       // fill layer
-            'polygon-layer',            // solid stroke (main/default)
-            'polygon-layer-dashed',     // dashed stroke
-            'polygon-layer-dotted',     // dotted stroke
-            'polygon-layer-dash-dot',   // dash-dot stroke
-        ],
-        sourceNames: ['polygons'],
-        editHandleSource: 'polygon-edit-handles'
-    },
-    text: {
-        layerIds: ['text-layer'],
-        sourceNames: ['texts']
-    },
-    image: {
-        layerIds: ['image-layer'],
-        sourceNames: ['images']
-    },
-    los: {
-        layerIds: ['los-layer'],
-        sourceNames: ['los']
-    },
-    visibility: {
-        layerIds: ['visibility-layer'],
-        sourceNames: ['visibility']
-    },
-    rectangle: {
-        layerIds: ['rectangle-fill-layer', 'rectangle-layer'],
-        sourceNames: ['rectangles'],
-        editHandleSource: 'rectangle-edit-handles'
-    },
-    circle: {
-        layerIds: ['circle-fill-layer', 'circle-layer'],
-        sourceNames: ['circles'],
-        editHandleSource: 'circle-edit-handles'
-    },
-    ellipse: {
-        layerIds: ['ellipse-layer', 'ellipse-fill-layer'],
-        sourceNames: ['ellipses'],
-        editHandleSource: 'ellipse-edit-handles'
-    },
-    brush: {
-        layerIds: ['brush-layer'],
-        sourceNames: ['brushes']
-    },
-    arrow: {
-        layerIds: ['arrow-layer', 'arrow-fill-layer'],
-        sourceNames: ['arrows'],
-        editHandleSource: 'arrow-edit-handles'
-    },
-    boundary: {
-        layerIds: ['boundary-main-layer'],
-        sourceNames: ['boundarys'],
-        editHandleSource: 'boundary-edit-handles'
-    },
-    occupied_front: {
-        layerIds: ['occupied-front-layer'],
-        sourceNames: ['occupied_fronts'],
-        editHandleSource: 'occupied_front-edit-handles'
-    },
-    military_symbol: {
-        layerIds: ['military-symbols-layer'],
-        sourceNames: ['military_symbols']
-    }
-};
-
 class SelectionManager {
     constructor(map) {
         this.map = map;
@@ -112,10 +26,6 @@ class SelectionManager {
      * This replaces all the individual setXXXControl methods
      */
     registerControl(type, control) {
-        if (!CONTROL_CONFIG[type]) {
-            throw new Error(`Unknown control type: ${type}`);
-        }
-
         this.controls.set(type, control);
     }
 
@@ -197,20 +107,20 @@ class SelectionManager {
         const clickedFeatures = [];
 
         // Search through each configured control type
-        for (const [type, config] of Object.entries(CONTROL_CONFIG)) {
-            for (const sourceName of config.sourceNames) {
+        for (const [type, control] of this.controls) {
+            const layerIds = control.getLayerIds();
+            const sourceNames = control.getSourceNames();
+
+            for (const sourceName of sourceNames) {
                 const matchingFeatures = features.filter(f =>
-                    (f.source === sourceName || config.layerIds.includes(f.layer?.id)) &&
-                    f.properties.source === type
+                    f.source === sourceName && f.properties.source === type
                 );
 
-                // Add all matching features of this type
                 matchingFeatures.forEach(feature => {
                     clickedFeatures.push({ ...feature, toolType: type });
                 });
             }
         }
-
         // Remove duplicates based on type + id
         const uniqueFeatures = [];
         const seenKeys = new Set();
@@ -471,17 +381,19 @@ class SelectionManager {
     isClickOnEditHandle = (point) => {
         const features = this.map.queryRenderedFeatures(point);
 
-        const editHandleSources = [];
-        for (const [type, config] of Object.entries(CONTROL_CONFIG)) {
-            if (config.editHandleSource) {
-                editHandleSources.push(config.editHandleSource);
+        // Query each tool for its edit handle sources
+        for (const control of this.controls.values()) {
+            const editHandleSource = control.getEditHandleSource();
+            if (editHandleSource) {
+                const hasHandle = features.some(f =>
+                    f.source === editHandleSource &&
+                    f.properties.user_isEditingHandle
+                );
+                if (hasHandle) return true;
             }
         }
 
-        return features.some(f =>
-            editHandleSources.includes(f.source) &&
-            f.properties.user_isEditingHandle
-        );
+        return false;
     }
 
     toggleFeatureSelection(type, featureId, feature, forceToggle = false) {
@@ -509,15 +421,19 @@ class SelectionManager {
     }
 
     getCompleteFeatureFromSource(type, featureId) {
-        const config = CONTROL_CONFIG[type];
-
-        // Verificação de segurança para tipo inválido
-        if (!config || !config.sourceNames || !config.sourceNames.length) {
-            console.warn(`Tipo de feature não encontrado ou inválido: ${type}`);
+        const control = this.controls.get(type);
+        if (!control) {
+            console.warn(`Control não encontrado para tipo: ${type}`);
             return null;
         }
 
-        const sourceName = config.sourceNames[0];
+        const sourceNames = control.getSourceNames();
+        if (!sourceNames || !sourceNames.length) {
+            console.warn(`Source names não encontrados para tipo: ${type}`);
+            return null;
+        }
+
+        const sourceName = sourceNames[0];
         const mapSource = this.map.getSource(sourceName);
         if (!mapSource || !mapSource._data) return null;
 

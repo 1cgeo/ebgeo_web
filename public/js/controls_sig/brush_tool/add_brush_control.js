@@ -1,22 +1,28 @@
 // Path: js\controls_sig\brush_tool\add_brush_control.js
+
 import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
+import { addBrushAttributesToPanel } from './brush_attributes_panel.js';
+import AddBrushGeometry from './add_brush_geometry.js';
+import BaseControl from '../tool_manager/base_control.js';
 
-class AddBrushControl {
+class AddBrushControl extends BaseControl {
     constructor(toolManager) {
-        this.toolManager = toolManager;
-        this.selectionManager = toolManager.selectionManager;
+        super(toolManager);
 
-        this.isActive = false;
+        // State management
         this.isDrawing = false;
         this.points = [];
         this.lastPixelPoint = null;
 
+        // Geometry handler
+        this.geometry = new AddBrushGeometry();
+
         // Performance optimization
-        this.MIN_DISTANCE_PX = 3; // Minimum 3px between points
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
 
+        // Zoom handling
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
     }
@@ -33,6 +39,26 @@ class AddBrushControl {
         bloqueado: false
     };
 
+    // ===== FONTE ÚNICA DA VERDADE =====
+
+    /**
+     * Get currently selected brush feature from SelectionManager
+     * @returns {Object|null} Selected brush feature or null
+     */
+    getSelectedFeature() {
+        const selectedItems = this.selectionManager.getSelectedFeaturesByType('brush');
+        return selectedItems.length > 0 ? selectedItems[0].feature : null;
+    }
+
+    /**
+     * Get all selected brush features from SelectionManager
+     * @returns {Array} Array of selected brush features
+     */
+    getSelectedFeatures() {
+        return this.selectionManager.getSelectedFeaturesByType('brush')
+            .map(item => item.feature);
+    }
+
     // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
@@ -48,6 +74,7 @@ class AddBrushControl {
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
+        this.setupBaseEventListeners();
         this.updateButtonAppearance();
         this.setupZoomListener();
 
@@ -57,14 +84,12 @@ class AddBrushControl {
     onRemove = () => {
         try {
             this.selectionManager.uiManager.removeControl(this.container);
-
             this.map.off('zoom', this.handleZoomChange);
             if (this.zoomRafId) {
                 cancelAnimationFrame(this.zoomRafId);
                 this.zoomRafId = null;
             }
             this.pendingZoomUpdate = false;
-
             this.deactivate();
             this.removeAllEventListeners();
             this.map = undefined;
@@ -72,6 +97,122 @@ class AddBrushControl {
             console.error('Error removing AddBrushControl:', error);
             throw error;
         }
+    }
+
+    // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
+
+    hasAttributePanel() {
+        return true;
+    }
+
+    createAttributePanel(container, features, selectionManager, uiManager) {
+        const sectionPanel = document.createElement('div');
+        sectionPanel.className = 'brush-attributes-section';
+
+        try {
+            addBrushAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            container.appendChild(sectionPanel);
+        } catch (error) {
+            console.error('Error creating brush attribute panel:', error);
+        }
+    }
+
+    getDragSources() {
+        return ['brushes'];
+    }
+
+    getEditHandleSources() {
+        return []; // Brush features don't have edit handles
+    }
+
+    createSelectionBox(feature) {
+        try {
+            const bbox = turf.bbox(feature);
+            const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding());
+            return turf.bboxPolygon(expandedBbox);
+        } catch (error) {
+            console.warn('Error creating brush selection box:', error);
+            return null;
+        }
+    }
+
+    getSelectionBoxStrategy() {
+        return 'bbox';
+    }
+
+    getSelectionBoxPadding() {
+        return 5;
+    }
+
+    getLayerIds() {
+        return ['brush-layer'];
+    }
+
+    getSourceNames() {
+        return ['brushes'];
+    }
+
+    getEditHandleSource() {
+        return null; // Brush features don't have edit handles
+    }
+
+    canCopy(feature) {
+        return true;
+    }
+
+    canPaste(feature) {
+        return true;
+    }
+
+    prepareForPaste(feature, offset) {
+        // Apply offset to all coordinates using geometry class
+        const newCoordinates = this.geometry.applyOffset(
+            feature.geometry.coordinates, 
+            offset.dx, 
+            offset.dy
+        );
+
+        return {
+            ...feature,
+            geometry: {
+                ...feature.geometry,
+                coordinates: newCoordinates
+            }
+        };
+    }
+
+    calculateMoveOffset(feature, referencePoint) {
+        // Use geometry class to get reference center point
+        const centerPoint = this.geometry.getCenter(feature.geometry.coordinates);
+        if (!centerPoint) {
+            return [0, 0];
+        }
+
+        return [
+            centerPoint[0] - referencePoint.lng,
+            centerPoint[1] - referencePoint.lat
+        ];
+    }
+
+    updateFeatureForMove(feature, dx, dy, newCoords) {
+        // Use geometry class to apply offset to all coordinates
+        const newCoordinates = this.geometry.applyOffset(
+            feature.geometry.coordinates, 
+            dx, 
+            dy
+        );
+
+        return {
+            ...feature,
+            geometry: {
+                ...feature.geometry,
+                coordinates: newCoordinates
+            }
+        };
+    }
+
+    canMove(feature) {
+        return !feature.properties?.bloqueado;
     }
 
     // ===== TOOL ACTIVATION/DEACTIVATION =====
@@ -104,7 +245,7 @@ class AddBrushControl {
     // ===== SELECTION SYSTEM INTEGRATION (NO EDIT HANDLES) =====
 
     onFeatureSelected = (feature) => {
-        // Brush features don't have edit handles - just show selection
+        // Brush features don't have edit handles - just show selection highlight
     }
 
     onFeatureDeselected = (feature) => {
@@ -124,10 +265,15 @@ class AddBrushControl {
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
-        // No handles to sync
+        // No handles to sync for brush features
     }
 
     // ===== DRAWING SYSTEM =====
+
+    handleMapClick = (e) => {
+        // Brush tool uses mousedown/mouseup interaction, not clicks
+        // This method is required by toolManager interface but not used for brush
+    }
 
     setupDrawingEventListeners = () => {
         this.map.on('mousedown', this.onMouseDown);
@@ -142,53 +288,6 @@ class AddBrushControl {
         this.map.off('mousemove', this.onMouseMove);
         this.map.off('mouseup', this.onMouseUp);
         this.map.getCanvas().removeEventListener('mouseleave', this.onMouseLeave);
-    }
-
-    setupZoomListener = () => {
-        this.map.on('zoom', this.handleZoomChange);
-    }
-
-    handleZoomChange = () => {
-        if (!this.pendingZoomUpdate) {
-            this.pendingZoomUpdate = true;
-            this.zoomRafId = requestAnimationFrame(this.updateAllBrushWidths);
-        }
-    }
-
-    applyZoomCorrections = (features) => {
-        const currentZoom = this.map.getZoom();
-
-        return features.map(feature => {
-            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            feature.properties.calculatedLineWidth = feature.properties.lineWidth * scaleFactor;
-            return feature;
-        });
-    }
-
-    updateAllBrushWidths = () => {
-        if (!this.map.getSource('brushes')) {
-            return
-        }
-        const currentZoom = this.map.getZoom();
-        const data = JSON.parse(JSON.stringify(this.map.getSource('brushes')._data));
-        let hasChanges = false;
-
-        data.features.forEach(feature => {
-            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            const newCalculatedWidth = feature.properties.lineWidth * scaleFactor;
-            if (feature.properties.calculatedLineWidth !== newCalculatedWidth) {
-                feature.properties.calculatedLineWidth = newCalculatedWidth;
-                hasChanges = true;
-            }
-        });
-
-        if (hasChanges) {
-            this.map.getSource('brushes').setData(data);
-        }
-
-        this.pendingZoomUpdate = false;
     }
 
     onMouseDown = (e) => {
@@ -208,15 +307,8 @@ class AddBrushControl {
         if (!this.isActive || !this.isDrawing) return;
 
         // Performance optimization - only add point if moved enough pixels
-        if (this.lastPixelPoint) {
-            const distance = Math.sqrt(
-                Math.pow(e.point.x - this.lastPixelPoint.x, 2) +
-                Math.pow(e.point.y - this.lastPixelPoint.y, 2)
-            );
-
-            if (distance < this.MIN_DISTANCE_PX) {
-                return; // Skip this point
-            }
+        if (!this.geometry.isPixelDistanceSufficient(this.lastPixelPoint, e.point)) {
+            return; // Skip this point
         }
 
         // Add point to the line
@@ -285,47 +377,26 @@ class AddBrushControl {
         }
         this.pendingPreviewUpdate = false;
 
-        this.map.getSource('brush-feedback').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
+        if (this.map && this.map.getSource('brush-feedback')) {
+            this.map.getSource('brush-feedback').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
     }
 
     createFeature = async () => {
-        if (this.points.length < 2) {
-            console.warn('Linha deve ter pelo menos 2 pontos');
+        if (!this.geometry.validate(this.points)) {
+            console.warn('Linha deve ter pelo menos 2 pontos válidos');
             return;
         }
 
-        // ✅ 1. SIMPLIFY LINE - Reduce points while preserving shape
-        let simplifiedCoordinates = [...this.points];
-
-        if (this.points.length > 10) { // Only simplify if enough points
-            try {
-                const originalLine = {
-                    type: 'Feature',
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: this.points
-                    }
-                };
-
-                // Use turf.simplify with small tolerance to maintain detail
-                const simplified = turf.simplify(originalLine, {
-                    tolerance: 0.0001, // Very small tolerance to preserve detail
-                    highQuality: true
-                });
-
-                simplifiedCoordinates = simplified.geometry.coordinates;
-            } catch (error) {
-                console.warn('Erro na simplificação, usando linha original:', error);
-                simplifiedCoordinates = [...this.points];
-            }
-        }
+        // Calculate current zoom and line width
+        const currentZoom = this.map.getZoom();
+        const calculatedLineWidth = AddBrushControl.DEFAULT_PROPERTIES.lineWidth;
 
         const featureId = IDUtils.generateUniqueId();
         const featureName = IDUtils.generateFeatureName('brush', this.map);
-        const currentZoom = this.map.getZoom();
 
         const feature = {
             type: 'Feature',
@@ -335,11 +406,9 @@ class AddBrushControl {
                 id: featureId,
                 nome: featureName,
                 createdAtZoom: currentZoom,
+                calculatedLineWidth: calculatedLineWidth
             },
-            geometry: {
-                type: 'LineString',
-                coordinates: simplifiedCoordinates // Use simplified coordinates
-            }
+            geometry: this.geometry.generate(this.points)
         };
 
         try {
@@ -349,31 +418,63 @@ class AddBrushControl {
             data.features.push(feature);
             this.map.getSource('brushes').setData(data);
 
-            // Auto-select the created feature
+            this.points = [];
+            this.toolManager.deactivateCurrentTool();
             this.selectionManager.toggleFeatureSelection('brush', featureId, feature);
             this.selectionManager.updateUI();
-
-            this.toolManager.deactivateCurrentTool();
         } catch (error) {
             console.error('Erro ao criar pincel:', error);
         }
     }
 
-    // ===== MAP CLICK HANDLER (Required by toolManager) =====
+    // ===== ZOOM HANDLING =====
 
-    handleMapClick = (e) => {
-        // Brush tool uses mousedown/mouseup, not clicks
-        // This method is required by toolManager interface but not used
+    setupZoomListener = () => {
+        this.map.on('zoom', this.handleZoomChange);
     }
 
-    // ===== UTILITY METHODS =====
-
-    removeAllEventListeners = () => {
-        this.removeDrawingEventListeners();
-        this.clearPreview();
+    handleZoomChange = () => {
+        if (!this.pendingZoomUpdate) {
+            this.pendingZoomUpdate = true;
+            this.zoomRafId = requestAnimationFrame(this.performZoomUpdate);
+        }
     }
 
-    // ===== SELECTION SYSTEM INTERFACE METHODS =====
+    performZoomUpdate = () => {
+        if(this.map.getSource('brushes')){
+            const data = this.map.getSource('brushes')._data;
+            if (data && data.features) {
+                const updatedFeatures = data.features.map(feature => 
+                    this.applyZoomCorrections([feature])[0]
+                );
+
+                this.map.getSource('brushes').setData({
+                    type: 'FeatureCollection',
+                    features: updatedFeatures
+                });
+            }
+            this.pendingZoomUpdate = false;
+        }
+    }
+
+    applyZoomCorrections = (features) => {
+        const currentZoom = this.map.getZoom();
+        return features.map(feature => {
+            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            const newCalculatedWidth = feature.properties.lineWidth * scaleFactor;
+
+            return {
+                ...feature,
+                properties: {
+                    ...feature.properties,
+                    calculatedLineWidth: newCalculatedWidth
+                }
+            };
+        });
+    }
+
+    // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('brushes')._data));
@@ -384,7 +485,7 @@ class AddBrushControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // ✅ Se mudou lineWidth, recalcular calculatedLineWidth
+                // Recalculate line width if needed
                 if (property === 'lineWidth') {
                     const currentZoom = this.map.getZoom();
                     const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
@@ -400,11 +501,12 @@ class AddBrushControl {
                     sourceFeature.properties[property] = roundedValue;
                     feature.properties[property] = roundedValue;
 
+                    // Recalculate calculatedLineWidth
                     const currentZoom = this.map.getZoom();
                     const zoomDifference = currentZoom - roundedValue;
                     const scaleFactor = Math.pow(2, zoomDifference);
-
                     const newCalculatedWidth = sourceFeature.properties.lineWidth * scaleFactor;
+
                     sourceFeature.properties.calculatedLineWidth = newCalculatedWidth;
                     feature.properties.calculatedLineWidth = newCalculatedWidth;
                 }
@@ -412,20 +514,33 @@ class AddBrushControl {
         }
 
         this.map.getSource('brushes').setData(data);
+
+        // CRITICAL FIX: Get fresh features from map source before updating SelectionManager
+        const freshFeatures = features.map(feature => {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            return sourceFeature || feature; // Fallback to original if not found
+        });
+
+        // Update SelectionManager with fresh features
+        this.updateSelectionManagerFeatures(freshFeatures);
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Apply zoom corrections before saving
+        let correctedFeatures = this.applyZoomCorrections(features);
+        
+        // CRITICAL FIX: Always get fresh feature data from map source before saving
         const currentData = this.map.getSource('brushes')._data;
-        for (const selectedFeature of features) {
+        let hasChanges = false;
+
+        for (const selectedFeature of correctedFeatures) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    const featureToSave = {
-                        ...currentFeature,
-                        properties: { ...selectedFeature.properties }
-                    };
-                    await updateFeature('brushes', featureToSave);
+                    // Use complete current feature (with updated geometry + properties)
+                    await updateFeature('brushes', currentFeature);
+                    hasChanges = true;
                 }
             }
         }
@@ -475,7 +590,8 @@ class AddBrushControl {
     }
 
     updateFeatures = async (featuresBeforeZoomFix, save = false, onlyUpdateProperties = false) => {
-        let features = this.applyZoomCorrections(featuresBeforeZoomFix)
+        let features = this.applyZoomCorrections(featuresBeforeZoomFix);
+        
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('brushes')._data));
             for (const feature of features) {
@@ -496,6 +612,46 @@ class AddBrushControl {
             }
 
             this.map.getSource('brushes').setData(data);
+
+            // Update SelectionManager with updated features
+            this.updateSelectionManagerFeatures(features);
+        }
+    }
+
+    // ===== SELECTION MANAGER INTEGRATION =====
+
+    /**
+     * Update SelectionManager with current feature data
+     */
+    updateSelectionManagerFeature(feature) {
+        const key = `brush:${feature.properties.id}`;
+        this.selectionManager.selectedFeatures.set(key, { type: 'brush', feature });
+    }
+
+    /**
+     * Update SelectionManager with multiple features
+     */
+    updateSelectionManagerFeatures(features) {
+        features.forEach(feature => {
+            if (feature.properties.source === 'brush') {
+                this.updateSelectionManagerFeature(feature);
+            }
+        });
+    }
+
+    // ===== UTILITY METHODS =====
+
+    setupBaseEventListeners = () => {
+        // Base listeners setup if needed
+    }
+
+    removeAllEventListeners = () => {
+        this.removeDrawingEventListeners();
+        this.clearPreview();
+        this.map.off('zoom', this.handleZoomChange);
+        if (this.zoomRafId) {
+            cancelAnimationFrame(this.zoomRafId);
+            this.zoomRafId = null;
         }
     }
 }

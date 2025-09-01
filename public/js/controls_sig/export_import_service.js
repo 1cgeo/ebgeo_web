@@ -1,11 +1,8 @@
 // Path: js\controls_sig\export_import_service.js
 import {
-    getAllMapNames,
+    getAllMapNamesStore,
     getCurrentMapName,
-    mapStore,
-    imageStore,
-    appStore,
-    resetMemoryStore,
+    getCurrentMapFeatures,
     getCurrentBaseLayer,
     setBaseLayer,
     MIN_SCHEMA_VERSION,
@@ -13,7 +10,11 @@ import {
     SCHEMA_VERSION,
     compareVersions,
     addMap,
-    setCurrentMap
+    setCurrentMap,
+    clearAllDataStore,
+    getImage,
+    storeImage,
+    setSchemaVersion
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -156,7 +157,7 @@ export class ExportImportService {
 
             const zip = new JSZip();
 
-            const mapsToExport = await getAllMapNames();
+            const mapsToExport = await getAllMapNamesStore();
 
             if (mapsToExport.length === 0) {
                 alert('Nenhum mapa para exportar');
@@ -171,9 +172,20 @@ export class ExportImportService {
 
             // Exportar dados dos mapas com otimização
             for (const mapName of mapsToExport) {
-                const mapData = await mapStore.getItem(mapName);
+                const mapData = await getCurrentMapFeatures(mapName);
                 if (mapData) {
-                    data.maps[mapName] = this.optimizeMapData(mapData);
+                    // Reconstruir estrutura completa do mapa
+                    const fullMapData = {
+                        baseLayer: await getCurrentBaseLayer(mapName),
+                        hillshadeEnabled: true, // Valor padrão, poderia ser obtido via nova função
+                        analysisLayers: {}, // Valor padrão, poderia ser obtido via nova função
+                        features: mapData,
+                        zoom: null,
+                        center_lat: null,
+                        center_long: null
+                    };
+                    
+                    data.maps[mapName] = this.optimizeMapData(fullMapData);
                 }
             }
 
@@ -187,9 +199,9 @@ export class ExportImportService {
             // Coletar e exportar imagens usadas
             const usedImages = new Set();
             for (const mapName of mapsToExport) {
-                const mapData = await mapStore.getItem(mapName);
-                if (mapData && mapData.features) {
-                    for (const [category, features] of Object.entries(mapData.features)) {
+                const mapData = await getCurrentMapFeatures(mapName);
+                if (mapData) {
+                    for (const [category, features] of Object.entries(mapData)) {
                         if (Array.isArray(features)) {
                             features.forEach(feature => {
                                 if (feature.properties && feature.properties.id) {
@@ -204,7 +216,7 @@ export class ExportImportService {
             // Adicionar imagens ao ZIP com extensão correta baseada no tipo MIME
             for (const imageId of usedImages) {
                 try {
-                    const blob = await imageStore.getItem(imageId);
+                    const blob = await getImage(imageId);
                     if (blob) {
                         const extension = this.getBlobExtension(blob);
                         zip.file(`images/${imageId}.${extension}`, blob, {
@@ -281,10 +293,7 @@ export class ExportImportService {
             const zip = await JSZip.loadAsync(zipData);
 
             if (!isAdditiveImport) {
-                resetMemoryStore();
-                await mapStore.clear();
-                await imageStore.clear();
-                await appStore.clear();
+                await clearAllDataStore();
             }
 
             const dataFile = zip.file('data.json');
@@ -305,14 +314,15 @@ export class ExportImportService {
             if (compareVersions(data.version, MAX_SCHEMA_VERSION) > 0) {
                 throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${MAX_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`);
             }
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+            
+            await setSchemaVersion(SCHEMA_VERSION);
 
             let importedMapsCount = 0;
 
             if (isAdditiveImport) {
                 await this.loadImagesFromZip(zip);
 
-                const existingMapNames = await getAllMapNames();
+                const existingMapNames = await getAllMapNamesStore();
                 const mapsToImport = Object.keys(data.maps).length;
 
                 if (existingMapNames.length + mapsToImport > 30) {
@@ -351,7 +361,7 @@ export class ExportImportService {
 
             const currentBaseLayer = isAdditiveImport ?
                 await getCurrentBaseLayer() :
-                (await mapStore.getItem(await getCurrentMapName()))?.baseLayer;
+                data.maps[await getCurrentMapName()]?.baseLayer;
 
             const validBaseLayer = config.getValidBasemapFallback(currentBaseLayer);
 
@@ -381,7 +391,7 @@ export class ExportImportService {
             try {
                 const imageId = fileName.replace('images/', '').replace(/\.(png|jpe?g|svg|webp)$/i, '');
                 const blob = await zip.file(fileName).async('blob');
-                await imageStore.setItem(imageId, blob);
+                await storeImage(imageId, blob);
             } catch (imgError) {
                 console.warn('Erro ao carregar imagem:', fileName, imgError);
             }

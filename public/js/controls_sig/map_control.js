@@ -1,9 +1,6 @@
 // Path: js\controls_sig\map_control.js
 import {
     initializeWithLastActiveMap,
-    imageStore,
-    appStore,
-    SCHEMA_VERSION,
     setCurrentMap,
     getCurrentMapName
 } from './store/store.js';
@@ -439,8 +436,8 @@ class MapControl {
 
     // ===== MODAL MANAGEMENT =====
     async showCombineMapsModal(targetMapName) {
-        const { getAllMapNames } = await import('./store/store.js');
-        const allMapNames = await getAllMapNames();
+        const { getAllMapNamesStore } = await import('./store/store.js');
+        const allMapNames = await getAllMapNamesStore();
         const availableMaps = allMapNames.filter(name => name !== targetMapName);
 
         if (availableMaps.length === 0) {

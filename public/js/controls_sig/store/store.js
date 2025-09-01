@@ -1,125 +1,348 @@
 // Path: js\controls_sig\store\store.js
+import {
+    SCHEMA_VERSION,
+    MIN_SCHEMA_VERSION,
+    MAX_SCHEMA_VERSION,
+    cleanFeature,
+    isInternalProperty,
+    compareVersions,
+    resetMemoryStore,
+    createMapData,
+    getMapData,
+    updateMapData,
+    deleteMapData,
+    getAllMapNames,
+    renameMapData,
+    storeImageData,
+    getImageData,
+    removeImageData,
+    hasImageData,
+    clearAllImageData,
+    setAppSetting,
+    getAppSetting,
+    clearAllAppSettings,
+    initializeRepository
+} from './repository.js';
+
+import mapManager from './map-manager.js';
 import config from '../../config.js';
 
-const SCHEMA_VERSION = '1.3';
-const MIN_SCHEMA_VERSION = '1.3';
-const MAX_SCHEMA_VERSION = '1.3';
+// ===== CENTRALIZED FEATURE TYPE MAPPINGS =====
 
-const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
-const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
-const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
+/**
+ * Mapeamento principal: source type → storage type
+ * FONTE ÚNICA DA VERDADE para todos os mapeamentos de tipos
+ */
 
-// APENAS em memória - não persiste
-const memoryStore = {
-    maps: {
-        'Principal': {
-            undoStack: [],
-            redoStack: []
-        }
-    },
-    currentMap: 'Principal',
-    isUndoing: false,
-    isRedoing: false,
+export const FEATURE_TYPE_ICONS = {
+    'point': './images/icon_point_black.svg',
+    'line': './images/icon_line_black.svg',
+    'polygon': './images/icon_polygon_black.svg',
+    'text': './images/icon_text_black.svg',
+    'image': './images/icon_photo_black.svg',
+    'circle': './images/icon_circle_black.svg',
+    'rectangle': './images/icon_rectangle_black.svg',
+    'ellipse': './images/icon_ellipse_black.svg',
+    'brush': './images/icon_brush_black.svg',
+    'arrow': './images/icon_arrow_black.svg',
+    'boundary': './images/icon_boundary_black.svg',
+    'occupied_front': './images/icon_occupied_front_black.svg',
+    'military_symbol': './images/icon_military_black.svg',
+    'los': './images/icon_los_black.svg',
+    'visibility': './images/icon_visibility_black.svg'
 };
 
-// Função para estrutura vazia
-const getEmptyMapData = () => ({
-    baseLayer: 'carta-topografica',
-    hillshadeEnabled: true,
-    analysisLayers: {},
-    features: {
-        polygons: [],
-        lines: [],
-        points: [],
-        texts: [],
-        images: [],
-        los: [],
-        visibility: [],
-        processed_los: [],
-        processed_visibility: [],
-        brushes: [],
-        rectangles: [],
-        circles: [],
-        ellipses: [],
-        arrows: [],
-        boundarys: [],
-        occupied_fronts: [],
-        military_symbols: [],
-        setores: [],
-        coordenadas: []
-    },
-    zoom: null,
-    center_lat: null,
-    center_long: null
-});
+export const FEATURE_TYPE_LAYERS = {
+    'point': 'points-layer',
+    'line': 'lines-layer', 
+    'polygon': 'polygons-layer',
+    'text': 'texts-layer',
+    'image': 'images-layer',
+    'circle': 'circles-layer',
+    'rectangle': 'rectangles-layer',
+    'ellipse': 'ellipses-layer',
+    'brush': 'brushes-layer',
+    'arrow': 'arrows-layer',
+    'boundary': 'boundarys-layer',
+    'occupied_front': 'occupied-fronts-layer',
+    'military_symbol': 'military-symbols-layer',
+    'los': 'los-layer',
+    'visibility': 'visibility-layer'
+};
+
+export const FEATURE_TYPE_MAPPINGS = {
+    // Formas básicas
+    'point': 'points',
+    'line': 'lines', 
+    'polygon': 'polygons',
+    
+    // Ferramentas específicas
+    'text': 'texts',
+    'image': 'images',
+    'circle': 'circles',
+    'rectangle': 'rectangles',
+    'ellipse': 'ellipses',
+    'brush': 'brushes',
+    'arrow': 'arrows',
+    'boundary': 'boundarys',
+    'occupied_front': 'occupied_fronts',
+    'military_symbol': 'military_symbols',
+    
+    // Análises especiais
+    'los': 'los',
+    'visibility': 'visibility'
+};
 
 /**
- * Remove metadados internos do Mapbox e mantém apenas dados GeoJSON essenciais
+ * Nomes em português para display na interface
  */
-function cleanFeature(feature) {
-    if (!feature || !feature.type) {
-        console.warn('Feature inválida fornecida para limpeza:', feature);
-        return null;
+export const FEATURE_DISPLAY_NAMES = {
+    'point': 'Ponto',
+    'line': 'Linha',
+    'polygon': 'Polígono',
+    'text': 'Texto',
+    'image': 'Imagem',
+    'circle': 'Círculo',
+    'rectangle': 'Retângulo',
+    'ellipse': 'Elipse',
+    'brush': 'Pincel',
+    'arrow': 'Seta',
+    'boundary': 'Limite',
+    'occupied_front': 'Frente Ocupada',
+    'military_symbol': 'Símbolo Militar',
+    'los': 'Linha de Visada',
+    'visibility': 'Visibilidade'
+};
+
+/**
+ * Features que não podem ser copiadas/coladas
+ */
+export const UNCOPYABLE_FEATURE_TYPES = ['los', 'visibility'];
+
+/**
+ * Features que possuem recursos de imagem associados
+ */
+export const IMAGE_RESOURCE_FEATURE_TYPES = ['image', 'military_symbol'];
+
+// ===== CENTRALIZED UTILITY FUNCTIONS =====
+
+/**
+ * Converte source type para storage type
+ * @param {string} sourceType - Tipo do source ('circle', 'arrow', etc.)
+ * @returns {string} Tipo de storage ('circles', 'arrows', etc.)
+ */
+export const getStorageTypeFromSource = (sourceType) => {
+    return FEATURE_TYPE_MAPPINGS[sourceType] || `${sourceType}s`;
+};
+
+/**
+ * Converte storage type para source type (mapeamento reverso)
+ * @param {string} storageType - Tipo do storage ('circles', 'arrows', etc.)
+ * @returns {string} Tipo do source ('circle', 'arrow', etc.)
+ */
+export const getSourceTypeFromStorage = (storageType) => {
+    // Busca reversa no mapeamento
+    for (const [sourceType, storage] of Object.entries(FEATURE_TYPE_MAPPINGS)) {
+        if (storage === storageType) {
+            return sourceType;
+        }
+    }
+    // Fallback: remover 's' do final
+    return storageType.endsWith('s') ? storageType.slice(0, -1) : storageType;
+};
+
+// Obter ícone de um source type
+export const getFeatureIcon = (sourceType) => {
+    return FEATURE_TYPE_ICONS[sourceType];
+};
+
+// Obter layer name de um source type  
+export const getFeatureLayer = (sourceType) => {
+    return FEATURE_TYPE_LAYERS[sourceType] || `${sourceType}-layer`;
+};
+
+// Funções bidirecionais para features_tab.js
+export const getFeatureDisplayNameFromStorage = (storageType) => {
+    const sourceType = getSourceTypeFromStorage(storageType);
+    return getFeatureDisplayName(sourceType);
+};
+
+export const getFeatureIconFromStorage = (storageType) => {
+    const sourceType = getSourceTypeFromStorage(storageType);
+    return getFeatureIcon(sourceType);
+};
+
+// Gerar config para rectangle selection (simplificado)
+export const getSelectionControlConfig = () => {
+    const config = {};
+    for (const sourceType of getAllSourceTypes()) {
+        const storageType = getStorageTypeFromSource(sourceType);
+        config[sourceType] = {
+            sourceNames: [storageType] // Array com um elemento só
+        };
+    }
+    return config;
+};
+
+/**
+ * Obtém nome para display de um tipo de feature
+ * @param {string} sourceType - Tipo do source
+ * @returns {string} Nome em português para display
+ */
+export const getFeatureDisplayName = (sourceType) => {
+    return FEATURE_DISPLAY_NAMES[sourceType] || 'Feição';
+};
+
+/**
+ * Verifica se um tipo de feature pode ser copiado
+ * @param {string} sourceType - Tipo do source
+ * @returns {boolean} True se pode ser copiado
+ */
+export const isUncopyableFeatureType = (sourceType) => {
+    return UNCOPYABLE_FEATURE_TYPES.includes(sourceType);
+};
+
+/**
+ * Verifica se um tipo de feature tem recursos de imagem
+ * @param {string} sourceType - Tipo do source
+ * @returns {boolean} True se tem recursos de imagem
+ */
+export const hasImageResource = (sourceType) => {
+    return IMAGE_RESOURCE_FEATURE_TYPES.includes(sourceType);
+};
+
+/**
+ * Obtém todos os source types válidos
+ * @returns {string[]} Array de todos os source types
+ */
+export const getAllSourceTypes = () => {
+    return Object.keys(FEATURE_TYPE_MAPPINGS);
+};
+
+/**
+ * Obtém todos os storage types válidos
+ * @returns {string[]} Array de todos os storage types
+ */
+export const getAllStorageTypes = () => {
+    return Object.values(FEATURE_TYPE_MAPPINGS);
+};
+
+/**
+ * Verifica se um source type é válido
+ * @param {string} sourceType - Tipo do source
+ * @returns {boolean} True se é válido
+ */
+export const isValidSourceType = (sourceType) => {
+    return sourceType in FEATURE_TYPE_MAPPINGS;
+};
+
+/**
+ * Verifica se um storage type é válido
+ * @param {string} storageType - Tipo do storage
+ * @returns {boolean} True se é válido
+ */
+export const isValidStorageType = (storageType) => {
+    return Object.values(FEATURE_TYPE_MAPPINGS).includes(storageType);
+};
+
+// ===== INITIALIZATION =====
+
+export const initializeWithLastActiveMap = async () => {
+    const lastActiveMap = await initializeRepository();
+    await mapManager.setCurrentMap(lastActiveMap);
+    return lastActiveMap;
+};
+
+// ===== MAP MANAGEMENT =====
+
+export const getAllMapNamesStore = async () => {
+    return await getAllMapNames();
+};
+
+export const addMap = async (mapName, mapData = null) => {
+    const newMapData = await createMapData(mapName, mapData);
+    mapManager.addMapToMemory(mapName);
+    return newMapData;
+};
+
+export const removeMap = async (mapName) => {
+    // Validação: Verificar se o mapa existe
+    const mapData = await getMapData(mapName);
+    if (!mapData || Object.keys(mapData).length === 0) {
+        console.warn(`Tentativa de remover mapa inexistente: ${mapName}`);
+        return { success: false, reason: 'MAP_NOT_FOUND' };
     }
 
-    // Extrair geometria correta
-    let geometry = feature.geometry;
-    if (!geometry && feature._geometry) {
-        geometry = feature._geometry;
+    // Verificar se é o mapa atual
+    const currentMapName = getCurrentMapNameSync();
+    const isCurrentMap = mapName === currentMapName;
+
+    // Verificar quantos mapas restam
+    const allMaps = await getAllMapNames();
+    const remainingMaps = allMaps.filter(name => name !== mapName);
+
+    // Remover do storage e memória
+    await deleteMapData(mapName);
+    mapManager.removeMapFromMemory(mapName);
+
+    // Se era o mapa atual, atualizar referências
+    if (isCurrentMap) {
+        if (remainingMaps.length > 0) {
+            const newCurrentMap = remainingMaps[0];
+            await setCurrentMap(newCurrentMap);
+        } else {
+            // Último mapa removido - criar novo mapa Principal
+            await addMap('Principal');
+            await setCurrentMap('Principal');
+        }
     }
 
-    // Limpar propriedades removendo metadados internos do Mapbox
-    const cleanedProperties = {};
-    if (feature.properties) {
-        Object.keys(feature.properties).forEach(key => {
-            // Manter apenas propriedades que não são metadados internos
-            if (!isInternalProperty(key)) {
-                cleanedProperties[key] = feature.properties[key];
-            }
-        });
-    }
-
-    // Retornar feature limpa no formato GeoJSON padrão
     return {
-        type: feature.type,
-        id: feature.id,
-        properties: cleanedProperties,
-        geometry: geometry
+        success: true,
+        wasCurrentMap: isCurrentMap,
+        remainingMapsCount: remainingMaps.length,
+        newCurrentMap: isCurrentMap ? (remainingMaps.length > 0 ? remainingMaps[0] : 'Principal') : currentMapName
     };
-}
+};
+
+export const renameMap = async (oldName, newName) => {
+    await renameMapData(oldName, newName);
+    mapManager.renameMapInMemory(oldName, newName);
+};
+
+export const setCurrentMap = async (mapName) => {
+    await mapManager.setCurrentMap(mapName);
+};
+
+export const getCurrentMapName = async () => {
+    return await getAppSetting('lastActiveMap');
+};
+
+export const getCurrentMapNameSync = () => {
+    return mapManager.getCurrentMapName();
+};
+
+export const setLastActiveMap = async (mapName) => {
+    await setAppSetting('lastActiveMap', mapName);
+};
+
+export const setSchemaVersion = async (schemaVersion) => {
+    await setAppSetting('schemaVersion', schemaVersion);
+};
+
+// ===== FEATURE MANAGEMENT =====
 
 /**
- * Verifica se uma propriedade é metadado interno do Mapbox
+ * Função legada refatorada para usar mapeamentos centralizados
+ * Mantida para compatibilidade com código existente
  */
-function isInternalProperty(key) {
-    const internalProps = [
-        // Metadados do vector tile
-        '_vectorTileFeature',
-        '_pbf',
-        '_geometry',
-        '_keys',
-        '_values',
+const getFeatureType = (feature) => {
+    const source = feature.properties?.source;
+    
+    return FEATURE_TYPE_MAPPINGS[source];
+};
 
-        // Coordenadas de tile
-        '_z', '_x', '_y',
-
-        // Informações de renderização
-        'layer',
-        'state',
-
-        // Outros metadados internos
-        'extent',
-        'type' // quando é propriedade interna, não o type do GeoJSON
-    ];
-
-    // Verificar se é propriedade interna ou começa com underscore
-    return internalProps.includes(key) || key.startsWith('_');
-}
-
-/**
- * Busca features processadas relacionadas a uma feature principal
- */
-function findRelatedProcessedFeatures(type, featureId, mapData) {
+const findRelatedProcessedFeatures = (type, featureId, mapData) => {
     if (type === 'los') {
         return mapData.features.processed_los.filter(pf =>
             pf.properties.id.startsWith(featureId + '-')
@@ -130,211 +353,130 @@ function findRelatedProcessedFeatures(type, featureId, mapData) {
         );
     }
     return [];
-}
+};
 
-/**
- * Remove features processadas do array de dados
- */
-function removeProcessedFeaturesFromData(processedType, processedFeatures, mapData) {
+const removeProcessedFeaturesFromData = (processedType, processedFeatures, mapData) => {
     if (!processedType || !processedFeatures.length) return;
 
     const processedIds = new Set(processedFeatures.map(pf => pf.properties.id));
     mapData.features[processedType] = mapData.features[processedType]
         .filter(pf => !processedIds.has(pf.properties.id));
-}
-
-// Função auxiliar para comparar versões simples (formato X.Y)
-export const compareVersions = (version1, version2) => {
-    const v1Parts = version1.split('.').map(Number);
-    const v2Parts = version2.split('.').map(Number);
-
-    for (let i = 0; i < Math.max(v1Parts.length, v2Parts.length); i++) {
-        const v1Part = v1Parts[i] || 0;
-        const v2Part = v2Parts[i] || 0;
-
-        if (v1Part < v2Part) return -1;
-        if (v1Part > v2Part) return 1;
-    }
-    return 0;
 };
 
-// Verificar e limpar dados incompatíveis
-const checkAndCleanLegacyData = async () => {
-    try {
-        const currentSchemaVersion = await appStore.getItem('schemaVersion');
-        // Se não há versão salva ou é menor que a mínima aceita, limpar tudo
-        if (!currentSchemaVersion || compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) < 0) {
-            console.log('🧹 Detectados dados de versão incompatível, limpando...');
-
-            // Limpar todos os stores
-            await mapStore.clear();
-            await imageStore.clear();
-            await appStore.clear();
-
-            // Definir nova versão
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-
-            console.log('✅ Dados legados limpos, nova versão definida:', SCHEMA_VERSION);
-        }
-    } catch (error) {
-        console.warn('⚠️ Erro ao verificar versão do schema:', error);
-        // Em caso de erro, limpar tudo para garantir estado limpo
-        try {
-            await mapStore.clear();
-            await imageStore.clear();
-            await appStore.clear();
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        } catch (cleanupError) {
-            console.error('❌ Erro crítico na limpeza de dados:', cleanupError);
-        }
-    }
-};
-
-// Função para resetar o estado da memória
-export const resetMemoryStore = () => {
-    memoryStore.maps = {
-        'Principal': {
-            undoStack: [],
-            redoStack: []
-        }
-    };
-    memoryStore.currentMap = 'Principal';
-    memoryStore.isUndoing = false;
-    memoryStore.isRedoing = false;
-};
-
-const recordAction = (action) => {
-    const currentMap = memoryStore.maps[memoryStore.currentMap];
-    if (!memoryStore.isUndoing && !memoryStore.isRedoing) {
-        currentMap.undoStack.push(action);
-        if (currentMap.undoStack.length > 20) {
-            currentMap.undoStack.shift();
-        }
-        currentMap.redoStack = [];
-    }
-};
-
-export const setLastActiveMap = async (mapName) => {
-    try {
-        await appStore.setItem('lastActiveMap', mapName);
-    } catch (error) {
-        console.warn('Erro ao salvar último mapa ativo:', error);
-    }
-};
-
-export const getCurrentMapName = async () => {
-    const currentMapName = await appStore.getItem('lastActiveMap');
-    return currentMapName;
-};
-
-export const getCurrentMapNameSync = () => {
-    return memoryStore.currentMap;
-};
-
-export const initializeWithLastActiveMap = async () => {
-    try {
-        // Verificar e limpar dados legados
-        await checkAndCleanLegacyData();
-
-        // Garantir que a versão do schema esteja salva
-        const currentSchemaVersion = await appStore.getItem('schemaVersion');
-        if (!currentSchemaVersion) {
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        }
-
-        // Verificar se há mapas salvos
-        const allMapNames = await getAllMapNames();
-
-        if (allMapNames.length === 0) {
-            // Primeira execução - criar mapa Principal
-            await addMap('Principal');
-            await setCurrentMap('Principal');
-            return 'Principal';
-        }
-
-        // Carregar último mapa ativo
-        const lastActiveMap = await getCurrentMapName();
-
-        if (lastActiveMap && allMapNames.includes(lastActiveMap)) {
-            await setCurrentMap(lastActiveMap);
-        } else {
-            // Fallback para primeiro mapa disponível
-            const firstMap = allMapNames[0];
-            await setCurrentMap(firstMap);
-        }
-    } catch (error) {
-        console.error('Erro ao inicializar com último mapa ativo:', error);
-        // Fallback final
-        await setCurrentMap('Principal');
-    }
-};
-
-// Função auxiliar para determinar o tipo de feição
-function getFeatureType(feature) {
-    const source = feature.properties?.source;
-    switch (source) {
-        case 'point':
-            return 'points';
-        case 'line':
-            return 'lines';
-        case 'polygon':
-            return 'polygons';
-        case 'text':
-            return 'texts';
-        case 'image':
-            return 'images';
-        case 'los':
-            return 'los';
-        case 'visibility':
-            return 'visibility';
-        case 'circle':
-            return 'circles';
-        case 'rectangle':
-            return 'rectangles';
-        case 'ellipse':
-            return 'ellipses';
-        case 'setor':
-            return 'setores';
-        case 'coordenada':
-            return 'coordenadas';
-        case 'brush':
-            return 'brushes';
-        case 'arrow':
-            return 'arrows';
-        case 'boundary':
-            return 'boundarys';
-        case 'occupied_front':
-            return 'occupied_fronts';
-        case 'military_symbol':
-            return 'military_symbols';
-        default:
-            return feature.geometry.type.toLowerCase() + 's';
-    }
-}
-
-/**
- * Adiciona uma feature a um mapa específico sem alterar currentMap
- */
-export const addFeatureToMap = async (type, feature, mapName) => {
+export const addFeature = async (type, feature, mapName = null) => {
     const cleanedFeature = cleanFeature(feature);
-
     if (!cleanedFeature) {
         console.warn('Feature ignorada após limpeza:', feature);
-        return null;
+        return;
     }
 
-    const mapData = await mapStore.getItem(mapName) || getEmptyMapData();
-    mapData.features[type].push(cleanedFeature);
-    await mapStore.setItem(mapName, mapData);
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    currentMapData.features[type].push(cleanedFeature);
+    await updateMapData(targetMap, currentMapData);
 
-    return cleanedFeature;
+    // Apenas registrar undo em memória se é o mapa atual
+    if (!mapName || mapName === getCurrentMapNameSync()) {
+        mapManager.recordAction({
+            type: 'add',
+            featureType: type,
+            feature: JSON.parse(JSON.stringify(cleanedFeature))
+        });
+    }
 };
 
-/**
- * Remove uma feature de um mapa específico sem alterar currentMap
- */
+export const updateFeature = async (type, feature, mapName = null) => {
+    const cleanedFeature = cleanFeature(feature);
+    if (!cleanedFeature) {
+        console.warn('Feature ignorada após limpeza:', feature);
+        return;
+    }
+
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    const index = currentMapData.features[type].findIndex(f => f.properties.id === cleanedFeature.properties.id);
+    
+    if (index !== -1) {
+        const oldFeature = currentMapData.features[type][index];
+        if (JSON.stringify(oldFeature) !== JSON.stringify(cleanedFeature)) {
+            currentMapData.features[type][index] = cleanedFeature;
+            await updateMapData(targetMap, currentMapData);
+
+            // Apenas registrar undo em memória se é o mapa atual
+            if (!mapName || mapName === getCurrentMapNameSync()) {
+                mapManager.recordAction({
+                    type: 'update',
+                    featureType: type,
+                    oldFeature: JSON.parse(JSON.stringify(oldFeature)),
+                    newFeature: JSON.parse(JSON.stringify(cleanedFeature))
+                });
+            }
+        }
+    }
+};
+
+export const removeFeature = async (type, id, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id == id);
+
+    if (featureIndex === -1) return;
+
+    // Remover feature principal
+    const mainFeature = currentMapData.features[type].splice(featureIndex, 1)[0];
+
+    // Buscar e remover features processadas relacionadas
+    const processedFeatures = findRelatedProcessedFeatures(type, id, currentMapData);
+    const processedType = type === 'los' ? 'processed_los' :
+        type === 'visibility' ? 'processed_visibility' : null;
+
+    if (processedType && processedFeatures.length > 0) {
+        removeProcessedFeaturesFromData(processedType, processedFeatures, currentMapData);
+    }
+
+    // Salvar alterações
+    await updateMapData(targetMap, currentMapData);
+
+    // Apenas registrar undo em memória se é o mapa atual
+    if (!mapName || mapName === getCurrentMapNameSync()) {
+        mapManager.recordAction({
+            type: 'removeWithProcessed',
+            mainFeatureType: type,
+            mainFeature: JSON.parse(JSON.stringify(mainFeature)),
+            processedFeatures: processedFeatures.length > 0 ? {
+                type: processedType,
+                features: JSON.parse(JSON.stringify(processedFeatures))
+            } : null
+        });
+    }
+
+    // ROBUST DELETION: Verify and retry if needed (mantido para compatibilidade)
+    setTimeout(async () => {
+        try {
+            const verifyMapData = await getMapData(targetMap);
+            const stillExists = verifyMapData.features[type].some(f => f.properties.id === id);
+
+            if (stillExists) {
+                const retryMapData = await getMapData(targetMap);
+                const retryIndex = retryMapData.features[type].findIndex(f => f.properties.id === id);
+
+                if (retryIndex !== -1) {
+                    retryMapData.features[type].splice(retryIndex, 1);
+                    await updateMapData(targetMap, retryMapData);
+                }
+            }
+        } catch (error) {
+            console.error(`Robust deletion verification failed for ${type} ${id}:`, error);
+        }
+    }, 500);
+};
+
+export const addFeatureToMap = async (type, feature, mapName) => {
+    return await addFeature(type, feature, mapName);
+};
+
 export const removeFeatureFromMap = async (type, id, mapName) => {
-    const mapData = await mapStore.getItem(mapName) || getEmptyMapData();
+    const mapData = await getMapData(mapName);
     const featureIndex = mapData.features[type].findIndex(f => f.properties.id === id);
 
     if (featureIndex === -1) return null;
@@ -352,7 +494,7 @@ export const removeFeatureFromMap = async (type, id, mapName) => {
     }
 
     // Salvar alterações
-    await mapStore.setItem(mapName, mapData);
+    await updateMapData(mapName, mapData);
 
     return {
         mainFeature,
@@ -363,13 +505,93 @@ export const removeFeatureFromMap = async (type, id, mapName) => {
     };
 };
 
-// Função para mover feições entre mapas
+export const addFeatureSilent = async (type, feature, mapName = null) => {
+    const cleanedFeature = cleanFeature(feature);
+    if (!cleanedFeature) return;
+
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    currentMapData.features[type].push(cleanedFeature);
+    await updateMapData(targetMap, currentMapData);
+    // SEM recordAction - não vai para undo stack
+};
+
+export const removeFeatureSilent = async (type, id, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id == id);
+
+    if (featureIndex !== -1) {
+        currentMapData.features[type].splice(featureIndex, 1);
+        await updateMapData(targetMap, currentMapData);
+    }
+    // SEM recordAction - não vai para undo stack
+};
+
+export const addFeatures = async (featuresMap, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+
+    // Criar uma única ação para o histórico
+    const action = {
+        type: 'addMultiple',
+        features: {}
+    };
+
+    // Adicionar cada tipo de feature
+    Object.keys(featuresMap).forEach(type => {
+        const features = featuresMap[type] || [];
+        if (features.length > 0) {
+            const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
+            currentMapData.features[type].push(...cleanedFeatures);
+            action.features[type] = JSON.parse(JSON.stringify(cleanedFeatures));
+        }
+    });
+
+    // Salvar no IndexedDB
+    await updateMapData(targetMap, currentMapData);
+
+    // Registrar ação no histórico apenas se houve alterações e é o mapa atual
+    if (Object.keys(action.features).length > 0 && (!mapName || mapName === getCurrentMapNameSync())) {
+        mapManager.recordAction(action);
+    }
+};
+
+export const getCurrentMapFeatures = async (mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    return JSON.parse(JSON.stringify(currentMapData.features));
+};
+
+export const getFeatureById = async (featureType, featureId, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    return currentMapData.features[featureType].find(f => f.properties.id === featureId);
+};
+
+export const updateFeatureProperty = async (featureType, featureId, property, value, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    const feature = currentMapData.features[featureType].find(f => f.properties.id === featureId);
+
+    if (!feature) {
+        console.warn(`Feature ${featureId} não encontrada em ${featureType}`);
+        return false;
+    }
+
+    feature.properties[property] = value;
+    await updateMapData(targetMap, currentMapData);
+    return true;
+};
+
+// ===== MOVE FEATURES BETWEEN MAPS =====
+
 export const moveFeaturesToMap = async (features, targetMapName) => {
     if (!features || features.length === 0) {
         return;
     }
 
-    const sourceMapName = await getCurrentMapName();
+    const sourceMapName = getCurrentMapNameSync();
 
     if (sourceMapName === targetMapName) {
         console.warn('Tentativa de mover feições para o mesmo mapa');
@@ -377,8 +599,8 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
     }
 
     // Verificar se o mapa de destino existe
-    const targetMapData = await mapStore.getItem(targetMapName);
-    if (!targetMapData) {
+    const targetMapData = await getMapData(targetMapName);
+    if (!targetMapData || Object.keys(targetMapData).length === 0) {
         throw new Error(`Mapa de destino "${targetMapName}" não encontrado`);
     }
 
@@ -441,7 +663,7 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
 
         // Registrar operação única para undo/redo (apenas no mapa atual)
         if (Object.keys(batchOperation.movedFeatures).length > 0) {
-            recordAction(batchOperation);
+            mapManager.recordAction(batchOperation);
         }
 
     } catch (error) {
@@ -450,131 +672,11 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
     }
 };
 
-// Funções que trabalham direto com IndexedDB
-export const addFeature = async (type, feature) => {
-    const cleanedFeature = cleanFeature(feature);
+// ===== BATCH OPERATIONS FOR LOS/VISIBILITY =====
 
-    if (!cleanedFeature) {
-        console.warn('Feature ignorada após limpeza:', feature);
-        return;
-    }
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    currentMapData.features[type].push(cleanedFeature);
-    await mapStore.setItem(memoryStore.currentMap, currentMapData);
-
-    // Apenas undo em memória
-    recordAction({
-        type: 'add',
-        featureType: type,
-        feature: JSON.parse(JSON.stringify(cleanedFeature))
-    });
-};
-
-export const updateFeature = async (type, feature) => {
-    const cleanedFeature = cleanFeature(feature);
-
-    if (!cleanedFeature) {
-        console.warn('Feature ignorada após limpeza:', feature);
-        return;
-    }
-
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    const index = currentMapData.features[type].findIndex(f => f.properties.id === cleanedFeature.properties.id);
-    if (index !== -1) {
-        const oldFeature = currentMapData.features[type][index];
-        if (JSON.stringify(oldFeature) !== JSON.stringify(cleanedFeature)) {
-            currentMapData.features[type][index] = cleanedFeature;
-            await mapStore.setItem(memoryStore.currentMap, currentMapData);
-
-            recordAction({
-                type: 'update',
-                featureType: type,
-                oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-                newFeature: JSON.parse(JSON.stringify(cleanedFeature))
-            });
-        }
-    }
-};
-
-export const removeFeature = async (type, id) => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id == id);
-
-    if (featureIndex === -1) return;
-
-    // Remover feature principal
-    const mainFeature = currentMapData.features[type].splice(featureIndex, 1)[0];
-
-    // Buscar e remover features processadas relacionadas
-    const processedFeatures = findRelatedProcessedFeatures(type, id, currentMapData);
-    const processedType = type === 'los' ? 'processed_los' :
-        type === 'visibility' ? 'processed_visibility' : null;
-
-    if (processedType && processedFeatures.length > 0) {
-        removeProcessedFeaturesFromData(processedType, processedFeatures, currentMapData);
-    }
-
-    // Salvar alterações
-    await mapStore.setItem(memoryStore.currentMap, currentMapData);
-
-    // Registrar ação para undo/redo
-    recordAction({
-        type: 'removeWithProcessed',
-        mainFeatureType: type,
-        mainFeature: JSON.parse(JSON.stringify(mainFeature)),
-        processedFeatures: processedFeatures.length > 0 ? {
-            type: processedType,
-            features: JSON.parse(JSON.stringify(processedFeatures))
-        } : null
-    });
-
-    // ROBUST DELETION: Verify and retry if needed (mantido para compatibilidade)
-    setTimeout(async () => {
-        try {
-            // Verify deletion
-            const verifyMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-            const stillExists = verifyMapData.features[type].some(f => f.properties.id === id);
-
-            if (stillExists) {
-                // Retry deletion
-                const retryMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-                const retryIndex = retryMapData.features[type].findIndex(f => f.properties.id === id);
-
-                if (retryIndex !== -1) {
-                    retryMapData.features[type].splice(retryIndex, 1);
-                    await mapStore.setItem(memoryStore.currentMap, retryMapData);
-                }
-            }
-        } catch (error) {
-            console.error(`Robust deletion verification failed for ${type} ${id}:`, error);
-        }
-    }, 500);
-};
-
-export const addFeatureSilent = async (type, feature) => {
-    const cleanedFeature = cleanFeature(feature);
-    if (!cleanedFeature) return;
-
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    currentMapData.features[type].push(cleanedFeature);
-    await mapStore.setItem(memoryStore.currentMap, currentMapData);
-    // SEM recordAction - não vai para undo stack
-};
-
-export const removeFeatureSilent = async (type, id) => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id == id);
-
-    if (featureIndex !== -1) {
-        currentMapData.features[type].splice(featureIndex, 1);
-        await mapStore.setItem(memoryStore.currentMap, currentMapData);
-    }
-    // SEM recordAction - não vai para undo stack
-};
-
-// Operação em lote para LOS
-export const batchUpdateLOSFeatures = async (losFeature, processedFeatures) => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
 
     // 1. Atualizar LOS principal
     const losIndex = currentMapData.features.los.findIndex(f => f.properties.id === losFeature.properties.id);
@@ -593,20 +695,23 @@ export const batchUpdateLOSFeatures = async (losFeature, processedFeatures) => {
         currentMapData.features.processed_los.push(...cleanedProcessed);
 
         // 4. Salvar uma única vez
-        await mapStore.setItem(memoryStore.currentMap, currentMapData);
+        await updateMapData(targetMap, currentMapData);
 
-        // 5. Registrar no undo apenas a mudança principal
-        recordAction({
-            type: 'update',
-            featureType: 'los',
-            oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-            newFeature: JSON.parse(JSON.stringify(cleanFeature(losFeature)))
-        });
+        // 5. Registrar no undo apenas a mudança principal (se é mapa atual)
+        if (!mapName || mapName === getCurrentMapNameSync()) {
+            mapManager.recordAction({
+                type: 'update',
+                featureType: 'los',
+                oldFeature: JSON.parse(JSON.stringify(oldFeature)),
+                newFeature: JSON.parse(JSON.stringify(cleanFeature(losFeature)))
+            });
+        }
     }
 };
 
-export const batchUpdateVisibilityFeatures = async (visibilityFeature, processedFeatures) => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+export const batchUpdateVisibilityFeatures = async (visibilityFeature, processedFeatures, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
 
     // 1. Atualizar Visibility principal
     const visIndex = currentMapData.features.visibility.findIndex(f => f.properties.id === visibilityFeature.properties.id);
@@ -624,134 +729,53 @@ export const batchUpdateVisibilityFeatures = async (visibilityFeature, processed
         currentMapData.features.processed_visibility.push(...cleanedProcessed);
 
         // 4. Salvar uma única vez
-        await mapStore.setItem(memoryStore.currentMap, currentMapData);
+        await updateMapData(targetMap, currentMapData);
 
-        // 5. Registrar no undo apenas a mudança principal
-        recordAction({
-            type: 'update',
-            featureType: 'visibility',
-            oldFeature: JSON.parse(JSON.stringify(oldFeature)),
-            newFeature: JSON.parse(JSON.stringify(cleanFeature(visibilityFeature)))
-        });
-    }
-};
-
-export const addMap = async (mapName, mapData = null) => {
-    const newMapData = mapData || getEmptyMapData();
-    await mapStore.setItem(mapName, newMapData);
-
-    // Adicionar stack em memória
-    memoryStore.maps[mapName] = {
-        undoStack: [],
-        redoStack: []
-    };
-};
-
-export const removeMap = async (mapName) => {
-    // Validação: Verificar se o mapa existe
-    const mapData = await mapStore.getItem(mapName);
-    if (!mapData) {
-        console.warn(`Tentativa de remover mapa inexistente: ${mapName}`);
-        return { success: false, reason: 'MAP_NOT_FOUND' };
-    }
-
-    // Verificar se é o mapa atual
-    const currentMapName = await getCurrentMapName();
-    const isCurrentMap = mapName === currentMapName;
-
-    // Verificar quantos mapas restam
-    const allMaps = await getAllMapNames();
-    const remainingMaps = allMaps.filter(name => name !== mapName);
-
-    // Remover do storage
-    await mapStore.removeItem(mapName);
-    delete memoryStore.maps[mapName];
-
-    // Se era o mapa atual, atualizar referências
-    if (isCurrentMap) {
-        if (remainingMaps.length > 0) {
-            // Trocar para outro mapa disponível
-            const newCurrentMap = remainingMaps[0];
-            await setCurrentMap(newCurrentMap);
-        } else {
-            // Último mapa removido - criar novo mapa Principal
-            await addMap('Principal');
-            await setCurrentMap('Principal');
-        }
-    }
-
-    return {
-        success: true,
-        wasCurrentMap: isCurrentMap,
-        remainingMapsCount: remainingMaps.length,
-        newCurrentMap: isCurrentMap ? (remainingMaps.length > 0 ? remainingMaps[0] : 'Principal') : currentMapName
-    };
-};
-
-export const renameMap = async (oldName, newName) => {
-    const mapData = await mapStore.getItem(oldName);
-    if (mapData) {
-        await mapStore.setItem(newName, mapData);
-        await mapStore.removeItem(oldName);
-
-        // Atualizar memória
-        memoryStore.maps[newName] = memoryStore.maps[oldName];
-        delete memoryStore.maps[oldName];
-
-        if (memoryStore.currentMap === oldName) {
-            memoryStore.currentMap = newName;
+        // 5. Registrar no undo apenas a mudança principal (se é mapa atual)
+        if (!mapName || mapName === getCurrentMapNameSync()) {
+            mapManager.recordAction({
+                type: 'update',
+                featureType: 'visibility',
+                oldFeature: JSON.parse(JSON.stringify(oldFeature)),
+                newFeature: JSON.parse(JSON.stringify(cleanFeature(visibilityFeature)))
+            });
         }
     }
 };
 
-export const setCurrentMap = async (mapName) => {
-    memoryStore.currentMap = mapName;
-    // Persistir último mapa ativo
-    await setLastActiveMap(mapName);
+// ===== MAP CONFIGURATION =====
 
-    // Criar entrada no memoryStore se não existir
-    if (!memoryStore.maps[mapName]) {
-        memoryStore.maps[mapName] = {
-            undoStack: [],
-            redoStack: []
-        };
-    }
-};
-
-// Carregar dados do IndexedDB para as layers
-export const getCurrentMapFeatures = async () => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    return JSON.parse(JSON.stringify(currentMapData.features));
-};
-
-export const getCurrentBaseLayer = async () => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+export const getCurrentBaseLayer = async (mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
     return currentMapData.baseLayer;
 };
 
-export const setBaseLayer = async (layer) => {
-  // Validar se o basemap está habilitado na configuração
-  if (!config.basemaps[layer]?.enabled) {
-    const fallback = config.getValidBasemapFallback();
-    console.warn(`Base layer "${layer}" não habilitado. Usando "${fallback}".`);
-    layer = fallback;
-  }
-  
-  const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-  currentMapData.baseLayer = layer;
-  await mapStore.setItem(memoryStore.currentMap, currentMapData);
+export const setBaseLayer = async (layer, mapName = null) => {
+    // Validar se o basemap está habilitado na configuração
+    if (!config.basemaps[layer]?.enabled) {
+        const fallback = config.getValidBasemapFallback();
+        console.warn(`Base layer "${layer}" não habilitado. Usando "${fallback}".`);
+        layer = fallback;
+    }
+
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    currentMapData.baseLayer = layer;
+    await updateMapData(targetMap, currentMapData);
 };
 
-export const updateMapPosition = async (center_lat, center_long, zoom) => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
+export const updateMapPosition = async (center_lat, center_long, zoom, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
     currentMapData.center_lat = center_lat;
     currentMapData.center_long = center_long;
     currentMapData.zoom = zoom;
-    await mapStore.setItem(memoryStore.currentMap, currentMapData);
+    await updateMapData(targetMap, currentMapData);
 };
 
 export const getMapPosition = async (mapName) => {
-    const currentMapData = await mapStore.getItem(mapName) || getEmptyMapData();
+    const currentMapData = await getMapData(mapName);
     return {
         center_lat: currentMapData.center_lat,
         center_long: currentMapData.center_long,
@@ -766,295 +790,139 @@ export const hasMapSavedPosition = async (mapName = null) => {
         position.zoom !== null;
 };
 
-// Funções para listar mapas
-export const getAllMapNames = async () => {
-    return await mapStore.keys();
-};
-
-// ===== NOVAS FUNÇÕES PARA HILLSHADE =====
-
-/**
- * Obtém o estado do hillshade para um mapa específico
- * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
- * @returns {boolean} - true se habilitado, false se desabilitado
- */
-export const getMapHillshadeState = async (mapName = null) => {
-    const targetMap = mapName || memoryStore.currentMap;
-    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
-    return mapData.hillshadeEnabled ?? true; // Default true
-};
-
-/**
- * Define o estado do hillshade para um mapa específico
- * @param {boolean} enabled - true para habilitar, false para desabilitar
- * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
- */
-export const setMapHillshadeState = async (enabled, mapName = null) => {
-    const targetMap = mapName || memoryStore.currentMap;
-    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
-    mapData.hillshadeEnabled = enabled;
-    await mapStore.setItem(targetMap, mapData);
-};
-
-// ===== FIM DAS FUNÇÕES HILLSHADE =====
-
-// Undo/Redo functions
-export const undoLastAction = async () => {
-    const currentMap = memoryStore.maps[memoryStore.currentMap];
-    const lastAction = currentMap.undoStack.pop();
-    if (!lastAction) return false;
-
-    memoryStore.isUndoing = true;
-    currentMap.redoStack.push(lastAction);
-    try {
-        switch (lastAction.type) {
-            case 'add':
-                await removeFeature(lastAction.featureType, lastAction.feature.properties.id);
-                break;
-            case 'update':
-                await updateFeature(lastAction.featureType, lastAction.oldFeature);
-                break;
-            case 'remove':
-                await addFeature(lastAction.featureType, lastAction.feature);
-                break;
-            case 'removeWithProcessed':
-                // Restaurar feature principal
-                await addFeature(lastAction.mainFeatureType, lastAction.mainFeature);
-                // Restaurar features processadas se houver
-                if (lastAction.processedFeatures) {
-                    for (const pf of lastAction.processedFeatures.features) {
-                        await addFeature(lastAction.processedFeatures.type, pf);
-                    }
-                }
-                break;
-            case 'addMultiple':
-                for (const [type, features] of Object.entries(lastAction.features)) {
-                    for (const feature of features) {
-                        await removeFeature(type, feature.properties.id);
-                    }
-                }
-                break;
-            case 'moveBetweenMaps':
-                // UNDO: Mover features de volta (destino → origem)
-                for (const [type, typeOps] of Object.entries(lastAction.movedFeatures)) {
-                    for (const featureOp of typeOps.mainFeatures) {
-                        // Remover do destino
-                        await removeFeatureFromMap(type, featureOp.feature.properties.id, lastAction.targetMapName);
-
-                        // Restaurar na origem
-                        await addFeatureToMap(type, featureOp.removedData.mainFeature, lastAction.sourceMapName);
-
-                        // Restaurar processadas se houver
-                        if (featureOp.removedData.processedFeatures) {
-                            for (const pf of featureOp.removedData.processedFeatures.features) {
-                                await addFeatureToMap(featureOp.removedData.processedFeatures.type, pf, lastAction.sourceMapName);
-                            }
-                        }
-                    }
-                }
-                break;
-            default:
-                break;
-        }
-    } finally {
-        memoryStore.isUndoing = false;
-    }
-
-    return true;
-};
-
-export const redoLastAction = async () => {
-    const currentMap = memoryStore.maps[memoryStore.currentMap];
-    const lastUndoneAction = currentMap.redoStack.pop();
-    if (!lastUndoneAction) return false;
-
-    memoryStore.isRedoing = true;
-    currentMap.undoStack.push(lastUndoneAction);
-
-    try {
-        switch (lastUndoneAction.type) {
-            case 'add':
-                await addFeature(lastUndoneAction.featureType, lastUndoneAction.feature);
-                break;
-            case 'update':
-                await updateFeature(lastUndoneAction.featureType, lastUndoneAction.newFeature);
-                break;
-            case 'remove':
-                await removeFeature(lastUndoneAction.featureType, lastUndoneAction.feature.properties.id);
-                break;
-            case 'removeWithProcessed':
-                // Remover feature principal (que automaticamente remove processadas)
-                await removeFeature(lastUndoneAction.mainFeatureType, lastUndoneAction.mainFeature.properties.id);
-                break;
-            case 'addMultiple':
-                for (const [type, features] of Object.entries(lastUndoneAction.features)) {
-                    for (const feature of features) {
-                        await addFeature(type, feature);
-                    }
-                }
-                break;
-            case 'moveBetweenMaps':
-                // REDO: Refazer o movimento (origem → destino)
-                for (const [type, typeOps] of Object.entries(lastUndoneAction.movedFeatures)) {
-                    for (const featureOp of typeOps.mainFeatures) {
-                        // Remover da origem
-                        await removeFeatureFromMap(type, featureOp.removedData.mainFeature.properties.id, lastUndoneAction.sourceMapName);
-
-                        // Adicionar no destino
-                        await addFeatureToMap(type, featureOp.feature, lastUndoneAction.targetMapName);
-
-                        // Adicionar processadas se houver
-                        if (featureOp.removedData.processedFeatures) {
-                            for (const pf of featureOp.removedData.processedFeatures.features) {
-                                await addFeatureToMap(featureOp.removedData.processedFeatures.type, pf, lastUndoneAction.targetMapName);
-                            }
-                        }
-                    }
-                }
-                break;
-            default:
-                break;
-        }
-    } finally {
-        memoryStore.isRedoing = false;
-    }
-
-    return true;
-};
-
-export const addFeatures = async (featuresMap) => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-
-    // Criar uma única ação para o histórico
-    const action = {
-        type: 'addMultiple',
-        features: {}
-    };
-
-    // Adicionar cada tipo de feature
-    Object.keys(featuresMap).forEach(type => {
-        const features = featuresMap[type] || [];
-        if (features.length > 0) {
-            const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
-            currentMapData.features[type].push(...cleanedFeatures);
-            action.features[type] = JSON.parse(JSON.stringify(cleanedFeatures));
-        }
-    });
-
-    // Salvar no IndexedDB
-    await mapStore.setItem(memoryStore.currentMap, currentMapData);
-
-    // Registrar ação no histórico apenas se houve alterações
-    if (Object.keys(action.features).length > 0) {
-        recordAction(action);
-    }
-};
-
 export const clearMapPosition = async (mapName = null) => {
-    const targetMapName = mapName || memoryStore.currentMap;
-    const currentMapData = await mapStore.getItem(targetMapName) || getEmptyMapData();
+    const targetMapName = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMapName);
 
     // Limpar a posição salva definindo como null
     currentMapData.center_lat = null;
     currentMapData.center_long = null;
     currentMapData.zoom = null;
 
-    await mapStore.setItem(targetMapName, currentMapData);
+    await updateMapData(targetMapName, currentMapData);
 };
 
-export const updateFeatureProperty = async (featureType, featureId, property, value) => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    const feature = currentMapData.features[featureType].find(f => f.properties.id === featureId);
+// ===== HILLSHADE MANAGEMENT =====
 
-    if (!feature) {
-        console.warn(`Feature ${featureId} não encontrada em ${featureType}`);
-        return false;
-    }
-
-    feature.properties[property] = value;
-
-    await mapStore.setItem(memoryStore.currentMap, currentMapData);
-
-    return true;
+export const getMapHillshadeState = async (mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const mapData = await getMapData(targetMap);
+    return mapData.hillshadeEnabled ?? true; // Default true
 };
 
-export const getFeatureById = async (featureType, featureId) => {
-    const currentMapData = await mapStore.getItem(memoryStore.currentMap) || getEmptyMapData();
-    return currentMapData.features[featureType].find(f => f.properties.id === featureId);
+export const setMapHillshadeState = async (enabled, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const mapData = await getMapData(targetMap);
+    mapData.hillshadeEnabled = enabled;
+    await updateMapData(targetMap, mapData);
 };
 
-/**
- * Obtém o estado de uma analysis layer específica para um mapa
- * @param {string} layerId - ID da layer (definido no config)
- * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
- * @returns {boolean} - true se habilitado, false se desabilitado
- */
+// ===== ANALYSIS LAYERS MANAGEMENT =====
+
 export const getMapAnalysisLayerState = async (layerId, mapName = null) => {
-    const targetMap = mapName || memoryStore.currentMap;
-    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
-    
+    const targetMap = mapName || getCurrentMapNameSync();
+    const mapData = await getMapData(targetMap);
+
     // Inicializar analysisLayers se não existir
     if (!mapData.analysisLayers) {
         mapData.analysisLayers = {};
     }
-    
+
     // Retornar estado salvo ou defaultVisibility do config
     return mapData.analysisLayers[layerId] ?? false; // Default false se não especificado
 };
 
-/**
- * Define o estado de uma analysis layer específica para um mapa
- * @param {string} layerId - ID da layer (definido no config)
- * @param {boolean} enabled - true para habilitar, false para desabilitar
- * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
- */
 export const setMapAnalysisLayerState = async (layerId, enabled, mapName = null) => {
-    const targetMap = mapName || memoryStore.currentMap;
-    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
-    
+    const targetMap = mapName || getCurrentMapNameSync();
+    const mapData = await getMapData(targetMap);
+
     // Inicializar analysisLayers se não existir
     if (!mapData.analysisLayers) {
         mapData.analysisLayers = {};
     }
-    
+
     mapData.analysisLayers[layerId] = enabled;
-    await mapStore.setItem(targetMap, mapData);
+    await updateMapData(targetMap, mapData);
 };
 
-/**
- * Obtém todos os estados das analysis layers para um mapa
- * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
- * @returns {object} - Objeto com estados das layers { layerId: boolean }
- */
 export const getMapAnalysisLayersStates = async (mapName = null) => {
-    const targetMap = mapName || memoryStore.currentMap;
-    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
-    
+    const targetMap = mapName || getCurrentMapNameSync();
+    const mapData = await getMapData(targetMap);
+
     return mapData.analysisLayers || {};
 };
 
-/**
- * Define múltiplos estados de analysis layers de uma vez
- * @param {object} layersStates - Objeto com estados { layerId: boolean }
- * @param {string} mapName - Nome do mapa (opcional, usa mapa atual se não especificado)
- */
 export const setMapAnalysisLayersStates = async (layersStates, mapName = null) => {
-    const targetMap = mapName || memoryStore.currentMap;
-    const mapData = await mapStore.getItem(targetMap) || getEmptyMapData();
-    
+    const targetMap = mapName || getCurrentMapNameSync();
+    const mapData = await getMapData(targetMap);
+
     // Inicializar analysisLayers se não existir
     if (!mapData.analysisLayers) {
         mapData.analysisLayers = {};
     }
-    
+
     // Merge dos estados
     Object.assign(mapData.analysisLayers, layersStates);
-    await mapStore.setItem(targetMap, mapData);
+    await updateMapData(targetMap, mapData);
 };
 
-// Exportar stores para uso direto quando necessário
-export { mapStore, imageStore, appStore, SCHEMA_VERSION, MIN_SCHEMA_VERSION, MAX_SCHEMA_VERSION };
+// ===== IMAGE MANAGEMENT =====
 
-// Manter compatibilidade com código existente
-const store = memoryStore;
-export default store;
+export const storeImage = async (imageId, blob) => {
+    await storeImageData(imageId, blob);
+};
+
+export const getImage = async (imageId) => {
+    return await getImageData(imageId);
+};
+
+export const removeImage = async (imageId) => {
+    await removeImageData(imageId);
+};
+
+export const hasImage = async (imageId) => {
+    return await hasImageData(imageId);
+};
+
+// ===== UNDO/REDO SYSTEM =====
+
+export const undoLastAction = async () => {
+    const executeFunction = {
+        addFeature,
+        updateFeature,
+        removeFeature,
+        addFeatureToMap,
+        removeFeatureFromMap
+    };
+
+    return await mapManager.undoLastAction(executeFunction);
+};
+
+export const redoLastAction = async () => {
+    const executeFunction = {
+        addFeature,
+        updateFeature,
+        removeFeature,
+        addFeatureToMap,
+        removeFeatureFromMap
+    };
+
+    return await mapManager.redoLastAction(executeFunction);
+};
+
+// ===== CLEANUP OPERATIONS =====
+
+export const clearAllDataStore = async () => {
+    resetMemoryStore();
+    await clearAllImageData();
+    await clearAllAppSettings();
+    await setAppSetting('schemaVersion', SCHEMA_VERSION);
+};
+
+// ===== LEGACY COMPATIBILITY EXPORTS =====
+
+// Exportar constantes para compatibilidade
+export { SCHEMA_VERSION, MIN_SCHEMA_VERSION, MAX_SCHEMA_VERSION };
+
+// Exportar utilities para componentes que ainda precisam
+export { compareVersions, cleanFeature, isInternalProperty };

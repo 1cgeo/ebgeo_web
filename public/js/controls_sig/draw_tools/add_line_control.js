@@ -1,46 +1,67 @@
 // Path: js\controls_sig\draw_tools\add_line_control.js
+
 import { addFeature, updateFeature, removeFeature } from '../store/store.js';
-import { getTerrainElevation } from '../terrain_control.js';
 import { IDUtils } from '../id_utils.js';
+import { addLineAttributesToPanel } from './line_attributes_panel.js';
+import { getTerrainElevation } from '../terrain_control.js';
+import AddLineGeometry from './add_line_geometry.js';
+import BaseControl from '../tool_manager/base_control.js';
 
-class AddLineControl {
-    static MIN_DISTANCE_METERS = 5;
-
+class AddLineControl extends BaseControl {
     constructor(toolManager) {
-        this.toolManager = toolManager;
-        this.selectionManager = toolManager.selectionManager;
+        super(toolManager);
 
-        // Core state
-        this.isActive = false;
-        this.selectedFeature = null;
+        // State management
         this.drawPoints = [];
         this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.activeHandleType = null;
+        this.activeHandle = null;      // Store complete handle object
+        this.activeHandleType = null;  // Handle type string
 
-        // RAF system
+        // Geometry handler
+        this.geometry = new AddLineGeometry();
+
+        // Performance optimization - RAF system
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
-        this.lastPreviewPoints = null;
         this.geometryDebounceTimer = null;
     }
 
     static DEFAULT_PROPERTIES = {
         color: '#fbb03b',
-        opacity: 0.7,
         size: 7,
+        opacity: 0.7,
+        outlinecolor: '#fbb03b',
         lineStyle: 'solid',
         measure: false,
         profile: false,
         profileData: null,
         source: 'line',
-        baseCoordinates: [],
         nome: '',
         descricao: '',
         visivel: true,
         bloqueado: false
     };
+
+    // ===== SINGLE SOURCE OF TRUTH =====
+
+    /**
+     * Get currently selected line feature from SelectionManager
+     * @returns {Object|null} Selected line feature or null
+     */
+    getSelectedFeature() {
+        const selectedItems = this.selectionManager.getSelectedFeaturesByType('line');
+        return selectedItems.length > 0 ? selectedItems[0].feature : null;
+    }
+
+    /**
+     * Get all selected line features from SelectionManager
+     * @returns {Array} Array of selected line features
+     */
+    getSelectedFeatures() {
+        return this.selectionManager.getSelectedFeaturesByType('line')
+            .map(item => item.feature);
+    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -65,9 +86,7 @@ class AddLineControl {
 
     onRemove = () => {
         try {
-            if (this.selectionManager && this.selectionManager.uiManager) {
-                this.selectionManager.uiManager.removeControl(this.container);
-            }
+            this.selectionManager.uiManager.removeControl(this.container);
             this.deactivate();
             this.removeAllEventListeners();
             this.map = undefined;
@@ -77,48 +96,361 @@ class AddLineControl {
         }
     }
 
+    // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
+
+    hasAttributePanel() {
+        return true;
+    }
+
+    createAttributePanel(container, features, selectionManager, uiManager) {
+        const sectionPanel = document.createElement('div');
+        sectionPanel.className = 'line-attributes-section';
+
+        try {
+            addLineAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            container.appendChild(sectionPanel);
+        } catch (error) {
+            console.error('Error creating line attribute panel:', error);
+        }
+    }
+
+    getDragSources() {
+        return ['lines'];
+    }
+
+    getEditHandleSources() {
+        return ['line-edit-handles'];
+    }
+
+    createSelectionBox(feature) {
+        try {
+            const bbox = turf.bbox(feature);
+            const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding());
+            return turf.bboxPolygon(expandedBbox);
+        } catch (error) {
+            console.warn('Error creating line selection box:', error);
+            return null;
+        }
+    }
+
+    getSelectionBoxStrategy() {
+        return 'bbox';
+    }
+
+    getSelectionBoxPadding() {
+        return 8; // Slightly larger padding for lines
+    }
+
+    getLayerIds() {
+        return ['line-layer'];
+    }
+
+    getSourceNames() {
+        return ['lines'];
+    }
+
+    getEditHandleSource() {
+        return 'line-edit-handles';
+    }
+
+    canCopy(feature) {
+        return true;
+    }
+
+    canPaste(feature) {
+        return true;
+    }
+
+    prepareForPaste(feature, offset) {
+        const coordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+        const newCoordinates = this.geometry.applyOffset(coordinates, offset.dx, offset.dy);
+
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                baseCoordinates: newCoordinates
+            },
+            geometry: this.geometry.generate(newCoordinates)
+        };
+    }
+
+    calculateMoveOffset(feature, referencePoint) {
+        const centerPoint = this.geometry.getCenter(
+            this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates)
+        );
+        if (!centerPoint) {
+            return [0, 0];
+        }
+
+        return [
+            centerPoint[0] - referencePoint.lng,
+            centerPoint[1] - referencePoint.lat
+        ];
+    }
+
+    updateFeatureForMove(feature, dx, dy, newCoords) {
+        const coordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+        const newCoordinates = this.geometry.applyOffset(coordinates, dx, dy);
+
+        const updatedFeature = {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                baseCoordinates: newCoordinates
+            },
+            geometry: this.geometry.generate(newCoordinates)
+        };
+
+        return updatedFeature;
+    }
+
+    canMove(feature) {
+        return !feature.properties?.bloqueado;
+    }
+
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick); // NEW
         this.updateButtonAppearance();
+        this.setupRightClickListener();
     }
 
-    // MODIFY: deactivate
     deactivate = () => {
         this.isActive = false;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
-        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick); // NEW
         this.updateButtonAppearance();
         this.clearPreview();
+        this.removeRightClickListener();
         this.deselectFeature();
     }
-
 
     updateButtonAppearance = () => {
         const iconSrc = this.isActive ?
             './images/icon_line_red.svg' :
             './images/icon_line_black.svg';
-        $(`#line-tool`).html(`<img class="icon-sig-tool" src="${iconSrc}" alt="LINE" />`);
+        $("#line-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="LINE" />`);
     }
 
-    // ===== SIMPLIFIED STATE MANAGEMENT =====
+    // ===== SELECTION SYSTEM INTEGRATION =====
+
+    onFeatureSelected = (feature) => {
+        this.selectFeature(feature);
+    }
+
+    onFeatureDeselected = (feature) => {
+        const selectedFeature = this.getSelectedFeature();
+        const featureId = feature.properties.id;
+        if (selectedFeature && selectedFeature.properties.id === featureId) {
+            this.deselectFeature();
+        }
+    }
+
+    onGlobalDeselect = () => {
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature) {
+            this.deselectFeature();
+        }
+    }
+
+    isEditingMode = () => {
+        return false;
+    }
+
+    hasEditHandle = (featureId) => {
+        const selectedFeature = this.getSelectedFeature();
+        return selectedFeature && selectedFeature.properties.id === featureId;
+    }
+
+    syncEditHandlesAfterDrag = (movedFeatures) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            // Always recreate handles with current feature data
+            this.createEditHandles(selectedFeature);
+        }
+    }
+
+    // ===== DRAWING SYSTEM =====
+
+    handleMapClick = (e) => {
+        if (!this.isActive) return;
+
+        if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
+            console.warn('Invalid coordinates for line');
+            return;
+        }
+
+        const newPoint = [e.lngLat.lng, e.lngLat.lat];
+
+        // Check if point is too close to last point
+        if (this.geometry.isPointTooClose(newPoint, this.drawPoints)) {
+            return;
+        }
+
+        this.drawPoints.push(newPoint);
+
+        if (this.drawPoints.length === 1) {
+            this.map.on('mousemove', this.handlePreviewMouseMove);
+        } else if (this.drawPoints.length >= 2) {
+            // Update preview to show current line
+            this.updateDrawingPreview();
+        }
+    }
+
+    setupRightClickListener = () => {
+        this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
+    }
+
+    removeRightClickListener = () => {
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
+    }
+
+    handleRightClick = (e) => {
+        if (!this.isActive || this.drawPoints.length === 0) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
+        const finalPoint = [coordinates.lng, coordinates.lat];
+
+        if (!this.geometry.isPointTooClose(finalPoint, this.drawPoints)) {
+            this.drawPoints.push(finalPoint);
+        }
+
+        // Finish line if we have at least 2 points
+        if (this.drawPoints.length >= 2) {
+            this.map.off('mousemove', this.handlePreviewMouseMove);
+            this.createFeature();
+            this.toolManager.deactivateCurrentTool();
+        }
+    }
+
+    handlePreviewMouseMove = (e) => {
+        if (this.drawPoints.length >= 1) {
+            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+
+            if (!this.pendingPreviewUpdate) {
+                this.pendingPreviewUpdate = true;
+                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
+            }
+        }
+    }
+
+    performPreviewUpdate = () => {
+        if (!this.lastPreviewPosition) {
+            this.pendingPreviewUpdate = false;
+            return;
+        }
+
+        const selectedFeature = this.getSelectedFeature();
+        if (this.isDraggingHandle && selectedFeature) {
+            this.updateLinePreview(this.lastPreviewPosition);
+        } else if (this.drawPoints.length >= 1) {
+            this.updateDrawingPreview();
+        }
+
+        this.pendingPreviewUpdate = false;
+    }
+
+    updateDrawingPreview = () => {
+        if (this.drawPoints.length === 0) return;
+
+        let previewCoords = [...this.drawPoints];
+        if (this.lastPreviewPosition) {
+            previewCoords.push(this.lastPreviewPosition);
+        }
+
+        if (previewCoords.length >= 2) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = setTimeout(() => {
+                const previewGeometry = this.geometry.generate(previewCoords);
+                this.showPreview(previewGeometry);
+            }, 8);
+        }
+    }
+
+    showPreview = (geometry) => {
+        this.map.getSource('line-feedback').setData({
+            type: 'Feature',
+            geometry: geometry,
+            properties: {
+                isPreview: true,
+                color: AddLineControl.DEFAULT_PROPERTIES.color,
+                size: AddLineControl.DEFAULT_PROPERTIES.size,
+                opacity: 0.7
+            }
+        });
+    }
+
+    clearPreview = () => {
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.cancelPendingUpdates();
+        if (this.map && this.map.getSource('line-feedback')) {
+            this.map.getSource('line-feedback').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
+    }
+
+    createFeature = async () => {
+        if (!this.geometry.validate(this.drawPoints)) {
+            alert('Linha deve ter pelo menos 2 pontos válidos');
+            this.drawPoints = [];
+            return;
+        }
+
+        const featureId = IDUtils.generateUniqueId();
+        const featureName = IDUtils.generateFeatureName('line', this.map);
+        const coordinates = [...this.drawPoints];
+
+        const feature = {
+            type: 'Feature',
+            id: Date.now().toString(),
+            properties: {
+                ...AddLineControl.DEFAULT_PROPERTIES,
+                id: featureId,
+                nome: featureName,
+                baseCoordinates: coordinates,
+                profileData: JSON.stringify(await this.calculateProfile(coordinates))
+            },
+            geometry: this.geometry.generate(coordinates)
+        };
+
+        try {
+            await addFeature('lines', feature);
+
+            const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
+            data.features.push(feature);
+            this.map.getSource('lines').setData(data);
+
+            this.drawPoints = [];
+            this.toolManager.setActiveTool(null);
+            this.selectionManager.toggleFeatureSelection('line', featureId, feature);
+            this.selectionManager.updateUI();
+
+            this.updateFeatureMeasurement(feature);
+        } catch (error) {
+            console.error('Error creating line:', error);
+        }
+    }
+
+    // ===== EDIT HANDLES SYSTEM =====
 
     selectFeature = (feature) => {
-        this.selectedFeature = feature;
         this.createEditHandles(feature);
         this.setupEditEventListeners();
         this.setupHoverListeners();
     }
 
     deselectFeature = () => {
-        this.selectedFeature = null;
         this.isDraggingHandle = false;
-        this.activeHandle = null;
+        this.activeHandle = null;         // Reset handle object
         this.activeHandleType = null;
         this.clearEditHandles();
         this.removeEditEventListeners();
@@ -128,24 +460,189 @@ class AddLineControl {
         this.map.getCanvas().style.cursor = '';
     }
 
-    cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
-        this.lastPreviewPosition = null;
-        this.lastPreviewPoints = null;
-        this.activeHandle = null;
-        this.activeHandleType = null;
+    createEditHandles = (feature) => {
+        const handles = this.geometry.createHandles(feature);
+        if (!handles || handles.length === 0) return;
 
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
+        // Show selection feedback
+        this.map.getSource('line-feedback').setData({
+            type: 'Feature',
+            geometry: feature.geometry,
+            properties: {
+                ...feature.properties,
+                isSelected: true
+            }
+        });
+
+        // Show handles
+        this.map.getSource('line-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: handles
+        });
+    }
+
+    clearEditHandles = () => {
+        this.map.getSource('line-edit-handles').setData({
+            type: 'FeatureCollection',
+            features: []
+        });
+        this.map.getSource('line-feedback').setData({
+            type: 'FeatureCollection',
+            features: []
+        });
+    }
+
+    setupEditEventListeners = () => {
+        this.map.on('mousedown', this.onEditMouseDown);
+        this.map.on('mousemove', this.onEditMouseMove);
+        this.map.on('mouseup', this.onEditMouseUp);
+    }
+
+    removeEditEventListeners = () => {
+        this.map.off('mousedown', this.onEditMouseDown);
+        this.map.off('mousemove', this.onEditMouseMove);
+        this.map.off('mouseup', this.onEditMouseUp);
+    }
+
+    onEditMouseDown = (e) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
+
+        const handleFeatures = this.map.queryRenderedFeatures(e.point, {
+            layers: ['line-edit-handles-layer']
+        });
+
+        if (handleFeatures.length > 0) {
+            const handle = handleFeatures[0];
+            this.isDraggingHandle = true;
+            this.activeHandle = handle;                           // Store complete handle object
+            this.activeHandleType = handle.properties.handleId;   // Store handleId (like "vertex-0", "midpoint-1")
+            this.map.dragPan.disable();
+            this.map.getCanvas().style.cursor = 'grabbing';
+            e.preventDefault();
         }
     }
 
-    // ===== HOVER SYSTEM FOR DYNAMIC CURSOR =====
+    onEditMouseMove = (e) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!this.isDraggingHandle || !selectedFeature) return;
+
+        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
+        }
+    }
+
+    onEditMouseUp = () => {
+        const selectedFeature = this.getSelectedFeature();
+        if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
+            // Apply geometry changes directly (like Arrow Tool)
+            this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
+            
+            // Get updated coordinates from feature
+            const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
+            const result = this.geometry.updateFromHandle(this.activeHandleType, this.lastPreviewPosition, selectedFeature);
+
+            if (result) {
+                // Create updated feature
+                const updatedFeature = {
+                    ...selectedFeature,
+                    properties: {
+                        ...selectedFeature.properties,
+                        baseCoordinates: result.baseCoordinates
+                    },
+                    geometry: result.geometry
+                };
+
+                this.forceUpdateMainSource(updatedFeature);
+                this.updateSelectionManagerFeature(updatedFeature);
+                this.createEditHandles(updatedFeature);
+                this.updateUIAfterEdit();
+                this.saveFeatureChanges(updatedFeature);
+                this.updateFeatureMeasurement(updatedFeature);
+            }
+        }
+
+        this.isDraggingHandle = false;
+        this.activeHandle = null;
+        this.activeHandleType = null;
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    updateLinePreview = (newPosition) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature || !this.activeHandleType || !this.isDraggingHandle) {
+            return;
+        }
+
+        // Update geometry in feature directly (like Arrow Tool)
+        this.updateGeometryFromHandle(this.activeHandleType, newPosition);
+
+        // Calculate preview
+        const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
+        const preview = this.geometry.calculatePreview(this.activeHandleType, newPosition, selectedFeature);
+
+        if (preview) {
+            // Show updated selection
+            this.map.getSource('line-feedback').setData({
+                type: 'Feature',
+                geometry: preview.geometry,
+                properties: {
+                    ...selectedFeature.properties,
+                    isSelected: true
+                }
+            });
+
+            // Update handles
+            this.map.getSource('line-edit-handles').setData({
+                type: 'FeatureCollection',
+                features: preview.handles
+            });
+        }
+    }
+
+    // Handle conversion logic (like Arrow Tool)
+    updateGeometryFromHandle = (handleId, newPosition) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
+
+        let coords = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
+        if (!coords || coords.length < 2) return;
+
+        coords = [...coords]; // Create copy
+
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            if (handleId.startsWith('vertex-')) {
+                // Move existing vertex
+                const index = parseInt(handleId.split('-')[1]);
+                if (index >= 0 && index < coords.length) {
+                    coords[index] = newPosition;
+                    selectedFeature.properties.baseCoordinates = coords;
+                }
+            } else if (handleId.startsWith('midpoint-')) {
+                // Add new vertex
+                const insertIndex = parseInt(handleId.split('-')[1]) + 1;
+                coords.splice(insertIndex, 0, newPosition);
+                selectedFeature.properties.baseCoordinates = coords;
+
+                // CRITICAL: Convert handle from midpoint → vertex
+                if (this.activeHandle && this.activeHandle.properties) {
+                    this.activeHandle.properties.handleType = 'vertex';
+                    this.activeHandle.properties.handleId = `vertex-${insertIndex}`;
+                    this.activeHandleType = `vertex-${insertIndex}`;  // Synchronize
+                }
+            }
+
+            // Update geometry
+            selectedFeature.geometry = this.geometry.generate(coords);
+        }, 8);
+    }
+
+    // ===== HOVER SYSTEM =====
 
     setupHoverListeners = () => {
         this.map.on('mousemove', this.onHoverMove);
@@ -156,7 +653,8 @@ class AddLineControl {
     }
 
     onHoverMove = (e) => {
-        if (!this.selectedFeature) return;
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
 
         const features = this.map.queryRenderedFeatures(e.point);
         const hasHandle = this.hasHandleAtPoint(features);
@@ -179,243 +677,12 @@ class AddLineControl {
     }
 
     hasSelectedFeatureAtPoint = (features) => {
-        if (!this.selectedFeature) return false;
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return false;
         return features.some(f =>
             f.source === 'lines' &&
-            f.properties.id === this.selectedFeature.properties.id
+            f.properties.id === selectedFeature.properties.id
         );
-    }
-
-    // ===== SELECTION SYSTEM INTEGRATION =====
-
-    onFeatureSelected = (feature) => {
-        if (feature?.properties?.baseCoordinates) {
-            const normalizedCoords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
-            if (normalizedCoords && normalizedCoords.length >= 2) {
-                feature.properties.baseCoordinates = normalizedCoords;
-                this.selectFeature(feature);
-            } else {
-                console.warn('Cannot select line feature - invalid coordinates:', feature.properties.baseCoordinates);
-                return;
-            }
-        } else {
-            this.selectFeature(feature);
-        }
-    }
-
-    onFeatureDeselected = (feature) => {
-        const featureId = feature.properties.id;
-        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
-            this.deselectFeature();
-        }
-    }
-
-    onGlobalDeselect = () => {
-        if (this.selectedFeature) {
-            this.deselectFeature();
-        }
-    }
-
-    // Interface for move_handler integration
-    isEditingMode = () => {
-        return false;
-    }
-
-    hasEditHandle = (featureId) => {
-        return this.selectedFeature && this.selectedFeature.properties.id === featureId;
-    }
-
-    // ✅ CORREÇÃO 3: Validação defensiva no syncEditHandlesAfterDrag
-    syncEditHandlesAfterDrag = (movedFeatures) => {
-        if (this.selectedFeature && !this.isDraggingHandle) {
-            const updatedFeature = movedFeatures.find(f =>
-                f.properties.id === this.selectedFeature.properties.id
-            );
-            if (updatedFeature) {
-                const normalizedCoords = this.normalizeBaseCoordinates(updatedFeature.properties.baseCoordinates);
-                if (normalizedCoords && normalizedCoords.length >= 2) {
-                    updatedFeature.properties.baseCoordinates = normalizedCoords;
-                    this.selectedFeature = updatedFeature;
-                    this.createEditHandles(updatedFeature);
-                } else {
-                    console.warn('Invalid coordinates in moved feature, keeping current selection');
-                }
-            }
-        }
-    }
-
-    // ===== DRAWING SYSTEM =====
-    isPointTooClose = (newPoint, existingPoints) => {
-        if (existingPoints.length === 0) return false;
-
-        const lastPoint = existingPoints[existingPoints.length - 1];
-        const distance = turf.distance(
-            turf.point(lastPoint),
-            turf.point(newPoint),
-            { units: 'meters' }
-        );
-
-        return distance < AddLineControl.MIN_DISTANCE_METERS;
-    }
-
-    handleMapClick = (e) => {
-        if (!this.isActive) return;
-
-        if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
-            console.warn('Coordenadas inválidas para linha');
-            return;
-        }
-
-        const newPoint = [e.lngLat.lng, e.lngLat.lat];
-
-        if (this.isPointTooClose(newPoint, this.drawPoints)) {
-            return;
-        }
-
-        this.drawPoints.push(newPoint);
-
-        if (this.drawPoints.length === 1) {
-            this.map.on('mousemove', this.handlePreviewMouseMove);
-        }
-    }
-
-    handleRightClick = (e) => {
-        if (!this.isActive || this.drawPoints.length === 0) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
-        const finalPoint = [coordinates.lng, coordinates.lat];
-
-        if (!this.isPointTooClose(finalPoint, this.drawPoints)) {
-            this.drawPoints.push(finalPoint);
-        }
-
-        if (this.drawPoints.length >= 2) {
-            this.map.off('mousemove', this.handlePreviewMouseMove);
-            this.createFeature();
-            this.toolManager.deactivateCurrentTool();
-        } else {
-            this.stopDrawing();
-        }
-    }
-
-    // RAF-based preview
-    handlePreviewMouseMove = (e) => {
-        if (this.drawPoints.length >= 1) {
-            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
-            this.lastPreviewPoints = [...this.drawPoints, this.lastPreviewPosition];
-
-            if (!this.pendingPreviewUpdate) {
-                this.pendingPreviewUpdate = true;
-                this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-            }
-        }
-    }
-
-    // CONSOLIDATED RAF
-    performPreviewUpdate = () => {
-        if (!this.lastPreviewPosition) {
-            this.pendingPreviewUpdate = false;
-            return;
-        }
-
-        // Edit mode - updating line geometry via handle drag
-        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
-            this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
-        }
-        // Drawing mode - showing line preview
-        else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 2) {
-            const debounceTime = 8; // 8ms for line preview
-
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = setTimeout(() => {
-                const previewGeometry = {
-                    type: 'LineString',
-                    coordinates: this.lastPreviewPoints
-                };
-
-                this.showPreview(previewGeometry);
-            }, debounceTime);
-        }
-
-        this.pendingPreviewUpdate = false;
-    }
-
-    showPreview = (geometry) => {
-        this.map.getSource('line-feedback').setData({
-            type: 'Feature',
-            geometry: geometry,
-            properties: {}
-        });
-    }
-
-    clearPreview = () => {
-        this.map.off('mousemove', this.handlePreviewMouseMove);
-        this.cancelPendingUpdates();
-        if (this.map && this.map.getSource('line-feedback')) {
-            this.map.getSource('line-feedback').setData({
-                type: 'FeatureCollection',
-                features: []
-            });
-        }
-    }
-
-    stopDrawing = () => {
-        this.drawPoints = [];
-        this.clearPreview();
-        this.toolManager.deactivateCurrentTool();
-    }
-
-    createFeature = async () => {
-        if (this.drawPoints.length < 2) {
-            this.showValidationError('Linha deve ter pelo menos 2 pontos');
-            return;
-        }
-
-        const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('line', this.map);
-        let coord = [...this.drawPoints]
-        const feature = {
-            type: 'Feature',
-            id: Date.now().toString(),
-            properties: {
-                ...AddLineControl.DEFAULT_PROPERTIES,
-                baseCoordinates: coord,
-                id: featureId,
-                nome: featureName,
-                profileData: JSON.stringify(await this.calculateProfile(coord))
-            },
-            geometry: {
-                type: 'LineString',
-                coordinates: coord
-            }
-        };
-
-        try {
-            await addFeature('lines', feature);
-
-            const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
-            data.features.push(feature);
-            this.map.getSource('lines').setData(data);
-
-            this.drawPoints = [];
-            this.toolManager.setActiveTool(null);
-
-            this.selectionManager.toggleFeatureSelection('line', feature.properties.id, feature);
-            this.selectionManager.updateUI();
-
-            this.updateFeatureMeasurement(feature);
-        } catch (error) {
-            console.error('Erro ao criar linha:', error);
-        }
-    }
-
-    showValidationError = (message) => {
-        alert(message);
-        this.drawPoints = [];
-        this.clearPreview();
     }
 
     // ===== PROFILE CALCULATION =====
@@ -497,335 +764,7 @@ class AddLineControl {
         return label;
     }
 
-    // ===== EDITING MODE: HANDLE SYSTEM =====
-
-    createEditHandles = (feature) => {
-        if (!feature || !feature.properties) {
-            console.warn('Feature inválida para criar handles:', feature);
-            return;
-        }
-
-        // Show selected feature
-        this.map.getSource('line-feedback').setData({
-            type: 'Feature',
-            geometry: feature.geometry,
-            properties: {}
-        });
-
-        // Create handles
-        this.createEditHandlesOnly(feature);
-    }
-
-    clearEditHandles = () => {
-        this.map.getSource('line-feedback').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
-
-        this.map.getSource('line-edit-handles').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
-    }
-
-    createEditHandlesOnly = (feature) => {
-        const handles = [];
-        const coords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
-
-        if (!coords || coords.length < 2) {
-            console.warn('Coordenadas insuficientes para criar handles:', coords);
-            return;
-        }
-
-        // Vertex handles (red)
-        coords.forEach((coord, index) => {
-            const handleId = `line-handle-${feature.properties.id}-vertex-${index}`;
-
-            handles.push({
-                type: 'Feature',
-                id: handleId,
-                geometry: { type: 'Point', coordinates: coord },
-                properties: {
-                    role: 'handle',
-                    handleType: 'vertex',
-                    handleId: `vertex-${index}`,
-                    index: index,
-                    featureId: feature.properties.id,
-                    mode: 'line_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
-                }
-            });
-        });
-
-        // Midpoint handles (orange)
-        for (let i = 0; i < coords.length - 1; i++) {
-            const midpoint = turf.midpoint(turf.point(coords[i]), turf.point(coords[i + 1]));
-            const handleId = `line-handle-${feature.properties.id}-midpoint-${i}`;
-
-            handles.push({
-                type: 'Feature',
-                id: handleId,
-                geometry: midpoint.geometry,
-                properties: {
-                    role: 'handle',
-                    handleType: 'midpoint',
-                    handleId: `midpoint-${i}`,
-                    insertIndex: i + 1,
-                    featureId: feature.properties.id,
-                    mode: 'line_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
-                }
-            });
-        }
-
-        this.map.getSource('line-edit-handles').setData({
-            type: 'FeatureCollection',
-            features: handles
-        });
-    }
-
-    // ===== EDITING MODE: HANDLE INTERACTION =====
-
-    setupEditEventListeners = () => {
-        this.map.on('mousedown', this.onEditMouseDown);
-        this.map.on('mousemove', this.onEditMouseMove);
-        this.map.on('mouseup', this.onEditMouseUp);
-    }
-
-    removeEditEventListeners = () => {
-        this.map.off('mousedown', this.onEditMouseDown);
-        this.map.off('mousemove', this.onEditMouseMove);
-        this.map.off('mouseup', this.onEditMouseUp);
-    }
-
-    onEditMouseDown = (e) => {
-        if (!this.selectedFeature) return;
-
-        const handleFeatures = this.map.queryRenderedFeatures(e.point, {
-            layers: ['line-edit-handles-layer']
-        });
-
-        if (handleFeatures.length > 0) {
-            const handle = handleFeatures[0];
-            this.isDraggingHandle = true;
-            this.activeHandle = handle;
-            this.activeHandleType = handle.properties.handleId;
-            this.map.dragPan.disable();
-            this.map.getCanvas().style.cursor = 'grabbing';
-            e.preventDefault();
-        }
-    }
-
-    onEditMouseMove = (e) => {
-        if (!this.isDraggingHandle || !this.selectedFeature) return;
-
-        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
-
-        if (!this.pendingPreviewUpdate) {
-            this.pendingPreviewUpdate = true;
-            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
-        }
-    }
-
-    onEditMouseUp = () => {
-        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
-            // Apply changes to selected feature
-            this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
-
-            // Update final feature
-            this.selectedFeature.geometry = {
-                type: 'LineString',
-                coordinates: this.selectedFeature.properties.baseCoordinates
-            };
-
-            this.forceUpdateMainSource(this.selectedFeature);
-            this.createEditHandles(this.selectedFeature);
-            this.updateSelectionAfterEdit();
-            this.updateUIAfterEdit();
-            this.saveFeatureChanges(this.selectedFeature);
-            this.updateFeatureMeasurement(this.selectedFeature);
-        }
-
-        this.isDraggingHandle = false;
-        this.activeHandle = null;
-        this.activeHandleType = null;
-        this.map.dragPan.enable();
-        this.map.getCanvas().style.cursor = '';
-    }
-
-    updateGeometryFromHandle = (handleId, newPosition) => {
-        if (!this.selectedFeature) return;
-
-        let coords = this.normalizeBaseCoordinates(this.selectedFeature.properties.baseCoordinates);
-
-        if (!coords || coords.length < 2) {
-            console.warn('Coordenadas insuficientes para atualizar geometria:', coords);
-            return;
-        }
-
-        coords = [...coords]; // Create copy
-
-        const debounceTime = 8; // 8ms for line
-
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            if (handleId.startsWith('vertex-')) {
-                // Move existing vertex
-                const index = parseInt(handleId.split('-')[1]);
-                coords[index] = newPosition;
-                this.selectedFeature.properties.baseCoordinates = coords;
-            } else if (handleId.startsWith('midpoint-')) {
-                // Add new vertex
-                const insertIndex = parseInt(handleId.split('-')[1]) + 1;
-                coords.splice(insertIndex, 0, newPosition);
-                this.selectedFeature.properties.baseCoordinates = coords;
-
-                // Convert handle from midpoint → vertex
-                if (this.activeHandle && this.activeHandle.properties) {
-                    this.activeHandle.properties.handleType = 'vertex';
-                    this.activeHandle.properties.handleId = `vertex-${insertIndex}`;
-                    this.activeHandleType = `vertex-${insertIndex}`;
-                }
-            }
-
-            // Show preview
-            const previewGeometry = {
-                type: 'LineString',
-                coordinates: this.selectedFeature.properties.baseCoordinates
-            };
-            this.showEditPreview(previewGeometry);
-        }, debounceTime);
-    }
-
-    showEditPreview = (geometry) => {
-        this.map.getSource('line-feedback').setData({
-            type: 'Feature',
-            geometry: geometry,
-            properties: {}
-        });
-
-        this.createEditHandlesOnly(this.selectedFeature);
-    }
-
-    // ===== EVENT LISTENER MANAGEMENT =====
-
-    setupBaseEventListeners = () => {
-        this.map.on('click', this.handleMapClick);
-    }
-
-    removeAllEventListeners = () => {
-        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
-        this.map.off('click', this.handleMapClick);
-        this.map.off('mousemove', this.handlePreviewMouseMove);
-        this.removeEditEventListeners();
-        this.removeHoverListeners();
-        this.cancelPendingUpdates();
-    }
-
-    // ===== UTILITY METHODS =====
-
-    normalizeBaseCoordinates = (coords) => {
-        // ✅ NORMALIZAÇÃO ROBUSTA - Handle múltiplos formatos
-        if (!coords) {
-            console.warn('baseCoordinates is null or undefined');
-            return null;
-        }
-
-        // Se já é um array válido, retornar
-        if (Array.isArray(coords)) {
-            // Validar que é realmente um array de coordenadas válidas
-            const isValidArray = coords.every(coord =>
-                Array.isArray(coord) &&
-                coord.length >= 2 &&
-                typeof coord[0] === 'number' &&
-                typeof coord[1] === 'number' &&
-                !isNaN(coord[0]) &&
-                !isNaN(coord[1])
-            );
-
-            if (isValidArray) {
-                return coords;
-            } else {
-                console.warn('baseCoordinates array contains invalid coordinates:', coords);
-                return null;
-            }
-        }
-
-        // Se é string, tentar fazer parse
-        if (typeof coords === 'string') {
-            try {
-                const parsed = JSON.parse(coords);
-                if (Array.isArray(parsed)) {
-                    // Recursão para validar o resultado parseado
-                    return this.normalizeBaseCoordinates(parsed);
-                } else {
-                    console.warn('Parsed baseCoordinates is not an array:', parsed);
-                    return null;
-                }
-            } catch (e) {
-                console.error('Erro ao parsear baseCoordinates string:', coords, e);
-                return null;
-            }
-        }
-
-        console.warn('baseCoordinates is neither array nor string:', typeof coords, coords);
-        return null;
-    }
-
-    forceUpdateMainSource = (feature) => {
-        if (!feature || !this.map) {
-            console.warn('forceUpdateMainSource: feature ou map inválido');
-            return;
-        }
-
-        const source = this.map.getSource('lines');
-        if (!source) {
-            console.warn('forceUpdateMainSource: source lines não encontrado');
-            return;
-        }
-
-        try {
-            const data = JSON.parse(JSON.stringify(source._data));
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-
-            if (sourceFeature) {
-                sourceFeature.properties = { ...feature.properties };
-                sourceFeature.geometry = { ...feature.geometry };
-                source.setData(data);
-            }
-        } catch (error) {
-            console.error('Erro em forceUpdateMainSource:', error);
-        }
-    }
-
-    updateSelectionAfterEdit = () => {
-        const featureId = this.selectedFeature.properties.id;
-        const type = this.selectedFeature.properties.source;
-        const key = `${type}:${featureId}`;
-
-        this.selectionManager.selectedFeatures.set(key, {
-            type,
-            feature: this.selectedFeature
-        });
-    }
-
-    updateUIAfterEdit = () => {
-        this.selectionManager.uiManager.updateSelectionHighlight();
-        this.selectionManager.uiManager.updatePanels();
-        this.selectionManager.updateUI();
-    }
-
-    saveFeatureChanges = async (feature) => {
-        try {
-            await updateFeature('lines', feature);
-        } catch (error) {
-            console.error('Erro ao salvar alterações da linha:', error);
-        }
-    }
-
-    // ===== SELECTION SYSTEM INTERFACE METHODS =====
+    // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
@@ -837,12 +776,10 @@ class AddLineControl {
                 feature.properties[property] = value;
 
                 // If changing geometry properties, recalculate geometry
-                if (['baseCoordinates'].includes(property)) {
-                    sourceFeature.geometry = {
-                        type: 'LineString',
-                        coordinates: sourceFeature.properties.baseCoordinates
-                    };
-                    feature.geometry = sourceFeature.geometry;
+                if (property === 'baseCoordinates') {
+                    const newGeometry = this.geometry.generate(sourceFeature.properties.baseCoordinates);
+                    sourceFeature.geometry = newGeometry;
+                    feature.geometry = newGeometry;
                 }
             }
         }
@@ -865,16 +802,92 @@ class AddLineControl {
             this.selectionManager.updateProfile();
         }
 
-        // Update handles if in editing mode
-        if (this.selectedFeature && !this.isDraggingHandle) {
-            this.createEditHandles(this.selectedFeature);
+        // Update SelectionManager with fresh features
+        const freshFeatures = features.map(feature => {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            return sourceFeature || feature;
+        });
+        this.updateSelectionManagerFeatures(freshFeatures);
+
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            this.createEditHandles(selectedFeature);
         }
+    }
+
+    saveFeatures = async (features, initialPropertiesMap) => {
+        const currentData = this.map.getSource('lines')._data;
+        let hasChanges = false;
+
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    await updateFeature('lines', currentFeature);
+                    hasChanges = true;
+                }
+            }
+        }
+    }
+
+    discardChangeFeatures = async (features, initialPropertiesMap) => {
+        features.forEach(f => {
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
+            const coordinates = this.geometry.normalizeBaseCoordinates(f.properties.baseCoordinates);
+            f.geometry = this.geometry.generate(coordinates);
+        });
+
+        await this.updateFeatures(features, true, true);
+    }
+
+    deleteFeatures = async (features) => {
+        if (features.length === 0) return;
+
+        for (const feature of features) {
+            try {
+                const featureId = feature.properties.id;
+
+                // Remove measurement label
+                this.removeFeatureMeasurement(featureId);
+
+                await removeFeature('lines', featureId);
+                const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
+                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
+                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
+                this.map.getSource('lines').setData(data);
+            } catch (error) {
+                console.error(`Error removing line ${feature.properties.id}:`, error);
+            }
+        }
+    }
+
+    setDefaultProperties = (properties) => {
+        Object.assign(AddLineControl.DEFAULT_PROPERTIES, properties);
+    }
+
+    hasFeatureChanged = (feature, initialProperties) => {
+        if (!initialProperties) return true;
+
+        return (
+            feature.properties.color !== initialProperties.color ||
+            feature.properties.size !== initialProperties.size ||
+            feature.properties.opacity !== initialProperties.opacity ||
+            feature.properties.outlinecolor !== initialProperties.outlinecolor ||
+            feature.properties.lineStyle !== initialProperties.lineStyle ||
+            feature.properties.measure !== initialProperties.measure ||
+            feature.properties.profile !== initialProperties.profile ||
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
+            JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
+        );
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
-
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -887,93 +900,101 @@ class AddLineControl {
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
-
-                        // Update profile if geometry changed
-                        if (!onlyUpdateProperties && feature.geometry.type === 'LineString') {
-                            featureToUpdate.properties.profileData = JSON.stringify(
-                                await this.calculateProfile(feature.geometry.coordinates)
-                            );
-                        }
-
                         await updateFeature('lines', featureToUpdate);
                     }
                 }
             }
 
             this.map.getSource('lines').setData(data);
+            this.updateSelectionManagerFeatures(features);
         }
     }
 
-    saveFeatures = async (features, initialPropertiesMap) => {
-        const currentData = this.map.getSource('lines')._data;
+    // ===== SELECTION MANAGER INTEGRATION =====
 
-        for (const selectedFeature of features) {
-            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+    updateSelectionManagerFeature(feature) {
+        const key = `line:${feature.properties.id}`;
+        this.selectionManager.selectedFeatures.set(key, { type: 'line', feature });
+    }
 
-                if (currentFeature) {
-                    const featureToSave = {
-                        ...currentFeature,
-                        properties: { ...selectedFeature.properties }
-                    };
-                    await updateFeature('lines', featureToSave);
-                }
+    updateSelectionManagerFeatures(features) {
+        features.forEach(feature => {
+            if (feature.properties.source === 'line') {
+                this.updateSelectionManagerFeature(feature);
             }
-        }
-    }
-
-    hasFeatureChanged = (feature, initialProperties) => {
-        if (!initialProperties) return true;
-
-        return (
-            feature.properties.color !== initialProperties.color ||
-            feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.size !== initialProperties.size ||
-            feature.properties.lineStyle !== initialProperties.lineStyle ||
-            feature.properties.measure !== initialProperties.measure ||
-            feature.properties.profile !== initialProperties.profile ||
-            feature.properties.nome !== initialProperties.nome ||
-            feature.properties.descricao !== initialProperties.descricao ||
-            feature.properties.visivel !== initialProperties.visivel ||
-            feature.properties.bloqueado !== initialProperties.bloqueado ||
-            JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
-        );
-    }
-
-    discardChangeFeatures = async (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
-            f.geometry = {
-                type: 'LineString',
-                coordinates: f.properties.baseCoordinates
-            };
         });
-
-        await this.updateFeatures(features, true, true);
     }
 
-    deleteFeatures = async (features) => {
-        if (features.length === 0) return;
+    // ===== UTILITY METHODS =====
 
-        for (const feature of features) {
-            try {
-                const featureId = feature.properties.id;
-                this.removeFeatureMeasurement(featureId);
-                await removeFeature('lines', featureId);
-            } catch (error) {
-                console.error(`Error removing line ${featureId}:`, error);
-            }
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        
+        // CRITICAL FIX: Only reset activeHandle if NOT currently dragging
+        if (!this.isDraggingHandle) {
+            this.activeHandle = null;
+            this.activeHandleType = null;
         }
 
-        // Remove from map source (visual)
-        const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
-        const idsToDelete = new Set(features.map(f => String(f.properties.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-        this.map.getSource('lines').setData(data);
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
     }
 
-    setDefaultProperties = (properties) => {
-        Object.assign(AddLineControl.DEFAULT_PROPERTIES, properties);
+    forceUpdateMainSource = (feature) => {
+        if (this.uiManager && this.uiManager.isDragging) {
+            return;
+        }
+
+        const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
+        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        if (sourceFeature) {
+            sourceFeature.properties = {
+                ...feature.properties,
+                baseCoordinates: feature.properties.baseCoordinates
+            };
+            sourceFeature.geometry = { ...feature.geometry };
+            this.map.getSource('lines').setData(data);
+        }
+    }
+
+    updateUIAfterEdit = () => {
+        this.selectionManager.uiManager.updateSelectionHighlight();
+        this.selectionManager.uiManager.updatePanels();
+        this.selectionManager.updateUI();
+    }
+
+    saveFeatureChanges = async (feature) => {
+        try {
+            // Recalculate profile if feature has profile enabled
+            if (feature.properties.profile) {
+                const coordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+                const newProfileData = await this.calculateProfile(coordinates);
+                feature.properties.profileData = JSON.stringify(newProfileData);
+            }
+
+            await updateFeature('lines', feature);
+        } catch (error) {
+            console.error('Error saving line changes:', error);
+        }
+    }
+
+    setupBaseEventListeners = () => {
+        // Base listeners setup if needed
+    }
+
+    removeAllEventListeners = () => {
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.removeRightClickListener();
+        this.cancelPendingUpdates();
     }
 }
 

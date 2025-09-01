@@ -1,130 +1,6 @@
 // Path: js\controls_sig\tool_manager\ui_manager.js
 
-import { addImageAttributesToPanel } from '../image_tool/image_attributes_panel.js';
-import { addTextAttributesToPanel } from '../text_tool/text_attributes_panel.js';
-import { addPointAttributesToPanel } from '../draw_tools/point_attributes_panel.js';
-import { addLineAttributesToPanel } from '../draw_tools/line_attributes_panel.js';
-import { addPolygonAttributesToPanel } from '../draw_tools/polygon_attributes_panel.js';
-import { addLOSAttributesToPanel } from '../los_tool/los_attributes_panel.js';
-import { addVisibilityAttributesToPanel } from '../visibility_tool/visibility_attributes_panel.js';
-import { addCircleAttributesToPanel } from '../circle_tool/circle_attributes_panel.js';
-import { addEllipseAttributesToPanel } from '../ellipse_tool/ellipse_attributes_panel.js';
-import { addArrowAttributesToPanel } from '../arrow_tool/arrow_attributes_panel.js';
-import { addBoundaryAttributesToPanel } from '../boundary_tool/boundary_attributes_panel.js';
-import { addOccupiedFrontAttributesToPanel } from '../occupied_front_tool/occupied_front_attributes_panel.js';
-import { addMilitarySymbolAttributesToPanel } from '../military_symbol_tool/military_symbol_attributes_panel.js';
-import { addRectangleAttributesToPanel } from '../rectangle_tool/rectangle_attributes_panel.js';
-import { addBrushAttributesToPanel } from '../brush_tool/brush_attributes_panel.js';
-
-// ===== CONFIGURATION =====
-
-/**
- * Selection box strategies for different feature types
- * Adding new types requires only adding an entry here
- */
-const SELECTION_BOX_STRATEGIES = {
-    // Geometric features that use bounding box with custom padding
-    'circle': { strategy: 'bbox', errorMsg: 'círculo', padding: 5 },
-    'ellipse': { strategy: 'bbox', errorMsg: 'elipse', padding: 5 },
-    'arrow': { strategy: 'bbox', errorMsg: 'seta', padding: 5 },
-    'boundary': { strategy: 'bbox', errorMsg: 'boundary', padding: 5 },
-    'occupied_front': { strategy: 'bbox', errorMsg: 'frente ocupada', padding: 5 },
-    'rectangle': { strategy: 'bbox', errorMsg: 'retângulo', padding: 5 },
-    'brush': { strategy: 'bbox', errorMsg: 'pincel', padding: 5 },
-    // Linear features that now use bounding box with different padding based on geometry
-    'point': { strategy: 'bbox', errorMsg: 'ponto', padding: 10 },
-    'line': { strategy: 'bbox', errorMsg: 'linha', padding: 5 },
-    'polygon': { strategy: 'bbox', errorMsg: 'polígono', padding: 5 },
-    'los': { strategy: 'bbox', errorMsg: 'linha de visada', padding: 5 }, // Always LineString
-    'visibility': { strategy: 'bbox', errorMsg: 'visibilidade', padding: 5 }, // Always LineString
-
-    // Point-based features with custom boxes (keep existing padding: 10px default)
-    'text': { strategy: 'preCalculated' }, // Nova estratégia
-    'image': { strategy: 'preCalculated' },
-    'military_symbol': { strategy: 'preCalculated' }
-};
-
-/**
- * Registry for attribute panel functions
- * Maps feature types to their corresponding panel functions and controls
- */
-const ATTRIBUTE_PANEL_REGISTRY = {
-    'text': {
-        panelFunction: addTextAttributesToPanel,
-        controlKey: 'text',
-        sectionClass: 'text-attributes-section'
-    },
-    'image': {
-        panelFunction: addImageAttributesToPanel,
-        controlKey: 'image',
-        sectionClass: 'image-attributes-section'
-    },
-    'point': {
-        panelFunction: addPointAttributesToPanel,
-        controlKey: 'point',
-        sectionClass: 'point-attributes-section'
-    },
-    'line': {
-        panelFunction: addLineAttributesToPanel,
-        controlKey: 'line',
-        sectionClass: 'line-attributes-section'
-    },
-    'polygon': {
-        panelFunction: addPolygonAttributesToPanel,
-        controlKey: 'polygon',
-        sectionClass: 'polygon-attributes-section'
-    },
-    'los': {
-        panelFunction: addLOSAttributesToPanel,
-        controlKey: 'los',
-        sectionClass: 'los-attributes-section'
-    },
-    'visibility': {
-        panelFunction: addVisibilityAttributesToPanel,
-        controlKey: 'visibility',
-        sectionClass: 'visibility-attributes-section'
-    },
-    'rectangle': {
-        panelFunction: addRectangleAttributesToPanel,
-        controlKey: 'rectangle',
-        sectionClass: 'rectangle-attributes-section'
-    },
-    'circle': {
-        panelFunction: addCircleAttributesToPanel,
-        controlKey: 'circle',
-        sectionClass: 'circle-attributes-section'
-    },
-    'ellipse': {
-        panelFunction: addEllipseAttributesToPanel,
-        controlKey: 'ellipse',
-        sectionClass: 'ellipse-attributes-section'
-    },
-    'arrow': {
-        panelFunction: addArrowAttributesToPanel,
-        controlKey: 'arrow',
-        sectionClass: 'arrow-attributes-section'
-    },
-    'boundary': {
-        panelFunction: addBoundaryAttributesToPanel,
-        controlKey: 'boundary',
-        sectionClass: 'boundary-attributes-section'
-    },
-    'occupied_front': {
-        panelFunction: addOccupiedFrontAttributesToPanel,
-        controlKey: 'occupied_front',
-        sectionClass: 'occupied-front-attributes-section'
-    },
-    'military_symbol': {
-        panelFunction: addMilitarySymbolAttributesToPanel,
-        controlKey: 'military_symbol',
-        sectionClass: 'military-symbol-attributes-section'
-    },
-    'brush': {
-        panelFunction: addBrushAttributesToPanel,
-        controlKey: 'brush',
-        sectionClass: 'brush-attributes-section'
-    },
-};
+// No more import dependencies on individual panel functions - tools handle their own panels
 
 class UIManager {
     constructor(map, selectionManager, toolManager) {
@@ -138,16 +14,7 @@ class UIManager {
         this.isDragging = false;
 
         // ===== CACHE SYSTEM =====
-        /**
-         * Cache para selection boxes
-         * Key: featureId, Value: { geometryHash, selectionBox }
-         */
         this.selectionBoxCache = new Map();
-
-        /**
-         * Cache para hashes de geometrias
-         * Key: featureId, Value: geometryHash
-         */
         this.geometryHashes = new Map();
         this.rafId = null;
         this.map.on('zoom', this.handleZoomChange);
@@ -158,7 +25,6 @@ class UIManager {
             cancelAnimationFrame(this.rafId);
         }
 
-        // Agenda novo cálculo para próximo frame
         this.rafId = requestAnimationFrame(() => {
             if (this.selectionManager.hasSelectedFeatures()) {
                 this.updateSelectionHighlight();
@@ -183,9 +49,6 @@ class UIManager {
 
     // ===== CACHE MANAGEMENT =====
 
-    /**
-     * Calcula hash simples da geometria para cache
-     */
     calculateGeometryHash(feature) {
         const coords = JSON.stringify(feature.geometry.coordinates);
         const props = JSON.stringify({
@@ -201,23 +64,18 @@ class UIManager {
             height: feature.properties.height
         });
 
-        // Hash simples mas efetivo
         let hash = 0;
         const str = coords + props;
         for (let i = 0; i < str.length; i++) {
             const char = str.charCodeAt(i);
             hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32bit integer
+            hash = hash & hash;
         }
         return hash.toString();
     }
 
-    /**
-     * Invalida cache para uma feature específica
-     */
     invalidateCache(featureId) {
         if (featureId) {
-            // MODIFICAR: invalidar todas as entradas de zoom para esta feature
             const keysToDelete = [];
             for (const key of this.selectionBoxCache.keys()) {
                 if (key.startsWith(`${featureId}-`)) {
@@ -225,30 +83,23 @@ class UIManager {
                 }
             }
             keysToDelete.forEach(key => this.selectionBoxCache.delete(key));
-
             this.geometryHashes.delete(featureId);
         }
     }
 
-    /**
-     * Invalida todo o cache
-     */
     invalidateAllCache() {
         this.selectionBoxCache.clear();
         this.geometryHashes.clear();
     }
 
-    /**
-     * Notifica mudança de geometria - chamado pelo SelectionManager
-     */
     notifyGeometryChange(featureId) {
         this.invalidateCache(featureId);
     }
 
-    // ===== UNIFIED SELECTION HIGHLIGHTING (OPTIMIZED) =====
+    // ===== TOOL-CENTRIC SELECTION HIGHLIGHTING =====
 
     /**
-     * Main selection highlight update - OTIMIZADO com cache
+     * Main selection highlight update - TOOL-CENTRIC ONLY
      */
     updateSelectionHighlight = () => {
         if (this.isDragging) return;
@@ -256,212 +107,141 @@ class UIManager {
         const selectionBoxesSource = this.map.getSource('selection-boxes');
         if (!selectionBoxesSource) return;
 
-        // Gerar selection boxes usando cache
-        const allFeatures = Object.keys(SELECTION_BOX_STRATEGIES)
-            .flatMap(type => this.createSelectionBoxesForType(type));
+        // Get all selected features grouped by type
+        const featuresByType = this.groupSelectedFeaturesByType();
+        const allSelectionBoxes = [];
 
-        this.selectionBoxes = allFeatures;
+        // Process each type using tool-centric approach ONLY
+        for (const [type, features] of featuresByType.entries()) {
+            const selectionBoxes = this.createSelectionBoxesForTypeToolCentric(type, features);
+            allSelectionBoxes.push(...selectionBoxes);
+        }
+
+        this.selectionBoxes = allSelectionBoxes;
         selectionBoxesSource.setData({
             type: 'FeatureCollection',
-            features: allFeatures
+            features: allSelectionBoxes
         });
     }
 
     /**
-     * Generic selection box creator - OTIMIZADO com cache
+     * Group selected features by type for efficient processing
      */
-    createSelectionBoxesForType(type) {
-        const selectedItems = this.selectionManager.getSelectedFeaturesByType(type);
-        if (!selectedItems.length) return [];
+    groupSelectedFeaturesByType() {
+        const featuresByType = new Map();
+        
+        for (const [key, item] of this.selectionManager.selectedFeatures.entries()) {
+            const type = item.type;
+            if (!featuresByType.has(type)) {
+                featuresByType.set(type, []);
+            }
+            featuresByType.get(type).push(item.feature);
+        }
 
-        const strategy = SELECTION_BOX_STRATEGIES[type];
-        if (!strategy) {
-            console.warn(`No selection box strategy found for type: ${type}`);
+        return featuresByType;
+    }
+
+    /**
+     * Create selection boxes for features of a specific type - TOOL-CENTRIC ONLY
+     */
+    createSelectionBoxesForTypeToolCentric(type, features) {
+        if (features.length === 0) return [];
+
+        const control = this.selectionManager.controls.get(type);
+        
+        // Only use tool-centric approach - no fallback
+        if (!this.supportsToolCentricSelectionBoxes(control)) {
+            console.warn(`Tool ${type} does not implement tool-centric selection box interface`);
             return [];
         }
 
-        const features = selectedItems.map(item => item.feature);
-        
-        // Para estratégia preCalculated, não usar cache
-        if (strategy.strategy === 'preCalculated') {
-            return this.createPreCalculatedSelectionBoxes(features);
-        }
-
-        const cachedBoxes = [];
-        const uncachedFeatures = [];
-
-        // Separar features que já estão em cache das que precisam ser calculadas
-        for (const feature of features) {
-            const featureId = feature.properties.id;
-            const currentHash = this.calculateGeometryHash(feature);
-            const cacheKey = this.getCacheKey(featureId);
-            const cached = this.selectionBoxCache.get(cacheKey);
-
-            if (cached && cached.geometryHash === currentHash) {
-                // Cache hit - usar selection box do cache
-                cachedBoxes.push(cached.selectionBox);
-            } else {
-                // Cache miss - precisa calcular
-                uncachedFeatures.push(feature);
-                // Atualizar hash
-                this.geometryHashes.set(featureId, currentHash);
-            }
-        }
-
-        // Calcular selection boxes para features não cachadas
-        let newBoxes = [];
-        if (uncachedFeatures.length > 0) {
-            switch (strategy.strategy) {
-                case 'bbox':
-                    newBoxes = this.createBboxSelectionBoxes(uncachedFeatures, type, strategy.errorMsg);
-                    break;
-                case 'imageBox':
-                    newBoxes = this.createImageSelectionBoxes(uncachedFeatures);
-                    break;
-                case 'buffer':
-                    newBoxes = this.createBufferSelectionBoxes(uncachedFeatures);
-                    break;
-                default:
-                    console.warn(`Unknown selection box strategy: ${strategy.strategy}`);
-            }
-
-            // Cachear os novos selection boxes
-            for (let i = 0; i < uncachedFeatures.length; i++) {
-                const feature = uncachedFeatures[i];
-                const featureId = feature.properties.id;
-                const geometryHash = this.geometryHashes.get(featureId);
-                const selectionBox = newBoxes[i];
-
-                if (selectionBox) {
-                    const cacheKey = this.getCacheKey(featureId);
-                    this.selectionBoxCache.set(cacheKey, {
-                        geometryHash,
-                        selectionBox
-                    });
-                }
-            }
-        }
-
-        return [...cachedBoxes, ...newBoxes];
+        return this.createSelectionBoxesToolCentric(features, control);
     }
 
     /**
-     * Usa geometria pré-calculada armazenada na feature
+     * Check if control supports tool-centric selection box interface
      */
-    createPreCalculatedSelectionBoxes(features) {
-        return features.map(feature => ({
-            type: 'Feature',
-            geometry: feature.properties.selectionBox,
-            properties: {}
-        }));
+    supportsToolCentricSelectionBoxes(control) {
+        return control && 
+               typeof control.createSelectionBox === 'function' &&
+               typeof control.getSelectionBoxStrategy === 'function';
     }
 
-    expandBboxWithPadding(bbox, paddingPixels, map) {
-        // Get center of bbox for latitude calculation
-        const centerLat = (bbox[1] + bbox[3]) / 2;
-        const centerLng = (bbox[0] + bbox[2]) / 2;
+    /**
+     * Create selection boxes using tool-centric approach ONLY
+     */
+    createSelectionBoxesToolCentric(features, control) {
+        const selectionBoxes = [];
+        
+        for (const feature of features) {
+            try {
+                // Check cache first
+                const featureId = feature.properties.id;
+                const currentHash = this.calculateGeometryHash(feature);
+                const cacheKey = this.getCacheKey(featureId);
+                const cached = this.selectionBoxCache.get(cacheKey);
 
-        // Use map center as fallback if bbox center is invalid
+                let selectionBox;
+
+                if (cached && cached.geometryHash === currentHash) {
+                    // Cache hit
+                    selectionBox = cached.selectionBox;
+                } else {
+                    // Cache miss - create new selection box
+                    const boxGeometry = control.createSelectionBox(feature);
+                    
+                    if (boxGeometry) {
+                        selectionBox = {
+                            type: 'Feature',
+                            geometry: boxGeometry.geometry || boxGeometry,
+                            properties: {
+                                type: 'selection-box',
+                                source: feature.properties.source,
+                                featureId: featureId
+                            }
+                        };
+
+                        // Cache the result
+                        this.selectionBoxCache.set(cacheKey, {
+                            geometryHash: currentHash,
+                            selectionBox: selectionBox
+                        });
+                        this.geometryHashes.set(featureId, currentHash);
+                    }
+                }
+
+                if (selectionBox) {
+                    selectionBoxes.push(selectionBox);
+                }
+            } catch (error) {
+                console.warn(`Error creating tool-centric selection box for ${feature.properties.source}:`, error);
+            }
+        }
+
+        return selectionBoxes;
+    }
+
+    /**
+     * Expand bbox with padding
+     */
+    expandBboxWithPadding(bbox, paddingPixels) {
+        const centerLat = (bbox[1] + bbox[3]) / 2;
         const mapCenter = this.map.getCenter();
         const latitude = isNaN(centerLat) ? mapCenter.lat : centerLat;
 
-        // Convert padding from pixels to degrees
         const zoom = this.map.getZoom();
         const paddingDegrees = this.pixelsToDegrees(paddingPixels, latitude, zoom);
 
-        // Expand bbox
         return [
-            bbox[0] - paddingDegrees, // minX
-            bbox[1] - paddingDegrees, // minY  
-            bbox[2] + paddingDegrees, // maxX
-            bbox[3] + paddingDegrees  // maxY
+            bbox[0] - paddingDegrees,
+            bbox[1] - paddingDegrees,
+            bbox[2] + paddingDegrees,
+            bbox[3] + paddingDegrees
         ];
     }
 
-    /**
-     * Creates bounding box selection boxes for geometric features
-     */
-    createBboxSelectionBoxes(features, type, errorMsg) {
-        const boxes = [];
-        const strategy = SELECTION_BOX_STRATEGIES[type];
+    // ===== ATTRIBUTE PANEL MANAGEMENT - TOOL-CENTRIC =====
 
-        for (const feature of features) {
-            try {
-                // Calculate original bbox
-                const originalBbox = turf.bbox(feature);
-
-                // Determine padding
-                let paddingPixels;
-                if (typeof strategy.padding === 'number') {
-                    paddingPixels = strategy.padding;
-                } else {
-                    paddingPixels = 5; // Default fallback
-                }
-
-                // Expand bbox with padding
-                const expandedBbox = this.expandBboxWithPadding(originalBbox, paddingPixels, this.map);
-
-                // Create polygon from expanded bbox
-                const boxFeature = turf.bboxPolygon(expandedBbox);
-                boxFeature.properties = {
-                    type: 'selection-box',
-                    source: type,
-                    featureId: feature.properties.id
-                };
-                boxes.push(boxFeature);
-            } catch (error) {
-                console.warn(`Erro ao criar selection box para ${errorMsg}:`, error);
-            }
-        }
-
-        return boxes;
-    }
-
-    /**
-     * Creates selection boxes for image-like features (image, military_symbol) (bounding box without rotation but sized to fit rotated content)
-     */
-    createImageSelectionBoxes(features) {
-        return features.map(feature => {
-            const coordinates = feature.geometry.coordinates;
-            const width = feature.properties.width * feature.properties.size;
-            const height = feature.properties.height * feature.properties.size;
-            const rotation = feature.properties.rotation || 0;
-            
-            // Calculate expanded dimensions to fit rotated content
-            const expandedDimensions = this.calculateExpandedDimensions(width, height, rotation);
-            
-            // Create selection box without rotation but with expanded dimensions
-            const polygon = this.createSelectionBox(
-                coordinates, 
-                expandedDimensions.width, 
-                expandedDimensions.height, 
-                0
-            );
-
-            return {
-                type: 'Feature',
-                geometry: polygon,
-                properties: {}
-            };
-        });
-    }
-
-    /**
-     * Creates buffered selection boxes for linear features
-     */
-    createBufferSelectionBoxes(features) {
-        const zoom = this.map.getZoom();
-        const center = this.map.getCenter();
-        const bufferSize = this.pixelsToDegrees(10, center.lat, zoom);
-
-        return features.map(feature => this.calculateBuffer(feature, bufferSize));
-    }
-
-    // ===== UNIFIED ATTRIBUTE PANEL MANAGEMENT =====
-
-    /**
-     * Updates panels using the new SelectionManager API
-     */
     updatePanels = () => {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
 
@@ -483,70 +263,47 @@ class UIManager {
         }
     }
 
-    /**
-     * Creates unified attributes panel using configuration-driven approach
-     * Replaces the giant if/else chain
-     */
     createUnifiedAttributesPanel = (selectedFeatures) => {
-        // Remove existing panel
         let panel = document.querySelector('.unified-attributes-panel');
         if (panel) panel.remove();
 
-        // Create new panel
         panel = document.createElement('div');
         panel.id = 'attributes-panel';
         panel.className = 'unified-attributes-panel';
 
-        // Get unique feature types
         const featureTypes = new Set(selectedFeatures.map(f => f.properties.source));
 
-        // Only show attributes panel for single type selections
         if (featureTypes.size === 1) {
             const featureType = featureTypes.values().next().value;
             this.addAttributesForType(panel, selectedFeatures, featureType);
         }
 
-        // Add delete button
         this.addDeleteButton(panel);
-
-        // Add to DOM
         document.body.appendChild(panel);
     }
 
     /**
-     * Generic method to add attributes for any feature type
-     * Replaces 11+ individual addXXXAttributes methods
+     * Add attributes for type - tool-centric approach ONLY
      */
     addAttributesForType(panel, features, type) {
-        const config = ATTRIBUTE_PANEL_REGISTRY[type];
-        if (!config) {
-            console.warn(`No attribute panel configuration found for type: ${type}`);
-            return;
-        }
-
-        // Create section container
-        const sectionPanel = document.createElement('div');
-        sectionPanel.className = config.sectionClass;
-
-        // Get the appropriate control
-        const control = this.selectionManager.controls.get(config.controlKey);
+        const control = this.selectionManager.controls.get(type);
         if (!control) {
             console.warn(`Control not found for type: ${type}`);
             return;
         }
 
-        // Call the specific panel function
-        try {
-            config.panelFunction(sectionPanel, features, control, this.selectionManager, this);
-            panel.appendChild(sectionPanel);
-        } catch (error) {
-            console.error(`Error creating attribute panel for ${type}:`, error);
+        // Use tool-centric approach ONLY
+        if (control.hasAttributePanel && control.hasAttributePanel()) {
+            try {
+                control.createAttributePanel(panel, features, this.selectionManager, this);
+            } catch (error) {
+                console.error(`Error creating tool-centric attribute panel for ${type}:`, error);
+            }
+        } else {
+            console.warn(`Tool ${type} does not implement attribute panel interface`);
         }
     }
 
-    /**
-     * Adds delete button to panel
-     */
     addDeleteButton(panel) {
         const deleteButton = document.createElement('button');
         deleteButton.classList.add('delete-button', 'pure-material-button-contained');
@@ -555,80 +312,8 @@ class UIManager {
         panel.appendChild(deleteButton);
     }
 
-    // ===== SPECIALIZED PANELS =====
+    // ===== DRAG OPERATIONS (Unchanged) =====
 
-    /**
-     * Shows vector tile info panel (unchanged)
-     */
-    showVectorTileInfoPanel(feature) {
-        this.saveChangesAndClosePanel();
-
-        const panel = document.createElement('div');
-        panel.className = 'vector-tile-info-panel unified-attributes-panel';
-        this.addVectorTileInfoToPanel(panel, feature);
-        document.body.appendChild(panel);
-    }
-
-    addVectorTileInfoToPanel(panel, feature) {
-        const title = document.createElement('h3');
-        let sourceName = feature.sourceLayer.replace(/_10k|_25k|_50k|_100k|_250k/g, '').replace('edgv_', '');
-        title.textContent = `Atributos ${sourceName}:`;
-        panel.appendChild(title);
-
-        const propertiesList = document.createElement('ul');
-        const blacklist = ['id', 'vector_type', 'tilequery', 'mapbox_clip_start', 'mapbox_clip_end', 'justificativa_txt_value', 'visivel_value', 'exibir_linha_rotulo_value', 'suprimir_bandeira_value', 'posicao_rotulo_value', 'direcao_fixada_value', 'exibir_ponta_simbologia_value', 'exibir_lado_simbologia_value', 'label_x', 'label_y', 'length_otf', 'texto_edicao', 'simb_rot', 'observacao'];
-        const blacklistSuffixes = ['_code'];
-
-        for (const [key, value] of Object.entries(feature.properties)) {
-            if (blacklist.includes(key) || blacklistSuffixes.some(suffix => key.endsWith(suffix))) {
-                continue;
-            }
-
-            let displayKey = key.endsWith('_value') ? key.slice(0, -6) : key;
-            const listItem = document.createElement('li');
-            listItem.innerHTML = `<strong>${displayKey}:</strong> ${value}`;
-            propertiesList.appendChild(listItem);
-        }
-
-        if (propertiesList.children.length > 0) {
-            panel.appendChild(propertiesList);
-        } else {
-            const noPropertiesMsg = document.createElement('p');
-            noPropertiesMsg.textContent = 'Feição sem atributos';
-            panel.appendChild(noPropertiesMsg);
-        }
-
-        const closeButton = document.createElement('button');
-        closeButton.textContent = 'Fechar';
-        closeButton.onclick = () => {
-            this.toolManager.deactivateCurrentTool();
-            this.saveChangesAndClosePanel();
-        };
-        panel.appendChild(closeButton);
-    }
-
-    /**
-     * Saves changes and closes panel
-     */
-    saveChangesAndClosePanel = () => {
-        this.hideFeatureSearchPanel();
-        this.hideProfilePanel();
-
-        const panel = document.querySelector('.unified-attributes-panel');
-        if (panel) {
-            const saveButton = panel.querySelector('button[type="submit"]');
-            if (saveButton) {
-                saveButton.click();
-            }
-            panel.remove();
-        }
-    }
-
-    // ===== DRAG OPERATIONS =====
-
-    /**
-     * Shifts selection boxes during drag operations
-     */
     shiftSelectionBoxes(dx, dy, save = false) {
         const shiftedFeatures = this.selectionBoxes.map(feature => {
             return this.translateFeature(feature, dx, dy);
@@ -647,9 +332,6 @@ class UIManager {
         }
     }
 
-    /**
-     * Translates a feature by dx, dy
-     */
     translateFeature(feature, dx, dy) {
         const translatedFeature = JSON.parse(JSON.stringify(feature));
 
@@ -685,11 +367,76 @@ class UIManager {
         return translatedFeature;
     }
 
-    // ===== PROFILE PANEL =====
+    // ===== UTILITY METHODS (Unchanged) =====
 
-    /**
-     * Shows profile panel for features with elevation data
-     */
+    calculateExpandedDimensions(originalWidth, originalHeight, rotationDegrees) {
+        if (rotationDegrees === 0) {
+            return { width: originalWidth, height: originalHeight };
+        }
+
+        const radians = rotationDegrees * (Math.PI / 180);
+        
+        const corners = [
+            { x: -originalWidth / 2, y: -originalHeight / 2 },
+            { x: originalWidth / 2, y: -originalHeight / 2 },
+            { x: originalWidth / 2, y: originalHeight / 2 },
+            { x: -originalWidth / 2, y: originalHeight / 2 }
+        ];
+        
+        const rotatedCorners = corners.map(corner => ({
+            x: corner.x * Math.cos(radians) - corner.y * Math.sin(radians),
+            y: corner.x * Math.sin(radians) + corner.y * Math.cos(radians)
+        }));
+        
+        const minX = Math.min(...rotatedCorners.map(c => c.x));
+        const maxX = Math.max(...rotatedCorners.map(c => c.x));
+        const minY = Math.min(...rotatedCorners.map(c => c.y));
+        const maxY = Math.max(...rotatedCorners.map(c => c.y));
+        
+        return {
+            width: maxX - minX,
+            height: maxY - minY
+        };
+    }
+
+    pixelsToDegrees = (pixels, latitude, zoom) => {
+        const earthCircumference = 40075017;
+        const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
+        const degreesPerMeter = 360 / earthCircumference;
+        return pixels * metersPerPixel * degreesPerMeter;
+    }
+
+    calculateBuffer = (feature, bufferSize) => {
+        return turf.buffer(feature, bufferSize, { units: 'degrees' });
+    }
+
+    createSelectionBox = (coordinates, width, height, rotation) => {
+        const radians = rotation * (Math.PI / 180);
+        const point = this.map.project(coordinates);
+        const points = [
+            [-width / 2, -height / 2],
+            [width / 2, -height / 2],
+            [width / 2, height / 2],
+            [-width / 2, height / 2]
+        ];
+
+        const rotatedPoints = points.map(([x, y]) => {
+            const nx = x * Math.cos(radians) - y * Math.sin(radians);
+            const ny = x * Math.sin(radians) + y * Math.cos(radians);
+            return this.map.unproject([point.x + nx, point.y + ny]);
+        });
+
+        return {
+            type: 'Polygon',
+            coordinates: [[
+                ...rotatedPoints.map(p => [p.lng, p.lat]),
+                [rotatedPoints[0].lng, rotatedPoints[0].lat]
+            ]]
+        };
+    }
+
+    // ===== OTHER METHODS (Profile, Search, etc. - Unchanged) =====
+    
     showProfilePanel(selectedFeatures) {
         if (selectedFeatures.length !== 1) {
             this.hideProfilePanel();
@@ -725,7 +472,6 @@ class UIManager {
         }
 
         panel.innerHTML = '';
-
         const canvas = document.createElement('canvas');
         panel.appendChild(canvas);
 
@@ -806,8 +552,6 @@ class UIManager {
         }
     }
 
-    // ===== FEATURE SEARCH PANEL =====
-
     hideFeatureSearchPanel() {
         const panel = document.querySelector('.feature-search-panel');
         if (panel) {
@@ -850,82 +594,65 @@ class UIManager {
         document.body.appendChild(panel);
     }
 
-    // ===== UTILITY METHODS =====
+    showVectorTileInfoPanel(feature) {
+        this.saveChangesAndClosePanel();
 
-    /**
-     * Calculates expanded dimensions needed for a rectangular bounding box to contain a rotated feature
-     * @param {number} originalWidth - Original width of the feature
-     * @param {number} originalHeight - Original height of the feature  
-     * @param {number} rotationDegrees - Rotation angle in degrees
-     * @returns {Object} { width, height } - Expanded dimensions
-     */
-    calculateExpandedDimensions(originalWidth, originalHeight, rotationDegrees) {
-        if (rotationDegrees === 0) {
-            return { width: originalWidth, height: originalHeight };
+        const panel = document.createElement('div');
+        panel.className = 'vector-tile-info-panel unified-attributes-panel';
+        this.addVectorTileInfoToPanel(panel, feature);
+        document.body.appendChild(panel);
+    }
+
+    addVectorTileInfoToPanel(panel, feature) {
+        const title = document.createElement('h3');
+        let sourceName = feature.sourceLayer.replace(/_10k|_25k|_50k|_100k|_250k/g, '').replace('edgv_', '');
+        title.textContent = `Atributos ${sourceName}:`;
+        panel.appendChild(title);
+
+        const propertiesList = document.createElement('ul');
+        const blacklist = ['id', 'vector_type', 'tilequery', 'mapbox_clip_start', 'mapbox_clip_end', 'justificativa_txt_value', 'visivel_value', 'exibir_linha_rotulo_value', 'suprimir_bandeira_value', 'posicao_rotulo_value', 'direcao_fixada_value', 'exibir_ponta_simbologia_value', 'exibir_lado_simbologia_value', 'label_x', 'label_y', 'length_otf', 'texto_edicao', 'simb_rot', 'observacao'];
+        const blacklistSuffixes = ['_code'];
+
+        for (const [key, value] of Object.entries(feature.properties)) {
+            if (blacklist.includes(key) || blacklistSuffixes.some(suffix => key.endsWith(suffix))) {
+                continue;
+            }
+
+            let displayKey = key.endsWith('_value') ? key.slice(0, -6) : key;
+            const listItem = document.createElement('li');
+            listItem.innerHTML = `<strong>${displayKey}:</strong> ${value}`;
+            propertiesList.appendChild(listItem);
         }
 
-        const radians = rotationDegrees * (Math.PI / 180);
-        
-        // Calculate the 4 corners of the original rectangle (centered at origin)
-        const corners = [
-            { x: -originalWidth / 2, y: -originalHeight / 2 },  // top-left
-            { x: originalWidth / 2, y: -originalHeight / 2 },   // top-right  
-            { x: originalWidth / 2, y: originalHeight / 2 },    // bottom-right
-            { x: -originalWidth / 2, y: originalHeight / 2 }    // bottom-left
-        ];
-        
-        // Apply rotation to each corner
-        const rotatedCorners = corners.map(corner => ({
-            x: corner.x * Math.cos(radians) - corner.y * Math.sin(radians),
-            y: corner.x * Math.sin(radians) + corner.y * Math.cos(radians)
-        }));
-        
-        // Find the bounding box of the rotated corners
-        const minX = Math.min(...rotatedCorners.map(c => c.x));
-        const maxX = Math.max(...rotatedCorners.map(c => c.x));
-        const minY = Math.min(...rotatedCorners.map(c => c.y));
-        const maxY = Math.max(...rotatedCorners.map(c => c.y));
-        
-        return {
-            width: maxX - minX,
-            height: maxY - minY
+        if (propertiesList.children.length > 0) {
+            panel.appendChild(propertiesList);
+        } else {
+            const noPropertiesMsg = document.createElement('p');
+            noPropertiesMsg.textContent = 'Feição sem atributos';
+            panel.appendChild(noPropertiesMsg);
+        }
+
+        const closeButton = document.createElement('button');
+        closeButton.textContent = 'Fechar';
+        closeButton.onclick = () => {
+            this.toolManager.deactivateCurrentTool();
+            this.saveChangesAndClosePanel();
         };
+        panel.appendChild(closeButton);
     }
 
-    pixelsToDegrees = (pixels, latitude, zoom) => {
-        const earthCircumference = 40075017;
-        const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
-        const degreesPerMeter = 360 / earthCircumference;
-        return pixels * metersPerPixel * degreesPerMeter;
-    }
+    saveChangesAndClosePanel = () => {
+        this.hideFeatureSearchPanel();
+        this.hideProfilePanel();
 
-    calculateBuffer = (feature, bufferSize) => {
-        return turf.buffer(feature, bufferSize, { units: 'degrees' });
-    }
-
-    createSelectionBox = (coordinates, width, height, rotation) => {
-        const radians = rotation * (Math.PI / 180);
-        const point = this.map.project(coordinates);
-        const points = [
-            [-width / 2, -height / 2],
-            [width / 2, -height / 2],
-            [width / 2, height / 2],
-            [-width / 2, height / 2]
-        ];
-
-        const rotatedPoints = points.map(([x, y]) => {
-            const nx = x * Math.cos(radians) - y * Math.sin(radians);
-            const ny = x * Math.sin(radians) + y * Math.cos(radians);
-            return this.map.unproject([point.x + nx, point.y + ny]);
-        });
-
-        return {
-            type: 'Polygon',
-            coordinates: [[
-                ...rotatedPoints.map(p => [p.lng, p.lat]),
-                [rotatedPoints[0].lng, rotatedPoints[0].lat]
-            ]]
-        };
+        const panel = document.querySelector('.unified-attributes-panel');
+        if (panel) {
+            const saveButton = panel.querySelector('button[type="submit"]');
+            if (saveButton) {
+                saveButton.click();
+            }
+            panel.remove();
+        }
     }
 }
 

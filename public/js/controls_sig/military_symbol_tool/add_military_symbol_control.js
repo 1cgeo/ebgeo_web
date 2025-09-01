@@ -1,33 +1,35 @@
 // Path: js\controls_sig\military_symbol_tool\add_military_symbol_control.js
 
-import { addFeature, updateFeature, removeFeature, imageStore } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, storeImage, removeImage } from '../store/store.js';
 import { MilitarySymbolGenerator } from './military_symbol_generator.js';
 import { IDUtils } from '../id_utils.js';
+import { addMilitarySymbolAttributesToPanel } from './military_symbol_attributes_panel.js';
+import AddMilitarySymbolGeometry from './add_military_symbol_geometry.js';
+import BaseControl from '../tool_manager/base_control.js';
 
-class AddMilitarySymbolControl {
+class AddMilitarySymbolControl extends BaseControl {
     constructor(toolManager) {
-        this.toolManager = toolManager;
-        this.toolManager.militarySymbolControl = this;
-        this.selectionManager = toolManager.selectionManager;
-        
-        // Core state
-        this.isActive = false;
-        this.selectedFeature = null;
+        super(toolManager);
+
+        // Geometry handler
+        this.geometry = new AddMilitarySymbolGeometry();
+
+        // Symbol generator for military symbols
         this.symbolGenerator = new MilitarySymbolGenerator();
 
-        // Performance optimization para símbolos (mantido)
+        // Performance optimization for symbols
         this.symbolRafId = null;
         this.pendingSymbolUpdate = false;
         this.lastSymbolFeature = null;
         this.symbolDebounceTimer = null;
 
-        // Zoom handling (seguindo padrão do text control)
+        // Zoom handling for zoom-invariant behavior
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
     }
 
     static DEFAULT_PROPERTIES = {
-        // Campos do SIDC específicos (mantidos)
+        // SIDC component fields (MIL-STD-2525D)
         context: "0",
         standardIdentity: "3",
         status: "0",
@@ -37,20 +39,19 @@ class AddMilitarySymbolControl {
         modifier1: "00",
         modifier2: "00",
 
-        // Propriedades de renderização
+        // Rendering properties
         size: 1.0,
         width: 100,
         height: 100,
         opacity: 1.0,
         rotation: 0,
 
-        // Zoom-invariant properties (seguindo text control)
+        // Zoom-invariant properties
         createdAtZoom: 0,
         calculatedSize: 1.0,
-        selectionBox: null,  // GeoJSON Polygon geometry
+        selectionBox: null,  // Pre-calculated GeoJSON Polygon geometry
 
-        // Identificadores
-        id: null,
+        // Standard properties
         source: 'military_symbol',
         nome: '',
         descricao: '',
@@ -58,28 +59,49 @@ class AddMilitarySymbolControl {
         bloqueado: false
     };
 
-    onAdd(map) {
+    // ===== FONTE ÚNICA DA VERDADE =====
+
+    /**
+     * Get currently selected military symbol feature from SelectionManager
+     * @returns {Object|null} Selected military symbol feature or null
+     */
+    getSelectedFeature() {
+        const selectedItems = this.selectionManager.getSelectedFeaturesByType('military_symbol');
+        return selectedItems.length > 0 ? selectedItems[0].feature : null;
+    }
+
+    /**
+     * Get all selected military symbol features from SelectionManager
+     * @returns {Array} Array of selected military symbol features
+     */
+    getSelectedFeatures() {
+        return this.selectionManager.getSelectedFeaturesByType('military_symbol')
+            .map(item => item.feature);
+    }
+
+    // ===== MAPBOX CONTROL INTERFACE =====
+
+    onAdd = (map) => {
         this.map = map;
         this.container = document.createElement('div');
         this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl military-symbol-control controls-column-right';
 
-        this.button = document.createElement('button');
-        this.button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        this.button.setAttribute("id", "military-symbol-tool");
-        this.button.type = 'button';
-        this.button.innerHTML = '<img class="icon-military-tool" src="./images/icon_military_black.svg" alt="MILITARY" />';
-        this.button.title = 'Adicionar Símbolo Militar (M)';
-        this.button.onclick = () => this.toolManager.setActiveTool(this);
+        const button = document.createElement('button');
+        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
+        button.setAttribute("id", "military-symbol-tool");
+        button.innerHTML = '<img class="icon-military-tool" src="./images/icon_military_black.svg" alt="MILITARY" />';
+        button.title = 'Adicionar símbolo militar (M)';
+        button.onclick = () => this.toolManager.setActiveTool(this);
 
-        this.container.appendChild(this.button);
-        this.setupEventListeners();
+        this.container.appendChild(button);
+        this.setupBaseEventListeners();
         this.setupZoomListener();
-        this.changeButtonColor();
+        this.updateButtonAppearance();
 
         return this.container;
     }
 
-    onRemove() {
+    onRemove = () => {
         try {
             this.map.off('zoom', this.handleZoomChange);
             if (this.zoomRafId) {
@@ -87,10 +109,12 @@ class AddMilitarySymbolControl {
                 this.zoomRafId = null;
             }
             this.pendingZoomUpdate = false;
-            
-            this.removeEventListeners();
-            this.cancelPendingUpdates();
+
+            this.cancelPendingSymbolUpdates();
+
+            this.selectionManager.uiManager.removeControl(this.container);
             this.deactivate();
+            this.removeAllEventListeners();
             this.map = undefined;
         } catch (error) {
             console.error('Error removing AddMilitarySymbolControl:', error);
@@ -98,51 +122,460 @@ class AddMilitarySymbolControl {
         }
     }
 
-    setupEventListeners = () => {
-        // Event listeners básicos se necessário
+    // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
+
+    hasAttributePanel() {
+        return true;
     }
 
-    removeEventListeners = () => {
-        this.removeHoverListeners();
+    createAttributePanel(container, features, selectionManager, uiManager) {
+        const sectionPanel = document.createElement('div');
+        sectionPanel.className = 'military-symbol-attributes-section';
+
+        try {
+            addMilitarySymbolAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            container.appendChild(sectionPanel);
+        } catch (error) {
+            console.error('Error creating military symbol attribute panel:', error);
+        }
     }
 
-    changeButtonColor = () => {
+    getDragSources() {
+        return ['military_symbols'];
+    }
+
+    getEditHandleSources() {
+        return []; // Military symbols don't have edit handles
+    }
+
+    createSelectionBox(feature) {
+        // Military symbols use pre-calculated selection boxes stored as properties
+        if (feature.properties.selectionBox) {
+            return { geometry: feature.properties.selectionBox };
+        }
+
+        // Fallback: calculate on demand if missing
+        const selectionBox = this.geometry.calculateSelectionBoxGeometry(
+            feature.geometry.coordinates,
+            feature.properties.width,
+            feature.properties.height,
+            feature.properties.size,
+            feature.properties.rotation,
+            feature.properties.createdAtZoom,
+            this.selectionManager.uiManager
+        );
+
+        return { geometry: selectionBox };
+    }
+
+    getSelectionBoxStrategy() {
+        return 'preCalculated'; // Military symbols use stored selection boxes
+    }
+
+    getSelectionBoxPadding() {
+        return 5;
+    }
+
+    getLayerIds() {
+        return ['military_symbols-layer'];
+    }
+
+    getSourceNames() {
+        return ['military_symbols'];
+    }
+
+    getEditHandleSource() {
+        return null; // Military symbols don't have edit handles
+    }
+
+    canCopy(feature) {
+        return true;
+    }
+
+    canPaste(feature) {
+        return true;
+    }
+
+    prepareForPaste(feature, offset) {
+        const oldCoordinates = feature.geometry.coordinates;
+        const newCoordinates = [oldCoordinates[0] + offset.dx, oldCoordinates[1] + offset.dy];
+
+        // Recalculate selection box for new position
+        const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+            newCoordinates,
+            feature.properties.width,
+            feature.properties.height,
+            feature.properties.size,
+            feature.properties.rotation,
+            feature.properties.createdAtZoom,
+            this.selectionManager.uiManager
+        );
+
+        return {
+            ...feature,
+            geometry: this.geometry.generate(newCoordinates),
+            properties: {
+                ...feature.properties,
+                selectionBox: newSelectionBox
+            }
+        };
+    }
+
+    calculateMoveOffset(feature, referencePoint) {
+        const coords = feature.geometry.coordinates;
+        return [
+            coords[0] - referencePoint.lng,
+            coords[1] - referencePoint.lat
+        ];
+    }
+
+    updateFeatureForMove(feature, dx, dy, newCoords) {
+        const newCoordinates = [newCoords.lng, newCoords.lat];
+
+        // Recalculate selection box for new position
+        const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+            newCoordinates,
+            feature.properties.width,
+            feature.properties.height,
+            feature.properties.size,
+            feature.properties.rotation,
+            feature.properties.createdAtZoom,
+            this.selectionManager.uiManager
+        );
+
+        const updatedFeature = {
+            ...feature,
+            geometry: this.geometry.generate(newCoordinates),
+            properties: {
+                ...feature.properties,
+                selectionBox: newSelectionBox
+            }
+        };
+
+        return updatedFeature;
+    }
+
+    canMove(feature) {
+        return !feature.properties?.bloqueado;
+    }
+
+    // ===== TOOL ACTIVATION/DEACTIVATION =====
+
+    activate = () => {
+        this.isActive = true;
+        this.map.getCanvas().style.cursor = 'crosshair';
+        this.updateButtonAppearance();
+    }
+
+    deactivate = () => {
+        this.isActive = false;
+        this.map.getCanvas().style.cursor = '';
+        this.updateButtonAppearance();
+        this.deselectFeature();
+        this.cancelPendingSymbolUpdates();
+    }
+
+    updateButtonAppearance = () => {
         const iconSrc = this.isActive ?
             './images/icon_military_red.svg' :
             './images/icon_military_black.svg';
         $("#military-symbol-tool").html(`<img class="icon-military-tool" src="${iconSrc}" alt="MILITARY" />`);
     }
 
-    // ===== NEW: GALLERY METHODS =====
+    // ===== SELECTION SYSTEM INTEGRATION =====
 
-    getDistinctSymbolsByUsage() {
-        if (!this.map.getSource('military_symbols')) {
-            return [];
-        }
-
-        const data = this.map.getSource('military_symbols')._data;
-        const symbolCounts = new Map(); // Map<sidc, {feature, count}>
-        
-        // Contar ocorrências de cada SIDC
-        data.features.forEach(feature => {
-            const sidc = feature.properties.sidc;
-            if (symbolCounts.has(sidc)) {
-                symbolCounts.get(sidc).count++;
-            } else {
-                symbolCounts.set(sidc, { feature, count: 1 });
-            }
-        });
-        
-        // Ordenar por contagem (mais usado primeiro) e limitar a 20
-        return Array.from(symbolCounts.values())
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 20)
-            .map(item => ({ ...item.feature, usageCount: item.count }));
+    onFeatureSelected = (feature) => {
+        this.selectFeature(feature);
     }
 
+    onFeatureDeselected = (feature) => {
+        const selectedFeature = this.getSelectedFeature();
+        const featureId = feature.properties.id;
+        if (selectedFeature && selectedFeature.properties.id === featureId) {
+            this.deselectFeature();
+        }
+    }
 
+    onGlobalDeselect = () => {
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature) {
+            this.deselectFeature();
+        }
+    }
 
-    // ===== ZOOM-INVARIANT SYSTEM (seguindo text control) =====
+    isEditingMode = () => {
+        return false; // Military symbols don't have edit handles
+    }
+
+    hasEditHandle = (featureId) => {
+        return false; // Military symbols don't have edit handles
+    }
+
+    syncEditHandlesAfterDrag = (movedFeatures) => {
+        // Military symbols don't have edit handles, but we need to update selection boxes
+        // Update selection boxes for moved features
+        this.updateSelectionBoxesForFeatures(movedFeatures);
+    }
+
+    /**
+     * Update selection boxes for specific features (used after drag or attribute changes)
+     * Always uses fresh data from map source to ensure accuracy
+     */
+    updateSelectionBoxesForFeatures = (features) => {
+        if (!features || features.length === 0) return;
+
+        // CRITICAL: Always get fresh data from map source
+        const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
+        let hasChanges = false;
+
+        features.forEach(inputFeature => {
+            if (inputFeature.properties.source === 'military_symbol') {
+                // Find the current feature in the map source (this has the latest coordinates)
+                const currentSourceFeature = data.features.find(f => 
+                    f.properties.id === inputFeature.properties.id
+                );
+
+                if (currentSourceFeature) {
+                    // Recalculate selection box using CURRENT coordinates from map source
+                    const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+                        currentSourceFeature.geometry.coordinates, // Use fresh coordinates from map
+                        currentSourceFeature.properties.width,
+                        currentSourceFeature.properties.height,
+                        currentSourceFeature.properties.size,
+                        currentSourceFeature.properties.rotation,
+                        currentSourceFeature.properties.createdAtZoom,
+                        this.selectionManager.uiManager
+                    );
+
+                    // Update selection box in source feature
+                    currentSourceFeature.properties.selectionBox = newSelectionBox;
+                    hasChanges = true;
+                }
+            }
+        });
+
+        if (hasChanges) {
+            // Update map source with new selection boxes
+            this.map.getSource('military_symbols').setData(data);
+            
+            // Get fresh features from updated source for SelectionManager
+            const freshFeatures = features.map(inputFeature => {
+                const sourceFeature = data.features.find(f => f.properties.id === inputFeature.properties.id);
+                return sourceFeature || inputFeature; // Fallback to input if not found
+            });
+            
+            // Update SelectionManager with fresh features
+            this.updateSelectionManagerFeatures(freshFeatures);
+            
+            // Force selection highlight update
+            requestAnimationFrame(() => {
+                if (this.selectionManager.uiManager.updateSelectionHighlight) {
+                    this.selectionManager.uiManager.updateSelectionHighlight();
+                }
+            });
+        }
+    }
+
+    selectFeature = (feature) => {
+        // Military symbols don't have edit handles, just selection feedback
+        this.setupHoverListeners();
+    }
+
+    deselectFeature = () => {
+        this.removeHoverListeners();
+        this.map.getCanvas().style.cursor = '';
+    }
+
+    // ===== MILITARY SYMBOL CREATION SYSTEM =====
+
+    handleMapClick = (e) => {
+        if (!this.isActive) return;
+
+        if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
+            console.warn('Invalid coordinates for military symbol');
+            return;
+        }
+
+        this.createMilitarySymbolFeature(e.lngLat);
+        this.toolManager.deactivateCurrentTool();
+    }
+
+    createMilitarySymbolFeature = async (lngLat) => {
+        const featureId = IDUtils.generateUniqueId();
+        const featureName = IDUtils.generateFeatureName('military_symbol', this.map);
+
+        const currentZoom = this.map.getZoom();
+        const coordinates = [lngLat.lng, lngLat.lat];
+
+        // Build initial SIDC from default properties
+        const sidc = this.geometry.buildSIDC(AddMilitarySymbolControl.DEFAULT_PROPERTIES);
+
+        // Calculate initial selection box
+        const selectionBox = this.geometry.calculateSelectionBoxGeometry(
+            coordinates,
+            AddMilitarySymbolControl.DEFAULT_PROPERTIES.width,
+            AddMilitarySymbolControl.DEFAULT_PROPERTIES.height,
+            AddMilitarySymbolControl.DEFAULT_PROPERTIES.size,
+            AddMilitarySymbolControl.DEFAULT_PROPERTIES.rotation,
+            currentZoom,
+            this.selectionManager.uiManager
+        );
+
+        const feature = {
+            type: 'Feature',
+            id: Date.now().toString(),
+            properties: {
+                ...AddMilitarySymbolControl.DEFAULT_PROPERTIES,
+                id: featureId,
+                nome: featureName,
+                sidc: sidc,
+                createdAtZoom: currentZoom,
+                calculatedSize: AddMilitarySymbolControl.DEFAULT_PROPERTIES.size,
+                selectionBox: selectionBox
+            },
+            geometry: this.geometry.generate(coordinates)
+        };
+
+        try {
+            // Generate symbol image and store as blob
+            const symbolBlob = await this.symbolGenerator.generateSymbolBlob(feature.properties);
+            await storeImage(featureId, symbolBlob);
+
+            // Add to storage
+            await addFeature('military_symbols', feature);
+
+            // Add to map
+            const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
+            data.features.push(feature);
+            this.map.getSource('military_symbols').setData(data);
+
+            // Load symbol image to map for rendering
+            await this.loadSymbolToMap(featureId, symbolBlob);
+
+            // Select the new feature
+            this.selectionManager.toggleFeatureSelection('military_symbol', featureId, feature);
+            this.selectionManager.updateUI();
+        } catch (error) {
+            console.error('Error creating military symbol feature:', error);
+            alert('Erro ao criar símbolo militar');
+        }
+    }
+
+    // ===== SYMBOL PROCESSING =====
+
+    async loadSymbolToMap(symbolId, blob) {
+        const url = URL.createObjectURL(blob);
+
+        return new Promise((resolve, reject) => {
+            const image = new Image();
+
+            image.onload = () => {
+                try {
+                    if (!this.map.hasImage(symbolId)) {
+                        this.map.addImage(symbolId, image);
+                    }
+                    URL.revokeObjectURL(url);
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            };
+
+            image.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error(`Failed to load military symbol ${symbolId}`));
+            };
+
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                reject(new Error(`Timeout loading military symbol ${symbolId}`));
+            }, 10000);
+
+            image.src = url;
+        });
+    }
+
+    scheduleSymbolUpdate = (feature) => {
+        this.lastSymbolFeature = feature;
+
+        if (!this.pendingSymbolUpdate) {
+            this.pendingSymbolUpdate = true;
+            this.symbolRafId = requestAnimationFrame(this.performSymbolUpdate);
+        }
+    }
+
+    performSymbolUpdate = async () => {
+        if (!this.lastSymbolFeature) {
+            this.pendingSymbolUpdate = false;
+            return;
+        }
+
+        try {
+            const feature = this.lastSymbolFeature;
+            const symbolId = feature.properties.id;
+
+            // Generate new symbol blob
+            const symbolBlob = await this.symbolGenerator.generateSymbolBlob(feature.properties);
+
+            // Update imageStore
+            await storeImage(symbolId, symbolBlob);
+
+            // Remove old image from map and add new one
+            if (this.map.hasImage(symbolId)) {
+                this.map.removeImage(symbolId);
+            }
+            await this.loadSymbolToMap(symbolId, symbolBlob);
+
+        } catch (error) {
+            console.error('Error updating symbol:', error);
+        }
+
+        this.pendingSymbolUpdate = false;
+        this.lastSymbolFeature = null;
+    }
+
+    // Alias method for compatibility with attributes panel
+    async updateSymbolImage(feature) {
+        try {
+            const symbolId = feature.properties.id;
+
+            // Generate new symbol blob
+            const symbolBlob = await this.symbolGenerator.generateSymbolBlob(feature.properties);
+
+            // Update imageStore
+            await imageStore.setItem(symbolId, symbolBlob);
+
+            // Remove old image from map and add new one
+            if (this.map.hasImage(symbolId)) {
+                this.map.removeImage(symbolId);
+            }
+            await this.loadSymbolToMap(symbolId, symbolBlob);
+
+        } catch (error) {
+            console.error('Error updating symbol image:', error);
+        }
+    }
+
+    // Alias method for compatibility with attributes panel
+    async loadSymbolImageToMap(symbolId, blob) {
+        return this.loadSymbolToMap(symbolId, blob);
+    }
+
+    cancelPendingSymbolUpdates = () => {
+        if (this.symbolRafId) {
+            cancelAnimationFrame(this.symbolRafId);
+            this.symbolRafId = null;
+        }
+        this.pendingSymbolUpdate = false;
+        this.lastSymbolFeature = null;
+
+        if (this.symbolDebounceTimer) {
+            clearTimeout(this.symbolDebounceTimer);
+            this.symbolDebounceTimer = null;
+        }
+    }
+
+    // ===== ZOOM-INVARIANT SYSTEM =====
 
     setupZoomListener = () => {
         this.map.on('zoom', this.handleZoomChange);
@@ -157,20 +590,20 @@ class AddMilitarySymbolControl {
 
     applyZoomCorrections = (features) => {
         const currentZoom = this.map.getZoom();
-
         return features.map(feature => {
             const zoomDifference = currentZoom - feature.properties.createdAtZoom;
             const scaleFactor = Math.pow(2, zoomDifference);
-            feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 10); // Limite máximo 10x
+            feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 10);
             return feature;
         });
     }
 
     updateAllSymbolSizes = () => {
         if (!this.map.getSource('military_symbols')) {
+            this.pendingZoomUpdate = false;
             return;
         }
-        
+
         const currentZoom = this.map.getZoom();
         const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
         let hasChanges = false;
@@ -179,7 +612,7 @@ class AddMilitarySymbolControl {
             const zoomDifference = currentZoom - feature.properties.createdAtZoom;
             const scaleFactor = Math.pow(2, zoomDifference);
             const newCalculatedSize = Math.min(feature.properties.size * scaleFactor, 10);
-            
+
             if (feature.properties.calculatedSize !== newCalculatedSize) {
                 feature.properties.calculatedSize = newCalculatedSize;
                 hasChanges = true;
@@ -193,191 +626,7 @@ class AddMilitarySymbolControl {
         this.pendingZoomUpdate = false;
     }
 
-    // Método para calcular selection box (seguindo text control)
-    calculateSelectionBoxGeometry = (coordinates, width, height, size, rotation, createdAtZoom) => {
-        // Aplicar size como fator de escala + correção de 62%
-        const scaledWidth = width * size * 0.625;
-        const scaledHeight = height * size * 0.625;
-        const expandedDimensions = this.toolManager.uiManager.calculateExpandedDimensions(scaledWidth, scaledHeight, rotation);
-        const padding = 5;
-        
-        // Usar zoom de criação para conversão
-        const centerLat = coordinates[1];
-        const widthDegrees = this.toolManager.uiManager.pixelsToDegrees(
-            expandedDimensions.width + (padding * 2), 
-            centerLat, 
-            createdAtZoom
-        );
-        const heightDegrees = this.toolManager.uiManager.pixelsToDegrees(
-            expandedDimensions.height + (padding * 2), 
-            centerLat, 
-            createdAtZoom
-        );
-        
-        return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
-    }
-
-    createSelectionBoxFromDegrees = (coordinates, widthDegrees, heightDegrees) => {
-        const [lng, lat] = coordinates;
-        const halfWidth = widthDegrees / 2;
-        const halfHeight = heightDegrees / 2;
-        
-        return {
-            type: 'Polygon',
-            coordinates: [[
-                [lng - halfWidth, lat - halfHeight],
-                [lng + halfWidth, lat - halfHeight],
-                [lng + halfWidth, lat + halfHeight],
-                [lng - halfWidth, lat + halfHeight],
-                [lng - halfWidth, lat - halfHeight]
-            ]]
-        };
-    }
-
-    // Garantir consistência (seguindo text control)
-    ensureFeatureConsistency = (feature, currentZoom = null, forceRecalculateSelectionBox = false) => {
-        if (!currentZoom) {
-            currentZoom = this.map.getZoom();
-        }
-        
-        // Sempre recalcular calculatedSize baseado no zoom atual
-        const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-        const scaleFactor = Math.pow(2, zoomDifference);
-        feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 10);
-        
-        // Recalcular selectionBox apenas quando forçado ou se não existir
-        if (forceRecalculateSelectionBox || !feature.properties.selectionBox) {
-            feature.properties.selectionBox = this.calculateSelectionBoxGeometry(
-                feature.geometry.coordinates,
-                feature.properties.width,
-                feature.properties.height,
-                feature.properties.size,
-                feature.properties.rotation,
-                feature.properties.createdAtZoom
-            );
-        }
-        
-        return feature;
-    }
-
-    getLatestFeatureData = (featureId) => {
-        const data = this.map.getSource('military_symbols')._data;
-        return data.features.find(f => f.properties.id == featureId);
-    }
-
-    activate = () => {
-        this.isActive = true;
-        this.map.getCanvas().style.cursor = 'crosshair';
-        this.changeButtonColor();
-    }
-
-    deactivate = () => {
-        this.isActive = false;
-        this.cancelPendingUpdates();
-        this.map.getCanvas().style.cursor = '';
-        this.changeButtonColor();
-        this.deselectFeature();
-    }
-
-    handleMapClick = async (e) => {
-        if (!this.isActive) return;
-
-        const coordinates = [e.lngLat.lng, e.lngLat.lat];
-        await this.createMilitarySymbol(coordinates);
-
-        this.toolManager.deactivateCurrentTool();
-    }
-
-    async createMilitarySymbol(coordinates) {
-        try {
-            const symbolId = IDUtils.generateUniqueId();
-
-            const properties = {
-                ...AddMilitarySymbolControl.DEFAULT_PROPERTIES,
-                id: symbolId
-            };
-
-            properties.nome = IDUtils.generateFeatureName('military_symbol', this.map);
-
-            // Gerar SIDC usando propriedades padrão
-            const sidc = this.symbolGenerator.buildSIDC(properties);
-            properties.sidc = sidc;
-
-            // Definir zoom properties
-            const currentZoom = this.map.getZoom();
-            properties.createdAtZoom = currentZoom;
-            properties.calculatedSize = properties.size;
-
-            const feature = {
-                type: 'Feature',
-                id: Date.now().toString(),
-                geometry: {
-                    type: 'Point',
-                    coordinates: coordinates
-                },
-                properties: properties
-            };
-
-            // Calcular selection box
-            feature.properties.selectionBox = this.calculateSelectionBoxGeometry(
-                feature.geometry.coordinates,
-                feature.properties.width,
-                feature.properties.height,
-                feature.properties.size,
-                feature.properties.rotation,
-                feature.properties.createdAtZoom
-            );
-
-            // Gerar blob do símbolo e salvar no imageStore
-            const symbolBlob = await this.symbolGenerator.generateSymbolBlob(properties);
-            await imageStore.setItem(symbolId, symbolBlob);
-
-            // Atualizar layer
-            const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
-            data.features.push(feature);
-            this.map.getSource('military_symbols').setData(data);
-
-            // Salvar feature no store
-            await addFeature('military_symbols', feature);
-
-            // Carregar imagem no mapa
-            await this.loadSymbolImageToMap(symbolId, symbolBlob);
-
-            // Selecionar o símbolo criado
-            this.selectionManager.toggleFeatureSelection('military_symbol', feature.properties.id, feature);
-            this.selectionManager.updateUI();
-
-        } catch (error) {
-            console.error('Erro ao criar símbolo militar:', error);
-            alert('Erro ao criar símbolo militar');
-        }
-    }
-
-    // ===== SELECTION SYSTEM INTEGRATION =====
-
-    onFeatureSelected = (feature) => {
-        this.selectedFeature = feature;
-        this.setupHoverListeners();
-    }
-
-    onFeatureDeselected = (feature) => {
-        const featureId = feature.properties.id;
-        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
-            this.deselectFeature();
-        }
-    }
-
-    onGlobalDeselect = () => {
-        if (this.selectedFeature) {
-            this.deselectFeature();
-        }
-    }
-
-    deselectFeature = () => {
-        this.selectedFeature = null;
-        this.removeHoverListeners();
-        this.map.getCanvas().style.cursor = '';
-    }
+    // ===== HOVER SYSTEM =====
 
     setupHoverListeners = () => {
         this.map.on('mousemove', this.onHoverMove);
@@ -388,121 +637,54 @@ class AddMilitarySymbolControl {
     }
 
     onHoverMove = (e) => {
-        if (!this.selectedFeature) return;
-        
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
+
         const features = this.map.queryRenderedFeatures(e.point);
-        const hasSelectedFeature = features.some(f => 
-            f.source === 'military_symbols' && 
-            f.properties.id === this.selectedFeature.properties.id
+        const hasFeature = this.hasSelectedFeatureAtPoint(features);
+
+        this.map.getCanvas().style.cursor = hasFeature ? 'move' : '';
+    }
+
+    hasSelectedFeatureAtPoint = (features) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return false;
+        return features.some(f =>
+            f.source === 'military_symbols' &&
+            f.properties.id === selectedFeature.properties.id
         );
-        
-        this.map.getCanvas().style.cursor = hasSelectedFeature ? 'move' : '';
     }
 
-    isEditingMode = () => {
-        return false;
-    }
+    // ===== GALLERY METHODS (for Attributes Panel) =====
 
-    hasEditHandle = (featureId) => {
-        return false;
-    }
-
-    syncEditHandlesAfterDrag = (movedFeatures) => {
-        // N/A
-    }
-
-    // ===== BLOB STORAGE E SYMBOL GENERATION - MANTIDOS =====
-
-    async loadSymbolImageToMap(imageId, blob) {
-        const url = URL.createObjectURL(blob);
-
-        return new Promise((resolve, reject) => {
-            const image = new Image();
-
-            image.onload = () => {
-                try {
-                    if (!this.map.hasImage(imageId)) {
-                        this.map.addImage(imageId, image);
-                    }
-                    URL.revokeObjectURL(url);
-                    resolve();
-                } catch (error) {
-                    reject(error);
-                }
-            };
-
-            image.onerror = () => {
-                URL.revokeObjectURL(url);
-                reject(new Error(`Falha ao carregar símbolo ${imageId}`));
-            };
-
-            setTimeout(() => {
-                URL.revokeObjectURL(url);
-                reject(new Error(`Timeout ao carregar símbolo ${imageId}`));
-            }, 10000);
-
-            image.src = url;
-        });
-    }
-
-    // Sistema RAF otimizado para símbolos (mantido)
-    scheduleSymbolUpdate = (feature) => {
-        this.lastSymbolFeature = feature;
-
-        if (!this.pendingSymbolUpdate) {
-            this.pendingSymbolUpdate = true;
-            this.symbolRafId = requestAnimationFrame(this.performSymbolUpdate.bind(this));
-        }
-    }
-
-    performSymbolUpdate = () => {
-        if (!this.lastSymbolFeature) {
-            this.pendingSymbolUpdate = false;
-            return;
+    getDistinctSymbolsByUsage() {
+        if (!this.map.getSource('military_symbols')) {
+            return [];
         }
 
-        clearTimeout(this.symbolDebounceTimer);
-        this.symbolDebounceTimer = setTimeout(() => {
-            this.updateSymbolImage(this.lastSymbolFeature);
-        }, 8);
+        const data = this.map.getSource('military_symbols')._data;
+        const symbolCounts = new Map(); // Map<sidc, {feature, count}>
 
-        this.pendingSymbolUpdate = false;
-    }
-
-    async updateSymbolImage(feature) {
-        try {
-            // Gerar nova imagem e salvar no imageStore
-            const symbolBlob = await this.symbolGenerator.generateSymbolBlob(feature.properties);
-            await imageStore.setItem(feature.properties.id, symbolBlob);
-
-            // Atualizar imagem no mapa
-            if (this.map.hasImage(feature.properties.id)) {
-                this.map.removeImage(feature.properties.id);
+        // Count occurrences of each SIDC
+        data.features.forEach(feature => {
+            const sidc = feature.properties.sidc;
+            if (symbolCounts.has(sidc)) {
+                symbolCounts.get(sidc).count++;
+            } else {
+                symbolCounts.set(sidc, { feature, count: 1 });
             }
-            await this.loadSymbolImageToMap(feature.properties.id, symbolBlob);
+        });
 
-        } catch (error) {
-            console.error('Erro ao atualizar símbolo:', error);
-        }
+        // Sort by count (most used first) and limit to 20
+        return Array.from(symbolCounts.values())
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 20)
+            .map(item => ({ ...item.feature, usageCount: item.count }));
     }
 
-    cancelPendingUpdates = () => {
-        if (this.symbolRafId) {
-            cancelAnimationFrame(this.symbolRafId);
-            this.symbolRafId = null;
-        }
-        this.pendingSymbolUpdate = false;
-        this.lastSymbolFeature = null;
+    // ===== FEATURE MANAGEMENT INTERFACE =====
 
-        if (this.symbolDebounceTimer) {
-            clearTimeout(this.symbolDebounceTimer);
-            this.symbolDebounceTimer = null;
-        }
-    }
-
-    // ===== FEATURE MANAGEMENT METHODS =====
-
-    updateFeaturesProperty = async (features, property, value) => {
+    updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
 
         for (const feature of features) {
@@ -513,32 +695,24 @@ class AddMilitarySymbolControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Tratamento especial para createdAtZoom
+                // Special handling for createdAtZoom
                 if (property === 'createdAtZoom') {
                     const roundedValue = Math.round(value * 10) / 10;
                     sourceFeature.properties[property] = roundedValue;
                     feature.properties[property] = roundedValue;
-                    
+
                     const currentZoom = this.map.getZoom();
                     const zoomDifference = currentZoom - roundedValue;
                     const scaleFactor = Math.pow(2, zoomDifference);
-                    
+
                     const newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
                     sourceFeature.properties.calculatedSize = newCalculatedSize;
                     feature.properties.calculatedSize = newCalculatedSize;
-                    
-                    this.ensureFeatureConsistency(sourceFeature, currentZoom, true);
-                    feature.properties.selectionBox = sourceFeature.properties.selectionBox;
                 } else {
-                    // Propriedades que afetam o SIDC devem regenerar a imagem
-                    const sidcProperties = [
-                        'context', 'standardIdentity', 'status', 'hqTfDummy',
-                        'echelon', 'mainIcon', 'modifier1', 'modifier2'
-                    ];
-
-                    if (sidcProperties.includes(property)) {
-                        // Calcular novo SIDC
-                        const newSIDC = this.symbolGenerator.buildSIDC(sourceFeature.properties);
+                    // Properties that affect SIDC must regenerate the symbol
+                    if (this.geometry.affectsSIDC(property)) {
+                        // Calculate new SIDC
+                        const newSIDC = this.geometry.buildSIDC(sourceFeature.properties);
                         sourceFeature.properties.sidc = newSIDC;
                         feature.properties.sidc = newSIDC;
 
@@ -548,99 +722,156 @@ class AddMilitarySymbolControl {
                         }
                     }
 
-                    // Recalcular selection box se propriedades intrínsecas mudaram
-                    const shouldRecalculateSelectionBox = ['size', 'rotation'].includes(property);
-                    
-                    // Garantir consistência
-                    this.ensureFeatureConsistency(sourceFeature, null, shouldRecalculateSelectionBox);
-                    
-                    // Sincronizar de volta
+                    // Update calculatedSize for consistency
+                    const currentZoom = this.map.getZoom();
+                    const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
+                    const scaleFactor = Math.pow(2, zoomDifference);
+                    sourceFeature.properties.calculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
                     feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
-                    feature.properties.selectionBox = sourceFeature.properties.selectionBox;
+                }
+
+                // For visual properties, recalculate selection box using CURRENT geometry
+                if (this.geometry.affectsVisuals(property) || property === 'createdAtZoom') {
+                    const currentCoordinates = sourceFeature.geometry.coordinates;
+                    const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+                        currentCoordinates, // Use current coordinates from map source
+                        sourceFeature.properties.width,
+                        sourceFeature.properties.height,
+                        sourceFeature.properties.size,
+                        sourceFeature.properties.rotation,
+                        sourceFeature.properties.createdAtZoom,
+                        this.selectionManager.uiManager
+                    );
+                    
+                    sourceFeature.properties.selectionBox = newSelectionBox;
+                    feature.properties.selectionBox = newSelectionBox;
                 }
             }
+        }
+
+        // Update map source first
+        this.forceUpdateMainSource(data);
+
+        // CRITICAL FIX: Get fresh features from map source before updating SelectionManager  
+        const freshFeatures = features.map(feature => {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            return sourceFeature || feature; // Fallback to original if not found
+        });
+
+        // Update SelectionManager with fresh features
+        this.updateSelectionManagerFeatures(freshFeatures);
+
+        // Force selection highlight update for visual changes
+        if (this.geometry.affectsVisuals(property) || property === 'createdAtZoom') {
+            requestAnimationFrame(() => {
+                if (this.selectionManager.uiManager.updateSelectionHighlight) {
+                    this.selectionManager.uiManager.updateSelectionHighlight();
+                }
+            });
+        }
+    }
+
+    /**
+     * Force update main source with drag protection (same pattern as circle control)
+     */
+    forceUpdateMainSource = (data) => {
+        // PERFORMANCE FIX: Don't update source during drag operations to prevent conflicts
+        if (this.selectionManager.uiManager && this.selectionManager.uiManager.isDragging) {
+            return;
         }
 
         this.map.getSource('military_symbols').setData(data);
     }
 
-    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
-        if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
+    ensureFeatureConsistency = (feature, currentZoom = null, forceRecalculateSelectionBox = false) => {
+        const zoom = currentZoom || this.map.getZoom();
 
-            for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
-                if (featureIndex !== -1) {
-                    const sourceFeature = data.features[featureIndex];
-                    
-                    if (onlyUpdateProperties) {
-                        Object.assign(sourceFeature.properties, feature.properties);
-                        this.ensureFeatureConsistency(sourceFeature, null, false);
-                    } else {
-                        // Atualizar geometria = drag operation
-                        sourceFeature.geometry = feature.geometry;
-                        // Forçar recálculo da selection box para nova posição
-                        this.ensureFeatureConsistency(sourceFeature, null, true);
-                    }
+        // Always recalculate calculatedSize based on current zoom
+        const zoomDifference = zoom - feature.properties.createdAtZoom;
+        const scaleFactor = Math.pow(2, zoomDifference);
+        feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 10);
 
-                    if (save) {
-                        const featureToUpdate = onlyUpdateProperties ? sourceFeature : sourceFeature;
-                        await updateFeature('military_symbols', featureToUpdate);
-                    }
-                }
-            }
-            this.map.getSource('military_symbols').setData(data);
+        // Only recalculate selection box if explicitly requested and not during drag
+        if (forceRecalculateSelectionBox && !this.isSourceUpdateBlocked()) {
+            feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
+                feature.geometry.coordinates,
+                feature.properties.width,
+                feature.properties.height,
+                feature.properties.size, // Use original size, not calculatedSize
+                feature.properties.rotation,
+                feature.properties.createdAtZoom, // CRUCIAL: creation zoom
+                this.selectionManager.uiManager
+            );
         }
+
+        return feature;
+    }
+
+    /**
+     * Check if source updates should be blocked (during drag)
+     */
+    isSourceUpdateBlocked = () => {
+        return this.selectionManager.uiManager && this.selectionManager.uiManager.isDragging;
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // Always get fresh feature data from map source before saving
         const currentData = this.map.getSource('military_symbols')._data;
+        let hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    const featureToSave = {
-                        ...currentFeature,
-                        properties: { ...selectedFeature.properties }
-                    };
-                    await updateFeature('military_symbols', featureToSave);
+                    // Use complete current feature (with updated geometry + properties)
+                    await updateFeature('military_symbols', currentFeature);
+                    hasChanges = true;
                 }
             }
         }
     }
 
-    // Lógica específica de discard com regeneração SIDC (mantida)
     discardChangeFeatures = async (features, initialPropertiesMap) => {
-        for (const feature of features) {
-            if (initialPropertiesMap.has(feature.properties.id)) {
-                const originalProps = initialPropertiesMap.get(feature.properties.id);
-                const oldSIDC = feature.properties.sidc;
-                feature.properties = { ...originalProps };
+        for (const f of features) {
+            const initialProps = initialPropertiesMap.get(f.properties.id);
+            Object.assign(f.properties, initialProps);
+            f.geometry = this.geometry.generate(f.geometry.coordinates);
 
-                if (feature.properties.sidc !== oldSIDC) {
-                    this.scheduleSymbolUpdate(feature);
-                }
+            // If SIDC changed, regenerate symbol
+            if (f.properties.sidc !== initialProps.sidc) {
+                this.scheduleSymbolUpdate(f);
             }
         }
+
         await this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
-        const idsToDelete = new Set(Array.from(features).map(f => String(f.properties.id)));
-        data.features = data.features.filter(f => !idsToDelete.has(f.properties.id.toString()));
-        this.map.getSource('military_symbols').setData(data);
-
         for (const feature of features) {
             try {
-                await imageStore.removeItem(feature.properties.id);
-                await removeFeature('military_symbols', feature.properties.id);
+                const featureId = feature.properties.id;
+
+                // Remove from imageStore
+                await removeImage(featureId);
+
+                // Remove from map images
+                if (this.map.hasImage(featureId)) {
+                    this.map.removeImage(featureId);
+                }
+
+                // Remove from storage
+                await removeFeature('military_symbols', featureId);
+
+                // Update map source
+                const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
+                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
+                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
+                this.map.getSource('military_symbols').setData(data);
             } catch (error) {
-                console.error(`Erro ao deletar símbolo militar ${feature.properties.id}:`, error);
+                console.error(`Error removing military symbol ${feature.properties.id}:`, error);
             }
         }
     }
@@ -651,8 +882,9 @@ class AddMilitarySymbolControl {
 
     hasFeatureChanged = (feature, initialProperties) => {
         if (!initialProperties) return true;
+
         return (
-            // Todas as propriedades específicas de símbolos militares (mantidas)
+            // All military symbol specific properties
             feature.properties.context !== initialProperties.context ||
             feature.properties.standardIdentity !== initialProperties.standardIdentity ||
             feature.properties.status !== initialProperties.status ||
@@ -664,12 +896,84 @@ class AddMilitarySymbolControl {
             feature.properties.size !== initialProperties.size ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.rotation !== initialProperties.rotation ||
+            feature.properties.createdAtZoom !== initialProperties.createdAtZoom ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
-            feature.properties.createdAtZoom !== initialProperties.createdAtZoom
+            JSON.stringify(feature.geometry.coordinates) !== JSON.stringify(initialProperties.coordinates)
         );
+    }
+
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
+        if (features.length > 0) {
+            const data = JSON.parse(JSON.stringify(this.map.getSource('military_symbols')._data));
+            const currentZoom = this.map.getZoom();
+
+            for (const feature of features) {
+                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                if (featureIndex !== -1) {
+                    if (onlyUpdateProperties) {
+                        Object.assign(data.features[featureIndex].properties, feature.properties);
+                    } else {
+                        data.features[featureIndex] = feature;
+                    }
+
+                    // Ensure consistency for updated feature
+                    this.ensureFeatureConsistency(data.features[featureIndex], currentZoom, !onlyUpdateProperties);
+
+                    if (save) {
+                        const featureToUpdate = onlyUpdateProperties ?
+                            data.features[featureIndex] : feature;
+                        await updateFeature('military_symbols', featureToUpdate);
+                    }
+                }
+            }
+
+            // CRITICAL FIX: Use protected method for source updates
+            this.forceUpdateMainSource(data);
+
+            // Update SelectionManager with updated features
+            this.updateSelectionManagerFeatures(features);
+        }
+    }
+
+    // ===== SELECTION MANAGER INTEGRATION =====
+
+    /**
+     * Update SelectionManager with current feature data
+     */
+    updateSelectionManagerFeature(feature) {
+        const key = `military_symbol:${feature.properties.id}`;
+        this.selectionManager.selectedFeatures.set(key, { type: 'military_symbol', feature });
+    }
+
+    /**
+     * Update SelectionManager with multiple features
+     */
+    updateSelectionManagerFeatures(features) {
+        features.forEach(feature => {
+            if (feature.properties.source === 'military_symbol') {
+                this.updateSelectionManagerFeature(feature);
+            }
+        });
+    }
+
+    // ===== UTILITY METHODS =====
+
+    setupBaseEventListeners = () => {
+        // Base listeners setup if needed
+    }
+
+    removeAllEventListeners = () => {
+        this.removeHoverListeners();
+        this.cancelPendingSymbolUpdates();
+
+        if (this.zoomRafId) {
+            cancelAnimationFrame(this.zoomRafId);
+            this.zoomRafId = null;
+        }
+        this.pendingZoomUpdate = false;
     }
 }
 

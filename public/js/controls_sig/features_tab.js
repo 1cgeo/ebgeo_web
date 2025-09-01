@@ -6,7 +6,10 @@ import {
     getMapHillshadeState,
     setMapHillshadeState,
     getMapAnalysisLayersStates,
-    setMapAnalysisLayerState
+    setMapAnalysisLayerState,
+    getFeatureDisplayNameFromStorage,
+    getFeatureIconFromStorage,
+    getAllStorageTypes
 } from './store/store.js';
 import { FeatureNavigationUtils } from './utilities/feature_navigation_utils.js';
 import config from '../config.js';
@@ -16,42 +19,6 @@ class FeaturesTab {
         this.map = map;
         this.selectionManager = selectionManager;
         this.container = null;
-
-        this.FEATURE_TYPE_LABELS = {
-            'arrows': 'Setas',
-            'boundarys': 'Boundaries',
-            'brushes': 'Pincel',
-            'circles': 'Círculos',
-            'ellipses': 'Elipses',
-            'images': 'Imagens',
-            'lines': 'Linhas',
-            'los': 'Linhas de Visada',
-            'military_symbols': 'Símbolos Militares',
-            'occupied_fronts': 'Frentes Ocupadas',
-            'points': 'Pontos',
-            'polygons': 'Polígonos',
-            'rectangle': 'Retângulo',
-            'texts': 'Textos',
-            'visibility': 'Áreas de Visibilidade'
-        };
-
-        this.FEATURE_TYPE_ICONS = {
-            'arrows': './images/icon_arrow_black.svg',
-            'boundarys': './images/icon_boundary_black.svg',
-            'brushes': './images/icon_brush_black.svg',
-            'circles': './images/icon_circle_black.svg',
-            'ellipses': './images/icon_ellipse_black.svg',
-            'images': './images/icon_photo_black.svg',
-            'lines': './images/icon_line_black.svg',
-            'los': './images/icon_los_black.svg',
-            'military_symbols': './images/icon_military_black.svg',
-            'occupied_fronts': './images/icon_occupied_front_black.svg',
-            'points': './images/icon_point_black.svg',
-            'polygons': './images/icon_polygon_black.svg',
-            'rectangles': './images/icon_rectangle_black.svg',
-            'texts': './images/icon_text_black.svg',
-            'visibility': './images/icon_visibility_black.svg'
-        };
 
         this.INLINE_ICONS = {
             EYE_VISIBLE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -368,9 +335,13 @@ class FeaturesTab {
 
     flattenAndSortFeatures(features) {
         const flatFeatures = [];
+        const validStorageTypes = getAllStorageTypes();
 
         // Converter features agrupadas em array plano
         Object.entries(features).forEach(([type, featureArray]) => {
+            if (!validStorageTypes.includes(type)) {
+                return; // Ignora processed_los, processed_visibility, etc.
+            }
             if (featureArray.length > 0) {
                 featureArray.forEach(feature => {
                     flatFeatures.push({
@@ -380,7 +351,7 @@ class FeaturesTab {
                         locked: feature.properties.bloqueado ?? false,
                         rawFeature: feature,
                         type: type,
-                        typeLabel: this.FEATURE_TYPE_LABELS[type] || type
+                        typeLabel: getFeatureDisplayNameFromStorage(type)
                     });
                 });
             }
@@ -432,7 +403,7 @@ class FeaturesTab {
         item.dataset.featureId = feature.id;
         item.dataset.featureType = feature.type;
 
-        const typeIconPath = this.FEATURE_TYPE_ICONS[feature.type] || './images/icon_default_black.svg';
+        const typeIconPath = getFeatureIconFromStorage(feature.type);
         const typeIconAlt = feature.typeLabel;
         const visibilityIcon = feature.visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
         const visibilityTitle = feature.visible ? 'Ocultar' : 'Mostrar';

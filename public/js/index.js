@@ -4,8 +4,6 @@ import config from './config.js';
 
 import { } from './map_sig.js'
 import {
-    handleClickGoTo,
-    activeTool,
     init3DFeatures,
     cleanup3DFeatures,
     loadCesiumAndInit,

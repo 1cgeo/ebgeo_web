@@ -66,55 +66,6 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
 
     $(panel).append(createAttributeRow('Escalão:', echelonSelect));
 
-    // ===== INPUTS DE TEXTO ESPECÍFICOS =====
-    // ⚠️ MANTER: Inputs específicos de texto1 e texto2
-
-    // Texto 1
-    const text1Label = document.createElement('label');
-    text1Label.textContent = 'Texto 1:';
-    const text1Input = document.createElement('input');
-    text1Input.type = 'text';
-    text1Input.value = feature.properties.text_top || '';
-    text1Input.placeholder = 'Ex: 244';
-    text1Input.style.cssText = 'width: 100% ; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;';
-    text1Input.oninput = (e) => {
-        boundaryControl.updateFeaturesProperty(selectedFeatures, 'text_top', e.target.value);
-        uiManager.updateSelectionHighlight();
-    };
-
-    $(panel).append(createAttributeRow('Texto 1:', text1Input));
-
-    // Texto 2
-    const text2Label = document.createElement('label');
-    text2Label.textContent = 'Texto 2:';
-    const text2Input = document.createElement('input');
-    text2Input.type = 'text';
-    text2Input.value = feature.properties.text_bottom || '';
-    text2Input.placeholder = 'Ex: 155';
-    text2Input.style.cssText = 'width:  100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;';
-    text2Input.oninput = (e) => {
-        boundaryControl.updateFeaturesProperty(selectedFeatures, 'text_bottom', e.target.value);
-        uiManager.updateSelectionHighlight();
-    };
-
-    $(panel).append(createAttributeRow('Texto 2:', text2Input));
-
-    // ===== PROPRIEDADES DE ESTILO =====
-
-    // Tamanho do Texto (slider específico)
-    const textSizeControl = createSliderWithInput({
-        min: 8,
-        max: 100,
-        step: 1,
-        value: feature.properties.text_size || 35,
-        onChange: (value) => {
-            boundaryControl.updateFeaturesProperty(selectedFeatures, 'text_size', value);
-            uiManager.updateSelectionHighlight();
-        }
-    });
-
-    $(panel).append(createAttributeRow('Tamanho do Texto (px):', textSizeControl));
-
     // Cor da Linha
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         boundaryControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);

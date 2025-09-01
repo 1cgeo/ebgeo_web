@@ -1,20 +1,17 @@
 // Path: js\controls_sig\map_manager.js
 import {
     addMap,
+    addFeature,
     removeMap,
     renameMap,
     setCurrentMap,
     updateMapPosition,
     hasMapSavedPosition,
     clearMapPosition,
-    getAllMapNames,
+    getAllMapNamesStore,
     getCurrentMapName,
     moveFeaturesToMap,
-    mapStore,
-    resetMemoryStore,
-    SCHEMA_VERSION,
-    imageStore,
-    appStore
+    clearAllDataStore
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -45,7 +42,7 @@ class MapManager {
                 return { success: false, message: 'Nome inválido' };
             }
 
-            const allMapNames = await getAllMapNames();
+            const allMapNames = await getAllMapNamesStore();
             if (allMapNames.length >= 100) {
                 return { success: false, message: 'Limite de 100 mapas atingido' };
             }
@@ -66,7 +63,7 @@ class MapManager {
 
     async deleteMap(mapName) {
         try {
-            const allMapNames = await getAllMapNames();
+            const allMapNames = await getAllMapNamesStore();
             const currentMapName = await getCurrentMapName();
 
             if (allMapNames.length <= 1) {
@@ -120,7 +117,7 @@ class MapManager {
                 return { success: false, message: 'Nome inválido' };
             }
 
-            const allMapNames = await getAllMapNames();
+            const allMapNames = await getAllMapNamesStore();
             if (allMapNames.length >= 100) {
                 return { success: false, message: 'Limite de 100 mapas atingido' };
             }
@@ -196,7 +193,6 @@ class MapManager {
                                 };
 
                                 setCurrentMap(targetMapName);
-                                const { addFeature } = await import('./store/store.js');
                                 await addFeature(featureType, featureCopy);
                                 totalFeatures++;
                             }
@@ -252,7 +248,7 @@ class MapManager {
 
     // ===== DATA GENERATION =====
     async generateMapListData() {
-        const mapNames = await getAllMapNames();
+        const mapNames = await getAllMapNamesStore();
         const currentMapName = await getCurrentMapName();
 
         // Ordenar alfabeticamente
@@ -277,12 +273,12 @@ class MapManager {
     }
 
     async canDeleteMap(mapName) {
-        const allMapNames = await getAllMapNames();
+        const allMapNames = await getAllMapNamesStore();
         return allMapNames.length > 1;
     }
 
     async canCreateNewMap() {
-        const allMapNames = await getAllMapNames();
+        const allMapNames = await getAllMapNamesStore();
         const canCreate = allMapNames.length < 100;
 
         if (!canCreate) {
@@ -295,13 +291,7 @@ class MapManager {
     // ===== CLEAR ALL DATA =====
     async clearAllData() {
         try {
-            await resetMemoryStore();
-            // Limpar também imageStore e appStore
-            await imageStore.clear();
-            await appStore.clear();
-            await mapStore.clear();
-
-            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+            await clearAllDataStore();
 
             // Criar novo mapa padrão
             await addMap('Principal');

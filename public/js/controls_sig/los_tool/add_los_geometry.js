@@ -1,0 +1,418 @@
+// Path: js\controls_sig\los_tool\add_los_geometry.js
+import BaseGeometry from '../tool_manager/base_geometry.js';
+import { getTerrainElevation } from '../terrain_control.js';
+
+/**
+ * Line of Sight Geometry Operations
+ * Handles all geometric calculations for LOS features including:
+ * - Terrain-based line of sight calculations
+ * - Elevation profile generation
+ * - Processed features (visible/obstructed split)
+ * - Async movement recalculations
+ */
+class AddLOSGeometry extends BaseGeometry {
+    constructor(properties = {}) {
+        super(properties);
+        
+        // LOS specific constants
+        this.VISIBLE_COLOR = '#00FF00';
+        this.OBSTRUCTED_COLOR = '#FF0000';
+        this.SAMPLE_DISTANCE = 60; // meters per sample (2x DEM resolution)
+        this.OBSERVER_HEIGHT = 2; // meters above ground
+        this.PROFILE_STEPS = 25;
+    }
+
+    /**
+     * Generate LOS geometry (not applicable - LOS uses calculateLOS)
+     * @param {Array} coordinates - Line coordinates
+     * @returns {Object} GeoJSON geometry
+     */
+    generate(coordinates) {
+        // LOS geometry is generated through calculateLOS
+        return {
+            type: 'LineString',
+            coordinates: coordinates
+        };
+    }
+
+    /**
+     * Validate LOS coordinates
+     * @param {Array} coordinates - Coordinates to validate
+     * @returns {boolean} True if valid
+     */
+    validate(coordinates) {
+        if (!Array.isArray(coordinates) || coordinates.length !== 2) {
+            return false;
+        }
+
+        return coordinates.every(coord =>
+            Array.isArray(coord) &&
+            coord.length >= 2 &&
+            typeof coord[0] === 'number' &&
+            typeof coord[1] === 'number' &&
+            !isNaN(coord[0]) &&
+            !isNaN(coord[1])
+        );
+    }
+
+    /**
+     * Extract coordinates from LOS geometry (handles MultiLineString and LineString)
+     * @param {Object} geometry - GeoJSON geometry
+     * @returns {Array} [startPoint, endPoint]
+     */
+    extractCoordinatesFromGeometry(geometry) {
+        if (geometry.type === 'MultiLineString') {
+            // Use first and last point from the two lines
+            const firstLine = geometry.coordinates[0];
+            const secondLine = geometry.coordinates[1];
+            return [firstLine[0], secondLine[secondLine.length - 1]];
+        } else if (geometry.type === 'LineString') {
+            const coords = geometry.coordinates;
+            return [coords[0], coords[coords.length - 1]];
+        }
+        
+        console.warn('Unknown LOS geometry type:', geometry.type);
+        return null;
+    }
+
+    /**
+     * Calculate Line of Sight with terrain obstruction analysis
+     * @param {Array} coordinates - [startPoint, endPoint]
+     * @param {Object} map - MapLibre map instance for terrain queries
+     * @returns {Object} {visible: Feature, obstructed: Feature|null}
+     */
+    async calculateLOS(coordinates, map) {
+        if (!this.validate(coordinates)) {
+            throw new Error('Invalid coordinates for LOS calculation');
+        }
+
+        const [startCoordinates, endCoordinates] = coordinates;
+        const line = turf.lineString(coordinates);
+        const length = turf.length(line, { units: 'meters' });
+        const steps = Math.ceil(length / this.SAMPLE_DISTANCE);
+        const stepLength = length / steps;
+
+        // Get start and end elevations
+        const startElevation = await getTerrainElevation(map, startCoordinates) + this.OBSERVER_HEIGHT;
+        const endElevation = await getTerrainElevation(map, endCoordinates);
+
+        let firstObstructedPoint = null;
+
+        // Sample along the line to find first obstruction
+        for (let i = 1; i <= steps; i++) {
+            const segment = turf.along(line, i * stepLength, { units: 'meters' });
+            const segmentCoordinates = segment.geometry.coordinates;
+
+            // Calculate expected elevation on the line of sight
+            const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
+
+            // Query actual terrain elevation
+            const actualElevation = await getTerrainElevation(map, segmentCoordinates);
+
+            if (actualElevation > expectedElevation) {
+                firstObstructedPoint = segmentCoordinates;
+                break;
+            }
+        }
+
+        // Generate visible and obstructed segments
+        const visibleLine = firstObstructedPoint
+            ? turf.lineString([startCoordinates, firstObstructedPoint])
+            : turf.lineString([startCoordinates, endCoordinates]);
+
+        const obstructedLine = firstObstructedPoint
+            ? turf.lineString([firstObstructedPoint, endCoordinates])
+            : null;
+
+        return {
+            visible: visibleLine,
+            obstructed: obstructedLine
+        };
+    }
+
+    /**
+     * Calculate elevation profile along coordinates
+     * @param {Array} coordinates - [startPoint, endPoint]
+     * @param {Object} map - MapLibre map instance for terrain queries
+     * @returns {Array} Array of {distance, elevation} objects
+     */
+    async calculateProfile(coordinates, map) {
+        if (!this.validate(coordinates)) {
+            throw new Error('Invalid coordinates for profile calculation');
+        }
+
+        const line = turf.lineString(coordinates);
+        const length = turf.length(line, { units: 'meters' });
+        const stepLength = length / this.PROFILE_STEPS;
+
+        const profileData = [];
+
+        for (let i = 0; i <= this.PROFILE_STEPS; i++) {
+            const point = turf.along(line, i * stepLength, { units: 'meters' });
+            const elevation = await getTerrainElevation(map, point.geometry.coordinates);
+            
+            profileData.push({
+                distance: i * stepLength,
+                elevation: elevation
+            });
+        }
+
+        return profileData;
+    }
+
+    /**
+     * Generate processed features for visual display (green/red lines)
+     * @param {Object} mainFeature - Main LOS feature
+     * @returns {Array} Array of processed features with colors
+     */
+    generateProcessedFeatures(mainFeature) {
+        const properties = mainFeature.properties;
+        const processedFeatures = [];
+
+        if (mainFeature.geometry.type === 'MultiLineString') {
+            // Visible portion (green)
+            processedFeatures.push({
+                type: 'Feature',
+                id: properties.id + '-visible',
+                properties: {
+                    ...properties,
+                    id: properties.id + '-visible',
+                    color: this.VISIBLE_COLOR
+                },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: mainFeature.geometry.coordinates[0]
+                }
+            });
+
+            // Obstructed portion (red)
+            processedFeatures.push({
+                type: 'Feature',
+                id: properties.id + '-obstructed',
+                properties: {
+                    ...properties,
+                    id: properties.id + '-obstructed',
+                    color: this.OBSTRUCTED_COLOR
+                },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: mainFeature.geometry.coordinates[1]
+                }
+            });
+        } else {
+            // Fully visible line (green)
+            processedFeatures.push({
+                type: 'Feature',
+                id: properties.id + '-visible',
+                properties: {
+                    ...properties,
+                    id: properties.id + '-visible',
+                    color: this.VISIBLE_COLOR
+                },
+                geometry: mainFeature.geometry
+            });
+        }
+
+        return processedFeatures;
+    }
+
+    /**
+     * Recalculate LOS from moved coordinates
+     * @param {Array} newCoordinates - New [startPoint, endPoint]
+     * @param {Object} map - MapLibre map instance
+     * @returns {Object} New geometry and profile data
+     */
+    async recalculateFromCoordinates(newCoordinates, map) {
+        if (!this.validate(newCoordinates)) {
+            throw new Error('Invalid coordinates for LOS recalculation');
+        }
+
+        try {
+            // Recalculate LOS analysis
+            const losResult = await this.calculateLOS(newCoordinates, map);
+            
+            // Generate new geometry
+            let newGeometry;
+            if (losResult.obstructed) {
+                newGeometry = {
+                    type: 'MultiLineString',
+                    coordinates: [
+                        losResult.visible.geometry.coordinates,
+                        losResult.obstructed.geometry.coordinates
+                    ]
+                };
+            } else {
+                newGeometry = {
+                    type: 'LineString',
+                    coordinates: losResult.visible.geometry.coordinates
+                };
+            }
+
+            // Calculate new profile data
+            const profileData = await this.calculateProfile(newCoordinates, map);
+
+            return {
+                geometry: newGeometry,
+                profileData: profileData
+            };
+        } catch (error) {
+            console.error('Error recalculating LOS:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Create complete LOS feature from coordinates
+     * @param {Array} coordinates - [startPoint, endPoint]
+     * @param {Object} properties - Feature properties
+     * @param {Object} map - MapLibre map instance
+     * @returns {Object} Complete LOS feature with geometry and profile
+     */
+    async createLOSFeature(coordinates, properties, map) {
+        if (!this.validate(coordinates)) {
+            throw new Error('Invalid coordinates for LOS feature creation');
+        }
+
+        const losResult = await this.calculateLOS(coordinates, map);
+        const profileData = await this.calculateProfile(coordinates, map);
+
+        let geometry;
+        if (losResult.obstructed) {
+            geometry = {
+                type: 'MultiLineString',
+                coordinates: [
+                    losResult.visible.geometry.coordinates,
+                    losResult.obstructed.geometry.coordinates
+                ]
+            };
+        } else {
+            geometry = {
+                type: 'LineString',
+                coordinates: losResult.visible.geometry.coordinates
+            };
+        }
+
+        return {
+            type: 'Feature',
+            id: Date.now().toString(),
+            properties: {
+                ...properties,
+                profileData: JSON.stringify(profileData)
+            },
+            geometry: geometry
+        };
+    }
+
+    /**
+     * No edit handles for LOS (implements BaseGeometry interface)
+     * @param {Object} feature - LOS feature
+     * @returns {Array} Empty array (no handles)
+     */
+    createHandles(feature) {
+        return []; // LOS doesn't have interactive handles
+    }
+
+    /**
+     * No handle updates for LOS (implements BaseGeometry interface)
+     * @param {string} handleType - Handle type (not applicable)
+     * @param {Array} newPosition - New position (not applicable)
+     * @param {Object} feature - Feature (not applicable)
+     * @returns {null} Not applicable for LOS
+     */
+    updateFromHandle(handleType, newPosition, feature) {
+        console.warn('LOS features do not support handle-based editing');
+        return null;
+    }
+
+    /**
+     * Get bounding box for LOS coordinates
+     * @param {Array} coordinates - [startPoint, endPoint]
+     * @returns {Array} Bounding box [minLng, minLat, maxLng, maxLat]
+     */
+    getBoundingBox(coordinates) {
+        if (!this.validate(coordinates)) {
+            return [0, 0, 0, 0];
+        }
+
+        const [start, end] = coordinates;
+        const lngs = [start[0], end[0]];
+        const lats = [start[1], end[1]];
+
+        return [
+            Math.min(...lngs), // minLng
+            Math.min(...lats), // minLat
+            Math.max(...lngs), // maxLng
+            Math.max(...lats)  // maxLat
+        ];
+    }
+
+    /**
+     * Calculate distance for LOS measurement
+     * @param {Array} coordinates - [startPoint, endPoint]
+     * @returns {number} Distance in meters
+     */
+    calculateLOSDistance(coordinates) {
+        if (!this.validate(coordinates)) {
+            return 0;
+        }
+
+        return this.calculateDistance(coordinates[0], coordinates[1]);
+    }
+
+    /**
+     * Format distance for display
+     * @param {number} distanceMeters - Distance in meters
+     * @returns {string} Formatted distance string
+     */
+    formatDistance(distanceMeters) {
+        return distanceMeters >= 1000
+            ? `${(distanceMeters / 1000).toFixed(2)} km`
+            : `${distanceMeters.toFixed(2)} m`;
+    }
+
+    /**
+     * Get midpoint coordinates for measurement display
+     * @param {Array} coordinates - [startPoint, endPoint]
+     * @returns {Array} Midpoint coordinates
+     */
+    getMidpoint(coordinates) {
+        if (!this.validate(coordinates)) {
+            return [0, 0];
+        }
+
+        const line = turf.lineString(coordinates);
+        const distance = turf.length(line, { units: 'meters' });
+        const midpoint = turf.along(line, distance / 2, { units: 'meters' });
+        
+        return midpoint.geometry.coordinates;
+    }
+
+    /**
+     * Check if coordinates represent a valid LOS
+     * @param {Array} coordinates - Coordinates to check
+     * @returns {boolean} True if valid LOS
+     */
+    isValidLOS(coordinates) {
+        return this.validate(coordinates);
+    }
+
+    /**
+     * Determine if terrain is available for LOS calculation
+     * @param {Object} map - MapLibre map instance
+     * @returns {boolean} True if terrain is available
+     */
+    isTerrainAvailable(map) {
+        return map.getTerrain() !== null;
+    }
+
+    /**
+     * Get coordinates from geometry for movement operations
+     * @param {Object} geometry - GeoJSON geometry
+     * @returns {Array} Coordinates array
+     */
+    getCoordinatesForMovement(geometry) {
+        return this.extractCoordinatesFromGeometry(geometry);
+    }
+}
+
+export default AddLOSGeometry;

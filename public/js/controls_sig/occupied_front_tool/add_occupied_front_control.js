@@ -1,25 +1,29 @@
 // Path: js\controls_sig\occupied_front_tool\add_occupied_front_control.js
+
 import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
+import { addOccupiedFrontAttributesToPanel } from './occupied_front_attributes_panel.js';
+import AddOccupiedFrontGeometry from './add_occupied_front_geometry.js';
+import BaseControl from '../tool_manager/base_control.js';
 
-class AddOccupiedFrontControl {
+class AddOccupiedFrontControl extends BaseControl {
     constructor(toolManager) {
-        this.toolManager = toolManager;
-        this.selectionManager = toolManager.selectionManager;
+        super(toolManager);
 
-        // ✅ ESTADO SIMPLIFICADO (6 variáveis máximo)
-        this.isActive = false;
-        this.selectedFeature = null;           // Substitui currentState system
+        // State management
         this.drawPoints = [];
-        this.isDraggingHandle = false;         // Estado de drag único
-        this.activeHandleType = null;          // Track qual handle está sendo arrastado
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;
 
-        // ✅ RAF CONSOLIDADO - um sistema apenas
+        // Geometry handler
+        this.geometry = new AddOccupiedFrontGeometry();
+
+        // Performance optimization - RAF system
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
-        this.lastPreviewCenter = null;         // Cache do centro durante preview
-        this.geometryDebounceTimer = null;     // Debounce para operações de geometria
+        this.lastPreviewCenter = null;
+        this.geometryDebounceTimer = null;
     }
 
     static DEFAULT_PROPERTIES = {
@@ -27,14 +31,31 @@ class AddOccupiedFrontControl {
         lineWidth: 4,
         opacity: 1.0,
         source: 'occupied_front',
-        type: 'occupied_front',
-
-        // ✅ NOVOS ATRIBUTOS
         nome: '',
         descricao: '',
         visivel: true,
         bloqueado: false
     };
+
+    // ===== FONTE ÚNICA DA VERDADE =====
+
+    /**
+     * Get currently selected occupied front feature from SelectionManager
+     * @returns {Object|null} Selected occupied front feature or null
+     */
+    getSelectedFeature() {
+        const selectedItems = this.selectionManager.getSelectedFeaturesByType('occupied_front');
+        return selectedItems.length > 0 ? selectedItems[0].feature : null;
+    }
+
+    /**
+     * Get all selected occupied front features from SelectionManager
+     * @returns {Array} Array of selected occupied front features
+     */
+    getSelectedFeatures() {
+        return this.selectionManager.getSelectedFeaturesByType('occupied_front')
+            .map(item => item.feature);
+    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -59,9 +80,7 @@ class AddOccupiedFrontControl {
 
     onRemove = () => {
         try {
-            if (this.selectionManager.uiManager) {
-                this.selectionManager.uiManager.removeControl(this.container);
-            }
+            this.selectionManager.uiManager.removeControl(this.container);
             this.deactivate();
             this.removeAllEventListeners();
             this.map = undefined;
@@ -69,6 +88,131 @@ class AddOccupiedFrontControl {
             console.error('Error removing AddOccupiedFrontControl:', error);
             throw error;
         }
+    }
+
+    // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
+
+    hasAttributePanel() {
+        return true;
+    }
+
+    createAttributePanel(container, features, selectionManager, uiManager) {
+        const sectionPanel = document.createElement('div');
+        sectionPanel.className = 'occupied-front-attributes-section';
+
+        try {
+            addOccupiedFrontAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            container.appendChild(sectionPanel);
+        } catch (error) {
+            console.error('Error creating occupied front attribute panel:', error);
+        }
+    }
+
+    getDragSources() {
+        return ['occupied_fronts'];
+    }
+
+    getEditHandleSources() {
+        return ['occupied-front-edit-handles'];
+    }
+
+    createSelectionBox(feature) {
+        try {
+            const bbox = turf.bbox(feature);
+            const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding());
+            return turf.bboxPolygon(expandedBbox);
+        } catch (error) {
+            console.warn('Error creating occupied front selection box:', error);
+            return null;
+        }
+    }
+
+    getSelectionBoxStrategy() {
+        return 'bbox';
+    }
+
+    getSelectionBoxPadding() {
+        return 8; // Slightly larger padding for complex geometry
+    }
+
+    getLayerIds() {
+        return ['occupied-front-layer'];
+    }
+
+    getSourceNames() {
+        return ['occupied_fronts'];
+    }
+
+    getEditHandleSource() {
+        return 'occupied-front-edit-handles';
+    }
+
+    canCopy(feature) {
+        return true;
+    }
+
+    canPaste(feature) {
+        return true;
+    }
+
+    prepareForPaste(feature, offset) {
+        const oldCoords = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+
+        const newCoords = oldCoords.map(coord => [
+            coord[0] + offset.dx,
+            coord[1] + offset.dy
+        ]);
+
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                baseCoordinates: newCoords
+            },
+            geometry: this.geometry.generate(newCoords)
+        };
+    }
+
+    calculateMoveOffset(feature, referencePoint) {
+        // Use the first coordinate (p1 - origin) as reference for movement
+        const coords = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+        if (!coords || coords.length < 1) {
+            return [0, 0];
+        }
+
+        const origin = coords[0]; // p1 is the origin point
+        return [
+            origin[0] - referencePoint.lng,
+            origin[1] - referencePoint.lat
+        ];
+    }
+
+    updateFeatureForMove(feature, dx, dy, newCoords) {
+        const coords = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+        if (!coords || coords.length < 3) {
+            return feature;
+        }
+
+        // Move all base coordinates by the same delta
+        const newBaseCoords = coords.map(coord => [
+            coord[0] + dx,
+            coord[1] + dy
+        ]);
+
+        const updatedFeature = {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                baseCoordinates: newBaseCoords
+            },
+            geometry: this.geometry.generate(newBaseCoords)
+        };
+
+        return updatedFeature;
+    }
+
+    canMove(feature) {
+        return !feature.properties?.bloqueado;
     }
 
     // ===== TOOL ACTIVATION/DEACTIVATION =====
@@ -96,85 +240,6 @@ class AddOccupiedFrontControl {
         $("#occupied-front-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="FRENTE OCUPADA" />`);
     }
 
-    // ===== SIMPLIFIED STATE MANAGEMENT =====
-
-    selectFeature = (feature) => {
-        this.selectedFeature = feature;
-        this.createEditHandles(feature);
-        this.setupEditEventListeners();
-        this.setupHoverListeners();
-    }
-
-    deselectFeature = () => {
-        this.selectedFeature = null;
-        this.isDraggingHandle = false;
-        this.activeHandleType = null;
-        this.clearEditHandles();
-        this.removeEditEventListeners();
-        this.removeHoverListeners();
-        this.cancelPendingUpdates();
-        this.map.dragPan.enable();
-        this.map.getCanvas().style.cursor = '';
-    }
-
-    // ✅ CLEANUP - cancelar operações pendentes
-    cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
-        this.lastPreviewPosition = null;
-        this.lastPreviewCenter = null;
-        this.activeHandleType = null;
-
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
-    }
-
-    // ===== HOVER SYSTEM FOR DYNAMIC CURSOR =====
-
-    setupHoverListeners = () => {
-        this.map.on('mousemove', this.onHoverMove);
-    }
-
-    removeHoverListeners = () => {
-        this.map.off('mousemove', this.onHoverMove);
-    }
-
-    onHoverMove = (e) => {
-        if (!this.selectedFeature) return;
-
-        const features = this.map.queryRenderedFeatures(e.point);
-        const hasHandle = this.hasHandleAtPoint(features);
-        const hasFeature = this.hasSelectedFeatureAtPoint(features);
-
-        if (hasHandle) {
-            this.map.getCanvas().style.cursor = 'crosshair';
-        } else if (hasFeature) {
-            this.map.getCanvas().style.cursor = 'move';
-        } else {
-            this.map.getCanvas().style.cursor = '';
-        }
-    }
-
-    hasHandleAtPoint = (features) => {
-        return features.some(f =>
-            f.source === 'occupied-front-edit-handles' &&
-            f.properties.user_isEditingHandle
-        );
-    }
-
-    hasSelectedFeatureAtPoint = (features) => {
-        if (!this.selectedFeature) return false;
-        return features.some(f =>
-            f.source === 'occupied_fronts' &&
-            f.properties.id === this.selectedFeature.properties.id
-        );
-    }
-
     // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
@@ -182,36 +247,34 @@ class AddOccupiedFrontControl {
     }
 
     onFeatureDeselected = (feature) => {
+        const selectedFeature = this.getSelectedFeature();
         const featureId = feature.properties.id;
-        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
+        if (selectedFeature && selectedFeature.properties.id === featureId) {
             this.deselectFeature();
         }
     }
 
     onGlobalDeselect = () => {
-        if (this.selectedFeature) {
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature) {
             this.deselectFeature();
         }
     }
 
-    // Interface for move_handler integration
     isEditingMode = () => {
         return false;
     }
 
     hasEditHandle = (featureId) => {
-        return this.selectedFeature && this.selectedFeature.properties.id === featureId;
+        const selectedFeature = this.getSelectedFeature();
+        return selectedFeature && selectedFeature.properties.id === featureId;
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
-        if (this.selectedFeature && !this.isDraggingHandle) {
-            const updatedFeature = movedFeatures.find(f =>
-                f.properties.id === this.selectedFeature.properties.id
-            );
-            if (updatedFeature) {
-                this.selectedFeature = updatedFeature;
-                this.createEditHandles(updatedFeature);
-            }
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            // Always recreate handles with current feature data
+            this.createEditHandles(selectedFeature);
         }
     }
 
@@ -236,10 +299,9 @@ class AddOccupiedFrontControl {
         }
     }
 
-    // ✅ RAF-based preview (com cache do centro)
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length === 1) {
-            this.lastPreviewCenter = this.drawPoints[0];  // Cache do centro
+            this.lastPreviewCenter = this.drawPoints[0];
             this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
             if (!this.pendingPreviewUpdate) {
@@ -249,41 +311,36 @@ class AddOccupiedFrontControl {
         }
     }
 
-    // ✅ CONSOLIDATED RAF - handles both preview and edit
     performPreviewUpdate = () => {
         if (!this.lastPreviewPosition) {
             this.pendingPreviewUpdate = false;
             return;
         }
 
-        // Edit mode - updating occupied front via handle drag
-        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
+        const selectedFeature = this.getSelectedFeature();
+        if (this.isDraggingHandle && selectedFeature) {
             this.updateOccupiedFrontPreview(this.lastPreviewPosition);
-        }
-        // Drawing mode - showing occupied front preview
-        else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
-            const p1 = this.lastPreviewCenter; // Origem
-            const p2 = this.lastPreviewPosition; // Braço superior
+        } else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
+            const p1 = this.lastPreviewCenter;
+            const p2 = this.lastPreviewPosition;
 
-            // Calcular P3 automaticamente com ângulo de 50°
-            const distance = this.calculateDistance(p1, p2);
-            const bearing = this.calculateBearing(p1, p2);
-            const p3 = this.destination(p1, distance, bearing + 50);
+            // Calculate P3 automatically with 50° angle
+            const distance = this.geometry.calculateDistance(p1, p2);
+            const bearing = this.geometry.calculateBearing(p1, p2);
+            const p3 = this.geometry.destination(p1, distance, bearing + 50);
 
             if (distance >= 10) {
-                // ✅ Debounce para operações de geometria complexa
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.createOccupiedFrontGeometry([p1, p2, p3]);
+                    const previewGeometry = this.geometry.generate([p1, p2, p3]);
                     this.showPreview(previewGeometry);
-                }, 8); // 8ms para geometria mais complexa
+                }, 12); // More debouncing for complex geometry
             }
         }
 
         this.pendingPreviewUpdate = false;
     }
 
-    // ✅ UPDATED - uses consolidated feedback source
     showPreview = (geometry) => {
         this.map.getSource('occupied-front-feedback').setData({
             type: 'Feature',
@@ -297,7 +354,6 @@ class AddOccupiedFrontControl {
         });
     }
 
-    // ✅ UPDATED - clears consolidated feedback source
     clearPreview = () => {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.cancelPendingUpdates();
@@ -310,13 +366,13 @@ class AddOccupiedFrontControl {
     }
 
     createFeature = async () => {
-        const p1 = this.drawPoints[0]; // Origem
-        const p2 = this.drawPoints[1]; // Braço superior
+        const p1 = this.drawPoints[0]; // Origin
+        const p2 = this.drawPoints[1]; // Upper arm
 
-        // Calcular P3 automaticamente com ângulo de 50°
-        const distance = this.calculateDistance(p1, p2);
-        const bearing = this.calculateBearing(p1, p2);
-        const p3 = this.destination(p1, distance, bearing + 50);
+        // Calculate P3 automatically with 50° angle
+        const distance = this.geometry.calculateDistance(p1, p2);
+        const bearing = this.geometry.calculateBearing(p1, p2);
+        const p3 = this.geometry.destination(p1, distance, bearing + 50);
 
         if (distance < 10) {
             alert('Distância mínima: 10 metros');
@@ -326,7 +382,7 @@ class AddOccupiedFrontControl {
 
         const featureId = IDUtils.generateUniqueId();
         const featureName = IDUtils.generateFeatureName('occupied_front', this.map);
-        const coordinates = [p1, p2, p3]; // LineString com 3 pontos
+        const coordinates = [p1, p2, p3];
 
         const feature = {
             type: 'Feature',
@@ -335,9 +391,9 @@ class AddOccupiedFrontControl {
                 ...AddOccupiedFrontControl.DEFAULT_PROPERTIES,
                 id: featureId,
                 nome: featureName,
-                baseCoordinates: coordinates // Armazenar pontos de controle
+                baseCoordinates: coordinates
             },
-            geometry: this.createOccupiedFrontGeometry(coordinates)
+            geometry: this.geometry.generate(coordinates)
         };
 
         try {
@@ -356,132 +412,32 @@ class AddOccupiedFrontControl {
         }
     }
 
-    // ===== GEOMETRIA DA FRENTE OCUPADA (MANTER LÓGICA ORIGINAL) =====
+    // ===== EDIT HANDLES SYSTEM =====
 
-    /**
-     * Cria a geometria MultiLineString da frente ocupada
-     */
-    createOccupiedFrontGeometry = (coords) => {
-        if (!coords || coords.length < 3) return null;
-
-        const p1 = coords[0]; // Origem
-        const p2 = coords[1]; // Braço superior  
-        const p3 = coords[2]; // Braço inferior
-
-        const multiLine = {
-            type: 'MultiLineString',
-            coordinates: []
-        };
-
-        // Criar os dois braços independentemente usando createRay
-        const upperArm = this.createRay(p1, p2, -1); // Braço superior (curva para direita)
-        const lowerArm = this.createRay(p1, p3, 1);  // Braço inferior (curva para esquerda)
-
-        multiLine.coordinates.push(...upperArm);
-        multiLine.coordinates.push(...lowerArm);
-
-        return multiLine;
+    selectFeature = (feature) => {
+        // SelectionManager já armazena a feature, só precisamos criar handles
+        this.createEditHandles(feature);
+        this.setupEditEventListeners();
+        this.setupHoverListeners();
     }
 
-    /**
-     * Cria a geometria para um único braço da "Frente Ocupada" (MANTER LÓGICA ORIGINAL).
-     */
-    createRay = (startPoint, endPoint, turnDirection) => {
-        const rayLines = [];
-        const initialBearing = this.calculateBearing(startPoint, endPoint);
-        const distance = this.calculateDistance(startPoint, endPoint);
-
-        if (distance < 1) return [];
-
-        // 1. Ponto de início da curva (60% do caminho)
-        const p_turn1 = this.destination(startPoint, distance * 0.6, initialBearing);
-
-        // 2. Ponto final da curva
-        const turnBearing = initialBearing + (225 * turnDirection);
-        const turnLength = distance * 0.1;
-        const p_turn2 = this.destination(p_turn1, turnLength, turnBearing);
-
-        // 3. Monta os 3 segmentos de linha do braço
-        rayLines.push([startPoint, p_turn1]);
-        rayLines.push([p_turn1, p_turn2]);
-        rayLines.push([p_turn2, endPoint]);
-
-        // 4. Cabeça da seta - DUAS LINHAS COMPLETAS
-        const headLength = distance * 0.1
-        const finalBearing = this.calculateBearing(p_turn2, endPoint);
-        const headPoint1 = this.destination(endPoint, headLength, finalBearing + 150);
-        const headPoint2 = this.destination(endPoint, headLength, finalBearing - 150);
-
-        // Duas linhas separadas para formar a seta completa
-        rayLines.push([headPoint1, endPoint]);
-        rayLines.push([headPoint2, endPoint]);
-
-        return rayLines;
+    deselectFeature = () => {
+        // SelectionManager já remove a feature, só precisamos limpar UI
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;
+        this.clearEditHandles();
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
     }
-
-    // ===== EDITING MODE: HANDLE SYSTEM =====
 
     createEditHandles = (feature) => {
-        const handles = [];
-        const coords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
+        const handles = this.geometry.createHandles(feature);
+        if (!handles || handles.length === 0) return;
 
-        if (coords.length < 3) {
-            console.warn('Coordenadas insuficientes para criar handles:', coords);
-            return;
-        }
-
-        // Handle P1 - origem (verde)
-        handles.push({
-            type: 'Feature',
-            id: `occupied-front-handle-${feature.properties.id}-p1`,
-            geometry: { type: 'Point', coordinates: coords[0] },
-            properties: {
-                role: 'handle',
-                handleType: 'center',
-                handleId: 'p1',
-                index: 0,
-                featureId: feature.properties.id,
-                mode: 'occupied_front_editing',
-                meta: 'vertex',
-                user_isEditingHandle: true
-            }
-        });
-
-        // Handle P2 - braço superior (vermelho)
-        handles.push({
-            type: 'Feature',
-            id: `occupied-front-handle-${feature.properties.id}-p2`,
-            geometry: { type: 'Point', coordinates: coords[1] },
-            properties: {
-                role: 'handle',
-                handleType: 'primary',
-                handleId: 'p2',
-                index: 1,
-                featureId: feature.properties.id,
-                mode: 'occupied_front_editing',
-                meta: 'vertex',
-                user_isEditingHandle: true
-            }
-        });
-
-        // Handle P3 - braço inferior (azul)
-        handles.push({
-            type: 'Feature',
-            id: `occupied-front-handle-${feature.properties.id}-p3`,
-            geometry: { type: 'Point', coordinates: coords[2] },
-            properties: {
-                role: 'handle',
-                handleType: 'secondary',
-                handleId: 'p3',
-                index: 2,
-                featureId: feature.properties.id,
-                mode: 'occupied_front_editing',
-                meta: 'vertex',
-                user_isEditingHandle: true
-            }
-        });
-
-        // Show selection feedback using consolidated source
+        // Show selection feedback
         this.map.getSource('occupied-front-feedback').setData({
             type: 'Feature',
             geometry: feature.geometry,
@@ -509,8 +465,6 @@ class AddOccupiedFrontControl {
         });
     }
 
-    // ===== EDITING MODE: HANDLE INTERACTION =====
-
     setupEditEventListeners = () => {
         this.map.on('mousedown', this.onEditMouseDown);
         this.map.on('mousemove', this.onEditMouseMove);
@@ -523,9 +477,9 @@ class AddOccupiedFrontControl {
         this.map.off('mouseup', this.onEditMouseUp);
     }
 
-    // ✅ SIMPLIFIED - track do handle específico
     onEditMouseDown = (e) => {
-        if (!this.selectedFeature) return;
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
 
         const handleFeatures = this.map.queryRenderedFeatures(e.point, {
             layers: ['occupied-front-edit-handles-layer']
@@ -533,19 +487,17 @@ class AddOccupiedFrontControl {
 
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
-            if (handle && handle.properties && handle.properties.handleId) {
-                this.isDraggingHandle = true;
-                this.activeHandleType = handle.properties.handleId; // Track qual handle
-                this.map.dragPan.disable();
-                this.map.getCanvas().style.cursor = 'grabbing';
-                e.preventDefault();
-            }
+            this.isDraggingHandle = true;
+            this.activeHandleType = handle.properties.handleId; // 'p1', 'p2', or 'p3'
+            this.map.dragPan.disable();
+            this.map.getCanvas().style.cursor = 'grabbing';
+            e.preventDefault();
         }
     }
 
-    // ✅ SIMPLIFIED - uses consolidated RAF
     onEditMouseMove = (e) => {
-        if (!this.isDraggingHandle || !this.selectedFeature) return;
+        const selectedFeature = this.getSelectedFeature();
+        if (!this.isDraggingHandle || !selectedFeature) return;
 
         this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
@@ -556,25 +508,33 @@ class AddOccupiedFrontControl {
     }
 
     onEditMouseUp = () => {
-        if (this.isDraggingHandle && this.selectedFeature && this.activeHandleType) {
-            // Apply changes to selected feature
-            const coords = this.normalizeBaseCoordinates(this.selectedFeature.properties.baseCoordinates);
+        const selectedFeature = this.getSelectedFeature();
+        if (this.isDraggingHandle && selectedFeature) {
+            if (this.lastPreviewPosition && this.activeHandleType) {
+                const coords = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
 
-            if (coords && coords.length >= 3 && this.lastPreviewPosition) {
-                // Update specific handle position
-                if (this.activeHandleType === 'p1') coords[0] = this.lastPreviewPosition;
-                else if (this.activeHandleType === 'p2') coords[1] = this.lastPreviewPosition;
-                else if (this.activeHandleType === 'p3') coords[2] = this.lastPreviewPosition;
+                if (coords && coords.length >= 3) {
+                    // Update specific handle position
+                    if (this.activeHandleType === 'p1') coords[0] = this.lastPreviewPosition;
+                    else if (this.activeHandleType === 'p2') coords[1] = this.lastPreviewPosition;
+                    else if (this.activeHandleType === 'p3') coords[2] = this.lastPreviewPosition;
 
-                // Regenerate geometry
-                this.selectedFeature.properties.baseCoordinates = coords;
-                this.selectedFeature.geometry = this.createOccupiedFrontGeometry(coords);
+                    // Create updated feature
+                    const updatedFeature = {
+                        ...selectedFeature,
+                        properties: {
+                            ...selectedFeature.properties,
+                            baseCoordinates: coords
+                        },
+                        geometry: this.geometry.generate(coords)
+                    };
 
-                this.forceUpdateMainSource(this.selectedFeature);
-                this.createEditHandles(this.selectedFeature);
-                this.updateSelectionAfterEdit();
-                this.updateUIAfterEdit();
-                this.saveFeatureChanges(this.selectedFeature);
+                    this.forceUpdateMainSource(updatedFeature);
+                    this.updateSelectionManagerFeature(updatedFeature);
+                    this.createEditHandles(updatedFeature);
+                    this.updateUIAfterEdit();
+                    this.saveFeatureChanges(updatedFeature);
+                }
             }
         }
 
@@ -585,12 +545,12 @@ class AddOccupiedFrontControl {
     }
 
     updateOccupiedFrontPreview = (newPosition) => {
-        if (!this.selectedFeature || !this.activeHandleType) return;
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature || !this.activeHandleType) return;
 
-        const coords = this.normalizeBaseCoordinates(this.selectedFeature.properties.baseCoordinates);
+        const coords = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
         if (!coords || coords.length < 3) return;
 
-        // ✅ Debounce para operações de geometria complexa
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
             // Update specific handle position for preview
@@ -599,168 +559,74 @@ class AddOccupiedFrontControl {
             else if (this.activeHandleType === 'p2') previewCoords[1] = newPosition;
             else if (this.activeHandleType === 'p3') previewCoords[2] = newPosition;
 
-            const previewGeometry = this.createOccupiedFrontGeometry(previewCoords);
+            const previewGeometry = this.geometry.generate(previewCoords);
+            const previewHandles = this.geometry.createHandles({
+                ...selectedFeature,
+                properties: { ...selectedFeature.properties, baseCoordinates: previewCoords }
+            });
 
             // Show updated selection
             this.map.getSource('occupied-front-feedback').setData({
                 type: 'Feature',
                 geometry: previewGeometry,
                 properties: {
-                    ...this.selectedFeature.properties,
+                    ...selectedFeature.properties,
                     isSelected: true
                 }
             });
 
             // Update handles
-            const handles = previewCoords.map((coord, index) => ({
-                type: 'Feature',
-                id: `occupied-front-handle-${this.selectedFeature.properties.id}-p${index + 1}`,
-                geometry: { type: 'Point', coordinates: coord },
-                properties: {
-                    role: 'handle',
-                    handleType: ['center', 'primary', 'secondary'][index],
-                    handleId: `p${index + 1}`,
-                    user_isEditingHandle: true
-                }
-            }));
-
             this.map.getSource('occupied-front-edit-handles').setData({
                 type: 'FeatureCollection',
-                features: handles
+                features: previewHandles
             });
-        }, 12); // 12ms para geometria complexa
+        }, 12); // More debouncing for complex geometry
     }
 
-    // ===== EVENT LISTENER MANAGEMENT =====
+    // ===== HOVER SYSTEM =====
 
-    setupBaseEventListeners = () => {
-        // Base listeners setup if needed
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
     }
 
-    removeAllEventListeners = () => {
-        this.map.off('mousemove', this.handlePreviewMouseMove);
-        this.removeEditEventListeners();
-        this.removeHoverListeners();
-        this.cancelPendingUpdates();
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
     }
 
-    // ===== UTILITY METHODS =====
+    onHoverMove = (e) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
 
-    normalizeBaseCoordinates = (coords) => {
-        if (typeof coords === 'string') {
-            try {
-                coords = JSON.parse(coords);
-            } catch (e) {
-                console.error('Erro ao parsear baseCoordinates:', coords, e);
-                return [];
-            }
+        const features = this.map.queryRenderedFeatures(e.point);
+        const hasHandle = this.hasHandleAtPoint(features);
+        const hasFeature = this.hasSelectedFeatureAtPoint(features);
+
+        if (hasHandle) {
+            this.map.getCanvas().style.cursor = 'crosshair';
+        } else if (hasFeature) {
+            this.map.getCanvas().style.cursor = 'move';
+        } else {
+            this.map.getCanvas().style.cursor = '';
         }
-
-        if (!Array.isArray(coords)) {
-            console.error('baseCoordinates inválido:', coords);
-            return [];
-        }
-
-        return coords;
     }
 
-    calculateDistance = (point1, point2) => {
-        const R = 6371000; // Earth's radius in meters
-        const lat1Rad = point1[1] * Math.PI / 180;
-        const lat2Rad = point2[1] * Math.PI / 180;
-        const deltaLatRad = (point2[1] - point1[1]) * Math.PI / 180;
-        const deltaLngRad = (point2[0] - point1[0]) * Math.PI / 180;
-
-        const a = Math.sin(deltaLatRad / 2) * Math.sin(deltaLatRad / 2) +
-            Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-            Math.sin(deltaLngRad / 2) * Math.sin(deltaLngRad / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-        return R * c;
-    }
-
-    calculateBearing = (point1, point2) => {
-        const lat1 = point1[1] * Math.PI / 180;
-        const lat2 = point2[1] * Math.PI / 180;
-        const deltaLng = (point2[0] - point1[0]) * Math.PI / 180;
-
-        const y = Math.sin(deltaLng) * Math.cos(lat2);
-        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
-
-        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-    }
-
-    destination = (point, distance, bearing) => {
-        const R = 6371000; // Earth's radius in meters
-        const lat1 = point[1] * Math.PI / 180;
-        const lng1 = point[0] * Math.PI / 180;
-        const bearingRad = bearing * Math.PI / 180;
-
-        const lat2 = Math.asin(
-            Math.sin(lat1) * Math.cos(distance / R) +
-            Math.cos(lat1) * Math.sin(distance / R) * Math.cos(bearingRad)
+    hasHandleAtPoint = (features) => {
+        return features.some(f =>
+            f.source === 'occupied-front-edit-handles' &&
+            f.properties.user_isEditingHandle
         );
+    }
 
-        const lng2 = lng1 + Math.atan2(
-            Math.sin(bearingRad) * Math.sin(distance / R) * Math.cos(lat1),
-            Math.cos(distance / R) - Math.sin(lat1) * Math.sin(lat2)
+    hasSelectedFeatureAtPoint = (features) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return false;
+        return features.some(f =>
+            f.source === 'occupied_fronts' &&
+            f.properties.id === selectedFeature.properties.id
         );
-
-        return [lng2 * 180 / Math.PI, lat2 * 180 / Math.PI];
     }
 
-    forceUpdateMainSource = (feature) => {
-        if (!feature || !this.map) {
-            console.warn('forceUpdateMainSource: feature ou map inválido');
-            return;
-        }
-
-        const source = this.map.getSource('occupied_fronts');
-        if (!source) {
-            console.warn('forceUpdateMainSource: source occupied_fronts não encontrado');
-            return;
-        }
-
-        try {
-            const data = JSON.parse(JSON.stringify(source._data));
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-
-            if (sourceFeature) {
-                sourceFeature.properties = { ...feature.properties };
-                sourceFeature.geometry = { ...feature.geometry };
-                source.setData(data);
-            }
-        } catch (error) {
-            console.error('Erro em forceUpdateMainSource:', error);
-        }
-    }
-
-    updateSelectionAfterEdit = () => {
-        const featureId = this.selectedFeature.properties.id;
-        const type = this.selectedFeature.properties.source;
-        const key = `${type}:${featureId}`;
-
-        this.selectionManager.selectedFeatures.set(key, {
-            type,
-            feature: this.selectedFeature
-        });
-    }
-
-    updateUIAfterEdit = () => {
-        this.selectionManager.uiManager.updateSelectionHighlight();
-        this.selectionManager.uiManager.updatePanels();
-        this.selectionManager.updateUI();
-    }
-
-    saveFeatureChanges = async (feature) => {
-        try {
-            await updateFeature('occupied_fronts', feature);
-        } catch (error) {
-            console.error('Erro ao salvar alterações da frente ocupada:', error);
-        }
-    }
-
-    // ===== SELECTION SYSTEM INTERFACE METHODS =====
+    // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
@@ -771,8 +637,9 @@ class AddOccupiedFrontControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                if (['baseCoordinates'].includes(property)) {
-                    const newGeometry = this.createOccupiedFrontGeometry(sourceFeature.properties.baseCoordinates);
+                // Recalculate geometry if baseCoordinates change
+                if (property === 'baseCoordinates') {
+                    const newGeometry = this.geometry.generate(sourceFeature.properties.baseCoordinates);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
@@ -781,12 +648,23 @@ class AddOccupiedFrontControl {
 
         this.map.getSource('occupied_fronts').setData(data);
 
-        if (this.selectedFeature && !this.isDraggingHandle) {
-            this.createEditHandles(this.selectedFeature);
+        // CRITICAL FIX: Get fresh features from map source before updating SelectionManager
+        const freshFeatures = features.map(feature => {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            return sourceFeature || feature; // Fallback to original if not found
+        });
+
+        // Update SelectionManager with fresh features
+        this.updateSelectionManagerFeatures(freshFeatures);
+
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            this.createEditHandles(selectedFeature);
         }
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // CRITICAL FIX: Always get fresh feature data from map source before saving
         const currentData = this.map.getSource('occupied_fronts')._data;
         let hasChanges = false;
 
@@ -795,11 +673,8 @@ class AddOccupiedFrontControl {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    const featureToSave = {
-                        ...currentFeature,
-                        properties: { ...selectedFeature.properties }
-                    };
-                    await updateFeature('occupied_fronts', featureToSave);
+                    // Use complete current feature (with updated geometry + properties)
+                    await updateFeature('occupied_fronts', currentFeature);
                     hasChanges = true;
                 }
             }
@@ -809,27 +684,26 @@ class AddOccupiedFrontControl {
     discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
             Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
-            f.geometry = this.createOccupiedFrontGeometry(f.properties.baseCoordinates);
+            f.geometry = this.geometry.generate(f.properties.baseCoordinates);
         });
 
         await this.updateFeatures(features, true, true);
     }
 
     deleteFeatures = async (features) => {
-        if (!features || features.length === 0) return;
+        if (features.length === 0) return;
 
-        try {
-            for (const feature of features) {
+        for (const feature of features) {
+            try {
                 const featureId = feature.properties.id;
                 await removeFeature('occupied_fronts', featureId);
+                const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
+                const idsToDelete = new Set(features.map(f => String(f.properties.id)));
+                data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
+                this.map.getSource('occupied_fronts').setData(data);
+            } catch (error) {
+                console.error(`Error removing occupied front ${feature.properties.id}:`, error);
             }
-
-            const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
-            const idsToDelete = new Set(features.map(f => String(f.properties.id)));
-            data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
-            this.map.getSource('occupied_fronts').setData(data);
-        } catch (error) {
-            console.error('Erro ao remover frentes ocupadas:', error);
         }
     }
 
@@ -844,7 +718,6 @@ class AddOccupiedFrontControl {
             feature.properties.color !== initialProperties.color ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
-            // ✅ NOVOS ATRIBUTOS
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
@@ -856,7 +729,6 @@ class AddOccupiedFrontControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
-
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -867,13 +739,100 @@ class AddOccupiedFrontControl {
                     }
 
                     if (save) {
-                        await updateFeature('occupied_fronts', data.features[featureIndex]);
+                        const featureToUpdate = onlyUpdateProperties ?
+                            data.features[featureIndex] : feature;
+                        await updateFeature('occupied_fronts', featureToUpdate);
                     }
                 }
             }
 
             this.map.getSource('occupied_fronts').setData(data);
+
+            // Update SelectionManager with updated features
+            this.updateSelectionManagerFeatures(features);
         }
+    }
+
+    // ===== SELECTION MANAGER INTEGRATION =====
+
+    /**
+     * Update SelectionManager with current feature data
+     */
+    updateSelectionManagerFeature(feature) {
+        const key = `occupied_front:${feature.properties.id}`;
+        this.selectionManager.selectedFeatures.set(key, { type: 'occupied_front', feature });
+    }
+
+    /**
+     * Update SelectionManager with multiple features
+     */
+    updateSelectionManagerFeatures(features) {
+        features.forEach(feature => {
+            if (feature.properties.source === 'occupied_front') {
+                this.updateSelectionManagerFeature(feature);
+            }
+        });
+    }
+
+    // ===== UTILITY METHODS =====
+
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+        this.activeHandleType = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
+    }
+
+    forceUpdateMainSource = (feature) => {
+        // Don't update source during drag operations to prevent conflicts
+        if (this.uiManager && this.uiManager.isDragging) {
+            return;
+        }
+
+        const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
+        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        if (sourceFeature) {
+            sourceFeature.properties = {
+                ...feature.properties,
+                baseCoordinates: feature.properties.baseCoordinates
+            };
+            sourceFeature.geometry = { ...feature.geometry };
+            this.map.getSource('occupied_fronts').setData(data);
+        }
+    }
+
+    updateUIAfterEdit = () => {
+        this.selectionManager.uiManager.updateSelectionHighlight();
+        this.selectionManager.uiManager.updatePanels();
+        this.selectionManager.updateUI();
+    }
+
+    saveFeatureChanges = async (feature) => {
+        try {
+            await updateFeature('occupied_fronts', feature);
+        } catch (error) {
+            console.error('Erro ao salvar mudanças:', error);
+        }
+    }
+
+    setupBaseEventListeners = () => {
+        // Base listeners setup if needed
+    }
+
+    removeAllEventListeners = () => {
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
     }
 }
 

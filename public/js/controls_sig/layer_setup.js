@@ -1,5 +1,5 @@
 // Path: js\controls_sig\layer_setup.js
-import { getCurrentMapFeatures, getMapAnalysisLayersStates, imageStore } from './store/store.js';
+import { getCurrentMapFeatures, getMapAnalysisLayersStates, getImage } from './store/store.js';
 import config from '../config.js';
 
 export async function setupMapFeatures(mapInstance) {
@@ -716,7 +716,7 @@ async function setImages(features, mapInstance) {
 
 async function loadSingleImage(imageId, mapInstance) {
     try {
-        const blob = await imageStore.getItem(imageId);
+        const blob = await getImage(imageId);
         if (!blob) {
             console.warn(`Imagem ${imageId} não encontrada no store`);
             return;
@@ -1042,6 +1042,14 @@ function setupVisibilityLayers(features, mapInstance) {
         });
     }
 
+    // ADD: Visibility feedback source for preview (following LOS pattern)
+    if (!mapInstance.getSource('visibility-feedback')) {
+        mapInstance.addSource('visibility-feedback', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
     if (!mapInstance.getLayer('visibility-layer')) {
         mapInstance.addLayer({
             id: 'visibility-layer',
@@ -1054,16 +1062,49 @@ function setupVisibilityLayers(features, mapInstance) {
         });
     }
 
-    if (!mapInstance.getLayer('processed-visibility-layer')) {
+    if (!mapInstance.getLayer('visibility-visible-layer')) {
         mapInstance.addLayer({
-            id: 'processed-visibility-layer',
+            id: 'visibility-visible-layer',
             type: 'fill',
             source: 'processed-visibility',
             paint: {
                 'fill-color': ['get', 'color'],
                 'fill-opacity': ['get', 'opacity']
             },
-            filter: ['!=', ['get', 'visivel'], false]
+            filter: ['all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'color'], '#00FF00']
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('visibility-obstructed-layer')) {
+        mapInstance.addLayer({
+            id: 'visibility-obstructed-layer',
+            type: 'fill',
+            source: 'processed-visibility',
+            paint: {
+                'fill-color': ['get', 'color'],
+                'fill-opacity': ['get', 'opacity']
+            },
+            filter: ['all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'color'], '#FF0000']
+            ]
+        });
+    }
+
+    // ADD: Visibility feedback layer for preview (following LOS pattern)
+    if (!mapInstance.getLayer('visibility-feedback-layer')) {
+        mapInstance.addLayer({
+            id: 'visibility-feedback-layer',
+            type: 'fill',
+            source: 'visibility-feedback',
+            paint: {
+                'fill-color': '#3f4fb5',
+                'fill-opacity': 0.5,
+                'fill-outline-color': '#3f4fb5'
+            }
         });
     }
 }
@@ -1144,6 +1185,14 @@ function setupLOSLayers(features, mapInstance) {
         });
     }
 
+    // ADD: LOS feedback source for preview (missing from current implementation)
+    if (!mapInstance.getSource('los-feedback')) {
+        mapInstance.addSource('los-feedback', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+    }
+
     if (!mapInstance.getLayer('los-layer')) {
         mapInstance.addLayer({
             'id': 'los-layer',
@@ -1168,6 +1217,21 @@ function setupLOSLayers(features, mapInstance) {
                 'line-width': ['get', 'width']
             },
             filter: ['!=', ['get', 'visivel'], false]
+        });
+    }
+
+    // ADD: LOS feedback layer for preview (missing from current implementation)
+    if (!mapInstance.getLayer('los-feedback-layer')) {
+        mapInstance.addLayer({
+            id: 'los-feedback-layer',
+            type: 'line',
+            source: 'los-feedback',
+            paint: {
+                'line-color': '#ff0000',
+                'line-width': 3,
+                'line-dasharray': [2, 2],
+                'line-opacity': 0.8
+            }
         });
     }
 }
@@ -1568,52 +1632,6 @@ function setupAuxiliaryLayers(mapInstance) {
                 'line-color': '#FF0000',
                 'line-width': 2,
                 'line-dasharray': [2, 2]
-            }
-        });
-    }
-
-    if (!mapInstance.getSource('temp-line')) {
-        mapInstance.addSource('temp-line', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: []
-            }
-        });
-    }
-
-    if (!mapInstance.getLayer('temp-line-layer')) {
-        mapInstance.addLayer({
-            id: 'temp-line-layer',
-            type: 'line',
-            source: 'temp-line',
-            paint: {
-                'line-color': '#3f4fb5',
-                'line-width': 2,
-                'line-dasharray': [2, 2]
-            }
-        });
-    }
-
-    if (!mapInstance.getSource('temp-polygon')) {
-        mapInstance.addSource('temp-polygon', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: []
-            }
-        });
-    }
-
-    if (!mapInstance.getLayer('temp-polygon-layer')) {
-        mapInstance.addLayer({
-            id: 'temp-polygon-layer',
-            type: 'fill',
-            source: 'temp-polygon',
-            paint: {
-                'fill-color': '#3f4fb5',
-                'fill-opacity': 0.5,
-                'fill-outline-color': '#3f4fb5'
             }
         });
     }

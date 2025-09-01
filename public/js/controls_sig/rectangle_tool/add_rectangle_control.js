@@ -1,19 +1,24 @@
 // Path: js\controls_sig\rectangle_tool\add_rectangle_control.js
+
 import { addFeature, updateFeature, removeFeature } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
+import { addRectangleAttributesToPanel } from './rectangle_attributes_panel.js';
+import AddRectangleGeometry from './add_rectangle_geometry.js';
+import BaseControl from '../tool_manager/base_control.js';
 
-class AddRectangleControl {
+class AddRectangleControl extends BaseControl {
     constructor(toolManager) {
-        this.toolManager = toolManager;
-        this.selectionManager = toolManager.selectionManager;
+        super(toolManager);
 
-        this.isActive = false;
+        // State management
         this.drawPoints = [];
-        this.selectedFeature = null;
         this.isDraggingHandle = false;
         this.activeHandleType = null;
 
-        // RAF optimization
+        // Geometry handler
+        this.geometry = new AddRectangleGeometry();
+
+        // Performance optimization - RAF system
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
@@ -32,6 +37,26 @@ class AddRectangleControl {
         visivel: true,
         bloqueado: false
     };
+
+    // ===== FONTE ÚNICA DA VERDADE =====
+
+    /**
+     * Get currently selected rectangle feature from SelectionManager
+     * @returns {Object|null} Selected rectangle feature or null
+     */
+    getSelectedFeature() {
+        const selectedItems = this.selectionManager.getSelectedFeaturesByType('rectangle');
+        return selectedItems.length > 0 ? selectedItems[0].feature : null;
+    }
+
+    /**
+     * Get all selected rectangle features from SelectionManager
+     * @returns {Array} Array of selected rectangle features
+     */
+    getSelectedFeatures() {
+        return this.selectionManager.getSelectedFeaturesByType('rectangle')
+            .map(item => item.feature);
+    }
 
     // ===== MAPBOX CONTROL INTERFACE =====
 
@@ -66,6 +91,132 @@ class AddRectangleControl {
         }
     }
 
+    // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
+
+    hasAttributePanel() {
+        return true;
+    }
+
+    createAttributePanel(container, features, selectionManager, uiManager) {
+        const sectionPanel = document.createElement('div');
+        sectionPanel.className = 'rectangle-attributes-section';
+
+        try {
+            addRectangleAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            container.appendChild(sectionPanel);
+        } catch (error) {
+            console.error('Error creating rectangle attribute panel:', error);
+        }
+    }
+
+    getDragSources() {
+        return ['rectangles'];
+    }
+
+    getEditHandleSources() {
+        return ['rectangle-edit-handles'];
+    }
+
+    createSelectionBox(feature) {
+        try {
+            const bbox = turf.bbox(feature);
+            const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding());
+            return turf.bboxPolygon(expandedBbox);
+        } catch (error) {
+            console.warn('Error creating rectangle selection box:', error);
+            return null;
+        }
+    }
+
+    getSelectionBoxStrategy() {
+        return 'bbox';
+    }
+
+    getSelectionBoxPadding() {
+        return 5;
+    }
+
+    getLayerIds() {
+        return ['rectangle-fill-layer', 'rectangle-layer'];
+    }
+
+    getSourceNames() {
+        return ['rectangles'];
+    }
+
+    getEditHandleSource() {
+        return 'rectangle-edit-handles';
+    }
+
+    canCopy(feature) {
+        return true;
+    }
+
+    canPaste(feature) {
+        return true;
+    }
+
+    prepareForPaste(feature, offset) {
+        const oldCorner1 = this.geometry.normalizeCorner(feature.properties.corner1);
+        const oldCorner2 = this.geometry.normalizeCorner(feature.properties.corner2);
+
+        const newCorner1 = [oldCorner1[0] + offset.dx, oldCorner1[1] + offset.dy];
+        const newCorner2 = [oldCorner2[0] + offset.dx, oldCorner2[1] + offset.dy];
+
+        const { center, width, height } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
+
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                corner1: newCorner1,
+                corner2: newCorner2,
+                center: center,
+                width: width,
+                height: height
+            },
+            geometry: this.geometry.generate(newCorner1, newCorner2)
+        };
+    }
+
+    calculateMoveOffset(feature, referencePoint) {
+        const center = this.geometry.normalizeCenter(feature.properties.center);
+        return [
+            center[0] - referencePoint.lng,
+            center[1] - referencePoint.lat
+        ];
+    }
+
+    updateFeatureForMove(feature, dx, dy, newCoords) {
+        const corner1 = this.geometry.normalizeCorner(feature.properties.corner1);
+        const corner2 = this.geometry.normalizeCorner(feature.properties.corner2);
+
+        // Move both corners by the same delta
+        const newCorner1 = [corner1[0] + dx, corner1[1] + dy];
+        const newCorner2 = [corner2[0] + dx, corner2[1] + dy];
+
+        const { center, width, height } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
+
+        const updatedFeature = {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                corner1: newCorner1,
+                corner2: newCorner2,
+                center: center,
+                width: width,
+                height: height
+            },
+            geometry: this.geometry.generate(newCorner1, newCorner2)
+        };
+
+        return updatedFeature;
+    }
+
+    canMove(feature) {
+        return !feature.properties?.bloqueado;
+    }
+
     // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
@@ -91,84 +242,6 @@ class AddRectangleControl {
         $("#rectangle-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="RECTANGLE" />`);
     }
 
-    // ===== STATE MANAGEMENT =====
-
-    selectFeature = (feature) => {
-        this.selectedFeature = feature;
-        this.createEditHandles(feature);
-        this.setupEditEventListeners();
-        this.setupHoverListeners();
-    }
-
-    deselectFeature = () => {
-        this.selectedFeature = null;
-        this.isDraggingHandle = false;
-        this.activeHandleType = null;
-        this.clearEditHandles();
-        this.removeEditEventListeners();
-        this.removeHoverListeners();
-        this.cancelPendingUpdates();
-        this.map.dragPan.enable();
-        this.map.getCanvas().style.cursor = '';
-    }
-
-    cancelPendingUpdates = () => {
-        if (this.previewRafId) {
-            cancelAnimationFrame(this.previewRafId);
-            this.previewRafId = null;
-        }
-        this.pendingPreviewUpdate = false;
-        this.lastPreviewPosition = null;
-        this.lastPreviewCenter = null;
-        this.activeHandleType = null;
-        
-        if (this.geometryDebounceTimer) {
-            clearTimeout(this.geometryDebounceTimer);
-            this.geometryDebounceTimer = null;
-        }
-    }
-
-    // ===== HOVER SYSTEM =====
-
-    setupHoverListeners = () => {
-        this.map.on('mousemove', this.onHoverMove);
-    }
-
-    removeHoverListeners = () => {
-        this.map.off('mousemove', this.onHoverMove);
-    }
-
-    onHoverMove = (e) => {
-        if (!this.selectedFeature) return;
-
-        const features = this.map.queryRenderedFeatures(e.point);
-        const hasHandle = this.hasHandleAtPoint(features);
-        const hasFeature = this.hasSelectedFeatureAtPoint(features);
-
-        if (hasHandle) {
-            this.map.getCanvas().style.cursor = 'crosshair';
-        } else if (hasFeature) {
-            this.map.getCanvas().style.cursor = 'move';
-        } else {
-            this.map.getCanvas().style.cursor = '';
-        }
-    }
-
-    hasHandleAtPoint = (features) => {
-        return features.some(f =>
-            f.source === 'rectangle-edit-handles' &&
-            f.properties.user_isEditingHandle
-        );
-    }
-
-    hasSelectedFeatureAtPoint = (features) => {
-        if (!this.selectedFeature) return false;
-        return features.some(f =>
-            f.source === 'rectangles' &&
-            f.properties.id === this.selectedFeature.properties.id
-        );
-    }
-
     // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
@@ -176,14 +249,16 @@ class AddRectangleControl {
     }
 
     onFeatureDeselected = (feature) => {
+        const selectedFeature = this.getSelectedFeature();
         const featureId = feature.properties.id;
-        if (this.selectedFeature && this.selectedFeature.properties.id === featureId) {
+        if (selectedFeature && selectedFeature.properties.id === featureId) {
             this.deselectFeature();
         }
     }
 
     onGlobalDeselect = () => {
-        if (this.selectedFeature) {
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature) {
             this.deselectFeature();
         }
     }
@@ -193,18 +268,15 @@ class AddRectangleControl {
     }
 
     hasEditHandle = (featureId) => {
-        return this.selectedFeature && this.selectedFeature.properties.id === featureId;
+        const selectedFeature = this.getSelectedFeature();
+        return selectedFeature && selectedFeature.properties.id === featureId;
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
-        if (this.selectedFeature && !this.isDraggingHandle) {
-            const updatedFeature = movedFeatures.find(f =>
-                f.properties.id === this.selectedFeature.properties.id
-            );
-            if (updatedFeature) {
-                this.selectedFeature = updatedFeature;
-                this.createEditHandles(updatedFeature);
-            }
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            // Always recreate handles with current feature data
+            this.createEditHandles(selectedFeature);
         }
     }
 
@@ -247,21 +319,19 @@ class AddRectangleControl {
             return;
         }
 
-        // Edit mode
-        if (this.isDraggingHandle && this.selectedFeature) {
+        const selectedFeature = this.getSelectedFeature();
+        if (this.isDraggingHandle && selectedFeature) {
             this.updateRectanglePreview(this.lastPreviewPosition);
-        }
-        // Drawing mode
-        else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
+        } else if (this.drawPoints.length === 1 && this.lastPreviewCenter) {
             const corner1 = this.lastPreviewCenter;
             const corner2 = this.lastPreviewPosition;
-            
-            const { center, width, height } = this.calculateDimensionsFromCorners(corner1, corner2);
-            
-            if (width >= 10 && height >= 10) { // Minimum 10 meters
+
+            const { center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
+
+            if (width >= 10 && height >= 10) {
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.generateRectangleGeometry(corner1, corner2);
+                    const previewGeometry = this.geometry.generate(corner1, corner2);
                     this.showPreview(previewGeometry);
                 }, 8);
             }
@@ -296,7 +366,7 @@ class AddRectangleControl {
         const corner1 = this.drawPoints[0];
         const corner2 = this.drawPoints[1];
 
-        const { center, width, height } = this.calculateDimensionsFromCorners(corner1, corner2);
+        const { center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
 
         if (width < 10 || height < 10) {
             alert('Dimensões mínimas: 10 metros');
@@ -307,21 +377,20 @@ class AddRectangleControl {
         const featureId = IDUtils.generateUniqueId();
         const featureName = IDUtils.generateFeatureName('rectangle', this.map);
 
-        // ✅ COORDINATE TRACKING - Store corners as primary data
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
             properties: {
                 ...AddRectangleControl.DEFAULT_PROPERTIES,
-                corner1: corner1,           // Primary data - exact corner coordinates
-                corner2: corner2,           // Primary data - exact corner coordinates  
-                center: center,             // Derived data - calculated from corners
-                width: width,               // Derived data - calculated from corners
-                height: height,             // Derived data - calculated from corners
+                corner1: corner1,
+                corner2: corner2,
+                center: center,
+                width: width,
+                height: height,
                 id: featureId,
                 nome: featureName
             },
-            geometry: this.generateRectangleGeometry(corner1, corner2)
+            geometry: this.geometry.generate(corner1, corner2)
         };
 
         try {
@@ -340,54 +409,30 @@ class AddRectangleControl {
         }
     }
 
-    // ===== EDIT HANDLES =====
+    // ===== EDIT HANDLES SYSTEM =====
+
+    selectFeature = (feature) => {
+        // SelectionManager já armazena a feature, só precisamos criar handles
+        this.createEditHandles(feature);
+        this.setupEditEventListeners();
+        this.setupHoverListeners();
+    }
+
+    deselectFeature = () => {
+        // SelectionManager já remove a feature, só precisamos limpar UI
+        this.isDraggingHandle = false;
+        this.activeHandleType = null;
+        this.clearEditHandles();
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
+        this.map.dragPan.enable();
+        this.map.getCanvas().style.cursor = '';
+    }
 
     createEditHandles = (feature) => {
-        const corner1 = this.normalizeCorner(feature.properties.corner1);
-        const corner2 = this.normalizeCorner(feature.properties.corner2);
-        
-        if (!corner1 || !corner2) {
-            console.error('Não foi possível criar handles - corners inválidos');
-            return;
-        }
-
-        // ✅ DIRECT MAPPING - Handle positions = exact corner coordinates
-        const handles = [
-            {
-                type: 'Feature',
-                id: `rectangle-handle-${feature.properties.id}-corner1`,
-                geometry: {
-                    type: 'Point',
-                    coordinates: corner1
-                },
-                properties: {
-                    role: 'handle',
-                    handleType: 'vertex',
-                    handleId: 'corner1',           // Maps directly to properties.corner1
-                    featureId: feature.properties.id,
-                    mode: 'rectangle_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
-                }
-            },
-            {
-                type: 'Feature',
-                id: `rectangle-handle-${feature.properties.id}-corner2`,
-                geometry: {
-                    type: 'Point',
-                    coordinates: corner2
-                },
-                properties: {
-                    role: 'handle',
-                    handleType: 'vertex',
-                    handleId: 'corner2',           // Maps directly to properties.corner2
-                    featureId: feature.properties.id,
-                    mode: 'rectangle_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
-                }
-            }
-        ];
+        const handles = this.geometry.createHandles(feature);
+        if (!handles || handles.length === 0) return;
 
         // Show selection feedback
         this.map.getSource('rectangle-feedback').setData({
@@ -417,8 +462,6 @@ class AddRectangleControl {
         });
     }
 
-    // ===== EDIT INTERACTION =====
-
     setupEditEventListeners = () => {
         this.map.on('mousedown', this.onEditMouseDown);
         this.map.on('mousemove', this.onEditMouseMove);
@@ -432,7 +475,8 @@ class AddRectangleControl {
     }
 
     onEditMouseDown = (e) => {
-        if (!this.selectedFeature) return;
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
 
         const handleFeatures = this.map.queryRenderedFeatures(e.point, {
             layers: ['rectangle-edit-handles-layer']
@@ -449,7 +493,8 @@ class AddRectangleControl {
     }
 
     onEditMouseMove = (e) => {
-        if (!this.isDraggingHandle || !this.selectedFeature) return;
+        const selectedFeature = this.getSelectedFeature();
+        if (!this.isDraggingHandle || !selectedFeature) return;
 
         this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
@@ -459,40 +504,43 @@ class AddRectangleControl {
         }
     }
 
-    onEditMouseUp = (e) => {
-        if (this.isDraggingHandle && this.selectedFeature) {
+    onEditMouseUp = () => {
+        const selectedFeature = this.getSelectedFeature();
+        if (this.isDraggingHandle && selectedFeature) {
             if (this.lastPreviewPosition && this.activeHandleType) {
-                // ✅ DIRECT CORNER UPDATE - No complex calculations
-                const newCorner1 = this.activeHandleType === 'corner1' ? 
-                    this.lastPreviewPosition : 
-                    this.normalizeCorner(this.selectedFeature.properties.corner1);
+                const newCorner1 = this.activeHandleType === 'corner1' ?
+                    this.lastPreviewPosition :
+                    this.geometry.normalizeCorner(selectedFeature.properties.corner1);
 
-                const newCorner2 = this.activeHandleType === 'corner2' ? 
-                    this.lastPreviewPosition : 
-                    this.normalizeCorner(this.selectedFeature.properties.corner2);
+                const newCorner2 = this.activeHandleType === 'corner2' ?
+                    this.lastPreviewPosition :
+                    this.geometry.normalizeCorner(selectedFeature.properties.corner2);
 
                 // Validate minimum dimensions
-                const { width, height } = this.calculateDimensionsFromCorners(newCorner1, newCorner2);
+                const { width, height } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
 
                 if (width > 10 && height > 10) {
-                    // Update properties with new corners
-                    this.selectedFeature.properties.corner1 = newCorner1;
-                    this.selectedFeature.properties.corner2 = newCorner2;
-                    
-                    // Update derived properties
-                    const { center } = this.calculateDimensionsFromCorners(newCorner1, newCorner2);
-                    this.selectedFeature.properties.center = center;
-                    this.selectedFeature.properties.width = width;
-                    this.selectedFeature.properties.height = height;
+                    const { center } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
 
-                    // Regenerate geometry
-                    this.selectedFeature.geometry = this.generateRectangleGeometry(newCorner1, newCorner2);
+                    // Create updated feature
+                    const updatedFeature = {
+                        ...selectedFeature,
+                        properties: {
+                            ...selectedFeature.properties,
+                            corner1: newCorner1,
+                            corner2: newCorner2,
+                            center: center,
+                            width: width,
+                            height: height
+                        },
+                        geometry: this.geometry.generate(newCorner1, newCorner2)
+                    };
 
-                    this.forceUpdateMainSource(this.selectedFeature);
-                    this.createEditHandles(this.selectedFeature);
-                    this.updateSelectionAfterEdit();
+                    this.forceUpdateMainSource(updatedFeature);
+                    this.updateSelectionManagerFeature(updatedFeature);
+                    this.createEditHandles(updatedFeature);
                     this.updateUIAfterEdit();
-                    this.saveFeatureChanges(this.selectedFeature);
+                    this.saveFeatureChanges(updatedFeature);
                 }
             }
         }
@@ -504,40 +552,43 @@ class AddRectangleControl {
     }
 
     updateRectanglePreview = (newPosition) => {
-        if (!this.selectedFeature || !this.activeHandleType) return;
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature || !this.activeHandleType) return;
 
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
-            // ✅ SIMPLE PREVIEW - Direct corner substitution
-            const corner1 = this.activeHandleType === 'corner1' ? 
-                newPosition : 
-                this.normalizeCorner(this.selectedFeature.properties.corner1);
+            const corner1 = this.activeHandleType === 'corner1' ?
+                newPosition :
+                this.geometry.normalizeCorner(selectedFeature.properties.corner1);
 
-            const corner2 = this.activeHandleType === 'corner2' ? 
-                newPosition : 
-                this.normalizeCorner(this.selectedFeature.properties.corner2);
+            const corner2 = this.activeHandleType === 'corner2' ?
+                newPosition :
+                this.geometry.normalizeCorner(selectedFeature.properties.corner2);
 
-            const { width, height } = this.calculateDimensionsFromCorners(corner1, corner2);
+            const { width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
 
             if (width > 10 && height > 10) {
-                const previewGeometry = this.generateRectangleGeometry(corner1, corner2);
+                const previewGeometry = this.geometry.generate(corner1, corner2);
                 this.showEditPreview(previewGeometry, corner1, corner2);
             }
         }, 8);
     }
 
     showEditPreview = (geometry, corner1, corner2) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
+
         // Show updated selection feedback
         this.map.getSource('rectangle-feedback').setData({
             type: 'Feature',
             geometry: geometry,
             properties: {
-                ...this.selectedFeature.properties,
+                ...selectedFeature.properties,
                 isSelected: true
             }
         });
 
-        // ✅ ACCURATE HANDLES - Exact corner positions
+        // Show accurate handles at exact corner positions
         const handles = [
             {
                 type: 'Feature',
@@ -567,145 +618,50 @@ class AddRectangleControl {
         });
     }
 
-    // ===== GEOMETRY CALCULATIONS (CORNER-BASED) =====
+    // ===== HOVER SYSTEM =====
 
-    // ✅ SIMPLIFIED - Direct corner-to-geometry conversion
-    generateRectangleGeometry = (corner1, corner2) => {
-        // Create rectangle from any two opposite corners
-        const minLng = Math.min(corner1[0], corner2[0]);
-        const maxLng = Math.max(corner1[0], corner2[0]);
-        const minLat = Math.min(corner1[1], corner2[1]);
-        const maxLat = Math.max(corner1[1], corner2[1]);
-        
-        return {
-            type: 'Polygon',
-            coordinates: [[
-                [minLng, maxLat], // top-left
-                [maxLng, maxLat], // top-right
-                [maxLng, minLat], // bottom-right
-                [minLng, minLat], // bottom-left
-                [minLng, maxLat]  // close polygon
-            ]]
-        };
+    setupHoverListeners = () => {
+        this.map.on('mousemove', this.onHoverMove);
     }
 
-    // ✅ UTILITY - Calculate dimensions from any two corners
-    calculateDimensionsFromCorners = (corner1, corner2) => {
-        // Calculate center
-        const center = [
-            (corner1[0] + corner2[0]) / 2,
-            (corner1[1] + corner2[1]) / 2
-        ];
-        
-        // Calculate dimensions in meters using same method as circle
-        const width = this.calculateDistance([corner1[0], center[1]], [corner2[0], center[1]]);
-        const height = this.calculateDistance([center[0], corner1[1]], [center[0], corner2[1]]);
-        
-        return { center, width, height };
+    removeHoverListeners = () => {
+        this.map.off('mousemove', this.onHoverMove);
     }
 
-    // ✅ KEEP - Same distance calculation as circle (tested)
-    calculateDistance = (point1, point2) => {
-        const R = 6371000; // Earth radius in meters
-        const lat1Rad = point1[1] * Math.PI / 180;
-        const lat2Rad = point2[1] * Math.PI / 180;
-        const deltaLatRad = (point2[1] - point1[1]) * Math.PI / 180;
-        const deltaLngRad = (point2[0] - point1[0]) * Math.PI / 180;
+    onHoverMove = (e) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
 
-        const a = Math.sin(deltaLatRad / 2) * Math.sin(deltaLatRad / 2) +
-            Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-            Math.sin(deltaLngRad / 2) * Math.sin(deltaLngRad / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const features = this.map.queryRenderedFeatures(e.point);
+        const hasHandle = this.hasHandleAtPoint(features);
+        const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
-        return R * c;
-    }
-
-    // ===== UTILITY METHODS =====
-
-    normalizeCorner(corner) {
-        if (typeof corner === 'string') {
-            try {
-                corner = JSON.parse(corner);
-            } catch (e) {
-                console.error('Erro ao parsear corner:', corner, e);
-                return null;
-            }
-        }
-
-        if (!Array.isArray(corner) || corner.length < 2) {
-            console.error('Corner inválido:', corner);
-            return null;
-        }
-
-        return corner;
-    }
-
-    // ✅ BACKWARD COMPATIBILITY - For center-based operations (drag)
-    normalizeCenter(center) {
-        if (typeof center === 'string') {
-            try {
-                center = JSON.parse(center);
-            } catch (e) {
-                console.error('Erro ao parsear center:', center, e);
-                return null;
-            }
-        }
-
-        if (!Array.isArray(center) || center.length < 2) {
-            console.error('Center inválido:', center);
-            return null;
-        }
-
-        return center;
-    }
-
-    setupBaseEventListeners = () => {
-        // Base listeners setup if needed
-    }
-
-    removeAllEventListeners = () => {
-        this.map.off('mousemove', this.handlePreviewMouseMove);
-        this.removeEditEventListeners();
-        this.removeHoverListeners();
-        this.cancelPendingUpdates();
-    }
-
-    forceUpdateMainSource = (feature) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-        if (sourceFeature) {
-            sourceFeature.properties = { ...feature.properties };
-            sourceFeature.geometry = { ...feature.geometry };
-            this.map.getSource('rectangles').setData(data);
+        if (hasHandle) {
+            this.map.getCanvas().style.cursor = 'crosshair';
+        } else if (hasFeature) {
+            this.map.getCanvas().style.cursor = 'move';
+        } else {
+            this.map.getCanvas().style.cursor = '';
         }
     }
 
-    updateSelectionAfterEdit = () => {
-        const featureId = this.selectedFeature.properties.id;
-        const type = this.selectedFeature.properties.source;
-        const key = `${type}:${featureId}`;
-
-        this.selectionManager.selectedFeatures.set(key, {
-            type,
-            feature: this.selectedFeature
-        });
+    hasHandleAtPoint = (features) => {
+        return features.some(f =>
+            f.source === 'rectangle-edit-handles' &&
+            f.properties.user_isEditingHandle
+        );
     }
 
-    updateUIAfterEdit = () => {
-        this.selectionManager.uiManager.updateSelectionHighlight();
-        this.selectionManager.uiManager.updatePanels();
-        this.selectionManager.updateUI();
+    hasSelectedFeatureAtPoint = (features) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return false;
+        return features.some(f =>
+            f.source === 'rectangles' &&
+            f.properties.id === selectedFeature.properties.id
+        );
     }
 
-    saveFeatureChanges = async (feature) => {
-        try {
-            await updateFeature('rectangles', feature);
-        } catch (error) {
-            console.error('Erro ao salvar mudanças:', error);
-        }
-    }
-
-    // ===== SELECTION SYSTEM INTERFACE =====
+    // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
@@ -716,13 +672,13 @@ class AddRectangleControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // ✅ CORNER-BASED RECALCULATION - Only if corners change
+                // Recalculate geometry if corners change
                 if (['corner1', 'corner2'].includes(property)) {
                     const corner1 = sourceFeature.properties.corner1;
                     const corner2 = sourceFeature.properties.corner2;
-                    
+
                     // Recalculate derived properties
-                    const { center, width, height } = this.calculateDimensionsFromCorners(corner1, corner2);
+                    const { center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
                     sourceFeature.properties.center = center;
                     sourceFeature.properties.width = width;
                     sourceFeature.properties.height = height;
@@ -731,7 +687,7 @@ class AddRectangleControl {
                     feature.properties.height = height;
 
                     // Regenerate geometry
-                    const newGeometry = this.generateRectangleGeometry(corner1, corner2);
+                    const newGeometry = this.geometry.generate(corner1, corner2);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
@@ -740,23 +696,34 @@ class AddRectangleControl {
 
         this.map.getSource('rectangles').setData(data);
 
-        if (this.selectedFeature && !this.isDraggingHandle) {
-            this.createEditHandles(this.selectedFeature);
+        // CRITICAL FIX: Get fresh features from map source before updating SelectionManager
+        const freshFeatures = features.map(feature => {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            return sourceFeature || feature; // Fallback to original if not found
+        });
+
+        // Update SelectionManager with fresh features
+        this.updateSelectionManagerFeatures(freshFeatures);
+
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            this.createEditHandles(selectedFeature);
         }
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
+        // CRITICAL FIX: Always get fresh feature data from map source before saving
         const currentData = this.map.getSource('rectangles')._data;
+        let hasChanges = false;
+
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    const featureToSave = {
-                        ...currentFeature,
-                        properties: { ...selectedFeature.properties }
-                    };
-                    await updateFeature('rectangles', featureToSave);
+                    // Use complete current feature (with updated geometry + properties)
+                    await updateFeature('rectangles', currentFeature);
+                    hasChanges = true;
                 }
             }
         }
@@ -766,7 +733,7 @@ class AddRectangleControl {
         features.forEach(f => {
             const initialProps = initialPropertiesMap.get(f.properties.id);
             Object.assign(f.properties, initialProps);
-            f.geometry = this.generateRectangleGeometry(
+            f.geometry = this.geometry.generate(
                 initialProps.corner1,
                 initialProps.corner2
             );
@@ -836,7 +803,94 @@ class AddRectangleControl {
             }
 
             this.map.getSource('rectangles').setData(data);
+
+            // Update SelectionManager with updated features
+            this.updateSelectionManagerFeatures(features);
         }
+    }
+
+    // ===== SELECTION MANAGER INTEGRATION =====
+
+    /**
+     * Update SelectionManager with current feature data
+     */
+    updateSelectionManagerFeature(feature) {
+        const key = `rectangle:${feature.properties.id}`;
+        this.selectionManager.selectedFeatures.set(key, { type: 'rectangle', feature });
+    }
+
+    /**
+     * Update SelectionManager with multiple features
+     */
+    updateSelectionManagerFeatures(features) {
+        features.forEach(feature => {
+            if (feature.properties.source === 'rectangle') {
+                this.updateSelectionManagerFeature(feature);
+            }
+        });
+    }
+
+    // ===== UTILITY METHODS =====
+
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+        this.activeHandleType = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
+    }
+
+    forceUpdateMainSource = (feature) => {
+        // Don't update source during drag operations to prevent conflicts
+        if (this.uiManager && this.uiManager.isDragging) {
+            return;
+        }
+
+        const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        if (sourceFeature) {
+            sourceFeature.properties = {
+                ...feature.properties,
+                corner1: feature.properties.corner1,
+                corner2: feature.properties.corner2,
+                center: feature.properties.center
+            };
+            sourceFeature.geometry = { ...feature.geometry };
+            this.map.getSource('rectangles').setData(data);
+        }
+    }
+
+    updateUIAfterEdit = () => {
+        this.selectionManager.uiManager.updateSelectionHighlight();
+        this.selectionManager.uiManager.updatePanels();
+        this.selectionManager.updateUI();
+    }
+
+    saveFeatureChanges = async (feature) => {
+        try {
+            await updateFeature('rectangles', feature);
+        } catch (error) {
+            console.error('Erro ao salvar mudanças:', error);
+        }
+    }
+
+    setupBaseEventListeners = () => {
+        // Base listeners setup if needed
+    }
+
+    removeAllEventListeners = () => {
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        this.removeEditEventListeners();
+        this.removeHoverListeners();
+        this.cancelPendingUpdates();
     }
 }
 

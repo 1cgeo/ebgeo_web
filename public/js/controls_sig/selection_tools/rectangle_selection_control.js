@@ -1,4 +1,5 @@
 // Path: js\controls_sig\selection_tools\rectangle_selection_control.js
+import { getSelectionControlConfig } from '../store/store.js';
 
 class RectangleSelectionControl {
     constructor(toolManager) {
@@ -227,9 +228,7 @@ class RectangleSelectionControl {
 
         // Update UI and provide feedback
         this.selectionManager.updateUI();
-        
-        // Optional: Console feedback for debugging
-        console.log(`Seleção por área: ${selectedCount} features selecionadas`);
+
         
         // Deactivate tool after successful selection
         this.toolManager.deactivateCurrentTool();
@@ -258,23 +257,7 @@ class RectangleSelectionControl {
             [ne.x, sw.y]  // bottom-right screen coords
         ]);
 
-        const CONTROL_CONFIG = {
-            point: { sourceNames: ['points'] },
-            line: { sourceNames: ['lines'] },
-            polygon: { sourceNames: ['polygons'] },
-            text: { sourceNames: ['texts'] },
-            image: { sourceNames: ['images'] },
-            los: { sourceNames: ['los'] },
-            visibility: { sourceNames: ['visibility'] },
-            rectangle: { sourceNames: ['rectangles'] },
-            circle: { sourceNames: ['circles'] },
-            ellipse: { sourceNames: ['ellipses'] },
-            brush: { sourceNames: ['brushes'] },
-            arrow: { sourceNames: ['arrows'] },
-            boundary: { sourceNames: ['boundarys'] },
-            occupied_front: { sourceNames: ['occupied_fronts'] },
-            military_symbol: { sourceNames: ['military_symbols'] }
-        };
+        const CONTROL_CONFIG = getSelectionControlConfig();
 
         const customFeatures = [];
 
