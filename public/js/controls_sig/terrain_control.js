@@ -14,7 +14,7 @@ export async function getTerrainElevation(map, coordinates, options = { exaggera
     // Use exaggeration from terrain config to adjust elevation
     const terrain = map.getTerrain();
     const exaggeration = terrain?.exaggeration || 1.5;
-    
+
     return altitude / exaggeration;
 }
 
@@ -34,19 +34,19 @@ class TerrainControl {
         this._map = map;
         this._container = document.createElement('div');
         this._container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl terrain-control controls-column-left';
-        
+
         this._button = document.createElement('button');
         this._button.type = 'button';
         this._button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         this._button.setAttribute("id", "terrain-tool");
         this._button.title = 'Ligar/desligar terreno 3D';
         this._button.onclick = this._toggleTerrain;
-        
+
         this._container.appendChild(this._button);
-                
+
         // Listen to terrain events to update button state
         this._map.on('terrain', this._updateTerrainIcon);
-        
+
         return this._container;
     }
 
@@ -148,33 +148,38 @@ class TerrainControl {
      */
     setHillshadeVisibility = (enabled) => {
         if (!this.hillshadeConfig?.enabled) {
-            return; // Hillshade não disponível
+            return;
         }
 
-        // Garantir que source existe antes de qualquer operação de layer
         if (!this._map.getSource('hillshadeSource')) {
             console.warn('Hillshade source não disponível');
             return;
         }
-        
-        if (enabled) {
-            // ADICIONAR layer se não existe
-            if (!this._map.getLayer('hillshade')) {
-                try {
-                    this._map.addLayer(this.hillshadeConfig.layer);
-                } catch (error) {
-                    console.error('Erro ao adicionar hillshade layer:', error);
-                }
-            }
+
+        // Garantir que layer existe na posição correta
+        if (!this._map.getLayer('hillshade')) {
+            this._addHillshadeLayerInCorrectPosition();
+        }
+
+        // Apenas alterar visibilidade (NUNCA remove/add)
+        const visibility = enabled ? 'visible' : 'none';
+        try {
+            this._map.setLayoutProperty('hillshade', 'visibility', visibility);
+        } catch (error) {
+            console.error('Erro ao alterar visibilidade do hillshade:', error);
+        }
+    }
+
+    _addHillshadeLayerInCorrectPosition() {
+        // image-layer é SEMPRE a primeira drawing layer criada
+        const firstDrawingLayer = 'image-layer';
+
+        if (this._map.getLayer(firstDrawingLayer)) {
+            // Posicionar ANTES da primeira drawing layer
+            this._map.addLayer(this.hillshadeConfig.layer, firstDrawingLayer);
         } else {
-            // REMOVER layer se existe  
-            if (this._map.getLayer('hillshade')) {
-                try {
-                    this._map.removeLayer('hillshade');
-                } catch (error) {
-                    console.error('Erro ao remover hillshade layer:', error);
-                }
-            }
+            // Se drawing layers ainda não existem, adicionar normalmente
+            this._map.addLayer(this.hillshadeConfig.layer);
         }
     }
 }

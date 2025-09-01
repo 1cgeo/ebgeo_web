@@ -1676,11 +1676,6 @@ async function restoreTerrainState(mapInstance) {
 
         if (terrainControl.terrainConfig) {
             await terrainControl._setupTerrainSources();
-
-            // Reativar o terreno 3D
-            if (mapInstance.getSource('terrainSource') && terrainControl._wasTerrainActive) {
-                mapInstance.setTerrain(terrainControl.terrainConfig);
-            }
         }
 
     } catch (error) {
