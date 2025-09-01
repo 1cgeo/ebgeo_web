@@ -1,5 +1,5 @@
 // Path: js\controls_sig\visibility_tool\add_visibility_control.js
-import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures } from '../store/store.js';
+import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addVisibilityAttributesToPanel } from './visibility_attributes_panel.js';
 import AddVisibilityGeometry from './add_visibility_geometry.js';
@@ -22,7 +22,7 @@ class AddVisibilityControl extends BaseControl {
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
 
-        // Async operation queue to prevent race conditions
+        // Async operation queue to prevent race conditions (following LOS pattern)
         this.recalculateQueue = Promise.resolve();
 
         // Debounce system for observer height changes
@@ -209,15 +209,30 @@ class AddVisibilityControl extends BaseControl {
         ];
     }
 
+    /**
+     * Update feature for immediate move (following LOS pattern exactly)
+     * Returns translated feature with updated geometry for immediate visual feedback
+     * @param {Object} feature - Original feature
+     * @param {number} dx - Longitude delta
+     * @param {number} dy - Latitude delta 
+     * @param {Object} newCoords - New coordinates object
+     * @returns {Object} Updated feature with translated geometry
+     */
     updateFeatureForMove(feature, dx, dy, newCoords) {
-        // Return simple translated feature (sync)
+        // Update center position
+        const newCenter = [newCoords.lng, newCoords.lat];
+
+        // Translate geometry immediately using new method (following LOS pattern)
+        const translatedGeometry = this.geometry.translateGeometry(feature.geometry, dx, dy);
+
         return {
             ...feature,
             properties: {
                 ...feature.properties,
-                center: [newCoords.lng, newCoords.lat]
-            }
-            // Geometry will be recalculated in syncEditHandlesAfterDrag
+                center: newCenter
+            },
+            geometry: translatedGeometry
+            // Keep original cellData temporarily - will be recalculated in syncEditHandlesAfterDrag
         };
     }
 
@@ -287,15 +302,20 @@ class AddVisibilityControl extends BaseControl {
         return false; // Visibility doesn't have edit handles
     }
 
+    /**
+     * Sync edit handles after drag (following LOS pattern exactly)
+     * Uses queued async operations to prevent race conditions
+     * @param {Array} movedFeatures - Array of moved features
+     */
     syncEditHandlesAfterDrag = async (movedFeatures) => {
-        // Queue async recalculation operations to prevent race conditions
+        // Queue async recalculation operations to prevent race conditions (LOS pattern)
         this.recalculateQueue = this.recalculateQueue.then(async () => {
             await this.recalculateMovedVisibilityFeatures(movedFeatures);
         });
     }
 
     /**
-     * Recalculate visibility features after movement (queued async operation)
+     * Recalculate visibility features after movement (following LOS pattern)
      * @param {Array} movedFeatures - Array of moved features
      */
     async recalculateMovedVisibilityFeatures(movedFeatures) {
@@ -309,8 +329,9 @@ class AddVisibilityControl extends BaseControl {
                     this.updateProgress(5, 'Detectando nova posição...');
                     await this.geometry.delay(100);
 
-                    // Extract new center from moved geometry
-                    const newCenter = this.geometry.extractCenterFromGeometry(movedFeature.geometry);
+                    // CRITICAL FIX: Use center from properties (updated in updateFeatureForMove)
+                    // instead of extracting from geometry (following LOS pattern)
+                    const newCenter = this.geometry.normalizeCenter(movedFeature.properties.center);
 
                     if (newCenter) {
                         this.updateProgress(10, 'Preparando recálculo...');
@@ -324,7 +345,7 @@ class AddVisibilityControl extends BaseControl {
                             (progress, text) => this.updateProgress(progress, text)
                         );
 
-                        this.updateProgress(85, 'Salvando alterações...');
+                        this.updateProgress(80, 'Atualizando geometria...');
                         await this.geometry.delay(100);
 
                         // Update main feature
@@ -332,11 +353,23 @@ class AddVisibilityControl extends BaseControl {
                         movedFeature.properties.center = result.center;
                         movedFeature.properties.cellData = result.cellData;
 
-                        // Save to IndexedDB
-                        await updateFeature('visibility', movedFeature);
+                        this.updateProgress(85, 'Preparando features processadas...');
+                        await this.geometry.delay(100);
 
-                        // Update processed features
-                        await this.updateProcessedFeaturesAfterMove(movedFeature);
+                        // Generate new processed features
+                        const newProcessedFeatures = this.geometry.generateProcessedFeatures(movedFeature);
+
+                        this.updateProgress(90, 'Salvando no banco de dados...');
+                        await this.geometry.delay(100);
+
+                        // Save using batch operation (always use batchUpdate)
+                        await batchUpdateVisibilityFeatures(movedFeature, newProcessedFeatures);
+
+                        this.updateProgress(95, 'Atualizando fontes do mapa...');
+                        await this.geometry.delay(100);
+
+                        // Update processed features on map
+                        await this.updateProcessedFeaturesAfterMove(movedFeature, newProcessedFeatures);
 
                         this.updateProgress(100, 'Recálculo concluído!');
                         await this.geometry.delay(300);
@@ -352,26 +385,30 @@ class AddVisibilityControl extends BaseControl {
     }
 
     /**
-     * Update processed features after main feature movement
+     * Update processed features after main feature movement (following LOS pattern)
      * @param {Object} mainFeature - Updated main visibility feature
+     * @param {Array} newProcessedFeatures - New processed features array
      */
-    async updateProcessedFeaturesAfterMove(mainFeature) {
+    async updateProcessedFeaturesAfterMove(mainFeature, newProcessedFeatures = null) {
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
-        // Remove old processed features
+        // Remove old processed features (exact pattern from LOS)
         processedData.features = processedData.features.filter(f =>
             !f.properties.id.startsWith(mainFeature.properties.id + '-')
         );
 
-        // Add new processed features
-        const newProcessedFeatures = this.geometry.generateProcessedFeatures(mainFeature);
-        for (const processedFeature of newProcessedFeatures) {
-            await updateFeature('processed_visibility', processedFeature);
+        // Generate new processed features if not provided
+        const processedFeatures = newProcessedFeatures || this.geometry.generateProcessedFeatures(mainFeature);
+
+        // Add new processed features to data
+        processedFeatures.forEach(processedFeature => {
             processedData.features.push(processedFeature);
-        }
+        });
 
         // Update map source
         this.map.getSource('processed-visibility').setData(processedData);
+
+        // Note: Features are already saved via batchUpdateVisibilityFeatures in the calling method
     }
 
     // ===== DRAWING SYSTEM =====
@@ -471,13 +508,20 @@ class AddVisibilityControl extends BaseControl {
                 (progress, text) => this.updateProgress(progress, text)
             );
 
-            this.updateProgress(80, 'Salvando no banco de dados...');
+            this.updateProgress(80, 'Preparando features processadas...');
             await this.geometry.delay(100);
 
-            // Save to IndexedDB
-            await addFeature('visibility', visibilityFeature);
+            // Create processed features
+            const processedFeatures = this.geometry.generateProcessedFeatures(visibilityFeature);
 
-            this.updateProgress(85, 'Atualizando mapa...');
+            this.updateProgress(85, 'Salvando no banco de dados...');
+            await this.geometry.delay(100);
+
+            // Save main feature and processed features using batch operation
+            await addFeature('visibility', visibilityFeature);
+            await batchUpdateVisibilityFeatures(visibilityFeature, processedFeatures);
+
+            this.updateProgress(90, 'Atualizando mapa...');
             await this.geometry.delay(50);
 
             // Update main source
@@ -485,21 +529,14 @@ class AddVisibilityControl extends BaseControl {
             data.features.push(visibilityFeature);
             this.map.getSource('visibility').setData(data);
 
-            this.updateProgress(90, 'Processando células...');
+            this.updateProgress(95, 'Atualizando células processadas...');
             await this.geometry.delay(100);
 
-            // Create and save processed features
-            const processedFeatures = this.geometry.generateProcessedFeatures(visibilityFeature);
+            // Update processed source
             const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
-
-            this.updateProgress(95, 'Salvando células processadas...');
-            await this.geometry.delay(100);
-
-            for (const processedFeature of processedFeatures) {
-                await addFeature('processed_visibility', processedFeature);
+            processedFeatures.forEach(processedFeature => {
                 processedData.features.push(processedFeature);
-            }
-
+            });
             this.map.getSource('processed-visibility').setData(processedData);
 
             this.updateProgress(100, 'Concluído!');
@@ -609,7 +646,7 @@ class AddVisibilityControl extends BaseControl {
                             (progress, text) => this.updateProgress(progress, text)
                         );
 
-                        this.updateProgress(80, 'Atualizando geometria...');
+                        this.updateProgress(75, 'Atualizando geometria...');
                         await this.geometry.delay(100);
 
                         // Update main feature
@@ -618,16 +655,27 @@ class AddVisibilityControl extends BaseControl {
                         feature.geometry = result.geometry;
                         feature.properties.cellData = result.cellData;
 
-                        this.updateProgress(85, 'Atualizando células processadas...');
+                        this.updateProgress(80, 'Preparando células processadas...');
                         await this.geometry.delay(100);
 
-                        // Remove old processed features
+                        // Generate new processed features
+                        const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
+
+                        this.updateProgress(85, 'Salvando no banco de dados...');
+                        await this.geometry.delay(100);
+
+                        // Save using batch operation (always use batchUpdate)
+                        await batchUpdateVisibilityFeatures(sourceFeature, newProcessedFeatures);
+
+                        this.updateProgress(90, 'Atualizando células processadas...');
+                        await this.geometry.delay(100);
+
+                        // Remove old processed features from data
                         processedData.features = processedData.features.filter(f =>
                             !f.properties.id.startsWith(feature.properties.id + '-')
                         );
 
-                        // Generate new processed features
-                        const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
+                        // Add new processed features to data
                         newProcessedFeatures.forEach(processedFeature => {
                             processedData.features.push(processedFeature);
                         });
@@ -638,7 +686,7 @@ class AddVisibilityControl extends BaseControl {
                 }
             }
 
-            this.updateProgress(90, 'Atualizando mapa...');
+            this.updateProgress(95, 'Atualizando mapa...');
             await this.geometry.delay(100);
 
             this.map.getSource('visibility').setData(data);
@@ -696,24 +744,12 @@ class AddVisibilityControl extends BaseControl {
                         }
                     }));
 
-                    // Use batch operation if available
+                    // Always use batch operation
                     try {
-                        if (typeof batchUpdateVisibilityFeatures === 'function') {
-                            await batchUpdateVisibilityFeatures(featureToSave, updatedProcessedFeatures);
-                        } else {
-                            // Fallback: individual updates
-                            await updateFeature('visibility', featureToSave);
-                            for (const processedFeature of updatedProcessedFeatures) {
-                                await updateFeature('processed_visibility', processedFeature);
-                            }
-                        }
+                        await batchUpdateVisibilityFeatures(featureToSave, updatedProcessedFeatures);
                     } catch (error) {
-                        console.error('Error saving visibility features:', error);
-                        // Fallback on error
-                        await updateFeature('visibility', featureToSave);
-                        for (const processedFeature of updatedProcessedFeatures) {
-                            await updateFeature('processed_visibility', processedFeature);
-                        }
+                        console.error('Error saving visibility features with batch operation:', error);
+                        throw error; // Re-throw to maintain error handling
                     }
                 }
             }
@@ -739,7 +775,7 @@ class AddVisibilityControl extends BaseControl {
             }
         }
 
-        // Reload sources from store (safer approach)
+        // Reload sources from store (safer approach - following LOS pattern)
         const currentMapFeatures = await getCurrentMapFeatures();
 
         this.map.getSource('visibility').setData({
@@ -812,14 +848,8 @@ class AddVisibilityControl extends BaseControl {
                         f.properties.id.startsWith(feature.properties.id + '-')
                     );
 
-                    if (typeof batchUpdateVisibilityFeatures === 'function') {
-                        await batchUpdateVisibilityFeatures(data.features[featureIndex], processedFeatures);
-                    } else {
-                        await updateFeature('visibility', data.features[featureIndex]);
-                        for (const pf of processedFeatures) {
-                            await updateFeature('processed_visibility', pf);
-                        }
-                    }
+                    // Always use batch operation
+                    await batchUpdateVisibilityFeatures(data.features[featureIndex], processedFeatures);
                 }
             }
         }
@@ -949,7 +979,7 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
-    // ===== SELECTION MANAGER INTEGRATION =====
+    // ===== SELECTION MANAGER INTEGRATION (following LOS pattern) =====
 
     updateSelectionManagerFeature(feature) {
         const key = `visibility:${feature.properties.id}`;

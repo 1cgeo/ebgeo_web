@@ -9,6 +9,7 @@ import { getTerrainElevation } from '../terrain_control.js';
  * - Cell dissolution and optimization
  * - Processed features generation (visible/obstructed cells)
  * - Async movement recalculations
+ * - Immediate geometry translation for drag operations
  */
 class AddVisibilityGeometry extends BaseGeometry {
     constructor(properties = {}) {
@@ -84,6 +85,144 @@ class AddVisibilityGeometry extends BaseGeometry {
         }
 
         return center;
+    }
+
+    /**
+     * Extract center from moved geometry (following LOS tool pattern)
+     * @param {Object} geometry - Moved MultiPolygon geometry
+     * @returns {Array|null} Center coordinates or null
+     */
+    extractCenterFromGeometry(geometry) {
+        try {
+            if (geometry.type === 'MultiPolygon') {
+                // Calculate centroid of all polygons combined (approximation of original center)
+                const allCoordinates = [];
+                
+                geometry.coordinates.forEach(polygonCoords => {
+                    polygonCoords.forEach(ring => {
+                        ring.forEach(coord => {
+                            if (coord.length >= 2) {
+                                allCoordinates.push(coord);
+                            }
+                        });
+                    });
+                });
+
+                if (allCoordinates.length === 0) return null;
+
+                // Calculate centroid from all coordinates
+                const sumLng = allCoordinates.reduce((sum, coord) => sum + coord[0], 0);
+                const sumLat = allCoordinates.reduce((sum, coord) => sum + coord[1], 0);
+                
+                return [sumLng / allCoordinates.length, sumLat / allCoordinates.length];
+            } else if (geometry.type === 'Polygon') {
+                const polygon = turf.polygon(geometry.coordinates);
+                const centroid = turf.centroid(polygon);
+                return centroid.geometry.coordinates;
+            }
+            return null;
+        } catch (error) {
+            console.error('Error extracting center from moved geometry:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Translate visibility geometry by offset (immediate translation for drag preview)
+     * Following LOS tool pattern for immediate geometry updates
+     * @param {Object} geometry - MultiPolygon geometry to translate
+     * @param {number} dx - Longitude offset
+     * @param {number} dy - Latitude offset
+     * @returns {Object} Translated geometry
+     */
+    translateGeometry(geometry, dx, dy) {
+        try {
+            if (geometry.type === 'MultiPolygon') {
+                const translatedCoordinates = geometry.coordinates.map(polygonCoords =>
+                    polygonCoords.map(ring =>
+                        ring.map(coord => [coord[0] + dx, coord[1] + dy])
+                    )
+                );
+
+                return {
+                    type: 'MultiPolygon',
+                    coordinates: translatedCoordinates
+                };
+            } else if (geometry.type === 'Polygon') {
+                const translatedCoordinates = geometry.coordinates.map(ring =>
+                    ring.map(coord => [coord[0] + dx, coord[1] + dy])
+                );
+
+                return {
+                    type: 'Polygon',
+                    coordinates: translatedCoordinates
+                };
+            }
+
+            console.warn('Unsupported geometry type for translation:', geometry.type);
+            return geometry;
+        } catch (error) {
+            console.error('Error translating visibility geometry:', error);
+            return geometry;
+        }
+    }
+
+    /**
+     * Get coordinates from geometry for movement operations (following LOS pattern)
+     * @param {Object} geometry - GeoJSON geometry
+     * @returns {Array} Center coordinates for movement reference
+     */
+    getCoordinatesForMovement(geometry) {
+        return this.extractCenterFromGeometry(geometry);
+    }
+
+    /**
+     * Translate visibility geometry by offset (immediate translation for drag preview)
+     * Following LOS tool pattern for immediate geometry updates
+     * @param {Object} geometry - MultiPolygon geometry to translate
+     * @param {number} dx - Longitude offset
+     * @param {number} dy - Latitude offset
+     * @returns {Object} Translated geometry
+     */
+    translateGeometry(geometry, dx, dy) {
+        try {
+            if (geometry.type === 'MultiPolygon') {
+                const translatedCoordinates = geometry.coordinates.map(polygonCoords =>
+                    polygonCoords.map(ring =>
+                        ring.map(coord => [coord[0] + dx, coord[1] + dy])
+                    )
+                );
+
+                return {
+                    type: 'MultiPolygon',
+                    coordinates: translatedCoordinates
+                };
+            } else if (geometry.type === 'Polygon') {
+                const translatedCoordinates = geometry.coordinates.map(ring =>
+                    ring.map(coord => [coord[0] + dx, coord[1] + dy])
+                );
+
+                return {
+                    type: 'Polygon',
+                    coordinates: translatedCoordinates
+                };
+            }
+
+            console.warn('Unsupported geometry type for translation:', geometry.type);
+            return geometry;
+        } catch (error) {
+            console.error('Error translating visibility geometry:', error);
+            return geometry;
+        }
+    }
+
+    /**
+     * Get coordinates from geometry for movement operations (following LOS pattern)
+     * @param {Object} geometry - GeoJSON geometry
+     * @returns {Array} Center coordinates for movement reference
+     */
+    getCoordinatesForMovement(geometry) {
+        return this.extractCenterFromGeometry(geometry);
     }
 
     /**
@@ -315,32 +454,7 @@ class AddVisibilityGeometry extends BaseGeometry {
     }
 
     /**
-     * Extract center from moved geometry
-     * @param {Object} geometry - Moved MultiPolygon geometry
-     * @returns {Array|null} Center coordinates or null
-     */
-    extractCenterFromGeometry(geometry) {
-        try {
-            if (geometry.type === 'MultiPolygon') {
-                // Calculate centroid of first cell (approximation of original center)
-                const firstPolygon = geometry.coordinates[0];
-                const polygon = turf.polygon(firstPolygon);
-                const centroid = turf.centroid(polygon);
-                return centroid.geometry.coordinates;
-            } else if (geometry.type === 'Polygon') {
-                const polygon = turf.polygon(geometry.coordinates);
-                const centroid = turf.centroid(polygon);
-                return centroid.geometry.coordinates;
-            }
-            return null;
-        } catch (error) {
-            console.error('Error extracting center from moved geometry:', error);
-            return null;
-        }
-    }
-
-    /**
-     * Recalculate viewshed from moved coordinates
+     * Recalculate viewshed from moved coordinates (following LOS pattern)
      * @param {Array} newCenter - New center coordinates
      * @param {Object} feature - Original feature with properties
      * @param {Object} map - MapLibre map instance
