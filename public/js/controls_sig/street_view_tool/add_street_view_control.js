@@ -6,9 +6,8 @@ import config from '../../config.js';
 
 class AddStreetViewControl {
 
-    constructor(toolManager) {
+    constructor() {
         this.queryMobile = window.matchMedia("(max-width: 650px)")
-        this.toolManager = toolManager;
         this.isActive = false;
         this.IMAGES_LOCATION = "/street_view/IMG"
         this.METADATA_LOCATION = "/street_view/METADATA"
@@ -252,7 +251,7 @@ class AddStreetViewControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.title = 'Adicionar imagens panorâmicas';
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
-        button.onclick = () => this.toolManager.setActiveTool(this);
+        button.onclick = () => this.toggleStreetView();
 
         this.container.appendChild(button);
 
@@ -321,7 +320,7 @@ class AddStreetViewControl {
         if (!isEnabled) {
             // Use setTimeout para garantir que DOM está pronto
             setTimeout(() => {
-            $("#street-view-tool").html('<img class="icon-sig-tool" src="./images/icon_street_view_gray.svg" />');
+                $("#street-view-tool").html('<img class="icon-sig-tool" src="./images/icon_street_view_gray.svg" />');
             }, 10);
             return;
         }
@@ -350,7 +349,7 @@ class AddStreetViewControl {
         }
 
         if (this.isActive) {
-            this.toolManager.deactivateCurrentTool();
+            this.deactivate();
             return
         }
         $('#close-street-view-button').on('click', this.closeStreetView)
@@ -358,6 +357,14 @@ class AddStreetViewControl {
         $("#street-view-tool").empty().append('<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />');
         await this.loadData()
         this.showPhotos()
+    }
+
+    toggleStreetView() {
+        if (this.isActive) {
+            this.deactivate();
+        } else {
+            this.activate();
+        }
     }
 
     showPhotos = async () => {

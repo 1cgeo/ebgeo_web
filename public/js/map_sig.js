@@ -95,7 +95,7 @@ const visibilityControl = new AddVisibilityControl(toolManager);
 
 const importControl = new AddImportControl(toolManager);
 
-const addStreetViewControl = new AddStreetViewControl(toolManager);
+const addStreetViewControl = new AddStreetViewControl();
 
 const circleControl = new AddCircleControl(toolManager);
 const rectangleControl = new AddRectangleControl(toolManager);
