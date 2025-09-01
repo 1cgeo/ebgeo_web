@@ -607,8 +607,8 @@ class AddStreetViewControl {
     }
 
     createControl = () => {
-        this.cleanArrows(this.arrows.map(i => i.arrow))
-        this.arrows = []
+        this.cleanArrows(this.arrows.map(i => i.arrow));
+        this.arrows = [];
 
         // Use cached resources for better performance
         if (!this.arrowGeometry) {
@@ -632,10 +632,10 @@ class AddStreetViewControl {
             this.scene.add(control);
         }
 
-        if (this.controls) this.controls.deactivate()
+        if (this.controls) this.controls.deactivate();
         this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
         this.controls.addEventListener('drag', (event) => {
-            this.isDrag = true
+            this.isDrag = true;
         });
         this.controls.addEventListener('dragstart', (event) => {
             this.dragStartTime = Date.now();
@@ -658,6 +658,9 @@ class AddStreetViewControl {
             this.dragStartTime = null;
             this.dragStartPosition = null;
         });
+
+        // Aplicar visibilidade inicial baseada no zoom atual
+        this.updateArrowsVisibility();
     }
 
     clickObj = (event) => {
@@ -757,9 +760,42 @@ class AddStreetViewControl {
 
     onDocumentMouseWheel = (event) => {
         if (this.miniMapHovered || !this.isOpen) return
+
         const fov = this.camera.fov + event.deltaY * 0.05;
         this.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
         this.camera.updateProjectionMatrix();
+
+        // Controlar visibilidade das setas baseado no FOV
+        this.updateArrowsVisibility();
+    }
+
+    updateArrowsVisibility = () => {
+        if (!this.arrows || this.arrows.length === 0) return;
+
+        // Definir thresholds de FOV
+        const HIDE_ARROWS_FOV = 35; // FOV abaixo do qual as setas ficam escondidas
+        const SCALE_ARROWS_FOV = 45; // FOV abaixo do qual as setas começam a diminuir
+
+        const currentFOV = this.camera.fov;
+
+        this.arrows.forEach(item => {
+            const arrow = item.arrow;
+
+            if (currentFOV <= HIDE_ARROWS_FOV) {
+                // Zoom muito alto - esconder setas completamente
+                arrow.visible = false;
+            } else if (currentFOV <= SCALE_ARROWS_FOV) {
+                // Zoom médio - mostrar setas mas com escala reduzida
+                arrow.visible = true;
+                const scaleFactor = (currentFOV - HIDE_ARROWS_FOV) / (SCALE_ARROWS_FOV - HIDE_ARROWS_FOV);
+                const scale = 0.3 + (scaleFactor * 0.7); // Escala de 0.3 a 1.0
+                arrow.scale.setScalar(scale);
+            } else {
+                // Zoom normal - mostrar setas normalmente
+                arrow.visible = true;
+                arrow.scale.setScalar(1.0);
+            }
+        });
     }
 
     animate = () => {
@@ -775,13 +811,13 @@ class AddStreetViewControl {
     update = () => {
         let target = this.nextTarget || this.currentLookAt;
         if (target) {
-            this.setCurrentMouse()
-            this.drawControl()
-            this.setCurrentMouse()
+            this.setCurrentMouse();
+            this.drawControl();
+            this.setCurrentMouse();
             this.camera.lookAt(target.x, THREE.MathUtils.clamp(target.y, -360, 250), target.z);
         }
-        this.nextTarget = null
-        this.currentLookAt = null
+        this.nextTarget = null;
+        this.currentLookAt = null;
         this.renderer.render(this.scene, this.camera);
     }
 
@@ -848,31 +884,39 @@ class AddStreetViewControl {
 
     drawControl = () => {
         for (let [idx, item] of this.arrows.entries()) {
-            let arrow = item.arrow
+            let arrow = item.arrow;
+
+            // Só calcular posição se a seta estiver visível
+            if (!arrow.visible) continue;
+
             const heading = this.camera.rotation.y;
             const radians = heading > 0 ? heading : (2 * Math.PI) + heading;
             let degrees = THREE.MathUtils.radToDeg(radians);
-            var point1 = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat])
-            var point2 = turf.point([item.lon, item.lat])
-            var bearing = (turf.rhumbBearing(point1, point2) + degrees + 360) % 360
-            let center = turf.point([0, -0.4])
-            var distance = this.queryMobile.matches ? 55 : 35
-            var destination = turf.rhumbDestination(center, distance, bearing)
+            var point1 = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat]);
+            var point2 = turf.point([item.lon, item.lat]);
+            var bearing = (turf.rhumbBearing(point1, point2) + degrees + 360) % 360;
+
+            let center = turf.point([0, -0.4]);
+            var distance = this.queryMobile.matches ? 55 : 35;
+            var destination = turf.rhumbDestination(center, distance, bearing);
+
             var vector = new THREE.Vector3(
                 destination.geometry.coordinates[0],
                 destination.geometry.coordinates[1],
                 0.5
-            )
-            //control.visible = vector.y <= -0.15 ? true : false
+            );
+
             vector.unproject(this.camera);
             var dir = vector.sub(this.camera.position).normalize();
-            var distance = 5;
-            var pos = this.camera.position.clone().add(dir.multiplyScalar(distance));
+            var distanceFromCamera = 5;
+            var pos = this.camera.position.clone().add(dir.multiplyScalar(distanceFromCamera));
             arrow.position.copy(pos);
             arrow.lookAt(this.camera.position);
-            arrow.rotation.z -= THREE.MathUtils.degToRad(bearing)
+            arrow.rotation.z -= THREE.MathUtils.degToRad(bearing);
+
         }
     }
+
 
 
     loadPoint = (e) => {
