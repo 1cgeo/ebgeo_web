@@ -4,6 +4,7 @@ import config from './config.js';
 
 import { } from './map_sig.js'
 import {
+    activeTool,
     init3DFeatures,
     cleanup3DFeatures,
     loadCesiumAndInit,
@@ -82,6 +83,7 @@ async function switchTo3D() {
         }
 
         appState.currentMode = '3d';
+        $('.button-tool-3d').on('click', activeTool);
 
     } catch (error) {
         console.error('Erro ao alternar para 3D:', error);
@@ -245,6 +247,7 @@ function showError(message) {
         switchTo3D();
     });
 }
+
 
 // ===== ATTRIBUTES PANEL MANAGEMENT =====
 function toggleAttributesPanel() {
