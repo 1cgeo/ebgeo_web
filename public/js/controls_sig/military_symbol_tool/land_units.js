@@ -414,14 +414,14 @@ export default {
           "entity": "Movement and Maneuver",
           "entity_type": "Special Forces",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Forças Especiais",
+          "entity_type_portugues": "Ações de Comandos",
           "code": "121700"
         },
         {
           "entity": "Movement and Maneuver",
           "entity_type": "Special Operations Forces (SOF)",
           "entity_portugues": "Movimento e Manobra",
-          "entity_type_portugues": "Forças de Operações Especiais",
+          "entity_type_portugues": "Forças Especiais",
           "code": "121800"
         },
         {

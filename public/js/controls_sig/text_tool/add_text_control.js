@@ -302,6 +302,9 @@ class AddTextControl extends BaseControl {
         // Text features don't have edit handles, but we need to update selection boxes
         // Update selection boxes for moved features
         this.updateSelectionBoxesForFeatures(movedFeatures);
+        
+        // 🆕 SYNC BACKGROUNDS: Update text-backgrounds source after drag operations
+        this.updateTextBackgroundsSource();
     }
 
     /**
@@ -516,6 +519,65 @@ class AddTextControl extends BaseControl {
         );
     }
 
+    // ===== BACKGROUND SYNCHRONIZATION SYSTEM =====
+
+    /**
+     * 🆕 Synchronize text-backgrounds source with current texts data
+     * This method handles the critical synchronization between the main 'texts' source
+     * and the separate 'text-backgrounds' source used for background rendering
+     */
+    updateTextBackgroundsSource = () => {
+        // Check if text-backgrounds source exists
+        if (!this.map.getSource('text-backgrounds')) {
+            console.warn('text-backgrounds source not found - skipping background sync');
+            return;
+        }
+
+        try {
+            // Get current texts data
+            const currentTexts = this.map.getSource('texts')._data.features;
+            
+            // Generate background features from current texts
+            const backgroundFeatures = currentTexts
+                .filter(feature => feature.properties.showBackground && feature.properties.selectionBox)
+                .map(feature => ({
+                    type: 'Feature',
+                    properties: {
+                        ...feature.properties,
+                        id: feature.properties.id + '_bg' // Unique ID for background
+                    },
+                    geometry: feature.properties.selectionBox // Use selectionBox as geometry
+                }));
+
+            // Update text-backgrounds source
+            this.map.getSource('text-backgrounds').setData({
+                type: 'FeatureCollection',
+                features: backgroundFeatures
+            });
+
+        } catch (error) {
+            console.error('Error updating text backgrounds source:', error);
+        }
+    }
+
+    /**
+     * Check if a property affects background rendering and requires background sync
+     * @param {string} property - Property name being changed
+     * @returns {boolean} True if property affects background rendering
+     */
+    isBackgroundAffectingProperty = (property) => {
+        const backgroundAffectingProperties = [
+            'text', 'size', 'rotation',                                    // Dimension affecting
+            'showBackground',                                               // Background toggle
+            'backgroundBorderWidth',                                        // Dimension affecting
+            'backgroundFillColor', 'backgroundFillOpacity',                // Visual properties
+            'backgroundBorderColor', 'backgroundBorderOpacity',            // Visual properties
+            'visivel',                                                     // Visibility
+            'createdAtZoom'                                                // Zoom affecting dimensions
+        ];
+        return backgroundAffectingProperties.includes(property);
+    }
+
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = (features, property, value) => {
@@ -573,6 +635,11 @@ class AddTextControl extends BaseControl {
 
         // Update map source first
         this.forceUpdateMainSource(data);
+
+        // 🆕 SYNC BACKGROUNDS: Update text-backgrounds source if properties affect background
+        if (this.isBackgroundAffectingProperty(property)) {
+            this.updateTextBackgroundsSource();
+        }
 
         // CRITICAL FIX: Get fresh features from map source before updating SelectionManager  
         const freshFeatures = features.map(feature => {
@@ -683,6 +750,9 @@ class AddTextControl extends BaseControl {
                 console.error(`Error removing text ${feature.properties.id}:`, error);
             }
         }
+        
+        // 🆕 SYNC BACKGROUNDS: Update backgrounds after deletion
+        this.updateTextBackgroundsSource();
     }
 
     setDefaultProperties = (properties) => {
@@ -718,6 +788,7 @@ class AddTextControl extends BaseControl {
         if (features.length > 0) {
             const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
             const currentZoom = this.map.getZoom();
+            let backgroundNeedsUpdate = false;
 
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
@@ -731,6 +802,11 @@ class AddTextControl extends BaseControl {
                     // Ensure consistency for updated feature
                     this.ensureFeatureConsistency(data.features[featureIndex], currentZoom, !onlyUpdateProperties);
 
+                    // Check if background update is needed
+                    if (data.features[featureIndex].properties.showBackground) {
+                        backgroundNeedsUpdate = true;
+                    }
+
                     if (save) {
                         const featureToUpdate = onlyUpdateProperties ?
                             data.features[featureIndex] : feature;
@@ -741,6 +817,11 @@ class AddTextControl extends BaseControl {
 
             // CRITICAL FIX: Use protected method for source updates
             this.forceUpdateMainSource(data);
+
+            // 🆕 SYNC BACKGROUNDS: Update backgrounds if any feature has background enabled
+            if (backgroundNeedsUpdate) {
+                this.updateTextBackgroundsSource();
+            }
 
             // Update SelectionManager with updated features
             this.updateSelectionManagerFeatures(features);
