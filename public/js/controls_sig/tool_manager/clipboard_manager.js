@@ -60,6 +60,8 @@ class ClipboardManager {
 
     /**
      * Paste features from clipboard
+     * - Apply offset only when pasting on the same map
+     * - No offset when pasting on different maps
      */
     async paste() {
         if (!this.hasClipboardData()) {
@@ -68,8 +70,12 @@ class ClipboardManager {
         }
 
         try {
-            // Calculate offset based on current zoom
-            const offset = this.calculatePixelToMetersOffset(this.clipboard.pixelOffset);
+            // Calculate offset only if pasting on same map
+            const currentMapName = getCurrentMapNameSync();
+            const isSameMap = this.clipboard.sourceMapName === currentMapName;
+            const offset = isSameMap ? 
+                this.calculatePixelToMetersOffset(this.clipboard.pixelOffset) : 
+                { dx: 0, dy: 0 };
 
             // Phase 1: Collect resource operations
             const idMapping = new Map();
@@ -408,6 +414,14 @@ class ClipboardManager {
     // ===== UTILITY METHODS =====
 
     /**
+     * Check if pasting on the same map where features were copied
+     */
+    isSameMapPaste() {
+        const currentMapName = getCurrentMapNameSync();
+        return this.clipboard.sourceMapName === currentMapName;
+    }
+
+    /**
      * Get storage type from source type
      */
     getFeatureStorageType(sourceType) {
@@ -477,12 +491,16 @@ class ClipboardManager {
      * Get clipboard info for debugging
      */
     getClipboardInfo() {
+        const currentMapName = getCurrentMapNameSync();
         return {
             hasData: this.hasClipboardData(),
             featureCount: this.clipboard.features.length,
             types: this.clipboard.features.map(item => item.type),
             copiedAt: this.clipboard.copiedAt,
             sourceMap: this.clipboard.sourceMapName,
+            currentMap: currentMapName,
+            isSameMap: this.clipboard.sourceMapName === currentMapName,
+            willApplyOffset: this.clipboard.sourceMapName === currentMapName,
             toolCentricStatus: this.getToolCentricStatus()
         };
     }
