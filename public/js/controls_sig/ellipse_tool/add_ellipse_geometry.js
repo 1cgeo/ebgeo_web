@@ -5,7 +5,7 @@ import BaseGeometry from '../tool_manager/base_geometry.js';
  * Ellipse Geometry Operations
  * Handles all geometric calculations and handle management for ellipse features
  * 
- * ✅ CORREÇÃO: Inversão de eixos consistente em toda a cadeia
+ * ✅ NOVO SISTEMA: 3 handles independentes - 2 para resize + 1 para rotação
  */
 class AddEllipseGeometry extends BaseGeometry {
     constructor(properties = {}) {
@@ -76,25 +76,6 @@ class AddEllipseGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ NOVO: Normalizar parâmetros da ellipse para consistência
-     * Sempre retorna valores onde majorRadius >= minorRadius
-     */
-    normalizeEllipseParams(majorRadius, minorRadius, bearing) {
-        if (minorRadius > majorRadius) {
-            return {
-                majorRadius: minorRadius,
-                minorRadius: majorRadius,
-                bearing: bearing + 90
-            };
-        }
-        return {
-            majorRadius,
-            minorRadius,
-            bearing
-        };
-    }
-
-    /**
      * Generate ellipse polygon geometry using turf.ellipse
      * @param {Array} center - Center coordinates [lng, lat]
      * @param {number} majorRadius - Major radius in kilometers
@@ -103,24 +84,21 @@ class AddEllipseGeometry extends BaseGeometry {
      * @returns {Object} GeoJSON Polygon geometry
      */
     generateEllipseGeometry(center, majorRadius, minorRadius, bearing) {
-        // ✅ CORREÇÃO: Usar parâmetros normalizados consistentemente
-        const normalized = this.normalizeEllipseParams(majorRadius, minorRadius, bearing);
-        
         const options = {
-            angle: normalized.bearing - 90, // Align major axis with bearing direction
+            angle: bearing - 90, // Align major axis with bearing direction
             steps: 64,
             units: 'kilometers'
         };
 
         // Use turf.ellipse for accurate geodesic ellipse
-        const ellipsePolygon = turf.ellipse(center, normalized.majorRadius, normalized.minorRadius, options);
+        const ellipsePolygon = turf.ellipse(center, majorRadius, minorRadius, options);
         return ellipsePolygon.geometry;
     }
 
     /**
-     * ✅ CORRIGIDO: Create edit handles usando parâmetros normalizados
+     * ✅ NOVO SISTEMA: Create 3 edit handles (2 red resize + 1 blue rotation)
      * @param {Object} feature - Ellipse feature
-     * @returns {Array} Array of handle features [majorHandle, minorHandle]
+     * @returns {Array} Array of handle features [horizontalHandle, verticalHandle, rotationHandle]
      */
     createHandles(feature) {
         const center = this.normalizeCenter(feature.properties.center);
@@ -129,29 +107,22 @@ class AddEllipseGeometry extends BaseGeometry {
             return [];
         }
 
-        // ✅ CORREÇÃO: Usar parâmetros normalizados para consistência
-        const normalized = this.normalizeEllipseParams(
-            feature.properties.majorRadius,
-            feature.properties.minorRadius,
-            feature.properties.bearing
-        );
-
+        const { majorRadius, minorRadius, bearing } = feature.properties;
         const handles = [];
 
-        // Major axis handle (red) - positioned at normalized bearing direction from center
-        const majorAxisEnd = turf.destination(center, normalized.majorRadius, normalized.bearing, { units: 'kilometers' });
-        
+        // Handle 1: Horizontal Resize (Red) - extremidade direita da elipse
+        const horizontalHandlePos = this.calculateHorizontalHandlePosition(center, majorRadius, minorRadius, bearing);
         handles.push({
             type: 'Feature',
-            id: `ellipse-handle-${feature.properties.id}-major`,
+            id: `ellipse-handle-${feature.properties.id}-horizontal`,
             geometry: {
                 type: 'Point',
-                coordinates: majorAxisEnd.geometry.coordinates
+                coordinates: horizontalHandlePos
             },
             properties: {
                 role: 'handle',
                 handleType: 'vertex', // RED color in styling
-                handleId: 'major-axis',
+                handleId: 'horizontal-resize',
                 featureId: feature.properties.id,
                 mode: 'ellipse_editing',
                 meta: 'vertex',
@@ -159,21 +130,39 @@ class AddEllipseGeometry extends BaseGeometry {
             }
         });
 
-        // Minor axis handle (blue) - perpendicular to major axis
-        const perpendicularBearing = normalized.bearing + 90;
-        const minorAxisEnd = turf.destination(center, normalized.minorRadius, perpendicularBearing, { units: 'kilometers' });
-
+        // Handle 2: Vertical Resize (Red) - extremidade superior da elipse
+        const verticalHandlePos = this.calculateVerticalHandlePosition(center, majorRadius, minorRadius, bearing);
         handles.push({
             type: 'Feature',
-            id: `ellipse-handle-${feature.properties.id}-minor`,
+            id: `ellipse-handle-${feature.properties.id}-vertical`,
             geometry: {
                 type: 'Point',
-                coordinates: minorAxisEnd.geometry.coordinates
+                coordinates: verticalHandlePos
+            },
+            properties: {
+                role: 'handle',
+                handleType: 'vertex', // RED color in styling
+                handleId: 'vertical-resize',
+                featureId: feature.properties.id,
+                mode: 'ellipse_editing',
+                meta: 'vertex',
+                user_isEditingHandle: true
+            }
+        });
+
+        // Handle 3: Rotation (Blue) - ponto intermediário para rotação
+        const rotationHandlePos = this.calculateRotationHandlePosition(center, majorRadius, minorRadius, bearing);
+        handles.push({
+            type: 'Feature',
+            id: `ellipse-handle-${feature.properties.id}-rotation`,
+            geometry: {
+                type: 'Point',
+                coordinates: rotationHandlePos
             },
             properties: {
                 role: 'handle',
                 handleType: 'eccentricity', // BLUE color in styling
-                handleId: 'minor-axis',
+                handleId: 'rotation',
                 featureId: feature.properties.id,
                 mode: 'ellipse_editing',
                 meta: 'vertex',
@@ -185,8 +174,49 @@ class AddEllipseGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ CORRIGIDO: Update ellipse geometry based on handle movement
-     * @param {string} handleType - Type of handle ('major-axis' or 'minor-axis')
+     * ✅ CORRIGIDO: Calculate horizontal resize handle position (extremidade do eixo maior)
+     * @param {Array} center - Center coordinates
+     * @param {number} majorRadius - Major radius in kilometers
+     * @param {number} minorRadius - Minor radius in kilometers
+     * @param {number} bearing - Bearing in degrees
+     * @returns {Array} Handle position coordinates
+     */
+    calculateHorizontalHandlePosition(center, majorRadius, minorRadius, bearing) {
+        // Handle horizontal na direção do eixo maior da elipse
+        return turf.destination(center, majorRadius, bearing, { units: 'kilometers' }).geometry.coordinates;
+    }
+
+    /**
+     * ✅ CORRIGIDO: Calculate vertical resize handle position (extremidade do eixo menor)
+     * @param {Array} center - Center coordinates
+     * @param {number} majorRadius - Major radius in kilometers
+     * @param {number} minorRadius - Minor radius in kilometers
+     * @param {number} bearing - Bearing in degrees
+     * @returns {Array} Handle position coordinates
+     */
+    calculateVerticalHandlePosition(center, majorRadius, minorRadius, bearing) {
+        // Handle vertical perpendicular ao eixo maior (bearing + 90°)
+        const verticalBearing = bearing + 90;
+        return turf.destination(center, minorRadius, verticalBearing, { units: 'kilometers' }).geometry.coordinates;
+    }
+
+    /**
+     * ✅ CORRIGIDO: Calculate rotation handle position (posicionado no eixo menor oposto)
+     * @param {Array} center - Center coordinates
+     * @param {number} majorRadius - Major radius in kilometers
+     * @param {number} minorRadius - Minor radius in kilometers
+     * @param {number} bearing - Bearing in degrees
+     * @returns {Array} Handle position coordinates
+     */
+    calculateRotationHandlePosition(center, majorRadius, minorRadius, bearing) {
+        // Handle de rotação posicionado no eixo menor, direção oposta ao handle vertical
+        const rotationBearing = bearing - 90;
+        return turf.destination(center, minorRadius, rotationBearing, { units: 'kilometers' }).geometry.coordinates;
+    }
+
+    /**
+     * ✅ MODIFICADO: Update ellipse geometry based on handle movement
+     * @param {string} handleType - Type of handle ('horizontal-resize', 'vertical-resize', 'rotation')
      * @param {Array} newPosition - New handle position [lng, lat]
      * @param {Object} feature - Ellipse feature being edited
      * @returns {Object} Updated geometry, radii and bearing
@@ -198,51 +228,86 @@ class AddEllipseGeometry extends BaseGeometry {
             return null;
         }
 
-        // ✅ CORREÇÃO: Trabalhar com parâmetros normalizados
-        const currentNormalized = this.normalizeEllipseParams(
-            feature.properties.majorRadius,
-            feature.properties.minorRadius,
-            feature.properties.bearing
-        );
+        let { majorRadius, minorRadius, bearing } = feature.properties;
 
-        let newMajorRadius = currentNormalized.majorRadius;
-        let newMinorRadius = currentNormalized.minorRadius;
-        let newBearing = currentNormalized.bearing;
+        switch (handleType) {
+            case 'horizontal-resize':
+                // Atualizar apenas a largura (majorRadius quando bearing = 0, ou calcular baseado na orientação)
+                majorRadius = this.calculateHorizontalRadius(center, newPosition, bearing);
+                break;
 
-        if (handleType === 'major-axis') {
-            // Update major radius and bearing using normalized values
-            newMajorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
-            newBearing = turf.bearing(center, newPosition);
-        } else if (handleType === 'minor-axis') {
-            // Update minor radius only
-            newMinorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
-        } else {
-            console.warn('Unknown handle type for ellipse:', handleType);
-            return null;
+            case 'vertical-resize':
+                // Atualizar apenas a altura (minorRadius quando bearing = 0, ou calcular baseado na orientação)
+                minorRadius = this.calculateVerticalRadius(center, newPosition, bearing);
+                break;
+
+            case 'rotation':
+                // Atualizar apenas o bearing, mantendo dimensões
+                bearing = this.calculateRotationBearing(center, newPosition);
+                break;
+
+            default:
+                console.warn('Unknown handle type for ellipse:', handleType);
+                return null;
         }
 
         // Validate minimum radii
-        if (newMajorRadius < 0.01 || newMinorRadius < 0.01) {
-            console.warn('Ellipse radius too small:', { newMajorRadius, newMinorRadius });
+        if (majorRadius < 0.01 || minorRadius < 0.01) {
+            console.warn('Ellipse radius too small:', { majorRadius, minorRadius });
             return null;
         }
 
-        // ✅ CORREÇÃO: Retornar valores não-normalizados para storage
-        // mas usar valores normalizados para geometria
-        const finalNormalized = this.normalizeEllipseParams(newMajorRadius, newMinorRadius, newBearing);
-        const updatedGeometry = this.generateEllipseGeometry(center, newMajorRadius, newMinorRadius, newBearing);
+        const updatedGeometry = this.generateEllipseGeometry(center, majorRadius, minorRadius, bearing);
 
-        // ✅ IMPORTANTE: Retornar os valores originais (não normalizados) para armazenamento
         return {
             geometry: updatedGeometry,
-            majorRadius: newMajorRadius,
-            minorRadius: newMinorRadius,
-            bearing: newBearing
+            majorRadius,
+            minorRadius,
+            bearing
         };
     }
 
     /**
-     * ✅ CORRIGIDO: Calculate preview geometry during handle dragging
+     * ✅ CORRIGIDO: Calculate new horizontal radius based on handle position
+     * @param {Array} center - Center coordinates
+     * @param {Array} newPosition - New handle position
+     * @param {number} bearing - Current bearing (não usado, handle define diretamente)
+     * @returns {number} New major radius
+     */
+    calculateHorizontalRadius(center, newPosition, bearing) {
+        // Handle horizontal controla o majorRadius diretamente
+        // A distância do centro ao handle é o novo majorRadius
+        return turf.distance(center, newPosition, { units: 'kilometers' });
+    }
+
+    /**
+     * ✅ CORRIGIDO: Calculate new vertical radius based on handle position
+     * @param {Array} center - Center coordinates
+     * @param {Array} newPosition - New handle position
+     * @param {number} bearing - Current bearing (não usado, handle define diretamente)
+     * @returns {number} New minor radius
+     */
+    calculateVerticalRadius(center, newPosition, bearing) {
+        // Handle vertical controla o minorRadius diretamente
+        // A distância do centro ao handle é o novo minorRadius
+        return turf.distance(center, newPosition, { units: 'kilometers' });
+    }
+
+    /**
+     * ✅ CORRIGIDO: Calculate new bearing based on rotation handle position
+     * @param {Array} center - Center coordinates
+     * @param {Array} newPosition - New rotation handle position
+     * @returns {number} New bearing in degrees
+     */
+    calculateRotationBearing(center, newPosition) {
+        // Como o handle está posicionado na direção bearing - 90°,
+        // o bearing real é o ângulo do handle + 90°
+        const handleBearing = turf.bearing(center, newPosition);
+        return handleBearing + 90;
+    }
+
+    /**
+     * ✅ MODIFICADO: Calculate preview geometry during handle dragging
      * @param {string} handleType - Type of handle being moved
      * @param {Array} newPosition - New handle position
      * @param {Object} feature - Ellipse feature
@@ -254,58 +319,59 @@ class AddEllipseGeometry extends BaseGeometry {
             return null;
         }
 
-        // ✅ CORREÇÃO: Trabalhar com valores normalizados
-        const currentNormalized = this.normalizeEllipseParams(
-            feature.properties.majorRadius,
-            feature.properties.minorRadius,
-            feature.properties.bearing
-        );
+        let { majorRadius, minorRadius, bearing } = feature.properties;
 
-        let previewMajorRadius = currentNormalized.majorRadius;
-        let previewMinorRadius = currentNormalized.minorRadius;
-        let previewBearing = currentNormalized.bearing;
-
-        if (handleType === 'major-axis') {
-            previewMajorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
-            previewBearing = turf.bearing(center, newPosition);
-        } else if (handleType === 'minor-axis') {
-            previewMinorRadius = turf.distance(center, newPosition, { units: 'kilometers' });
+        // Atualizar parâmetro baseado no tipo de handle
+        switch (handleType) {
+            case 'horizontal-resize':
+                majorRadius = this.calculateHorizontalRadius(center, newPosition, bearing);
+                break;
+            case 'vertical-resize':
+                minorRadius = this.calculateVerticalRadius(center, newPosition, bearing);
+                break;
+            case 'rotation':
+                bearing = this.calculateRotationBearing(center, newPosition);
+                break;
+            default:
+                return null;
         }
 
         // Validate minimum radii
-        if (previewMajorRadius < 0.01 || previewMinorRadius < 0.01) {
+        if (majorRadius < 0.01 || minorRadius < 0.01) {
             return null;
         }
 
-        // ✅ CORREÇÃO: Normalizar para consistência na geração
-        const previewNormalized = this.normalizeEllipseParams(previewMajorRadius, previewMinorRadius, previewBearing);
-        const previewGeometry = this.generateEllipseGeometry(center, previewMajorRadius, previewMinorRadius, previewBearing);
+        const previewGeometry = this.generateEllipseGeometry(center, majorRadius, minorRadius, bearing);
 
-        // ✅ CORREÇÃO: Calcular posições dos handles usando valores normalizados
-        const majorHandlePosition = turf.destination(center, previewNormalized.majorRadius, previewNormalized.bearing, { units: 'kilometers' });
-        const minorHandlePosition = turf.destination(center, previewNormalized.minorRadius, previewNormalized.bearing + 90, { units: 'kilometers' });
+        // Calcular novas posições dos handles para o preview
+        const horizontalHandlePos = this.calculateHorizontalHandlePosition(center, majorRadius, minorRadius, bearing);
+        const verticalHandlePos = this.calculateVerticalHandlePosition(center, majorRadius, minorRadius, bearing);
+        const rotationHandlePos = this.calculateRotationHandlePosition(center, majorRadius, minorRadius, bearing);
 
         return {
             geometry: previewGeometry,
-            majorRadius: previewMajorRadius, // Retorna valores originais
-            minorRadius: previewMinorRadius,
-            bearing: previewBearing,
+            majorRadius,
+            minorRadius,
+            bearing,
             handlePositions: {
-                major: majorHandlePosition.geometry.coordinates,
-                minor: minorHandlePosition.geometry.coordinates
+                horizontal: horizontalHandlePos,
+                vertical: verticalHandlePos,
+                rotation: rotationHandlePos
             }
         };
     }
 
     /**
-     * Calculate ellipse dimensions from two points
+     * ✅ MODIFICADO: Calculate ellipse dimensions from two points (always horizontal)
      * @param {Array} center - Center coordinates
      * @param {Array} endPoint - End point for major axis
-     * @returns {Object} {majorRadius, bearing}
+     * @returns {Object} {majorRadius, bearing, minorRadius}
      */
     calculateInitialDimensions(center, endPoint) {
         const majorRadius = turf.distance(center, endPoint, { units: 'kilometers' });
-        const bearing = turf.bearing(center, endPoint);
+        
+        // ✅ CORREÇÃO: Bearing = 90° para elipse horizontal (leste-oeste)
+        const bearing = 90;
         
         return {
             majorRadius,

@@ -24,6 +24,9 @@ class AddRectangleControl extends BaseControl {
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
+        
+        // CRITICAL FIX: Track current mouse position for accurate capture
+        this.currentMousePosition = null;
     }
 
     static DEFAULT_PROPERTIES = {
@@ -431,10 +434,11 @@ class AddRectangleControl extends BaseControl {
     }
 
     createEditHandles = (feature) => {
-        const handles = this.geometry.createHandles(feature);
+        // CRITICAL FIX: Extract corners from actual geometry, not properties
+        const handles = this.geometry.createHandlesFromGeometry(feature.geometry, feature.properties.id);
         if (!handles || handles.length === 0) return;
 
-        // Show selection feedback
+        // Show selection feedback with exact same geometry
         this.map.getSource('rectangle-feedback').setData({
             type: 'Feature',
             geometry: feature.geometry,
@@ -485,9 +489,12 @@ class AddRectangleControl extends BaseControl {
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
-            this.activeHandleType = handle.properties.handleId; // 'corner1' or 'corner2'
+            this.activeHandleType = handle.properties.handleId;
             this.map.dragPan.disable();
             this.map.getCanvas().style.cursor = 'grabbing';
+            
+            // CRITICAL FIX: Store initial mouse position
+            this.currentMousePosition = [e.lngLat.lng, e.lngLat.lat];
             e.preventDefault();
         }
     }
@@ -496,7 +503,9 @@ class AddRectangleControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!this.isDraggingHandle || !selectedFeature) return;
 
-        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+        // CRITICAL FIX: Always update current position
+        this.currentMousePosition = [e.lngLat.lng, e.lngLat.lat];
+        this.lastPreviewPosition = this.currentMousePosition;
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
@@ -504,23 +513,32 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
-    onEditMouseUp = () => {
+    onEditMouseUp = (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature) {
-            if (this.lastPreviewPosition && this.activeHandleType) {
+            // CRITICAL FIX: Use current event position, not cached position
+            const finalMousePosition = [e.lngLat.lng, e.lngLat.lat];
+            
+            if (finalMousePosition && this.activeHandleType) {
+                // CRITICAL FIX: Use normalized corners extraction from actual geometry
+                const currentCorners = this.geometry.extractCornersFromGeometry(selectedFeature.geometry);
+                
                 const newCorner1 = this.activeHandleType === 'corner1' ?
-                    this.lastPreviewPosition :
-                    this.geometry.normalizeCorner(selectedFeature.properties.corner1);
+                    finalMousePosition :
+                    currentCorners.corner1;
 
                 const newCorner2 = this.activeHandleType === 'corner2' ?
-                    this.lastPreviewPosition :
-                    this.geometry.normalizeCorner(selectedFeature.properties.corner2);
+                    finalMousePosition :
+                    currentCorners.corner2;
 
                 // Validate minimum dimensions
                 const { width, height } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
 
                 if (width > 10 && height > 10) {
                     const { center } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
+
+                    // CRITICAL FIX: Generate final geometry using same method as preview
+                    const finalGeometry = this.geometry.generate(newCorner1, newCorner2);
 
                     // Create updated feature
                     const updatedFeature = {
@@ -533,12 +551,17 @@ class AddRectangleControl extends BaseControl {
                             width: width,
                             height: height
                         },
-                        geometry: this.geometry.generate(newCorner1, newCorner2)
+                        geometry: finalGeometry
                     };
 
                     this.forceUpdateMainSource(updatedFeature);
                     this.updateSelectionManagerFeature(updatedFeature);
-                    this.createEditHandles(updatedFeature);
+                    
+                    // CRITICAL FIX: Recreate handles after brief delay to ensure geometry is updated
+                    setTimeout(() => {
+                        this.createEditHandles(updatedFeature);
+                    }, 10);
+                    
                     this.updateUIAfterEdit();
                     this.saveFeatureChanges(updatedFeature);
                 }
@@ -547,6 +570,7 @@ class AddRectangleControl extends BaseControl {
 
         this.isDraggingHandle = false;
         this.activeHandleType = null;
+        this.currentMousePosition = null;
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
@@ -557,60 +581,43 @@ class AddRectangleControl extends BaseControl {
 
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
+            // CRITICAL FIX: Use geometry extraction for consistent corners
+            const currentCorners = this.geometry.extractCornersFromGeometry(selectedFeature.geometry);
+            
             const corner1 = this.activeHandleType === 'corner1' ?
                 newPosition :
-                this.geometry.normalizeCorner(selectedFeature.properties.corner1);
+                currentCorners.corner1;
 
             const corner2 = this.activeHandleType === 'corner2' ?
                 newPosition :
-                this.geometry.normalizeCorner(selectedFeature.properties.corner2);
+                currentCorners.corner2;
 
             const { width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
 
             if (width > 10 && height > 10) {
+                // CRITICAL FIX: Use same geometry generation method as final
                 const previewGeometry = this.geometry.generate(corner1, corner2);
-                this.showEditPreview(previewGeometry, corner1, corner2);
+                this.showEditPreview(previewGeometry, previewGeometry);
             }
         }, 8);
     }
 
-    showEditPreview = (geometry, corner1, corner2) => {
+    showEditPreview = (geometry, normalizedGeometry) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        // Show updated selection feedback
+        // Show updated selection feedback with exact geometry
         this.map.getSource('rectangle-feedback').setData({
             type: 'Feature',
-            geometry: geometry,
+            geometry: normalizedGeometry,
             properties: {
                 ...selectedFeature.properties,
                 isSelected: true
             }
         });
 
-        // Show accurate handles at exact corner positions
-        const handles = [
-            {
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: corner1 },
-                properties: {
-                    role: 'handle',
-                    handleType: 'vertex',
-                    handleId: 'corner1',
-                    user_isEditingHandle: true
-                }
-            },
-            {
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: corner2 },
-                properties: {
-                    role: 'handle',
-                    handleType: 'vertex',
-                    handleId: 'corner2',
-                    user_isEditingHandle: true
-                }
-            }
-        ];
+        // CRITICAL FIX: Create handles from the actual normalized geometry
+        const handles = this.geometry.createHandlesFromGeometry(normalizedGeometry, selectedFeature.properties.id);
 
         this.map.getSource('rectangle-edit-handles').setData({
             type: 'FeatureCollection',
@@ -841,6 +848,7 @@ class AddRectangleControl extends BaseControl {
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.activeHandleType = null;
+        this.currentMousePosition = null;
 
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);

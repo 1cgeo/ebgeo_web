@@ -111,6 +111,90 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
+     * CRITICAL FIX: Extract normalized corners from actual geometry
+     * This ensures preview and final geometry use the same corner positions
+     * @param {Object} geometry - GeoJSON Polygon geometry
+     * @returns {Object} {corner1, corner2} - Normalized corner coordinates
+     */
+    extractCornersFromGeometry(geometry) {
+        if (!geometry || !geometry.coordinates || !geometry.coordinates[0]) {
+            console.error('Invalid geometry for corner extraction');
+            return { corner1: null, corner2: null };
+        }
+
+        const coords = geometry.coordinates[0];
+        
+        // Extract coordinates from the normalized polygon
+        // Based on generateRectangleGeometry structure:
+        // [minLng, maxLat], [maxLng, maxLat], [maxLng, minLat], [minLng, minLat]
+        const minLng = coords[0][0]; // or coords[3][0]
+        const maxLng = coords[1][0]; // or coords[2][0] 
+        const minLat = coords[2][1]; // or coords[3][1]
+        const maxLat = coords[0][1]; // or coords[1][1]
+
+        // Return as two opposite corners (consistent with how geometry is generated)
+        return {
+            corner1: [minLng, minLat], // bottom-left
+            corner2: [maxLng, maxLat]  // top-right
+        };
+    }
+
+    /**
+     * CRITICAL FIX: Create handles from actual geometry instead of stored properties
+     * This ensures handles are positioned exactly where the geometry indicates
+     * @param {Object} geometry - GeoJSON Polygon geometry
+     * @param {string} featureId - Feature ID for handle identification
+     * @returns {Array} Array of handle features for both corners
+     */
+    createHandlesFromGeometry(geometry, featureId) {
+        const corners = this.extractCornersFromGeometry(geometry);
+        
+        if (!corners.corner1 || !corners.corner2) {
+            console.error('Cannot create handles - invalid geometry corners');
+            return [];
+        }
+
+        const handles = [
+            {
+                type: 'Feature',
+                id: `rectangle-handle-${featureId}-corner1`,
+                geometry: {
+                    type: 'Point',
+                    coordinates: corners.corner1
+                },
+                properties: {
+                    role: 'handle',
+                    handleType: 'vertex',
+                    handleId: 'corner1',
+                    featureId: featureId,
+                    mode: 'rectangle_editing',
+                    meta: 'vertex',
+                    user_isEditingHandle: true
+                }
+            },
+            {
+                type: 'Feature',
+                id: `rectangle-handle-${featureId}-corner2`,
+                geometry: {
+                    type: 'Point',
+                    coordinates: corners.corner2
+                },
+                properties: {
+                    role: 'handle',
+                    handleType: 'vertex',
+                    handleId: 'corner2',
+                    featureId: featureId,
+                    mode: 'rectangle_editing',
+                    meta: 'vertex',
+                    user_isEditingHandle: true
+                }
+            }
+        ];
+
+        return handles;
+    }
+
+    /**
      * Calculate dimensions and center from two corners
      * @param {Array} corner1 - First corner coordinates [lng, lat]
      * @param {Array} corner2 - Second corner coordinates [lng, lat]
@@ -131,57 +215,14 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * Create edit handles for rectangle
+     * LEGACY METHOD: Create edit handles for rectangle (backward compatibility)
      * @param {Object} feature - Rectangle feature
      * @returns {Array} Array of handle features for both corners
+     * @deprecated Use createHandlesFromGeometry for consistency
      */
     createHandles(feature) {
-        const corner1 = this.normalizeCorner(feature.properties.corner1);
-        const corner2 = this.normalizeCorner(feature.properties.corner2);
-        
-        if (!corner1 || !corner2) {
-            console.error('Cannot create handles - invalid corners');
-            return [];
-        }
-
-        const handles = [
-            {
-                type: 'Feature',
-                id: `rectangle-handle-${feature.properties.id}-corner1`,
-                geometry: {
-                    type: 'Point',
-                    coordinates: corner1
-                },
-                properties: {
-                    role: 'handle',
-                    handleType: 'vertex',
-                    handleId: 'corner1',
-                    featureId: feature.properties.id,
-                    mode: 'rectangle_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
-                }
-            },
-            {
-                type: 'Feature',
-                id: `rectangle-handle-${feature.properties.id}-corner2`,
-                geometry: {
-                    type: 'Point',
-                    coordinates: corner2
-                },
-                properties: {
-                    role: 'handle',
-                    handleType: 'vertex',
-                    handleId: 'corner2',
-                    featureId: feature.properties.id,
-                    mode: 'rectangle_editing',
-                    meta: 'vertex',
-                    user_isEditingHandle: true
-                }
-            }
-        ];
-
-        return handles;
+        console.warn('createHandles is deprecated, use createHandlesFromGeometry for better consistency');
+        return this.createHandlesFromGeometry(feature.geometry, feature.properties.id);
     }
 
     /**
@@ -197,17 +238,17 @@ class AddRectangleGeometry extends BaseGeometry {
             return null;
         }
 
-        const currentCorner1 = this.normalizeCorner(feature.properties.corner1);
-        const currentCorner2 = this.normalizeCorner(feature.properties.corner2);
+        // CRITICAL FIX: Use geometry extraction instead of properties
+        const currentCorners = this.extractCornersFromGeometry(feature.geometry);
         
-        if (!currentCorner1 || !currentCorner2) {
-            console.error('Cannot update - invalid corners');
+        if (!currentCorners.corner1 || !currentCorners.corner2) {
+            console.error('Cannot update - invalid geometry corners');
             return null;
         }
 
         // Update the moved corner
-        const newCorner1 = handleType === 'corner1' ? newPosition : currentCorner1;
-        const newCorner2 = handleType === 'corner2' ? newPosition : currentCorner2;
+        const newCorner1 = handleType === 'corner1' ? newPosition : currentCorners.corner1;
+        const newCorner2 = handleType === 'corner2' ? newPosition : currentCorners.corner2;
 
         // Validate minimum dimensions
         const { width, height, center } = this.calculateDimensionsFromCorners(newCorner1, newCorner2);
@@ -237,15 +278,15 @@ class AddRectangleGeometry extends BaseGeometry {
      * @returns {Object} Preview geometry and handle positions
      */
     calculatePreview(handleType, newPosition, feature) {
-        const currentCorner1 = this.normalizeCorner(feature.properties.corner1);
-        const currentCorner2 = this.normalizeCorner(feature.properties.corner2);
+        // CRITICAL FIX: Use geometry extraction for consistency
+        const currentCorners = this.extractCornersFromGeometry(feature.geometry);
         
-        if (!currentCorner1 || !currentCorner2) {
+        if (!currentCorners.corner1 || !currentCorners.corner2) {
             return null;
         }
 
-        const previewCorner1 = handleType === 'corner1' ? newPosition : currentCorner1;
-        const previewCorner2 = handleType === 'corner2' ? newPosition : currentCorner2;
+        const previewCorner1 = handleType === 'corner1' ? newPosition : currentCorners.corner1;
+        const previewCorner2 = handleType === 'corner2' ? newPosition : currentCorners.corner2;
 
         const { width, height } = this.calculateDimensionsFromCorners(previewCorner1, previewCorner2);
         
@@ -255,11 +296,14 @@ class AddRectangleGeometry extends BaseGeometry {
 
         const previewGeometry = this.generateRectangleGeometry(previewCorner1, previewCorner2);
 
+        // CRITICAL FIX: Return normalized corners from geometry, not input corners
+        const normalizedCorners = this.extractCornersFromGeometry(previewGeometry);
+
         return {
             geometry: previewGeometry,
-            corner1: previewCorner1,
-            corner2: previewCorner2,
-            handlePositions: [previewCorner1, previewCorner2]
+            corner1: normalizedCorners.corner1,
+            corner2: normalizedCorners.corner2,
+            handlePositions: [normalizedCorners.corner1, normalizedCorners.corner2]
         };
     }
 
@@ -329,6 +373,29 @@ class AddRectangleGeometry extends BaseGeometry {
         const corner2 = [center[0] + halfWidth, center[1] + halfHeight];
 
         return { corner1, corner2 };
+    }
+
+    /**
+     * CRITICAL FIX: Synchronize properties with actual geometry
+     * Updates feature properties to match the normalized geometry
+     * @param {Object} feature - Rectangle feature to sync
+     * @returns {Object} Feature with synchronized properties
+     */
+    synchronizePropertiesWithGeometry(feature) {
+        const corners = this.extractCornersFromGeometry(feature.geometry);
+        const { center, width, height } = this.calculateDimensionsFromCorners(corners.corner1, corners.corner2);
+
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                corner1: corners.corner1,
+                corner2: corners.corner2,
+                center: center,
+                width: width,
+                height: height
+            }
+        };
     }
 }
 

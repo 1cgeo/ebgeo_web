@@ -332,7 +332,7 @@ class AddEllipseControl extends BaseControl {
                         center,
                         majorRadius,
                         majorRadius * 0.6, // Initial minor radius ratio
-                        bearing
+                        bearing // ✅ Agora será sempre 0 (horizontal)
                     );
                     this.showPreview(previewGeometry);
                 }, 8);
@@ -368,6 +368,7 @@ class AddEllipseControl extends BaseControl {
         const center = this.drawPoints[0];
         const endPoint = this.drawPoints[1];
         
+        // ✅ MUDANÇA: Agora sempre cria horizontal (bearing = 0)
         const { majorRadius, bearing, minorRadius } = this.geometry.calculateInitialDimensions(center, endPoint);
 
         if (!this.geometry.validate(center, majorRadius, minorRadius, bearing)) {
@@ -387,7 +388,7 @@ class AddEllipseControl extends BaseControl {
                 center: center,
                 majorRadius: majorRadius,
                 minorRadius: minorRadius,
-                bearing: bearing,
+                bearing: bearing, // ✅ Sempre será 0 agora
                 id: featureId,
                 nome: featureName
             },
@@ -443,7 +444,7 @@ class AddEllipseControl extends BaseControl {
             }
         });
 
-        // Show handles
+        // ✅ MUDANÇA: Agora temos 3 handles em vez de 2
         this.map.getSource('ellipse-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -484,10 +485,32 @@ class AddEllipseControl extends BaseControl {
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
-            this.activeHandleType = handle.properties.handleId; // 'major-axis' or 'minor-axis'
+            // ✅ MUDANÇA: Suportar novos handleIds
+            this.activeHandleType = handle.properties.handleId; // 'horizontal-resize', 'vertical-resize', 'rotation'
             this.map.dragPan.disable();
-            this.map.getCanvas().style.cursor = 'grabbing';
+            
+            // ✅ MUDANÇA: Cursor específico para tipo de handle
+            const cursor = this.getCursorForHandleType(this.activeHandleType);
+            this.map.getCanvas().style.cursor = cursor;
             e.preventDefault();
+        }
+    }
+
+    /**
+     * ✅ NOVO: Get appropriate cursor for handle type
+     * @param {string} handleType - Type of handle
+     * @returns {string} CSS cursor value
+     */
+    getCursorForHandleType(handleType) {
+        switch (handleType) {
+            case 'horizontal-resize':
+                return 'ew-resize'; // East-west resize cursor
+            case 'vertical-resize':
+                return 'ns-resize'; // North-south resize cursor
+            case 'rotation':
+                return 'grabbing'; // Rotation cursor
+            default:
+                return 'grabbing';
         }
     }
 
@@ -554,25 +577,35 @@ class AddEllipseControl extends BaseControl {
                 }
             });
 
-            // Update handles
+            // ✅ MUDANÇA: Update handles - agora temos 3 handles
             const handles = [
                 {
                     type: 'Feature',
-                    geometry: { type: 'Point', coordinates: preview.handlePositions.major },
+                    geometry: { type: 'Point', coordinates: preview.handlePositions.horizontal },
                     properties: {
                         role: 'handle',
                         handleType: 'vertex', // RED
-                        handleId: 'major-axis',
+                        handleId: 'horizontal-resize',
                         user_isEditingHandle: true
                     }
                 },
                 {
                     type: 'Feature',
-                    geometry: { type: 'Point', coordinates: preview.handlePositions.minor },
+                    geometry: { type: 'Point', coordinates: preview.handlePositions.vertical },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'vertex', // RED
+                        handleId: 'vertical-resize',
+                        user_isEditingHandle: true
+                    }
+                },
+                {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: preview.handlePositions.rotation },
                     properties: {
                         role: 'handle',
                         handleType: 'eccentricity', // BLUE
-                        handleId: 'minor-axis',
+                        handleId: 'rotation',
                         user_isEditingHandle: true
                     }
                 }
@@ -604,7 +637,16 @@ class AddEllipseControl extends BaseControl {
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
         if (hasHandle) {
-            this.map.getCanvas().style.cursor = 'crosshair';
+            // ✅ MUDANÇA: Cursor específico para tipo de handle quando hover
+            const handleFeature = features.find(f => 
+                f.source === 'ellipse-edit-handles' && 
+                f.properties.user_isEditingHandle
+            );
+            
+            if (handleFeature) {
+                const cursor = this.getCursorForHandleType(handleFeature.properties.handleId);
+                this.map.getCanvas().style.cursor = cursor;
+            }
         } else if (hasFeature) {
             this.map.getCanvas().style.cursor = 'move';
         } else {
