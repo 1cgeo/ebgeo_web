@@ -4,14 +4,16 @@ import { showError } from './utilities/toast_service.js';
 class DragDropHandler {
     static FILE_TYPES = {
         EBGEO: ['.ebgeo'],
-        GEO_IMPORT: ['.geojson', '.json', '.zip', '.kml', '.kmz', '.gpx']
+        GEO_IMPORT: ['.geojson', '.json', '.zip', '.kml', '.kmz', '.gpx'],
+        IMAGE: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
     };
 
-    constructor(mapElement, toolManager, importControl, mapControl) {
+    constructor(mapElement, toolManager, importControl, mapControl, imageControl) {
         this.mapElement = mapElement;
         this.toolManager = toolManager;
         this.importControl = importControl;
         this.mapControl = mapControl;
+        this.imageControl = imageControl;
         
         this.isDragOver = false;
         this.dragCounter = 0; // Para controlar dragenter/dragleave corretamente
@@ -93,11 +95,20 @@ class DragDropHandler {
             return;
         }
 
+        // Capturar coordenadas do drop para imagens
+        let dropCoordinates = null;
+        if (fileType === 'IMAGE') {
+            const rect = this.mapElement.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            dropCoordinates = this.imageControl.map.unproject([x, y]);
+        }
+
         // Desativar ferramentas antes de processar
         this.toolManager.deactivateCurrentTool();
 
         try {
-            await this.processFile(file, fileType);
+            await this.processFile(file, fileType, dropCoordinates);
         } catch (error) {
             console.error('Erro ao processar arquivo via drag & drop:', error);
             showError(`Erro ao processar arquivo: ${error.message}`);
@@ -134,6 +145,10 @@ class DragDropHandler {
             return 'GEO_IMPORT';
         }
         
+        if (DragDropHandler.FILE_TYPES.IMAGE.includes(extension)) {
+            return 'IMAGE';
+        }
+        
         return 'INVALID';
     }
 
@@ -146,7 +161,7 @@ class DragDropHandler {
         return fileType !== 'INVALID';
     }
 
-    async processFile(file, fileType) {
+    async processFile(file, fileType, dropCoordinates = null) {
         switch (fileType) {
             case 'EBGEO':
                 // Para arquivos .ebgeo, perguntar se quer substituir ou adicionar
@@ -161,9 +176,40 @@ class DragDropHandler {
                 await this.importControl.processFileDirectly(file);
                 break;
                 
+            case 'IMAGE':
+                await this.processImageFile(file, dropCoordinates);
+                break;
+                
             default:
                 throw new Error(`Tipo de arquivo não suportado: ${fileType}`);
         }
+    }
+
+    async processImageFile(file, lngLat) {
+        if (!lngLat || isNaN(lngLat.lng) || isNaN(lngLat.lat)) {
+            throw new Error('Coordenadas inválidas para posicionamento da imagem');
+        }
+
+        // Reutilizar lógica do AddImageControl
+        const reader = new FileReader();
+        
+        return new Promise((resolve, reject) => {
+            reader.onload = async () => {
+                try {
+                    const imageBase64 = reader.result;
+                    await this.imageControl.addImageFeature(lngLat, imageBase64);
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            
+            reader.onerror = () => {
+                reject(new Error('Erro ao ler arquivo de imagem'));
+            };
+            
+            reader.readAsDataURL(file);
+        });
     }
 
     async askImportMode() {
@@ -301,6 +347,8 @@ class DragDropHandler {
                 return 'rgba(40, 167, 69, 0.85)'; // Verde
             case 'GEO_IMPORT': 
                 return 'rgba(0, 123, 255, 0.85)'; // Azul
+            case 'IMAGE': 
+                return 'rgba(255, 193, 7, 0.85)'; // Amarelo/dourado
             case 'INVALID':
             default: 
                 return 'rgba(220, 53, 69, 0.85)'; // Vermelho
@@ -313,6 +361,8 @@ class DragDropHandler {
                 return '#28a745'; // Verde mais escuro
             case 'GEO_IMPORT': 
                 return '#007bff'; // Azul mais escuro
+            case 'IMAGE': 
+                return '#ffc107'; // Amarelo mais escuro
             case 'INVALID':
             default: 
                 return '#dc3545'; // Vermelho mais escuro
@@ -339,6 +389,8 @@ class DragDropHandler {
                 return `Importar Projeto<br><em style="font-size: 14px; opacity: 0.9;">${shortName}</em>`;
             case 'GEO_IMPORT':
                 return `Importar Geometrias<br><em style="font-size: 14px; opacity: 0.9;">${shortName}</em>`;
+            case 'IMAGE':
+                return `Adicionar Imagem<br><em style="font-size: 14px; opacity: 0.9;">${shortName}</em>`;
             case 'INVALID':
             default:
                 return `Arquivo não suportado<br><em style="font-size: 14px; opacity: 0.9;">${shortName}</em>`;

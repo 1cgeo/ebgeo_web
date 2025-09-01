@@ -221,6 +221,10 @@ const hasImageData = async (imageId) => {
     }
 };
 
+const clearAllMapData = async () => {
+    await mapStore.clear();
+};
+
 const clearAllImageData = async () => {
     await imageStore.clear();
 };
@@ -305,7 +309,7 @@ export {
     removeImageData,
     hasImageData,
     clearAllImageData,
-    
+    clearAllMapData,
     // App settings
     setAppSetting,
     getAppSetting,

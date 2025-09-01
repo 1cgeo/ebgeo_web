@@ -157,7 +157,8 @@ const dragDropHandler = new DragDropHandler(
     map.getContainer(),
     toolManager,
     importControl,
-    mapControl
+    mapControl,
+    imageControl
 );
 dragDropHandler.enable();
 

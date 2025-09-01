@@ -18,6 +18,7 @@ import {
     removeImageData,
     hasImageData,
     clearAllImageData,
+    clearAllMapData,
     setAppSetting,
     getAppSetting,
     clearAllAppSettings,
@@ -914,6 +915,7 @@ export const redoLastAction = async () => {
 
 export const clearAllDataStore = async () => {
     resetMemoryStore();
+    await clearAllMapData();
     await clearAllImageData();
     await clearAllAppSettings();
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
