@@ -23,8 +23,8 @@ class AddLOSControl extends BaseControl {
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
 
-        // Async operation queue to prevent race conditions
-        this.recalculateQueue = Promise.resolve();
+        // Drag recalculation timeout for debouncing
+        this.dragRecalculateTimeout = null;
 
         // Store reference in toolManager for terrain integration
         this.toolManager.losControl = this;
@@ -306,46 +306,108 @@ class AddLOSControl extends BaseControl {
         return false; // LOS doesn't have edit handles
     }
 
+    /**
+     * NOVA IMPLEMENTAÇÃO: Recálculo síncrono após drag
+     * Garante que o painel de perfil seja atualizado após o recálculo completo
+     */
     syncEditHandlesAfterDrag = async (movedFeatures) => {
-        // Queue async recalculation operations to prevent race conditions
-        this.recalculateQueue = this.recalculateQueue.then(async () => {
-            await this.recalculateMovedLOSFeatures(movedFeatures);
-        });
+        // Verificar se há features LOS que precisam de recálculo
+        const losFeatures = movedFeatures.filter(f => f.properties.source === 'los');
+        
+        if (losFeatures.length === 0) return;
+
+        // Debounce para múltiplos drags rápidos
+        clearTimeout(this.dragRecalculateTimeout);
+        this.dragRecalculateTimeout = setTimeout(async () => {
+            this.showRecalculatingState();
+            
+            try {
+                const updatedFeatures = await this.recalculateMovedLOSFeatures(losFeatures);
+                
+                // Atualizar SelectionManager com features recalculados
+                this.updateSelectionManagerFeatures(updatedFeatures);
+                
+                // Forçar atualização do UI/painel com dados frescos
+                this.selectionManager.updateUI();
+                
+            } catch (error) {
+                console.error('Error recalculating LOS after drag:', error);
+            } finally {
+                this.hideRecalculatingState();
+            }
+        }, 50); // 50ms debounce para responsividade
     }
 
     /**
-     * Recalculate LOS features after movement (queued async operation)
-     * @param {Array} movedFeatures - Array of moved features
+     * Mostrar estado de recálculo
+     */
+    showRecalculatingState() {
+        this.map.getCanvas().style.cursor = 'wait';
+        // Temporariamente desabilitar interações durante recálculo
+        this.map.off('click', this.handleMapClick);
+        
+        // Opcional: mostrar indicador visual
+        if (this.container) {
+            this.container.classList.add('recalculating');
+        }
+    }
+
+    /**
+     * Esconder estado de recálculo
+     */
+    hideRecalculatingState() {
+        this.map.getCanvas().style.cursor = this.isActive ? 'crosshair' : '';
+        
+        // Re-habilitar interações
+        if (this.isActive) {
+            this.map.on('click', this.handleMapClick);
+        }
+        
+        if (this.container) {
+            this.container.classList.remove('recalculating');
+        }
+    }
+
+    /**
+     * MODIFICADO: Recalcular LOS features após movimento e retornar features atualizados
+     * @param {Array} movedFeatures - Array of moved LOS features
+     * @returns {Array} Array of updated features
      */
     async recalculateMovedLOSFeatures(movedFeatures) {
+        const updatedFeatures = [];
+        
         for (const movedFeature of movedFeatures) {
             if (movedFeature.properties.source === 'los') {
                 try {
                     const coordinates = this.geometry.extractCoordinatesFromGeometry(movedFeature.geometry);
                     if (coordinates) {
-                        // Recalculate LOS with new position
+                        // Recalcular LOS com nova posição
                         const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map);
 
-                        // Update main feature
+                        // Atualizar feature com nova geometria e perfil
                         movedFeature.geometry = result.geometry;
                         movedFeature.properties.profileData = JSON.stringify(result.profileData);
 
-                        // Save to IndexedDB
+                        // Salvar no IndexedDB
                         await updateFeature('los', movedFeature);
 
-                        // Update measurement if enabled
+                        // Atualizar measurement se habilitado
                         if (movedFeature.properties.measure) {
                             this.updateFeatureMeasurement(movedFeature);
                         }
 
-                        // Update processed features
+                        // Atualizar processed features
                         await this.updateProcessedFeaturesAfterMove(movedFeature);
+                        
+                        updatedFeatures.push(movedFeature);
                     }
                 } catch (error) {
                     console.error('Error recalculating LOS after movement:', error);
                 }
             }
         }
+        
+        return updatedFeatures;
     }
 
     /**
@@ -808,6 +870,11 @@ class AddLOSControl extends BaseControl {
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);
             this.geometryDebounceTimer = null;
+        }
+
+        if (this.dragRecalculateTimeout) {
+            clearTimeout(this.dragRecalculateTimeout);
+            this.dragRecalculateTimeout = null;
         }
     }
 
