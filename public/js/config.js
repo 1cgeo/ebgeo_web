@@ -60,6 +60,7 @@ const config = {
       //   id: 'trafficability',
       //   name: 'Trafegabilidade',
       //   description: 'Análise de trafegabilidade do terreno',
+      //   bounds: [-44.47, -22.46, -44.44, -22.44], // [west, south, east, north]
       //   defaultVisibility: false,
       //   opacity: 0.7,
       //   source: {
@@ -83,6 +84,7 @@ const config = {
       //   id: 'slope_analysis',
       //   name: 'Análise de Declive',
       //   description: 'Mapa de declividade do terreno',
+      //   bounds: [-44.47, -22.46, -44.44, -22.44], // [west, south, east, north]
       //   defaultVisibility: false,
       //   opacity: 0.6,
       //   source: {

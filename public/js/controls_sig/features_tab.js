@@ -39,6 +39,10 @@ class FeaturesTab {
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
                 <circle cx="12" cy="16" r="1"/>
                 <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+            </svg>`,
+            ZOOM: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="21 21l-4.35-4.35"/>
             </svg>`
         };
     }
@@ -66,7 +70,75 @@ class FeaturesTab {
         featuresList.className = 'features-list';
         this.container.appendChild(featuresList);
 
+        // Adicionar estilos CSS para analysis layers
+        this.addAnalysisLayersStyles();
+
         return this.container;
+    }
+
+    /**
+     * Adiciona estilos CSS para analysis layers com botões de zoom
+     */
+    addAnalysisLayersStyles() {
+        if (!document.getElementById('analysis-layers-styles')) {
+            const style = document.createElement('style');
+            style.id = 'analysis-layers-styles';
+            style.textContent = `
+                .analysis-layers-header {
+                    padding: 8px 12px 4px 12px;
+                    font-weight: 500;
+                    font-size: 12px;
+                    color: #666;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                
+                .analysis-layer-item {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 4px 12px 4px 24px;
+                    gap: 8px;
+                }
+                
+                .analysis-layer-label {
+                    display: flex;
+                    align-items: center;
+                    font-size: 12px;
+                    cursor: pointer;
+                    flex: 1;
+                }
+                
+                .analysis-layer-label input {
+                    margin-right: 6px;
+                }
+                
+                .analysis-layer-zoom {
+                    background: none;
+                    border: none;
+                    cursor: pointer;
+                    padding: 4px;
+                    color: #666;
+                    transition: color 0.2s ease;
+                    border-radius: 3px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-width: 22px;
+                    height: 22px;
+                }
+                
+                .analysis-layer-zoom:hover {
+                    color: #007bff;
+                    background-color: #f8f9fa;
+                }
+                
+                .analysis-layer-zoom:active {
+                    transform: scale(0.95);
+                }
+            `;
+            document.head.appendChild(style);
+        }
     }
 
     createHillshadeControl() {
@@ -185,47 +257,25 @@ class FeaturesTab {
     }
 
     /**
-     * Constrói HTML do controle de analysis layers
+     * Constrói HTML do controle de analysis layers com botões de zoom
      * @returns {string} HTML do controle
      */
     buildAnalysisLayersHTML() {
         const layersConfig = this.analysisLayersManager.getLayersConfig();
         
-        let html = `
-            <div style="
-                padding: 8px 12px 4px 12px;
-                font-weight: 500;
-                font-size: 12px;
-                color: #666;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            ">
-                Camadas de Análise
-            </div>
-        `;
+        let html = `<div class="analysis-layers-header">Camadas de Análise</div>`;
 
-        // Criar checkbox para cada layer configurada
+        // Criar checkbox e botão de zoom para cada layer configurada
         layersConfig.forEach(layerConfig => {
             html += `
-                <div style="
-                    padding: 4px 12px 4px 24px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                ">
-                    <label style="
-                        display: flex;
-                        align-items: center;
-                        font-size: 12px;
-                        cursor: pointer;
-                        flex: 1;
-                    ">
-                        <input 
-                            type="checkbox" 
-                            data-layer-id="${layerConfig.id}" 
-                            style="margin-right: 6px;">
+                <div class="analysis-layer-item">
+                    <label class="analysis-layer-label">
+                        <input type="checkbox" data-layer-id="${layerConfig.id}">
                         <span title="${layerConfig.description || ''}">${layerConfig.name}</span>
                     </label>
+                    <button class="analysis-layer-zoom" data-layer-id="${layerConfig.id}" title="Zoom para ${layerConfig.name}">
+                        ${this.INLINE_ICONS.ZOOM}
+                    </button>
                 </div>
             `;
         });
@@ -237,14 +287,14 @@ class FeaturesTab {
     }
 
     /**
-     * Configura eventos dos checkboxes de analysis layers
+     * Configura eventos dos checkboxes e botões de zoom das analysis layers
      * @param {HTMLElement} container - Container das analysis layers
      */
     async attachAnalysisLayersEvents(container) {
         // Carregar estados salvos
         const layersStates = await getMapAnalysisLayersStates();
         
-        // Configurar cada checkbox
+        // Configurar checkboxes
         container.querySelectorAll('input[data-layer-id]').forEach(checkbox => {
             const layerId = checkbox.dataset.layerId;
             const layerConfig = this.analysisLayersManager.getLayersConfig().find(l => l.id === layerId);
@@ -255,6 +305,15 @@ class FeaturesTab {
             // Event listener para mudanças
             checkbox.onchange = async (e) => {
                 await this.analysisLayersManager.toggleLayer(layerId, e.target.checked);
+            };
+        });
+
+        // Configurar botões de zoom
+        container.querySelectorAll('.analysis-layer-zoom').forEach(button => {
+            button.onclick = (e) => {
+                e.stopPropagation();
+                const layerId = button.dataset.layerId;
+                this.analysisLayersManager.zoomToLayer(layerId);
             };
         });
     }

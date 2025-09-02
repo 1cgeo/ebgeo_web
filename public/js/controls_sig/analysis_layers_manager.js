@@ -9,6 +9,26 @@ import config from '../config.js';
 class AnalysisLayersManager {
     constructor(map) {
         this.map = map;
+        this.validateLayersConfig(); // Nova validação obrigatória
+    }
+
+    /**
+     * Valida configuração das analysis layers na inicialização
+     * Falha rápida se configuração estiver incorreta
+     */
+    validateLayersConfig() {
+        if (!config.analysisLayers?.enabled) return;
+        
+        config.analysisLayers.layers.forEach(layer => {
+            if (!layer.bounds || !Array.isArray(layer.bounds) || layer.bounds.length !== 4) {
+                throw new Error(`Analysis layer "${layer.id}" deve ter bounds válidos [west, south, east, north]`);
+            }
+            
+            const [west, south, east, north] = layer.bounds;
+            if (west >= east || south >= north) {
+                throw new Error(`Analysis layer "${layer.id}" tem bounds inválidos: west < east e south < north`);
+            }
+        });
     }
 
     /**
@@ -94,6 +114,40 @@ class AnalysisLayersManager {
         } catch (error) {
             console.error(`Erro ao alternar analysis layer ${layerId}:`, error);
         }
+    }
+
+    /**
+     * Faz zoom para bounds de uma analysis layer
+     * @param {string} layerId - ID da layer (sem prefixo 'analysis-')
+     */
+    zoomToLayer(layerId) {
+        try {
+            const layerConfig = this.getLayerConfig(layerId);
+            if (!layerConfig) {
+                console.warn(`Layer config não encontrada para: ${layerId}`);
+                return;
+            }
+
+            const bounds = layerConfig.bounds;
+            
+            this.map.fitBounds(bounds, {
+                padding: 20,
+                duration: 1000,
+                essential: true
+            });
+
+        } catch (error) {
+            console.error(`Erro ao fazer zoom para analysis layer ${layerId}:`, error);
+        }
+    }
+
+    /**
+     * Obtém configuração de uma layer específica
+     * @param {string} layerId - ID da layer (sem prefixo 'analysis-')
+     * @returns {Object|null} Configuração da layer ou null se não encontrada
+     */
+    getLayerConfig(layerId) {
+        return config.analysisLayers.layers.find(l => l.id === layerId) || null;
     }
 
     /**
