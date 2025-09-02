@@ -81,8 +81,8 @@ class TerrainControl {
                 this.setHillshadeVisibility(hillshadeEnabled);
             } catch (error) {
                 console.warn('Erro ao restaurar estado do hillshade:', error);
-                // Em caso de erro, usar padrão (habilitado)
-                this.setHillshadeVisibility(true);
+                // Em caso de erro, usar padrão (desabilitado)
+                this.setHillshadeVisibility(false);
             }
         }
         this._updateTerrainIcon()
@@ -143,7 +143,7 @@ class TerrainControl {
     /**
      * Método público para controlar visibilidade do hillshade
      * Chamado pelo features_tab.js
-     * NOVO: Adiciona/remove layer dinamicamente para evitar requisições desnecessárias
+     * NOVO: Usa separador analysis-separator para posicionamento correto
      * @param {boolean} enabled - true para mostrar, false para ocultar
      */
     setHillshadeVisibility = (enabled) => {
@@ -171,15 +171,22 @@ class TerrainControl {
     }
 
     _addHillshadeLayerInCorrectPosition() {
-        // image-layer é SEMPRE a primeira drawing layer criada
-        const firstDrawingLayer = 'image-layer';
-
-        if (this._map.getLayer(firstDrawingLayer)) {
-            // Posicionar ANTES da primeira drawing layer
-            this._map.addLayer(this.hillshadeConfig.layer, firstDrawingLayer);
-        } else {
-            // Se drawing layers ainda não existem, adicionar normalmente
-            this._map.addLayer(this.hillshadeConfig.layer);
+        // NOVO: Usar analysis-separator como referência
+        // Hillshade fica ANTES do separador (entre basemap e analysis layers)
+        const beforeId = 'analysis-separator';
+        
+        try {
+            if (this._map.getLayer(beforeId)) {
+                // Posicionar hillshade ANTES do separador de analysis layers
+                this._map.addLayer(this.hillshadeConfig.layer, beforeId);
+            } else {
+                // Fallback: se separador não existe ainda, adicionar normalmente
+                // (isso pode acontecer durante inicialização)
+                this._map.addLayer(this.hillshadeConfig.layer);
+                console.warn('Separador analysis-separator não encontrado, adicionando hillshade sem referência');
+            }
+        } catch (error) {
+            console.error('Erro ao adicionar hillshade layer:', error);
         }
     }
 }

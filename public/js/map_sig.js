@@ -11,7 +11,7 @@ import UIManager from './controls_sig/tool_manager/ui_manager.js';
 import MoveHandler from './controls_sig/tool_manager/move_handler.js';
 import MapControl from './controls_sig/map_control.js';
 import AddStreetViewControl from './controls_sig/street_view_tool/add_street_view_control.js';
-import VectorTileInfoControl from './controls_sig/vector_info_control.js'
+import VectorTileInfoControl from './controls_sig/vector_info_control.js';
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import ScreenshotControl from './controls_sig/screenshot_control.js';
 import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
@@ -22,13 +22,14 @@ import AddBoundaryControl from './controls_sig/boundary_tool/add_boundary_contro
 import AddOccupiedFrontControl from './controls_sig/occupied_front_tool/add_occupied_front_control.js';
 import AddMilitarySymbolControl from './controls_sig/military_symbol_tool/add_military_symbol_control.js';
 import TerrainControl from './controls_sig/terrain_control.js';
+import AnalysisLayersManager from './controls_sig/analysis_layers_manager.js';
 import config from './config.js';
 import AddRectangleControl from './controls_sig/rectangle_tool/add_rectangle_control.js';
 import AddBrushControl from './controls_sig/brush_tool/add_brush_control.js';
-import AddPointControl from './controls_sig/draw_tools/add_point_control.js'
-import AddLineControl from './controls_sig/draw_tools/add_line_control.js'
-import AddPolygonControl from './controls_sig/draw_tools/add_polygon_control.js'
-import baseStyle from './controls_sig/baselayers/carta_topografica.js'
+import AddPointControl from './controls_sig/draw_tools/add_point_control.js';
+import AddLineControl from './controls_sig/draw_tools/add_line_control.js';
+import AddPolygonControl from './controls_sig/draw_tools/add_polygon_control.js';
+import baseStyle from './controls_sig/baselayers/carta_topografica.js';
 import { hideLoadingScreen } from './index.js';
 import DragDropHandler from './controls_sig/drag_drop_handler.js';
 import ContextMenuControl from './controls_sig/context_menu_control.js';
@@ -61,6 +62,8 @@ map.addControl(new maplibregl.AttributionControl({
     compact: true
 }), 'bottom-right');
 
+const analysisLayersManager = new AnalysisLayersManager(map);
+
 //-----------------------------------------------
 // EVENTO LOAD DO MAPA
 //-----------------------------------------------
@@ -79,7 +82,7 @@ map.on('load', async () => {
 
 const selectionManager = new SelectionManager(map);
 const toolManager = new ToolManager();
-toolManager.setSelectionManager(selectionManager)
+toolManager.setSelectionManager(selectionManager);
 
 const pointControl = new AddPointControl(toolManager);
 const lineControl = new AddLineControl(toolManager);
@@ -124,7 +127,7 @@ selectionManager.registerControl('brush', brushControl);
 
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
-toolManager.setUiManager(uiManager)
+toolManager.setUiManager(uiManager);
 
 const featureSearchControl = new FeatureSearchControl(uiManager);
 uiManager.setFeatureSearchControl(featureSearchControl);
@@ -136,8 +139,8 @@ const vectorTileInfoControl = new VectorTileInfoControl(toolManager, uiManager);
 selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
 const baseLayerControl = new BaseLayerControl(uiManager, config.map2d.hillshade);
 
-const mapControl = new MapControl(baseLayerControl);
-mapControl.setSelectionManager(selectionManager)
+const mapControl = new MapControl(baseLayerControl, analysisLayersManager);
+mapControl.setSelectionManager(selectionManager);
 
 baseLayerControl.setMapControl(mapControl);
 
@@ -210,7 +213,7 @@ keyboardShortcuts.initModal();
 //-----------------------------------------------
 map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
-mapControl.loadMenu()
+mapControl.loadMenu();
 
 map.addControl(mouseCoordinatesControl, 'bottom-right');
 

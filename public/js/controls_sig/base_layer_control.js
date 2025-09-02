@@ -220,7 +220,9 @@ class BaseLayerControl {
         this.mapControl.selectionManager.deselectAllFeatures();
         
         await this.switchLayer(baseLayer);
-        await setupMapFeatures(this.map);
+        
+        const analysisLayersManager = this.mapControl.getAnalysisLayersManager();
+        await setupMapFeatures(this.map, analysisLayersManager);
 
         if(applyPosition){
             await this.applyMapSavedPosition(currentMapName);

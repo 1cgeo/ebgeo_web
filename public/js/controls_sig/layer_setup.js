@@ -1,12 +1,17 @@
 // Path: js\controls_sig\layer_setup.js
-import { getCurrentMapFeatures, getMapAnalysisLayersStates, getImage } from './store/store.js';
-import config from '../config.js';
+import { getCurrentMapFeatures, getImage } from './store/store.js';
 
-export async function setupMapFeatures(mapInstance) {
+export async function setupMapFeatures(mapInstance, analysisLayersManager) {
     try {
-        await restoreTerrainState(mapInstance);
-        await setupAnalysisLayers(mapInstance);
+        // 1. Setup layer separators first (define pontos de referência para ordenação)
+        setupLayerSeparators(mapInstance);
 
+        // 2. Restore terrain state (hillshade)
+        await restoreTerrainState(mapInstance);
+
+        await analysisLayersManager.setupAnalysisLayers();
+
+        // 4. Continue with existing features setup
         const features = await getCurrentMapFeatures();
         await setImages(features, mapInstance);
 
@@ -35,6 +40,52 @@ export async function setupMapFeatures(mapInstance) {
         });
     } catch (error) {
         console.error('Erro ao configurar features do mapa:', error);
+    }
+}
+
+/**
+ * Configura separadores invisíveis para controle de ordenação das camadas
+ * Estes separadores servem como âncoras para posicionamento correto das layers
+ * 
+ * Ordem final:
+ * 1. Basemap
+ * 2. Hillshade 
+ * 3. ← analysis-separator (invisible)
+ * 4. Analysis Layers (todas)
+ * 5. ← features-separator (invisible) 
+ * 6. Drawing Features (todas)
+ */
+function setupLayerSeparators(mapInstance) {
+    // Separador para analysis layers (referência para hillshade e analysis layers)
+    if (!mapInstance.getSource('analysis-separator-source')) {
+        mapInstance.addSource('analysis-separator-source', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+        });
+        
+        mapInstance.addLayer({
+            id: 'analysis-separator',
+            type: 'circle',
+            source: 'analysis-separator-source',
+            layout: { visibility: 'none' }, // Completamente invisível
+            paint: { 'circle-opacity': 0 }
+        });
+    }
+
+    // Separador para features (referência para drawing layers)
+    if (!mapInstance.getSource('features-separator-source')) {
+        mapInstance.addSource('features-separator-source', {
+            type: 'geojson', 
+            data: { type: 'FeatureCollection', features: [] }
+        });
+        
+        mapInstance.addLayer({
+            id: 'features-separator',
+            type: 'circle',
+            source: 'features-separator-source',
+            layout: { visibility: 'none' }, // Completamente invisível
+            paint: { 'circle-opacity': 0 }
+        });
     }
 }
 
@@ -1815,84 +1866,5 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
 
     } catch (error) {
         console.error('Error restoring boundary dependent features:', error);
-    }
-}
-
-// Adicionar esta nova função no final do arquivo
-/**
- * Configura as analysis layers raster baseadas na configuração
- * @param {Object} mapInstance - Instância do mapa MapLibre
- */
-async function setupAnalysisLayers(mapInstance) {
-    // Verificar se analysis layers estão habilitadas na configuração
-    if (!config.analysisLayers?.enabled || !config.analysisLayers.layers?.length) {
-        return;
-    }
-
-    try {
-        // Iterar pelas layers configuradas
-        for (const layerConfig of config.analysisLayers.layers) {
-            const sourceId = `analysis-${layerConfig.id}`;
-            const layerId = `analysis-${layerConfig.id}-layer`;
-
-            // Adicionar source se não existir
-            if (!mapInstance.getSource(sourceId)) {
-                mapInstance.addSource(sourceId, layerConfig.source);
-            }
-
-            // Adicionar layer se não existir
-            if (!mapInstance.getLayer(layerId)) {
-                const layer = {
-                    id: layerId,
-                    type: 'raster',
-                    source: sourceId,
-                    paint: {
-                        ...layerConfig.paint,
-                        'raster-opacity': layerConfig.opacity || 1.0
-                    },
-                    layout: {
-                        visibility: 'none' // Iniciar invisível, será controlado pelo estado salvo
-                    }
-                };
-
-                mapInstance.addLayer(layer);
-            }
-        }
-
-        await restoreAnalysisLayersState(mapInstance);
-    } catch (error) {
-        console.error('Erro ao configurar analysis layers:', error);
-    }
-}
-
-/**
- * Restaura o estado das analysis layers a partir do store
- * @param {Object} mapInstance - Instância do mapa MapLibre
- */
-async function restoreAnalysisLayersState(mapInstance) {
-    // Verificar se analysis layers estão habilitadas
-    if (!config.analysisLayers?.enabled || !config.analysisLayers.layers?.length) {
-        return;
-    }
-
-    try {
-        // Carregar estados salvos
-        const layersStates = await getMapAnalysisLayersStates();
-
-        // Aplicar estados para cada layer configurada
-        for (const layerConfig of config.analysisLayers.layers) {
-            const layerId = `analysis-${layerConfig.id}-layer`;
-
-            // Obter estado salvo ou usar defaultVisibility
-            const isEnabled = layersStates[layerConfig.id] ?? layerConfig.defaultVisibility ?? false;
-
-            // Aplicar visibilidade na layer
-            if (mapInstance.getLayer(layerId)) {
-                const visibility = isEnabled ? 'visible' : 'none';
-                mapInstance.setLayoutProperty(layerId, 'visibility', visibility);
-            }
-        }
-    } catch (error) {
-        console.error('Erro ao restaurar estado das analysis layers:', error);
     }
 }

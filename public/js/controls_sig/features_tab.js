@@ -6,7 +6,6 @@ import {
     getMapHillshadeState,
     setMapHillshadeState,
     getMapAnalysisLayersStates,
-    setMapAnalysisLayerState,
     getFeatureDisplayNameFromStorage,
     getFeatureIconFromStorage,
     getAllStorageTypes
@@ -15,10 +14,12 @@ import { FeatureNavigationUtils } from './utilities/feature_navigation_utils.js'
 import config from '../config.js';
 
 class FeaturesTab {
-    constructor(map, selectionManager = null) {
+    constructor(map, selectionManager = null, analysisLayersManager) {
         this.map = map;
         this.selectionManager = selectionManager;
         this.container = null;
+        
+        this.analysisLayersManager = analysisLayersManager;
 
         this.INLINE_ICONS = {
             EYE_VISIBLE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -48,25 +49,8 @@ class FeaturesTab {
         this.container.style.display = 'none';
 
         // Criar hillshade control apenas se habilitado no config
-        if (config.map2d?.hillshade?.enabled) {
-            const hillshadeContainer = document.createElement('div');
-            hillshadeContainer.className = 'hillshade-control';
-            hillshadeContainer.style.cssText = `
-                padding: 8px 12px;
-                border-bottom: 1px solid #e0e0e0;
-                background-color: #f8f9fa;
-            `;
-
-            hillshadeContainer.innerHTML = `
-                <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
-                    <input type="checkbox" id="hillshade-toggle" style="margin-right: 6px;"> 
-                    Sombreamento
-                </label>
-            `;
-
-            const checkbox = hillshadeContainer.querySelector('#hillshade-toggle');
-            checkbox.onchange = this.handleHillshadeToggle.bind(this);
-
+        const hillshadeContainer = this.createHillshadeControl();
+        if (hillshadeContainer) {
             this.container.appendChild(hillshadeContainer);
         }
 
@@ -75,6 +59,59 @@ class FeaturesTab {
         this.container.appendChild(analysisLayersContainer);
 
         // Header with refresh button
+        const header = this.createHeader();
+        this.container.appendChild(header);
+
+        const featuresList = document.createElement('div');
+        featuresList.className = 'features-list';
+        this.container.appendChild(featuresList);
+
+        return this.container;
+    }
+
+    createHillshadeControl() {
+        // Verificar se hillshade está habilitado no config via análise do terrain control
+        const terrainControl = this.map._controls?.find(control =>
+            control.constructor.name === 'TerrainControl'
+        );
+
+        if (!config.map2d?.hillshade?.enabled) {
+            return null;
+        }
+
+        const hillshadeContainer = document.createElement('div');
+        hillshadeContainer.className = 'hillshade-control';
+        hillshadeContainer.style.cssText = `
+            padding: 8px 12px;
+            border-bottom: 1px solid #e0e0e0;
+            background-color: #f8f9fa;
+        `;
+
+        hillshadeContainer.innerHTML = `
+            <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
+                <input type="checkbox" id="hillshade-toggle" style="margin-right: 6px;"> 
+                Sombreamento
+            </label>
+        `;
+
+        const checkbox = hillshadeContainer.querySelector('#hillshade-toggle');
+        checkbox.onchange = this.handleHillshadeToggle.bind(this);
+
+        return hillshadeContainer;
+    }
+
+    createAnalysisLayersControl() {
+        const container = document.createElement('div');
+        container.className = 'analysis-layers-control';
+        container.style.cssText = `
+            border-bottom: 1px solid #e0e0e0;
+            background-color: #f8f9fa;
+            display: none;
+        `;
+        return container;
+    }
+
+    createHeader() {
         const header = document.createElement('div');
         header.className = 'features-tab-header';
         header.style.cssText = `
@@ -91,7 +128,7 @@ class FeaturesTab {
         title.style.cssText = 'font-weight: 500; font-size: 14px;';
 
         const refreshButton = document.createElement('button');
-        refreshButton.className = 'refresh-button'; // Adicionar classe
+        refreshButton.className = 'refresh-button';
         refreshButton.innerHTML = '🔄';
         refreshButton.title = 'Atualizar lista';
         refreshButton.style.cssText = `
@@ -104,16 +141,13 @@ class FeaturesTab {
             transition: opacity 0.2s ease;
         `;
 
-        // Modificar o onclick para incluir feedback
         refreshButton.onclick = async () => {
-            // Desabilitar botão durante carregamento
             refreshButton.disabled = true;
             refreshButton.style.opacity = '0.6';
             refreshButton.style.cursor = 'not-allowed';
 
             await this.loadFeatures();
 
-            // Reabilitar botão após carregamento
             setTimeout(() => {
                 refreshButton.disabled = false;
                 refreshButton.style.opacity = '1';
@@ -124,128 +158,105 @@ class FeaturesTab {
         header.appendChild(title);
         header.appendChild(refreshButton);
 
-        const featuresList = document.createElement('div');
-        featuresList.className = 'features-list';
-
-        this.container.appendChild(header);
-        this.container.appendChild(featuresList);
-        return this.container;
+        return header;
     }
 
-    createAnalysisLayersControl() {
-        const container = document.createElement('div');
-        container.className = 'analysis-layers-control';
-        container.style.cssText = `
-            border-bottom: 1px solid #e0e0e0;
-            background-color: #f8f9fa;
-            display: none;
-        `;
-
-        return container;
-    }
-
+    /**
+     * Renderiza o controle de analysis layers usando o manager
+     */
     async renderAnalysisLayersControl() {
         const container = this.container.querySelector('.analysis-layers-control');
         if (!container) return;
 
-        // Verificar se analysis layers estão habilitadas
-        if (!config.analysisLayers?.enabled || !config.analysisLayers.layers?.length) {
+        // Verificar se o sistema está habilitado
+        if (!this.analysisLayersManager.isEnabled()) {
             container.style.display = 'none';
             return;
         }
 
-        // Limpar conteúdo existente
-        container.innerHTML = '';
-
-        // Header da seção
-        const header = document.createElement('div');
-        header.style.cssText = `
-            padding: 8px 12px 4px 12px;
-            font-weight: 500;
-            font-size: 12px;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        `;
-        header.textContent = 'Camadas de Análise';
-        container.appendChild(header);
-
-        // Carregar estados salvos
-        const layersStates = await getMapAnalysisLayersStates();
-
-        // Criar controles para cada layer
-        for (const layerConfig of config.analysisLayers.layers) {
-            const layerControl = document.createElement('div');
-            layerControl.style.cssText = `
-                padding: 4px 12px 4px 24px;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-            `;
-
-            const label = document.createElement('label');
-            label.style.cssText = `
-                display: flex;
-                align-items: center;
-                font-size: 12px;
-                cursor: pointer;
-                flex: 1;
-            `;
-
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.id = `analysis-layer-${layerConfig.id}`;
-            checkbox.checked = layersStates[layerConfig.id] ?? layerConfig.defaultVisibility ?? false;
-            checkbox.style.marginRight = '6px';
-
-            const labelText = document.createElement('span');
-            labelText.textContent = layerConfig.name;
-
-            // Tooltip com descrição se disponível
-            if (layerConfig.description) {
-                labelText.title = layerConfig.description;
-            }
-
-            label.appendChild(checkbox);
-            label.appendChild(labelText);
-
-            // Event listener para mudança de estado
-            checkbox.onchange = async (e) => {
-                await this.handleAnalysisLayerToggle(layerConfig.id, e.target.checked);
-            };
-
-            layerControl.appendChild(label);
-            container.appendChild(layerControl);
-        }
-
-        // Padding inferior
-        const footer = document.createElement('div');
-        footer.style.height = '4px';
-        container.appendChild(footer);
-
+        // Construir HTML
+        container.innerHTML = this.buildAnalysisLayersHTML();
+        
+        // Configurar eventos
+        await this.attachAnalysisLayersEvents(container);
+        
+        // Mostrar container
         container.style.display = 'block';
     }
 
-    async handleAnalysisLayerToggle(layerId, enabled) {
-        try {
-            // 1. Salvar estado no store
-            await setMapAnalysisLayerState(layerId, enabled);
+    /**
+     * Constrói HTML do controle de analysis layers
+     * @returns {string} HTML do controle
+     */
+    buildAnalysisLayersHTML() {
+        const layersConfig = this.analysisLayersManager.getLayersConfig();
+        
+        let html = `
+            <div style="
+                padding: 8px 12px 4px 12px;
+                font-weight: 500;
+                font-size: 12px;
+                color: #666;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            ">
+                Camadas de Análise
+            </div>
+        `;
 
-            // 2. Aplicar mudança no mapa
-            this.applyAnalysisLayerState(layerId, enabled);
+        // Criar checkbox para cada layer configurada
+        layersConfig.forEach(layerConfig => {
+            html += `
+                <div style="
+                    padding: 4px 12px 4px 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                ">
+                    <label style="
+                        display: flex;
+                        align-items: center;
+                        font-size: 12px;
+                        cursor: pointer;
+                        flex: 1;
+                    ">
+                        <input 
+                            type="checkbox" 
+                            data-layer-id="${layerConfig.id}" 
+                            style="margin-right: 6px;">
+                        <span title="${layerConfig.description || ''}">${layerConfig.name}</span>
+                    </label>
+                </div>
+            `;
+        });
 
-        } catch (error) {
-            console.error('Erro ao alterar estado da analysis layer:', error);
-        }
+        // Padding inferior
+        html += '<div style="height: 4px;"></div>';
+
+        return html;
     }
 
-    applyAnalysisLayerState(layerId, enabled) {
-        const layerMapId = `analysis-${layerId}-layer`;
-
-        if (this.map.getLayer(layerMapId)) {
-            const visibility = enabled ? 'visible' : 'none';
-            this.map.setLayoutProperty(layerMapId, 'visibility', visibility);
-        }
+    /**
+     * Configura eventos dos checkboxes de analysis layers
+     * @param {HTMLElement} container - Container das analysis layers
+     */
+    async attachAnalysisLayersEvents(container) {
+        // Carregar estados salvos
+        const layersStates = await getMapAnalysisLayersStates();
+        
+        // Configurar cada checkbox
+        container.querySelectorAll('input[data-layer-id]').forEach(checkbox => {
+            const layerId = checkbox.dataset.layerId;
+            const layerConfig = this.analysisLayersManager.getLayersConfig().find(l => l.id === layerId);
+            
+            // Definir estado inicial baseado no estado salvo ou defaultVisibility
+            checkbox.checked = layersStates[layerId] ?? layerConfig?.defaultVisibility ?? false;
+            
+            // Event listener para mudanças
+            checkbox.onchange = async (e) => {
+                await this.analysisLayersManager.toggleLayer(layerId, e.target.checked);
+            };
+        });
     }
 
     showLoadingSpinner() {
@@ -331,7 +342,6 @@ class FeaturesTab {
         `;
         }
     }
-
 
     flattenAndSortFeatures(features) {
         const flatFeatures = [];
@@ -642,7 +652,7 @@ class FeaturesTab {
                 await this.loadHillshadeState();
             }
 
-            // Renderizar analysis layers
+            // Renderizar analysis layers usando o manager
             await this.renderAnalysisLayersControl();
 
             await this.loadFeatures();

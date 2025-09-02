@@ -12,8 +12,9 @@ import FeaturesTab from './features_tab.js';
 import { showToast as toastServiceShow } from './utilities/toast_service.js';
 
 class MapControl {
-    constructor(baseLayerControl) {
+    constructor(baseLayerControl, analysisLayersManager) {
         this.baseLayerControl = baseLayerControl;
+        this.analysisLayersManager = analysisLayersManager;
         this.selectionManager = null;
 
         // Componentes
@@ -48,7 +49,8 @@ class MapControl {
         this.map = map;
         this.mapManager.setMap(map);
         this.pdfExportTab = new PDFExportTab(map);
-        this.featuresTab = new FeaturesTab(map, this.selectionManager);
+        
+        this.featuresTab = new FeaturesTab(map, this.selectionManager, this.analysisLayersManager);
 
         this.container = document.createElement('div');
         this.container.id = 'map-list'
@@ -432,6 +434,10 @@ class MapControl {
         listItem.appendChild(moreInfo);
 
         return listItem;
+    }
+
+    getAnalysisLayersManager() {
+        return this.analysisLayersManager;
     }
 
     // ===== MODAL MANAGEMENT =====
