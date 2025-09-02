@@ -40,7 +40,7 @@ class FeaturesTab {
                 <circle cx="12" cy="16" r="1"/>
                 <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
             </svg>`,
-            ZOOM: `<svg class="icon-sig-tool" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            ZOOM: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="6"></circle>
             <path d="m21 21-4.35-4.35"></path>
             </svg>`
