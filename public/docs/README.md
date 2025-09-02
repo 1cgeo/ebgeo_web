@@ -35,7 +35,8 @@ No menu de contexto para as feições, tem-se em geral as opções:
 
 #### Manipular feições
 
-<iframe width="1296" height="729" src="https://www.youtube.com/embed/MeTcjlMawZM?list=PLm5AtShdpSAt6DIgDHXUuOL9Q2qLgyrW8" title="EBGeo Web #1 - Adicionar ponto, linha e área" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<!-- Vídeo de 01 (ponto , linha e reta)-->
+<iframe width="1296" height="729" src="https://www.youtube.com/embed/MeTcjlMawZM" title="EBGeo Web #1 - Adicionar ponto, linha e área" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 > Em geral, feições que são possíveis adquirir mais de um vértice, os vértices são adquiridos clicando com o botão esquerdo do _mouse_ e a edição finaliza com o botão direito. Enquanto feições que só tem um ponto inicial e um final, os pontos são adquiridos clicando com o botão esquerdo do _mouse_ e a edição finaliza com o botão esquerdo.
 
@@ -97,11 +98,15 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 
 ``Para mover uma feição, selecione a feição, clique nela e arraste-a`` 
 
+---
+
+<!-- Vídeo de 02 (imagem e texto)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/cGiMJRUTaLA" title="EBGeo Web #2 - Adicionar imagem e texto" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
-<iframe width="1296" height="729" src="https://www.youtube.com/embed/LcY5fehNp9M?list=PLm5AtShdpSAt6DIgDHXUuOL9Q2qLgyrW8" title="EBGeo Web #2 - Adicionar retângulo, círculo, elipse e pincel" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-
+<!-- Vídeo de 03 (retângulo, círculo, elipse e pincel)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/LcY5fehNp9M" title="EBGeo Web #3 - Adicionar retângulo, círculo, elipse e pincel" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 As ferramentas a seguir finalizam com o botão esquerdo do _mouse_, exceto o pincel, que finaliza ao soltar o botão:
 
 ##### Retângulo (R)
@@ -162,7 +167,8 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 
 ---
 
-<iframe width="1296" height="729" src="https://www.youtube.com/embed/ZycwDv5cbA0?list=PLm5AtShdpSAt6DIgDHXUuOL9Q2qLgyrW8" title="EBGeo Web #3 - Adicionar seta, linha de divisão e frente ocupada" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<!-- Vídeo de 04 (seta, linha de divisão e frente ocupada)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/bedETrdk_BU" title="EBGeo Web #4 - Adicionar seta, linha de divisão e frente ocupada" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ##### Seta (S)
 
@@ -210,6 +216,9 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 
 ---
 
+<!-- Vídeo de 05 (Símbolo Militar)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/msmABCMDPNI" title="EBGeo Web #5 - Adicionar Símbolo Militar" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
 ##### Símbolo Militar (M)
 
 <img src="../images/icon_military_black.svg" alt="Icone Frente ocupada" width="70"/>
@@ -235,32 +244,9 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 - Opacidade
 - Rotação
 
-
-#### Exportar projeto
-
-<img src="../images/icon_save_black.svg" alt="Icone Salvar" width="70"/>
-
-Salva os mapas carregados e feições em um arquivo.
-
-> Obs.: Ao exportar, todos os mapas são salvos no arquivo. É possível salvar a posição atual para, quando importar, reenquadrar o mapa na posição salva.
-
-#### Importar projeto
-
-<img src="../images/icon_load_black.svg" alt="Icone Carregar" width="70"/> <img src="../images/icon_folder_plus_black.svg" alt="Icone Adicionar" width="70"/>
-
-Carrega os mapas e feições salvas a partir de um arquivo gerado por "Exportar projeto".
-
-> Usar a opção "Adicionar ao projeto atual" permite carregar projeto sem substituir o projeto atual.
-
-> Obs.: Arquivo de exemplo para importação:
-
-<a href='http://localhost:8080/docs/exemplos/exemplo-tutorial.ebgeo' download style='font-size:25px'>Arquivo exemplo</a>
-
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/xhPxX0nR8LM" title="EBGEO Web #3 - Importar Dados" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-
 ---
 
-#### Gerenciador de mapas
+#### Gerenciador de mapas (vídeo "múltiplos mapas", número 12)
 
 <img src="../images/exemplo_gerenciador_mapas.png" alt="Gerenciador de Mapas" width="280"/>
 
@@ -268,7 +254,8 @@ Permite Criar, alterar, copiar, excluir e renomear mapas, além de salvar posiç
 
 Nesse contexto, os mapas são conjunto de feições criadas pelo usuário e o tipo (Carta ou Ortoimagem) associados àquele mapa.
 
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/qtymCKc986U" title="EBGEO Web #4 - Gerenciador de mapas" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<!-- Vídeo de 06 (Importar arquivos)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/TsVpaUFh4WE" title="EBGeo Web #6 - Importar arquivos" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -329,7 +316,8 @@ Exclui o mapa selecionado.
 
 Na caixa de pesquisa é possível buscar por feições no mapa. Digitando o nome da feição, irá mostrar as feições correspondente ao termo pesquisado. Ao lado do nome da feição tem o tipo da feição, exemplo: Morro, Rio, Público militar, etc. Ao escolher a feição, o mapa é reenquadrado para a feição selecionada e um marcador indica o local da feição.
 
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/wmfCbX7h2tM" title="EBGEO Web #5 - Buscar Feição" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<!-- Vídeo de 07 (Salvar tela e exportar)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/r0PC2K4HvO0" title="EBGeo Web #7 - Salvar tela e exportar" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 #### Inspecionar feição do mapa base
@@ -364,7 +352,8 @@ Para editar o texto adicionado, clique no texto.
 - Definir padrão: define o estilo e texto padrão para os próximos textos adquiridas
 - Deletar: exclui as feições selecionadas
 
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/90ePWb5JbC4" title="EBGEO Web #9 - Adicionar texto" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<!-- Vídeo de 08 (streetview)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/J3BnzFYdjGE" title="EBGeo Web #8 - Adicionar imagens panorâmicas" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -385,7 +374,8 @@ Ao selecionar a imagem será aberta a caixa de opções onde é possível altera
 
 > Obs.: Para montar um símbolo militar acesse o [Portal de Simbologia Militar](https://simbologia.eb.mil.br/)
 
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/WMNXl1AOdeA" title="EBGEO Web #10 - Adicionar Imagens" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<!-- Vídeo de 09 (linha de visada e visibilidade)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/1AQvNSt5qGM" title="EBGeo Web #9 - Adicionar Linha de visada e Análise de Visibilidade" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
@@ -407,7 +397,8 @@ Ao selecionar a linha será aberta a caixa de opções onde é possível alterar
 - Descartar: descarta as alterações
 - Deletar: exclui as feições selecionadas
 
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/AKBMFXQsapA" title="EBGEO Web #11 - Adicionar linha de visada" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<!-- Vídeo de 10 (coordenadas)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/Npgo3Hje4qo" title="EBGeo Web #10 - Painel de coordenadas" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 
 ---
@@ -427,8 +418,35 @@ Ao selecionar o setor será aberta a caixa de opções onde é possível alterar
 - Descartar: descarta as alterações
 - Deletar: exclui as feições selecionadas
 
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/JzTCZ0uldNE" title="EBGEO Web #12 - Adicionar análise de visibilidade" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<!-- Vídeo de 11 (painel de camadas)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/otf2rBfCPAs" title="EBGeo Web #11 - Painel de camadas" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
+---
+<!--
+#### Exportar projeto
+
+<img src="../images/icon_save_black.svg" alt="Icone Salvar" width="70"/>
+
+Salva os mapas carregados e feições em um arquivo.
+
+> Obs.: Ao exportar, todos os mapas são salvos no arquivo. É possível salvar a posição atual para, quando importar, reenquadrar o mapa na posição salva.
+
+#### Importar projeto
+
+<img src="../images/icon_load_black.svg" alt="Icone Carregar" width="70"/> <img src="../images/icon_folder_plus_black.svg" alt="Icone Adicionar" width="70"/>
+
+Carrega os mapas e feições salvas a partir de um arquivo gerado por "Exportar projeto".
+
+> Usar a opção "Adicionar ao projeto atual" permite carregar projeto sem substituir o projeto atual.
+
+> Obs.: Arquivo de exemplo para importação:
+
+<a href='http://localhost:8080/docs/exemplos/exemplo-tutorial.ebgeo' download style='font-size:25px'>Arquivo exemplo</a>
+
+<!-- Vídeo de 12 (múltiplos mapas)-->
+<!--
+<iframe width="1111" height="476" src="https://www.youtube.com/embed/gTaTFLRq4Hg" title="EBGeo Web #12 - Múltiplos mapas" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+-->
 ---
 
 #### Adicionar street view
@@ -442,13 +460,17 @@ Para navegar nas imagens 360°:
 - Clique com o botão esquerdo do mouse em qualquer lugar da imagem para arrasta-la.
 - Clique nas setas de navegação para ir para a próxima imagem ou para a imagem anterior.
 
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/tlL6gLOAe1Q" title="EBGEO Web #13 - Adicionar street view" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+<!-- Vídeo de 13 (exp/imp projetos)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/NZiddBa8Nvs" title="EBGeo Web #13 - Exportar e importar projetos (compartilhar com outros usuários)" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
 ## 3D
 
 Nessa aba é possível visualizar os modelos 3D disponibilizados. Além disso há uma imagem de fundo e um modelo digital de superfície. As ferramentas disponibilizadas funcionam apenas nos modelos 3D, não funcionam no terreno.
+
+<!-- Vídeo de 14 (3D)-->
+<iframe width="990" height="557" src="https://www.youtube.com/embed/VGf2HOzEsBU?list=PLm5AtShdpSAt6DIgDHXUuOL9Q2qLgyrW8" title="EBGeo Web #14 - Aba 3D" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ### Controles para Navegação
 
@@ -464,7 +486,7 @@ Nessa aba é possível visualizar os modelos 3D disponibilizados. Além disso h�
 
 - AMAN
 
-- AMAN PCL 
+- AMAN PCL <!-- ?? -->
 
 
 ### Ferramentas
@@ -480,8 +502,6 @@ São disponibilizadas as seguintes ferramentas:
 
 Clicar com o botão esquerdo uma vez no ponto inicial (ponto simulando o observador), clicar com o botão esquerdo outra vez no ponto final. Será gerado um setor esférico e o modelo 3D será colorido dentro do setor com <span style="color:red;">vermelho</span> onde não puder ser visto pelo observador e <span style="color:green;">verde</span> onde é possível ser visualizado pelo observador. Apertar Limpar para limpar o setor já criado, inicializar a ferramenta novamente para criar outro setor.
 
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/xpHFoQk_ywQ" title="EBGEO Web #14 - Viewshed" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-
 ---
 
 #### Medição de Distância
@@ -490,8 +510,6 @@ Clicar com o botão esquerdo uma vez no ponto inicial (ponto simulando o observa
 
 Clicar com o botão esquerdo uma vez no ponto inicial, clicar com o botão esquerdo outras vezes para verificar a distancia em linha reta com relação ao ponto anterior. Clicar com o botão direito do mouse para finalizar a medição. Apertar Limpar para limpar as medições em tela, inicializar a ferramenta novamente para outras medições.
 
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/qx5Bdavvj_0" title="EBGEO Web #15 - Medição de Distância" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-
 ---
 
 #### Medição de Área
@@ -499,8 +517,6 @@ Clicar com o botão esquerdo uma vez no ponto inicial, clicar com o botão esque
 <img src="../images/area_icon.svg" alt="Icone Area" width="100"/>
 
 Clicar com o botão esquerdo uma vez no ponto inicial, clicar com o botão esquerdo outras vezes para construir o polígono cuja áre será calculada, clicar com o botão direito para encerrar a construção do polígono e calcular a área. Apertar Limpar para limpar as medições em tela, inicializar a ferramenta novamente para medir novamente.
-
-<iframe width="1280" height="548" src="https://www.youtube.com/embed/QqWvk5e0X0A" title="EBGEO Web #16 - Medição de Área" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ---
 
