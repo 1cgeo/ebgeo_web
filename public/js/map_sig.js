@@ -15,7 +15,6 @@ import VectorTileInfoControl from './controls_sig/vector_info_control.js'
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import ScreenshotControl from './controls_sig/screenshot_control.js';
 import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
-import { undoLastAction, redoLastAction } from './controls_sig/store/store.js';
 import AddCircleControl from './controls_sig/circle_tool/add_circle_control.js';
 import AddEllipseControl from './controls_sig/ellipse_tool/add_ellipse_control.js';
 import AddArrowControl from './controls_sig/arrow_tool/add_arrow_control.js';
@@ -36,6 +35,7 @@ import ContextMenuControl from './controls_sig/context_menu_control.js';
 import DragRotateHandler from './controls_sig/drag_rotate_handler.js';
 import ClipboardManager from './controls_sig/tool_manager/clipboard_manager.js';
 import RectangleSelectionControl from './controls_sig/selection_tools/rectangle_selection_control.js';
+import KeyboardShortcuts from './controls_sig/keyboard_shortcuts.js';
 
 //-----------------------------------------------
 // CRIAÇÃO E CONFIGURAÇÃO DO MAPA
@@ -168,6 +168,44 @@ const rectangleSelectionControl = new RectangleSelectionControl(toolManager);
 selectionManager.setRectangleSelectionControl(rectangleSelectionControl);
 
 //-----------------------------------------------
+// CONFIGURAÇÃO DOS ATALHOS DE TECLADO
+//-----------------------------------------------
+
+const keyboardShortcuts = new KeyboardShortcuts({
+    map,
+    selectionManager,
+    toolManager,
+    baseLayerControl,
+    clipboardManager,
+    addStreetViewControl,
+    controls: {
+        pointControl,
+        lineControl,
+        polygonControl,
+        textControl,
+        imageControl,
+        losControl,
+        visibilityControl,
+        circleControl,
+        rectangleControl,
+        ellipseControl,
+        arrowControl,
+        boundaryControl,
+        occupiedFrontControl,
+        militarySymbolControl,
+        brushControl,
+        rectangleSelectionControl,
+        vectorTileInfoControl
+    }
+});
+
+// Ativar os atalhos de teclado
+keyboardShortcuts.enable();
+
+// Inicializar modal de atalhos
+keyboardShortcuts.initModal();
+
+//-----------------------------------------------
 // ADICIONAR CONTROLES AO MAPA
 //-----------------------------------------------
 map.addControl(baseLayerControl, 'top-left');
@@ -204,187 +242,6 @@ map.addControl(occupiedFrontControl, 'top-right');
 map.addControl(militarySymbolControl, 'top-right');
 
 //-----------------------------------------------
-// ATALHOS DE TECLADO
-//-----------------------------------------------
-
-document.addEventListener('keydown', async (e) => {
-    // Verificar se não está digitando em um input/textarea
-    if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
-        return;
-    }
-    if (addStreetViewControl.isOpen) {
-        return;
-    }
-
-    switch (e.key) {
-        case 'Delete':
-        case 'Backspace':
-            e.preventDefault();
-            selectionManager.deleteSelectedFeatures();
-            break;
-        case 'Escape':
-            e.preventDefault();
-            toolManager.deactivateCurrentTool();
-            selectionManager.deselectAllFeatures();
-            break;
-        case 'z':
-        case 'Z':
-            if (e.ctrlKey && !e.shiftKey) {
-                e.preventDefault();
-                if (undoLastAction()) {
-                    baseLayerControl.switchMap(false);
-                }
-            }
-            break;
-        case 'y':
-        case 'Y':
-            if (e.ctrlKey && !e.shiftKey) {
-                e.preventDefault();
-                if (redoLastAction()) {
-                    baseLayerControl.switchMap(false);
-                }
-            }
-            break;
-
-        // ✅ ATALHOS PARA ATIVAÇÃO DE FERRAMENTAS
-        case 'q':
-        case 'Q':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(rectangleSelectionControl);
-            }
-            break;
-        case 'n':
-        case 'N':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(vectorTileInfoControl);
-            }
-            break;
-        case 'p':
-        case 'P':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(pointControl);
-            }
-            break;
-        case 'l':
-        case 'L':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(lineControl);
-            }
-            break;
-        case 'a':
-        case 'A':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(polygonControl);
-            }
-            break;
-        case 't':
-        case 'T':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(textControl);
-            }
-            break;
-        case 'i':
-        case 'I':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(imageControl);
-            }
-            break;
-        case 'c':
-        case 'C':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(circleControl);
-            }
-
-            if (e.ctrlKey && !e.shiftKey) {
-                e.preventDefault();
-                clipboardManager.copy();
-            }
-            break;
-        case 'e':
-        case 'E':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(ellipseControl);
-            }
-            break;
-        case 'v':
-        case 'V':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                if (map.getTerrain()) {
-                    toolManager.setActiveTool(visibilityControl);
-                }
-            }
-
-            if (e.ctrlKey && !e.shiftKey) {
-                e.preventDefault();
-                await clipboardManager.paste();
-            }
-            break;
-        // 'o' para LOS (Line Of Sight)
-        case 'o':
-        case 'O':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                if (map.getTerrain()) {
-                    toolManager.setActiveTool(losControl);
-                }
-            }
-            break;
-        case 's':
-        case 'S':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(arrowControl);
-            }
-            break;
-        case 'd':
-        case 'D':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(boundaryControl);
-            }
-            break;
-        case 'f':
-        case 'F':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(occupiedFrontControl);
-            }
-            break;
-        case 'm':
-        case 'M':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(militarySymbolControl);
-            }
-            break;
-        case 'r':
-        case 'R':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(rectangleControl);
-            }
-            break;
-        case 'b':
-        case 'B':
-            if (!e.shiftKey && !e.ctrlKey) {
-                e.preventDefault();
-                toolManager.setActiveTool(brushControl);
-            }
-            break;
-    }
-});
-
-//-----------------------------------------------
 // TRATAMENTO DE ERROS GLOBAIS
 //-----------------------------------------------
 
@@ -394,4 +251,13 @@ window.addEventListener('unhandledrejection', (event) => {
 
 window.addEventListener('error', (event) => {
     console.error('Erro JavaScript:', event.error);
+});
+
+//-----------------------------------------------
+// EXPORTS E CLEANUP
+//-----------------------------------------------
+
+// Cleanup ao descarregar a página
+window.addEventListener('beforeunload', () => {
+    keyboardShortcuts.destroy();
 });
