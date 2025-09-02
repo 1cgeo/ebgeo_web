@@ -590,11 +590,7 @@ export default class PDFExportTab {
             height: Math.round(heightInches * targetDPI)
         };
     }
-
-
-
-
-
+    
     async onExportClick() {
         let modal;
         let hiddenMapContainer;
@@ -627,6 +623,7 @@ export default class PDFExportTab {
                 style: this.getCleanStyle(),
                 center: this.map.getCenter(),
                 zoom: this.map.getZoom(),
+                pixelRatio: 2,
                 preserveDrawingBuffer: true,
                 interactive: false,
                 fadeDuration: 0
@@ -670,7 +667,7 @@ export default class PDFExportTab {
             this.updateProgress(80, 'Finalizando...');
 
             // 10. Capturar imagem
-            const imageData = hiddenMap.getCanvas().toDataURL('image/png', 1.0);
+            const imageData = hiddenMap.getCanvas().toDataURL('image/jpeg', 0.85);
 
             this.updateProgress(90, 'Gerando PDF...');
 
@@ -688,7 +685,7 @@ export default class PDFExportTab {
             const usableHeightMM = pageHeightMM - (2 * this.marginMM);
 
             // Adicionar imagem na área útil (com margens)
-            pdf.addImage(imageData, 'PNG', this.marginMM, this.marginMM, usableWidthMM, usableHeightMM);
+            pdf.addImage(imageData, 'JPEG', this.marginMM, this.marginMM, usableWidthMM, usableHeightMM);
 
             this.updateProgress(100, 'Fazendo download...');
 
@@ -735,7 +732,7 @@ export default class PDFExportTab {
                 requestAnimationFrame(() => {
                     try {
                         const canvas = this.map.getCanvas();
-                        const dataURL = canvas.toDataURL('image/png', 0.9);
+                        const dataURL = canvas.toDataURL('image/jpeg', 0.85);
 
                         if (dataURL.length < 100) {
                             throw new Error('Canvas vazio - tente novamente');
