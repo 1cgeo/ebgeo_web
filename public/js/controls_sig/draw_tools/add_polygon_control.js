@@ -122,7 +122,7 @@ class AddPolygonControl extends BaseControl {
     createSelectionBox(feature) {
         try {
             const bbox = turf.bbox(feature);
-            const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding());
+            const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding(),this.map);
             return turf.bboxPolygon(expandedBbox);
         } catch (error) {
             console.warn('Error creating polygon selection box:', error);

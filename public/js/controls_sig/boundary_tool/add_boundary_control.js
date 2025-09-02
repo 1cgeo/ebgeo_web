@@ -134,7 +134,7 @@ class AddBoundaryControl extends BaseControl {
                 const coordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
                 if (coordinates && coordinates.length >= 2) {
                     const bbox = this.geometry.getBoundingBox(coordinates);
-                    const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding());
+                    const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding(),this.map);
                     return turf.bboxPolygon(expandedBbox);
                 }
             }

@@ -187,9 +187,9 @@ class BaseControl {
      * @param {number} paddingPixels - Padding in pixels
      * @returns {Array} Expanded bbox
      */
-    expandBboxWithPadding(bbox, paddingPixels) {
+    expandBboxWithPadding(bbox, paddingPixels, map) {
         const centerLat = (bbox[1] + bbox[3]) / 2;
-        const zoom = this.toolManager?.map?.getZoom() || 10;
+        const zoom = map.getZoom();
         const paddingDegrees = this.pixelsToDegrees(paddingPixels, centerLat, zoom);
 
         return [
