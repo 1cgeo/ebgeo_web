@@ -885,6 +885,10 @@ export const hasImage = async (imageId) => {
     return await hasImageData(imageId);
 };
 
+export const getMapDataStore = async (mapName) => {
+    return await getMapData(mapName);
+};
+
 // ===== UNDO/REDO SYSTEM =====
 
 export const undoLastAction = async () => {

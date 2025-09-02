@@ -11,7 +11,8 @@ import {
     getAllMapNamesStore,
     getCurrentMapName,
     moveFeaturesToMap,
-    clearAllDataStore
+    clearAllDataStore,
+    getMapDataStore
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -122,7 +123,7 @@ class MapManager {
                 return { success: false, message: 'Limite de 100 mapas atingido' };
             }
 
-            const originalMapData = await mapStore.getItem(mapName);
+            const originalMapData = await getMapDataStore(mapName);
             if (!originalMapData) {
                 return { success: false, message: 'Dados do mapa não encontrados' };
             }
@@ -182,7 +183,7 @@ class MapManager {
             let totalFeatures = 0;
 
             for (const mapName of selectedMapNames) {
-                const mapData = await mapStore.getItem(mapName);
+                const mapData = await getMapDataStore(mapName);
                 if (mapData && mapData.features) {
                     for (const [featureType, features] of Object.entries(mapData.features)) {
                         if (Array.isArray(features)) {

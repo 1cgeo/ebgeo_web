@@ -543,7 +543,7 @@ class AddMilitarySymbolControl extends BaseControl {
             const symbolBlob = await this.symbolGenerator.generateSymbolBlob(feature.properties);
 
             // Update imageStore
-            await imageStore.setItem(symbolId, symbolBlob);
+            await storeImage(symbolId, symbolBlob);
 
             // Remove old image from map and add new one
             if (this.map.hasImage(symbolId)) {
