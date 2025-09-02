@@ -319,6 +319,31 @@
     max-width: 110px !important;
 }
 
+/* Layout para 5 basemaps (2x2 + 1 centralizado) */
+.base-layer-control.base-layer-grid-2x2-center {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: 1fr 1fr 1fr !important;
+    gap: 8px !important;
+    align-items: center !important;
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(8px) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    padding: 8px !important;
+    z-index: 15 !important;
+    pointer-events: auto !important;
+    width: auto !important;
+    min-width: 240px !important;
+}
+
+/* O 5º item (último) ocupa ambas colunas e fica centralizado */
+.base-layer-control.base-layer-grid-2x2-center .layer-switch:nth-child(5) {
+    grid-column: 1 / -1 !important;
+    justify-self: center !important;
+}
+
 .base-layer-control .layer-switch {
     background-color: transparent !important;
     border: 1px solid #d0d0d0 !important;

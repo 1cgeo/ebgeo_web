@@ -10,6 +10,7 @@ import cartaTopografica from './baselayers/carta_topografica.js';
 import cartaOrtoimagem from './baselayers/carta_ortoimagem.js';
 import osmLayer from './baselayers/osm_layer.js';
 import imagensLayer from './baselayers/imagens_layer.js';
+import bdgexLayer from './baselayers/bdgex_layer.js';
 import config from '../config.js';
 import { setupMapFeatures } from './layer_setup.js';
 import { showError } from './utilities/toast_service.js';
@@ -43,6 +44,9 @@ class BaseLayerControl {
                     break;
                 case 'imagens':
                     this.styleUrls[id] = imagensLayer;
+                    break;
+                case 'bdgex':
+                    this.styleUrls[id] = bdgexLayer;
                     break;
             }
         });

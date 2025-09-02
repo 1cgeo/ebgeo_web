@@ -39,17 +39,23 @@ const config = {
       icon: './images/dsg_symbol.svg',
       priority: 2 
     },
+    'bdgex': { 
+      enabled: false, 
+      name: 'BDGEx', 
+      icon: './images/dsg_symbol.svg',
+      priority: 3 
+    },
     'osm': { 
       enabled: false, 
       name: 'OSM', 
       icon: '🌐',
-      priority: 3 
+      priority: 4 
     },
     'imagens': { 
       enabled: false, 
       name: 'Imagens', 
       icon: '🌐',
-      priority: 4 
+      priority: 5 
     }
   },
 
@@ -293,6 +299,7 @@ config.getBasemapLayoutClass = (count) => {
     case 2: return 'base-layer-grid-1x2'; 
     case 3: return 'base-layer-grid-2x1-center';
     case 4: return 'base-layer-grid-2x2';
+    case 5: return 'base-layer-grid-2x2-center';
     default: return 'base-layer-grid-2x2';
   }
 };
