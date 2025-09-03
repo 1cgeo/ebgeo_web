@@ -571,37 +571,42 @@ export default class PDFExportTab {
 
     // Calcular dimensões fixas A4 em pixels
     calculateA4PixelSize() {
-        const targetDPI = 300; // DPI fixo para qualidade
+        const targetDPI = 300;
+        const marginMM = this.marginMM;
 
-        // Dimensões A4 em inches (sempre fixo!)
-        let widthInches, heightInches;
+        // Dimensões da área ÚTIL (A4 - margens)
+        let usableWidthMM, usableHeightMM;
         if (this.orientation === 'landscape') {
-            widthInches = 11.7;  // 297mm
-            heightInches = 8.3;  // 210mm  
+            usableWidthMM = 297 - (2 * marginMM);  // 297mm - 10mm = 287mm
+            usableHeightMM = 210 - (2 * marginMM); // 210mm - 10mm = 200mm
         } else {
-            widthInches = 8.3;   // 210mm
-            heightInches = 11.7; // 297mm
+            usableWidthMM = 210 - (2 * marginMM);  // 210mm - 10mm = 200mm  
+            usableHeightMM = 297 - (2 * marginMM); // 297mm - 10mm = 287mm
         }
 
+        // Converter para pixels
+        const usableWidthInches = usableWidthMM / 25.4;
+        const usableHeightInches = usableHeightMM / 25.4;
+
         return {
-            width: Math.round(widthInches * targetDPI),
-            height: Math.round(heightInches * targetDPI)
+            width: Math.round(usableWidthInches * targetDPI),
+            height: Math.round(usableHeightInches * targetDPI)
         };
     }
-    
+
     async onExportClick() {
         let modal;
         let hiddenMapContainer;
         let hiddenMap;
-        
+
         try {
-             // 1. Mostrar modal de progresso
+            // 1. Mostrar modal de progresso
             modal = this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
 
             // 2. Carrega o gdal3.js
             const Gdal = await initGdalJs({ path: '../vendors/gdal', useWorker: false })
-        
+
             await new Promise(resolve => setTimeout(resolve, 200));
 
             // 3. Calcular dimensões FIXAS A4 (não baseado na escala!)
@@ -676,10 +681,10 @@ export default class PDFExportTab {
             const bstr = atob(arr[1]); // decode base64
             let n = bstr.length;
             const u8arr = new Uint8Array(n);
-            while(n--) {
+            while (n--) {
                 u8arr[n] = bstr.charCodeAt(n);
             }
-            
+
             this.updateProgress(90, 'Gerando PDF...');
 
             const marginPoints = Math.round(this.marginMM * 2.83465); // Convert mm to points (1mm = 2.83465 points)
@@ -696,12 +701,12 @@ export default class PDFExportTab {
                 '-a_ullr', String(minX), String(maxY), String(maxX), String(minY),
                 '-a_srs', 'EPSG:4326',
                 '-co', 'DPI=300',
-                '-co', `MARGIN=${marginPoints}`, 
+                '-co', `MARGIN=${marginPoints}`,
             ];
             const outputDataset = await Gdal.gdal_translate(rasterDataset, translateOptions);
 
             this.updateProgress(100, 'Fazendo download...');
-            
+
             const fileName = `mapa-${this.scale.replace(':', '-')}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
 
             // 13. Download
