@@ -130,6 +130,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
 
     $(textTabContent).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
 
+
     // Cor do texto
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
@@ -265,6 +266,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
             textControl.updateFeaturesProperty(selectedFeatures, 'backgroundBorderWidth', parseInt(value, 10));
         }
     });
+
 
     $(backgroundTabContent).append(createAttributeRow('Largura borda:', backgroundBorderWidthControl));
 
