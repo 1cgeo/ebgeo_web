@@ -595,19 +595,23 @@ export default class PDFExportTab {
         let modal;
         let hiddenMapContainer;
         let hiddenMap;
-
+        
         try {
-            // 1. Mostrar modal de progresso
+             // 1. Mostrar modal de progresso
             modal = this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
+
+            // 2. Carrega o gdal3.js
+            const Gdal = await initGdalJs({ path: '../vendors/gdal', useWorker: false })
+        
             await new Promise(resolve => setTimeout(resolve, 200));
 
-            // 2. Calcular dimensões FIXAS A4 (não baseado na escala!)
+            // 3. Calcular dimensões FIXAS A4 (não baseado na escala!)
             const canvasSize = this.calculateA4PixelSize(); // Sempre A4 fixo
 
             this.updateProgress(20, 'Preparando dados...');
 
-            // 3. Criar container invisível com tamanho A4 fixo
+            // 4. Criar container invisível com tamanho A4 fixo
             hiddenMapContainer = document.createElement('div');
             hiddenMapContainer.style.cssText = `
                 position: absolute; top: -9999px; left: -9999px;
@@ -617,7 +621,7 @@ export default class PDFExportTab {
 
             this.updateProgress(30, 'Criando mapa de exportação...');
 
-            // 4. Criar mapa invisível
+            // 5. Criar mapa invisível
             hiddenMap = new maplibregl.Map({
                 container: hiddenMapContainer,
                 style: this.getCleanStyle(),
@@ -631,7 +635,7 @@ export default class PDFExportTab {
 
             this.updateProgress(40, 'Transferindo recursos...');
 
-            // 5. Transferir imagens/ícones
+            // 6. Transferir imagens/ícones
             const loadedImages = this.map.listImages();
             const imagePromises = loadedImages.map(id => {
                 return new Promise((resolve) => {
@@ -646,52 +650,70 @@ export default class PDFExportTab {
 
             this.updateProgress(60, 'Enquadrando área...');
 
-            // 6. Enquadrar APENAS a área útil (preview) no canvas A4 fixo
+            // 7. Enquadrar APENAS a área útil (preview) no canvas A4 fixo
             const mapBounds = [this.usableBounds.bottomLeft, this.usableBounds.topRight];
             hiddenMap.fitBounds(mapBounds, { padding: 0, duration: 0 });
 
-            // 7. Aguardar renderização
+            // 8. Aguardar renderização
             await new Promise(resolve => hiddenMap.once('idle', resolve));
 
             this.updateProgress(70, 'Corrigindo elementos...');
 
-            // 8. Corrigir zoom-invariant features
+            // 9. Corrigir zoom-invariant features
             const finalZoom = hiddenMap.getZoom();
             const hadChanges = this.correctZoomInvariantFeatures(hiddenMap, finalZoom);
 
-            // 9. Aguardar renderização final
+            // 10. Aguardar renderização final
             if (hadChanges) {
                 await new Promise(resolve => hiddenMap.once('idle', resolve));
             }
 
             this.updateProgress(80, 'Finalizando...');
 
-            // 10. Capturar imagem
+            // 11. Capturar imagem
             const imageData = hiddenMap.getCanvas().toDataURL('image/jpeg', 0.85);
-
+            const arr = imageData.split(',');
+            const mimeMatch = arr[0].match(/:(.*?);/);
+            const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+            const bstr = atob(arr[1]); // decode base64
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while(n--) {
+                u8arr[n] = bstr.charCodeAt(n);
+            }
+            
             this.updateProgress(90, 'Gerando PDF...');
 
-            // 11. Gerar PDF sempre A4
-            const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF({
-                orientation: this.orientation === 'landscape' ? 'l' : 'p',
-                unit: 'mm',
-                format: 'a4'
-            });
-
-            const pageWidthMM = this.orientation === 'landscape' ? 297 : 210;
-            const pageHeightMM = this.orientation === 'landscape' ? 210 : 297;
-            const usableWidthMM = pageWidthMM - (2 * this.marginMM);
-            const usableHeightMM = pageHeightMM - (2 * this.marginMM);
-
-            // Adicionar imagem na área útil (com margens)
-            pdf.addImage(imageData, 'JPEG', this.marginMM, this.marginMM, usableWidthMM, usableHeightMM);
+            // 12. Gera o PDF georeferenciado
+            const result = await Gdal.open([new File([u8arr], "input.jpeg", { type: mime })]);
+            const rasterDataset = result.datasets[0];
+            const bounds = hiddenMap.getBounds();
+            const minX = bounds.getWest();
+            const minY = bounds.getSouth();
+            const maxX = bounds.getEast();
+            const maxY = bounds.getNorth();
+            const translateOptions = [
+                '-of', 'PDF',
+                '-a_ullr', String(minX), String(maxY), String(maxX), String(minY),
+                '-a_srs', 'EPSG:4326'
+            ];
+            const outputDataset = await Gdal.gdal_translate(rasterDataset, translateOptions);
 
             this.updateProgress(100, 'Fazendo download...');
+            
+            // 13. Download
+            const tiffBytes = await Gdal.getFileBytes(outputDataset);
+            const blob = new Blob([tiffBytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "output.pdf";
+            a.click();
+            URL.revokeObjectURL(url);
 
-            // 12. Download
-            const fileName = `mapa-${this.scale.replace(':', '-')}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
-            pdf.save(fileName);
+            // 14. limpeza
+            Gdal.close(rasterDataset);
+            Gdal.close(outputDataset);
 
             // Pequena pausa antes de fechar
             setTimeout(() => {
