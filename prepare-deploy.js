@@ -171,14 +171,14 @@ function log(message, type = 'info') {
 
 function main() {
     log('🚀 Iniciando preparação para deploy no GitHub Pages...');
-    
+    let mainpath = path.join(process.cwd(), 'public')
     try {
-        const configPath = path.join(process.cwd(), 'js', 'config.js');
-        const configOriginalPath = path.join(process.cwd(), 'js', 'config-original.js');
-        const configBackupPath = path.join(process.cwd(), 'js', 'config-development.js');
+        const configPath = path.join(mainpath, 'js', 'config.js');
+        const configOriginalPath = path.join(mainpath, 'js', 'config-original.js');
+        const configBackupPath = path.join(mainpath, 'js', 'config-development.js');
         
         // Verificar se o diretório js existe
-        if (!fs.existsSync(path.join(process.cwd(), 'js'))) {
+        if (!fs.existsSync(path.join(mainpath, 'js'))) {
             throw new Error('Diretório js/ não encontrado. Execute o script na raiz do projeto.');
         }
         
@@ -203,7 +203,7 @@ function main() {
         log('Configuração aplicada com sucesso!', 'success');
         
         // Verificar se index.html existe
-        const indexPath = path.join(process.cwd(), 'public', 'index.html');
+        const indexPath = path.join(mainpath, 'index.html');
         if (!fs.existsSync(indexPath)) {
             log('Arquivo public/index.html não encontrado na estrutura do projeto', 'warning');
         } else {
@@ -211,7 +211,7 @@ function main() {
         }
         
         // Criar arquivo de status do deploy
-        const deployStatusPath = path.join(process.cwd(), '.deploy-status');
+        const deployStatusPath = path.join(mainpath, '.deploy-status');
         const deployStatus = {
             timestamp: new Date().toISOString(),
             mode: 'github-pages',
@@ -232,7 +232,7 @@ function main() {
         ];
         
         importantFiles.forEach(file => {
-            const filePath = path.join(process.cwd(), file);
+            const filePath = path.join(mainpath, file);
             if (fs.existsSync(filePath)) {
                 log(`✅ ${file}`, 'success');
             } else {
