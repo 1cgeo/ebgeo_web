@@ -1,4 +1,4 @@
-// Path: js/controls_sig/keyboard_shortcuts.js
+// Path: js\controls_sig\keyboard_shortcuts.js
 import { undoLastAction, redoLastAction } from './store/store.js';
 
 /**

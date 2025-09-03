@@ -1,4 +1,4 @@
-// Path: js/controls_sig/analysis_layers_manager.js
+// Path: js\controls_sig\analysis_layers_manager.js
 import { getMapAnalysisLayersStates, setMapAnalysisLayerState } from './store/store.js';
 import config from '../config.js';
 

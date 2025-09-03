@@ -1,7 +1,5 @@
 // Path: js\controls_sig\pdf_export_tab.js
 
-import config from '../config.js';
-
 export default class PDFExportTab {
     constructor(map) {
         this.map = map;
@@ -627,7 +625,7 @@ export default class PDFExportTab {
                 style: this.getCleanStyle(),
                 center: this.map.getCenter(),
                 zoom: this.map.getZoom(),
-                pixelRatio: 2,
+                pixelRatio: 1,
                 preserveDrawingBuffer: true,
                 interactive: false,
                 fadeDuration: 0
@@ -684,6 +682,7 @@ export default class PDFExportTab {
             
             this.updateProgress(90, 'Gerando PDF...');
 
+            const marginPoints = Math.round(this.marginMM * 2.83465); // Convert mm to points (1mm = 2.83465 points)
             // 12. Gera o PDF georeferenciado
             const result = await Gdal.open([new File([u8arr], "input.jpeg", { type: mime })]);
             const rasterDataset = result.datasets[0];
@@ -695,19 +694,23 @@ export default class PDFExportTab {
             const translateOptions = [
                 '-of', 'PDF',
                 '-a_ullr', String(minX), String(maxY), String(maxX), String(minY),
-                '-a_srs', 'EPSG:4326'
+                '-a_srs', 'EPSG:4326',
+                '-co', 'DPI=300',
+                '-co', `MARGIN=${marginPoints}`, 
             ];
             const outputDataset = await Gdal.gdal_translate(rasterDataset, translateOptions);
 
             this.updateProgress(100, 'Fazendo download...');
             
+            const fileName = `mapa-${this.scale.replace(':', '-')}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
+
             // 13. Download
-            const tiffBytes = await Gdal.getFileBytes(outputDataset);
-            const blob = new Blob([tiffBytes], { type: 'application/pdf' });
+            const pdfBytes = await Gdal.getFileBytes(outputDataset);
+            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = "output.pdf";
+            a.download = fileName;
             a.click();
             URL.revokeObjectURL(url);
 
@@ -737,90 +740,5 @@ export default class PDFExportTab {
                 document.body.removeChild(hiddenMapContainer);
             }
         }
-    }
-
-    // ========== MÉTODOS PRESERVADOS PARA FUTURA IMPLEMENTAÇÃO GEOREFERENCIADA ==========
-
-    /**
-     * Métodos abaixo preservados para quando implementar PDF georeferenciado com backend
-     */
-
-    async captureMapImageGeo() {
-        return new Promise((resolve, reject) => {
-            try {
-                // Forçar renderização
-                this.map.triggerRepaint();
-
-                requestAnimationFrame(() => {
-                    try {
-                        const canvas = this.map.getCanvas();
-                        const dataURL = canvas.toDataURL('image/jpeg', 0.85);
-
-                        if (dataURL.length < 100) {
-                            throw new Error('Canvas vazio - tente novamente');
-                        }
-
-                        resolve(dataURL);
-                    } catch (error) {
-                        reject(new Error('Erro ao capturar imagem: ' + error.message));
-                    }
-                });
-            } catch (error) {
-                reject(error);
-            }
-        });
-    }
-
-    setExportStatusGeo(isLoading, message = '') {
-        const statusDiv = document.getElementById('export-status');
-        const exportBtn = document.getElementById('export-pdf-btn');
-
-        if (statusDiv && exportBtn) {
-            if (isLoading) {
-                statusDiv.style.display = 'flex';
-                statusDiv.querySelector('span').textContent = message;
-                exportBtn.disabled = true;
-                exportBtn.style.opacity = '0.6';
-            } else {
-                statusDiv.style.display = 'none';
-                exportBtn.disabled = false;
-                exportBtn.style.opacity = '1';
-            }
-        }
-    }
-
-    /**
-     * Métodos abaixo preservados para quando implementar PDF georeferenciado com backend
-     */
-
-    async sendToBackendGeo(exportData) {
-        const response = await fetch(config.export.pdfApiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(exportData)
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Erro do servidor: ${response.status} - ${errorText}`);
-        }
-
-        return await response.blob();
-    }
-
-    downloadPDFGeo(pdfBlob) {
-        const url = URL.createObjectURL(pdfBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `mapa-georeferenciado-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.pdf`;
-
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        // Cleanup
-        setTimeout(() => URL.revokeObjectURL(url), 100);
     }
 }
