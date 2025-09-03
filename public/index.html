@@ -1,84 +1,336 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EBGEO</title>
+    <title>EBGeo</title>
     <link rel="icon" type="image/x-icon" href="./images/favicon.ico">
-    <link href="./vendors/maplibre-gl.css" rel="stylesheet" />
-    <link href="./vendors/mapbox-gl-draw.css" rel="stylesheet" />
-    <link href="./vendors/cesium/Widgets/widgets.css" rel="stylesheet" />
-    <link href="./vendors/maplibre-gl.css" rel="stylesheet" />
-    <link href="./vendors/mapbox-gl-draw.css" rel="stylesheet" />
-    <link href="./vendors/cesium/Widgets/widgets.css" rel="stylesheet" />
-    <link rel="stylesheet" href="./css/style.css">
+
+    <link rel="stylesheet" href="./vendors/cesium/Widgets/widgets.css" media="print"
+        onload="this.media='all'; this.onload=null;">
+    <link rel="preload" href="./vendors/maplibre-gl.js" as="script">
+    <link rel="preload" href="./css/style.css" as="style">
+
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        #top-bar {
+            background-color: #fbfbfa;
+            display: flex;
+            flex-direction: row;
+            width: 100%;
+            border-bottom: 0.5mm solid #EEEEEE;
+            min-height: 60px;
+        }
+
+        #map-sig {
+            position: relative;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            cursor: default;
+            margin-top: 42px;
+        }
+
+        .loading-background {
+            position: fixed;
+            background-color: #508D4E;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            top: 0;
+            left: 0;
+        }
+
+        .loading-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #map-3d-container {
+            display: none;
+        }
+
+        .progress-bar {
+            width: 200px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+            margin-top: 20px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #B4E380;
+            width: 0%;
+            border-radius: 2px;
+            animation: progressLoad 2s ease-out forwards;
+        }
+
+        @keyframes progressLoad {
+            0% {
+                width: 0%;
+            }
+
+            100% {
+                width: 100%;
+            }
+        }
+
+        .loading-hidden {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .loading-hidden.loaded {
+            opacity: 1;
+        }
+
+        /* ===== MODAL DE ATALHOS ===== */
+        .shortcuts-modal {
+            display: none;
+            position: fixed;
+            z-index: 1001;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s ease;
+        }
+
+        .shortcuts-modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border: none;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s ease;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .shortcuts-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px;
+            background: #427842;
+            color: white;
+            border-radius: 12px 12px 0 0;
+        }
+
+        .shortcuts-modal-header h3 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .shortcuts-modal-close {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+            padding: 4px 8px;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .shortcuts-modal-close:hover {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.1);
+            transform: scale(1.1);
+        }
+
+        .shortcuts-modal-body {
+            padding: 24px;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .shortcuts-section {
+            margin-bottom: 32px;
+        }
+
+        .shortcuts-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .shortcuts-section h4 {
+            color: #508D4E;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #508D4E;
+        }
+
+        .shortcuts-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 12px 24px;
+            align-items: center;
+        }
+
+        .shortcut-key {
+            background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            font-weight: bold;
+            color: #495057;
+            text-align: center;
+            min-width: 60px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            white-space: nowrap;
+        }
+
+        .shortcut-description {
+            color: #333;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from { 
+                opacity: 0;
+                transform: translateY(-50px) scale(0.9);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .shortcuts-modal-content {
+                margin: 10% auto;
+                width: 95%;
+                max-height: 70vh;
+            }
+            
+            .shortcuts-modal-body {
+                padding: 16px;
+            }
+            
+            .shortcuts-grid {
+                gap: 8px 16px;
+            }
+            
+            .shortcut-key {
+                min-width: 50px;
+                padding: 4px 8px;
+                font-size: 12px;
+            }
+            
+            .shortcut-description {
+                font-size: 13px;
+            }
+        }
+    </style>
+
+    <link rel="stylesheet" href="./vendors/maplibre-gl.css" media="print" onload="this.media='all'; this.onload=null;">
+    <link rel="stylesheet" href="./css/style.css" media="print" onload="this.media='all'; this.onload=null;">
+
+    <!-- META TAGS PARA PERFORMANCE -->
+    <meta name="theme-color" content="#508D4E">
+    <meta name="color-scheme" content="light">
+    <meta name="robots" content="noindex, nofollow">
+
+    <!-- RESOURCE HINTS -->
+    <link rel="prefetch" href="./vendors/cesium/Cesium.js"> <!-- Carrega quando idle -->
+    <link rel="prefetch" href="./street_view/build/three.min.js">
 </head>
 
-<div class="loading-background">
-    <div class="lds-ripple">
-        <div></div>
-        <div></div>
-    </div>
-</div>
-
 <body>
-
-    <div id="top-bar">
-        <a href="https://geoportal.eb.mil.br/portal/" class="logo" target="_blank">
-            <img src="./images/dsg_symbol.svg" />
-            <h2><span style="color:#80AF81;">EB</span><span style="color: black;">GEO</span></h2>
-        </a>
-        <div class="bar-center-buttons">
-            <div>
-                <a id="sig-button" class="button icon-button active-button">
-                    <img src="./images/icon_sig.svg" alt="SIG" />
-                </a>
-            </div>
-            <div>
-                <a id="3d-button" class="button icon-button">
-                    <img src="./images/icon_3d.svg" alt="3D" />
-                </a>
+    <!-- LOADING SCREEN OTIMIZADA -->
+    <div class="loading-background" id="initial-loader">
+        <div class="loading-content">
+            <img src="./images/logo_ebgeo.png" alt="EBGeo" style="width: 300px; height: auto;">
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
             </div>
         </div>
-        <div class="extra-bar-buttons">
-            <button onclick="window.open(
-                './docs/doc.html',
-                '_blank' // <- This is what makes it open in a new window.
-              );" class="tutorial-button pure-material-button-contained">Tutorial</button>
-        </div>
-        <!-- 3d sidebar -->
-        <div>
-            <input type="checkbox" class="openSidebarMenu" id="openSidebarMenu">
-            <label for="openSidebarMenu" class="sidebarIconToggle">
-                <div class="spinner diagonal part-1"></div>
-                <div class="spinner horizontal"></div>
-                <div class="spinner diagonal part-2"></div>
-            </label>
-            <div id="sidebarMenu">
-            </div>
-        </div>
-
     </div>
-    <div id="map-sig"></div>
-    <div id="mini-map-street-view"></div>
-    <div id="street-view-container"></div>
-    <a id="close-street-view-button" href="#" class="float">
-        <i data-feather="x-circle"></i>
-    </a>
-    <div id="map-3d-container">
+
+    <!-- TOP BAR EBGEO COMPACTA -->
+    <div id="top-bar" class="loading-hidden">
+        <!-- Logo Section -->
+        <div class="logo-section">
+            <img class="logo-img" src="./images/logo_ebgeo.png" alt="EBGeo">
+            <h2>
+                <span class="logo-eb">EB</span><span class="logo-geo">Geo</span>
+                <span class="topbar-subtitle"></span>
+            </h2>
+        </div>
+
+        <!-- Navigation Buttons Container -->
+        <div class="nav-buttons-container">
+            <div class="bar-center-buttons">
+                <a id="sig-button" class="nav-button icon-button active-button" aria-label="Modo SIG">
+                    <img src="./images/icon_sig.svg" alt="SIG" width="25" height="25" loading="eager">
+                    <span class="nav-text">SIG</span>
+                </a>
+                <a id="3d-button" class="nav-button icon-button" aria-label="Modo 3D">
+                    <img src="./images/icon_3d.svg" alt="3D" width="25" height="25" loading="lazy">
+                    <span class="nav-text">3D</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Extra Buttons -->
+        <div class="extra-bar-buttons">
+            <button id="shortcuts-button" class="tutorial-button" aria-label="Ver atalhos de teclado">
+                Atalhos
+            </button>
+            <button onclick="window.open('./docs/doc.html', '_blank')" class="tutorial-button"
+                aria-label="Abrir tutorial">
+                Tutorial
+            </button>
+        </div>
+    </div>
+
+    <!-- CONTENT AREAS -->
+    <div id="map-sig" class="loading-hidden" role="application" aria-label="Mapa 2D"></div>
+
+    <!-- 3D CONTAINER - LAZY LOADED -->
+    <div id="map-3d-container" style="display: none;" role="application" aria-label="Mapa 3D">
         <div id="map-3d"></div>
-        <div id="map-3d-tool-bar" class="card">
+        <div id="map-3d-tool-bar" class="card" role="toolbar">
             <div id="model-3d-container">
                 <p><b>Modelos 3D</b></p>
                 <hr class="solid">
-                <!-- <button id="btnAMAN" class="tools">AMAN</button>
-            <button id="btnPCL" class="tools">PCL</button>
-            <button id="btnESA" class="tools">ESA</button> -->
                 <div id="locate-3d-container">
-                    <button id="aman" class="tutorial-button pure-material-button-contained">AMAN</button>
-                    <button id="aman-pcl" class="tutorial-button pure-material-button-contained">AMAN PCL</button>
-                    <button id="esa" class="tutorial-button pure-material-button-contained">ESA</button>
                 </div>
             </div>
             <div id="tool-3d-container">
@@ -86,66 +338,142 @@
                 <hr class="solid">
                 <div class="tools-3d-bar">
                     <div>
-                        <img src="./images/information_circle.svg" id="identify-tool" class="button-tool-3d icon-tool-3d" alt="Identify">
-                    </div>
-                    <div>
-                        <a id="visualizacao" class="button-tool-3d icon-tool-3d">
-                            <img src="./images/viewshed_icon.svg" alt="Viewshed" />
+                        <a id="visualizacao" class="button-tool-3d icon-tool-3d" aria-label="Análise de visibilidade">
+                            <img src="./images/viewshed_icon.svg" alt="Viewshed" width="30" height="30" loading="lazy">
                         </a>
                     </div>
                     <div>
-                        <a id="distancia" class="button-tool-3d icon-tool-3d">
-                            <img src="./images/distance_icon.svg" alt="distance" />
+                        <a id="distancia" class="button-tool-3d icon-tool-3d" aria-label="Medir distância">
+                            <img src="./images/distance_icon.svg" alt="distance" width="30" height="30" loading="lazy">
                         </a>
                     </div>
                     <div>
-                        <a id="area" class="button-tool-3d icon-tool-3d">
-                            <img src="./images/area_icon.svg" alt="area" />
+                        <a id="area" class="button-tool-3d icon-tool-3d" aria-label="Medir área">
+                            <img src="./images/area_icon.svg" alt="area" width="30" height="30" loading="lazy">
                         </a>
                     </div>
                     <div>
-                        <a id="limpar" href="javascript:;" class="button-tool-3d icon-tool-3d">
-                            <img src="./images/clear_icon.svg" alt="clear" />
+                        <a id="screenshot-3d" class="button-tool-3d icon-tool-3d" title="Salvar tela"
+                            aria-label="Salvar tela">
+                            <img src="./images/icon_screenshot_black.svg" alt="Screenshot" width="30" height="30"
+                                loading="lazy">
+                        </a>
+                    </div>
+                    <div>
+                        <a id="limpar" class="button-tool-3d icon-tool-3d" aria-label="Limpar ferramentas">
+                            <img src="./images/clear_icon.svg" alt="clear" width="30" height="30" loading="lazy">
                         </a>
                     </div>
                 </div>
             </div>
-            <!-- <button id="visualizacao" class="tools">Visualização</button>
-            <button id="distancia" class="tools">Distância Espacial</button>
-            <button id="area" class="tools">Área Espacial</button>
-            <button id="limpar" class="tools">Limpar</button> -->
-        </div>
-        <div id="feature-info" class="card" style="display: none;">
-            <button id="close-feature-info" class="close-button">&times;</button>
-            <h3>Informações da Feição</h3>
-            <div id="feature-info-content"></div>
         </div>
     </div>
-    <a id="open-close-form" href="#" class="panel-icon-float">
-        <i data-feather="edit"></i>
+
+    <!-- FLOATING ACTION BUTTONS -->
+    <a id="open-close-form" href="#" class="panel-icon-float" aria-label="Alternar painel de atributos"
+        style="display: none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+        </svg>
     </a>
-    <script src="./vendors/feather.min.js"></script>
-    <script src="./vendors/maplibre-gl.js"></script>
-    <script src="./vendors/mapbox-gl-draw.js"></script>
-    <script src="./vendors/turf.min.js"></script>
+
+    <a id="close-street-view-button" href="#" style="display: none;" aria-label="Fechar street view">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M15 9l-6 6M9 9l6 6" />
+        </svg>
+    </a>
+
+    <!-- LAZY LOADED CONTAINERS -->
+    <div id="mini-map-street-view" style="display: none;" role="application" aria-label="Mini mapa street view"></div>
+    <div id="street-view-container" style="display: none;" role="application" aria-label="Street view"></div>
+
+    <!-- SHORTCUTS MODAL -->
+    <div id="shortcuts-modal" class="shortcuts-modal" role="dialog" aria-labelledby="shortcuts-title" aria-hidden="true">
+        <div class="shortcuts-modal-content">
+            <div class="shortcuts-modal-header">
+                <h3 id="shortcuts-title">Atalhos de Teclado</h3>
+                <span class="shortcuts-modal-close" aria-label="Fechar modal">&times;</span>
+            </div>
+            <div class="shortcuts-modal-body">
+                <div class="shortcuts-section">
+                    <h4>Controles do Sistema</h4>
+                    <div class="shortcuts-grid" id="system-shortcuts"></div>
+                </div>
+                <div class="shortcuts-section">
+                    <h4>Ferramentas de Desenho</h4>
+                    <div class="shortcuts-grid" id="tools-shortcuts"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- UtilitÃ¡rios essenciais primeiro -->
+    <script type="module" src="./js/config.js"></script>
+    <script type="module" src="./js/config-loader.js"></script>
+    <script src="./vendors/localforage.min.js"></script>
     <script src="./vendors/jquery.min.3.7.1.js"></script>
-    <script src="./vendors/chart.js"></script>
+    <script src="./vendors/jspdf.umd.min.js"></script>
+    <script src="./vendors/maplibre-gl.js"></script>
+    <script src="./vendors/turf.min.js"></script>
+    <script src="./vendors/milsymbol.min.js"></script>
+
+    <!-- Bibliotecas de apoio -->
+    <script src="./vendors/chart.js" defer></script>
+    <script src="./vendors/feather.min.js" defer></script>
+
+    <!-- Bibliotecas para import/export - lazy load -->
+    <script src="./vendors/jszip.min.js" defer></script>
+    <script src="./vendors/shp.min.js" defer></script>
+    <script src="./vendors/togeojson.js" defer></script>
+    <script src="./vendors/proj4.min.js" defer></script>
+    <script src="./vendors/mgrs.min.js" defer></script>
+
+    <!-- Three.js import map para Street View -->
     <script type="importmap">
-        {
-            "imports": {
-                "three": "/street_view/build/three.module.js",
-                "OrbitControls": "/street_view/build/addons/controls/OrbitControls.js",
-                "DragControls": "/street_view/build/addons/controls/DragControls.js"
-            }
+    {
+        "imports": {
+            "three": "/street_view/build/three.module.js",
+            "OrbitControls": "/street_view/build/addons/controls/OrbitControls.js",
+            "DragControls": "/street_view/build/addons/controls/DragControls.js"
         }
+    }
     </script>
-    <script src="./vendors/cesium/Cesium.js"></script>
-    <script src="./vendors/cesium/cesium-measure.js"></script>
-    <script src="./vendors/cesium/cesium-viewshed.js"></script>
-    <script>
-        feather.replace();
-    </script>
+
+    <!-- SCRIPT PRINCIPAL - MODULE -->
     <script type="module" src="./js/index.js"></script>
+
+    <script>
+        // Remove loading screen quando DOM estiver pronto
+        document.addEventListener('DOMContentLoaded', function () {
+            setTimeout(function () {
+                document.querySelectorAll('.loading-hidden').forEach(function (el) {
+                    el.classList.add('loaded');
+                });
+
+                // Remove loader
+                var loader = document.getElementById('initial-loader');
+                if (loader) {
+                    loader.style.opacity = '0';
+                    setTimeout(function () {
+                        loader.remove();
+                    }, 500);
+                }
+
+                if (window.feather) {
+                    feather.replace();
+                }
+            }, 50);
+        });
+
+    </script>
+
+    <!-- FALLBACK PARA BROWSERS ANTIGOS -->
+    <script nomodule>
+        document.getElementById('initial-loader').innerHTML =
+            '<h2>Browser não suportado</h2><p>Por favor, use um browser mais recente.</p>';
+    </script>
 </body>
 
 </html>

@@ -1,86 +1,95 @@
 // Path: js\controls_sig\image_tool\image_attributes_panel.js
+
+import {
+    createSliderWithInput,
+    createAttributeRow,
+    createStandardButtons,
+    createEditableFeatureName,
+    getCommonConfig
+} from '../tool_manager/attribute_panel_helpers.js';
+
 export function addImageAttributesToPanel(panel, selectedFeatures, imageControl, selectionManager, uiManager) {
-    const feature = selectedFeatures[0]; // Use the first selected feature to populate the form
-    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.id, { ...f.properties }]));
+    if (selectedFeatures.length === 0) return;
 
-    const sizeLabel = document.createElement('label');
-    sizeLabel.textContent = 'Tamanho:';
-    const sizeInput = document.createElement('input');
-    sizeInput.classList.add("slider");
-    sizeInput.type = 'range';
-    sizeInput.step = 0.1;
-    sizeInput.min = 0.1;
-    sizeInput.max = 5;
-    sizeInput.value = feature.properties.size;
-    sizeInput.oninput = (e) => {
-        imageControl.updateFeaturesProperty(selectedFeatures, 'size', parseFloat(e.target.value));
-        uiManager.updateSelectionHighlight();
-    };
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(sizeLabel))
-            .append($("<div>", { class: "attr-input" }).append(sizeInput))
-    )
+    const feature = selectedFeatures[0];
 
-    const rotationLabel = document.createElement('label');
-    rotationLabel.textContent = 'Rotação:';
-    const rotationInput = document.createElement('input');
-    rotationInput.classList.add("slider");
-    rotationInput.type = 'range';
-    rotationInput.step = 1;
-    rotationInput.min = -180;
-    rotationInput.max = 180;
-    rotationInput.value = feature.properties.rotation || 0;
-    rotationInput.oninput = (e) => {
-        imageControl.updateFeaturesProperty(selectedFeatures, 'rotation', parseInt(e.target.value, 10));
-        uiManager.updateSelectionHighlight();
-    };
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(rotationLabel))
-            .append($("<div>", { class: "attr-input" }).append(rotationInput))
-    );
+    // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
+    const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    const opacityLabel = document.createElement('label');
-    opacityLabel.textContent = 'Opacidade:';
-    const opacityInput = document.createElement('input');
-    opacityInput.classList.add("slider");
-    opacityInput.type = 'range';
-    opacityInput.min = 0.1;
-    opacityInput.max = 1;
-    opacityInput.step = 0.1;
-    opacityInput.value = feature.properties.opacity;
-    opacityInput.oninput = (e) => {
-        imageControl.updateFeaturesProperty(selectedFeatures, 'opacity', parseFloat(e.target.value));
-        uiManager.updateSelectionHighlight();
-    };
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append(opacityLabel))
-            .append($("<div>", { class: "attr-input" }).append(opacityInput))
-    )
+    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
+    if (selectedFeatures.length === 1) {
+        const nameComponent = createEditableFeatureName(
+            feature.properties.nome,
+            (newName) => {
+                imageControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                uiManager.updateSelectionHighlight();
+            }
+        );
+        $(panel).append(nameComponent);
+    }
 
-    const saveButton = document.createElement('button');
-    saveButton.classList.add('tool-button', 'pure-material-tool-button-contained')
-    saveButton.textContent = 'Salvar';
-    saveButton.type = 'submit';
-    saveButton.onclick = () => {
-        imageControl.saveFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
-    };
+    // ===== PROPRIEDADES ESPECÍFICAS DA IMAGEM =====
 
-    const discardButton = document.createElement('button');
-    discardButton.classList.add('tool-button', 'pure-material-tool-button-contained')
-    discardButton.textContent = 'Descartar';
-    discardButton.onclick = () => {
-        imageControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
-    };
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append(saveButton)
-            .append(discardButton)
-    )
+    // Tamanho
+    const sizeControl = createSliderWithInput(getCommonConfig('size',
+        feature.properties.size, {
+        onChange: (value) => {
+            imageControl.updateFeaturesProperty(selectedFeatures, 'size', value);
+            uiManager.updateSelectionHighlight();
+        }
+    }));
 
-    document.body.appendChild(panel);
+    $(panel).append(createAttributeRow('Tamanho:', sizeControl));
+
+    // Zoom de referência
+    const createdAtZoomControl = createSliderWithInput({
+        min: 1,
+        max: 21,
+        step: 0.1,
+        value: Math.round(feature.properties.createdAtZoom * 10) / 10,
+        onChange: (value) => {
+            const roundedValue = Math.round(parseFloat(value) * 10) / 10;
+            imageControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
+
+    // Rotação
+    const rotationControl = createSliderWithInput(getCommonConfig('rotation',
+        feature.properties.rotation || 0, {
+        onChange: (value) => {
+            imageControl.updateFeaturesProperty(selectedFeatures, 'rotation', value);
+            uiManager.updateSelectionHighlight();
+        }
+    }));
+
+    $(panel).append(createAttributeRow('Rotação:', rotationControl));
+
+    // Opacidade (0-100% com conversão automática)
+    const opacityControl = createSliderWithInput(getCommonConfig('opacity',
+        Math.round(feature.properties.opacity * 100), {
+        onChange: (value) => {
+            // Convert from 0-100 range to 0-1 range for internal storage
+            imageControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
+            uiManager.updateSelectionHighlight();
+        }
+    }));
+
+    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+
+    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
+    // ✅ FIXED: Pass initialPropertiesMap captured at panel opening
+    // ⚠️ NOTE: Image tool doesn't have "Set Default" button (hasSetDefault: false)
+    const buttons = createStandardButtons({
+        selectedFeatures,
+        control: imageControl,
+        selectionManager,
+        initialPropertiesMap, // ✅ PASS THE ORIGINAL STATE
+        hasSetDefault: false, // ✅ Image tool doesn't have "Set Default" functionality
+        onSetDefault: null
+    });
+
+    $(panel).append(buttons);
 }

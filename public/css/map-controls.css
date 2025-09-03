@@ -1,0 +1,548 @@
+/* css/map-controls.css - Controles e Ferramentas do Mapa */
+
+/* Posicionar controles da COLUNA ESQUERDA individualmente */
+.controls-column-left {
+    position: fixed !important;
+    top: 60px !important;
+    right: 40px !important;
+    z-index: 999 !important;
+    pointer-events: auto !important;
+    margin: 0 !important;
+}
+
+/* Posicionar controles da COLUNA DIREITA individualmente */
+.controls-column-right {
+    position: fixed !important;
+    top: 60px !important;
+    right: 5px !important;
+    z-index: 999 !important;
+    pointer-events: auto !important;
+    margin: 0 !important;
+}
+
+.los-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.los-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+.visibility-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.visibility-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+/* ===== NOVA ORDEM DA COLUNA ESQUERDA (com agrupamento de terreno) ===== */
+.feature-search-control.controls-column-left {
+    top: 60px !important;
+}
+
+.import-control.controls-column-left {
+    top: 94px !important;
+}
+
+.screenshot-control.controls-column-left {
+    top: 128px !important;
+}
+
+.vector-info-control.controls-column-left {
+    top: 162px !important;
+}
+
+.rectangle-selection-control.controls-column-left {
+    top: 196px !important;
+}
+
+.street-view-control.controls-column-left {
+    top: 230px !important;
+}
+
+/* Grupo de controles de terreno */
+.terrain-control.controls-column-left {
+    top: 264px !important;
+}
+
+.los-control.controls-column-left {
+    top: 298px !important;
+}
+
+.visibility-control.controls-column-left {
+    top: 332px !important;
+}
+
+.terrain-control button:disabled {
+    cursor: not-allowed !important;
+}
+
+.street-view-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.street-view-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    border-color: #e0e0e0 !important;
+    background-color: #f5f5f5 !important;
+}
+
+.street-view-control.disabled button:hover {
+    background-color: #f5f5f5 !important;
+    border-color: #e0e0e0 !important;
+}
+
+/* Vector Info Control Disabled */
+.vector-info-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.vector-info-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    border-color: #e0e0e0 !important;
+    background-color: #f5f5f5 !important;
+}
+
+.vector-info-control.disabled button:hover {
+    background-color: #f5f5f5 !important;
+    border-color: #e0e0e0 !important;
+}
+
+/* Feature Search Control Disabled - ajustar para consistência */
+.feature-search-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.feature-search-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    border-color: #e0e0e0 !important;
+    background-color: #f5f5f5 !important;
+}
+
+.feature-search-control.disabled button:hover {
+    background-color: #f5f5f5 !important;
+    border-color: #e0e0e0 !important;
+}
+
+.feature-search-control.disabled svg {
+    stroke: #999 !important;
+}
+
+/* ===== ESTILOS DO FEATURE SEARCH CONTROL ===== */
+.feature-search-control {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+}
+
+/* Botão de busca seguindo padrão dos outros controles - SEMPRE FIXO */
+.feature-search-control .mapbox-gl-draw_ctrl-draw-btn {
+    background-image: none !important;
+    background-color: transparent !important;
+    border: 1px solid #d0d0d0 !important;
+    cursor: pointer !important;
+    border-radius: 6px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.2s ease !important;
+    width: 32px !important;
+    height: 32px !important;
+    margin: 1px !important;
+    padding: 0 !important;
+}
+
+.feature-search-control .mapbox-gl-draw_ctrl-draw-btn:hover:not(:disabled) {
+    background-color: #d6d6d6 !important;
+}
+
+.feature-search-control .mapbox-gl-draw_ctrl-draw-btn:disabled {
+    cursor: not-allowed !important;
+    background-color: transparent !important;
+}
+
+.feature-search-control .mapbox-gl-draw_ctrl-draw-btn:disabled:hover {
+    background-color: transparent !important;
+}
+
+/* SVG da lupa */
+.feature-search-control .icon-sig-tool {
+    width: 20px !important;
+    height: 20px !important;
+    stroke: #333 !important;
+    transition: all 0.2s ease;
+}
+
+
+
+/* Input de busca - À DIREITA DO BOTÃO */
+.feature-search-control .feature-search-input {
+    position: fixed !important;
+    top: 0px !important;
+    right: 35px !important;
+    border: 1px solid #d0d0d0 !important;
+    border-radius: 6px !important;
+    padding: 6px 8px !important;
+    font-size: 12px !important;
+    width: 250px !important;
+    height: 35px !important;
+    outline: none !important;
+    background: white !important;
+    color: #333 !important;
+    box-sizing: border-box !important;
+    flex-shrink: 0 !important;
+    /* Não encolhe */
+
+    /* Transições suaves */
+    transition: all 0.2s ease !important;
+
+    /* Typography consistente */
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    font-weight: 400 !important;
+}
+
+.feature-search-control .feature-search-input:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.2) !important;
+}
+
+.feature-search-control .feature-search-input::placeholder {
+    color: #999 !important;
+    font-size: 11px !important;
+}
+
+/* Lista de sugestões - ABAIXO DO INPUT */
+.feature-search-control .feature-search-suggestions {
+    position: fixed !important;
+    top: 35px !important;
+    /* 60px (control top) + ~40px (control height) + 8px gap */
+    right: 37px !important;
+    /* Alinha com a coluna esquerda */
+    margin-top: 2px !important;
+    background: white !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    border-radius: 6px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    max-height: 200px !important;
+    overflow-y: auto !important;
+    z-index: 10000 !important;
+    display: none;
+    list-style: none !important;
+    padding: 0 !important;
+    margin-left: 0 !important;
+    width: 245px !important;
+    /* Mesma largura do input */
+}
+
+.feature-search-control .feature-search-suggestion {
+    padding: 8px 12px !important;
+    cursor: pointer !important;
+    font-size: 12px !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+    transition: all 0.15s ease !important;
+    line-height: 1.4 !important;
+    color: #333 !important;
+    word-wrap: break-word !important;
+}
+
+.feature-search-control .feature-search-suggestion:hover {
+    background: rgba(80, 141, 78, 0.08) !important;
+}
+
+.feature-search-control .feature-search-suggestion:last-child {
+    border-bottom: none !important;
+}
+
+.feature-search-control .feature-search-suggestion strong {
+    color: var(--primary-color) !important;
+    font-weight: 600 !important;
+}
+
+.feature-search-control .feature-search-suggestion.error {
+    color: #dc3545 !important;
+    cursor: default !important;
+}
+
+.feature-search-control .feature-search-suggestion.error:hover {
+    background: rgba(220, 53, 69, 0.05) !important;
+}
+
+/* Estado de carregamento */
+.feature-search-control.searching .feature-search-input {
+    opacity: 0.7 !important;
+}
+
+.feature-search-control.searching::after {
+    content: '' !important;
+    position: absolute !important;
+    right: 8px !important;
+    top: 40px !important;
+    width: 12px !important;
+    height: 12px !important;
+    border: 2px solid #e0e0e0 !important;
+    border-top: 2px solid var(--primary-color) !important;
+    border-radius: 50% !important;
+    animation: spin 1s linear infinite !important;
+    z-index: 10 !important;
+}
+
+.feature-search-control.expanded .mapbox-gl-draw_ctrl-draw-btn {
+    background-color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+}
+
+.feature-search-control.expanded .mapbox-gl-draw_ctrl-draw-btn svg {
+    stroke: white !important;
+}
+
+/* Posicionamento vertical específico para COLUNA DIREITA */
+.point-control.controls-column-right {
+    top: 60px !important;
+}
+
+.line-control.controls-column-right {
+    top: 94px !important;
+}
+
+.polygon-control.controls-column-right {
+    top: 128px !important;
+}
+
+.text-control.controls-column-right {
+    top: 162px !important;
+}
+
+.image-control.controls-column-right {
+    top: 196px !important;
+}
+
+.rectangle-control.controls-column-right {
+    top: 230px !important;
+}
+
+.circle-control.controls-column-right {
+    top: 264px !important;
+}
+
+.ellipse-control.controls-column-right {
+    top: 298px !important;
+}
+
+.brush-control.controls-column-right {
+    top: 332px !important;
+}
+
+.arrow-control.controls-column-right {
+    top: 366px !important;
+}
+
+.boundary-control.controls-column-right {
+    top: 400px !important;
+}
+
+.occupied-front-control.controls-column-right {
+    top: 434px !important;
+}
+
+.military-symbol-control.controls-column-right {
+    top: 468px !important;
+}
+
+/* ===== ESTILOS BASE DOS CONTROLES ===== */
+.mapboxgl-ctrl-group {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    z-index: 10;
+    pointer-events: auto;
+    background-color: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* ===== MAPBOX DRAW CONTROLS ===== */
+.mapbox-gl-draw_polygon,
+.mapbox-gl-draw_line,
+.mapbox-gl-draw_point,
+.mapbox-gl-draw_trash,
+.mapbox-gl-draw_ctrl-draw-btn {
+    background-image: none !important;
+    background-color: transparent !important;
+    border: 1px solid #d0d0d0 !important;
+    cursor: pointer !important;
+    border-radius: 6px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.2s ease !important;
+    width: 32px !important;
+    height: 32px !important;
+    margin: 1px !important;
+    padding: 0 !important;
+}
+
+.mapbox-gl-draw_ctrl-draw-btn:hover {
+    background-color: #d6d6d6 !important;
+}
+
+.icon-sig-tool {
+    width: 35px !important;
+    height: 35px !important;
+    transition: filter 0.2s ease;
+}
+
+/* ===== REDUÇÃO DE TAMANHO PARA CONTROLES DAS COLUNAS ===== */
+/* Aplicar apenas aos controles nas colunas esquerda e direita */
+
+/* Reduzir ícones SIG nas colunas - incluindo feature search */
+.controls-column-left .icon-sig-tool,
+.controls-column-right .icon-sig-tool {
+    width: 26px !important;
+    height: 26px !important;
+}
+
+/* Reduzir ícones SVG internos dos botões Mapbox Draw nas colunas */
+.controls-column-left .mapbox-gl-draw_ctrl-draw-btn img,
+.controls-column-right .mapbox-gl-draw_ctrl-draw-btn img {
+    width: 25px !important;
+    height: 25px !important;
+}
+
+/* Reduzir elementos path dentro dos SVGs do Mapbox Draw */
+.controls-column-left .mapbox-gl-draw_polygon svg,
+.controls-column-left .mapbox-gl-draw_line svg,
+.controls-column-left .mapbox-gl-draw_point svg,
+.controls-column-left .mapbox-gl-draw_trash svg,
+.controls-column-right .mapbox-gl-draw_polygon svg,
+.controls-column-right .mapbox-gl-draw_line svg,
+.controls-column-right .mapbox-gl-draw_point svg,
+.controls-column-right .mapbox-gl-draw_trash svg {
+    width: 20px !important;
+    height: 20px !important;
+    transform: scale(0.8);
+}
+
+/* Reduzir botões de ação do mapa nas colunas */
+.controls-column-left .map-action-button,
+.controls-column-right .map-action-button {
+    width: 32px !important;
+    height: 32px !important;
+    padding: 6px !important;
+}
+
+/* Reduzir ícones dentro dos botões de ação nas colunas */
+.controls-column-left .map-action-button img,
+.controls-column-right .map-action-button img {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+/* Reduzir controles do grupo mapbox nas colunas */
+.controls-column-left .mapboxgl-ctrl-group,
+.controls-column-right .mapboxgl-ctrl-group {
+    transform: scale(0.8);
+    transform-origin: top right;
+}
+
+/* Ajustar layer switches nas colunas */
+.controls-column-left .layer-switch,
+.controls-column-right .layer-switch {
+    padding: 6px 10px !important;
+    font-size: 12px !important;
+    min-width: 65px !important;
+}
+
+.layer-switch {
+    background-color: transparent !important;
+    border: 1px solid #d0d0d0 !important;
+    border-radius: 6px !important;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    min-width: 80px !important;
+    text-align: center !important;
+}
+
+.layer-switch:hover {
+    background-color: #f0f0f0 !important;
+    border-color: #b0b0b0 !important;
+}
+
+.layer-switch.active {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+}
+
+.button-tool-3d {
+    transition: all 0.2s ease;
+}
+
+.button-tool-3d:hover {
+    transform: scale(1.05);
+}
+
+.button-tool-3d:active {
+    transform: scale(0.95);
+}
+
+/* ===== ESTADOS DE CARREGAMENTO ===== */
+.mapboxgl-ctrl-group.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.mapboxgl-ctrl-group.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid var(--primary-light);
+    border-top: 2px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* ===== ACESSIBILIDADE ===== */
+.mapbox-gl-draw_ctrl-draw-btn:focus,
+#screenshot-tool:focus,
+#feature-search-tool:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* ===== PREVENT INTERACTION CONFLICTS ===== */
+.mapboxgl-ctrl-group button {
+    touch-action: manipulation;
+}
+
+.mapboxgl-ctrl-group input {
+    touch-action: manipulation;
+}

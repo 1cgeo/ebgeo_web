@@ -1,18 +1,17 @@
 // Path: js\controls_sig\tool_manager\tool_manager.js
 class ToolManager {
-    constructor(map) {
-        this.map = map;
+    constructor() {
         this.activeTool = null;
-        this.drawControl = null;
         this.selectionManager = null;
-    }
-
-    setDrawControl(drawControl) {
-        this.drawControl = drawControl;
+        this.uiManager = null
     }
 
     setSelectionManager(selectionManager) {
         this.selectionManager = selectionManager;
+    }
+
+    setUiManager(uiManager) {
+        this.uiManager = uiManager;
     }
 
     setActiveTool(tool) {
@@ -20,7 +19,7 @@ class ToolManager {
             return
         }
         
-        if (this.activeTool && this.activeTool === tool && tool !== this.drawControl) {
+        if (this.activeTool && this.activeTool === tool) {
             this.deactivateCurrentTool();
             return
         }
@@ -32,9 +31,8 @@ class ToolManager {
         this.activeTool = tool;
         tool.activate();
 
-        if (this.drawControl && this.activeTool !== this.drawControl && this.selectionManager) {
-            this.selectionManager.deselectAllFeatures(true);
-        }
+        this.selectionManager.deselectAllFeatures();
+
     }
 
     deactivateCurrentTool() {
@@ -42,6 +40,10 @@ class ToolManager {
             this.activeTool.deactivate();
             this.activeTool = null;
         }
+    }
+
+    hasActiveTool() {
+        return this.activeTool !== null;
     }
 }
 

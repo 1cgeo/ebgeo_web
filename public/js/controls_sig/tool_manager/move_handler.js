@@ -1,207 +1,436 @@
 // Path: js\controls_sig\tool_manager\move_handler.js
+
 class MoveHandler {
     constructor(map, selectionManager, uiManager) {
         this.map = map;
         this.selectionManager = selectionManager;
         this.uiManager = uiManager;
+
+        // Core state
         this.isDragging = false;
-        this.lastPos = null;
-        this.debounceTime = 30;
-        this.lastUpdateTime = 0;
+        this.selectedFeatures = null;
+        this.offsets = null;
+        this.initialCoordinates = null;
+
+        // Performance optimization properties
+        this.rafId = null;
+        this.pendingUpdate = false;
+        this.mouseMoveHandler = null;
+        this.mouseUpHandler = null;
+
+        // Coordinate caching and pooling
+        this.cachedPosition = { lng: 0, lat: 0 };
+        this.cachedDelta = { dx: 0, dy: 0 };
+        this.coordsPool = { lng: 0, lat: 0 };
+        this.tempCoords = { lng: 0, lat: 0 };
+
+        this.setupEventListeners();
+    }
+
+    // ===== DYNAMIC SOURCE MANAGEMENT =====
+
+    /**
+     * Get valid drag sources from all registered tools
+     * @returns {Array} Array of valid drag source names
+     */
+    getValidDragSources() {
+        const sources = new Set();
+
+        for (const control of this.selectionManager.controls.values()) {
+            const toolSources = control.getSourceNames();
+            toolSources.forEach(source => sources.add(source));
+        }
+
+        return Array.from(sources);
+    }
+
+    /**
+     * Get edit handle sources from all registered tools
+     * @returns {Array} Array of edit handle source names
+     */
+    getEditHandleSources() {
+        const sources = new Set();
+
+        for (const control of this.selectionManager.controls.values()) {
+            const editHandleSource = control.getEditHandleSource();
+            if (editHandleSource) {
+                sources.add(editHandleSource);
+            }
+        }
+
+        return Array.from(sources);
+    }
+
+    // ===== TOOL-CENTRIC HELPER METHODS =====
+
+    /**
+     * Get control for feature type - compatible with new SelectionManager
+     */
+    getControl(type) {
+        return this.selectionManager.controls.get(type);
+    }
+
+    /**
+     * Check if control supports tool-centric interface
+     */
+    supportsToolCentricInterface(control) {
+        return control &&
+            typeof control.calculateMoveOffset === 'function' &&
+            typeof control.updateFeatureForMove === 'function';
+    }
+
+    // ===== INITIALIZATION =====
+
+    setupEventListeners() {
         this.map.on('mousedown', this.onMouseDown.bind(this));
     }
 
+    // ===== EVENT HANDLING =====
+
     onMouseDown(e) {
         this.startDrag(e);
-        this.map.on('mousemove', this.onMouseMove.bind(this));
-        this.map.once('mouseup', this.onMouseUp.bind(this));
+
+        // Setup drag event listeners - clean previous ones if any
+        this.cleanupDragListeners();
+
+        // Create bound handlers for proper cleanup
+        this.mouseMoveHandler = this.onMouseMove.bind(this);
+        this.mouseUpHandler = this.onMouseUp.bind(this);
+
+        this.map.on('mousemove', this.mouseMoveHandler);
+        this.map.once('mouseup', this.mouseUpHandler);
+    }
+
+    cleanupDragListeners() {
+        if (this.mouseMoveHandler) {
+            this.map.off('mousemove', this.mouseMoveHandler);
+            this.mouseMoveHandler = null;
+        }
+        if (this.mouseUpHandler) {
+            this.map.off('mouseup', this.mouseUpHandler);
+            this.mouseUpHandler = null;
+        }
     }
 
     startDrag(e) {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
-        if (allSelectedFeatures.length > 0) {
-            const clickedFeatures = this.map.queryRenderedFeatures(e.point);
+        if (allSelectedFeatures.length === 0) return;
 
-            const sources = ['los', 'visibility', 'mapbox-gl-draw-cold', 'mapbox-gl-draw-hot', 'texts', 'images'];
-            
-            const filteredFeatures = clickedFeatures.filter(feature => sources.includes(feature.source));
+        const clickedFeatures = this.map.queryRenderedFeatures(e.point);
+        const validDragSources = this.getValidDragSources();
+        const filteredFeatures = clickedFeatures.filter(feature =>
+            validDragSources.includes(feature.source)
+        );
 
-            // Check if any filtered feature has properties.meta equal to 'midpoint' or 'vertex'
-            const hasMidpointOrVertex = filteredFeatures.some(feature => 
-                feature.properties.mode === 'direct_select' || feature.properties.meta === 'midpoint' || feature.properties.meta === 'vertex'
-            );
-
-            if (filteredFeatures.length === 0 || hasMidpointOrVertex) {
-                return;
-            }
-
-            const isFeatureSelected = filteredFeatures.some(clickedFeature => {
-                clickedFeature.id = clickedFeature.id || clickedFeature.properties.id;
-                return allSelectedFeatures.some(f => f.id === clickedFeature.id);
-            });
-
-            if (isFeatureSelected) {
-                this.isDragging = true;
-                this.map.dragPan.disable();
-                this.uiManager.setDragging(true);
-                this.initialCoordinates = e.lngLat;
-                this.setCursorStyle('grabbing');
-
-                this.selectedFeatures = allSelectedFeatures;
-                this.offsets = new Map(allSelectedFeatures.map(item => [
-                    item.id,
-                    {
-                        feature: item,
-                        source: item.properties.source,
-                        offset: this.calculateOffset(item, this.initialCoordinates)
-                    }
-                ]));
-            }
+        // Early exit if clicking on ANY edit handle
+        if (filteredFeatures.length === 0 || this.isClickOnEditHandle(e.point)) {
+            return; // Let edit handlers take control
         }
+
+        // Check if clicked feature is selected
+        const isFeatureSelected = filteredFeatures.some(clickedFeature => {
+            const clickedFeatureId = clickedFeature.properties.id;
+
+            if (clickedFeatureId === null) {
+                return false;
+            }
+
+            return allSelectedFeatures.some(selectedFeature => {
+                const selectedFeatureId = selectedFeature.properties.id;
+                return selectedFeatureId == clickedFeatureId; // Use loose equality for type coercion
+            });
+        });
+
+        if (!isFeatureSelected) return;
+
+        // Check if features can be moved using tool-centric approach ONLY
+        const movableFeatures = allSelectedFeatures.filter(feature => {
+            const control = this.getControl(feature.properties.source);
+            if (!control || !control.canMove) {
+                console.warn(`Tool ${feature.properties.source} does not implement canMove interface`);
+                return false; // No fallback - must implement interface
+            }
+            return control.canMove(feature);
+        });
+
+        if (movableFeatures.length === 0) return;
+
+        // Initialize drag state
+        this.isDragging = true;
+        this.map.dragPan.disable();
+        this.uiManager.setDragging(true);
+        this.setCursorStyle('grabbing');
+
+        // Cache initial coordinates
+        this.initialCoordinates = e.lngLat;
+        this.cachedPosition.lng = e.lngLat.lng;
+        this.cachedPosition.lat = e.lngLat.lat;
+        this.cachedDelta.dx = 0;
+        this.cachedDelta.dy = 0;
+
+        // Cache selected features and calculate offsets using tool-centric approach ONLY
+        this.selectedFeatures = movableFeatures;
+        this.offsets = this.calculateOffsetsToolCentric(movableFeatures, this.initialCoordinates);
+    }
+
+    //Single method to check edit handles
+    isClickOnEditHandle = (point) => {
+        const features = this.map.queryRenderedFeatures(point);
+        const editHandleSources = this.getEditHandleSources();
+
+        return features.some(f =>
+            editHandleSources.includes(f.source) &&
+            f.properties.user_isEditingHandle
+        );
     }
 
     onMouseMove(e) {
         if (!this.isDragging) return;
 
-        const currentTime = performance.now();
-        if (currentTime - this.lastUpdateTime < this.debounceTime) {
-            return;
+        // Update cached position and delta
+        this.cachedPosition.lng = e.lngLat.lng;
+        this.cachedPosition.lat = e.lngLat.lat;
+        this.cachedDelta.dx = this.cachedPosition.lng - this.initialCoordinates.lng;
+        this.cachedDelta.dy = this.cachedPosition.lat - this.initialCoordinates.lat;
+
+        // Use requestAnimationFrame for smooth updates
+        if (!this.pendingUpdate) {
+            this.pendingUpdate = true;
+            this.rafId = requestAnimationFrame(this.performDragUpdate.bind(this));
         }
-        this.lastUpdateTime = currentTime;
-
-        const newPos = e.lngLat;
-        const dx = newPos.lng - this.initialCoordinates.lng;
-        const dy = newPos.lat - this.initialCoordinates.lat;
-
-        this.uiManager.shiftSelectionBoxes(dx, dy);
     }
 
-    onMouseUp(e) {
+    performDragUpdate() {
+        if (!this.isDragging) {
+            this.pendingUpdate = false;
+            return;
+        }
+
+        // Perform the actual UI update
+        this.uiManager.shiftSelectionBoxes(this.cachedDelta.dx, this.cachedDelta.dy);
+
+        this.pendingUpdate = false;
+    }
+
+    onMouseUp = async (e) => {
         if (!this.isDragging) return;
 
+        // Cancel any pending RAF updates
+        if (this.rafId) {
+            cancelAnimationFrame(this.rafId);
+            this.rafId = null;
+        }
+        this.pendingUpdate = false;
+
+        // Reset drag state
         this.isDragging = false;
         this.map.dragPan.enable();
         this.uiManager.setDragging(false);
-        this.map.off('mousemove', this.onMouseMove);
         this.setCursorStyle('');
 
-        const newPos = e.lngLat;
-        const dx = newPos.lng - this.initialCoordinates.lng;
-        const dy = newPos.lat - this.initialCoordinates.lat;
+        // Clean up event listeners
+        this.cleanupDragListeners();
+
+        // Calculate final position using cached values
+        const dx = this.cachedDelta.dx;
+        const dy = this.cachedDelta.dy;
         const distanceMoved = Math.sqrt(dx * dx + dy * dy);
         const tolerance = 2 / Math.pow(2, this.map.getZoom());
-        if (distanceMoved > tolerance) {
 
-            const updatedFeatures = this.selectedFeatures.map(feature => {
-                const { offset } = this.offsets.get(feature.id);
-                const newCoords = {
-                    lng: newPos.lng + offset[0],
-                    lat: newPos.lat + offset[1]
-                };
-                return this.calculateUpdatedFeature(feature, feature.properties.source, dx, dy, newCoords);
-            });
+        if (distanceMoved > tolerance) {
+            // Reuse coordinate object
+            this.tempCoords.lng = e.lngLat.lng;
+            this.tempCoords.lat = e.lngLat.lat;
+
+            // Batch update features using tool-centric approach ONLY
+            const updatedFeatures = this.batchUpdateFeaturesToolCentric(this.selectedFeatures, dx, dy, this.tempCoords);
+
+            // Final UI update
             this.uiManager.shiftSelectionBoxes(dx, dy, true);
 
+            // Update SelectionManager with new features
             this.updateSelectionManagerFeatures(updatedFeatures);
 
-            this.selectionManager.updateSelectedFeatures();
+            await this.selectionManager.updateSelectedFeatures();
+
+            this.selectionManager.updateProfile();
+            this.syncEditHandlesForMovedFeatures(updatedFeatures);
+            this.updateMeasurementsForMovedFeatures(updatedFeatures);
         }
+
+        // Reset state
+        this.selectedFeatures = null;
+        this.offsets = null;
+        this.initialCoordinates = null;
     }
 
-    calculateUpdatedFeature(feature, source, dx, dy, newCoords) {
-        let updatedFeature;
-        switch (source) {
-            case 'draw':
-            case 'los':
-            case 'visibility':
-                updatedFeature = this.uiManager.translateFeature(feature, dx, dy);
-                break;
-            case 'text':
-            case 'image':
-                updatedFeature = { ...feature, geometry: { ...feature.geometry, coordinates: [newCoords.lng, newCoords.lat] } };
-                break;
-            default:
-                console.error('Unknown source type:', source);
-                return feature;
+    // ===== TOOL-CENTRIC FEATURE CALCULATION =====
+
+    /**
+     * Calculate offsets using tool-centric approach ONLY
+     */
+    calculateOffsetsToolCentric(features, referencePoint) {
+        const offsets = new Map();
+
+        for (const feature of features) {
+            const featureId = feature.properties.id;
+            if (featureId !== null) {
+                const control = this.getControl(feature.properties.source);
+
+                if (!this.supportsToolCentricInterface(control)) {
+                    console.warn(`Tool ${feature.properties.source} does not implement tool-centric move interface`);
+                    continue; // Skip feature - no fallback
+                }
+
+                // Use tool-centric method ONLY
+                const offset = control.calculateMoveOffset(feature, referencePoint);
+
+                offsets.set(featureId, {
+                    feature: feature,
+                    source: feature.properties.source,
+                    offset: offset
+                });
+            }
         }
-        return { ...updatedFeature, source };
+
+        return offsets;
     }
 
-    calculateOffset(feature, referencePoint) {
-        const coords = feature.geometry.coordinates;
-    
-        if (feature.geometry.type === "Point") {
-            // For Point geometry
-            return [
-                coords[0] - referencePoint.lng,
-                coords[1] - referencePoint.lat
-            ];
-        } else if (feature.geometry.type === "LineString") {
-            // For LineString geometry (offset the first point)
-            return [
-                coords[0][0] - referencePoint.lng,
-                coords[0][1] - referencePoint.lat
-            ];
-        } else if (feature.geometry.type === "Polygon") {
-            // For Polygon geometry (offset the first point of the first ring)
-            return [
-                coords[0][0][0] - referencePoint.lng,
-                coords[0][0][1] - referencePoint.lat
-            ];
-        } else if (feature.geometry.type === "MultiLineString") {
-            // For MultiLineString geometry (offset the first point of the first line)
-            return [
-                coords[0][0][0] - referencePoint.lng,
-                coords[0][0][1] - referencePoint.lat
-            ];
-        } else if (feature.geometry.type === "MultiPolygon") {
-            // For MultiPolygon geometry (offset the first point of the first polygon)
-            return [
-                coords[0][0][0][0] - referencePoint.lng,
-                coords[0][0][0][1] - referencePoint.lat
-            ];
-        } else {
-            throw new Error("Unsupported geometry type: " + feature.geometry.type);
+    /**
+     * Batch update features using tool-centric approach ONLY
+     */
+    batchUpdateFeaturesToolCentric(features, dx, dy, newPos) {
+        const updatedFeatures = new Array(features.length);
+
+        for (let i = 0; i < features.length; i++) {
+            const feature = features[i];
+            const featureId = feature.properties.id;
+
+            if (featureId !== null && this.offsets.has(featureId)) {
+                const { offset } = this.offsets.get(featureId);
+
+                // Reuse coordinate object
+                this.coordsPool.lng = newPos.lng + offset[0];
+                this.coordsPool.lat = newPos.lat + offset[1];
+
+                const control = this.getControl(feature.properties.source);
+                if (!this.supportsToolCentricInterface(control)) {
+                    console.warn(`Tool ${feature.properties.source} does not implement tool-centric update interface`);
+                    updatedFeatures[i] = feature; // Keep original if no implementation
+                    continue;
+                }
+
+                // Use tool-centric method ONLY
+                const updatedFeature = control.updateFeatureForMove(feature, dx, dy, this.coordsPool);
+                updatedFeatures[i] = { ...updatedFeature, source: feature.properties.source };
+            } else {
+                updatedFeatures[i] = feature; // Keep original if no offset found
+            }
         }
+
+        return updatedFeatures;
     }
 
+    // ===== SELECTION MANAGER INTEGRATION =====
+
+    /**
+     * Update SelectionManager with moved features
+     */
     updateSelectionManagerFeatures(updatedFeatures) {
-        const newSelectedFeatures = new Map();
-        const newSelectedTextFeatures = new Map();
-        const newSelectedImageFeatures = new Map();
-        const newSelectedLOSFeatures = new Map();
-        const newSelectedVisibilityFeatures = new Map();
+        // Clear existing selections using new API
+        this.selectionManager.selectedFeatures.clear();
 
-        updatedFeatures.forEach(feature => {
-            switch (feature.properties.source) {
-                case 'draw':
-                    newSelectedFeatures.set(feature.id, feature);
-                    break;
-                case 'text':
-                    newSelectedTextFeatures.set(feature.id, feature);
-                    break;
-                case 'image':
-                    newSelectedImageFeatures.set(feature.id, feature);
-                    break;
-                case 'los':
-                    newSelectedLOSFeatures.set(feature.id, feature);
-                case 'visibility':
-                    newSelectedVisibilityFeatures.set(feature.id, feature);
-                    break;
+        // Add updated features using new API
+        for (const feature of updatedFeatures) {
+            const type = feature.properties.source;
+            const featureId = feature.properties.id;
+            if (featureId) {
+                const key = `${type}:${featureId}`;
+                this.selectionManager.selectedFeatures.set(key, { type, feature });
+            }
+        }
+    }
+
+    // ===== POST-MOVE UPDATES =====
+
+    /**
+     * Update measurements for moved features
+     */
+    updateMeasurementsForMovedFeatures = (updatedFeatures) => {
+        for (const feature of updatedFeatures) {
+            const type = feature.properties.source;
+
+            // Update line measurements
+            if (type === 'line' && feature.properties.measure) {
+                const lineControl = this.getControl('line');
+                if (lineControl && lineControl.updateFeatureMeasurement) {
+                    lineControl.updateFeatureMeasurement(feature);
+                }
+            }
+
+            // Update polygon measurements  
+            else if (type === 'polygon' && feature.properties.measure) {
+                const polygonControl = this.getControl('polygon');
+                if (polygonControl && polygonControl.updateFeatureMeasurement) {
+                    polygonControl.updateFeatureMeasurement(feature);
+                }
+            }
+
+            // Update LOS measurements (if they have measure property)
+            else if (type === 'los' && feature.properties.measure) {
+                const losControl = this.getControl('los');
+                if (losControl && losControl.updateFeatureMeasurement) {
+                    losControl.updateFeatureMeasurement(feature);
+                }
+            }
+        }
+    }
+
+    /**
+     * Sync edit handles using tool-centric approach ONLY
+     */
+    syncEditHandlesForMovedFeatures = (updatedFeatures) => {
+        // Group features by type for efficient processing
+        const featuresByType = new Map();
+
+        for (const feature of updatedFeatures) {
+            const type = feature.properties.source;
+            if (!featuresByType.has(type)) {
+                featuresByType.set(type, []);
+            }
+            featuresByType.get(type).push(feature);
+        }
+
+        // Sync handles for each type using tool-centric approach ONLY
+        featuresByType.forEach((features, type) => {
+            const control = this.getControl(type);
+
+            if (control && typeof control.syncEditHandlesAfterDrag === 'function') {
+                control.syncEditHandlesAfterDrag(features);
+            } else if (control) {
+                console.warn(`Tool ${type} does not implement syncEditHandlesAfterDrag interface`);
             }
         });
-
-        this.selectionManager.selectedDrawFeatures = newSelectedFeatures;
-        this.selectionManager.selectedTextFeatures = newSelectedTextFeatures;
-        this.selectionManager.selectedImageFeatures = newSelectedImageFeatures;
-        this.selectionManager.selectedLOSFeatures = newSelectedLOSFeatures;
-        this.selectionManager.selectedVisibilityFeatures = newSelectedVisibilityFeatures;
-
-
     }
+
+    // ===== UTILITY METHODS =====
 
     setCursorStyle(style) {
         this.map.getCanvas().style.cursor = style;
+    }
+
+    // Cleanup method for proper disposal
+    destroy() {
+        this.cleanupDragListeners();
+
+        if (this.rafId) {
+            cancelAnimationFrame(this.rafId);
+        }
+
+        // Clear references
+        this.selectedFeatures = null;
+        this.offsets = null;
+        this.initialCoordinates = null;
     }
 }
 

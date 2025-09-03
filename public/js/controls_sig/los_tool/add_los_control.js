@@ -1,62 +1,93 @@
 // Path: js\controls_sig\los_tool\add_los_control.js
-import { addFeature, updateFeature, removeFeature } from '../store.js';
-import { getTerrainElevation } from '../terrain_control.js';
-class AddLOSControl {
+import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures } from '../store/store.js';
+import { IDUtils } from '../id_utils.js';
+import { addLOSAttributesToPanel } from './los_attributes_panel.js';
+import AddLOSGeometry from './add_los_geometry.js';
+import BaseControl from '../tool_manager/base_control.js';
+
+class AddLOSControl extends BaseControl {
+    constructor(toolManager) {
+        super(toolManager);
+
+        // State management
+        this.startPoint = null;
+        this.endPoint = null;
+
+        // Geometry handler
+        this.geometry = new AddLOSGeometry();
+
+        // Performance optimization - RAF system with async support
+        this.previewRafId = null;
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+        this.geometryDebounceTimer = null;
+
+        // Drag recalculation timeout for debouncing
+        this.dragRecalculateTimeout = null;
+
+        // Store reference in toolManager for terrain integration
+        this.toolManager.losControl = this;
+    }
+
     static DEFAULT_PROPERTIES = {
         opacity: 1,
         width: 5,
         profile: true,
         measure: false,
-        source: 'los'
+        source: 'los',
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
-    static VISIBLE_COLOR = '#00FF00';
+    // ===== SINGLE SOURCE OF TRUTH =====
 
-    static OBSTRUCTED_COLOR = '#FF0000';
-
-    constructor(toolManager) {
-        this.toolManager = toolManager;
-        this.toolManager.losControl = this;
-        this.isActive = false;
-        this.startPoint = null;
-        this.endPoint = null;
-        this.debounceTime = 30;
-        this.lastUpdateTime = 0;
+    /**
+     * Get currently selected LOS feature from SelectionManager
+     * @returns {Object|null} Selected LOS feature or null
+     */
+    getSelectedFeature() {
+        const selectedItems = this.selectionManager.getSelectedFeaturesByType('los');
+        return selectedItems.length > 0 ? selectedItems[0].feature : null;
     }
+
+    /**
+     * Get all selected LOS features from SelectionManager
+     * @returns {Array} Array of selected LOS features
+     */
+    getSelectedFeatures() {
+        return this.selectionManager.getSelectedFeaturesByType('los')
+            .map(item => item.feature);
+    }
+
+    // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
         this.map = map;
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl';
+        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl los-control controls-column-left';
 
         const button = document.createElement('button');
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "los-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_los_black.svg" alt="LOS" />';
-        button.title = 'Adicionar linha de visada';
+        button.title = 'Adicionar linha de visada (O)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
-
-        this.setupEventListeners();
-
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
-        this.changeButtonColor()
+        this.setupBaseEventListeners();
+        this.updateButtonAppearance();
 
         return this.container;
     }
 
-    changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
-        $("#los-tool").html(`<img class="icon-sig-tool" src="./images/icon_los_${color}.svg" alt="LOS" />`);
-        if (!this.isActive) return
-        $("#los-tool").html('<img class="icon-sig-tool" src="./images/icon_los_red.svg" alt="LOS" />');
-    }
-    
     onRemove = () => {
         try {
-            this.uiManager.removeControl(this.container);
-            this.removeEventListeners();
+            this.selectionManager.uiManager.removeControl(this.container);
+            this.deactivate();
+            this.removeAllEventListeners();
             this.map = undefined;
         } catch (error) {
             console.error('Error removing AddLOSControl:', error);
@@ -64,393 +95,692 @@ class AddLOSControl {
         }
     }
 
-    setupEventListeners = () => {
-        this.map.on('mouseenter', 'los-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'los-layer', this.handleMouseLeave);
+    // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
+
+    hasAttributePanel() {
+        return true;
     }
 
-    removeEventListeners = () => {
-        this.map.off('mouseenter', 'los-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'los-layer', this.handleMouseLeave);
+    createAttributePanel(container, features, selectionManager, uiManager) {
+        const sectionPanel = document.createElement('div');
+        sectionPanel.className = 'los-attributes-section';
+
+        try {
+            addLOSAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            container.appendChild(sectionPanel);
+        } catch (error) {
+            console.error('Error creating LOS attribute panel:', error);
+        }
     }
+
+    getDragSources() {
+        return ['los'];
+    }
+
+    getEditHandleSources() {
+        return []; // LOS doesn't have edit handles
+    }
+
+    createSelectionBox(feature) {
+        try {
+            const coordinates = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
+            if (coordinates && coordinates.length === 2) {
+                const bbox = this.geometry.getBoundingBox(coordinates);
+                const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding(),this.map);
+                return turf.bboxPolygon(expandedBbox);
+            }
+            return turf.bbox(feature);
+        } catch (error) {
+            console.warn('Error creating LOS selection box:', error);
+            return null;
+        }
+    }
+
+    getSelectionBoxStrategy() {
+        return 'bbox';
+    }
+
+    getSelectionBoxPadding() {
+        return 8;
+    }
+
+    getLayerIds() {
+        return ['los-visible-layer', 'los-obstructed-layer'];
+    }
+
+    getSourceNames() {
+        return ['los']; // Only return main source for selection detection
+    }
+
+    getEditHandleSource() {
+        return null; // LOS doesn't have edit handles
+    }
+
+    canCopy(feature) {
+        return true;
+    }
+
+    canPaste(feature) {
+        return true;
+    }
+
+    async prepareForPaste(feature, offset) {
+        const oldCoords = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
+        if (!oldCoords) return feature;
+
+        const newCoords = oldCoords.map(coord => [
+            coord[0] + offset.dx,
+            coord[1] + offset.dy
+        ]);
+
+        try {
+            // Recalculate LOS with new position (async)
+            const result = await this.geometry.recalculateFromCoordinates(newCoords, this.map);
+
+            return {
+                ...feature,
+                properties: {
+                    ...feature.properties,
+                    profileData: JSON.stringify(result.profileData)
+                },
+                geometry: result.geometry
+            };
+        } catch (error) {
+            console.error('Error preparing LOS for paste:', error);
+            return feature;
+        }
+    }
+
+    calculateMoveOffset(feature, referencePoint) {
+        const coordinates = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
+        if (!coordinates || coordinates.length === 0) {
+            return [0, 0];
+        }
+
+        // Use first point as reference
+        const firstPoint = coordinates[0];
+        return [
+            firstPoint[0] - referencePoint.lng,
+            firstPoint[1] - referencePoint.lat
+        ];
+    }
+
+    updateFeatureForMove(feature, dx, dy, newCoords) {
+        const oldCoords = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
+        if (!oldCoords) return feature;
+
+        const newLOSCoords = oldCoords.map(coord => [
+            coord[0] + dx,
+            coord[1] + dy
+        ]);
+
+        // Return simple translated geometry (sync)
+        return {
+            ...feature,
+            geometry: {
+                type: 'LineString',
+                coordinates: newLOSCoords
+            }
+            // Keep original profileData temporarily
+        };
+    }
+
+    async recalculateLOSAfterMove(movedFeatures) {
+        for (const feature of movedFeatures) {
+            const coordinates = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
+            const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map);
+
+            // Update main source with correct LOS geometry + profile
+            this.updateMainSourceAfterRecalculation(feature, result);
+
+            // Update processed sources
+            this.updateProcessedSourcesAfterRecalculation(feature, result);
+        }
+    }
+
+    canMove(feature) {
+        return !feature.properties?.bloqueado && this.geometry.isTerrainAvailable(this.map);
+    }
+
+    // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        if (!this.geometry.isTerrainAvailable(this.map)) {
+            return false; // Block activation
+        }
         this.isActive = true;
+        this.startPoint = null;
+        this.endPoint = null;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.changeButtonColor()
+        this.updateButtonAppearance();
     }
 
     deactivate = () => {
         this.isActive = false;
-        this.map.getCanvas().style.cursor = '';
         this.startPoint = null;
         this.endPoint = null;
-        this.map.getSource('temp-line').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
-        this.map.off('mousemove', this.handleMouseMove);
-        this.changeButtonColor()
+        this.map.getCanvas().style.cursor = '';
+        this.clearPreview();
+        this.updateButtonAppearance();
     }
 
+    updateButtonAppearance = () => {
+        const terrainEnabled = this.geometry.isTerrainAvailable(this.map);
+
+        if (!terrainEnabled) {
+            // Disabled state
+            this.container.classList.add('disabled');
+            this.container.querySelector('button').disabled = true;
+            $("#los-tool").html('<img class="icon-sig-tool" src="./images/icon_los_disabled.svg" alt="LOS DISABLED" />');
+        } else {
+            // Normal state
+            this.container.classList.remove('disabled');
+            this.container.querySelector('button').disabled = false;
+
+            const iconSrc = this.isActive ?
+                './images/icon_los_red.svg' :
+                './images/icon_los_black.svg';
+            $("#los-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="LOS" />`);
+        }
+    }
+
+    // ===== SELECTION SYSTEM INTEGRATION =====
+
+    onFeatureSelected = (feature) => {
+        // LOS features always have profile data - will be shown by UIManager
+    }
+
+    onFeatureDeselected = (feature) => {
+        // No special cleanup needed
+    }
+
+    onGlobalDeselect = () => {
+        // No special cleanup needed
+    }
+
+    isEditingMode = () => {
+        return false; // LOS doesn't have edit handles
+    }
+
+    hasEditHandle = (featureId) => {
+        return false; // LOS doesn't have edit handles
+    }
+
+    /**
+     * NOVA IMPLEMENTAÇÃO: Recálculo síncrono após drag
+     * Garante que o painel de perfil seja atualizado após o recálculo completo
+     */
+    syncEditHandlesAfterDrag = async (movedFeatures) => {
+        // Verificar se há features LOS que precisam de recálculo
+        const losFeatures = movedFeatures.filter(f => f.properties.source === 'los');
+        
+        if (losFeatures.length === 0) return;
+
+        // Debounce para múltiplos drags rápidos
+        clearTimeout(this.dragRecalculateTimeout);
+        this.dragRecalculateTimeout = setTimeout(async () => {
+            this.showRecalculatingState();
+            
+            try {
+                const updatedFeatures = await this.recalculateMovedLOSFeatures(losFeatures);
+                
+                // Atualizar SelectionManager com features recalculados
+                this.updateSelectionManagerFeatures(updatedFeatures);
+                
+                // Forçar atualização do UI/painel com dados frescos
+                this.selectionManager.updateUI();
+                
+            } catch (error) {
+                console.error('Error recalculating LOS after drag:', error);
+            } finally {
+                this.hideRecalculatingState();
+            }
+        }, 50); // 50ms debounce para responsividade
+    }
+
+    /**
+     * Mostrar estado de recálculo
+     */
+    showRecalculatingState() {
+        this.map.getCanvas().style.cursor = 'wait';
+        // Temporariamente desabilitar interações durante recálculo
+        this.map.off('click', this.handleMapClick);
+        
+        // Opcional: mostrar indicador visual
+        if (this.container) {
+            this.container.classList.add('recalculating');
+        }
+    }
+
+    /**
+     * Esconder estado de recálculo
+     */
+    hideRecalculatingState() {
+        this.map.getCanvas().style.cursor = this.isActive ? 'crosshair' : '';
+        
+        // Re-habilitar interações
+        if (this.isActive) {
+            this.map.on('click', this.handleMapClick);
+        }
+        
+        if (this.container) {
+            this.container.classList.remove('recalculating');
+        }
+    }
+
+    /**
+     * MODIFICADO: Recalcular LOS features após movimento e retornar features atualizados
+     * @param {Array} movedFeatures - Array of moved LOS features
+     * @returns {Array} Array of updated features
+     */
+    async recalculateMovedLOSFeatures(movedFeatures) {
+        const updatedFeatures = [];
+        
+        for (const movedFeature of movedFeatures) {
+            if (movedFeature.properties.source === 'los') {
+                try {
+                    const coordinates = this.geometry.extractCoordinatesFromGeometry(movedFeature.geometry);
+                    if (coordinates) {
+                        // Recalcular LOS com nova posição
+                        const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map);
+
+                        // Atualizar feature com nova geometria e perfil
+                        movedFeature.geometry = result.geometry;
+                        movedFeature.properties.profileData = JSON.stringify(result.profileData);
+
+                        // Salvar no IndexedDB
+                        await updateFeature('los', movedFeature);
+
+                        // Atualizar measurement se habilitado
+                        if (movedFeature.properties.measure) {
+                            this.updateFeatureMeasurement(movedFeature);
+                        }
+
+                        // Atualizar processed features
+                        await this.updateProcessedFeaturesAfterMove(movedFeature);
+                        
+                        updatedFeatures.push(movedFeature);
+                    }
+                } catch (error) {
+                    console.error('Error recalculating LOS after movement:', error);
+                }
+            }
+        }
+        
+        return updatedFeatures;
+    }
+
+    /**
+     * Update processed features after main feature movement
+     * @param {Object} mainFeature - Updated main LOS feature
+     */
+    async updateProcessedFeaturesAfterMove(mainFeature) {
+        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+
+        // Remove old processed features
+        processedData.features = processedData.features.filter(f =>
+            f.properties.id !== mainFeature.properties.id + '-visible' &&
+            f.properties.id !== mainFeature.properties.id + '-obstructed'
+        );
+
+        // Add new processed features
+        const newProcessedFeatures = this.geometry.generateProcessedFeatures(mainFeature);
+        for (const processedFeature of newProcessedFeatures) {
+            await updateFeature('processed_los', processedFeature);
+            processedData.features.push(processedFeature);
+        }
+
+        // Update map source
+        this.map.getSource('processed-los').setData(processedData);
+    }
+
+    // ===== DRAWING SYSTEM =====
+
     handleMapClick = async (e) => {
-        if (!this.isActive) return;
+        if (!this.isActive || !this.geometry.isTerrainAvailable(this.map)) return;
 
         const { lng, lat } = e.lngLat;
 
         if (!this.startPoint) {
             this.startPoint = [lng, lat];
+            this.lastPreviewCenter = this.startPoint;
             this.map.on('mousemove', this.handleMouseMove);
         } else {
             this.endPoint = [lng, lat];
-            await this.addLOSFeature();
+            this.map.off('mousemove', this.handleMouseMove);
+            await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         }
     }
 
+    // RAF-based preview system following standard pattern
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
-        const currentTime = performance.now();
-        if (currentTime - this.lastUpdateTime < this.debounceTime) {
+        this.lastPreviewCenter = this.startPoint;
+        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
+        }
+    }
+
+    performPreviewUpdate = () => {
+        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
+            this.pendingPreviewUpdate = false;
             return;
         }
-        this.lastUpdateTime = currentTime;
 
-        const { lng, lat } = e.lngLat;
-        const endPoint = [lng, lat];
-        this.updateTempLine([this.startPoint, endPoint]);
+        // Standard 8ms debounce - no terrain calculations in preview
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            const previewGeometry = this.geometry.generate([this.lastPreviewCenter, this.lastPreviewPosition]);
+            this.showPreview(previewGeometry);
+        }, 8);
+
+        this.pendingPreviewUpdate = false;
     }
 
-    updateTempLine = (coordinates) => {
-        const data = {
-            type: 'FeatureCollection',
-            features: [{
-                type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: coordinates
-                }
-            }]
-        };
-
-        this.map.getSource('temp-line').setData(data);
-    }
-
-    async addLOSFeature() {
-        const linestring = {
+    showPreview = (geometry) => {
+        this.map.getSource('los-feedback').setData({
             type: 'Feature',
-            geometry: {
-                type: 'LineString',
-                coordinates: [this.startPoint, this.endPoint]
-            }
-        };
-
-        const losResult = await this.calculateLOS(linestring);
-        let losFeature
-        if (losResult.obstructed) {
-            losFeature = {
-                type: 'Feature',
-                id: Date.now().toString(),
-                properties: { ...AddLOSControl.DEFAULT_PROPERTIES,
-                    profileData: await this.calculateProfile([this.startPoint, this.endPoint])
-                 },
-                geometry: {
-                    type: 'MultiLineString',
-                    coordinates: [
-                        losResult.visible.geometry.coordinates,
-                        losResult.obstructed.geometry.coordinates
-                    ]
-                }
-            };
-        } else {
-            losFeature = {
-                type: 'Feature',
-                id: Date.now().toString(),
-                properties: { ...AddLOSControl.DEFAULT_PROPERTIES,
-                    profileData: JSON.stringify(await this.calculateProfile([this.startPoint, this.endPoint]))
-                 },
-                geometry: {
-                    type: 'LineString',
-                    coordinates: losResult.visible.geometry.coordinates
-                }
-            };
-        }
-        
-        addFeature('los', losFeature);
-        this.updateFeatureMeasurement(losFeature);
-
-        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-        data.features.push(losFeature);
-        this.map.getSource('los').setData(data);
-
-        const processedLosFeatures = this.preprocessLosFeature(losFeature);
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-        processedLosFeatures.forEach(processedFeature => {
-            addFeature('processed_los', processedFeature);
-            processedData.features.push(processedFeature);
+            geometry: geometry,
+            properties: {}
         });
-        
-        this.map.getSource('processed-los').setData(processedData);
     }
 
-    preprocessLosFeature(feature) {
-        const properties = feature.properties;
-        let processedFeatures = [];
-
-        if (feature.geometry.type === 'MultiLineString') {
-            processedFeatures.push({
-                type: 'Feature',
-                id: feature.id + '-visible',
-                properties: {
-                    ...properties,
-                    color: AddLOSControl.VISIBLE_COLOR
-                },
-                geometry: {
-                    type: 'LineString',
-                    coordinates: feature.geometry.coordinates[0]
-                }
-            });
-
-            processedFeatures.push({
-                type: 'Feature',
-                id: feature.id + '-obstructed',
-                properties: {
-                    ...properties,
-                    color: AddLOSControl.OBSTRUCTED_COLOR
-                },
-                geometry: {
-                    type: 'LineString',
-                    coordinates: feature.geometry.coordinates[1]
-                }
-            });
-        } else {
-            processedFeatures.push({
-                type: 'Feature',
-                id: feature.id + '-visible',
-                properties: {
-                    ...properties,
-                    color: AddLOSControl.VISIBLE_COLOR
-                },
-                geometry: feature.geometry
+    clearPreview = () => {
+        this.cancelPendingUpdates();
+        if (this.map && this.map.getSource('los-feedback')) {
+            this.map.getSource('los-feedback').setData({
+                type: 'FeatureCollection',
+                features: []
             });
         }
-
-        return processedFeatures;
     }
 
-    async calculateLOS(linestring) {
-        const line = turf.lineString(linestring.geometry.coordinates);
-        const length = turf.length(line, { units: 'meters' });
-        const steps = 20; // Number of steps to check elevation along the line
-        const stepLength = length / steps;
-      
-        // Get start and end elevations
-        const startCoordinates = line.geometry.coordinates[0];
-        const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
-        const startElevation = await getTerrainElevation(this.map, startCoordinates)+2;
-        const endElevation = await getTerrainElevation(this.map, endCoordinates);
-      
-        let firstObstructedPoint = null;
-      
-        for (let i = 1; i <= steps; i++) {
-          const segment = turf.along(line, i * stepLength, { units: 'meters' });
-          const segmentCoordinates = segment.geometry.coordinates;
-      
-          // Calculate expected elevation on the line
-          const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
-      
-          // Query terrain elevation
-          const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
-      
-          if (actualElevation > expectedElevation) {
-            firstObstructedPoint = segmentCoordinates;
-            break;
-          }
+    createFeature = async () => {
+        if (!this.startPoint || !this.endPoint) return;
+
+        try {
+            const coordinates = [this.startPoint, this.endPoint];
+            const featureId = IDUtils.generateUniqueId();
+            const featureName = IDUtils.generateFeatureName('los', this.map);
+
+            const properties = {
+                ...AddLOSControl.DEFAULT_PROPERTIES,
+                id: featureId,
+                nome: featureName
+            };
+
+            // Create complete LOS feature with geometry and profile
+            const losFeature = await this.geometry.createLOSFeature(coordinates, properties, this.map);
+
+            // Save to IndexedDB
+            await addFeature('los', losFeature);
+            this.updateFeatureMeasurement(losFeature);
+
+            // Update main source
+            const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+            data.features.push(losFeature);
+            this.map.getSource('los').setData(data);
+
+            // Create and save processed features
+            const processedFeatures = this.geometry.generateProcessedFeatures(losFeature);
+            const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+
+            for (const processedFeature of processedFeatures) {
+                await addFeature('processed_los', processedFeature);
+                processedData.features.push(processedFeature);
+            }
+
+            this.map.getSource('processed-los').setData(processedData);
+
+            // Select new feature
+            this.selectionManager.toggleFeatureSelection('los', losFeature.properties.id, losFeature);
+            this.selectionManager.updateUI();
+
+        } catch (error) {
+            console.error('Error creating LOS feature:', error);
+        } finally {
+            this.startPoint = null;
+            this.endPoint = null;
         }
-      
-        const visibleLine = firstObstructedPoint 
-          ? turf.lineString([startCoordinates, firstObstructedPoint]) 
-          : turf.lineString([startCoordinates, endCoordinates]);
-      
-        const obstructedLine = firstObstructedPoint 
-          ? turf.lineString([firstObstructedPoint, endCoordinates]) 
-          : null; // Empty line if no obstruction
-
-        return {
-          visible: visibleLine,
-          obstructed: obstructedLine
-        };
     }
 
-    handleMouseEnter = (e) => {
-        this.map.getCanvas().style.cursor = 'pointer';
-    }
+    // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    handleMouseLeave = (e) => {
-        this.map.getCanvas().style.cursor = '';
-    }
-    
     updateFeaturesProperty = (features, property, value) => {
-        const losData = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
 
-        features.forEach(feature => {
-            // Update los source
-            const losFeature = losData.features.find(f => f.id == feature.id);
-            if (losFeature) {
-                losFeature.properties[property] = value;
+        for (const feature of features) {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            if (sourceFeature) {
+                sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
-                this.updateFeatureMeasurement(feature);
 
-                // Update processed-los source
-                const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                // Update measurement if measure property changed
+                if (property === 'measure') {
+                    this.updateFeatureMeasurement(feature);
+                }
+
+                // Update processed features with exact ID matching
+                const processedFeatures = processedData.features.filter(f =>
+                    f.properties.id === feature.properties.id + '-visible' ||
+                    f.properties.id === feature.properties.id + '-obstructed'
+                );
                 processedFeatures.forEach(processedFeature => {
-                    processedFeature.properties[property] = value;
+                    if (property !== 'color') { // Don't override specific colors
+                        processedFeature.properties[property] = value;
+                    }
                 });
             }
-        });
-    
-        this.map.getSource('los').setData(losData);
-        this.map.getSource('processed-los').setData(processedData);
-    }
-
-    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
-        if(features.length > 0){
-            const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-            const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-            for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
-                if (featureIndex !== -1) {
-                    if (onlyUpdateProperties) {
-                        Object.assign(data.features[featureIndex].properties, feature.properties);
-                        
-                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
-                        processedFeatures.forEach(processedFeature => {
-                            Object.keys(feature.properties).forEach(key => {
-                                if (key !== 'color') {
-                                    processedFeature.properties[key] = feature.properties[key];
-                                }
-                            });
-                        });
-                    } else {
-                        // Recalculate LOS and update both 'los' and 'processed-los' sources
-                        const updatedFeature = await this.recalculateLOS(feature);
-                        data.features[featureIndex] = updatedFeature;
-                        // Remove old processed features
-                        processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
-                        
-                        // Add new processed features
-                        const newProcessedFeatures = this.preprocessLosFeature(updatedFeature);
-                        processedData.features.push(...newProcessedFeatures);
-                    }
-
-    
-                    if(save){
-                        updateFeature('los', data.features[featureIndex])
-                        this.updateFeatureMeasurement(data.features[featureIndex]);
-                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
-                        processedFeatures.forEach(pf => updateFeature('processed_los', pf));                    }
-                }
-            };
-            this.map.getSource('los').setData(data);
-            this.map.getSource('processed-los').setData(processedData);
         }
+
+        this.map.getSource('los').setData(data);
+        this.map.getSource('processed-los').setData(processedData);
+
+        // Update SelectionManager with fresh features
+        const freshFeatures = features.map(feature => {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            return sourceFeature || feature;
+        });
+
+        this.updateSelectionManagerFeatures(freshFeatures);
     }
 
-    saveFeatures = (features, initialPropertiesMap) => {
+    saveFeatures = async (features, initialPropertiesMap) => {
+        const currentData = this.map.getSource('los')._data;
         const processedData = this.map.getSource('processed-los')._data;
 
-        features.forEach(f => {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                updateFeature('los', f);
-                
-                const processedFeatures = processedData.features.filter(pf => pf.id.startsWith(f.id));
-                processedFeatures.forEach(pf => {
-                    const updatedProcessedFeature = {
-                        ...pf,
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
                         properties: {
-                            ...f.properties,
-                            color: pf.properties.color
+                            ...currentFeature.properties,
+                            ...selectedFeature.properties
                         }
                     };
-                    updateFeature('processed_los', updatedProcessedFeature);
-                });
+
+                    // Get processed features
+                    const processedFeatures = processedData.features.filter(pf =>
+                        pf.properties.id === selectedFeature.properties.id + '-visible' ||
+                        pf.properties.id === selectedFeature.properties.id + '-obstructed'
+                    );
+
+                    // Update processed features properties
+                    const updatedProcessedFeatures = processedFeatures.map(pf => ({
+                        ...pf,
+                        properties: {
+                            ...pf.properties,
+                            ...selectedFeature.properties,
+                            id: pf.properties.id,              // Keep specific ID
+                            color: pf.properties.color         // Keep specific color
+                        }
+                    }));
+
+                    // Use batch operation if available
+                    try {
+                        if (typeof batchUpdateLOSFeatures === 'function') {
+                            await batchUpdateLOSFeatures(featureToSave, updatedProcessedFeatures);
+                        } else {
+                            // Fallback: individual updates
+                            await updateFeature('los', featureToSave);
+                            for (const processedFeature of updatedProcessedFeatures) {
+                                await updateFeature('processed_los', processedFeature);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error saving LOS features:', error);
+                        // Fallback on error
+                        await updateFeature('los', featureToSave);
+                        for (const processedFeature of updatedProcessedFeatures) {
+                            await updateFeature('processed_los', processedFeature);
+                        }
+                    }
+                }
             }
-        });
-    }
-
-    discardChangeFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
-        });
-        this.updateFeatures(features, true, true);
-    }
-
-    deleteFeatures = (features) => {
-        if (features.length === 0) {
-            return;
         }
-        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
-        const idsToDelete = new Set(features.map(f => f.id.toString()));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
-        processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
-        
-        this.map.getSource('los').setData(data);
-        this.map.getSource('processed-los').setData(processedData);
+    }
 
+    discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            removeFeature('los', f.id);
-            removeFeature('processed_los', f.id + '-obstructed');
-            removeFeature('processed_los', f.id + '-visible');
-            this.removeFeatureMeasurement(f.id);
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
         });
+        await this.updateFeatures(features, true, true);
+    }
+
+    deleteFeatures = async (features) => {
+        if (features.length === 0) return;
+
+        for (const feature of features) {
+            try {
+                const featureId = feature.properties.id;
+
+                // Remove measurement
+                this.removeFeatureMeasurement(featureId);
+
+                // Remove from store (removes both main and processed features)
+                await removeFeature('los', featureId);
+
+            } catch (error) {
+                console.error(`Error removing LOS feature ${feature.properties.id}:`, error);
+            }
+        }
+
+        // Reload sources from store (safer approach)
+        const currentMapFeatures = await getCurrentMapFeatures();
+
+        this.map.getSource('los').setData({
+            type: 'FeatureCollection',
+            features: currentMapFeatures.los
+        });
+
+        this.map.getSource('processed-los').setData({
+            type: 'FeatureCollection',
+            features: currentMapFeatures.processed_los
+        });
+    }
+
+    setDefaultProperties = (properties) => {
+        const {
+            id,
+            nome,
+            profileData,
+            ...styleProperties
+        } = properties;
+
+        Object.assign(AddLOSControl.DEFAULT_PROPERTIES, styleProperties);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
+        if (!initialProperties) return true;
+
         return (
             feature.properties.profile !== initialProperties.profile ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.width !== initialProperties.width ||
-            feature.properties.measure !== initialProperties.measure
+            feature.properties.measure !== initialProperties.measure ||
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado
         );
     }
 
-    updateFeatureMeasurement = (feature) => {
-        this.removeFeatureMeasurement(feature.id);
-        if (feature.properties.measure) {
-            let combinedLine;
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
+        if (features.length === 0) return;
 
-            // Check if the feature is a MultiLineString
-            if (feature.geometry.type === 'MultiLineString') {
-                combinedLine = {
-                    type: 'Feature',
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: [
-                            feature.geometry.coordinates[0][0],
-                            feature.geometry.coordinates[1][1]
-                        ]
+        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+
+        for (const feature of features) {
+            const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+            if (featureIndex !== -1) {
+                if (onlyUpdateProperties) {
+                    Object.assign(data.features[featureIndex].properties, feature.properties);
+
+                    // Update processed features
+                    const processedFeatures = processedData.features.filter(f =>
+                        f.properties.id === feature.properties.id + '-visible' ||
+                        f.properties.id === feature.properties.id + '-obstructed'
+                    );
+                    processedFeatures.forEach(processedFeature => {
+                        Object.keys(feature.properties).forEach(key => {
+                            if (key !== 'color') {
+                                processedFeature.properties[key] = feature.properties[key];
+                            }
+                        });
+                    });
+                } else {
+                    data.features[featureIndex] = feature;
+                }
+
+                if (save) {
+                    const processedFeatures = processedData.features.filter(f =>
+                        f.properties.id === feature.properties.id + '-visible' ||
+                        f.properties.id === feature.properties.id + '-obstructed'
+                    );
+
+                    if (typeof batchUpdateLOSFeatures === 'function') {
+                        await batchUpdateLOSFeatures(data.features[featureIndex], processedFeatures);
+                    } else {
+                        await updateFeature('los', data.features[featureIndex]);
+                        for (const pf of processedFeatures) {
+                            await updateFeature('processed_los', pf);
+                        }
                     }
-                };
-            } else if (feature.geometry.type === 'LineString') {
-                combinedLine = {
-                    type: 'Feature',
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: feature.geometry.coordinates
-                    }
-                };
+
+                    this.updateFeatureMeasurement(data.features[featureIndex]);
+                }
             }
+        }
 
-            const line = turf.lineString(combinedLine.geometry.coordinates);
-            const lengthInMeters = turf.length(line, { units: 'meters' });
-            const lengthFormatted = lengthInMeters >= 1000 
-                ? `${(lengthInMeters / 1000).toFixed(2)} km`
-                : `${lengthInMeters.toFixed(2)} m`;
-            const midpoint = turf.along(line, lengthInMeters / 2, { units: 'meters' });
-            this.displayMeasurement(midpoint.geometry.coordinates, lengthFormatted, feature.id);
+        this.map.getSource('los').setData(data);
+        this.map.getSource('processed-los').setData(processedData);
+        this.updateSelectionManagerFeatures(features);
+    }
+
+    // ===== MEASUREMENT SYSTEM =====
+
+    updateFeatureMeasurement = (feature) => {
+        this.removeFeatureMeasurement(feature.properties.id);
+
+        if (feature.properties.measure) {
+            const coordinates = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
+            if (coordinates) {
+                const distance = this.geometry.calculateLOSDistance(coordinates);
+                const formattedDistance = this.geometry.formatDistance(distance);
+                const midpoint = this.geometry.getMidpoint(coordinates);
+
+                this.displayMeasurement(midpoint, formattedDistance, feature.properties.id);
+            }
         }
     }
 
@@ -473,77 +803,85 @@ class AddLOSControl {
         label.className = 'measurement-label';
         label.innerText = measurement;
         label.dataset.featureId = featureId;
+
+        label.style.cssText = `
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 2px solid #508D4E;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 12px;
+            font-weight: bold;
+            color: #333;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            white-space: nowrap;
+            pointer-events: none;
+            user-select: none;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+        `;
+
         return label;
     }
 
-    async calculateProfile(coordinates) {
-        const line = turf.lineString(coordinates);
-        const length = turf.length(line, { units: 'meters' });
-        const steps = 25;
-        const stepLength = length / steps;
+    // ===== TERRAIN INTEGRATION =====
 
-        let profileData = [];
-
-        for (let i = 0; i <= steps; i++) {
-            const point = turf.along(line, i * stepLength, { units: 'meters' });
-            const elevation = await getTerrainElevation(this.map, point.geometry.coordinates);
-            profileData.push({
-                distance: i * stepLength,
-                elevation: elevation
-            });
-        }
-
-        return profileData;
+    setupBaseEventListeners = () => {
+        this.map.on('terrain', this._onTerrainChange);
+        this._onTerrainChange(); // Initial check
     }
 
-    async recalculateLOS(feature) {
-        let linestring
-        if (feature.geometry.type === 'MultiLineString') {
-            linestring = {
-                type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: [
-                        feature.geometry.coordinates[0][0],
-                        feature.geometry.coordinates[1][1]
-                    ]
-                }
-            };
-        } else if (feature.geometry.type === 'LineString') {
-            linestring = {
-                type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: feature.geometry.coordinates
-                }
-            };
-        }
-        const losResult = await this.calculateLOS(linestring);
-        let updatedFeature;
+    _onTerrainChange = () => {
+        this.updateButtonAppearance();
 
-        if (losResult.obstructed) {
-            updatedFeature = {
-                ...feature,
-                geometry: {
-                    type: 'MultiLineString',
-                    coordinates: [
-                        losResult.visible.geometry.coordinates,
-                        losResult.obstructed.geometry.coordinates
-                    ]
-                }
-            };
-        } else {
-            updatedFeature = {
-                ...feature,
-                geometry: {
-                    type: 'LineString',
-                    coordinates: losResult.visible.geometry.coordinates
-                }
-            };
+        // If tool is active but terrain is disabled, deactivate
+        if (this.isActive && !this.geometry.isTerrainAvailable(this.map)) {
+            this.toolManager.setActiveTool(null);
+        }
+    }
+
+    // ===== SELECTION MANAGER INTEGRATION =====
+
+    updateSelectionManagerFeature(feature) {
+        const key = `los:${feature.properties.id}`;
+        this.selectionManager.selectedFeatures.set(key, { type: 'los', feature });
+    }
+
+    updateSelectionManagerFeatures(features) {
+        features.forEach(feature => {
+            if (feature.properties.source === 'los') {
+                this.updateSelectionManagerFeature(feature);
+            }
+        });
+    }
+
+    // ===== UTILITY METHODS =====
+
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
         }
 
-        updatedFeature.properties.profileData = JSON.stringify(await this.calculateProfile(linestring.geometry.coordinates));
-        return updatedFeature;
+        if (this.dragRecalculateTimeout) {
+            clearTimeout(this.dragRecalculateTimeout);
+            this.dragRecalculateTimeout = null;
+        }
+    }
+
+    removeAllEventListeners = () => {
+        this.map.off('mousemove', this.handleMouseMove);
+        this.map.off('terrain', this._onTerrainChange);
+        this.cancelPendingUpdates();
     }
 }
 

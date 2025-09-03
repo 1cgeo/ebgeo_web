@@ -1,58 +1,105 @@
 // Path: js\controls_sig\visibility_tool\add_visibility_control.js
-import { addFeature, updateFeature, removeFeature } from '../store.js';
-import { getTerrainElevation } from '../terrain_control.js';
-class AddVisibilityControl {
+import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures } from '../store/store.js';
+import { IDUtils } from '../id_utils.js';
+import { addVisibilityAttributesToPanel } from './visibility_attributes_panel.js';
+import AddVisibilityGeometry from './add_visibility_geometry.js';
+import BaseControl from '../tool_manager/base_control.js';
+
+class AddVisibilityControl extends BaseControl {
+    constructor(toolManager) {
+        super(toolManager);
+
+        // State management
+        this.startPoint = null;
+
+        // Geometry handler
+        this.geometry = new AddVisibilityGeometry();
+
+        // Performance optimization - RAF system
+        this.previewRafId = null;
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+        this.geometryDebounceTimer = null;
+
+        // Async operation queue to prevent race conditions (following LOS pattern)
+        this.recalculateQueue = Promise.resolve();
+
+        // Debounce system for observer height changes
+        this.observerHeightDebounceTimer = null;
+        this.OBSERVER_HEIGHT_DEBOUNCE_DELAY = 1000; // 1 second
+
+        // Progress modal components
+        this.progressModal = null;
+        this.progressBar = null;
+        this.progressText = null;
+
+        // Store reference in toolManager for terrain integration
+        this.toolManager.visibilityControl = this;
+    }
+
     static DEFAULT_PROPERTIES = {
         opacity: 0.5,
-        source: 'visibility'
+        source: 'visibility',
+        observerHeight: 2,
+        nome: '',
+        descricao: '',
+        visivel: true,
+        bloqueado: false
     };
 
-    static VISIBLE_COLOR = '#00FF00';
+    // ===== SINGLE SOURCE OF TRUTH =====
 
-    static OBSTRUCTED_COLOR = '#FF0000';
-
-    constructor(toolManager) {
-        this.toolManager = toolManager;
-        this.toolManager.visibilityControl = this;
-        this.isActive = false;
-        this.startPoint = null;
-        this.debounceTime = 30;
-        this.lastUpdateTime = 0;
+    /**
+     * Get currently selected visibility feature from SelectionManager
+     * @returns {Object|null} Selected visibility feature or null
+     */
+    getSelectedFeature() {
+        const selectedItems = this.selectionManager.getSelectedFeaturesByType('visibility');
+        return selectedItems.length > 0 ? selectedItems[0].feature : null;
     }
+
+    /**
+     * Get all selected visibility features from SelectionManager
+     * @returns {Array} Array of selected visibility features
+     */
+    getSelectedFeatures() {
+        return this.selectionManager.getSelectedFeaturesByType('visibility')
+            .map(item => item.feature);
+    }
+
+    // ===== MAPBOX CONTROL INTERFACE =====
 
     onAdd = (map) => {
         this.map = map;
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl';
+        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl visibility-control controls-column-left';
 
         const button = document.createElement('button');
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "visibility-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_visibility_black.svg" alt="VISIBILITY" />';
-        button.title = 'Adicionar análise de visibilidade';
+        button.title = 'Adicionar análise de visibilidade (V)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
-
-        this.setupEventListeners();
-
-        $('input[name="base-layer"]').on('change', this.changeButtonColor);
-        this.changeButtonColor()
+        this.setupBaseEventListeners();
+        this.updateButtonAppearance();
+        this.createProgressModal();
 
         return this.container;
     }
 
-    changeButtonColor = () => {
-        const color = $('input[name="base-layer"]:checked').val() == 'Carta' ? 'black' : 'white'
-        $("#visibility-tool").html(`<img class="icon-sig-tool" src="./images/icon_visibility_${color}.svg" alt="VISIBILITY" />`);
-        if (!this.isActive) return
-        $("#visibility-tool").html('<img class="icon-sig-tool" src="./images/icon_visibility_red.svg" alt="VISIBILITY" />');
-    }
-    
     onRemove = () => {
         try {
-            this.uiManager.removeControl(this.container);
-            this.removeEventListeners();
+            this.selectionManager.uiManager.removeControl(this.container);
+            this.deactivate();
+            this.removeAllEventListeners();
+            
+            if (this.progressModal && this.progressModal.parentNode) {
+                this.progressModal.parentNode.removeChild(this.progressModal);
+            }
+            
             this.map = undefined;
         } catch (error) {
             console.error('Error removing AddVisibilityControl:', error);
@@ -60,375 +107,920 @@ class AddVisibilityControl {
         }
     }
 
-    setupEventListeners = () => {
-        this.map.on('mouseenter', 'visibility-layer', this.handleMouseEnter);
-        this.map.on('mouseleave', 'visibility-layer', this.handleMouseLeave);
+    // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
+
+    hasAttributePanel() {
+        return true;
     }
 
-    removeEventListeners = () => {
-        this.map.off('mouseenter', 'visibility-layer', this.handleMouseEnter);
-        this.map.off('mouseleave', 'visibility-layer', this.handleMouseLeave);
+    createAttributePanel(container, features, selectionManager, uiManager) {
+        const sectionPanel = document.createElement('div');
+        sectionPanel.className = 'visibility-attributes-section';
+
+        try {
+            addVisibilityAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            container.appendChild(sectionPanel);
+        } catch (error) {
+            console.error('Error creating visibility attribute panel:', error);
+        }
     }
+
+    getDragSources() {
+        return ['visibility'];
+    }
+
+    getEditHandleSources() {
+        return []; // Visibility doesn't have edit handles
+    }
+
+    createSelectionBox(feature) {
+        try {
+            const bbox = turf.bbox(feature);
+            const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding(),this.map);
+            return turf.bboxPolygon(expandedBbox);
+        } catch (error) {
+            console.warn('Error creating visibility selection box:', error);
+            return null;
+        }
+    }
+
+    getSelectionBoxStrategy() {
+        return 'bbox';
+    }
+
+    getSelectionBoxPadding() {
+        return 8;
+    }
+
+    getLayerIds() {
+        return ['visibility-visible-layer', 'visibility-obstructed-layer'];
+    }
+
+    getSourceNames() {
+        return ['visibility'];
+    }
+
+    getEditHandleSource() {
+        return null; // Visibility doesn't have edit handles
+    }
+
+    canCopy(feature) {
+        return true;
+    }
+
+    canPaste(feature) {
+        return true;
+    }
+
+    async prepareForPaste(feature, offset) {
+        const oldCenter = this.geometry.normalizeCenter(feature.properties.center);
+        if (!oldCenter) return feature;
+
+        const newCenter = [oldCenter[0] + offset.dx, oldCenter[1] + offset.dy];
+
+        try {
+            // Recalculate visibility with new position (async)
+            const result = await this.geometry.recalculateFromCoordinates(newCenter, feature, this.map);
+
+            return {
+                ...feature,
+                properties: {
+                    ...feature.properties,
+                    center: newCenter,
+                    cellData: result.cellData
+                },
+                geometry: result.geometry
+            };
+        } catch (error) {
+            console.error('Error preparing visibility for paste:', error);
+            return feature;
+        }
+    }
+
+    calculateMoveOffset(feature, referencePoint) {
+        const center = this.geometry.normalizeCenter(feature.properties.center);
+        if (!center) {
+            return [0, 0];
+        }
+
+        return [
+            center[0] - referencePoint.lng,
+            center[1] - referencePoint.lat
+        ];
+    }
+
+    /**
+     * Update feature for immediate move (following LOS pattern exactly)
+     * Returns translated feature with updated geometry for immediate visual feedback
+     * @param {Object} feature - Original feature
+     * @param {number} dx - Longitude delta
+     * @param {number} dy - Latitude delta 
+     * @param {Object} newCoords - New coordinates object
+     * @returns {Object} Updated feature with translated geometry
+     */
+    updateFeatureForMove(feature, dx, dy, newCoords) {
+        // Update center position
+        const newCenter = [newCoords.lng, newCoords.lat];
+
+        // Translate geometry immediately using new method (following LOS pattern)
+        const translatedGeometry = this.geometry.translateGeometry(feature.geometry, dx, dy);
+
+        return {
+            ...feature,
+            properties: {
+                ...feature.properties,
+                center: newCenter
+            },
+            geometry: translatedGeometry
+            // Keep original cellData temporarily - will be recalculated in syncEditHandlesAfterDrag
+        };
+    }
+
+    canMove(feature) {
+        return !feature.properties?.bloqueado && this.geometry.isTerrainAvailable(this.map);
+    }
+
+    // ===== TOOL ACTIVATION/DEACTIVATION =====
 
     activate = () => {
+        if (!this.geometry.isTerrainAvailable(this.map)) {
+            return false; // Block activation
+        }
         this.isActive = true;
+        this.startPoint = null;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.changeButtonColor()
+        this.updateButtonAppearance();
     }
 
     deactivate = () => {
         this.isActive = false;
-        this.map.getCanvas().style.cursor = '';
         this.startPoint = null;
-        this.map.getSource('temp-polygon').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
-        this.map.off('mousemove', this.handleMouseMove);
-        this.changeButtonColor()
+        this.map.getCanvas().style.cursor = '';
+        this.clearPreview();
+        this.updateButtonAppearance();
     }
 
+    updateButtonAppearance = () => {
+        const terrainEnabled = this.geometry.isTerrainAvailable(this.map);
+
+        if (!terrainEnabled) {
+            // Disabled state
+            this.container.classList.add('disabled');
+            this.container.querySelector('button').disabled = true;
+            $("#visibility-tool").html('<img class="icon-sig-tool" src="./images/icon_visibility_disabled.svg" alt="VISIBILITY DISABLED" />');
+        } else {
+            // Normal state
+            this.container.classList.remove('disabled');
+            this.container.querySelector('button').disabled = false;
+
+            const iconSrc = this.isActive ?
+                './images/icon_visibility_red.svg' :
+                './images/icon_visibility_black.svg';
+            $("#visibility-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="VISIBILITY" />`);
+        }
+    }
+
+    // ===== SELECTION SYSTEM INTEGRATION =====
+
+    onFeatureSelected = (feature) => {
+        // Visibility features don't need special selection handling
+    }
+
+    onFeatureDeselected = (feature) => {
+        // No special cleanup needed
+    }
+
+    onGlobalDeselect = () => {
+        // No special cleanup needed
+    }
+
+    isEditingMode = () => {
+        return false; // Visibility doesn't have edit handles
+    }
+
+    hasEditHandle = (featureId) => {
+        return false; // Visibility doesn't have edit handles
+    }
+
+    /**
+     * Sync edit handles after drag (following LOS pattern exactly)
+     * Uses queued async operations to prevent race conditions
+     * @param {Array} movedFeatures - Array of moved features
+     */
+    syncEditHandlesAfterDrag = async (movedFeatures) => {
+        // Queue async recalculation operations to prevent race conditions (LOS pattern)
+        this.recalculateQueue = this.recalculateQueue.then(async () => {
+            await this.recalculateMovedVisibilityFeatures(movedFeatures);
+        });
+    }
+
+    /**
+     * Recalculate visibility features after movement (following LOS pattern)
+     * @param {Array} movedFeatures - Array of moved features
+     */
+    async recalculateMovedVisibilityFeatures(movedFeatures) {
+        for (const movedFeature of movedFeatures) {
+            if (movedFeature.properties.source === 'visibility') {
+                try {
+                    const featureId = movedFeature.properties.id;
+
+                    // Show progress modal for long operations
+                    this.showProgressModal();
+                    this.updateProgress(5, 'Detectando nova posição...');
+                    await this.geometry.delay(100);
+
+                    // CRITICAL FIX: Use center from properties (updated in updateFeatureForMove)
+                    // instead of extracting from geometry (following LOS pattern)
+                    const newCenter = this.geometry.normalizeCenter(movedFeature.properties.center);
+
+                    if (newCenter) {
+                        this.updateProgress(10, 'Preparando recálculo...');
+                        await this.geometry.delay(100);
+
+                        // Recalculate using geometry class with progress
+                        const result = await this.geometry.recalculateFromCoordinates(
+                            newCenter, 
+                            movedFeature, 
+                            this.map,
+                            (progress, text) => this.updateProgress(progress, text)
+                        );
+
+                        this.updateProgress(80, 'Atualizando geometria...');
+                        await this.geometry.delay(100);
+
+                        // Update main feature
+                        movedFeature.geometry = result.geometry;
+                        movedFeature.properties.center = result.center;
+                        movedFeature.properties.cellData = result.cellData;
+
+                        this.updateProgress(85, 'Preparando features processadas...');
+                        await this.geometry.delay(100);
+
+                        // Generate new processed features
+                        const newProcessedFeatures = this.geometry.generateProcessedFeatures(movedFeature);
+
+                        this.updateProgress(90, 'Salvando no banco de dados...');
+                        await this.geometry.delay(100);
+
+                        // Save using batch operation (always use batchUpdate)
+                        await batchUpdateVisibilityFeatures(movedFeature, newProcessedFeatures);
+
+                        this.updateProgress(95, 'Atualizando fontes do mapa...');
+                        await this.geometry.delay(100);
+
+                        // Update processed features on map
+                        await this.updateProcessedFeaturesAfterMove(movedFeature, newProcessedFeatures);
+
+                        this.updateProgress(100, 'Recálculo concluído!');
+                        await this.geometry.delay(300);
+                    }
+
+                } catch (error) {
+                    console.error('Error during visibility recalculation:', error);
+                } finally {
+                    this.hideProgressModal();
+                }
+            }
+        }
+    }
+
+    /**
+     * Update processed features after main feature movement (following LOS pattern)
+     * @param {Object} mainFeature - Updated main visibility feature
+     * @param {Array} newProcessedFeatures - New processed features array
+     */
+    async updateProcessedFeaturesAfterMove(mainFeature, newProcessedFeatures = null) {
+        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
+
+        // Remove old processed features (exact pattern from LOS)
+        processedData.features = processedData.features.filter(f =>
+            !f.properties.id.startsWith(mainFeature.properties.id + '-')
+        );
+
+        // Generate new processed features if not provided
+        const processedFeatures = newProcessedFeatures || this.geometry.generateProcessedFeatures(mainFeature);
+
+        // Add new processed features to data
+        processedFeatures.forEach(processedFeature => {
+            processedData.features.push(processedFeature);
+        });
+
+        // Update map source
+        this.map.getSource('processed-visibility').setData(processedData);
+
+        // Note: Features are already saved via batchUpdateVisibilityFeatures in the calling method
+    }
+
+    // ===== DRAWING SYSTEM =====
+
     handleMapClick = async (e) => {
-        if (!this.isActive) return;
+        if (!this.isActive || !this.geometry.isTerrainAvailable(this.map)) return;
 
         const { lng, lat } = e.lngLat;
 
         if (!this.startPoint) {
             this.startPoint = [lng, lat];
+            this.lastPreviewCenter = this.startPoint;
             this.map.on('mousemove', this.handleMouseMove);
         } else {
             const endPoint = [lng, lat];
-            await this.addVisibilityFeature(this.startPoint, endPoint);
+            this.map.off('mousemove', this.handleMouseMove);
+            await this.createFeature(this.startPoint, endPoint);
             this.toolManager.deactivateCurrentTool();
         }
     }
 
+    // RAF-based preview system following standard pattern
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
-        const currentTime = performance.now();
-        if (currentTime - this.lastUpdateTime < this.debounceTime) {
-            return;
-        }
-        this.lastUpdateTime = currentTime;
+        this.lastPreviewCenter = this.startPoint;
+        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
 
-        const { lng, lat } = e.lngLat;
-        const endPoint = [lng, lat];
-        this.updateTempPolygon(this.calculateSectorCoordinates(this.startPoint, endPoint));
+        if (!this.pendingPreviewUpdate) {
+            this.pendingPreviewUpdate = true;
+            this.previewRafId = requestAnimationFrame(this.performPreviewUpdate.bind(this));
+        }
     }
 
-    updateTempPolygon = (coordinates) => {
-        const data = {
+    performPreviewUpdate = () => {
+        if (!this.lastPreviewCenter || !this.lastPreviewPosition) {
+            this.pendingPreviewUpdate = false;
+            return;
+        }
+
+        // Standard 8ms debounce - no terrain calculations in preview
+        clearTimeout(this.geometryDebounceTimer);
+        this.geometryDebounceTimer = setTimeout(() => {
+            const previewCoordinates = this.geometry.calculateSectorCoordinates(this.lastPreviewCenter, this.lastPreviewPosition);
+            this.showPreview(previewCoordinates);
+        }, 8);
+
+        this.pendingPreviewUpdate = false;
+    }
+
+    showPreview = (coordinates) => {
+        this.map.getSource('visibility-feedback').setData({
             type: 'FeatureCollection',
             features: [{
                 type: 'Feature',
                 geometry: {
                     type: 'Polygon',
                     coordinates: [coordinates]
+                },
+                properties: {
+                    isPreview: true
                 }
             }]
-        };
-
-        this.map.getSource('temp-polygon').setData(data);
-    }
-
-    addVisibilityFeature = async (startPoint, endPoint) => {
-        const center = turf.point(startPoint);
-        const radius = turf.distance(startPoint, endPoint, { units: 'meters' });
-        const angle = turf.bearing(startPoint, endPoint);
-
-        const viewshedResult = await this.calculateViewshed(center, radius, angle);
-        const feature = this.createViewshedFeature(viewshedResult.visible, viewshedResult.obstructed, radius, angle);
-        addFeature('visibility', feature);
-
-        const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
-        data.features.push(feature);
-        this.map.getSource('visibility').setData(data);
-
-        const processedVisibilityFeatures = this.preprocessVisibilityFeature(feature);
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
-        processedVisibilityFeatures.forEach(processedFeature => {
-            addFeature('processed_visibility', processedFeature);
-            processedData.features.push(processedFeature);
         });
-        this.map.getSource('processed-visibility').setData(processedData);
     }
 
-    preprocessVisibilityFeature(feature) {
-        let processedFeatures = [];
-    
-        feature.geometry.coordinates.forEach((coordinates, index) => {
-            processedFeatures.push({
-                type: 'Feature',
-                id: `${feature.id}-${index === 0 ? 'visible' : 'obstructed'}`,
-                properties: {
-                    ...feature.properties,
-                    color: index === 0 ? AddVisibilityControl.VISIBLE_COLOR : AddVisibilityControl.OBSTRUCTED_COLOR
-                },
-                geometry: {
-                    type: 'Polygon',
-                    coordinates: coordinates
-                }
+    clearPreview = () => {
+        this.cancelPendingUpdates();
+        if (this.map && this.map.getSource('visibility-feedback')) {
+            this.map.getSource('visibility-feedback').setData({
+                type: 'FeatureCollection',
+                features: []
             });
-        });
-            
-        return processedFeatures;
-    }
-
-    createViewshedFeature = (visible, obstructed, radius, angle) => {
-        const feature = {
-            type: 'Feature',
-            id: Date.now().toString(),
-            properties: { 
-                ...AddVisibilityControl.DEFAULT_PROPERTIES,
-                radius: radius,
-                angle: angle
-            },
-            geometry: {
-                type: 'MultiPolygon',
-                coordinates: [
-                    visible.geometry.coordinates,
-                    obstructed.geometry.coordinates
-                ]
-            }
-        };
-    
-        return feature;
-    };
-
-    calculateSectorCoordinates = (center, edgePoint) => {
-        const [cx, cy] = center;
-        const radius = Math.sqrt((edgePoint[0] - cx) ** 2 + (edgePoint[1] - cy) ** 2);
-        const sectorAngle = Math.PI / 4; // 45 degrees in radians
-        const angleStep = sectorAngle / 45; // Angle step to cover 45 points in the sector
-        const startAngle = Math.atan2(edgePoint[1] - cy, edgePoint[0] - cx) - sectorAngle / 2;
-    
-        const coordinates = [center];
-        for (let i = 0; i <= 45; i++) {
-            const angle = startAngle + angleStep * i;
-            coordinates.push([
-                cx + radius * Math.cos(angle),
-                cy + radius * Math.sin(angle)
-            ]);
         }
-        coordinates.push(center); 
-    
-        return coordinates;
-    };
-
-    handleMouseEnter = (e) => {
-        this.map.getCanvas().style.cursor = 'pointer';
     }
 
-    handleMouseLeave = (e) => {
-        this.map.getCanvas().style.cursor = '';
+    createFeature = async (startPoint, endPoint) => {
+        try {
+            // Show progress modal at start
+            this.showProgressModal();
+            
+            const featureId = IDUtils.generateUniqueId();
+            const featureName = IDUtils.generateFeatureName('visibility', this.map);
+
+            const properties = {
+                ...AddVisibilityControl.DEFAULT_PROPERTIES,
+                id: featureId,
+                nome: featureName
+            };
+
+            // Create complete visibility feature with geometry using geometry class
+            const visibilityFeature = await this.geometry.createVisibilityFeature(
+                startPoint, 
+                endPoint, 
+                properties, 
+                this.map,
+                (progress, text) => this.updateProgress(progress, text)
+            );
+
+            this.updateProgress(80, 'Preparando features processadas...');
+            await this.geometry.delay(100);
+
+            // Create processed features
+            const processedFeatures = this.geometry.generateProcessedFeatures(visibilityFeature);
+
+            this.updateProgress(85, 'Salvando no banco de dados...');
+            await this.geometry.delay(100);
+
+            // Save main feature and processed features using batch operation
+            await addFeature('visibility', visibilityFeature);
+            await batchUpdateVisibilityFeatures(visibilityFeature, processedFeatures);
+
+            this.updateProgress(90, 'Atualizando mapa...');
+            await this.geometry.delay(50);
+
+            // Update main source
+            const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
+            data.features.push(visibilityFeature);
+            this.map.getSource('visibility').setData(data);
+
+            this.updateProgress(95, 'Atualizando células processadas...');
+            await this.geometry.delay(100);
+
+            // Update processed source
+            const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
+            processedFeatures.forEach(processedFeature => {
+                processedData.features.push(processedFeature);
+            });
+            this.map.getSource('processed-visibility').setData(processedData);
+
+            this.updateProgress(100, 'Concluído!');
+            await this.geometry.delay(300);
+
+            // Select new feature
+            this.selectionManager.toggleFeatureSelection('visibility', visibilityFeature.properties.id, visibilityFeature);
+            this.selectionManager.updateUI();
+
+            this.hideProgressModal();
+
+        } catch (error) {
+            console.error('Error creating visibility feature:', error);
+            this.hideProgressModal();
+        } finally {
+            this.startPoint = null;
+        }
     }
-    
+
+    // ===== FEATURE MANAGEMENT INTERFACE =====
+
     updateFeaturesProperty = (features, property, value) => {
+        // Check if observer height is changing (requires debounced recalculation)
+        if (property === 'observerHeight') {
+            // Cancel previous debounced recalculation
+            if (this.observerHeightDebounceTimer) {
+                clearTimeout(this.observerHeightDebounceTimer);
+            }
+            
+            // Update property immediately for UI responsiveness
+            this.updatePropertyImmediately(features, property, value);
+            
+            // Schedule debounced recalculation
+            this.observerHeightDebounceTimer = setTimeout(() => {
+                this.recalculateForObserverHeight(features, value);
+            }, this.OBSERVER_HEIGHT_DEBOUNCE_DELAY);
+            
+            return;
+        }
+        
+        // For other properties, update immediately without recalculation
+        this.updatePropertyImmediately(features, property, value);
+    }
+
+    /**
+     * Update property immediately without recalculation (for UI responsiveness)
+     */
+    updatePropertyImmediately = (features, property, value) => {
         const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
         const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
-        features.forEach(feature => {
-            const f = data.features.find(f => f.id == feature.id);
-            if (f) {
-                f.properties[property] = value;
+        for (const feature of features) {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            if (sourceFeature) {
+                sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
+                // Update processed features properties (but not geometry)
+                const processedFeatures = processedData.features.filter(f =>
+                    f.properties.id.startsWith(feature.properties.id + '-')
+                );
                 processedFeatures.forEach(processedFeature => {
-                    processedFeature.properties[property] = value;
+                    if (property !== 'color') { // Don't override specific colors
+                        processedFeature.properties[property] = value;
+                    }
                 });
             }
-        });
+        }
+
         this.map.getSource('visibility').setData(data);
         this.map.getSource('processed-visibility').setData(processedData);
+
+        // Update SelectionManager with fresh features
+        const freshFeatures = features.map(feature => {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            return sourceFeature || feature;
+        });
+
+        this.updateSelectionManagerFeatures(freshFeatures);
     }
 
-    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
-        if(features.length > 0){
+    /**
+     * Perform debounced recalculation for observer height changes
+     */
+    recalculateForObserverHeight = async (features, newObserverHeight) => {
+        try {
+            // Show progress modal
+            this.showProgressModal();
+            this.updateProgress(5, 'Detectando mudança de altura...');
+            await this.geometry.delay(100);
+
             const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
             const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.id == feature.id);
-                if (featureIndex !== -1) {
-                    if (onlyUpdateProperties) {
-                        // Update properties for both 'visibility' and 'processed-visibility' sources
-                        Object.assign(data.features[featureIndex].properties, feature.properties);
-                        
-                        // Update processed features
-                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
-                        processedFeatures.forEach(processedFeature => {
-                            Object.keys(feature.properties).forEach(key => {
-                                if (key !== 'color') {
-                                    processedFeature.properties[key] = feature.properties[key];
-                                }
-                            });
+                const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+                if (sourceFeature) {
+                    try {
+                        this.updateProgress(15, `Recalculando visibilidade (altura: ${newObserverHeight}m)...`);
+                        await this.geometry.delay(100);
+
+                        // Recalculate viewshed with new observer height
+                        const result = await this.geometry.recalculateFromCoordinates(
+                            sourceFeature.properties.center,
+                            sourceFeature,
+                            this.map,
+                            (progress, text) => this.updateProgress(progress, text)
+                        );
+
+                        this.updateProgress(75, 'Atualizando geometria...');
+                        await this.geometry.delay(100);
+
+                        // Update main feature
+                        sourceFeature.geometry = result.geometry;
+                        sourceFeature.properties.cellData = result.cellData;
+                        feature.geometry = result.geometry;
+                        feature.properties.cellData = result.cellData;
+
+                        this.updateProgress(80, 'Preparando células processadas...');
+                        await this.geometry.delay(100);
+
+                        // Generate new processed features
+                        const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
+
+                        this.updateProgress(85, 'Salvando no banco de dados...');
+                        await this.geometry.delay(100);
+
+                        // Save using batch operation (always use batchUpdate)
+                        await batchUpdateVisibilityFeatures(sourceFeature, newProcessedFeatures);
+
+                        this.updateProgress(90, 'Atualizando células processadas...');
+                        await this.geometry.delay(100);
+
+                        // Remove old processed features from data
+                        processedData.features = processedData.features.filter(f =>
+                            !f.properties.id.startsWith(feature.properties.id + '-')
+                        );
+
+                        // Add new processed features to data
+                        newProcessedFeatures.forEach(processedFeature => {
+                            processedData.features.push(processedFeature);
                         });
-                    } else {
-                        // Recalculate visibility and update both 'visibility' and 'processed-visibility' sources
-                        const updatedFeature = await this.recalculateVisibility(feature);
-                        data.features[featureIndex] = updatedFeature;
-                        // Remove old processed features
-                        processedData.features = processedData.features.filter(f => !f.id.startsWith(feature.id));
 
-                        // Add new processed features
-                        const newProcessedFeatures = this.preprocessVisibilityFeature(updatedFeature);
-                        processedData.features.push(...newProcessedFeatures);
-                    }
-
-                    if(save){
-                        updateFeature('visibility', data.features[featureIndex]);
-                        const processedFeatures = processedData.features.filter(f => f.id.startsWith(feature.id));
-                        processedFeatures.forEach(pf => updateFeature('processed_visibility', pf));
+                    } catch (error) {
+                        console.error('Error recalculating visibility for observer height:', error);
                     }
                 }
-            };
+            }
+
+            this.updateProgress(95, 'Atualizando mapa...');
+            await this.geometry.delay(100);
+
             this.map.getSource('visibility').setData(data);
             this.map.getSource('processed-visibility').setData(processedData);
+
+            // Update SelectionManager with fresh features
+            const freshFeatures = features.map(feature => {
+                const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+                return sourceFeature || feature;
+            });
+
+            this.updateSelectionManagerFeatures(freshFeatures);
+
+            this.updateProgress(100, 'Recálculo concluído!');
+            await this.geometry.delay(300);
+
+        } catch (error) {
+            console.error('Error in debounced observer height recalculation:', error);
+        } finally {
+            this.hideProgressModal();
+            this.observerHeightDebounceTimer = null;
         }
     }
 
-    saveFeatures = (features, initialPropertiesMap) => {
+    saveFeatures = async (features, initialPropertiesMap) => {
+        const currentData = this.map.getSource('visibility')._data;
         const processedData = this.map.getSource('processed-visibility')._data;
 
-        features.forEach(f => {
-            if (this.hasFeatureChanged(f, initialPropertiesMap.get(f.id))) {
-                updateFeature('visibility', f);
+        for (const selectedFeature of features) {
+            if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
+                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
-                const processedFeatures = processedData.features.filter(pf => pf.id.startsWith(f.id));
-                processedFeatures.forEach(pf => {
-                    const updatedProcessedFeature = {
-                        ...pf,
+                if (currentFeature) {
+                    const featureToSave = {
+                        ...currentFeature,
                         properties: {
-                            ...f.properties,
-                            color: pf.properties.color
+                            ...currentFeature.properties,
+                            ...selectedFeature.properties
                         }
                     };
-                    updateFeature('processed_visibility', updatedProcessedFeature);
-                });
 
+                    // Get processed features
+                    const processedFeatures = processedData.features.filter(pf =>
+                        pf.properties.id.startsWith(selectedFeature.properties.id + '-')
+                    );
+
+                    // Update processed features properties
+                    const updatedProcessedFeatures = processedFeatures.map(pf => ({
+                        ...pf,
+                        properties: {
+                            ...pf.properties,
+                            ...selectedFeature.properties,
+                            id: pf.properties.id,              // Keep specific ID
+                            color: pf.properties.color         // Keep specific color
+                        }
+                    }));
+
+                    // Always use batch operation
+                    try {
+                        await batchUpdateVisibilityFeatures(featureToSave, updatedProcessedFeatures);
+                    } catch (error) {
+                        console.error('Error saving visibility features with batch operation:', error);
+                        throw error; // Re-throw to maintain error handling
+                    }
+                }
             }
-        });
-    }
-
-    discardChangeFeatures = (features, initialPropertiesMap) => {
-        features.forEach(f => {
-            Object.assign(f.properties, initialPropertiesMap.get(f.id));
-        });
-        this.updateFeatures(features, true, true);
-    }
-
-    deleteFeatures = (features) => {
-        if (features.length === 0) {
-            return;
         }
-        const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
-        const idsToDelete = new Set(features.map(f => f.id.toString()));
-        data.features = data.features.filter(f => !idsToDelete.has(f.id.toString()));
-        processedData.features = processedData.features.filter(f => !idsToDelete.has(f.id.split('-')[0]));
-        this.map.getSource('visibility').setData(data);
-        this.map.getSource('processed-visibility').setData(processedData);
+    }
 
+    discardChangeFeatures = async (features, initialPropertiesMap) => {
         features.forEach(f => {
-            removeFeature('visibility', f.id);
-            removeFeature('processed_visibility', f.id + '-obstructed');
-            removeFeature('processed_visibility', f.id + '-visible');
+            Object.assign(f.properties, initialPropertiesMap.get(f.properties.id));
         });
+        await this.updateFeatures(features, true, true);
+    }
+
+    deleteFeatures = async (features) => {
+        if (features.length === 0) return;
+
+        for (const feature of features) {
+            try {
+                const featureId = feature.properties.id;
+                await removeFeature('visibility', featureId);
+            } catch (error) {
+                console.error(`Error removing visibility feature ${feature.properties.id}:`, error);
+            }
+        }
+
+        // Reload sources from store (safer approach - following LOS pattern)
+        const currentMapFeatures = await getCurrentMapFeatures();
+
+        this.map.getSource('visibility').setData({
+            type: 'FeatureCollection',
+            features: currentMapFeatures.visibility
+        });
+
+        this.map.getSource('processed-visibility').setData({
+            type: 'FeatureCollection',
+            features: currentMapFeatures.processed_visibility
+        });
+    }
+
+    setDefaultProperties = (properties) => {
+        const {
+            id,
+            nome,
+            cellData,
+            center,
+            radius,
+            angle,
+            ...styleProperties
+        } = properties;
+
+        Object.assign(AddVisibilityControl.DEFAULT_PROPERTIES, styleProperties);
     }
 
     hasFeatureChanged = (feature, initialProperties) => {
+        if (!initialProperties) return true;
+
         return (
-            feature.properties.opacity !== initialProperties.opacity
+            feature.properties.opacity !== initialProperties.opacity ||
+            feature.properties.observerHeight !== initialProperties.observerHeight ||
+            feature.properties.nome !== initialProperties.nome ||
+            feature.properties.descricao !== initialProperties.descricao ||
+            feature.properties.visivel !== initialProperties.visivel ||
+            feature.properties.bloqueado !== initialProperties.bloqueado
         );
     }
 
-    calculateViewshed = async (center, radius, angle, numRays = 20) => {
-        const sectorStart = angle - 22.5; // Sector starts at -22.5 degrees relative to the center angle
-        const sectorEnd = angle + 22.5; // Sector ends at +22.5 degrees relative to the center angle
-      
-        const visibleCoordinates = [center.geometry.coordinates];
-        const obstructedCoordinates = [];
-        const obstructedCoordinatesEnd = [];
-      
-        for (let i = 0; i <= numRays; i++) {
-          const bearing = sectorStart + (i * (sectorEnd - sectorStart)) / numRays;
-          const endpoint = turf.destination(center, radius, bearing, { units: 'meters' });
-            
-          const line = turf.lineString([center.geometry.coordinates, endpoint.geometry.coordinates]);
-          const lastVisibleCoordinate = await this.calculateLOSForViewShed(line);
-          visibleCoordinates.push(lastVisibleCoordinate);
-          obstructedCoordinates.push(lastVisibleCoordinate);
-          obstructedCoordinatesEnd.push(endpoint.geometry.coordinates);
-        }
-      
-        visibleCoordinates.push(center.geometry.coordinates);
-      
-        const visiblePolygon = turf.polygon([visibleCoordinates]);
+    updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
+        if (features.length === 0) return;
 
-        const completeObstructed = [...obstructedCoordinates,...obstructedCoordinatesEnd.reverse(),obstructedCoordinates[0]]
+        const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
+        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
 
-        const obstructedPolygon = turf.polygon([completeObstructed]);
-      
-        return {
-          visible: visiblePolygon,
-          obstructed: obstructedPolygon
-        };
-      }
-    
-    calculateLOSForViewShed = async(line) => {
-        const length = turf.length(line, { units: 'meters' });
-        const steps = 20; // Number of steps to check elevation along the line
-        const stepLength = length / steps;
-      
-        // Get start and end elevations
-        const startCoordinates = line.geometry.coordinates[0];
-        const endCoordinates = line.geometry.coordinates[line.geometry.coordinates.length - 1];
-        const startElevation = await getTerrainElevation(this.map, startCoordinates)+2;
-        const endElevation = await getTerrainElevation(this.map, endCoordinates);
-      
-        let firstObstructedPoint = endCoordinates;
+        for (const feature of features) {
+            const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+            if (featureIndex !== -1) {
+                if (onlyUpdateProperties) {
+                    Object.assign(data.features[featureIndex].properties, feature.properties);
 
-        for (let i = 1; i <= steps; i++) {
-            const segment = turf.along(line, i * stepLength, { units: 'meters' });
-            const segmentCoordinates = segment.geometry.coordinates;
-        
-            // Calculate expected elevation on the line
-            const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
-        
-            // Query terrain elevation
-            const actualElevation = await getTerrainElevation(this.map, segmentCoordinates);
-        
-            if (actualElevation > expectedElevation) {
-              firstObstructedPoint = segmentCoordinates;
-              break;
+                    // Update processed features
+                    const processedFeatures = processedData.features.filter(f =>
+                        f.properties.id.startsWith(feature.properties.id + '-')
+                    );
+                    processedFeatures.forEach(processedFeature => {
+                        Object.keys(feature.properties).forEach(key => {
+                            if (key !== 'color') {
+                                processedFeature.properties[key] = feature.properties[key];
+                            }
+                        });
+                    });
+                } else {
+                    data.features[featureIndex] = feature;
+                }
+
+                if (save) {
+                    const processedFeatures = processedData.features.filter(f =>
+                        f.properties.id.startsWith(feature.properties.id + '-')
+                    );
+
+                    // Always use batch operation
+                    await batchUpdateVisibilityFeatures(data.features[featureIndex], processedFeatures);
+                }
             }
         }
-      
-        return firstObstructedPoint;
+
+        this.map.getSource('visibility').setData(data);
+        this.map.getSource('processed-visibility').setData(processedData);
+        this.updateSelectionManagerFeatures(features);
     }
 
-    async recalculateVisibility(feature) {
-        let centerCoord
-        if (feature.geometry.type === 'MultiPolygon') {
-            centerCoord = feature.geometry.coordinates[0][0][0]
-        } else if (feature.geometry.type === 'Polygon') {
-            centerCoord = feature.geometry.coordinates[0][0]
+    // ===== PROGRESS MODAL SYSTEM =====
 
+    createProgressModal = () => {
+        this.progressModal = document.createElement('div');
+        this.progressModal.style.cssText = `
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        `;
+
+        const modalContent = document.createElement('div');
+        modalContent.style.cssText = `
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            min-width: 300px;
+        `;
+
+        const title = document.createElement('h3');
+        title.textContent = 'Calculando Visibilidade';
+        title.style.cssText = `
+            margin: 0 0 20px 0;
+            color: #333;
+            font-size: 18px;
+            font-weight: 500;
+        `;
+
+        this.progressText = document.createElement('p');
+        this.progressText.textContent = 'Analisando terreno...';
+        this.progressText.style.cssText = `
+            margin: 0 0 20px 0;
+            color: #666;
+            font-size: 14px;
+        `;
+
+        const progressContainer = document.createElement('div');
+        progressContainer.style.cssText = `
+            width: 100%;
+            height: 8px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        `;
+
+        this.progressBar = document.createElement('div');
+        this.progressBar.style.cssText = `
+            width: 0%;
+            height: 100%;
+            background-color: #508D4E;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        `;
+
+        const progressPercentage = document.createElement('div');
+        progressPercentage.id = 'progress-percentage';
+        progressPercentage.textContent = '0%';
+        progressPercentage.style.cssText = `
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        `;
+
+        progressContainer.appendChild(this.progressBar);
+        modalContent.appendChild(title);
+        modalContent.appendChild(this.progressText);
+        modalContent.appendChild(progressContainer);
+        modalContent.appendChild(progressPercentage);
+        this.progressModal.appendChild(modalContent);
+        document.body.appendChild(this.progressModal);
+    }
+
+    showProgressModal = () => {
+        this.progressModal.style.display = 'flex';
+        this.updateProgress(0, 'Iniciando análise...');
+    }
+
+    updateProgress = (percentage, text = null) => {
+        this.progressBar.style.width = `${percentage}%`;
+        const percentageElement = document.getElementById('progress-percentage');
+        if (percentageElement) {
+            percentageElement.textContent = `${Math.round(percentage)}%`;
         }
 
-        const { radius, angle } = feature.properties;
-        const center = turf.point(centerCoord);
+        if (text) {
+            this.progressText.textContent = text;
+        }
+    }
 
-        const viewshedResult = await this.calculateViewshed(center, radius, angle);
-        const updatedFeature = this.createViewshedFeature(viewshedResult.visible, viewshedResult.obstructed, radius, angle);
-        
-        // Preserve the original ID and other properties
-        updatedFeature.id = feature.id;
-        updatedFeature.properties = { ...feature.properties, ...updatedFeature.properties };
+    hideProgressModal = () => {
+        this.progressModal.style.display = 'none';
+        this.updateProgress(0, 'Analisando terreno...');
+    }
 
-        return updatedFeature;
+    // ===== TERRAIN INTEGRATION =====
+
+    setupBaseEventListeners = () => {
+        this.map.on('terrain', this._onTerrainChange);
+        this._onTerrainChange(); // Initial check
+    }
+
+    _onTerrainChange = () => {
+        this.updateButtonAppearance();
+
+        // If tool is active but terrain is disabled, deactivate
+        if (this.isActive && !this.geometry.isTerrainAvailable(this.map)) {
+            this.toolManager.setActiveTool(null);
+        }
+    }
+
+    // ===== SELECTION MANAGER INTEGRATION (following LOS pattern) =====
+
+    updateSelectionManagerFeature(feature) {
+        const key = `visibility:${feature.properties.id}`;
+        this.selectionManager.selectedFeatures.set(key, { type: 'visibility', feature });
+    }
+
+    updateSelectionManagerFeatures(features) {
+        features.forEach(feature => {
+            if (feature.properties.source === 'visibility') {
+                this.updateSelectionManagerFeature(feature);
+            }
+        });
+    }
+
+    // ===== UTILITY METHODS =====
+
+    cancelPendingUpdates = () => {
+        if (this.previewRafId) {
+            cancelAnimationFrame(this.previewRafId);
+            this.previewRafId = null;
+        }
+        this.pendingPreviewUpdate = false;
+        this.lastPreviewPosition = null;
+        this.lastPreviewCenter = null;
+
+        if (this.geometryDebounceTimer) {
+            clearTimeout(this.geometryDebounceTimer);
+            this.geometryDebounceTimer = null;
+        }
+
+        // Cancel observer height debounce timer
+        if (this.observerHeightDebounceTimer) {
+            clearTimeout(this.observerHeightDebounceTimer);
+            this.observerHeightDebounceTimer = null;
+        }
+    }
+
+    removeAllEventListeners = () => {
+        this.map.off('mousemove', this.handleMouseMove);
+        this.map.off('terrain', this._onTerrainChange);
+        this.cancelPendingUpdates();
     }
 }
 

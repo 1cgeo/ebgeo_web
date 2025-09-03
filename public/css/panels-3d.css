@@ -1,0 +1,344 @@
+/* css/panels-3d.css - Painéis do Modo 3D */
+
+/* 
+NOTA IMPORTANTE:
+Este arquivo corrige os problemas de estilo do painel 3D:
+1. Background branco puro (igual ao painel SIG)
+2. Maior espaçamento entre "Modelos 3D" e "Ferramentas" 
+3. 5 botões de ferramentas em linha única
+4. Override da classe .card que pode estar interferindo
+
+PROBLEMAS RESOLVIDOS:
+- Background cinza → Background branco com !important
+- Gap pequeno (15px) → Gap maior (35px)  
+- Botões grandes → Botões compactos em grid de 5 colunas
+- Possível conflito com classe externa .card
+*/
+
+/* ===== CONTAINER PRINCIPAL DO 3D ===== */
+#map-3d-container {
+    display: none;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    margin-top: 42px;
+}
+
+#map-3d {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* ===== TOOLBAR PRINCIPAL 3D ===== */
+#map-3d-tool-bar {
+    padding: 15px !important;
+    position: absolute !important;
+    display: flex !important;
+    flex-direction: column !important;
+    top: 20px !important;
+    left: 1px !important;
+    /* CORREÇÃO 1: Background branco puro forçado (importante para sobrescrever classe .card) */
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(8px) !important;
+    width: 300px !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+    z-index: 100 !important;
+    /* CORREÇÃO 2: Reduzir o espaçamento entre seções */
+    gap: 20px !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Força override da classe .card se existir */
+#map-3d-tool-bar.card {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+    border: 1px solid rgba(0, 0, 0, 0.1) !important;
+}
+
+#map-3d-tool-bar:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* ===== CONTAINER DE MODELOS 3D ===== */
+#model-3d-container {
+    width: 100%;
+    color: #333;
+}
+
+#model-3d-container p {
+    margin: 0 0 10px 0 !important;
+    font-weight: 600 !important;
+    /* CORREÇÃO: Texto preto forçado */
+    color: #000 !important;
+    font-size: 16px !important;
+    text-align: center !important;
+}
+
+/* ===== CONTAINER DE LOCALIZAÇÃO 3D ===== */
+#locate-3d-container,
+#locate-3d-container-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+}
+
+#locate-3d-container-mobile {
+    gap: 5px;
+}
+
+#locate-3d-container button,
+#locate-3d-container-mobile button {
+    width: 90%;
+    min-height: 40px;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+#locate-3d-container button:hover,
+#locate-3d-container-mobile button:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+#locate-3d-container button:active,
+#locate-3d-container-mobile button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ===== CONTAINER DE FERRAMENTAS ===== */
+#tool-3d-container {
+    width: 100%;
+    color: #333;
+}
+
+#tool-3d-container p {
+    margin: 0 0 10px 0 !important;
+    font-weight: 600 !important;
+    /* CORREÇÃO: Texto preto forçado */
+    color: #000 !important;
+    font-size: 16px !important;
+    text-align: center !important;
+}
+
+/* ===== GRID DE FERRAMENTAS 3D ===== */
+.tools-3d-bar {
+    display: grid;
+    /* CORREÇÃO 3: Forçar 5 colunas em uma linha */
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    width: 100%;
+    padding: 4px 0;
+}
+
+/* ===== BOTÕES DE FERRAMENTAS 3D ===== */
+.button-tool-3d {
+    text-decoration: none;
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: start;
+    font-size: 1.5rem;
+    color: #fff;
+    text-align: center;
+    line-height: 1.1;
+    transition: all 0.2s ease;
+    background-color: transparent;
+    border-radius: 6px;
+    /* CORREÇÃO 3: Reduzir padding dos botões */
+    padding: 4px;
+    min-width: 50px;
+    min-height: 50px;
+    position: relative;
+    overflow: hidden;
+}
+
+.button-tool-3d:hover {
+    background-color: rgba(80, 141, 78, 0.1);
+    transform: scale(1.05);
+}
+
+.button-tool-3d:active {
+    transform: scale(0.95);
+}
+
+.button-tool-3d.active,
+.button-tool-3d.active-button {
+    background-color: var(--primary-color);
+    color: white;
+    box-shadow: 0 2px 8px rgba(80, 141, 78, 0.3);
+}
+
+.button-tool-3d img {
+    width: 26px;
+    height: 26px;
+    transition: filter 0.2s ease;
+}
+
+.button-tool-3d:hover img {
+    filter: brightness(1.1);
+}
+
+/* ===== SCREENSHOT 3D ESPECÍFICO ===== */
+#screenshot-3d {
+    position: relative;
+    overflow: hidden;
+}
+
+#screenshot-3d img {
+    width: 26px;
+    height: 26px;
+    transition: transform 0.2s ease;
+}
+
+#screenshot-3d:hover img {
+    transform: scale(1.1);
+}
+
+#screenshot-3d:active {
+    transform: scale(0.9);
+}
+
+/* ===== PAINEL FLOAT PARA MOBILE ===== */
+.panel-icon-float {
+    position: fixed;
+    bottom: 30px;
+    left: 30px;
+    width: 56px;
+    height: 56px;
+    background-color: var(--primary-color);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+    z-index: 100;
+    border: none;
+    outline: none;
+}
+
+.panel-icon-float:hover {
+    background-color: var(--primary-dark);
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.panel-icon-float:active {
+    transform: scale(0.95);
+}
+
+.panel-icon-float svg {
+    width: 24px;
+    height: 24px;
+    fill: white;
+}
+
+/* ===== ESTADOS DE CARREGAMENTO ===== */
+#map-3d-tool-bar.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+#map-3d-tool-bar.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+    border: 2px solid var(--primary-light);
+    border-top: 2px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* ===== TOOLTIPS PARA FERRAMENTAS ===== */
+.button-tool-3d::after {
+    content: attr(aria-label);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    margin-bottom: 5px;
+    z-index: 1000;
+}
+
+.button-tool-3d:hover::after {
+    opacity: 1;
+}
+
+/* ===== ACESSIBILIDADE ===== */
+.button-tool-3d:focus,
+.panel-icon-float:focus,
+#locate-3d-container button:focus,
+#locate-3d-container-mobile button:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* ===== PERFORMANCE OPTIMIZATIONS ===== */
+.button-tool-3d,
+.panel-icon-float,
+#locate-3d-container button,
+#locate-3d-container-mobile button {
+    will-change: transform, background-color;
+}
+
+/* ===== Z-INDEX MANAGEMENT ===== */
+#map-3d-container {
+    z-index: 1;
+}
+
+#map-3d-tool-bar {
+    z-index: 100;
+}
+
+.panel-icon-float {
+    z-index: 100;
+}
+
+.button-tool-3d::after {
+    z-index: 1000;
+}
+
+.cesium-navigationHelpButton-wrapper button[title*="Instruções de navegação"] {
+    margin-top: 20px !important;
+}
