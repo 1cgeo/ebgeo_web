@@ -6,6 +6,8 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createColorPicker,
+    createCheckbox,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
@@ -694,7 +696,104 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         return item;
     }
 
-    // Modal do símbolo - ATUALIZADO com galeria
+    // ===== NEW: COLOR CONTROL =====
+    
+    function createColorControl(currentValue, onChange, label) {
+        const container = document.createElement('div');
+        container.className = 'color-control-container';
+        container.style.cssText = 'margin-bottom: 20px;';
+
+        const labelElement = document.createElement('label');
+        labelElement.textContent = label + ':';
+        labelElement.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+
+        // Container do checkbox e label
+        const checkboxContainer = document.createElement('div');
+        checkboxContainer.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 12px;';
+
+        // Checkbox usando helper
+        const checkbox = createCheckbox(
+            !!currentValue, // true se tem cor, false se é padrão
+            (e) => {
+                const isEnabled = e.target.checked;
+                if (isEnabled) {
+                    // Habilitar cor personalizada - usar cor atual ou preta
+                    const color = currentValue || '#11FF00';
+                    onChange(color);
+                    updateColorControlState(color);
+                } else {
+                    // Desabilitar cor personalizada - usar padrão
+                    onChange(null);
+                    updateColorControlState(null);
+                }
+            }
+        );
+
+        const checkboxLabel = document.createElement('span');
+        checkboxLabel.textContent = 'Usar cor personalizada';
+        checkboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
+        
+        // Clicar no label também alterna o checkbox
+        checkboxLabel.onclick = () => {
+            const checkboxInput = checkbox.find('input')[0];
+            checkboxInput.click();
+        };
+
+        checkboxContainer.appendChild(checkbox[0]);
+        checkboxContainer.appendChild(checkboxLabel);
+
+        // Container dos controles de cor
+        const controlsContainer = document.createElement('div');
+        controlsContainer.style.cssText = 'display: flex; align-items: center; gap: 12px;';
+
+        // Color picker usando helper
+        const colorPicker = createColorPicker(
+            currentValue || '#11FF00',
+            (e) => {
+                const color = e.target.value;
+                onChange(color);
+                updateColorControlState(color);
+            },
+            'Escolher cor personalizada',
+            'current'
+        );
+
+        function updateColorControlState(color) {
+            const isCustomColor = !!color;
+            const checkboxInput = checkbox.find('input')[0];
+            
+            // Atualizar checkbox state
+            checkboxInput.checked = isCustomColor;
+            
+            // Atualizar color picker
+            colorPicker.disabled = !isCustomColor;
+            colorPicker.style.opacity = isCustomColor ? '1' : '0.5';
+            colorPicker.style.cursor = isCustomColor ? 'pointer' : 'not-allowed';
+            
+            // Atualizar valor do color picker
+            if (isCustomColor) {
+                colorPicker.value = color;
+            }
+        }
+
+        // Estado inicial
+        updateColorControlState(currentValue);
+
+        controlsContainer.appendChild(colorPicker);
+
+        container.appendChild(labelElement);
+        container.appendChild(checkboxContainer);
+        container.appendChild(controlsContainer);
+
+        // Método para atualizar programaticamente
+        container.updateValue = (newValue) => {
+            updateColorControlState(newValue);
+        };
+
+        return container;
+    }
+
+    // Modal do símbolo - ATUALIZADO com galeria e controle de cor
     function openSymbolModal() {
         const modalOverlay = document.createElement('div');
         modalOverlay.style.cssText = `
@@ -904,6 +1003,17 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         );
         column2.appendChild(comboboxes.modifier2);
 
+        // ✅ NEW: Controle de cor - adicionado na segunda coluna
+        const colorControl = createColorControl(
+            tempProperties.fillColor,
+            (color) => {
+                tempProperties.fillColor = color;
+                updatePreview();
+            },
+            'Cor do Símbolo'
+        );
+        column2.appendChild(colorControl);
+
         comboboxesContainer.appendChild(column1);
         comboboxesContainer.appendChild(column2);
         controlsColumn.appendChild(comboboxesContainer);
@@ -990,7 +1100,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             }, 10);
         });
 
-        // Função de preview - CORRIGIDA para usar o generator
+        // Função de preview - CORRIGIDA para usar o generator com cor
         async function updatePreview() {
             try {
                 const sidc = tempProperties.sidc;
@@ -1003,8 +1113,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     return;
                 }
 
-                // Usar a nova função generatePreviewDataURL que converte para PNG
-                const previewDataURL = await militarySymbolControl.symbolGenerator.generatePreviewDataURL(sidc, 80);
+                // ✅ NOVO: Usar a nova função generatePreviewDataURL com cor personalizada
+                const previewDataURL = await militarySymbolControl.symbolGenerator.generatePreviewDataURL(
+                    sidc, 
+                    80, 
+                    tempProperties.fillColor // Passar cor personalizada
+                );
 
                 if (previewDataURL) {
                     previewImage.src = previewDataURL;

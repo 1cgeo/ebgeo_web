@@ -45,6 +45,7 @@ class AddMilitarySymbolControl extends BaseControl {
         height: 100,
         opacity: 1.0,
         rotation: 0,
+        fillColor: null,
 
         // Zoom-invariant properties
         createdAtZoom: 0,
@@ -691,6 +692,7 @@ class AddMilitarySymbolControl extends BaseControl {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             if (sourceFeature) {
                 const oldSIDC = sourceFeature.properties.sidc;
+                const oldFillColor = sourceFeature.properties.fillColor;
 
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -709,15 +711,22 @@ class AddMilitarySymbolControl extends BaseControl {
                     sourceFeature.properties.calculatedSize = newCalculatedSize;
                     feature.properties.calculatedSize = newCalculatedSize;
                 } else {
-                    // Properties that affect SIDC must regenerate the symbol
-                    if (this.geometry.affectsSIDC(property)) {
-                        // Calculate new SIDC
-                        const newSIDC = this.geometry.buildSIDC(sourceFeature.properties);
-                        sourceFeature.properties.sidc = newSIDC;
-                        feature.properties.sidc = newSIDC;
+                    // Properties that affect SIDC or color must regenerate the symbol
+                    const needsRegeneration = this.geometry.affectsSIDC(property) || property === 'fillColor';
+                    
+                    if (needsRegeneration) {
+                        // Calculate new SIDC if SIDC-affecting property changed
+                        if (this.geometry.affectsSIDC(property)) {
+                            const newSIDC = this.geometry.buildSIDC(sourceFeature.properties);
+                            sourceFeature.properties.sidc = newSIDC;
+                            feature.properties.sidc = newSIDC;
+                        }
 
-                        // Only regenerate if SIDC actually changed
-                        if (oldSIDC !== newSIDC) {
+                        // Regenerate if SIDC changed OR fillColor changed
+                        const sidcChanged = this.geometry.affectsSIDC(property) && (oldSIDC !== sourceFeature.properties.sidc);
+                        const colorChanged = property === 'fillColor' && (oldFillColor !== value);
+                        
+                        if (sidcChanged || colorChanged) {
                             this.scheduleSymbolUpdate(feature);
                         }
                     }
@@ -838,8 +847,8 @@ class AddMilitarySymbolControl extends BaseControl {
             Object.assign(f.properties, initialProps);
             f.geometry = this.geometry.generate(f.geometry.coordinates);
 
-            // If SIDC changed, regenerate symbol
-            if (f.properties.sidc !== initialProps.sidc) {
+            // If SIDC or fillColor changed, regenerate symbol
+            if (f.properties.sidc !== initialProps.sidc || f.properties.fillColor !== initialProps.fillColor) {
                 this.scheduleSymbolUpdate(f);
             }
         }
@@ -896,6 +905,7 @@ class AddMilitarySymbolControl extends BaseControl {
             feature.properties.size !== initialProperties.size ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.rotation !== initialProperties.rotation ||
+            feature.properties.fillColor !== initialProperties.fillColor ||
             feature.properties.createdAtZoom !== initialProperties.createdAtZoom ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||

@@ -143,8 +143,8 @@ export class MilitarySymbolGenerator {
     async generateSymbolBlob(properties) {
         const sidc = properties.sidc;
 
-        // Cache baseado apenas no SIDC
-        const cacheKey = `${sidc}`;
+        // Cache baseado no SIDC + fillColor
+        const cacheKey = `${sidc}_${properties.fillColor || 'default'}`;
         if (this.symbolCache.has(cacheKey)) {
             return this.symbolCache.get(cacheKey);
         }
@@ -155,14 +155,23 @@ export class MilitarySymbolGenerator {
                 console.error('Invalid SIDC:', validation.error);
             }
 
-            // Gerar símbolo sempre com tamanho fixo
-            const symbol = new ms.Symbol(sidc, {
+            // Configurar opções do símbolo
+            const symbolOptions = {
                 size: DEFAULT_SIZE * 0.5,
                 frame: true,
                 fill: true,
                 strokeWidth: 3,
                 colorMode: 'Light'
-            });
+            };
+
+            // ✅ NOVO: Aplicar cor personalizada se definida
+            if (properties.fillColor) {
+                symbolOptions.fillColor = properties.fillColor;
+                // Não aplicar frameColor para manter o frame padrão
+            }
+
+            // Gerar símbolo sempre com tamanho fixo
+            const symbol = new ms.Symbol(sidc, symbolOptions);
 
             // Verificar se o símbolo foi gerado com sucesso
             if (!symbol || symbol.isValid === false) {
@@ -211,16 +220,24 @@ export class MilitarySymbolGenerator {
     }
 
     // Gerar preview para UI (reutiliza a lógica de conversão PNG)
-    async generatePreviewDataURL(sidc, size = 80) {
+    async generatePreviewDataURL(sidc, size = 80, customColor = null) {
         try {
-            // Gerar símbolo normalmente
-            const symbol = new ms.Symbol(sidc, {
+            // Configurar opções do símbolo
+            const symbolOptions = {
                 size: size,
                 frame: true,
                 fill: true,
                 strokeWidth: 2,
                 colorMode: 'Light'
-            });
+            };
+
+            // ✅ NOVO: Aplicar cor personalizada se definida
+            if (customColor) {
+                symbolOptions.fillColor = customColor;
+            }
+
+            // Gerar símbolo normalmente
+            const symbol = new ms.Symbol(sidc, symbolOptions);
 
             if (!symbol || symbol.isValid === false) {
                 console.warn('milsymbol.js returned invalid symbol for SIDC:', sidc);
