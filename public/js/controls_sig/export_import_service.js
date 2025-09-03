@@ -14,7 +14,8 @@ import {
     clearAllDataStore,
     getImage,
     storeImage,
-    setSchemaVersion
+    setSchemaVersion,
+    getColorUsage
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -167,7 +168,8 @@ export class ExportImportService {
             const data = {
                 version: SCHEMA_VERSION,
                 currentMap: await getCurrentMapName(),
-                maps: {}
+                maps: {},
+                colorUsage: {}
             };
 
             // Exportar dados dos mapas com otimização
@@ -186,6 +188,16 @@ export class ExportImportService {
                     };
                     
                     data.maps[mapName] = this.optimizeMapData(fullMapData);
+                }
+
+                // NOVO: Exportar dados de cores
+                try {
+                    const colorData = await getColorUsage(mapName);
+                    if (colorData && Object.keys(colorData).length > 0) {
+                        data.colorUsage[mapName] = colorData;
+                    }
+                } catch (error) {
+                    console.warn(`Não foi possível exportar cores do mapa ${mapName}:`, error);
                 }
             }
 
@@ -338,21 +350,20 @@ export class ExportImportService {
                         counter++;
                     }
 
-                    // Regenerar IDs das feições e duplicar recursos
-                    // Agora as imagens já estão carregadas no imageStore
+                    // Regenerar IDs das feições (cores serão recalculadas)
                     const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
 
-                    // Criar novo mapa
                     await addMap(finalMapName, newMapData);
                     existingMapNames.push(finalMapName);
                     importedMapsCount++;
                 }
             } else {
-                // IMPORTAÇÃO COM SUBSTITUIÇÃO: Manter IDs originais
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
-                    await addMap(mapName, mapData);
+                    const colorUsageData = data.colorUsage?.[mapName] || null;
+                    await addMap(mapName, mapData, colorUsageData);
                     importedMapsCount++;
                 }
+                
                 setCurrentMap(data.currentMap);
 
                 // Carregar imagens após processamento dos mapas (import normal)

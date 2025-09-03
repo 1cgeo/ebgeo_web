@@ -1,5 +1,8 @@
 // Path: js\controls_sig\tool_manager\attribute_panel_helpers.js
 
+// Import para acessar cores frequentes
+import { getFrequentColors } from '../store/store.js';
+
 /**
  * Centralized helper functions for attribute panels
  * Reduces code duplication and ensures consistency across all panels
@@ -10,10 +13,10 @@
 export const DEFAULT_SLIDER_CONFIG = {
     width: 70,      // Reduced from 60-80px
     fontSize: 11,   // Reduced from 12px
-    padding: '6px 4px',  // ✅ Increased vertical padding
+    padding: '6px 4px',  // Increased vertical padding
     gap: 6,         // Reduced from 8px
     debounceMs: 300,
-    minHeight: 28   // ✅ Minimum height for inputs
+    minHeight: 28   // Minimum height for inputs
 };
 
 export const COMPACT_STYLES = {
@@ -121,20 +124,263 @@ export function createSliderWithInput(config) {
     return container;
 }
 
-// ===== STANDARDIZED COLOR PICKER =====
+// ===== COLOR PICKER WITH MODAL =====
 
 /**
- * Creates a standardized color picker
+ * Creates a color picker that opens enhanced modal on click
+ * CORRIGIDO: Usa referência direta em vez de seletores DOM
  */
-export function createColorPicker(value, onChange, title) {
-    const input = document.createElement('input');
-    input.classList.add("picker-color");
-    input.type = 'color';
-    input.value = value || '#000000';
-    input.title = title || '';
-    input.style.cssText = 'width: 40px; height: 30px; border: none; border-radius: 4px; cursor: pointer;';
-    input.oninput = onChange;
-    return input;
+export function createColorPicker(value, onChange, title, scope = 'current') {
+    const colorInput = document.createElement('input');
+    colorInput.classList.add("picker-color");
+    colorInput.type = 'color';
+    colorInput.value = value || '#000000';
+    colorInput.title = title || 'Clique para escolher cor';
+    colorInput.style.cssText = 'width: 40px; height: 30px; border: none; border-radius: 4px; cursor: pointer;';
+    
+    // Substituir comportamento padrão do click
+    colorInput.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openColorPickerModal(colorInput, onChange, scope);
+    });
+
+    // Manter funcionalidade de change para compatibilidade
+    colorInput.oninput = onChange;
+
+    return colorInput;
+}
+
+/**
+ * Abre modal do color picker avançado
+ * CORRIGIDO: Mantém referência ao triggerElement
+ */
+function openColorPickerModal(triggerElement, onChange, scope) {
+    // Fechar modal existente se houver
+    closeExistingColorModal();
+
+    const modal = document.createElement('div');
+    modal.className = 'color-picker-modal';
+    modal.id = 'color-picker-modal';
+
+    // Container do conteúdo
+    const content = document.createElement('div');
+    content.className = 'color-picker-modal-content';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'color-picker-header';
+    header.innerHTML = `
+        <span>Escolher Cor</span>
+        <button class="color-picker-close" aria-label="Fechar">&times;</button>
+    `;
+
+    // Color picker nativo
+    const nativePickerContainer = document.createElement('div');
+    nativePickerContainer.className = 'color-picker-native-container';
+
+    const nativeColorPicker = document.createElement('input');
+    nativeColorPicker.type = 'color';
+    nativeColorPicker.value = triggerElement.value;
+    nativeColorPicker.className = 'color-picker-native';
+
+    nativePickerContainer.appendChild(nativeColorPicker);
+
+    // CORRIGIDO: Passar triggerElement para palette
+    const paletteContainer = createColorPaletteModal(triggerElement.value, onChange, scope, triggerElement);
+
+    // Montar conteúdo
+    content.appendChild(header);
+    content.appendChild(nativePickerContainer);
+    content.appendChild(paletteContainer);
+    modal.appendChild(content);
+
+    // Event listeners
+    nativeColorPicker.oninput = (e) => {
+        const color = e.target.value;
+        // CORRIGIDO: Usar referência direta
+        triggerElement.value = color;
+        updateActivePaletteButton(paletteContainer, color);
+        
+        // Disparar onChange original
+        const fakeEvent = { target: { value: color } };
+        onChange(fakeEvent);
+    };
+
+    // Fechar modal
+    const closeButton = header.querySelector('.color-picker-close');
+    closeButton.onclick = () => closeColorModal(modal);
+
+    // Fechar ao clicar fora
+    modal.onclick = (e) => {
+        if (e.target === modal) {
+            closeColorModal(modal);
+        }
+    };
+
+    // Fechar com ESC
+    const escListener = (e) => {
+        if (e.key === 'Escape') {
+            closeColorModal(modal);
+            document.removeEventListener('keydown', escListener);
+        }
+    };
+    document.addEventListener('keydown', escListener);
+
+    // Adicionar ao DOM
+    document.body.appendChild(modal);
+
+    // Posicionar próximo ao trigger
+    positionModal(modal, triggerElement);
+}
+
+/**
+ * Cria palette de cores para o modal
+ * CORRIGIDO: Recebe triggerElement como parâmetro
+ */
+function createColorPaletteModal(currentValue, onChange, scope, triggerElement) {
+    const paletteContainer = document.createElement('div');
+    paletteContainer.className = 'color-palette-modal-container';
+
+    // Label da palette
+    const paletteLabel = document.createElement('div');
+    paletteLabel.className = 'color-palette-label';
+    paletteLabel.textContent = scope === 'project' ? 'Cores do projeto:' : 'Cores frequentes:';
+    paletteContainer.appendChild(paletteLabel);
+
+    // Grid de cores
+    const paletteGrid = document.createElement('div');
+    paletteGrid.className = 'color-palette-modal-grid';
+
+    // Buscar cores frequentes
+    const frequentColors = getFrequentColors(10, scope);
+
+    if (frequentColors.length > 0) {
+        frequentColors.forEach(({ color, count }) => {
+            // CORRIGIDO: Passar triggerElement e onChange para button
+            const colorButton = createModalColorButton(color, count, currentValue, onChange, triggerElement);
+            paletteGrid.appendChild(colorButton);
+        });
+    } else {
+        // Mensagem quando não há cores
+        const noColorsMessage = document.createElement('div');
+        noColorsMessage.className = 'color-palette-empty';
+        noColorsMessage.textContent = 'Nenhuma cor usada ainda';
+        paletteGrid.appendChild(noColorsMessage);
+    }
+
+    paletteContainer.appendChild(paletteGrid);
+    return paletteContainer;
+}
+
+/**
+ * Cria botão individual de cor para o modal
+ * CORRIGIDO: Recebe triggerElement e onChange como parâmetros
+ */
+function createModalColorButton(color, count, currentValue, onChange, triggerElement) {
+    const button = document.createElement('button');
+    button.className = 'color-button-modal';
+    button.style.backgroundColor = color;
+    button.title = `${color} (usado ${count}x)`;
+    button.dataset.color = color;
+
+    // Estado ativo
+    if (currentValue === color) {
+        button.classList.add('active');
+    }
+
+    // CORRIGIDO: Click handler usa referência direta
+    button.onclick = (e) => {
+        e.preventDefault();
+        
+        // Atualizar trigger element diretamente
+        triggerElement.value = color;
+
+        // Atualizar native picker no modal
+        const nativePicker = document.querySelector('.color-picker-native');
+        if (nativePicker) {
+            nativePicker.value = color;
+        }
+
+        // Atualizar palette visual
+        const paletteContainer = button.closest('.color-palette-modal-container');
+        if (paletteContainer) {
+            updateActivePaletteButton(paletteContainer, color);
+        }
+
+        // Disparar onChange original
+        const fakeEvent = { target: { value: color } };
+        onChange(fakeEvent);
+
+        // Fechar modal
+        closeExistingColorModal();
+    };
+
+    return button;
+}
+
+/**
+ * Atualiza botão ativo na palette
+ */
+function updateActivePaletteButton(container, selectedColor) {
+    const buttons = container.querySelectorAll('.color-button-modal');
+    buttons.forEach(button => {
+        const buttonColor = button.dataset.color;
+        button.classList.toggle('active', buttonColor === selectedColor);
+    });
+}
+
+/**
+ * Posiciona modal próximo ao elemento trigger
+ */
+function positionModal(modal, triggerElement) {
+    const rect = triggerElement.getBoundingClientRect();
+    const modalContent = modal.querySelector('.color-picker-modal-content');
+    
+    // Posição inicial: abaixo do trigger, centralizado
+    let top = rect.bottom + window.scrollY + 8;
+    let left = rect.left + window.scrollX + (rect.width / 2);
+
+    // Ajustar se sair da tela
+    const modalRect = modalContent.getBoundingClientRect();
+    
+    // Ajustar horizontalmente
+    if (left + modalRect.width > window.innerWidth) {
+        left = window.innerWidth - modalRect.width - 20;
+    }
+    if (left < 20) {
+        left = 20;
+    }
+
+    // Ajustar verticalmente (mostrar acima se não couber embaixo)
+    if (top + modalRect.height > window.innerHeight + window.scrollY) {
+        top = rect.top + window.scrollY - modalRect.height - 8;
+    }
+
+    modalContent.style.left = `${left}px`;
+    modalContent.style.top = `${top}px`;
+}
+
+/**
+ * Fecha modal de cor existente
+ */
+function closeExistingColorModal() {
+    const existingModal = document.getElementById('color-picker-modal');
+    if (existingModal) {
+        closeColorModal(existingModal);
+    }
+}
+
+/**
+ * Fecha modal de cor específico
+ */
+function closeColorModal(modal) {
+    modal.classList.add('closing');
+    setTimeout(() => {
+        if (modal.parentNode) {
+            modal.parentNode.removeChild(modal);
+        }
+    }, 200);
 }
 
 // ===== STANDARDIZED CHECKBOX =====
@@ -182,7 +428,7 @@ export function createLineStyleSelect(currentValue, onChange) {
     `;
     
     const options = [
-        { value: 'solid', label: 'Contínuo', pattern: '───────────' },
+        { value: 'solid', label: 'Contínuo', pattern: '────────────' },
         { value: 'dashed', label: 'Tracejado', pattern: '── ── ── ──' },
         { value: 'dotted', label: 'Pontilhado', pattern: ' - - - - - -' },
         { value: 'dash-dot', label: 'Traço-Ponto', pattern: '── - ── - ──' },
@@ -298,7 +544,7 @@ export function createStandardButtons(config) {
         selectedFeatures,
         control,
         selectionManager,
-        initialPropertiesMap, // ✅ REQUIRED PARAMETER - captured at panel opening
+        initialPropertiesMap, // REQUIRED PARAMETER - captured at panel opening
         hasSetDefault = false,
         onSetDefault = null
     } = config;
@@ -383,3 +629,211 @@ export function getCommonConfig(type, defaultValue, overrides = {}) {
         ...overrides
     };
 }
+
+// ===== CSS INJECTION =====
+
+/**
+ * Injeta CSS necessário para o color picker modal
+ */
+function injectColorPickerModalStyles() {
+    if (document.getElementById('color-picker-modal-styles')) {
+        return; // Já injetado
+    }
+
+    const style = document.createElement('style');
+    style.id = 'color-picker-modal-styles';
+    style.textContent = `
+        /* Modal overlay */
+        .color-picker-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            animation: colorModalFadeIn 0.2s ease-out forwards;
+        }
+
+        .color-picker-modal.closing {
+            animation: colorModalFadeOut 0.2s ease-out forwards;
+        }
+
+        @keyframes colorModalFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes colorModalFadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        /* Modal content */
+        .color-picker-modal-content {
+            position: absolute;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            padding: 0;
+            min-width: 280px;
+            max-width: 320px;
+            transform: translateY(-10px);
+            animation: colorModalSlideIn 0.2s ease-out forwards;
+        }
+
+        .color-picker-modal.closing .color-picker-modal-content {
+            animation: colorModalSlideOut 0.2s ease-out forwards;
+        }
+
+        @keyframes colorModalSlideIn {
+            from { 
+                opacity: 0;
+                transform: translateY(-20px) scale(0.95);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes colorModalSlideOut {
+            from { 
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            to { 
+                opacity: 0;
+                transform: translateY(-10px) scale(0.95);
+            }
+        }
+
+        /* Header */
+        .color-picker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid #eee;
+            font-weight: 600;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .color-picker-close {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .color-picker-close:hover {
+            background: #f5f5f5;
+            color: #666;
+        }
+
+        /* Native color picker */
+        .color-picker-native-container {
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+        }
+
+        .color-picker-native {
+            width: 100%;
+            height: 40px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.1s;
+        }
+
+        .color-picker-native:hover {
+            transform: scale(1.05);
+        }
+
+        /* Palette container */
+        .color-palette-modal-container {
+            padding: 20px;
+        }
+
+        .color-palette-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #666;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+
+        .color-palette-modal-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            justify-items: center;
+        }
+
+        .color-button-modal {
+            width: 32px;
+            height: 32px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            padding: 0;
+            margin: 0;
+        }
+
+        .color-button-modal:hover {
+            transform: scale(1.1);
+            border-color: #007bff;
+            box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+        }
+
+        .color-button-modal.active {
+            border-color: #007bff;
+            border-width: 3px;
+            transform: scale(1.05);
+        }
+
+        .color-button-modal.active::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .color-palette-empty {
+            grid-column: 1 / -1;
+            text-align: center;
+            font-size: 11px;
+            color: #999;
+            font-style: italic;
+            padding: 20px 0;
+        }
+    `;
+
+    document.head.appendChild(style);
+}
+
+// Injetar estilos quando o módulo carrega
+injectColorPickerModalStyles();

@@ -184,6 +184,7 @@ const updateMapData = async (mapName, mapData) => {
 
 const deleteMapData = async (mapName) => {
     await mapStore.removeItem(mapName);
+    await removeColorUsage(mapName);
 };
 
 const getAllMapNames = async () => {
@@ -195,6 +196,12 @@ const renameMapData = async (oldName, newName) => {
     if (mapData) {
         await mapStore.setItem(newName, mapData);
         await mapStore.removeItem(oldName);
+        
+        const colorData = await getColorUsage(oldName);
+        if (colorData && Object.keys(colorData).length > 0) {
+            await setColorUsage(newName, colorData);
+            await removeColorUsage(oldName);
+        }
     }
 };
 
@@ -240,6 +247,17 @@ const getAppSetting = async (key) => {
 };
 
 const clearAllAppSettings = async () => {
+    // Limpar cores primeiro
+    const allMaps = await mapStore.keys();
+    for (const mapName of allMaps) {
+        try {
+            await removeColorUsage(mapName);
+        } catch (error) {
+            console.warn(`Erro ao limpar cores do mapa ${mapName}:`, error);
+        }
+    }
+    
+    // Limpar settings normais
     await appStore.clear();
 };
 
@@ -275,6 +293,23 @@ const initializeRepository = async () => {
         memoryStore.currentMap = 'Principal';
         return 'Principal';
     }
+};
+
+// ===== COLOR USAGE OPERATIONS =====
+
+const setColorUsage = async (mapName, colorUsageData) => {
+    const key = `color_usage_${mapName}`;
+    await appStore.setItem(key, colorUsageData);
+};
+
+const getColorUsage = async (mapName) => {
+    const key = `color_usage_${mapName}`;
+    return await appStore.getItem(key) || {};
+};
+
+const removeColorUsage = async (mapName) => {
+    const key = `color_usage_${mapName}`;
+    await appStore.removeItem(key);
 };
 
 // ===== EXPORTS =====
@@ -316,5 +351,9 @@ export {
     clearAllAppSettings,
     
     // Initialization
-    initializeRepository
+    initializeRepository,
+
+    setColorUsage,
+    getColorUsage,
+    removeColorUsage
 };
