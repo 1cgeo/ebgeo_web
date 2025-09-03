@@ -925,7 +925,6 @@ function setupBoundaryLayers(features, mapInstance) {
             source: 'boundary-texts',
             layout: {
                 'text-field': ['get', 'text'],
-                'text-font': ['Noto Sans Regular'],
                 'text-size': ['coalesce', ['get', 'text_size'], 14],
                 'text-rotate': ['get', 'rotation'],
                 'text-allow-overlap': true,
@@ -1595,8 +1594,7 @@ function setupTextLayers(features, mapInstance) {
                 'text-anchor': 'center',
                 'text-rotate': ['get', 'rotation'],
                 'text-ignore-placement': true,
-                'text-allow-overlap': true,
-                'text-font': ['Noto Sans Regular']
+                'text-allow-overlap': true
             },
             paint: {
                 'text-color': ['get', 'color'],
