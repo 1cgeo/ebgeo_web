@@ -73,6 +73,52 @@ const config = {
     }
   },
 
+  // ===== CONFIGURAÇÕES DO MAPA 2D =====
+  map2d: {
+    // ----- Configurações Básicas do Mapa -----
+    bounds: [
+      [-44.4633992903047, -22.46265178239199],   // [longitude_min, latitude_min]
+      [-44.439695820515325, -22.444666254876367] // [longitude_max, latitude_max]
+    ],
+    minZoom: 1,              // Zoom mínimo permitido
+    maxZoom: 17.9,           // Zoom máximo permitido
+    maxPitch: 65,            // Inclinação máxima da câmera (0-60 graus)
+    
+    // Configurações avançadas de carregamento de tiles
+    sourceTileLodParams: [5, 6.0],  // [threshold, factor] para otimização de tiles
+    
+    // Limites geográficos opcionais (descomente para ativar)
+    // maxBounds: [
+    //   [-45.82515, -22.69950],  // [lng_min, lat_min] - sudoeste
+    //   [-43.92333, -21.30216]   // [lng_max, lat_max] - nordeste
+    // ],
+
+    // ===== CONFIGURAÇÃO DO TERRAIN SOURCE =====
+    // Source usado para consultas de elevação e terreno 3D
+    terrainSource: {
+    },
+
+    // ===== CONFIGURAÇÃO DO HILLSHADE SOURCE =====
+    // Source separado para o efeito visual de relevo (pode ser o mesmo que terrain)
+    hillshadeSource: {
+    },
+
+    // ===== CONFIGURAÇÃO DO TERRENO 3D =====
+    // Controla a visualização 3D do terreno (toggle on/off)
+    terrain: {
+    },
+
+    // ===== CONFIGURAÇÃO DO HILLSHADE =====
+    // Efeito visual de sombreamento do relevo
+    hillshade: {
+      enabled: false,                                        // true = ativa hillshade | false = desativa
+      
+      // Configuração da camada hillshade
+      layer: {
+      },
+    },
+  },
+
   // ===== ANALYSIS LAYERS DESABILITADAS =====
   analysisLayers: {
     enabled: false,              // ❌ Feature flag global desabilitado
