@@ -41,7 +41,7 @@
     position: fixed;
     top: 60px;
     left: 16px;
-    width: 420px;
+    width: 500px;
     height: calc(100vh - 60px); /* Fixed height - critical for overflow to work */
     background: white;
     border: 1px solid #e0e0e0;
@@ -51,7 +51,7 @@
     display: flex;
     flex-direction: column;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    overflow: hidden; /* Prevent any overflow on main panel */
+    overflow: visible;
     animation: slideInLeft 0.3s ease;
 }
 
@@ -136,7 +136,7 @@
 .map-notes-content {
     height: calc(100vh - 120px); /* Total height minus header (60px) and margins */
     padding: 24px 20px;
-    overflow: hidden; /* No scroll on content wrapper */
+    overflow: visible; /* No scroll on content wrapper */
     display: flex;
     flex-direction: column;
 }
@@ -155,7 +155,7 @@
 }
 
 .map-notes-view-panel .map-notes-description-display {
-    height: calc(100vh - 220px); /* Fixed height: total minus header, title, paddings */
+    height: calc(100vh - 260px); /* Fixed height: total minus header, title, paddings */
     font-size: 14px;
     line-height: 1.6;
     color: #495057;
@@ -167,40 +167,83 @@
     border-radius: 6px;
     background: #fafbfc;
     box-sizing: border-box;
+    
+    /* Base font matching Quill editor */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.map-notes-description-display h1,
-.map-notes-description-display h2,
-.map-notes-description-display h3 {
-    color: #212529;
-    margin-top: 1.5em;
-    margin-bottom: 0.5em;
-}
+/* ===== CORREÇÕES PARA PARIDADE VISUAL COM QUILL ===== */
 
-.map-notes-description-display h1:first-child,
-.map-notes-description-display h2:first-child,
-.map-notes-description-display h3:first-child {
-    margin-top: 0;
-}
-
+/* Parágrafos - usar mesma formatação do Quill */
 .map-notes-description-display p {
-    margin-bottom: 1em;
+    margin: 0 0 1em 0;
 }
 
 .map-notes-description-display p:last-child {
     margin-bottom: 0;
 }
 
+/* Listas - replicar exatamente os estilos do Quill */
 .map-notes-description-display ul,
 .map-notes-description-display ol {
-    padding-left: 20px;
-    margin-bottom: 1em;
+    margin: 0 0 1em 0;
+    padding-left: 1.5em;
+}
+
+.map-notes-description-display ul {
+    list-style-type: disc;
+}
+
+.map-notes-description-display ol {
+    list-style-type: decimal;
 }
 
 .map-notes-description-display li {
+    margin: 0.5em 0;
+    line-height: 1.6;
+}
+
+.map-notes-description-display li:first-child {
+    margin-top: 0;
+}
+
+.map-notes-description-display li:last-child {
+    margin-bottom: 0;
+}
+
+/* Listas aninhadas */
+.map-notes-description-display li ul,
+.map-notes-description-display li ol {
+    margin-top: 0.5em;
     margin-bottom: 0.5em;
 }
 
+.map-notes-description-display li ul {
+    list-style-type: circle;
+}
+
+.map-notes-description-display li ul ul {
+    list-style-type: square;
+}
+
+/* Formatação de texto - todos os formatos do Quill */
+.map-notes-description-display strong {
+    font-weight: 600;
+}
+
+.map-notes-description-display em {
+    font-style: italic;
+}
+
+.map-notes-description-display u {
+    text-decoration: underline;
+}
+
+.map-notes-description-display s {
+    text-decoration: line-through;
+}
+
+/* Links */
 .map-notes-description-display a {
     color: #007bff;
     text-decoration: none;
@@ -210,14 +253,193 @@
     text-decoration: underline;
 }
 
-.map-notes-description-display strong {
-    font-weight: 600;
+/* Headers */
+.map-notes-description-display h1 {
+    font-size: 2em;
+    font-weight: bold;
+    margin: 0 0 0.67em 0;
+    color: #212529;
 }
 
+.map-notes-description-display h2 {
+    font-size: 1.5em;
+    font-weight: bold;
+    margin: 0 0 0.83em 0;
+    color: #212529;
+}
+
+.map-notes-description-display h3 {
+    font-size: 1.17em;
+    font-weight: bold;
+    margin: 0 0 1em 0;
+    color: #212529;
+}
+
+.map-notes-description-display h1:first-child,
+.map-notes-description-display h2:first-child,
+.map-notes-description-display h3:first-child {
+    margin-top: 0;
+}
+
+/* Blockquote (para possível expansão futura) */
+.map-notes-description-display blockquote {
+    border-left: 4px solid #007bff;
+    margin: 1em 0;
+    padding: 0.5em 0 0.5em 1em;
+    font-style: italic;
+    background: #f8f9fa;
+    color: #495057;
+}
+
+/* Code blocks (para possível expansão futura) */
+.map-notes-description-display pre {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    padding: 1em;
+    margin: 1em 0;
+    overflow-x: auto;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.map-notes-description-display code {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 3px;
+    padding: 0.2em 0.4em;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 13px;
+}
+
+/* Placeholder quando vazio */
 .map-notes-placeholder {
     color: #6c757d;
     font-style: italic;
     margin: 0;
+    padding: 0;
+    text-align: center;
+}
+
+/* ===== CLASSES ESPECÍFICAS DO QUILL PARA INDENTAÇÃO ===== */
+
+/* Indentação/Tabulação - Quill usa ql-indent-1, ql-indent-2, etc. */
+.map-notes-description-display .ql-indent-1 {
+    padding-left: 3em;
+}
+
+.map-notes-description-display .ql-indent-2 {
+    padding-left: 6em;
+}
+
+.map-notes-description-display .ql-indent-3 {
+    padding-left: 9em;
+}
+
+.map-notes-description-display .ql-indent-4 {
+    padding-left: 12em;
+}
+
+.map-notes-description-display .ql-indent-5 {
+    padding-left: 15em;
+}
+
+.map-notes-description-display .ql-indent-6 {
+    padding-left: 18em;
+}
+
+.map-notes-description-display .ql-indent-7 {
+    padding-left: 21em;
+}
+
+.map-notes-description-display .ql-indent-8 {
+    padding-left: 24em;
+}
+
+/* ===== CLASSES ESPECÍFICAS DO QUILL PARA ALINHAMENTO ===== */
+
+/* Alinhamento de texto - Quill usa ql-align-center, ql-align-right, etc. */
+.map-notes-description-display .ql-align-center {
+    text-align: center;
+}
+
+.map-notes-description-display .ql-align-right {
+    text-align: right;
+}
+
+.map-notes-description-display .ql-align-justify {
+    text-align: justify;
+}
+
+/* Alinhamento padrão (left) - explícito para garantia */
+.map-notes-description-display .ql-align-left,
+.map-notes-description-display p:not([class*="ql-align"]) {
+    text-align: left;
+}
+
+/* ===== DIREÇÃO DE TEXTO (RTL/LTR) ===== */
+.map-notes-description-display .ql-direction-rtl {
+    direction: rtl;
+    text-align: right;
+}
+
+.map-notes-description-display .ql-direction-ltr {
+    direction: ltr;
+    text-align: left;
+}
+
+/* ===== LISTAS COM INDENTAÇÃO ===== */
+/* Listas também podem ter indentação */
+.map-notes-description-display .ql-indent-1 ul,
+.map-notes-description-display .ql-indent-1 ol {
+    padding-left: 1.5em;
+}
+
+.map-notes-description-display .ql-indent-2 ul,
+.map-notes-description-display .ql-indent-2 ol {
+    padding-left: 1.5em;
+}
+
+.map-notes-description-display .ql-indent-3 ul,
+.map-notes-description-display .ql-indent-3 ol {
+    padding-left: 1.5em;
+}
+
+.map-notes-description-display .ql-indent-4 ul,
+.map-notes-description-display .ql-indent-4 ol {
+    padding-left: 1.5em;
+}
+
+.map-notes-description-display .ql-indent-5 ul,
+.map-notes-description-display .ql-indent-5 ol {
+    padding-left: 1.5em;
+}
+
+.map-notes-description-display .ql-indent-6 ul,
+.map-notes-description-display .ql-indent-6 ol {
+    padding-left: 1.5em;
+}
+
+.map-notes-description-display .ql-indent-7 ul,
+.map-notes-description-display .ql-indent-7 ol {
+    padding-left: 1.5em;
+}
+
+.map-notes-description-display .ql-indent-8 ul,
+.map-notes-description-display .ql-indent-8 ol {
+    padding-left: 1.5em;
+}
+
+/* Limpeza de conteúdo vazio do Quill */
+.map-notes-description-display p:empty,
+.map-notes-description-display div:empty {
+    display: none;
+}
+
+/* Remover quebras de linha desnecessárias do Quill */
+.map-notes-description-display p br:only-child {
+    display: none;
 }
 
 /* ===== EDIT PANEL SPECIFIC STYLES ===== */
@@ -252,7 +474,7 @@
 }
 
 .map-notes-description-section {
-    height: calc(100vh - 280px); /* Fixed height for editor container */
+    height: calc(100vh - 380px); /* Fixed height for editor container */
     margin-bottom: 16px;
     display: block; /* Remove flex to avoid conflicts */
     flex-shrink: 0;
@@ -265,7 +487,7 @@
     flex-direction: column;
     border: 1px solid #e0e0e0;
     border-radius: 8px;
-    overflow: hidden; /* Contain the editor */
+    overflow: visible; /* Contain the editor */
 }
 
 /* ===== QUILL EDITOR STYLES ===== */
@@ -286,13 +508,13 @@
     font-size: 14px;
     line-height: 1.6;
     height: calc(100% - 42px); /* Fill remaining space minus toolbar */
-    overflow: hidden; /* Let ql-editor handle scroll */
+    overflow: visible; /* Let ql-editor handle scroll */
 }
 
 .map-notes-description-editor .ql-editor {
     height: 100%; /* Fill the container completely */
     overflow-y: auto; /* Enable scrolling */
-    overflow-x: hidden;
+    overflow-x: visible;
     padding: 16px;
     box-sizing: border-box;
 }
@@ -311,6 +533,7 @@
     height: 50px; /* Fixed height */
     align-items: center;
     flex-shrink: 0; /* Never shrink */
+    margin-top: 50px;
 }
 
 .map-notes-cancel-bottom-btn {
@@ -403,6 +626,29 @@
     scrollbar-color: #9aa0a6 #f1f3f4;
 }
 
+/* ===== ANIMATION ===== */
+@keyframes slideInLeft {
+    from {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* ===== FOCUS STATES ===== */
+.map-notes-cancel-bottom-btn:focus,
+.map-notes-save-btn:focus,
+.map-notes-edit-btn:focus,
+.map-notes-close-btn:focus,
+.map-notes-cancel-btn:focus,
+.map-notes-header-save-btn:focus {
+    outline: 2px solid #007bff;
+    outline-offset: 2px;
+}
+
 /* ===== RESPONSIVE STYLES ===== */
 @media (max-width: 768px) {
     .map-notes-view-panel,
@@ -442,91 +688,20 @@
         max-width: none;
     }
     
-    .map-notes-view-panel .map-notes-description-display {
-        height: calc(100vh - 180px); /* More space on small screens */
-    }
-    
-    .map-notes-description-section {
-        height: calc(100vh - 240px); /* More space on small screens */
-    }
-    
-    .map-notes-title-input {
-        font-size: 14px;
+    .map-notes-content {
+        padding: 12px;
     }
     
     .map-notes-actions {
         flex-direction: column;
         gap: 8px;
-        height: 70px; /* Taller for stacked buttons */
+        height: auto;
+        padding: 12px 0;
     }
     
     .map-notes-cancel-bottom-btn,
     .map-notes-save-btn {
         width: 100%;
         justify-content: center;
-    }
-}
-
-/* ===== ANIMATION ===== */
-@keyframes slideInLeft {
-    from {
-        transform: translateX(-100%);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
-
-/* ===== FOCUS STATES ===== */
-.map-notes-cancel-bottom-btn:focus,
-.map-notes-save-btn:focus,
-.map-notes-edit-btn:focus,
-.map-notes-close-btn:focus,
-.map-notes-cancel-btn:focus,
-.map-notes-header-save-btn:focus {
-    outline: 2px solid #007bff;
-    outline-offset: 2px;
-}
-
-/* ===== HIGH CONTRAST MODE SUPPORT ===== */
-@media (prefers-contrast: high) {
-    .map-notes-view-panel,
-    .map-notes-edit-panel {
-        border: 2px solid #000;
-    }
-    
-    .map-notes-title-input {
-        border: 2px solid #000;
-    }
-    
-    .map-notes-title-input:focus {
-        border-color: #0000ff;
-    }
-}
-
-/* ===== REDUCED MOTION SUPPORT ===== */
-@media (prefers-reduced-motion: reduce) {
-    .map-notes-view-panel,
-    .map-notes-edit-panel {
-        animation: none;
-    }
-    
-    .map-notes-button,
-    .map-notes-save-btn,
-    .map-notes-cancel-bottom-btn,
-    .map-notes-edit-btn,
-    .map-notes-close-btn,
-    .map-notes-cancel-btn,
-    .map-notes-header-save-btn {
-        transition: none;
-        transform: none;
-    }
-    
-    .map-notes-button:hover,
-    .map-notes-save-btn:hover,
-    .map-notes-cancel-bottom-btn:hover {
-        transform: none;
     }
 }

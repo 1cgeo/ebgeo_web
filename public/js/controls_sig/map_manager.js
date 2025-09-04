@@ -12,7 +12,9 @@ import {
     getCurrentMapName,
     moveFeaturesToMap,
     clearAllDataStore,
-    getMapDataStore
+    getMapDataStore,
+    getColorUsage,
+    getMapNotes
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -128,8 +130,14 @@ class MapManager {
                 return { success: false, message: 'Dados do mapa não encontrados' };
             }
 
+            // NOVO: Buscar cores e notas do mapa original
+            const originalColorUsage = await getColorUsage(mapName);
+            const originalNotes = await getMapNotes(mapName);
+
             const { newMapData } = await IDUtils.regenerateMapIds(originalMapData, newMapName.trim());
-            await addMap(newMapName.trim(), newMapData);
+
+            // MODIFICADO: Passar cores e notas para otimizar e preservar dados
+            await addMap(newMapName.trim(), newMapData, originalColorUsage, originalNotes);
             setCurrentMap(newMapName.trim());
 
             if (this.baseLayerControl) {

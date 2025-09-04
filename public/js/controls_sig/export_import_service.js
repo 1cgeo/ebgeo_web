@@ -188,7 +188,7 @@ export class ExportImportService {
                         center_lat: null,
                         center_long: null
                     };
-                    
+
                     data.maps[mapName] = this.optimizeMapData(fullMapData);
                 }
 
@@ -338,7 +338,7 @@ export class ExportImportService {
             if (compareVersions(data.version, MAX_SCHEMA_VERSION) > 0) {
                 throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${MAX_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`);
             }
-            
+
             await setSchemaVersion(SCHEMA_VERSION);
 
             let importedMapsCount = 0;
@@ -362,10 +362,15 @@ export class ExportImportService {
                         counter++;
                     }
 
-                    // Regenerar IDs das feições (cores serão recalculadas)
+                    // Regenerar IDs das features
                     const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
 
-                    await addMap(finalMapName, newMapData);
+                    // NOVO: Buscar dados originais do arquivo para preservar cores e notas
+                    const originalColorUsage = data.colorUsage?.[originalMapName] || null;
+                    const originalNotes = data.mapNotes?.[originalMapName] || null;
+
+                    // CORRIGIDO: Passar cores e notas para preservar dados originais
+                    await addMap(finalMapName, newMapData, originalColorUsage, originalNotes);
                     existingMapNames.push(finalMapName);
                     importedMapsCount++;
                 }
@@ -373,10 +378,10 @@ export class ExportImportService {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     const colorUsageData = data.colorUsage?.[mapName] || null;
                     const notesData = data.mapNotes?.[mapName] || null;
-                    await addMap(mapName, mapData, colorUsageData,notesData);
+                    await addMap(mapName, mapData, colorUsageData, notesData);
                     importedMapsCount++;
                 }
-                
+
                 setCurrentMap(data.currentMap);
 
                 // Carregar imagens após processamento dos mapas (import normal)
