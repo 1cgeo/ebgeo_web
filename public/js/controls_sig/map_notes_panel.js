@@ -383,7 +383,7 @@ class MapNotesEditPanel {
         this.titleInput = document.createElement('input');
         this.titleInput.type = 'text';
         this.titleInput.className = 'map-notes-title-input';
-        this.titleInput.placeholder = 'Digite o título do mapa...';
+        this.titleInput.placeholder = 'Digite o título do nota...';
         this.titleInput.maxLength = 100;
 
         titleSection.appendChild(this.titleInput);
@@ -434,7 +434,7 @@ class MapNotesEditPanel {
 
         this.quillInstance = new Quill(this.descriptionEditor, {
             theme: 'snow',
-            placeholder: 'Digite a descrição do mapa...',
+            placeholder: 'Digite a descrição a nota...',
             modules: {
                 toolbar: [
                     [{ 'header': [1, 2, 3, false] }], // Cabeçalhos
