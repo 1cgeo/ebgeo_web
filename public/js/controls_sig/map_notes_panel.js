@@ -442,11 +442,86 @@ class MapNotesEditPanel {
                     [{ 'color': [] }, { 'background': [] }], // Cores
                     [{ 'list': 'ordered' }, { 'list': 'bullet' }],
                     [{ 'indent': '-1' }, { 'indent': '+1' }], // Indentação
-                    ['link'],
+                    ['link', 'image'],
                     [{ 'align': [] }], // Alinhamento
                     ['clean']
                 ]
             }
+        });
+
+        // Configurar handler de imagem
+        this.setupImageHandler();
+    }
+
+    setupImageHandler() {
+        const toolbar = this.quillInstance.getModule('toolbar');
+        toolbar.addHandler('image', this.selectLocalImage.bind(this));
+    }
+
+    selectLocalImage() {
+        const input = document.createElement('input');
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/png, image/gif, image/jpeg, image/webp');
+        input.click();
+
+        input.onchange = async () => {
+            const file = input.files[0];
+            if (file) {
+                try {
+                    const compressedBase64 = await this.compressImage(file);
+                    const range = this.quillInstance.getSelection(true);
+                    this.quillInstance.insertEmbed(range.index, 'image', compressedBase64);
+                    this.quillInstance.setSelection(range.index + 1);
+                } catch (error) {
+                    console.error('Erro ao processar imagem:', error);
+                    showError('Erro ao adicionar imagem');
+                }
+            }
+        };
+    }
+
+    async compressImage(file) {
+        return new Promise((resolve, reject) => {
+            // Validar tamanho máximo (5MB)
+            if (file.size > 5 * 1024 * 1024) {
+                reject(new Error('Imagem muito grande (máximo 5MB)'));
+                return;
+            }
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            
+            img.onload = () => {
+                // Calcular novas dimensões (máximo 800px de largura)
+                const MAX_WIDTH = 800;
+                const MAX_HEIGHT = 600;
+                
+                let { width, height } = img;
+                
+                if (width > MAX_WIDTH) {
+                    height = (height * MAX_WIDTH) / width;
+                    width = MAX_WIDTH;
+                }
+                
+                if (height > MAX_HEIGHT) {
+                    width = (width * MAX_HEIGHT) / height;
+                    height = MAX_HEIGHT;
+                }
+                
+                // Redimensionar
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // Converter para base64 com compressão
+                const quality = 0.8; // 80% de qualidade
+                const base64 = canvas.toDataURL('image/jpeg', quality);
+                resolve(base64);
+            };
+            
+            img.onerror = () => reject(new Error('Erro ao carregar imagem'));
+            img.src = URL.createObjectURL(file);
         });
     }
 

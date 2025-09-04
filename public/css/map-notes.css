@@ -442,6 +442,39 @@
     display: none;
 }
 
+/* ===== IMAGENS NO EDITOR E VISUALIZAÇÃO ===== */
+
+/* Imagens no editor Quill */
+.map-notes-description-editor .ql-editor img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin: 0.5em 0;
+    display: block;
+}
+
+/* Imagens no painel de visualização */
+.map-notes-description-display img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin: 0.5em auto;
+    display: block;
+}
+
+/* Centralizar imagens quando estão sozinhas em um parágrafo */
+.map-notes-description-display p:has(img:only-child) {
+    text-align: center;
+}
+
+/* Fallback para navegadores que não suportam :has() */
+.map-notes-description-display p img:only-child {
+    margin-left: auto;
+    margin-right: auto;
+}
+
 /* ===== EDIT PANEL SPECIFIC STYLES ===== */
 .map-notes-title-section {
     margin-bottom: 24px;

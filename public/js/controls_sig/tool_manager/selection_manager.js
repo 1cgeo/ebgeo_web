@@ -117,6 +117,9 @@ class SelectionManager {
                 );
 
                 matchingFeatures.forEach(feature => {
+                    if (feature.properties.bloqueado === true) {
+                        return;
+                    }
                     clickedFeatures.push({ ...feature, toolType: type });
                 });
             }
