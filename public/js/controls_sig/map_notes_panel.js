@@ -253,7 +253,7 @@ class MapNotesViewPanel {
 
     show(mapName, notesData) {
         // Update title
-        this.titleDisplay.textContent = notesData.title || 'Título do Mapa';
+        this.titleDisplay.textContent = notesData.title || 'Título da Nota';
 
         // Update description with proper content handling
         this.updateDescriptionDisplay(notesData.description);
