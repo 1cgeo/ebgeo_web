@@ -16,6 +16,7 @@ class KeyboardShortcuts {
         this.baseLayerControl = config.baseLayerControl;
         this.clipboardManager = config.clipboardManager;
         this.addStreetViewControl = config.addStreetViewControl;
+        this.mapControl = config.mapControl;
         
         // Controles de ferramentas
         this.controls = config.controls;
@@ -226,8 +227,16 @@ class KeyboardShortcuts {
             return;
         }
 
+        if (this.isNotesPanel() && !(e.ctrlKey && e.key.toLowerCase() === 's')) {
+            return;
+        }
+
         // Processar atalhos baseados na tecla pressionada
         await this.processShortcut(e);
+    }
+
+    isNotesPanel() {
+        return this.mapControl && this.mapControl.isNotesPanel && this.mapControl.isNotesPanel();
     }
 
     /**
@@ -347,13 +356,30 @@ class KeyboardShortcuts {
     async handleCtrlShortcuts(e, key) {
         switch (key) {
             case 'c':
-                e.preventDefault();
-                this.clipboardManager.copy();
+                // NOVO: Só processar se painel de notas não estiver aberto
+                if (!this.isNotesPanel()) {
+                    e.preventDefault();
+                    this.clipboardManager.copy();
+                }
                 break;
 
             case 'v':
-                e.preventDefault();
-                await this.clipboardManager.paste();
+                // NOVO: Só processar se painel de notas não estiver aberto
+                if (!this.isNotesPanel()) {
+                    e.preventDefault();
+                    await this.clipboardManager.paste();
+                }
+                break;
+
+            case 's':
+                // NOVO: Tratar Ctrl+S para painel de notas
+                if (this.isNotesPanel()) {
+                    e.preventDefault();
+                    // Chamar método de salvamento do painel através do mapControl
+                    if (this.mapControl && this.mapControl.saveCurrentMapNotes) {
+                        await this.mapControl.saveCurrentMapNotes();
+                    }
+                }
                 break;
         }
     }
@@ -369,7 +395,8 @@ class KeyboardShortcuts {
                 'Ctrl+Z': 'Desfazer última ação',
                 'Ctrl+Y': 'Refazer última ação',
                 'Ctrl+C': 'Copiar elementos selecionados',
-                'Ctrl+V': 'Colar elementos'
+                'Ctrl+V': 'Colar elementos',
+                'Ctrl+S': 'Salvar notas do mapa (quando no painel de notas)'
             },
             tools: {
                 'Q': 'Seleção retangular',

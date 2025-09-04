@@ -1,3 +1,5 @@
+/* Modificações necessárias em style.css */
+
 /* ===== 1. BASE COMPARTILHADA ===== */
 /* Variáveis CSS, reset, tipografia, utilitários globais */
 @import url('./base.css');
@@ -34,4 +36,9 @@
 /* Aba de exportação PDF com preview e controles */
 @import url('./pdf-export.css');
 
+/* ===== 10. FEATURES TAB ===== */
+/* Aba de camadas e features */
 @import url('features-tab.css');
+
+/* ===== 11. MAP NOTES PANEL ===== */
+@import url('./map-notes.css');

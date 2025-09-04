@@ -23,7 +23,10 @@ import {
     getAppSetting,
     clearAllAppSettings,
     initializeRepository,
-    getColorUsage
+    getColorUsage,
+    setMapNotes as setMapNotesRepo,
+    getMapNotes as getMapNotesRepo,
+    removeMapNotes as removeMapNotesRepo
 } from './repository.js';
 
 import mapManager from './map-manager.js';
@@ -187,6 +190,18 @@ export const getFrequentColors = (limit = 10, scope = 'current') => {
     return mapManager.getFrequentColors(limit, scope);
 };
 
+// ===== NOTES MANAGEMENT =====
+
+export const getMapNotes = async (mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    return await getMapNotesRepo(targetMap);
+};
+
+export const setMapNotes = async (mapName, notes) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    await setMapNotesRepo(targetMap, notes);
+};
+
 // ===== INITIALIZATION =====
 
 export const initializeWithLastActiveMap = async () => {
@@ -205,12 +220,16 @@ export const getAllMapNamesStore = async () => {
     return await getAllMapNames();
 };
 
-export const addMap = async (mapName, mapData = null, colorUsageData = null) => {
+export const addMap = async (mapName, mapData = null, colorUsageData = null, notesData = null) => {
     const newMapData = await createMapData(mapName, mapData);
     mapManager.addMapToMemory(mapName);
     
     // NOVO: Processar cores do mapa
     await mapManager.processMapColors(mapName, newMapData, colorUsageData);
+
+    if (notesData && (notesData.title || notesData.description)) {
+        await setMapNotes(mapName, notesData);
+    }
     
     return newMapData;
 };

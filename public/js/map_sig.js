@@ -181,6 +181,7 @@ const keyboardShortcuts = new KeyboardShortcuts({
     baseLayerControl,
     clipboardManager,
     addStreetViewControl,
+    mapControl,
     controls: {
         pointControl,
         lineControl,

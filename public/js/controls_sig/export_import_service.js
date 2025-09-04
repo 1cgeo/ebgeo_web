@@ -15,7 +15,8 @@ import {
     getImage,
     storeImage,
     setSchemaVersion,
-    getColorUsage
+    getColorUsage,
+    getMapNotes
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -169,7 +170,8 @@ export class ExportImportService {
                 version: SCHEMA_VERSION,
                 currentMap: await getCurrentMapName(),
                 maps: {},
-                colorUsage: {}
+                colorUsage: {},
+                mapNotes: {}
             };
 
             // Exportar dados dos mapas com otimização
@@ -190,7 +192,7 @@ export class ExportImportService {
                     data.maps[mapName] = this.optimizeMapData(fullMapData);
                 }
 
-                // NOVO: Exportar dados de cores
+                // Exportar dados de cores
                 try {
                     const colorData = await getColorUsage(mapName);
                     if (colorData && Object.keys(colorData).length > 0) {
@@ -198,6 +200,16 @@ export class ExportImportService {
                     }
                 } catch (error) {
                     console.warn(`Não foi possível exportar cores do mapa ${mapName}:`, error);
+                }
+
+                // Exportar notas do mapa
+                try {
+                    const notesData = await getMapNotes(mapName);
+                    if (notesData && (notesData.title || notesData.description)) {
+                        data.mapNotes[mapName] = notesData;
+                    }
+                } catch (error) {
+                    console.warn(`Não foi possível exportar notas do mapa ${mapName}:`, error);
                 }
             }
 
@@ -337,8 +349,8 @@ export class ExportImportService {
                 const existingMapNames = await getAllMapNamesStore();
                 const mapsToImport = Object.keys(data.maps).length;
 
-                if (existingMapNames.length + mapsToImport > 30) {
-                    throw new Error(`Limite de mapas excedido. Você tem ${existingMapNames.length} mapas, tentando importar ${mapsToImport}. Limite: 30 mapas.`);
+                if (existingMapNames.length + mapsToImport > 100) {
+                    throw new Error(`Limite de mapas excedido. Você tem ${existingMapNames.length} mapas, tentando importar ${mapsToImport}. Limite: 100 mapas.`);
                 }
 
                 for (const [originalMapName, mapData] of Object.entries(data.maps)) {
@@ -360,7 +372,8 @@ export class ExportImportService {
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     const colorUsageData = data.colorUsage?.[mapName] || null;
-                    await addMap(mapName, mapData, colorUsageData);
+                    const notesData = data.mapNotes?.[mapName] || null;
+                    await addMap(mapName, mapData, colorUsageData,notesData);
                     importedMapsCount++;
                 }
                 

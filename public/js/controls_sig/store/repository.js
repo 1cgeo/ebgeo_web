@@ -185,6 +185,7 @@ const updateMapData = async (mapName, mapData) => {
 const deleteMapData = async (mapName) => {
     await mapStore.removeItem(mapName);
     await removeColorUsage(mapName);
+    await removeMapNotes(mapName);
 };
 
 const getAllMapNames = async () => {
@@ -197,10 +198,18 @@ const renameMapData = async (oldName, newName) => {
         await mapStore.setItem(newName, mapData);
         await mapStore.removeItem(oldName);
         
+        // Transferir dados de cores
         const colorData = await getColorUsage(oldName);
         if (colorData && Object.keys(colorData).length > 0) {
             await setColorUsage(newName, colorData);
             await removeColorUsage(oldName);
+        }
+        
+        // Transferir notas
+        const notesData = await getMapNotes(oldName);
+        if (notesData && (notesData.title || notesData.description)) {
+            await setMapNotes(newName, notesData);
+            await removeMapNotes(oldName);
         }
     }
 };
@@ -252,6 +261,7 @@ const clearAllAppSettings = async () => {
     for (const mapName of allMaps) {
         try {
             await removeColorUsage(mapName);
+            await removeMapNotes(mapName);
         } catch (error) {
             console.warn(`Erro ao limpar cores do mapa ${mapName}:`, error);
         }
@@ -312,6 +322,23 @@ const removeColorUsage = async (mapName) => {
     await appStore.removeItem(key);
 };
 
+// ===== NOTES OPERATIONS =====
+
+const setMapNotes = async (mapName, notes) => {
+    const key = `map_notes_${mapName}`;
+    await appStore.setItem(key, notes);
+};
+
+const getMapNotes = async (mapName) => {
+    const key = `map_notes_${mapName}`;
+    return await appStore.getItem(key) || { title: '', description: '' };
+};
+
+const removeMapNotes = async (mapName) => {
+    const key = `map_notes_${mapName}`;
+    await appStore.removeItem(key);
+};
+
 // ===== EXPORTS =====
 
 export {
@@ -355,5 +382,9 @@ export {
 
     setColorUsage,
     getColorUsage,
-    removeColorUsage
+    removeColorUsage,
+
+    setMapNotes,
+    getMapNotes,
+    removeMapNotes
 };

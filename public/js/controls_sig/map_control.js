@@ -10,6 +10,7 @@ import { ExportImportService } from './export_import_service.js';
 import PDFExportTab from './pdf_export_tab.js';
 import FeaturesTab from './features_tab.js';
 import { showToast as toastServiceShow } from './utilities/toast_service.js';
+import { MapNotesManager } from './map_notes_panel.js';
 
 class MapControl {
     constructor(baseLayerControl, analysisLayersManager) {
@@ -29,6 +30,7 @@ class MapControl {
         this.pdfExportTab = null;
         this.featuresTab = null;
         this.mapsActionsContainer = null;
+        this.mapNotesManager = null;
     }
 
     setSelectionManager(selectionManager) {
@@ -49,8 +51,11 @@ class MapControl {
         this.map = map;
         this.mapManager.setMap(map);
         this.pdfExportTab = new PDFExportTab(map);
-        
+
         this.featuresTab = new FeaturesTab(map, this.selectionManager, this.analysisLayersManager);
+
+        this.mapNotesManager = new MapNotesManager(this, this.mapManager);
+        this.mapNotesManager.createPanels();
 
         this.container = document.createElement('div');
         this.container.id = 'map-list'
@@ -272,10 +277,14 @@ class MapControl {
     }
 
     // ===== PANEL MANAGEMENT =====
-    collapsePanel() {
+    collapsePanel(type = 'normal') {
         this.container.classList.add('collapsed');
-        this.createReopenButton();
-        this.reopenButton.classList.add('show');
+
+        if (type === 'normal') {
+            this.createReopenButton();
+            this.reopenButton.classList.add('show');
+        }
+
         this.isCollapsed = true;
 
         this.updateVisibilityForCurrentTab();
@@ -420,6 +429,21 @@ class MapControl {
             }
         });
 
+        // Botão de notas
+        const notesButton = document.createElement('button');
+        notesButton.className = 'map-notes-button';
+        notesButton.title = 'Notas do mapa';
+        notesButton.innerHTML = `
+        <svg viewBox="0 0 24 24" width="16" height="16">
+            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
+        </svg>
+    `;
+        notesButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.showMapNotes(mapData.name);
+        });
+
         // Botão "mais opções" - delegar para MapManager
         const moreInfo = document.createElement('button');
         moreInfo.className = 'more-info-icon';
@@ -431,6 +455,7 @@ class MapControl {
         });
 
         listItem.appendChild(itemContent);
+        listItem.appendChild(notesButton);
         listItem.appendChild(moreInfo);
 
         return listItem;
@@ -587,6 +612,21 @@ class MapControl {
         toastServiceShow(message, type);
     }
 
+    async showMapNotes(mapName) {
+        this.deactivateActiveTools();
+        await this.mapNotesManager.showViewPanel(mapName);
+    }
+
+    async saveCurrentMapNotes() {
+        if (this.mapNotesManager) {
+            await this.mapNotesManager.saveCurrentMapNotes();
+        }
+    }
+
+    isNotesPanel() {
+        return this.mapNotesManager && this.mapNotesManager.isVisible;
+    }
+
     onRemove() {
         this.mapManager.closeAllDropdowns(false);
 
@@ -597,6 +637,11 @@ class MapControl {
 
         if (this.container && this.container.parentNode) {
             this.container.parentNode.removeChild(this.container);
+        }
+
+        if (this.mapNotesManager) {
+            this.mapNotesManager.destroy();
+            this.mapNotesManager = null;
         }
 
         this.map = undefined;
