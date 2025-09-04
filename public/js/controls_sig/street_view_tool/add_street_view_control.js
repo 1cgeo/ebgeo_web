@@ -1,7 +1,7 @@
 // Path: js\controls_sig\street_view_tool\add_street_view_control.js
 
-import * as THREE from 'three';
-import { DragControls } from 'DragControls';
+import * as THREE from '../../../street_view/build/three.module.js';
+import { DragControls } from '../../../street_view/build/addons/controls/DragControls.js';
 import config from '../../config.js';
 
 class AddStreetViewControl {
@@ -9,8 +9,8 @@ class AddStreetViewControl {
     constructor() {
         this.queryMobile = window.matchMedia("(max-width: 650px)")
         this.isActive = false;
-        this.IMAGES_LOCATION = "/street_view/IMG"
-        this.METADATA_LOCATION = "/street_view/METADATA"
+        this.IMAGES_LOCATION = "./street_view/IMG"
+        this.METADATA_LOCATION = "./street_view/METADATA"
         this.arrows = []
         this.camera = null
         this.scene = null
@@ -37,7 +37,7 @@ class AddStreetViewControl {
         this.isDrag = false
         this.miniMap = new maplibregl.Map({
             container: 'mini-map-street-view',
-            style: '/street_view/street-view-mini-map-style.json',
+            style: './street_view/street-view-mini-map-style.json',
             attributionControl: false,
             zoom: 12.5,
             minZoom: 11,
@@ -264,11 +264,11 @@ class AddStreetViewControl {
         this.changeButtonColor()
 
         const setupMiniMap = async () => {
-            this.photosGeojson = await $.getJSON("/street_view/fotos.geojson")
-            this.photosLinhasGeoJson = await $.getJSON("/street_view/fotos_linha.geojson")
+            this.photosGeojson = await $.getJSON("./street_view/fotos.geojson")
+            this.photosLinhasGeoJson = await $.getJSON("./street_view/fotos_linha.geojson")
             this.centroid = turf.centroid(this.photosGeojson)
 
-            let pointImage = await this.miniMap.loadImage('/street_view/point.png')
+            let pointImage = await this.miniMap.loadImage('./street_view/point.png')
             await this.miniMap.addImage('point', pointImage.data);
             this.miniMap.addSource('points', {
                 'type': 'geojson',
@@ -283,7 +283,7 @@ class AddStreetViewControl {
                 }
             });
 
-            let pointSelectedImage = await this.miniMap.loadImage('/street_view/point-selected-v2.png')
+            let pointSelectedImage = await this.miniMap.loadImage('./street_view/point-selected-v2.png')
             this.miniMap.addImage('point-selected', pointSelectedImage.data);
             this.miniMap.addSource('selected', {
                 'type': 'geojson',
@@ -615,7 +615,7 @@ class AddStreetViewControl {
             this.arrowGeometry = new THREE.CircleGeometry(0.5, 70);
         }
         if (!this.arrowTexture) {
-            this.arrowTexture = new THREE.TextureLoader().load("/street_view/arrow.png");
+            this.arrowTexture = new THREE.TextureLoader().load("./street_view/arrow.png");
         }
 
         const material = new THREE.MeshBasicMaterial({
@@ -877,7 +877,7 @@ class AddStreetViewControl {
         var buffered = turf.buffer(pt, 0.04)
         var bbox = turf.bbox(buffered)
         this.miniMap.fitBounds(bbox, {
-            maxZoom: 17
+            maxZoom: 15
         })
         //miniMap2.zoomTo(19, {duration: 2000})
     }
