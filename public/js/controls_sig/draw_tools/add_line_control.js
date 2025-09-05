@@ -364,7 +364,6 @@ class AddLineControl extends BaseControl {
                         
                         // CRÍTICO: Recalcular perfil se habilitado (seguindo padrão LOS)
                         if (movedFeature.properties.profile) {
-                            console.log('Recalculating line profile after drag...');
                             const newProfileData = await this.calculateProfile(coordinates);
                             movedFeature.properties.profileData = JSON.stringify(newProfileData);
                         }
@@ -378,7 +377,6 @@ class AddLineControl extends BaseControl {
                         }
                         
                         updatedFeatures.push(movedFeature);
-                        console.log('Line profile recalculation complete after drag');
                     }
                 } catch (error) {
                     console.error('Error recalculating Line profile after movement:', error);
@@ -679,12 +677,10 @@ class AddLineControl extends BaseControl {
                     if (updatedFeature.properties.profile && !this.isCalculatingProfile) {
                         try {
                             this.isCalculatingProfile = true;
-                            console.log('Recalculating profile after vertex edit...');
                             
                             const newProfileData = await this.calculateProfile(result.baseCoordinates);
                             updatedFeature.properties.profileData = JSON.stringify(newProfileData);
                             
-                            console.log('Profile recalculation complete');
                         } catch (error) {
                             console.error('Error recalculating profile:', error);
                             // Continue with update even if profile calculation fails
@@ -931,12 +927,10 @@ class AddLineControl extends BaseControl {
                 // CRÍTICO: Recalcular perfil quando property profile é habilitada (seguindo padrão anterior)
                 if (property === 'profile' && value === true) {
                     try {
-                        console.log('Recalculating profile after property change...');
                         const coordinates = this.geometry.normalizeBaseCoordinates(sourceFeature.properties.baseCoordinates);
                         const newProfileData = await this.calculateProfile(coordinates);
                         sourceFeature.properties.profileData = JSON.stringify(newProfileData);
                         feature.properties.profileData = JSON.stringify(newProfileData);
-                        console.log('Profile recalculation complete for property change');
                     } catch (error) {
                         console.error('Error recalculating profile for property change:', error);
                     }
@@ -1144,7 +1138,6 @@ class AddLineControl extends BaseControl {
         try {
             // Profile data já deve estar calculado neste ponto
             await updateFeature('lines', feature);
-            console.log('Feature changes saved successfully');
         } catch (error) {
             console.error('Error saving line changes:', error);
         }

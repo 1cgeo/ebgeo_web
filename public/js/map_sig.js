@@ -152,7 +152,7 @@ const screenshotControl = new ScreenshotControl();
 const mouseCoordinatesControl = new MouseCoordinatesControl(pointControl);
 
 // Context menu e drag rotate customizados
-const contextMenuControl = new ContextMenuControl(mouseCoordinatesControl, toolManager);
+const contextMenuControl = new ContextMenuControl(mouseCoordinatesControl, toolManager, selectionManager);
 const dragRotateHandler = new DragRotateHandler(map);
 dragRotateHandler.enable();
 

@@ -1,14 +1,15 @@
 // Path: js\controls_sig\store\map-manager.js
 import { memoryStore, setAppSetting, setColorUsage, getColorUsage, removeColorUsage, getAllMapNames, getMapData } from './repository.js';
+import groupManager from '../tool_manager/group_manager.js'; // NOVO: Importar GroupManager
 
 /**
  * Gerenciador de estado em memória e sistema undo/redo
- * EXTENSÃO: Color Tracking System
+ * EXTENSÃO: Color Tracking System + Group Management Integration
  */
 class MapManager {
     constructor() {
         this.memoryStore = memoryStore;
-        // NOVO: Cache global de cores do projeto (soma de todos os mapas)
+        // Cache global de cores do projeto (soma de todos os mapas)
         this.projectColorCache = new Map(); // Map<color, count>
     }
 
@@ -40,6 +41,9 @@ class MapManager {
         
         // Carregar cache do novo mapa
         await this.loadColorUsageFromDB(mapName);
+        
+        // NOVO: Carregar grupos do novo mapa
+        await groupManager.loadGroupsToMemory(mapName);
         
         // Persistir último mapa ativo
         await setAppSetting('lastActiveMap', mapName);
@@ -480,7 +484,7 @@ class MapManager {
         // Código existente
         delete this.memoryStore.maps[mapName];
         
-        // NOVO: Remover cores do cache do projeto
+        // Remover cores do cache do projeto
         try {
             const mapColors = await getColorUsage(mapName);
             if (mapColors && Object.keys(mapColors).length > 0) {
@@ -490,6 +494,13 @@ class MapManager {
             await removeColorUsage(mapName);
         } catch (error) {
             console.warn(`Erro ao remover cores do mapa ${mapName}:`, error);
+        }
+
+        // NOVO: Limpar grupos do cache e IndexedDB
+        try {
+            await groupManager.clearMapGroups(mapName);
+        } catch (error) {
+            console.warn(`Erro ao remover grupos do mapa ${mapName}:`, error);
         }
     }
 
@@ -501,6 +512,12 @@ class MapManager {
             if (this.memoryStore.currentMap === oldName) {
                 this.memoryStore.currentMap = newName;
             }
+        }
+
+        // NOVO: Atualizar cache de grupos se necessário
+        if (this.memoryStore.groups[oldName]) {
+            this.memoryStore.groups[newName] = this.memoryStore.groups[oldName];
+            delete this.memoryStore.groups[oldName];
         }
     }
 
@@ -524,6 +541,11 @@ class MapManager {
 // Inicializar memoryStore com cache de cores
 if (!memoryStore.colorUsageCache) {
     memoryStore.colorUsageCache = new Map();
+}
+
+// NOVO: Inicializar cache de grupos se não existir
+if (!memoryStore.groups) {
+    memoryStore.groups = {};
 }
 
 // Singleton instance

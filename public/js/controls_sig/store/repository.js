@@ -10,6 +10,7 @@ const MAX_SCHEMA_VERSION = '1.3';
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
+const groupStore = localforage.createInstance({ name: 'ebgeo_groups' }); // NOVO: Store para grupos
 
 // Memory store - gerenciado aqui mas acessado via map-manager
 const memoryStore = {
@@ -22,6 +23,7 @@ const memoryStore = {
     currentMap: 'Principal',
     isUndoing: false,
     isRedoing: false,
+    groups: {} // NOVO: Cache de grupos por mapa - groups[mapName] = Map<groupId, groupData>
 };
 
 /**
@@ -129,14 +131,13 @@ const checkAndCleanLegacyData = async () => {
         const currentSchemaVersion = await appStore.getItem('schemaVersion');
         
         if (!currentSchemaVersion || compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) < 0) {
-            console.log('🧹 Detectados dados de versão incompatível, limpando...');
 
             await mapStore.clear();
             await imageStore.clear();
             await appStore.clear();
+            await groupStore.clear(); // NOVO: Limpar grupos também
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
 
-            console.log('✅ Dados legados limpos, nova versão definida:', SCHEMA_VERSION);
         }
     } catch (error) {
         console.warn('⚠️ Erro ao verificar versão do schema:', error);
@@ -144,6 +145,7 @@ const checkAndCleanLegacyData = async () => {
             await mapStore.clear();
             await imageStore.clear();
             await appStore.clear();
+            await groupStore.clear(); // NOVO: Limpar grupos também
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         } catch (cleanupError) {
             console.error('❌ Erro crítico na limpeza de dados:', cleanupError);
@@ -164,6 +166,7 @@ const resetMemoryStore = () => {
     memoryStore.currentMap = 'Principal';
     memoryStore.isUndoing = false;
     memoryStore.isRedoing = false;
+    memoryStore.groups = {}; // NOVO: Resetar cache de grupos
 };
 
 // ===== MAP CRUD OPERATIONS =====
@@ -186,6 +189,7 @@ const deleteMapData = async (mapName) => {
     await mapStore.removeItem(mapName);
     await removeColorUsage(mapName);
     await removeMapNotes(mapName);
+    await removeMapGroups(mapName); // NOVO: Remover grupos do mapa
 };
 
 const getAllMapNames = async () => {
@@ -211,7 +215,44 @@ const renameMapData = async (oldName, newName) => {
             await setMapNotes(newName, notesData);
             await removeMapNotes(oldName);
         }
+
+        // NOVO: Transferir grupos
+        const groupsData = await getMapGroups(oldName);
+        if (groupsData && Object.keys(groupsData).length > 0) {
+            await setMapGroups(newName, groupsData);
+            await removeMapGroups(oldName);
+        }
     }
+};
+
+// ===== GROUP OPERATIONS (NOVO) =====
+
+/**
+ * Salva grupos de um mapa no IndexedDB
+ */
+const setMapGroups = async (mapName, groupsData) => {
+    await groupStore.setItem(mapName, groupsData);
+};
+
+/**
+ * Carrega grupos de um mapa do IndexedDB
+ */
+const getMapGroups = async (mapName) => {
+    return await groupStore.getItem(mapName) || {};
+};
+
+/**
+ * Remove todos os grupos de um mapa
+ */
+const removeMapGroups = async (mapName) => {
+    await groupStore.removeItem(mapName);
+};
+
+/**
+ * Lista todos os mapas que têm grupos
+ */
+const getAllMapsWithGroups = async () => {
+    return await groupStore.keys();
 };
 
 // ===== IMAGE OPERATIONS =====
@@ -245,6 +286,10 @@ const clearAllImageData = async () => {
     await imageStore.clear();
 };
 
+const clearAllGroupData = async () => {
+    await groupStore.clear();
+};
+
 // ===== APP SETTINGS OPERATIONS =====
 
 const setAppSetting = async (key, value) => {
@@ -262,8 +307,9 @@ const clearAllAppSettings = async () => {
         try {
             await removeColorUsage(mapName);
             await removeMapNotes(mapName);
+            await removeMapGroups(mapName); // NOVO: Limpar grupos
         } catch (error) {
-            console.warn(`Erro ao limpar cores do mapa ${mapName}:`, error);
+            console.warn(`Erro ao limpar dados do mapa ${mapName}:`, error);
         }
     }
     
@@ -372,6 +418,8 @@ export {
     hasImageData,
     clearAllImageData,
     clearAllMapData,
+    clearAllGroupData, // NOVO
+    
     // App settings
     setAppSetting,
     getAppSetting,
@@ -380,11 +428,19 @@ export {
     // Initialization
     initializeRepository,
 
+    // Color operations
     setColorUsage,
     getColorUsage,
     removeColorUsage,
 
+    // Notes operations
     setMapNotes,
     getMapNotes,
-    removeMapNotes
+    removeMapNotes,
+
+    // Group operations (NOVO)
+    setMapGroups,
+    getMapGroups,
+    removeMapGroups,
+    getAllMapsWithGroups
 };

@@ -1,4 +1,7 @@
 // Path: js\controls_sig\tool_manager\selection_manager.js
+import { 
+    getFeatureGroup, 
+} from '../store/store.js';
 
 class SelectionManager {
     constructor(map) {
@@ -44,7 +47,7 @@ class SelectionManager {
     setupEventListeners = () => {
         this.map.on('click', this.handleMapClick);
 
-        // Close context menu with ESC key (mantido - funciona bem)
+        // Close context menu with ESC key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.contextMenu) {
                 this._hideFeatureSelectionMenu();
@@ -84,7 +87,7 @@ class SelectionManager {
                 // Single feature: process directly
                 this._handleFeatureClick(clickedFeatures[0], e);
             } else {
-                // Multiple features: show context menu
+                // Multiple features: show simple selection menu (sem opções de agrupamento)
                 this._showFeatureSelectionMenu(clickedFeatures, e);
             }
         } else {
@@ -148,7 +151,7 @@ class SelectionManager {
     }
 
     /**
-     * Handle click on a specific feature
+     * Handle click on a specific feature - MODIFICADO para grupos
      */
     _handleFeatureClick = (clickedFeature, e) => {
         // Check if feature is blocked
@@ -156,6 +159,46 @@ class SelectionManager {
             return;
         }
 
+        const type = clickedFeature.toolType;
+        const featureId = clickedFeature.properties.id;
+
+        // Verificar se feature está em grupo
+        const group = getFeatureGroup(type, featureId);
+
+        if (group) {
+            this._handleGroupClick(group, clickedFeature, e);
+        } else {
+            this._handleSingleFeatureClick(clickedFeature, e);
+        }
+    }
+
+    /**
+     * Manipula clique em feature que faz parte de grupo
+     */
+    _handleGroupClick = (group, clickedFeature, e) => {
+        const isShiftPressed = e.originalEvent.shiftKey;
+
+        if (isShiftPressed) {
+            // Shift + clique: toggle do grupo completo
+            const isGroupSelected = this._isGroupSelected(group);
+            if (isGroupSelected) {
+                this._deselectGroup(group);
+            } else {
+                this._selectGroup(group);
+            }
+        } else {
+            // Clique normal: selecionar apenas este grupo
+            this.deselectAllFeatures();
+            this._selectGroup(group);
+        }
+
+        this.updateUI();
+    }
+
+    /**
+     * Manipula clique em feature individual (não agrupada)
+     */
+    _handleSingleFeatureClick = (clickedFeature, e) => {
         const type = clickedFeature.toolType;
         const featureId = clickedFeature.properties.id;
         const isFeatureSelected = this.isFeatureSelected(type, featureId);
@@ -175,7 +218,37 @@ class SelectionManager {
     }
 
     /**
-     * Show context menu for multiple features
+     * Seleciona todas as features de um grupo
+     */
+    _selectGroup = (group) => {
+        group.features.forEach(featureRef => {
+            const completeFeature = this.getCompleteFeatureFromSource(featureRef.type, featureRef.id);
+            if (completeFeature) {
+                this.toggleFeatureSelection(featureRef.type, featureRef.id, completeFeature, false);
+            }
+        });
+    }
+
+    /**
+     * Deseleciona todas as features de um grupo
+     */
+    _deselectGroup = (group) => {
+        group.features.forEach(featureRef => {
+            this.toggleFeatureSelection(featureRef.type, featureRef.id, null, true);
+        });
+    }
+
+    /**
+     * Verifica se um grupo está selecionado (todas as features)
+     */
+    _isGroupSelected = (group) => {
+        return group.features.every(featureRef => 
+            this.isFeatureSelected(featureRef.type, featureRef.id)
+        );
+    }
+
+    /**
+     * Show context menu for multiple features - SIMPLIFICADO (sem opções de agrupamento)
      */
     _showFeatureSelectionMenu = (features, e) => {
         // Close previous menu if exists

@@ -16,12 +16,14 @@ import {
     storeImage,
     setSchemaVersion,
     getColorUsage,
-    getMapNotes
+    getMapNotes,
+    getMapGroups
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
 import config from '../config.js';
 import { showToast, showSuccess } from './utilities/toast_service.js';
+import groupManager from './tool_manager/group_manager.js';
 
 export class ExportImportService {
     constructor(baseLayerControl, mapControl, mapManager) {
@@ -171,7 +173,8 @@ export class ExportImportService {
                 currentMap: await getCurrentMapName(),
                 maps: {},
                 colorUsage: {},
-                mapNotes: {}
+                mapNotes: {},
+                groups: {}
             };
 
             // Exportar dados dos mapas com otimização
@@ -210,6 +213,16 @@ export class ExportImportService {
                     }
                 } catch (error) {
                     console.warn(`Não foi possível exportar notas do mapa ${mapName}:`, error);
+                }
+
+                try {
+                    const groupsMap = getMapGroups(mapName);
+                    if (groupsMap && groupsMap.size > 0) {
+                        // Converter Map para Object para serialização JSON
+                        data.groups[mapName] = Object.fromEntries(groupsMap);
+                    }
+                } catch (error) {
+                    console.warn(`Não foi possível exportar grupos do mapa ${mapName}:`, error);
                 }
             }
 
@@ -353,6 +366,8 @@ export class ExportImportService {
                     throw new Error(`Limite de mapas excedido. Você tem ${existingMapNames.length} mapas, tentando importar ${mapsToImport}. Limite: 100 mapas.`);
                 }
 
+                const mapNameMapping = new Map();
+
                 for (const [originalMapName, mapData] of Object.entries(data.maps)) {
                     // Encontrar nome único
                     let finalMapName = originalMapName;
@@ -362,18 +377,24 @@ export class ExportImportService {
                         counter++;
                     }
 
+                    mapNameMapping.set(originalMapName, finalMapName);
+
                     // Regenerar IDs das features
                     const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
 
-                    // NOVO: Buscar dados originais do arquivo para preservar cores e notas
+                    // Buscar dados originais do arquivo para preservar cores e notas
                     const originalColorUsage = data.colorUsage?.[originalMapName] || null;
                     const originalNotes = data.mapNotes?.[originalMapName] || null;
 
-                    // CORRIGIDO: Passar cores e notas para preservar dados originais
+                    // Passar cores e notas para preservar dados originais
                     await addMap(finalMapName, newMapData, originalColorUsage, originalNotes);
                     existingMapNames.push(finalMapName);
                     importedMapsCount++;
                 }
+
+                // NOVO: Importar grupos com nomes de mapas atualizados
+                await this.importGroupsAdditively(data.groups, mapNameMapping);
+
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     const colorUsageData = data.colorUsage?.[mapName] || null;
@@ -383,6 +404,9 @@ export class ExportImportService {
                 }
 
                 setCurrentMap(data.currentMap);
+
+                // NOVO: Importar grupos diretamente (import normal)
+                await this.importGroupsDirectly(data.groups);
 
                 // Carregar imagens após processamento dos mapas (import normal)
                 await this.loadImagesFromZip(zip);
@@ -408,6 +432,125 @@ export class ExportImportService {
         }
 
         event.target.value = '';
+    }
+
+    /**
+     * NOVO: Importa grupos diretamente (import normal - substitui tudo)
+     */
+    async importGroupsDirectly(groupsData) {
+        if (!groupsData || Object.keys(groupsData).length === 0) {
+            return; // Não há grupos para importar
+        }
+
+        try {
+            // Para cada mapa, importar seus grupos
+            for (const [mapName, mapGroups] of Object.entries(groupsData)) {
+                if (mapGroups && Object.keys(mapGroups).length > 0) {
+                    // Limpar grupos existentes do mapa
+                    await groupManager.clearMapGroups(mapName);
+                    
+                    // Carregar grupos para memória se for o mapa atual
+                    const currentMapName = await getCurrentMapName();
+                    if (mapName === currentMapName) {
+                        // Carregar grupos importados diretamente na memória
+                        const groupsMap = new Map();
+                        Object.entries(mapGroups).forEach(([groupId, groupData]) => {
+                            groupsMap.set(groupId, groupData);
+                        });
+                        groupManager.memoryStore.groups[mapName] = groupsMap;
+                    }
+                    
+                    // Persistir no IndexedDB
+                    await groupManager._saveGroupsToDBAsync(mapName);
+                }
+            }
+
+        } catch (error) {
+            console.error('Erro ao importar grupos diretamente:', error);
+        }
+    }
+
+    /**
+     * NOVO: Importa grupos aditivamente (import aditivo - com resolução de conflitos)
+     */
+    async importGroupsAdditively(groupsData, mapNameMapping) {
+        if (!groupsData || Object.keys(groupsData).length === 0) {
+            return; // Não há grupos para importar
+        }
+
+        try {
+            // Para cada mapa original, importar seus grupos com nome atualizado
+            for (const [originalMapName, mapGroups] of Object.entries(groupsData)) {
+                const finalMapName = mapNameMapping.get(originalMapName);
+                
+                if (!finalMapName || !mapGroups || Object.keys(mapGroups).length === 0) {
+                    continue;
+                }
+
+                // Gerar novos IDs para os grupos e resolver conflitos de nomes
+                const processedGroups = await this.processGroupsForAdditiveImport(mapGroups, finalMapName);
+
+                // Carregar grupos para memória se for o mapa atual
+                const currentMapName = await getCurrentMapName();
+                if (finalMapName === currentMapName) {
+                    // Garantir que cache de grupos existe
+                    if (!groupManager.memoryStore.groups[finalMapName]) {
+                        groupManager.memoryStore.groups[finalMapName] = new Map();
+                    }
+                    
+                    // Adicionar grupos processados ao cache
+                    const groupsCache = groupManager.memoryStore.groups[finalMapName];
+                    Object.entries(processedGroups).forEach(([groupId, groupData]) => {
+                        groupsCache.set(groupId, groupData);
+                    });
+                }
+
+                // Persistir no IndexedDB
+                await groupManager._saveGroupsToDBAsync(finalMapName);
+            }
+
+        } catch (error) {
+            console.error('Erro ao importar grupos aditivamente:', error);
+        }
+    }
+
+    /**
+     * NOVO: Processa grupos para import aditivo (novos IDs e nomes únicos)
+     */
+    async processGroupsForAdditiveImport(mapGroups, mapName) {
+        const processedGroups = {};
+        const existingGroups = getMapGroups(mapName);
+        const existingNames = new Set();
+
+        // Coletar nomes existentes
+        for (const group of existingGroups.values()) {
+            existingNames.add(group.name);
+        }
+
+        // Processar cada grupo
+        Object.values(mapGroups).forEach(group => {
+            // Gerar novo ID único
+            const newGroupId = IDUtils.generateUniqueId();
+            
+            // Resolver conflito de nomes
+            let finalName = group.name;
+            let counter = 1;
+            while (existingNames.has(finalName)) {
+                finalName = `${group.name}_${counter}`;
+                counter++;
+            }
+            existingNames.add(finalName);
+
+            // Criar grupo processado
+            processedGroups[newGroupId] = {
+                ...group,
+                id: newGroupId,
+                name: finalName
+                // features mantêm os mesmos IDs (assumindo que features já foram importadas)
+            };
+        });
+
+        return processedGroups;
     }
 
     async loadImagesFromZip(zip) {

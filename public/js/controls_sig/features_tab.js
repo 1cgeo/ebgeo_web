@@ -8,7 +8,12 @@ import {
     getMapAnalysisLayersStates,
     getFeatureDisplayNameFromStorage,
     getFeatureIconFromStorage,
-    getAllStorageTypes
+    getAllStorageTypes,
+    getMapGroups,
+    getFeatureGroup,
+    updateGroupProperty,
+    getCurrentMapNameSync,
+    getSourceTypeFromStorage // NOVO: Para conversão de tipos
 } from './store/store.js';
 import { FeatureNavigationUtils } from './utilities/feature_navigation_utils.js';
 import config from '../config.js';
@@ -43,6 +48,18 @@ class FeaturesTab {
             ZOOM: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="6"></circle>
             <path d="m21 21-4.35-4.35"></path>
+            </svg>`,
+            GROUP: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>`,
+            EXPAND: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+            </svg>`,
+            COLLAPSE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="18 15 12 9 6 15"/>
             </svg>`
         };
     }
@@ -72,8 +89,234 @@ class FeaturesTab {
 
         // Adicionar estilos CSS para analysis layers
         this.addAnalysisLayersStyles();
+        
+        // Adicionar estilos CSS para grupos
+        this.addGroupStyles();
 
         return this.container;
+    }
+
+    /**
+     * Adiciona estilos CSS específicos para grupos
+     */
+    addGroupStyles() {
+        if (!document.getElementById('group-styles')) {
+            const style = document.createElement('style');
+            style.id = 'group-styles';
+            style.textContent = `
+                .group-container {
+                    margin-bottom: 8px;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 4px;
+                    background-color: #f8f9fa;
+                    overflow: hidden;
+                }
+                
+                .group-header {
+                    display: flex;
+                    align-items: center;
+                    padding: 8px 12px;
+                    background-color: #f0f0f0;
+                    border-bottom: 1px solid #e0e0e0;
+                    cursor: pointer;
+                    user-select: none;
+                }
+                
+                .group-header:hover {
+                    background-color: #e9ecef;
+                }
+                
+                .group-header.group-hidden {
+                    opacity: 0.6;
+                }
+                
+                .group-header.group-locked {
+                    background-color: #ffeaa7;
+                }
+                
+                .group-expand-icon {
+                    margin-right: 8px;
+                    color: #666;
+                    transition: transform 0.2s ease;
+                }
+                
+                .group-expand-icon.expanded {
+                    transform: rotate(0deg);
+                }
+                
+                .group-expand-icon.collapsed {
+                    transform: rotate(-90deg);
+                }
+                
+                .group-icon {
+                    margin-right: 8px;
+                    color: #007bff;
+                }
+                
+                .group-name {
+                    flex: 1;
+                    font-weight: 500;
+                    font-size: 14px;
+                    color: #333;
+                }
+                
+                .group-count {
+                    margin-left: 8px;
+                    font-size: 12px;
+                    color: #666;
+                    background-color: #e9ecef;
+                    padding: 2px 6px;
+                    border-radius: 10px;
+                }
+                
+                .group-controls {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    margin-left: 8px;
+                }
+                
+                .group-controls button {
+                    background: none;
+                    border: none;
+                    cursor: pointer;
+                    padding: 4px;
+                    border-radius: 3px;
+                    color: #666;
+                    transition: all 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                
+                .group-controls button:hover {
+                    background-color: #ffffff;
+                    color: #007bff;
+                }
+                
+                .group-controls .lock-toggle svg {
+                    color: #dc3545;
+                }
+                
+                .group-features-list {
+                    max-height: 0;
+                    overflow: hidden;
+                    transition: max-height 0.3s ease;
+                    background-color: #ffffff;
+                }
+                
+                .group-features-list.expanded {
+                    max-height: 500px;
+                }
+                
+                .group-feature-item {
+                    display: flex;
+                    align-items: center;
+                    padding: 6px 12px 6px 32px;
+                    border-bottom: 1px solid #f0f0f0;
+                    background-color: #ffffff;
+                }
+                
+                .group-feature-item:last-child {
+                    border-bottom: none;
+                }
+                
+                .group-feature-item:hover {
+                    background-color: #f8f9fa;
+                }
+                
+                .group-feature-item.feature-hidden {
+                    opacity: 0.5;
+                }
+                
+                .group-feature-main {
+                    display: flex;
+                    align-items: center;
+                    flex: 1;
+                    cursor: pointer;
+                }
+                
+                .group-feature-type-icon {
+                    width: 16px;
+                    height: 16px;
+                    margin-right: 8px;
+                }
+                
+                .group-feature-name {
+                    font-size: 13px;
+                    color: #555;
+                }
+                
+                .feature-item {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 8px 12px;
+                    border-bottom: 1px solid #f0f0f0;
+                    background-color: #ffffff;
+                    transition: background-color 0.2s ease;
+                }
+                
+                .feature-item:hover {
+                    background-color: #f8f9fa;
+                }
+                
+                .feature-item.feature-hidden {
+                    opacity: 0.5;
+                }
+                
+                .feature-item.feature-locked {
+                    background-color: #ffeaa7;
+                }
+                
+                .feature-main {
+                    display: flex;
+                    align-items: center;
+                    flex: 1;
+                    cursor: pointer;
+                }
+                
+                .feature-type-icon {
+                    width: 16px;
+                    height: 16px;
+                    margin-right: 8px;
+                }
+                
+                .feature-name {
+                    font-size: 14px;
+                    color: #333;
+                }
+                
+                .feature-controls {
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+                
+                .feature-controls button {
+                    background: none;
+                    border: none;
+                    cursor: pointer;
+                    padding: 4px;
+                    border-radius: 3px;
+                    color: #666;
+                    transition: all 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                
+                .feature-controls button:hover {
+                    background-color: #e9ecef;
+                    color: #007bff;
+                }
+                
+                .feature-controls .lock-toggle svg {
+                    color: #dc3545;
+                }
+            `;
+            document.head.appendChild(style);
+        }
     }
 
     /**
@@ -379,8 +622,9 @@ class FeaturesTab {
                 new Promise(resolve => setTimeout(resolve, 100))
             ]);
 
-            const flatFeatures = this.flattenAndSortFeatures(features);
-            this.renderUI(flatFeatures);
+            // CORRIGIDO: Organizar features por grupos
+            const organizedData = this.organizeFeaturesByGroups(features);
+            this.renderOrganizedFeatures(organizedData);
 
         } catch (error) {
             console.error('Erro ao carregar features:', error);
@@ -402,13 +646,455 @@ class FeaturesTab {
         }
     }
 
+    /**
+     * CORRIGIDO: Organiza features por grupos e features soltas
+     */
+    organizeFeaturesByGroups(features) {
+        // CORRIGIDO: Passar nome do mapa atual
+        const currentMapName = getCurrentMapNameSync();
+        const groups = getMapGroups(currentMapName);
+                
+        const groupedFeatures = new Map();
+        const ungroupedFeatures = [];
+
+        // Preparar estrutura flat de features
+        const flatFeatures = this.flattenAndSortFeatures(features);
+        
+        // Organizar por grupos
+        flatFeatures.forEach(feature => {
+            // CORRIGIDO: Converter storage type para source type
+            const sourceType = getSourceTypeFromStorage(feature.storageType);
+            const group = getFeatureGroup(sourceType, feature.id, currentMapName);
+            
+            if (group) {
+                if (!groupedFeatures.has(group.id)) {
+                    groupedFeatures.set(group.id, {
+                        groupData: group,
+                        features: []
+                    });
+                }
+                groupedFeatures.get(group.id).features.push(feature);
+            } else {
+                ungroupedFeatures.push(feature);
+            }
+        });
+
+        return { 
+            groups: groupedFeatures, 
+            ungrouped: ungroupedFeatures 
+        };
+    }
+
+    /**
+     * Renderiza features organizadas hierarquicamente
+     */
+    renderOrganizedFeatures({ groups, ungrouped }) {
+        const featuresList = this.container.querySelector('.features-list');
+        featuresList.innerHTML = '';
+
+        if (groups.size === 0 && ungrouped.length === 0) {
+            const emptyMessage = document.createElement('div');
+            emptyMessage.className = 'features-empty-message';
+            emptyMessage.style.cssText = `
+                padding: 20px;
+                text-align: center;
+                color: #666;
+                font-size: 14px;
+                font-style: italic;
+                background-color: #ffffff;
+                border-radius: 4px;
+            `;
+            emptyMessage.textContent = 'Sem feições no mapa';
+            featuresList.appendChild(emptyMessage);
+            return;
+        }
+
+        // Renderizar grupos primeiro (ordenados por nome)
+        const sortedGroups = Array.from(groups.entries()).sort((a, b) => 
+            a[1].groupData.name.localeCompare(b[1].groupData.name, 'pt-BR')
+        );
+
+        sortedGroups.forEach(([groupId, groupInfo]) => {
+            const groupItem = this.createGroupItem(groupInfo.groupData, groupInfo.features);
+            featuresList.appendChild(groupItem);
+        });
+
+        // Depois renderizar features soltas
+        ungrouped.forEach(feature => {
+            const item = this.createFeatureItem(feature);
+            featuresList.appendChild(item);
+        });
+    }
+
+    /**
+     * Cria item de grupo com suas features
+     */
+    createGroupItem(groupData, features) {
+        const groupContainer = document.createElement('div');
+        groupContainer.className = 'group-container';
+        groupContainer.dataset.groupId = groupData.id;
+
+        // Header do grupo
+        const groupHeader = this.createGroupHeader(groupData, features.length);
+        groupContainer.appendChild(groupHeader);
+
+        // Lista de features do grupo
+        const featuresList = this.createGroupFeaturesList(groupData, features);
+        groupContainer.appendChild(featuresList);
+
+        return groupContainer;
+    }
+
+    /**
+     * Cria header do grupo com controles
+     */
+    createGroupHeader(groupData, featureCount) {
+        const header = document.createElement('div');
+        header.className = 'group-header';
+        
+        if (!groupData.visible) {
+            header.classList.add('group-hidden');
+        }
+        if (groupData.locked) {
+            header.classList.add('group-locked');
+        }
+
+        // Ícone de expansão
+        const expandIcon = document.createElement('div');
+        expandIcon.className = 'group-expand-icon expanded';
+        expandIcon.innerHTML = this.INLINE_ICONS.EXPAND;
+
+        // Ícone do grupo
+        const groupIcon = document.createElement('div');
+        groupIcon.className = 'group-icon';
+        groupIcon.innerHTML = this.INLINE_ICONS.GROUP;
+
+        // Nome do grupo
+        const groupName = document.createElement('div');
+        groupName.className = 'group-name';
+        groupName.textContent = groupData.name;
+
+        // Contador de features
+        const groupCount = document.createElement('div');
+        groupCount.className = 'group-count';
+        groupCount.textContent = featureCount;
+
+        // Controles do grupo
+        const groupControls = this.createGroupControls(groupData);
+
+        // Adicionar elementos ao header
+        header.appendChild(expandIcon);
+        header.appendChild(groupIcon);
+        header.appendChild(groupName);
+        header.appendChild(groupCount);
+        header.appendChild(groupControls);
+
+        // Event listener para expansão (exceto nos controles)
+        header.addEventListener('click', (e) => {
+            if (!e.target.closest('.group-controls')) {
+                this.toggleGroupExpansion(groupData.id);
+            }
+        });
+
+        return header;
+    }
+
+    /**
+     * Cria controles específicos do grupo
+     */
+    createGroupControls(groupData) {
+        const controls = document.createElement('div');
+        controls.className = 'group-controls';
+
+        // Botão de visibilidade
+        const visibilityBtn = document.createElement('button');
+        visibilityBtn.className = 'visibility-toggle';
+        visibilityBtn.title = groupData.visible ? 'Ocultar grupo' : 'Mostrar grupo';
+        visibilityBtn.innerHTML = groupData.visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
+        
+        visibilityBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleGroupVisibility(groupData.id, groupData.visible);
+        });
+
+        // Botão de bloqueio
+        const lockBtn = document.createElement('button');
+        lockBtn.className = 'lock-toggle';
+        lockBtn.title = groupData.locked ? 'Desbloquear grupo' : 'Bloquear grupo';
+        lockBtn.innerHTML = groupData.locked ? this.INLINE_ICONS.LOCK_LOCKED : this.INLINE_ICONS.LOCK_UNLOCKED;
+        
+        lockBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleGroupLock(groupData.id, groupData.locked);
+        });
+
+        controls.appendChild(visibilityBtn);
+        controls.appendChild(lockBtn);
+
+        return controls;
+    }
+
+    /**
+     * Cria lista de features do grupo
+     */
+    createGroupFeaturesList(groupData, features) {
+        const featuresList = document.createElement('div');
+        featuresList.className = 'group-features-list expanded';
+
+        features.forEach(feature => {
+            const featureItem = this.createGroupFeatureItem(feature, groupData);
+            featuresList.appendChild(featureItem);
+        });
+
+        return featuresList;
+    }
+
+    /**
+     * Cria item de feature dentro do grupo (sem controles individuais)
+     */
+    createGroupFeatureItem(feature, groupData) {
+        const item = document.createElement('div');
+        item.className = 'group-feature-item';
+        item.dataset.featureId = feature.id;
+        item.dataset.featureType = feature.storageType; // CORRIGIDO: usar storageType
+
+        // Aplicar estado visual baseado no grupo
+        if (!groupData.visible) {
+            item.classList.add('feature-hidden');
+        }
+
+        const main = document.createElement('div');
+        main.className = 'group-feature-main';
+
+        const typeIconPath = getFeatureIconFromStorage(feature.storageType); // CORRIGIDO
+        const typeIcon = document.createElement('img');
+        typeIcon.className = 'group-feature-type-icon';
+        typeIcon.src = typeIconPath;
+        typeIcon.alt = feature.typeLabel;
+
+        const featureName = document.createElement('div');
+        featureName.className = 'group-feature-name';
+        featureName.textContent = feature.name;
+
+        main.appendChild(typeIcon);
+        main.appendChild(featureName);
+
+        // Event listener para clique na feature
+        main.addEventListener('click', () => this.handleGroupFeatureClick(feature, groupData));
+
+        item.appendChild(main);
+
+        return item;
+    }
+
+    /**
+     * CORRIGIDO: Manipula clique em feature dentro de grupo
+     */
+    async handleGroupFeatureClick(feature, groupData) {
+        try {
+            // Verificar se grupo está bloqueado
+            if (groupData.locked) {
+                // Se bloqueado, apenas fazer zoom
+                await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, this.map);
+                return;
+            }
+
+            // Se não bloqueado: zoom + seleção do grupo inteiro
+            await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, this.map);
+            
+            // CORRIGIDO: Selecionar todo o grupo
+            if (this.selectionManager) {
+                this.selectionManager.deselectAllFeatures();
+                
+                // Iterar pelas features do grupo corretamente
+                groupData.features.forEach(featureRef => {
+                    // featureRef tem { type: sourceType, id: featureId }
+                    const completeFeature = this.selectionManager.getCompleteFeatureFromSource(featureRef.type, featureRef.id);
+                    if (completeFeature) {
+                        this.selectionManager.toggleFeatureSelection(featureRef.type, featureRef.id, completeFeature, false);
+                    }
+                });
+                
+                this.selectionManager.updateUI();
+            }
+
+        } catch (error) {
+            console.error('Erro ao navegar para feature do grupo:', error);
+            
+            // Fallback: apenas fazer zoom
+            try {
+                await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, this.map);
+            } catch (fallbackError) {
+                console.error('Erro no fallback de zoom:', fallbackError);
+            }
+        }
+    }
+
+    /**
+     * Toggle expansão do grupo
+     */
+    toggleGroupExpansion(groupId) {
+        const groupContainer = this.container.querySelector(`[data-group-id="${groupId}"]`);
+        if (!groupContainer) return;
+
+        const expandIcon = groupContainer.querySelector('.group-expand-icon');
+        const featuresList = groupContainer.querySelector('.group-features-list');
+
+        if (featuresList.classList.contains('expanded')) {
+            featuresList.classList.remove('expanded');
+            expandIcon.classList.remove('expanded');
+            expandIcon.classList.add('collapsed');
+            expandIcon.innerHTML = this.INLINE_ICONS.COLLAPSE;
+        } else {
+            featuresList.classList.add('expanded');
+            expandIcon.classList.remove('collapsed');
+            expandIcon.classList.add('expanded');
+            expandIcon.innerHTML = this.INLINE_ICONS.EXPAND;
+        }
+    }
+
+    /**
+     * Toggle visibilidade do grupo
+     */
+    async toggleGroupVisibility(groupId, currentVisibility) {
+        try {
+            const newVisibility = !currentVisibility;
+            
+            // Atualizar propriedade do grupo
+            updateGroupProperty(groupId, 'visible', newVisibility);
+            
+            // CORRIGIDO: Atualizar todas as features do grupo nos sources do mapa
+            const currentMapName = getCurrentMapNameSync();
+            const group = getMapGroups(currentMapName).get(groupId);
+            if (group) {
+                group.features.forEach(featureRef => {
+                    // featureRef.type é source type, preciso converter para storage type para o source
+                    const storageType = featureRef.type + 's'; // Conversão simples: polygon -> polygons
+                    this.propagateFeaturePropertyToSource(storageType, featureRef.id, 'visivel', newVisibility);
+                });
+            }
+
+            // Atualizar interface visual
+            this.updateGroupVisualState(groupId, newVisibility, currentVisibility);
+
+        } catch (error) {
+            console.error('Erro ao alterar visibilidade do grupo:', error);
+        }
+    }
+
+    /**
+     * Toggle bloqueio do grupo
+     */
+    async toggleGroupLock(groupId, currentLockState) {
+        try {
+            const newLockState = !currentLockState;
+            
+            // Atualizar propriedade do grupo
+            updateGroupProperty(groupId, 'locked', newLockState);
+            
+            // CORRIGIDO: Atualizar todas as features do grupo nos sources do mapa
+            const currentMapName = getCurrentMapNameSync();
+            const group = getMapGroups(currentMapName).get(groupId);
+            if (group) {
+                group.features.forEach(featureRef => {
+                    // featureRef.type é source type, preciso converter para storage type para o source
+                    const storageType = featureRef.type + 's'; // Conversão simples: polygon -> polygons
+                    this.propagateFeaturePropertyToSource(storageType, featureRef.id, 'bloqueado', newLockState);
+                });
+            }
+
+            // Atualizar interface visual
+            this.updateGroupLockState(groupId, newLockState);
+
+            // Desselecionar grupo se foi bloqueado
+            if (newLockState && this.selectionManager) {
+                group.features.forEach(featureRef => {
+                    const isSelected = this.selectionManager.isFeatureSelected(featureRef.type, featureRef.id);
+                    
+                    if (isSelected) {
+                        this.selectionManager.toggleFeatureSelection(featureRef.type, featureRef.id, null, true);
+                    }
+                });
+                this.selectionManager.updateUI();
+            }
+
+        } catch (error) {
+            console.error('Erro ao alterar bloqueio do grupo:', error);
+        }
+    }
+
+    /**
+     * Atualiza estado visual do grupo
+     */
+    updateGroupVisualState(groupId, visible, locked) {
+        const groupContainer = this.container.querySelector(`[data-group-id="${groupId}"]`);
+        if (!groupContainer) return;
+
+        const header = groupContainer.querySelector('.group-header');
+        const visibilityBtn = groupContainer.querySelector('.visibility-toggle');
+        const featureItems = groupContainer.querySelectorAll('.group-feature-item');
+
+        // Atualizar header
+        if (visible) {
+            header.classList.remove('group-hidden');
+        } else {
+            header.classList.add('group-hidden');
+        }
+
+        // Atualizar botão
+        visibilityBtn.innerHTML = visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
+        visibilityBtn.title = visible ? 'Ocultar grupo' : 'Mostrar grupo';
+
+        // Atualizar features do grupo
+        featureItems.forEach(item => {
+            if (visible) {
+                item.classList.remove('feature-hidden');
+            } else {
+                item.classList.add('feature-hidden');
+            }
+        });
+    }
+
+    /**
+     * Atualiza estado de bloqueio do grupo
+     */
+    updateGroupLockState(groupId, locked) {
+        const groupContainer = this.container.querySelector(`[data-group-id="${groupId}"]`);
+        if (!groupContainer) return;
+
+        const header = groupContainer.querySelector('.group-header');
+        const lockBtn = groupContainer.querySelector('.lock-toggle');
+
+        // Atualizar header
+        if (locked) {
+            header.classList.add('group-locked');
+        } else {
+            header.classList.remove('group-locked');
+        }
+
+        // Atualizar botão
+        lockBtn.innerHTML = locked ? this.INLINE_ICONS.LOCK_LOCKED : this.INLINE_ICONS.LOCK_UNLOCKED;
+        lockBtn.title = locked ? 'Desbloquear grupo' : 'Bloquear grupo';
+
+        // Destacar cor do SVG se bloqueado
+        const svg = lockBtn.querySelector('svg');
+        if (svg && locked) {
+            svg.style.color = '#dc3545';
+        } else if (svg) {
+            svg.style.color = '';
+        }
+    }
+
+    /**
+     * CORRIGIDO: Organiza features em estrutura flat com dados corretos
+     */
     flattenAndSortFeatures(features) {
         const flatFeatures = [];
         const validStorageTypes = getAllStorageTypes();
 
         // Converter features agrupadas em array plano
-        Object.entries(features).forEach(([type, featureArray]) => {
-            if (!validStorageTypes.includes(type)) {
+        Object.entries(features).forEach(([storageType, featureArray]) => {
+            if (!validStorageTypes.includes(storageType)) {
                 return; // Ignora processed_los, processed_visibility, etc.
             }
             if (featureArray.length > 0) {
@@ -419,8 +1105,8 @@ class FeaturesTab {
                         visible: feature.properties.visivel ?? true,
                         locked: feature.properties.bloqueado ?? false,
                         rawFeature: feature,
-                        type: type,
-                        typeLabel: getFeatureDisplayNameFromStorage(type)
+                        storageType: storageType, // CORRIGIDO: manter storage type separado
+                        typeLabel: getFeatureDisplayNameFromStorage(storageType)
                     });
                 });
             }
@@ -439,40 +1125,13 @@ class FeaturesTab {
         return flatFeatures;
     }
 
-    renderUI(flatFeatures) {
-        const featuresList = this.container.querySelector('.features-list');
-        featuresList.innerHTML = '';
-
-        if (flatFeatures.length === 0) {
-            const emptyMessage = document.createElement('div');
-            emptyMessage.className = 'features-empty-message';
-            emptyMessage.style.cssText = `
-                padding: 20px;
-                text-align: center;
-                color: #666;
-                font-size: 14px;
-                font-style: italic;
-                background-color: #ffffff;
-                border-radius: 4px;
-            `;
-            emptyMessage.textContent = 'Sem feições no mapa';
-            featuresList.appendChild(emptyMessage);
-            return;
-        }
-
-        flatFeatures.forEach(feature => {
-            const item = this.createFeatureItem(feature);
-            featuresList.appendChild(item);
-        });
-    }
-
     createFeatureItem(feature) {
         const item = document.createElement('div');
         item.className = 'feature-item';
         item.dataset.featureId = feature.id;
-        item.dataset.featureType = feature.type;
+        item.dataset.featureType = feature.storageType; // CORRIGIDO
 
-        const typeIconPath = getFeatureIconFromStorage(feature.type);
+        const typeIconPath = getFeatureIconFromStorage(feature.storageType); // CORRIGIDO
         const typeIconAlt = feature.typeLabel;
         const visibilityIcon = feature.visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
         const visibilityTitle = feature.visible ? 'Ocultar' : 'Mostrar';
@@ -501,13 +1160,13 @@ class FeaturesTab {
         const visibilityBtn = item.querySelector('.visibility-toggle');
         visibilityBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.toggleVisibility(feature.id, feature.type);
+            this.toggleVisibility(feature.id, feature.storageType); // CORRIGIDO
         });
 
         const lockBtn = item.querySelector('.lock-toggle');
         lockBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.toggleLock(feature.id, feature.type);
+            this.toggleLock(feature.id, feature.storageType); // CORRIGIDO
         });
 
         if (!feature.visible) {
@@ -525,7 +1184,7 @@ class FeaturesTab {
     async handleFeatureClick(feature) {
         try {
             // Verificar estado atual da feature via IndexedDB (não rawFeature)
-            const currentFeature = await getFeatureById(feature.type, feature.id);
+            const currentFeature = await getFeatureById(feature.storageType, feature.id); // CORRIGIDO
             const isLocked = currentFeature?.properties?.bloqueado ?? false;
 
             if (isLocked) {
@@ -538,7 +1197,7 @@ class FeaturesTab {
                 feature.rawFeature,
                 this.map,
                 this.selectionManager,
-                feature.type,
+                feature.storageType, // CORRIGIDO
                 feature.id
             );
         } catch (error) {
@@ -554,8 +1213,7 @@ class FeaturesTab {
     }
 
     /**
-     * SIMPLIFICADO: Toggle de visibilidade usando filtros de layer
-     * Reutiliza lógica do toggleLock com propagateFeaturePropertyToSource
+     * Toggle de visibilidade usando filtros de layer
      */
     async toggleVisibility(featureId, featureType) {
         const feature = await getFeatureById(featureType, featureId);
@@ -566,7 +1224,7 @@ class FeaturesTab {
         // 1. Atualizar propriedade no store
         await updateFeatureProperty(featureType, featureId, 'visivel', newVisibility);
 
-        // 2. Propagar para source do mapa (reutiliza lógica do lock)
+        // 2. Propagar para source do mapa
         this.propagateFeaturePropertyToSource(featureType, featureId, 'visivel', newVisibility);
 
         // 3. Atualizar botão visual (ícone de olho)

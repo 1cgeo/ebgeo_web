@@ -19,6 +19,7 @@ import {
 
 import { IDUtils } from './id_utils.js';
 import { showError, showWarning } from './utilities/toast_service.js';
+import groupManager from './tool_manager/group_manager.js'; // NOVO: Importar GroupManager
 
 class MapManager {
     constructor(baseLayerControl, selectionManager) {
@@ -130,14 +131,18 @@ class MapManager {
                 return { success: false, message: 'Dados do mapa não encontrados' };
             }
 
-            // NOVO: Buscar cores e notas do mapa original
+            // Buscar cores e notas do mapa original
             const originalColorUsage = await getColorUsage(mapName);
             const originalNotes = await getMapNotes(mapName);
 
             const { newMapData } = await IDUtils.regenerateMapIds(originalMapData, newMapName.trim());
 
-            // MODIFICADO: Passar cores e notas para otimizar e preservar dados
+            // Passar cores e notas para otimizar e preservar dados
             await addMap(newMapName.trim(), newMapData, originalColorUsage, originalNotes);
+            
+            // NOVO: Duplicar grupos do mapa original
+            await groupManager.duplicateMapGroups(mapName, newMapName.trim());
+            
             setCurrentMap(newMapName.trim());
 
             if (this.baseLayerControl) {
@@ -210,6 +215,14 @@ class MapManager {
                 }
             }
 
+            // NOVO: Combinar grupos dos mapas selecionados no mapa de destino
+            try {
+                await groupManager.combineMapGroups(selectedMapNames, targetMapName);
+            } catch (groupError) {
+                console.warn('Erro ao combinar grupos:', groupError);
+                // Continuar mesmo se houver erro com grupos
+            }
+
             setCurrentMap(originalCurrentMap);
 
             if (originalCurrentMap === targetMapName && this.baseLayerControl) {
@@ -230,6 +243,17 @@ class MapManager {
 
             if (currentMapName === targetMapName) {
                 return { success: false, message: 'As feições já estão neste mapa' };
+            }
+
+            // NOVO: Verificar se alguma feature faz parte de grupo
+            const groupedFeatures = this.getGroupedFeatures(features);
+            
+            if (groupedFeatures.length > 0) {
+                const groupNames = groupedFeatures.map(gf => gf.groupName).join(', ');
+                return { 
+                    success: false, 
+                    message: `Não é possível mover feições agrupadas individualmente. Grupos encontrados: ${groupNames}. Desfaça os grupos primeiro ou use a funcionalidade "Puxar outros mapas" para mover grupos completos.` 
+                };
             }
 
             await moveFeaturesToMap(features, targetMapName);
@@ -253,6 +277,33 @@ class MapManager {
             console.error('Erro ao mover feições:', error);
             return { success: false, message: `Erro ao mover feições: ${error.message}` };
         }
+    }
+
+    /**
+     * NOVO: Verifica quais features fazem parte de grupos
+     * @param {Array} features - Features a serem verificadas
+     * @returns {Array} Array com informações sobre features agrupadas
+     */
+    getGroupedFeatures(features) {
+        const groupedFeatures = [];
+        
+        features.forEach(feature => {
+            const group = groupManager.getFeatureGroup(
+                feature.properties.source, 
+                feature.properties.id
+            );
+            
+            if (group) {
+                groupedFeatures.push({
+                    featureId: feature.properties.id,
+                    featureType: feature.properties.source,
+                    groupId: group.id,
+                    groupName: group.name
+                });
+            }
+        });
+        
+        return groupedFeatures;
     }
 
     // ===== DATA GENERATION =====
@@ -520,7 +571,15 @@ class MapManager {
             let buttonDisabled = selectedCount === 0;
 
             if (selectedCount > 0) {
-                buttonText = `↗️ Mover ${selectedCount} ${selectedCount > 1 ? 'feições' : 'feição'} selecionada${selectedCount > 1 ? 's' : ''}`;
+                // NOVO: Verificar se há feições agrupadas
+                const groupedFeatures = this.getGroupedFeatures(selectedFeatures);
+                
+                if (groupedFeatures.length > 0) {
+                    buttonText = `↗️ Não é possível mover feições agrupadas`;
+                    buttonDisabled = true;
+                } else {
+                    buttonText = `↗️ Mover ${selectedCount} ${selectedCount > 1 ? 'feições' : 'feição'} selecionada${selectedCount > 1 ? 's' : ''}`;
+                }
             }
 
             const moveBtn = document.createElement('button');
@@ -536,7 +595,11 @@ class MapManager {
                 e.stopPropagation();
 
                 if (buttonDisabled) {
-                    showWarning('Selecione pelo menos uma feição para mover primeiro.');
+                    if (selectedCount === 0) {
+                        showWarning('Selecione pelo menos uma feição para mover primeiro.');
+                    } else {
+                        showWarning('Não é possível mover feições agrupadas individualmente. Desfaça os grupos primeiro.');
+                    }
                     return;
                 }
 
