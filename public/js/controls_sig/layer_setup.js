@@ -62,7 +62,7 @@ function setupLayerSeparators(mapInstance) {
             type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
-        
+
         mapInstance.addLayer({
             id: 'analysis-separator',
             type: 'circle',
@@ -75,10 +75,10 @@ function setupLayerSeparators(mapInstance) {
     // Separador para features (referência para drawing layers)
     if (!mapInstance.getSource('features-separator-source')) {
         mapInstance.addSource('features-separator-source', {
-            type: 'geojson', 
+            type: 'geojson',
             data: { type: 'FeatureCollection', features: [] }
         });
-        
+
         mapInstance.addLayer({
             id: 'features-separator',
             type: 'circle',
@@ -765,12 +765,76 @@ async function setImages(features, mapInstance) {
     await Promise.allSettled(imagePromises);
 }
 
+/**
+ * Cria uma imagem de erro padrão (SVG de imagem quebrada)
+ * @returns {Promise<HTMLImageElement>} Imagem de erro carregada
+ */
+function createErrorImage() {
+    const errorSvg = `
+        <svg width="64" height="64" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+            <!-- Background rectangle with dashed border -->
+            <rect x="4" y="4" width="56" height="56" 
+                  fill="#f8f9fa" 
+                  stroke="#dc3545" 
+                  stroke-width="2" 
+                  stroke-dasharray="4,4" 
+                  rx="4"/>
+            
+            <!-- Mountain icon (broken image symbol) -->
+            <path d="M12 48 L20 36 L28 42 L36 30 L52 48 Z" 
+                  fill="#dee2e6" 
+                  stroke="#6c757d" 
+                  stroke-width="1"/>
+            
+            <!-- X mark overlay -->
+            <line x1="16" y1="16" x2="48" y2="48" 
+                  stroke="#dc3545" 
+                  stroke-width="3" 
+                  stroke-linecap="round"/>
+            <line x1="48" y1="16" x2="16" y2="48" 
+                  stroke="#dc3545" 
+                  stroke-width="3" 
+                  stroke-linecap="round"/>
+            
+            <!-- Optional text -->
+            <text x="32" y="58" 
+                  text-anchor="middle" 
+                  font-family="Arial, sans-serif" 
+                  font-size="8" 
+                  fill="#6c757d">
+                ERRO
+            </text>
+        </svg>
+    `;
+
+    const dataUrl = `data:image/svg+xml;base64,${btoa(errorSvg)}`;
+
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Failed to create error image'));
+        image.src = dataUrl;
+    });
+}
+
 async function loadSingleImage(imageId, mapInstance) {
     try {
         const blob = await getImage(imageId);
+
         if (!blob) {
-            console.warn(`Imagem ${imageId} não encontrada no store`);
-            return;
+            console.warn(`Imagem ${imageId} não encontrada no store, usando imagem de erro`);
+
+            // Usar imagem de erro como fallback
+            try {
+                const errorImage = await createErrorImage();
+                if (!mapInstance.hasImage(imageId)) {
+                    mapInstance.addImage(imageId, errorImage);
+                }
+                return;
+            } catch (errorImageError) {
+                console.error(`Erro ao criar imagem de erro para ${imageId}:`, errorImageError);
+                return;
+            }
         }
 
         const url = URL.createObjectURL(blob);
@@ -792,12 +856,38 @@ async function loadSingleImage(imageId, mapInstance) {
 
             image.onerror = () => {
                 URL.revokeObjectURL(url);
-                reject(new Error(`Falha ao carregar imagem ${imageId}`));
+                console.warn(`Falha ao carregar imagem ${imageId}, usando imagem de erro`);
+
+                // Fallback para imagem de erro mesmo quando o blob existe mas falha ao carregar
+                createErrorImage()
+                    .then(errorImage => {
+                        if (!mapInstance.hasImage(imageId)) {
+                            mapInstance.addImage(imageId, errorImage);
+                        }
+                        resolve();
+                    })
+                    .catch(errorImageError => {
+                        console.error(`Erro ao criar imagem de erro para ${imageId}:`, errorImageError);
+                        reject(new Error(`Falha ao carregar imagem ${imageId}`));
+                    });
             };
 
             setTimeout(() => {
                 URL.revokeObjectURL(url);
-                reject(new Error(`Timeout ao carregar imagem ${imageId}`));
+                console.warn(`Timeout ao carregar imagem ${imageId}, usando imagem de erro`);
+
+                // Fallback para imagem de erro em caso de timeout
+                createErrorImage()
+                    .then(errorImage => {
+                        if (!mapInstance.hasImage(imageId)) {
+                            mapInstance.addImage(imageId, errorImage);
+                        }
+                        resolve();
+                    })
+                    .catch(errorImageError => {
+                        console.error(`Erro ao criar imagem de erro para ${imageId}:`, errorImageError);
+                        reject(new Error(`Timeout ao carregar imagem ${imageId}`));
+                    });
             }, 10000);
 
             image.src = url;
@@ -805,6 +895,16 @@ async function loadSingleImage(imageId, mapInstance) {
 
     } catch (error) {
         console.warn(`Erro ao processar imagem ${imageId}:`, error);
+
+        // Fallback final para imagem de erro
+        try {
+            const errorImage = await createErrorImage();
+            if (!mapInstance.hasImage(imageId)) {
+                mapInstance.addImage(imageId, errorImage);
+            }
+        } catch (errorImageError) {
+            console.error(`Erro ao criar imagem de erro para ${imageId}:`, errorImageError);
+        }
     }
 }
 
