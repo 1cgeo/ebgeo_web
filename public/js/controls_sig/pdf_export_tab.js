@@ -605,7 +605,7 @@ export default class PDFExportTab {
             this.updateProgress(10, 'Inicializando...');
 
             // 2. Carrega o gdal3.js
-            const Gdal = await initGdalJs({ path: '../vendors/gdal', useWorker: false })
+            const Gdal = await initGdalJs({ path: `${window.ENV.PREFIX_URL}/vendors/gdal`, useWorker: false })
 
             await new Promise(resolve => setTimeout(resolve, 200));
 
