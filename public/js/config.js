@@ -117,8 +117,8 @@ const config = {
   map2d: {
     // ----- Configurações Básicas do Mapa -----
     bounds: [
-      [-44.4633992903047, -22.46265178239199],   // [longitude_min, latitude_min]
-      [-44.439695820515325, -22.444666254876367] // [longitude_max, latitude_max]
+      [-58.1,-33.4], // [longitude_min, latitude_min]
+      [-48.7,-27.1] // [longitude_max, latitude_max]
     ],
     minZoom: 1,              // Zoom mínimo permitido
     maxZoom: 17.9,           // Zoom máximo permitido
