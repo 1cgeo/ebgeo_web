@@ -2,6 +2,8 @@
 
 Esta página tem como objetivo explicar as funcionalidades do EBGeo, bem como oferecer diretrizes para a sua utilização.
 
+
+
 ## SIG
 
 Nessa aba é possível visualizar um mapa digital e realizar algumas análises com as ferramentas disponibilizadas. As imagens, terrenos e vetores foram gerados pela DSG. É possível ainda visualizar algumas vias com imagens 360º.
@@ -15,7 +17,7 @@ Nessa aba é possível visualizar um mapa digital e realizar algumas análises c
 - Botão direito do mouse: abre as opções de copiar coordenadas e orientar para o norte.
 - Botão do meio do mouse: ao rolar o botão do meio do mouse, é possível mudar o zoom do mapa.
 - Ctrl+C: Copiar os itens selecionados. É possível selecionar feições, textos e imagens.
-- Ctrl+V: Colar as itens copiados.  
+- Ctrl+V: Colar as itens copiados.
 - Ctrl+Z: Desfazer.
 - Ctrl+Y: Refazer.
 
@@ -58,7 +60,7 @@ Ao adquirir o ponto ou ao clicar novamente na feição, a feição é selecionad
 
 <img src="../images/icon_line_black.svg" alt="Icone Linha" width="70"/>
 
-Com a ferramenta selecionada é possível adquirir uma linha no mapa clicando com o botão esquerdo do _mouse_. É possível finalizar a edição ao clicando com o botão direito. 
+Com a ferramenta selecionada é possível adquirir uma linha no mapa clicando com o botão esquerdo do _mouse_. É possível finalizar a edição ao clicando com o botão direito.
 
 Ao finalizar a edição ou ao clicar novamente na feição, a feição é selecionada (indicado por uma caixa vermelha pontilhada ao redor da linha). E é possível alterar as seguintes propriedades:
 
@@ -75,7 +77,7 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 
 <img src="../images/icon_polygon_black.svg" alt="Icone Polígono" width="70"/>
 
-Com a ferramenta selecionada é possível adquirir um polígono no mapa clicando com o botão esquerdo do _mouse_. É possível finalizar a edição clicando com o botão direito. 
+Com a ferramenta selecionada é possível adquirir um polígono no mapa clicando com o botão esquerdo do _mouse_. É possível finalizar a edição clicando com o botão direito.
 
 Ao finalizar a edição ou ao clicar novamente na feição, a feição é selecionada (indicado por uma caixa vermelha pontilhada ao redor do polígono). E é possível alterar as seguintes propriedades:
 
@@ -94,9 +96,9 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
 
 > Obs.:  É possível selecionar e alterar mais de uma feição segurando o Shift ou usando a ferramenta de Seleção por área (Q).
 
-``Para editar uma feição, inclusive adicionar vértices, clique numa feição`` 
+``Para editar uma feição, inclusive adicionar vértices, clique numa feição``
 
-``Para mover uma feição, selecione a feição, clique nela e arraste-a`` 
+``Para mover uma feição, selecione a feição, clique nela e arraste-a``
 
 ---
 
@@ -237,7 +239,7 @@ Ao finalizar a edição ou ao clicar novamente na feição, a feição é seleci
     - Modificador 1
     - Modificador 2
     > As opções são pesquisáveis e pode usar as setas para selecionar a opção desejada
-    
+
     > Todos símbolos presentes no mapa ficam na lateral em "Símbolos do Mapa" para facilitar a escolha de símbolos já utilizados
 - Tamanho
 - Zoom de referência (para garantir que dois símbolos sejam exibidos no mesmo tamanho o zoom de referência e o tamanho deve ser o mesmo)
@@ -462,6 +464,14 @@ Para navegar nas imagens 360°:
 
 <!-- Vídeo de 13 (exp/imp projetos)-->
 <iframe width="990" height="557" src="https://www.youtube.com/embed/NZiddBa8Nvs" title="EBGeo Web #13 - Exportar e importar projetos (compartilhar com outros usuários)" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+---
+
+
+### Atualizar sem cache
+
+Se notar que uma atualização não aparece mesmo ao recarregar a página, pressione **Ctrl+Shift+R**.
+Esse comando força o navegador a recarregar a página **sem usar o cache**, garantindo que as mudanças fiquem visíveis.
 
 ---
 
