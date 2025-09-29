@@ -65,6 +65,12 @@ class AddStreetViewControl {
         this.setCurrentMouse = this.setCurrentMouse.bind(this);
         this.onMouseMove = this.onMouseMove.bind(this);
         this.onStreetViewKeyDown = this.onStreetViewKeyDown.bind(this);
+
+        this.photosSourceId = 'pmtiles-photos';
+
+        // Cache para features próximas (otimização)
+        this.nearbyFeaturesCache = new Map();
+        this.cacheRadius = 1000; // metros
     }
 
     onStreetViewKeyDown = (e) => {
@@ -225,24 +231,69 @@ class AddStreetViewControl {
         // Clear metadata cache
         this.metadataCache.clear();
 
+        // Clear PMTiles cache
+        this.nearbyFeaturesCache.clear();
+
         // Reset state
         this.scene = null;
         this.camera = null;
         this.material = null;
     }
 
+
     loadData = async () => {
-
         try {
-            this.map.getSource('lines-street-view').setData(this.photosLinhasGeoJson);
+            // Para o mapa principal, adicionar as sources PMTiles
+            if (!this.map.getSource(config.map2d.streetViewPointsLayer['source'])) {
+                this.map.addSource(config.map2d.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
+                // Espera a fonte ser carregada para adicionar a camada
+                const onPhotosSourceData = (e) => {
+                    if (e.sourceId === config.map2d.streetViewPointsLayer['source'] && this.map.isSourceLoaded(config.map2d.streetViewPointsLayer['source'])) {
+                        if (!this.map.getLayer(config.map2d.streetViewPointsLayer['id'])) {
+                            this.map.addLayer(config.map2d.streetViewPointsLayer);
+                        }
+                        this.showLayers(); // Garante que a camada está visível
+                        this.map.off('sourcedata', onPhotosSourceData); // Remove o listener para não executar de novo
+                    }
+                };
+                this.map.on('sourcedata', onPhotosSourceData);
+            } else {
+                this.showLayers(); // Se a fonte já existe, apenas garante visibilidade
+            }
 
+
+            if (!this.map.getSource(config.map2d.streetViewLinesLayer['source'])) {
+                this.map.addSource(config.map2d.streetViewLinesLayer['source'], config.map2d.streetViewLinesSource);
+
+                // Espera a fonte ser carregada para adicionar a camada
+                const onLinesSourceData = (e) => {
+                    if (e.sourceId === config.map2d.streetViewLinesLayer['source'] && this.map.isSourceLoaded(config.map2d.streetViewLinesLayer['source'])) {
+                        if (!this.map.getLayer(config.map2d.streetViewLinesLayer['id'])) {
+                            this.map.addLayer(config.map2d.streetViewLinesLayer);
+                        }
+                        this.showLayers(); // Garante que a camada está visível
+                        this.map.off('sourcedata', onLinesSourceData); // Remove o listener
+                    }
+                };
+                this.map.on('sourcedata', onLinesSourceData);
+            } else {
+                this.showLayers(); // Se a fonte já existe, apenas garante visibilidade
+            }
         } catch (error) {
-
+            console.error('Erro ao carregar dados PMTiles:', error);
         }
+
     }
 
     onAdd(map) {
         this.map = map;
+
+        // Registrar protocolo PMTiles se ainda não foi registrado
+        if (typeof PMTiles !== 'undefined' && !this.map._pmtilesRegistered) {
+            let protocol = new PMTiles.Protocol();
+            maplibregl.addProtocol("pmtiles", protocol.tile);
+            this.map._pmtilesRegistered = true;
+        }
         this.container = document.createElement('div');
         this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl street-view-control controls-column-left';
 
@@ -263,56 +314,71 @@ class AddStreetViewControl {
 
         this.changeButtonColor()
 
-        const setupMiniMap = async () => {
-            this.photosGeojson = await $.getJSON("./street_view/fotos.geojson")
-            this.photosLinhasGeoJson = await $.getJSON("./street_view/fotos_linha.geojson")
-            this.centroid = turf.centroid(this.photosGeojson)
-
-            let pointImage = await this.miniMap.loadImage('./street_view/point.png')
-            await this.miniMap.addImage('point', pointImage.data);
-            this.miniMap.addSource('points', {
-                'type': 'geojson',
-                'data': this.photosGeojson
-            });
-            this.miniMap.addLayer({
-                'id': 'points',
-                'type': 'symbol',
-                'source': 'points',
-                'layout': {
-                    'icon-image': 'point'
-                }
-            });
-
-            let pointSelectedImage = await this.miniMap.loadImage('./street_view/point-selected-v2.png')
-            this.miniMap.addImage('point-selected', pointSelectedImage.data);
-            this.miniMap.addSource('selected', {
-                'type': 'geojson',
-                'data': this.photosGeojson
-            });
-            this.miniMap.on('click', 'points', (e) => {
-                this.loadTarget(e.features[0].properties.nome_img, () => {
-                    this.setIconDirection(this.currentInfo.camera.heading)
-                })
-            });
-            this.miniMap.on('mouseenter', 'points', () => {
-                this.miniMap.getCanvas().style.cursor = 'pointer';
-            });
-
-            this.miniMap.on('mouseleave', 'points', () => {
-                this.miniMap.getCanvas().style.cursor = '';
-            });
-
-            // Optimize DOM queries for wheel events
-            this.miniMap.getCanvas().addEventListener('mouseenter', () => {
-                this.miniMapHovered = true;
-            });
-            this.miniMap.getCanvas().addEventListener('mouseleave', () => {
-                this.miniMapHovered = false;
-            });
-        }
-        setupMiniMap()
+        // ATUALIZADA: Setup do minimapa para PMTiles
+        this.setupMiniMapWithPMTiles();
 
         return this.container;
+    }
+
+    // NOVA: Setup do minimapa para PMTiles
+    setupMiniMapWithPMTiles = async () => {
+        this.miniMap.on('load', async () => {
+            try {
+                // Registrar protocolo PMTiles no minimapa também
+                if (typeof PMTiles !== 'undefined') {
+                    let protocol = new PMTiles.Protocol();
+                    maplibregl.addProtocol("pmtiles", protocol.tile);
+                }
+
+                // Adicionar sources PMTiles ao minimapa
+                this.miniMap.addSource(config.map2d.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
+
+                // Carregar imagens para os pontos
+                let pointImage = await this.miniMap.loadImage('./street_view/point.png');
+                await this.miniMap.addImage('point', pointImage.data);
+
+                let pointSelectedImage = await this.miniMap.loadImage('./street_view/point-selected-v2.png');
+                this.miniMap.addImage('point-selected', pointSelectedImage.data);
+
+                // Adicionar layer de pontos
+                this.miniMap.addLayer({
+                    'id': 'points',
+                    'type': 'symbol',
+                    'source': config.map2d.streetViewPointsLayer['source'],
+                    'source-layer': config.map2d.streetViewPointsLayer['source-layer'], // Nome da layer no PMTiles
+                    'layout': {
+                        'icon-image': 'point'
+                    }
+                });
+
+                // Event listeners
+                this.miniMap.on('click', 'points', (e) => {
+                    const properties = e.features[0].properties;
+                    this.loadTarget(properties.nome_img, () => {
+                        this.setIconDirection(this.currentInfo.camera.heading);
+                    });
+                });
+
+                this.miniMap.on('mouseenter', 'points', () => {
+                    this.miniMap.getCanvas().style.cursor = 'pointer';
+                });
+
+                this.miniMap.on('mouseleave', 'points', () => {
+                    this.miniMap.getCanvas().style.cursor = '';
+                });
+
+                // Optimize DOM queries for wheel events
+                this.miniMap.getCanvas().addEventListener('mouseenter', () => {
+                    this.miniMapHovered = true;
+                });
+                this.miniMap.getCanvas().addEventListener('mouseleave', () => {
+                    this.miniMapHovered = false;
+                });
+
+            } catch (error) {
+                console.error('Erro ao configurar minimapa PMTiles:', error);
+            }
+        });
     }
 
     changeButtonColor = () => {
@@ -367,57 +433,130 @@ class AddStreetViewControl {
         }
     }
 
+
     showPhotos = async () => {
+        this.map.on('click', config.map2d.streetViewLinesLayer['id'], this.loadPoint);
+        // this.map.on('touchend', config.map2d.streetViewLinesLayer['id'], this.loadPoint);
+        this.map.on('mouseenter', config.map2d.streetViewLinesLayer['id'], this.showHoverCursor);
+        this.map.on('mouseleave', config.map2d.streetViewLinesLayer['id'], this.hideHoverCursor);
 
-        this.map.on('click', 'street-view', this.loadPoint);
-
-        this.map.on('touchend', 'street-view', this.loadPoint);
-
-        this.map.on('mouseenter', 'street-view', this.showHoverCursor);
-
-        this.map.on('mouseleave', 'street-view', this.hideHoverCursor);
-
-        // this.map.flyTo({
-        //     center: centroid.geometry.coordinates
-        // });
-
-
-
+        // Atualizar layer selecionado no minimapa
         if (this.miniMap.getLayer('selected')) {
             this.miniMap.removeLayer('selected');
         }
         this.miniMap.addLayer({
             'id': 'selected',
             'type': 'symbol',
-            'source': 'selected',
-            "filter": [
-                "all",
-                [
-                    "==",
-                    "nome_img",
-                    this.currentPhotoName
-                ]
-            ],
+            'source': config.map2d.streetViewPointsLayer['source'],
+            'source-layer': config.map2d.streetViewPointsLayer['source-layer'],
+            "filter": ["==", "nome_img", this.currentPhotoName || ""],
             'layout': {
                 'icon-image': 'point-selected'
             }
         });
-
-
     }
 
-    getNeighbor = (point, points) => {
-        var from = turf.point([point.lng, point.lat])
-        var minDistance, target;
-        for (let p of points) {
-            let to = turf.point([p.geometry.coordinates[0], p.geometry.coordinates[1]])
-            let distance = turf.distance(from, to)
-            if (!minDistance || distance < minDistance) {
-                target = p
-                minDistance = distance
+    // NOVA: Função para buscar vizinho mais próximo usando PMTiles
+    getNeighborFromPMTiles = async (point) => {
+        try {
+            const cacheKey = `${Math.round(point.lng * 1000)}_${Math.round(point.lat * 1000)}`;
+
+            if (this.nearbyFeaturesCache.has(cacheKey)) {
+                return this.nearbyFeaturesCache.get(cacheKey);
             }
+
+            // Converter ponto para pixel
+            const pixelPoint = this.map.project([point.lng, point.lat]);
+
+            // Buscar features em um raio de pixels
+            const radius = 50; // pixels
+            const bbox = [
+                [pixelPoint.x - radius, pixelPoint.y - radius],
+                [pixelPoint.x + radius, pixelPoint.y + radius]
+            ];
+
+            const features = this.map.queryRenderedFeatures(bbox, {
+                layers: [config.map2d.streetViewPointsLayer['id']]
+            });
+
+            if (features.length === 0) {
+                // Tentar busca mais ampla se não encontrou nada
+                return await this.getNeighborWithBboxQuery(point);
+            }
+
+            // Encontrar o mais próximo usando Turf
+            const from = turf.point([point.lng, point.lat]);
+            let minDistance = Infinity;
+            let target = null;
+
+            for (let feature of features) {
+                const coords = feature.geometry.coordinates;
+                const to = turf.point(coords);
+                const distance = turf.distance(from, to);
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    target = feature;
+                }
+            }
+
+            // Cache o resultado
+            if (target) {
+                this.nearbyFeaturesCache.set(cacheKey, target);
+            }
+
+            return target;
+
+        } catch (error) {
+            console.error('Erro ao buscar vizinho mais próximo:', error);
+            return null;
         }
-        return target
+    }
+
+    // NOVA: Busca alternativa usando bbox
+    getNeighborWithBboxQuery = async (point) => {
+        try {
+            // Criar bbox ao redor do ponto (aproximadamente 100m de raio)
+            const bufferDistance = 0.001; // aproximadamente 100m em graus
+            const bbox = [
+                point.lng - bufferDistance,
+                point.lat - bufferDistance,
+                point.lng + bufferDistance,
+                point.lat + bufferDistance
+            ];
+
+            // Query features usando bbox
+            const features = this.map.querySourceFeatures(config.map2d.streetViewPointsLayer['source'], {
+                sourceLayer: config.map2d.streetViewPointsLayer['source-layer'],
+                bbox: bbox
+            });
+
+            if (features.length === 0) {
+                return null;
+            }
+
+            // Encontrar o mais próximo
+            const from = turf.point([point.lng, point.lat]);
+            let minDistance = Infinity;
+            let target = null;
+
+            for (let feature of features) {
+                const coords = feature.geometry.coordinates;
+                const to = turf.point(coords);
+                const distance = turf.distance(from, to);
+
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    target = feature;
+                }
+            }
+
+            return target;
+
+        } catch (error) {
+            console.error('Erro na busca por bbox:', error);
+            return null;
+        }
     }
 
     loadImageByName = async (name) => {
@@ -586,23 +725,14 @@ class AddStreetViewControl {
         if (this.miniMap) this.miniMap.setLayoutProperty('selected', 'icon-rotate', degrees)
     }
 
+
     setCurrentPhotoName = (name) => {
         this.currentPhotoName = name
-        this.miniMap.setFilter(
-            'selected',
-            [
-                "all",
-                [
-                    "==",
-                    "nome_img",
-                    this.currentPhotoName
-                ]
-            ],
-        );
-        let found = this.photosGeojson.features.find(item => item.properties.nome_img == this.currentPhotoName)
-        let long = found.geometry.coordinates[0]
-        let lat = found.geometry.coordinates[1]
-        this.miniMap.setCenter([long, lat]);
+
+        // Atualizar filtro no minimapa
+        if (this.miniMap.getLayer('selected')) {
+            this.miniMap.setFilter('selected', ["==", "nome_img", this.currentPhotoName]);
+        }
 
     }
 
@@ -917,16 +1047,33 @@ class AddStreetViewControl {
         }
     }
 
+    // ATUALIZADA: loadPoint para PMTiles
+    loadPoint = async (e) => {
+        try {
+            // Primeiro tentar buscar nas features renderizadas
+            let feature = await this.getNeighborFromPMTiles(e.lngLat);
 
+            // Se não encontrar, tentar busca por bbox
+            if (!feature) {
+                feature = await this.getNeighborWithBboxQuery(e.lngLat);
+            }
 
-    loadPoint = (e) => {
-        let f = this.getNeighbor(e.lngLat, this.photosGeojson.features)
-        this.setFullMap(false)
-        if (this.scene) {
-            this.loadTarget(f.properties.nome_img)
-            return
+            if (feature && feature.properties && feature.properties.nome_img) {
+                this.setFullMap(false);
+
+                if (this.scene) {
+                    this.loadTarget(feature.properties.nome_img);
+                    return;
+                }
+
+                this.loadImageByName(feature.properties.nome_img);
+            } else {
+                console.warn('Nenhuma foto encontrada próxima ao ponto clicado');
+            }
+
+        } catch (error) {
+            console.error('Erro ao carregar ponto:', error);
         }
-        this.loadImageByName(f.properties.nome_img)
     }
 
     showHoverCursor = () => {
@@ -956,18 +1103,40 @@ class AddStreetViewControl {
         this.cleanupThreeJS()
     }
 
+
     hidePhotos = () => {
-        this.map.off('click', 'street-view', this.loadPoint);
-
-        this.map.off('mouseenter', 'street-view', this.showHoverCursor);
-
-        this.map.off('mouseleave', 'street-view', this.hideHoverCursor);
+        this.map.off('click', config.map2d.streetViewLinesLayer['id'], this.loadPoint);
+        this.map.off('mouseenter', config.map2d.streetViewLinesLayer['id'], this.showHoverCursor);
+        this.map.off('mouseleave', config.map2d.streetViewLinesLayer['id'], this.hideHoverCursor);
 
 
-        this.map.getSource('lines-street-view').setData({
-            type: 'FeatureCollection',
-            features: []
-        });
+        if (this.map.getLayer(config.map2d.streetViewPointsLayer['id'])) {
+            this.map.setLayoutProperty(config.map2d.streetViewPointsLayer['id'], 'visibility', 'none');
+        }
+        if (this.map.getLayer(config.map2d.streetViewLinesLayer['id'])) {
+            this.map.setLayoutProperty(config.map2d.streetViewLinesLayer['id'], 'visibility', 'none');
+        }
+    }
+
+    // NOVA: Função para mostrar layers novamente
+    showLayers = () => {
+        if (this.map.getLayer(config.map2d.streetViewPointsLayer['id'])) {
+            this.map.setLayoutProperty(config.map2d.streetViewPointsLayer['id'], 'visibility', 'visible');
+        }
+
+        if (this.map.getLayer(config.map2d.streetViewLinesLayer['id'])) {
+
+            this.map.setLayoutProperty(config.map2d.streetViewLinesLayer['id'], 'visibility', 'visible');
+        }
+        else {
+            this.map.addLayer(config.map2d.streetViewLinesLayer);
+
+            this.map.setLayoutProperty(config.map2d.streetViewLinesLayer['id'], 'visibility', 'visible');
+        }
+    }
+
+    clearCache = () => {
+        this.nearbyFeaturesCache.clear();
     }
 
     handleMapClick(e) {

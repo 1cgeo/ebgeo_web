@@ -46,13 +46,13 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager) {
 /**
  * Configura separadores invisíveis para controle de ordenação das camadas
  * Estes separadores servem como âncoras para posicionamento correto das layers
- * 
+ *
  * Ordem final:
  * 1. Basemap
- * 2. Hillshade 
+ * 2. Hillshade
  * 3. ← analysis-separator (invisible)
  * 4. Analysis Layers (todas)
- * 5. ← features-separator (invisible) 
+ * 5. ← features-separator (invisible)
  * 6. Drawing Features (todas)
  */
 function setupLayerSeparators(mapInstance) {
@@ -773,34 +773,34 @@ function createErrorImage() {
     const errorSvg = `
         <svg width="64" height="64" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
             <!-- Background rectangle with dashed border -->
-            <rect x="4" y="4" width="56" height="56" 
-                  fill="#f8f9fa" 
-                  stroke="#dc3545" 
-                  stroke-width="2" 
-                  stroke-dasharray="4,4" 
+            <rect x="4" y="4" width="56" height="56"
+                  fill="#f8f9fa"
+                  stroke="#dc3545"
+                  stroke-width="2"
+                  stroke-dasharray="4,4"
                   rx="4"/>
-            
+
             <!-- Mountain icon (broken image symbol) -->
-            <path d="M12 48 L20 36 L28 42 L36 30 L52 48 Z" 
-                  fill="#dee2e6" 
-                  stroke="#6c757d" 
+            <path d="M12 48 L20 36 L28 42 L36 30 L52 48 Z"
+                  fill="#dee2e6"
+                  stroke="#6c757d"
                   stroke-width="1"/>
-            
+
             <!-- X mark overlay -->
-            <line x1="16" y1="16" x2="48" y2="48" 
-                  stroke="#dc3545" 
-                  stroke-width="3" 
+            <line x1="16" y1="16" x2="48" y2="48"
+                  stroke="#dc3545"
+                  stroke-width="3"
                   stroke-linecap="round"/>
-            <line x1="48" y1="16" x2="16" y2="48" 
-                  stroke="#dc3545" 
-                  stroke-width="3" 
+            <line x1="48" y1="16" x2="16" y2="48"
+                  stroke="#dc3545"
+                  stroke-width="3"
                   stroke-linecap="round"/>
-            
+
             <!-- Optional text -->
-            <text x="32" y="58" 
-                  text-anchor="middle" 
-                  font-family="Arial, sans-serif" 
-                  font-size="8" 
+            <text x="32" y="58"
+                  text-anchor="middle"
+                  font-family="Arial, sans-serif"
+                  font-size="8"
                   fill="#6c757d">
                 ERRO
             </text>
@@ -1781,32 +1781,6 @@ function setupAuxiliaryLayers(mapInstance) {
                 'line-color': '#FF0000',
                 'line-width': 2,
                 'line-dasharray': [2, 2]
-            }
-        });
-    }
-
-    if (!mapInstance.getSource('lines-street-view')) {
-        mapInstance.addSource('lines-street-view', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: []
-            }
-        });
-    }
-
-    if (!mapInstance.getLayer('street-view')) {
-        mapInstance.addLayer({
-            'id': 'street-view',
-            'type': 'line',
-            'source': 'lines-street-view',
-            'layout': {
-                'line-join': 'round',
-                'line-cap': 'round'
-            },
-            'paint': {
-                'line-color': '#0d6efd',
-                'line-width': 4
             }
         });
     }

@@ -5,16 +5,16 @@
 const config = {
   // ===== CONFIGURAÇÕES GERAIS DA APLICAÇÃO =====
   app: {
-    title: "EBGeo Exc Cbn Arandu",        // Título exibido na interface
-    subtitle: "Exc Cbn Arandu"            // Subtítulo da aplicação
+    title: "EBGeo",        // Título exibido na interface
+    subtitle: ""            // Subtítulo da aplicação
   },
 
   features: {
     imagens_panoramicas: true,    // Habilita/desabilita street view control
-    vector_info: true,           // Habilita/desabilita vector info control  
+    vector_info: true,           // Habilita/desabilita vector info control
     map_3d: true,               // Habilita/desabilita alternância para modo 3D
   },
-  
+
   // ===== CONFIGURAÇÕES DE BUSCA =====
   search: {
     apiUrl: "http://localhost:3000/busca"  // URL da API de busca de features
@@ -27,35 +27,35 @@ const config = {
   // ===== CONFIGURAÇÃO DE BASEMAPS =====
   // Define quais basemaps estão disponíveis e suas configurações
   basemaps: {
-    'carta-topografica': { 
-      enabled: true, 
-      name: 'Topográfica', 
+    'carta-topografica': {
+      enabled: true,
+      name: 'Topográfica',
       icon: './images/dsg_symbol.svg',
       priority: 1
     },
-    'carta-ortoimagem': { 
-      enabled: true, 
-      name: 'Ortoimagem', 
+    'carta-ortoimagem': {
+      enabled: true,
+      name: 'Ortoimagem',
       icon: './images/dsg_symbol.svg',
-      priority: 2 
+      priority: 2
     },
-    'bdgex': { 
-      enabled: false, 
-      name: 'BDGEx', 
+    'bdgex': {
+      enabled: false,
+      name: 'BDGEx',
       icon: './images/dsg_symbol.svg',
-      priority: 3 
+      priority: 3
     },
-    'osm': { 
-      enabled: false, 
-      name: 'OSM', 
+    'osm': {
+      enabled: false,
+      name: 'OSM',
       icon: '🌐',
-      priority: 4 
+      priority: 4
     },
-    'imagens': { 
-      enabled: false, 
-      name: 'Imagens', 
+    'imagens': {
+      enabled: false,
+      name: 'Imagens',
       icon: '🌐',
-      priority: 5 
+      priority: 5
     }
   },
 
@@ -123,10 +123,10 @@ const config = {
     minZoom: 1,              // Zoom mínimo permitido
     maxZoom: 17.9,           // Zoom máximo permitido
     maxPitch: 65,            // Inclinação máxima da câmera (0-60 graus)
-    
+
     // Configurações avançadas de carregamento de tiles
     sourceTileLodParams: [5, 6.0],  // [threshold, factor] para otimização de tiles
-    
+
     // Limites geográficos opcionais (descomente para ativar)
     // maxBounds: [
     //   [-45.82515, -22.69950],  // [lng_min, lat_min] - sudoeste
@@ -165,7 +165,7 @@ const config = {
     // Efeito visual de sombreamento do relevo
     hillshade: {
       enabled: true,                                        // true = ativa hillshade | false = desativa
-      
+
       // Configuração da camada hillshade
       layer: {
         id: 'hillshade',                                    // ID da camada (não alterar)
@@ -173,7 +173,7 @@ const config = {
         source: 'hillshadeSource',                          // Source a usar (não alterar)
         //minzoom: 10,                                        // Zoom mínimo da camada
         //maxzoom: 10,                                        // Zoom máximo da camada
-        
+
         // Propriedades visuais do hillshade
         paint: {
           'hillshade-method': 'standard',                   // Método: 'standard' ou 'texture'
@@ -189,6 +189,42 @@ const config = {
         }
       },
     },
+
+    streetViewPointsSource: {
+      type: 'vector',
+      url: 'http://IP:PORT/fotos' //passar para localhost
+    },
+
+    streetViewPointsLayer: {
+      'id': 'street-view',
+      'type': 'circle',
+      'source': 'streetViewPointsSource',
+      'visibility': 'none',
+      'source-layer': 'fotos',
+      'paint': {
+        'circle-radius': 0,
+        'circle-color': '#0d6efd',
+        'circle-stroke-width': 0,
+        'circle-stroke-color': '#0d6efd'
+      }
+    },
+
+    streetViewLinesSource: {
+      type: 'vector',
+      url: 'http://IP:PORT/fotos_linha' //passar para localhost
+    },
+
+    streetViewLinesLayer: {
+      'id': 'street-view-lines',
+      'type': 'line',
+      'source': 'streetViewLinesSource',
+      'source-layer': 'fotos_linha',
+      'paint': {
+        'line-color': '#0d6efd',
+        'line-width': 5
+      }
+    }
+
   },
 
   // ===== CONFIGURAÇÕES DO MAPA 3D (CESIUM) =====
@@ -197,7 +233,7 @@ const config = {
     bounds: {
       west: -44.449656,      // Longitude oeste
       south: -22.455922,     // Latitude sul
-      east: -44.449654,      // Longitude leste  
+      east: -44.449654,      // Longitude leste
       north: -22.455920      // Latitude norte
     },
 
@@ -223,6 +259,7 @@ const config = {
       animation: false,           // Controles de animação
       timeline: false,            // Linha do tempo
       fullscreenButton: false,    // Botão tela cheia
+      //shadows: false,              // Desativa completamente as sombras
     },
 
     // ----- Provedores de Dados 3D -----
@@ -231,7 +268,7 @@ const config = {
       imagery: {
         enabled: true,          // true = usa imagery local | false = desabilita
         type: 'UrlTemplate',    // Tipos: 'UrlTemplate', 'WMS', 'SingleTile'
-        url: 'http://localhost/raster/data/aman_esa_alta_resolucao_2_data/{z}/{x}/{y}.png',
+        url: "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
         options: {
           maximumLevel: 18,     // Nível máximo de zoom
           minimumLevel: 0,      // Nível mínimo de zoom
@@ -260,7 +297,7 @@ const config = {
       heightOffset: 35,                                // Offset de altura em metros
       id: "PCL",                                       // ID único do tileset
       name: "PCL",                                     // Nome para exibição
-      locate: { 
+      locate: {
         lon: -44.47332385414955,                       // Longitude para localizar
         lat: -22.43976556982974,                       // Latitude para localizar
         height: 1000                                   // Altura da câmera
@@ -285,7 +322,7 @@ config.validateBasemapsConfig = () => {
   }
 };
 
-// Obter basemaps habilitados ordenados por prioridade  
+// Obter basemaps habilitados ordenados por prioridade
 config.getEnabledBasemaps = () => {
   return Object.entries(config.basemaps)
     .filter(([id, basemapConfig]) => basemapConfig.enabled)
@@ -296,7 +333,7 @@ config.getEnabledBasemaps = () => {
 config.getBasemapLayoutClass = (count) => {
   switch(count) {
     case 1: return 'base-layer-grid-1x1';
-    case 2: return 'base-layer-grid-1x2'; 
+    case 2: return 'base-layer-grid-1x2';
     case 3: return 'base-layer-grid-2x1-center';
     case 4: return 'base-layer-grid-2x2';
     case 5: return 'base-layer-grid-2x2-center';
@@ -308,12 +345,12 @@ config.getBasemapLayoutClass = (count) => {
 config.getValidBasemapFallback = (currentBasemap = null) => {
   const enabled = config.getEnabledBasemaps();
   if (enabled.length === 0) return 'carta-topografica';
-  
+
   // Se o atual estiver habilitado, manter
   if (currentBasemap && config.basemaps[currentBasemap]?.enabled) {
     return currentBasemap;
   }
-  
+
   // Senão, primeiro da lista ordenada
   return enabled[0][0];
 };
