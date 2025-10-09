@@ -8,6 +8,7 @@ import {
 } from './utilities/coordinate_converter.js';
 import { getTerrainElevation } from './terrain_control.js';
 import GridControl from './grid.js';
+import config from '../config.js';
 
 class MouseCoordinatesControl {
     constructor(pointControl) {
@@ -132,7 +133,9 @@ class MouseCoordinatesControl {
         controlsContainer.appendChild(this._elevationButton);
         controlsContainer.appendChild(gearButton);
         gridContainer.appendChild(gridButton);
-        this._innerContainer.appendChild(gridContainer);
+        if (config.features.grid) {
+            this._innerContainer.appendChild(gridContainer);
+        }
         this._innerContainer.appendChild(this._coordinatesText);
         this._innerContainer.appendChild(controlsContainer);
         this._container.appendChild(this._innerContainer);

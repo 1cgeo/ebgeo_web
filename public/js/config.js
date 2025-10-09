@@ -13,6 +13,7 @@ const config = {
     imagens_panoramicas: true,    // Habilita/desabilita street view control
     vector_info: true,           // Habilita/desabilita vector info control
     map_3d: true,               // Habilita/desabilita alternância para modo 3D
+    grid: false,               // Habilita/desabilita grid
   },
 
   // ===== CONFIGURAÇÕES DE BUSCA =====
@@ -196,6 +197,8 @@ const config = {
     },
 
     streetViewPointsSourceLayer: 'fotos',
+
+
 
     streetViewLinesSource: {
       type: 'vector',
