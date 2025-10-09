@@ -7,6 +7,7 @@ import {
     getDisplayFormat
 } from './utilities/coordinate_converter.js';
 import { getTerrainElevation } from './terrain_control.js';
+import GridControl from './grid.js';
 
 class MouseCoordinatesControl {
     constructor(pointControl) {
@@ -37,17 +38,17 @@ class MouseCoordinatesControl {
 
         // CSS para centralizar na parte inferior
         this._container.style.cssText = `
-            position: fixed !important;
-            bottom: 10px !important;
-            left: 50% !important;
+        position: fixed !important;
+        bottom: 10px !important;
+        left: 50% !important;
             transform: translateX(-50%) !important;
             z-index: 1000 !important;
             margin: 0 !important;
-        `;
+            `;
 
-        // Create inner container for the coordinates display
-        this._innerContainer = document.createElement('div');
-        this._innerContainer.className = 'coordinates-display';
+            // Create inner container for the coordinates display
+            this._innerContainer = document.createElement('div');
+            this._innerContainer.className = 'coordinates-display';
 
         // Create element for coordinates display
         this._coordinatesText = document.createElement('div');
@@ -56,6 +57,10 @@ class MouseCoordinatesControl {
         // Create controls container
         const controlsContainer = document.createElement('div');
         controlsContainer.className = 'coordinates-controls';
+
+        // Create controls container
+        const gridContainer = document.createElement('div');
+        gridContainer.className = 'coordinates-controls';
 
         // Create fly-to button
         const flyToButton = document.createElement('div');
@@ -78,6 +83,16 @@ class MouseCoordinatesControl {
         gearButton.title = "Mudar formato de coordenadas";
         gearButton.innerHTML = `<img src="./images/gear_icon.svg" alt="Settings" width="16" height="16" />`;
         gearButton.addEventListener('click', this._toggleFormatSelector.bind(this));
+
+        // Create grid icon button
+        const gridControl = new GridControl(map, gridContainer);
+        const gridButton = document.createElement('div');
+        gridButton.className = 'coordinates-button coordinates-grid-button';
+        gridButton.title = "Ligar/desligar grid";
+        gridButton.innerHTML = `<img src="./images/grid_icon.svg" alt="Toogle grid" width="16" height="16" />`;
+        gridButton.addEventListener('click', gridControl._showGridMenu.bind(gridControl));
+        gridControl.setButton(gridButton);
+
 
         // Create format selector dropdown (initially hidden)
         this._formatSelector = document.createElement('div');
@@ -116,6 +131,8 @@ class MouseCoordinatesControl {
         controlsContainer.appendChild(flyToButton);
         controlsContainer.appendChild(this._elevationButton);
         controlsContainer.appendChild(gearButton);
+        gridContainer.appendChild(gridButton);
+        this._innerContainer.appendChild(gridContainer);
         this._innerContainer.appendChild(this._coordinatesText);
         this._innerContainer.appendChild(controlsContainer);
         this._container.appendChild(this._innerContainer);

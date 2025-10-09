@@ -195,35 +195,14 @@ const config = {
       url: 'http://IP:PORT/fotos' //passar para localhost
     },
 
-    streetViewPointsLayer: {
-      'id': 'street-view',
-      'type': 'circle',
-      'source': 'streetViewPointsSource',
-      'visibility': 'none',
-      'source-layer': 'fotos',
-      'paint': {
-        'circle-radius': 0,
-        'circle-color': '#0d6efd',
-        'circle-stroke-width': 0,
-        'circle-stroke-color': '#0d6efd'
-      }
-    },
+    streetViewPointsSourceLayer: 'fotos',
 
     streetViewLinesSource: {
       type: 'vector',
       url: 'http://IP:PORT/fotos_linha' //passar para localhost
     },
 
-    streetViewLinesLayer: {
-      'id': 'street-view-lines',
-      'type': 'line',
-      'source': 'streetViewLinesSource',
-      'source-layer': 'fotos_linha',
-      'paint': {
-        'line-color': '#0d6efd',
-        'line-width': 5
-      }
-    }
+    streetViewLinesSourceLayer: 'fotos_linha',
 
   },
 

@@ -71,6 +71,31 @@ class AddStreetViewControl {
         // Cache para features próximas (otimização)
         this.nearbyFeaturesCache = new Map();
         this.cacheRadius = 1000; // metros
+
+        this.streetViewPointsLayer= {
+            'id': 'street-view',
+            'type': 'circle',
+            'source': 'streetViewPointsSource',
+            'visibility': 'none',
+            'source-layer': config.map2d.streetViewPointsSourceLayer,
+            'paint': {
+                'circle-radius': 0,
+                'circle-color': '#0d6efd',
+                'circle-stroke-width': 0,
+                'circle-stroke-color': '#0d6efd'
+            }
+        };
+
+        this.streetViewLinesLayer= {
+            'id': 'street-view-lines',
+            'type': 'line',
+            'source': config.map2d.streetViewLinesSourceLayer,
+            'source-layer': 'fotos_linha',
+            'paint': {
+                'line-color': '#0d6efd',
+                'line-width': 5
+            }
+        }
     }
 
     onStreetViewKeyDown = (e) => {
@@ -244,13 +269,13 @@ class AddStreetViewControl {
     loadData = async () => {
         try {
             // Para o mapa principal, adicionar as sources PMTiles
-            if (!this.map.getSource(config.map2d.streetViewPointsLayer['source'])) {
-                this.map.addSource(config.map2d.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
+            if (!this.map.getSource(this.streetViewPointsLayer['source'])) {
+                this.map.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
                 // Espera a fonte ser carregada para adicionar a camada
                 const onPhotosSourceData = (e) => {
-                    if (e.sourceId === config.map2d.streetViewPointsLayer['source'] && this.map.isSourceLoaded(config.map2d.streetViewPointsLayer['source'])) {
-                        if (!this.map.getLayer(config.map2d.streetViewPointsLayer['id'])) {
-                            this.map.addLayer(config.map2d.streetViewPointsLayer);
+                    if (e.sourceId === this.streetViewPointsLayer['source'] && this.map.isSourceLoaded(this.streetViewPointsLayer['source'])) {
+                        if (!this.map.getLayer(this.streetViewPointsLayer['id'])) {
+                            this.map.addLayer(this.streetViewPointsLayer);
                         }
                         this.showLayers(); // Garante que a camada está visível
                         this.map.off('sourcedata', onPhotosSourceData); // Remove o listener para não executar de novo
@@ -262,14 +287,14 @@ class AddStreetViewControl {
             }
 
 
-            if (!this.map.getSource(config.map2d.streetViewLinesLayer['source'])) {
-                this.map.addSource(config.map2d.streetViewLinesLayer['source'], config.map2d.streetViewLinesSource);
+            if (!this.map.getSource(this.streetViewLinesLayer['source'])) {
+                this.map.addSource(this.streetViewLinesLayer['source'], config.map2d.streetViewLinesSource);
 
                 // Espera a fonte ser carregada para adicionar a camada
                 const onLinesSourceData = (e) => {
-                    if (e.sourceId === config.map2d.streetViewLinesLayer['source'] && this.map.isSourceLoaded(config.map2d.streetViewLinesLayer['source'])) {
-                        if (!this.map.getLayer(config.map2d.streetViewLinesLayer['id'])) {
-                            this.map.addLayer(config.map2d.streetViewLinesLayer);
+                    if (e.sourceId === this.streetViewLinesLayer['source'] && this.map.isSourceLoaded(this.streetViewLinesLayer['source'])) {
+                        if (!this.map.getLayer(this.streetViewLinesLayer['id'])) {
+                            this.map.addLayer(this.streetViewLinesLayer);
                         }
                         this.showLayers(); // Garante que a camada está visível
                         this.map.off('sourcedata', onLinesSourceData); // Remove o listener
@@ -331,7 +356,7 @@ class AddStreetViewControl {
                 }
 
                 // Adicionar sources PMTiles ao minimapa
-                this.miniMap.addSource(config.map2d.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
+                this.miniMap.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
 
                 // Carregar imagens para os pontos
                 let pointImage = await this.miniMap.loadImage('./street_view/point.png');
@@ -344,8 +369,8 @@ class AddStreetViewControl {
                 this.miniMap.addLayer({
                     'id': 'points',
                     'type': 'symbol',
-                    'source': config.map2d.streetViewPointsLayer['source'],
-                    'source-layer': config.map2d.streetViewPointsLayer['source-layer'], // Nome da layer no PMTiles
+                    'source': this.streetViewPointsLayer['source'],
+                    'source-layer': this.streetViewPointsLayer['source-layer'], // Nome da layer no PMTiles
                     'layout': {
                         'icon-image': 'point'
                     }
@@ -435,10 +460,10 @@ class AddStreetViewControl {
 
 
     showPhotos = async () => {
-        this.map.on('click', config.map2d.streetViewLinesLayer['id'], this.loadPoint);
-        // this.map.on('touchend', config.map2d.streetViewLinesLayer['id'], this.loadPoint);
-        this.map.on('mouseenter', config.map2d.streetViewLinesLayer['id'], this.showHoverCursor);
-        this.map.on('mouseleave', config.map2d.streetViewLinesLayer['id'], this.hideHoverCursor);
+        this.map.on('click', this.streetViewLinesLayer['id'], this.loadPoint);
+        // this.map.on('touchend', this.streetViewLinesLayer['id'], this.loadPoint);
+        this.map.on('mouseenter', this.streetViewLinesLayer['id'], this.showHoverCursor);
+        this.map.on('mouseleave', this.streetViewLinesLayer['id'], this.hideHoverCursor);
 
         // Atualizar layer selecionado no minimapa
         if (this.miniMap.getLayer('selected')) {
@@ -447,8 +472,8 @@ class AddStreetViewControl {
         this.miniMap.addLayer({
             'id': 'selected',
             'type': 'symbol',
-            'source': config.map2d.streetViewPointsLayer['source'],
-            'source-layer': config.map2d.streetViewPointsLayer['source-layer'],
+            'source': this.streetViewPointsLayer['source'],
+            'source-layer': this.streetViewPointsLayer['source-layer'],
             "filter": ["==", "nome_img", this.currentPhotoName || ""],
             'layout': {
                 'icon-image': 'point-selected'
@@ -476,7 +501,7 @@ class AddStreetViewControl {
             ];
 
             const features = this.map.queryRenderedFeatures(bbox, {
-                layers: [config.map2d.streetViewPointsLayer['id']]
+                layers: [this.streetViewPointsLayer['id']]
             });
 
             if (features.length === 0) {
@@ -526,8 +551,8 @@ class AddStreetViewControl {
             ];
 
             // Query features usando bbox
-            const features = this.map.querySourceFeatures(config.map2d.streetViewPointsLayer['source'], {
-                sourceLayer: config.map2d.streetViewPointsLayer['source-layer'],
+            const features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], {
+                sourceLayer: this.streetViewPointsLayer['source-layer'],
                 bbox: bbox
             });
 
@@ -1105,33 +1130,33 @@ class AddStreetViewControl {
 
 
     hidePhotos = () => {
-        this.map.off('click', config.map2d.streetViewLinesLayer['id'], this.loadPoint);
-        this.map.off('mouseenter', config.map2d.streetViewLinesLayer['id'], this.showHoverCursor);
-        this.map.off('mouseleave', config.map2d.streetViewLinesLayer['id'], this.hideHoverCursor);
+        this.map.off('click', this.streetViewLinesLayer['id'], this.loadPoint);
+        this.map.off('mouseenter', this.streetViewLinesLayer['id'], this.showHoverCursor);
+        this.map.off('mouseleave', this.streetViewLinesLayer['id'], this.hideHoverCursor);
 
 
-        if (this.map.getLayer(config.map2d.streetViewPointsLayer['id'])) {
-            this.map.setLayoutProperty(config.map2d.streetViewPointsLayer['id'], 'visibility', 'none');
+        if (this.map.getLayer(this.streetViewPointsLayer['id'])) {
+            this.map.setLayoutProperty(this.streetViewPointsLayer['id'], 'visibility', 'none');
         }
-        if (this.map.getLayer(config.map2d.streetViewLinesLayer['id'])) {
-            this.map.setLayoutProperty(config.map2d.streetViewLinesLayer['id'], 'visibility', 'none');
+        if (this.map.getLayer(this.streetViewLinesLayer['id'])) {
+            this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'none');
         }
     }
 
     // NOVA: Função para mostrar layers novamente
     showLayers = () => {
-        if (this.map.getLayer(config.map2d.streetViewPointsLayer['id'])) {
-            this.map.setLayoutProperty(config.map2d.streetViewPointsLayer['id'], 'visibility', 'visible');
+        if (this.map.getLayer(this.streetViewPointsLayer['id'])) {
+            this.map.setLayoutProperty(this.streetViewPointsLayer['id'], 'visibility', 'visible');
         }
 
-        if (this.map.getLayer(config.map2d.streetViewLinesLayer['id'])) {
+        if (this.map.getLayer(this.streetViewLinesLayer['id'])) {
 
-            this.map.setLayoutProperty(config.map2d.streetViewLinesLayer['id'], 'visibility', 'visible');
+            this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'visible');
         }
         else {
-            this.map.addLayer(config.map2d.streetViewLinesLayer);
+            this.map.addLayer(this.streetViewLinesLayer);
 
-            this.map.setLayoutProperty(config.map2d.streetViewLinesLayer['id'], 'visibility', 'visible');
+            this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'visible');
         }
     }
 
