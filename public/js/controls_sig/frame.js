@@ -1,18 +1,18 @@
-import { GRID_LAYERS, initGridLayers } from './gridLayersConfig.js';
+import { FRAME_LAYERS, initFrameLayers } from './frameLayersConfig.js';
 
-class GridControl {
+class FrameControl {
     constructor(map, buttonContainer) {
         this._map = map;
-        this._gridVisible = false;
-        this._currentFormat = 'latlong';
+        this._frameVisible = false;
+        this._currentScale = 'scale_25k';
         this._buttonContainer = buttonContainer;
-        this._gridButton = null;
-        this.GRID_LAYERS = GRID_LAYERS;
+        this._frameButton = null;
+        this.FRAME_LAYERS = FRAME_LAYERS;
         this._createContextMenu();
 
     }
 
-    _showGridMenu(e) {
+    _showFrameMenu(e) {
         e.preventDefault();
         e.stopPropagation();
 
@@ -27,13 +27,13 @@ class GridControl {
         // Atualiza a marcação visual dos itens do menu antes de abrir
         const items = this._contextMenu.querySelectorAll('.coordinates-format-option');
         items.forEach(item => {
-            const format = item.dataset.format;
+            const scale = item.dataset.format;
 
-            if (format === 'off' && !this._gridVisible) {
+            if (scale === 'off' && !this._frameVisible) {
                 item.classList.add('active');
                 item.style.backgroundColor = '#e6f7ff';
                 item.style.fontWeight = 'bold';
-            } else if (format === this._currentFormat && this._gridVisible) {
+            } else if (scale === this._currentScale && this._frameVisible) {
                 item.classList.add('active');
                 item.style.backgroundColor = '#e6f7ff';
                 item.style.fontWeight = 'bold';
@@ -53,13 +53,21 @@ class GridControl {
         this._contextMenu = document.createElement('div');
         this._contextMenu.className = 'grid-format-selector';
 
-        // Opção Lat/Long
-        const latlongOption = this._createMenuItem('Lat/Long', 'latlong');
-        this._contextMenu.appendChild(latlongOption);
+        // Opção 25k
+        const scale25kOption = this._createMenuItem('1:25.000', 'scale_25k');
+        this._contextMenu.appendChild(scale25kOption);
 
-        // Opção UTM
-        const utmOption = this._createMenuItem('UTM', 'utm');
-        this._contextMenu.appendChild(utmOption);
+        // Opção 50k
+        const scale50kOption = this._createMenuItem('1:50.000', 'scale_50k');
+        this._contextMenu.appendChild(scale50kOption);
+
+        // Opção 100k
+        const scale100kOption = this._createMenuItem('1:100.000', 'scale_100k');
+        this._contextMenu.appendChild(scale100kOption);
+
+        // Opção 250k
+        const scale250kOption = this._createMenuItem('1:250.000', 'scale_250k');
+        this._contextMenu.appendChild(scale250kOption);
 
         // Opção Desligar
         const offOption = this._createMenuItem('Desligar', 'off');
@@ -79,19 +87,19 @@ class GridControl {
         });
     }
 
-    _createMenuItem(label, format) {
+    _createMenuItem(label, scale) {
         const item = document.createElement('div');
         item.className = 'coordinates-format-option';
         item.textContent = label;
-        item.dataset.format = format;
+        item.dataset.format = scale;
 
         // Marca o item ativo
-        if (format === this._currentFormat) {
+        if (scale === this._currentScale) {
             item.classList.add('active');
         }
 
         // Marca o item ativo
-        if (format === this._currentFormat) {
+        if (scale === this._currentScale) {
             item.style.backgroundColor = '#e6f7ff';
             item.style.fontWeight = 'bold';
         }
@@ -99,14 +107,14 @@ class GridControl {
         // Evento de click
         item.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (format === 'off') {
-                this._gridVisible = false;
-                this._getGrid(this._currentFormat);
+            if (scale === 'off') {
+                this._frameVisible = false;
+                this._getFrame(this._currentScale);
                 this._updateButtonState();
             } else {
-                this._currentFormat = format;
-                this._gridVisible = true;
-                this._getGrid(format);
+                this._currentScale = scale;
+                this._frameVisible = true;
+                this._getFrame(scale);
                 this._updateButtonState();
             }
             this._contextMenu.style.display = 'none';
@@ -116,49 +124,43 @@ class GridControl {
     }
 
     _updateButtonState() {
-        if (!this._gridButton) return;
+        if (!this._frameButton) return;
 
-        if (this._gridVisible) {
-            // Grid ativo - botão com estilo ativo
-            this._gridButton.style.backgroundColor = 'rgba(80, 141, 78, 0.2)';
-            this._gridButton.style.opacity = 1;
-            this._gridButton.title = `Alterar exibição de quadrícula`;
+        if (this._frameVisible) {
+            // Frame ativo - botão com estilo ativo
+            this._frameButton.style.backgroundColor = 'rgba(80, 141, 78, 0.2)';
+            this._frameButton.style.opacity = 1;
+            this._frameButton.title = `Alterar exibição de produtos`;
         } else {
-            // Grid inativo - botão com estilo normal
-            this._gridButton.style.backgroundColor = '';
-            this._gridButton.style.opacity = 0.5;
-            this._gridButton.title = "Exibir quadrícula";
+            // Frame inativo - botão com estilo normal
+            this._frameButton.style.backgroundColor = '';
+            this._frameButton.style.opacity = 0.5;
+            this._frameButton.title = "Exibir produtos";
         }
     }
 
-    setButton(gridButton) {
-        this._gridButton = gridButton;
+    setButton(frameButton) {
+        this._frameButton = frameButton;
         this._updateButtonState();
     }
 
 
-    _initGridLayers() {
-        initGridLayers(this._map);
+    _initFrameLayers() {
+        initFrameLayers(this._map);
     }
 
-    _getGrid(format) {
-        const currentZoom = this._map.getZoom();
+    _getFrame(scale) {
 
-        // Se o zoom for menor que 8, ajusta para 8
-        if (currentZoom < 8) {
-            this._map.setZoom(8);
-        }
-
-        Object.keys(this.GRID_LAYERS).forEach(key => {
-            this.GRID_LAYERS[key].forEach(layerId => {
+        Object.keys(this.FRAME_LAYERS).forEach(key => {
+            this.FRAME_LAYERS[key].forEach(layerId => {
                 if (this._map.getLayer(layerId)) {
                     this._map.setLayoutProperty(layerId, 'visibility', 'none');
                 }
             });
         });
 
-        if (this._gridVisible && this.GRID_LAYERS[format]) {
-            this.GRID_LAYERS[format].forEach(layerId => {
+        if (this._frameVisible && this.FRAME_LAYERS[scale]) {
+            this.FRAME_LAYERS[scale].forEach(layerId => {
                 if (this._map.getLayer(layerId)) {
                     this._map.setLayoutProperty(layerId, 'visibility', 'visible');
                 }
@@ -170,4 +172,4 @@ class GridControl {
 
 }
 
-export default GridControl;
+export default FrameControl;

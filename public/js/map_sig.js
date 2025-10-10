@@ -38,6 +38,7 @@ import ClipboardManager from './controls_sig/tool_manager/clipboard_manager.js';
 import RectangleSelectionControl from './controls_sig/selection_tools/rectangle_selection_control.js';
 import KeyboardShortcuts from './controls_sig/keyboard_shortcuts.js';
 import GridControl from './controls_sig/grid.js';
+import FrameControl from './controls_sig/frame.js';
 
 //-----------------------------------------------
 // CRIAÇÃO E CONFIGURAÇÃO DO MAPA
@@ -66,6 +67,7 @@ map.addControl(new maplibregl.AttributionControl({
 const analysisLayersManager = new AnalysisLayersManager(map);
 
 const gridControl = new GridControl(map);
+const frameControl = new FrameControl(map);
 
 //-----------------------------------------------
 // EVENTO LOAD DO MAPA
@@ -78,6 +80,7 @@ map.on('load', async () => {
     await baseLayerControl.switchMap(true);
     hideLoadingScreen();
     gridControl._initGridLayers();
+    frameControl._initFrameLayers();
 });
 
 

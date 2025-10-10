@@ -129,7 +129,7 @@ class UIManager {
      */
     groupSelectedFeaturesByType() {
         const featuresByType = new Map();
-        
+
         for (const [key, item] of this.selectionManager.selectedFeatures.entries()) {
             const type = item.type;
             if (!featuresByType.has(type)) {
@@ -148,7 +148,7 @@ class UIManager {
         if (features.length === 0) return [];
 
         const control = this.selectionManager.controls.get(type);
-        
+
         // Only use tool-centric approach - no fallback
         if (!this.supportsToolCentricSelectionBoxes(control)) {
             console.warn(`Tool ${type} does not implement tool-centric selection box interface`);
@@ -162,7 +162,7 @@ class UIManager {
      * Check if control supports tool-centric selection box interface
      */
     supportsToolCentricSelectionBoxes(control) {
-        return control && 
+        return control &&
                typeof control.createSelectionBox === 'function' &&
                typeof control.getSelectionBoxStrategy === 'function';
     }
@@ -172,7 +172,7 @@ class UIManager {
      */
     createSelectionBoxesToolCentric(features, control) {
         const selectionBoxes = [];
-        
+
         for (const feature of features) {
             try {
                 // Check cache first
@@ -189,7 +189,7 @@ class UIManager {
                 } else {
                     // Cache miss - create new selection box
                     const boxGeometry = control.createSelectionBox(feature);
-                    
+
                     if (boxGeometry) {
                         selectionBox = {
                             type: 'Feature',
@@ -375,24 +375,24 @@ class UIManager {
         }
 
         const radians = rotationDegrees * (Math.PI / 180);
-        
+
         const corners = [
             { x: -originalWidth / 2, y: -originalHeight / 2 },
             { x: originalWidth / 2, y: -originalHeight / 2 },
             { x: originalWidth / 2, y: originalHeight / 2 },
             { x: -originalWidth / 2, y: originalHeight / 2 }
         ];
-        
+
         const rotatedCorners = corners.map(corner => ({
             x: corner.x * Math.cos(radians) - corner.y * Math.sin(radians),
             y: corner.x * Math.sin(radians) + corner.y * Math.cos(radians)
         }));
-        
+
         const minX = Math.min(...rotatedCorners.map(c => c.x));
         const maxX = Math.max(...rotatedCorners.map(c => c.x));
         const minY = Math.min(...rotatedCorners.map(c => c.y));
         const maxY = Math.max(...rotatedCorners.map(c => c.y));
-        
+
         return {
             width: maxX - minX,
             height: maxY - minY
@@ -436,7 +436,7 @@ class UIManager {
     }
 
     // ===== OTHER METHODS (Profile, Search, etc. - Unchanged) =====
-    
+
     showProfilePanel(selectedFeatures) {
         if (selectedFeatures.length !== 1) {
             this.hideProfilePanel();
@@ -605,7 +605,25 @@ class UIManager {
 
     addVectorTileInfoToPanel(panel, feature) {
         const title = document.createElement('h3');
-        let sourceName = feature.sourceLayer.replace(/_10k|_25k|_50k|_100k|_250k/g, '').replace('edgv_', '');
+        let sourceName;
+        const originalLayerName = feature.sourceLayer;
+
+        // Verifica se a string começa com 'situacao' para o caso de produtos
+        if (originalLayerName.startsWith('situacao')) {
+            // CASO 1: Começa com 'situacao'
+            // 1. Troca 'situacao' por 'produtos'
+            // 2. Usa uma expressão regular para capturar o número da escala e formatá-lo
+            sourceName = originalLayerName
+                .replace('situacao', 'produtos')
+                .replace(/_(10|25|50|100|250)k/, ' (1:$1.000)');
+
+        } else {
+            // CASO 2: Camadas em geral
+            // Remove a escala e o prefixo 'edgv_'
+            sourceName = originalLayerName
+                .replace(/_10k|_25k|_50k|_100k|_250k/g, '')
+                .replace('edgv_', '');
+        }
         title.textContent = `Atributos ${sourceName}:`;
         panel.appendChild(title);
 
@@ -618,9 +636,35 @@ class UIManager {
                 continue;
             }
 
+            // 1. FORMATAÇÃO DA CHAVE (KEY)
+            // Remove o sufixo '_value' como antes
             let displayKey = key.endsWith('_value') ? key.slice(0, -6) : key;
+            displayKey = displayKey.replace(/_/g, ' ');
+            // Se a chave começar com "identificador", remove o prefixo
+            if (displayKey.startsWith('identificador')) {
+                displayKey = displayKey.substring('identificador'.length); // ex: 'identificadorMI' vira 'MI'
+            }
+
+            // 2. FORMATAÇÃO DO VALOR (VALUE)
+            let displayValue;
+            // Verifica se o valor é um array
+            if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
+                // Remove os colchetes, as aspas e ajusta o espaçamento da vírgula
+                const formattedString = value
+                    .slice(1, -1) // Remove o '[' e ']'
+                    .replace(/"/g, '') // Remove todas as aspas
+                    .replace(/,/g, ', '); // Substitui ',' por ', '
+
+                // Se a string resultante for vazia (caso de '[]'), usa '-', senão usa o resultado
+                displayValue = formattedString || '-';
+            } else {
+                // Se não for um array-string, usa o valor original
+                displayValue = value;
+            }
+            // 3. ATUALIZAÇÃO DA EXIBIÇÃO
+            // Cria o item da lista usando a chave e o valor formatados
             const listItem = document.createElement('li');
-            listItem.innerHTML = `<strong>${displayKey}:</strong> ${value}`;
+            listItem.innerHTML = `<strong>${displayKey}:</strong> ${displayValue}`;
             propertiesList.appendChild(listItem);
         }
 

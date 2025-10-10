@@ -8,6 +8,7 @@ import {
 } from './utilities/coordinate_converter.js';
 import { getTerrainElevation } from './terrain_control.js';
 import GridControl from './grid.js';
+import FrameControl from './frame.js';
 import config from '../config.js';
 
 class MouseCoordinatesControl {
@@ -89,10 +90,19 @@ class MouseCoordinatesControl {
         const gridControl = new GridControl(map, gridContainer);
         const gridButton = document.createElement('div');
         gridButton.className = 'coordinates-button coordinates-grid-button';
-        gridButton.title = "Ligar/desligar grid";
+        gridButton.title = "Ligar/desligar Quadrícula";
         gridButton.innerHTML = `<img src="./images/grid_icon.svg" alt="Toogle grid" width="16" height="16" />`;
         gridButton.addEventListener('click', gridControl._showGridMenu.bind(gridControl));
         gridControl.setButton(gridButton);
+
+        // Create frame icon button
+        const frameControl = new FrameControl(map, gridContainer);
+        const frameButton = document.createElement('div');
+        frameButton.className = 'coordinates-button coordinates-grid-button';
+        frameButton.title = "Ligar/desligar Produtos";
+        frameButton.innerHTML = `<img src="./images/frame_icon.svg" alt="Toogle frame" width="16" height="16" />`;
+        frameButton.addEventListener('click', frameControl._showFrameMenu.bind(frameControl));
+        frameControl.setButton(frameButton);
 
 
         // Create format selector dropdown (initially hidden)
@@ -133,7 +143,8 @@ class MouseCoordinatesControl {
         controlsContainer.appendChild(this._elevationButton);
         controlsContainer.appendChild(gearButton);
         gridContainer.appendChild(gridButton);
-        if (config.features.grid) {
+        gridContainer.appendChild(frameButton);
+        if (config.features.grid || config.features.frame) {
             this._innerContainer.appendChild(gridContainer);
         }
         this._innerContainer.appendChild(this._coordinatesText);

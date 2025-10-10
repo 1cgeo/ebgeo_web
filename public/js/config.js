@@ -14,7 +14,14 @@ const config = {
     vector_info: true,           // Habilita/desabilita vector info control
     map_3d: true,               // Habilita/desabilita alternância para modo 3D
     grid: false,               // Habilita/desabilita grid
+    frame: false,               // Habilita/desabilita moldura
   },
+
+  url_paths: {
+    url: 'IP:PORT', //endereço da aplicação. Colocar porta se necessário
+    prefix_name: '' // nome da aplicação na url, como aman, arandu, etc. Deixar vazio para testes locais
+  },
+
 
   // ===== CONFIGURAÇÕES DE BUSCA =====
   search: {
