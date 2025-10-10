@@ -37,7 +37,7 @@ class VectorTileInfoControl {
 
     changeButtonColor = () => {
         const isEnabled = config.features?.vector_info ?? true;
-        
+
         if (!isEnabled) {
             // Use setTimeout para garantir que DOM está pronto
             setTimeout(() => {
@@ -45,7 +45,7 @@ class VectorTileInfoControl {
             }, 10);
             return;
         }
-        
+
         $("#vector-tile-info-tool").html(`<img class="icon-sig-tool" src="./images/icon_info_black.svg" alt="INFO" />`);
         if (!this.isActive) return
         $("#vector-tile-info-tool").html('<img class="icon-sig-tool" src="./images/icon_info_red.svg" alt="INFO" />');
@@ -56,7 +56,7 @@ class VectorTileInfoControl {
         if (this.isActive && this.map) {
             this.map.off('click', this.handleMapClickBound);
         }
-        
+
         this.container.parentNode.removeChild(this.container);
         this.map = undefined;
     }
@@ -69,20 +69,20 @@ class VectorTileInfoControl {
 
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'help';
-        
+
         // Add click event listener to map
         this.map.on('click', this.handleMapClickBound);
-        
+
         this.changeButtonColor()
     }
 
     deactivate() {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
-        
+
         // Remove click event listener from map
         this.map.off('click', this.handleMapClickBound);
-        
+
         this.changeButtonColor()
         this.uiManager.saveChangesAndClosePanel();
     }
@@ -90,7 +90,8 @@ class VectorTileInfoControl {
     handleMapClick(e) {
         if (this.isActive) {
             const features = this.map.queryRenderedFeatures(e.point);
-            const vectorTileFeatures = features.filter(f => f.sourceLayer && !f.properties.source);
+            // filtrar para pegar apenas vector tiles, não pegar desenhos, nem grid nem streetview
+            const vectorTileFeatures = features.filter(f => f.sourceLayer && !f.properties.source && !f.sourceLayer.startsWith('grid') && !f.sourceLayer.startsWith('fotos'));
             if (vectorTileFeatures.length > 0) {
                 const preferenceOrder = ['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'];
 
