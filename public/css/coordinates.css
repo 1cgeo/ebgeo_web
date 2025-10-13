@@ -210,6 +210,18 @@
     font-weight: 600 !important;
 }
 
+.toggle-fill-option {
+    color: var(--primary-color, #508D4E);
+    background-color: #fafafa !important;
+    border-top: 1px rgba(0,0,0,0.2) !important;
+}
+
+.toggle-fill-option.disabled {
+    opacity: 0.4 !important;
+    pointer-events: none !important;
+}
+
+
 /* ===== MODAL DE COORDENADAS ===== */
 .coordinates-modal {
     display: none;
