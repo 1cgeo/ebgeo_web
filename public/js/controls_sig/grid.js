@@ -145,7 +145,7 @@ class GridControl {
         const currentZoom = this._map.getZoom();
 
         // Se o zoom for menor que 8, ajusta para 8
-        if (currentZoom < 8) {
+        if (currentZoom < 8 && this._gridVisible) {
             this._map.setZoom(8);
         }
 
