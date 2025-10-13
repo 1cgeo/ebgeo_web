@@ -2,13 +2,12 @@
 
 /**
  * Utilitário centralizado para conversão entre diferentes formatos de coordenadas
- * Suporta Lat/Long, UTM WGS84, UTM SAD69 e MGRS
+ * Suporta Lat/Long, UTM WGS84 e MGRS
  */
 
 export const COORDINATE_FORMATS = [
     { id: 'latlong', label: 'Lat/Long' },
-    { id: 'utm_wgs84', label: 'UTM SIRGAS2000' },
-    { id: 'utm_sad69', label: 'UTM SAD69' },
+    { id: 'utm_wgs84', label: 'UTM' },
     { id: 'mgrs', label: 'MGRS' }
 ];
 
@@ -20,8 +19,6 @@ export function getPlaceholderForFormat(formatId) {
         case 'latlong':
             return '-22.455921, -44.449655';
         case 'utm_wgs84':
-            return '23K 680834 7516602';
-        case 'utm_sad69':
             return '23K 680834 7516602';
         case 'mgrs':
             return '23K TP 80834 16602';
@@ -40,8 +37,6 @@ export function parseCoordinates(input, formatId) {
                 return parseLatLong(input);
             case 'utm_wgs84':
                 return parseUTMWGS84(input);
-            case 'utm_sad69':
-                return parseUTMSAD69(input);
             case 'mgrs':
                 return parseMGRS(input);
             default:
@@ -63,8 +58,6 @@ export function formatCoordinates(lat, lng, formatId) {
                 return formatLatLong(lat, lng);
             case 'utm_wgs84':
                 return formatUTMWGS84(lat, lng);
-            case 'utm_sad69':
-                return formatUTMSAD69(lat, lng);
             case 'mgrs':
                 return formatMGRS(lat, lng);
             default:
@@ -91,8 +84,6 @@ export function getDisplayFormat(lat, lng, formatId) {
                 };
             case 'utm_wgs84':
                 return getUTMWGS84DisplayFormat(lat, lng);
-            case 'utm_sad69':
-                return getUTMSAD69DisplayFormat(lat, lng);
             case 'mgrs':
                 return getMGRSDisplayFormat(lat, lng);
             default:
@@ -174,40 +165,6 @@ function parseUTMWGS84(input) {
 }
 
 /**
- * Parse UTM SAD69
- */
-function parseUTMSAD69(input) {
-    if (typeof proj4 === 'undefined') {
-        console.warn('UTM conversion requires proj4 library');
-        return null;
-    }
-
-    const utmPattern = /^\s*(\d{1,2})([NS])?\s+(\d+)\s+(\d+)\s*$/i;
-    const match = input.match(utmPattern);
-
-    if (match) {
-        const zone = parseInt(match[1], 10);
-        const hemisphere = (match[2] || 'S').toUpperCase();
-        const easting = parseInt(match[3], 10);
-        const northing = parseInt(match[4], 10);
-
-        if (zone >= 1 && zone <= 60 &&
-            (hemisphere === 'N' || hemisphere === 'S') &&
-            easting >= 160000 && easting <= 840000 &&
-            northing >= 0) {
-
-            const utmProjection = `+proj=utm +zone=${zone} ${hemisphere === 'S' ? '+south' : ''} +ellps=aust_SA +towgs84=-66.35,3.88,-38.22 +units=m +no_defs`;
-            const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
-
-            const result = proj4(utmProjection, wgs84, [easting, northing]);
-            return { lng: result[0], lat: result[1] };
-        }
-    }
-
-    return null;
-}
-
-/**
  * Parse MGRS
  */
 function parseMGRS(input) {
@@ -257,30 +214,6 @@ function formatUTMWGS84(lat, lng) {
 }
 
 /**
- * Format UTM SAD69
- */
-function formatUTMSAD69(lat, lng) {
-    if (typeof proj4 === 'undefined') {
-        return formatLatLong(lat, lng);
-    }
-
-    try {
-        const zone = Math.floor((lng + 180) / 6) + 1;
-        const hemisphere = lat >= 0 ? 'N' : 'S';
-
-        // First convert WGS84 to SAD69, then to UTM SAD69
-        const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
-        const utmSAD69Projection = `+proj=utm +zone=${zone} ${hemisphere === 'S' ? '+south' : ''} +ellps=aust_SA +towgs84=-66.35,3.88,-38.22 +units=m +no_defs`;
-        const utmCoords = proj4(wgs84, utmSAD69Projection, [lng, lat]);
-
-        return `${zone}${hemisphere} ${Math.round(utmCoords[0])} ${Math.round(utmCoords[1])}`;
-    } catch (error) {
-        console.error('Error converting to UTM SAD69:', error);
-        return formatLatLong(lat, lng);
-    }
-}
-
-/**
  * Format MGRS
  */
 function formatMGRS(lat, lng) {
@@ -323,44 +256,6 @@ function getUTMWGS84DisplayFormat(lat, lng) {
                 { label: 'Zona', value: `${zone}${hemisphere}` },
                 { label: 'E', value: `${utmCoords[0].toFixed(2)}m` },
                 { label: 'N', value: `${utmCoords[1].toFixed(2)}m` }
-            ]
-        };
-    } catch (error) {
-        return {
-            parts: [
-                { label: 'Lat', value: `${lat.toFixed(5)}°` },
-                { label: 'Lon', value: `${lng.toFixed(5)}°` }
-            ]
-        };
-    }
-}
-
-/**
- * Get UTM SAD69 display format
- */
-function getUTMSAD69DisplayFormat(lat, lng) {
-    if (typeof proj4 === 'undefined') {
-        return {
-            parts: [
-                { label: 'Lat', value: `${lat.toFixed(5)}°` },
-                { label: 'Lon', value: `${lng.toFixed(5)}°` }
-            ]
-        };
-    }
-
-    try {
-        const zone = Math.floor((lng + 180) / 6) + 1;
-        const hemisphere = lat >= 0 ? 'N' : 'S';
-
-        const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
-        const utmSAD69Projection = `+proj=utm +zone=${zone} ${hemisphere === 'S' ? '+south' : ''} +ellps=aust_SA +towgs84=-66.35,3.88,-38.22 +units=m +no_defs`;
-        const utmCoords = proj4(wgs84, utmSAD69Projection, [lng, lat]);
-
-        return {
-            parts: [
-                { label: 'Zona', value: `${zone}${hemisphere}` },
-                { label: 'E', value: `${Math.round(utmCoords[0])}m` },
-                { label: 'N', value: `${Math.round(utmCoords[1])}m` }
             ]
         };
     } catch (error) {
