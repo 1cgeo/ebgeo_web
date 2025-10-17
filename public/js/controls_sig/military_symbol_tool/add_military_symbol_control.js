@@ -1,5 +1,6 @@
 // Path: js\controls_sig\military_symbol_tool\add_military_symbol_control.js
 
+import { normalizeSIDC } from './brazilian_sidc_extension.js';
 import {
   addFeature,
   updateFeature,
@@ -433,10 +434,12 @@ class AddMilitarySymbolControl extends BaseControl {
     const currentZoom = this.map.getZoom();
     const coordinates = [lngLat.lng, lngLat.lat];
 
-    // Build initial SIDC from default properties
-    const sidc = this.geometry.buildSIDC(
+    // Build initial SIDC from default properties (20 digits)
+    const sidc20 = this.geometry.buildSIDC(
       AddMilitarySymbolControl.DEFAULT_PROPERTIES
     );
+
+    const sidc30 = normalizeSIDC(sidc20);
 
     // Calculate initial selection box
     const selectionBox = this.geometry.calculateSelectionBoxGeometry(
@@ -456,7 +459,7 @@ class AddMilitarySymbolControl extends BaseControl {
         ...AddMilitarySymbolControl.DEFAULT_PROPERTIES,
         id: featureId,
         nome: featureName,
-        sidc: sidc,
+        sidc: sidc30,
         createdAtZoom: currentZoom,
         calculatedSize: AddMilitarySymbolControl.DEFAULT_PROPERTIES.size,
         selectionBox: selectionBox,
@@ -742,6 +745,14 @@ class AddMilitarySymbolControl extends BaseControl {
         sourceFeature.properties[property] = value;
         feature.properties[property] = value;
 
+        if (property === 'sidc') {
+          const normalized = normalizeSIDC(value);
+          if (normalized) {
+            sourceFeature.properties.sidc = normalized;
+            feature.properties.sidc = normalized;
+          }
+        }
+
         // Special handling for createdAtZoom
         if (property === "createdAtZoom") {
           const roundedValue = Math.round(value * 10) / 10;
@@ -766,9 +777,10 @@ class AddMilitarySymbolControl extends BaseControl {
           if (needsRegeneration) {
             // Calculate new SIDC if SIDC-affecting property changed
             if (this.geometry.affectsSIDC(property)) {
-              const newSIDC = this.geometry.buildSIDC(sourceFeature.properties);
-              sourceFeature.properties.sidc = newSIDC;
-              feature.properties.sidc = newSIDC;
+              const newSIDC20 = this.geometry.buildSIDC(sourceFeature.properties);
+              const newSIDC30 = normalizeSIDC(newSIDC20);
+              sourceFeature.properties.sidc = newSIDC30;
+              feature.properties.sidc = newSIDC30;
             }
 
             // Regenerate if SIDC changed OR fillColor changed
@@ -803,7 +815,7 @@ class AddMilitarySymbolControl extends BaseControl {
         ) {
           const currentCoordinates = sourceFeature.geometry.coordinates;
           const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
-            currentCoordinates, // Use current coordinates from map source
+            currentCoordinates,
             sourceFeature.properties.width,
             sourceFeature.properties.height,
             sourceFeature.properties.size,
@@ -818,21 +830,14 @@ class AddMilitarySymbolControl extends BaseControl {
       }
     }
 
-    // Update map source first
     this.forceUpdateMainSource(data);
-
-    // CRITICAL FIX: Get fresh features from map source before updating SelectionManager
     const freshFeatures = features.map((feature) => {
       const sourceFeature = data.features.find(
         (f) => f.properties.id == feature.properties.id
       );
-      return sourceFeature || feature; // Fallback to original if not found
+      return sourceFeature || feature;
     });
-
-    // Update SelectionManager with fresh features
     this.updateSelectionManagerFeatures(freshFeatures);
-
-    // Force selection highlight update for visual changes
     if (
       this.geometry.affectsVisuals(property) ||
       property === "createdAtZoom"
@@ -986,7 +991,7 @@ class AddMilitarySymbolControl extends BaseControl {
       // All military symbol specific properties
       feature.properties.context !== initialProperties.context ||
       feature.properties.standardIdentity !==
-        initialProperties.standardIdentity ||
+      initialProperties.standardIdentity ||
       feature.properties.status !== initialProperties.status ||
       feature.properties.hqTfDummy !== initialProperties.hqTfDummy ||
       feature.properties.echelon !== initialProperties.echelon ||
@@ -1003,7 +1008,7 @@ class AddMilitarySymbolControl extends BaseControl {
       feature.properties.visivel !== initialProperties.visivel ||
       feature.properties.bloqueado !== initialProperties.bloqueado ||
       JSON.stringify(feature.geometry.coordinates) !==
-        JSON.stringify(initialProperties.coordinates)
+      JSON.stringify(initialProperties.coordinates)
     );
   };
 

@@ -1,6 +1,10 @@
 // Path: js\controls_sig\military_symbol_tool\military_symbol_generator.js
 
-import { applyBrazilianLabelsToSVG } from './brazilian_military_config.js';
+import { BrazilianSIDCExtension, normalizeSIDC, getBaseSIDC } from './brazilian_sidc_extension.js';
+import { 
+    applyBrazilianModifications,
+    processEntityExtension 
+} from './brazilian_svg_postprocessing.js';
 
 const DEFAULT_SIZE = 100;
 
@@ -10,19 +14,19 @@ export class MilitarySymbolGenerator {
     }
 
     buildSIDC(properties) {
-        // Construir SIDC de 20 dígitos conforme padrão MIL-STD-2525D
-        // Estrutura: A-B-C-D-E-F-G-H-I-J = 10-0-3-10-0-0-16-121100-00-00
+        // Build 20-digit SIDC according to MIL-STD-2525D standard
+        // Structure: A-B-C-D-E-F-G-H-I-J = 10-0-3-10-0-0-16-121100-00-00
 
-        const formatId = "10";                                              // A: 2 dígitos (sempre "10")
-        const context = "0";                         // B: 1 dígito (0=realidade)
-        const standardIdentity = properties.standardIdentity || "3";       // C: 1 dígito (3=amigo)
-        const symbolSet = "10";                                            // D: 2 dígitos (sempre "10"=terrestre)
-        const status = properties.status || "0";                          // E: 1 dígito (0=presente)
-        const hqTfDummy = properties.hqTfDummy || "0";                     // F: 1 dígito (0=não aplicável)
-        const echelon = properties.echelon || "16";                       // G: 2 dígitos (16=batalhão)
-        const mainIcon = properties.mainIcon || "121100";                 // H: 6 dígitos (121100=infantaria)
-        const modifier1 = properties.modifier1 || "00";                   // I: 2 dígitos
-        const modifier2 = properties.modifier2 || "00";                   // J: 2 dígitos
+        const formatId = "10";                                              // A: 2 digits (always "10")
+        const context = "0";                                                // B: 1 digit (0=reality)
+        const standardIdentity = properties.standardIdentity || "3";       // C: 1 digit (3=friend)
+        const symbolSet = "10";                                            // D: 2 digits (always "10"=land)
+        const status = properties.status || "0";                          // E: 1 digit (0=present)
+        const hqTfDummy = properties.hqTfDummy || "0";                     // F: 1 digit (0=N/A)
+        const echelon = properties.echelon || "16";                       // G: 2 digits (16=battalion)
+        const mainIcon = properties.mainIcon || "121100";                 // H: 6 digits (121100=infantry)
+        const modifier1 = properties.modifier1 || "00";                   // I: 2 digits
+        const modifier2 = properties.modifier2 || "00";                   // J: 2 digits
 
         const sidc = `${formatId}${context}${standardIdentity}${symbolSet}${status}${hqTfDummy}${echelon}${mainIcon}${modifier1}${modifier2}`;
 
@@ -36,18 +40,21 @@ export class MilitarySymbolGenerator {
             throw new Error(`Invalid SIDC: ${validation.error}`);
         }
 
+        // Extract first 20 digits (base SIDC)
+        const sidc20 = getBaseSIDC(sidc);
+
         // Extract each component according to MIL-STD-2525D structure
         const properties = {
-            formatId: sidc.substring(0, 2),        // A: positions 1-2
-            context: sidc.substring(2, 3),         // B: position 3
-            standardIdentity: sidc.substring(3, 4), // C: position 4
-            symbolSet: sidc.substring(4, 6),       // D: positions 5-6
-            status: sidc.substring(6, 7),          // E: position 7
-            hqTfDummy: sidc.substring(7, 8),       // F: position 8
-            echelon: sidc.substring(8, 10),        // G: positions 9-10
-            mainIcon: sidc.substring(10, 16),      // H: positions 11-16
-            modifier1: sidc.substring(16, 18),     // I: positions 17-18
-            modifier2: sidc.substring(18, 20)      // J: positions 19-20
+            formatId: sidc20.substring(0, 2),        // A: positions 1-2
+            context: sidc20.substring(2, 3),         // B: position 3
+            standardIdentity: sidc20.substring(3, 4), // C: position 4
+            symbolSet: sidc20.substring(4, 6),       // D: positions 5-6
+            status: sidc20.substring(6, 7),          // E: position 7
+            hqTfDummy: sidc20.substring(7, 8),       // F: position 8
+            echelon: sidc20.substring(8, 10),        // G: positions 9-10
+            mainIcon: sidc20.substring(10, 16),      // H: positions 11-16
+            modifier1: sidc20.substring(16, 18),     // I: positions 17-18
+            modifier2: sidc20.substring(18, 20)      // J: positions 19-20
         };
 
         return properties;
@@ -74,54 +81,54 @@ export class MilitarySymbolGenerator {
         }
     }
 
-    // Converter qualquer imagem (SVG/PNG/etc) para PNG blob usando canvas
+    // Convert any image (SVG/PNG/etc) to PNG blob using canvas
     async convertToPngBlob(dataURL, targetSize = DEFAULT_SIZE) {
         return new Promise((resolve, reject) => {
             const img = new Image();
 
             img.onload = () => {
                 try {
-                    // 1. Obter dimensões originais da imagem
+                    // 1. Get original image dimensions
                     const originalWidth = img.naturalWidth || img.width;
                     const originalHeight = img.naturalHeight || img.height;
 
-                    // 2. Calcular aspect ratio
+                    // 2. Calculate aspect ratio
                     const aspectRatio = originalWidth / originalHeight;
 
-                    // 3. Calcular novas dimensões mantendo proporção
+                    // 3. Calculate new dimensions maintaining proportion
                     let newWidth, newHeight;
                     if (aspectRatio >= 1) {
-                        // Imagem mais larga que alta (landscape ou quadrada)
+                        // Landscape or square
                         newWidth = targetSize;
                         newHeight = Math.round(targetSize / aspectRatio);
                     } else {
-                        // Imagem mais alta que larga (portrait)
+                        // Portrait
                         newHeight = targetSize;
                         newWidth = Math.round(targetSize * aspectRatio);
                     }
 
-                    // 4. Criar canvas com dimensões do targetSize (quadrado para padding)
+                    // 4. Create canvas with target size (square for padding)
                     const canvas = document.createElement('canvas');
                     canvas.width = targetSize;
                     canvas.height = targetSize;
                     const ctx = canvas.getContext('2d');
 
-                    // 5. Limpar fundo (transparente)
+                    // 5. Clear background (transparent)
                     ctx.clearRect(0, 0, targetSize, targetSize);
 
-                    // 6. Calcular posição para centralizar a imagem
+                    // 6. Calculate position to center image
                     const offsetX = Math.round((targetSize - newWidth) / 2);
                     const offsetY = Math.round((targetSize - newHeight) / 2);
 
-                    // 7. Desenhar a imagem centralizada e com proporção correta
+                    // 7. Draw centered image with correct proportions
                     ctx.drawImage(img, offsetX, offsetY, newWidth, newHeight);
 
-                    // 8. Converter canvas para PNG blob
+                    // 8. Convert canvas to PNG blob
                     canvas.toBlob((blob) => {
                         if (blob) {
                             resolve(blob);
                         } else {
-                            reject(new Error('Falha ao converter para PNG blob'));
+                            reject(new Error('Failed to convert to PNG blob'));
                         }
                     }, 'image/png', 1.0);
 
@@ -131,31 +138,53 @@ export class MilitarySymbolGenerator {
             };
 
             img.onerror = () => {
-                reject(new Error('Falha ao carregar imagem para conversão PNG'));
+                reject(new Error('Failed to load image for PNG conversion'));
             };
 
-            // Carregar a imagem do data URL
+            // Load image from data URL
             img.src = dataURL;
         });
     }
 
-    // Gerar blob da imagem
+    // Generate symbol blob
     async generateSymbolBlob(properties) {
-        const sidc = properties.sidc;
+        // 1. Normalize SIDC to 30 digits
+        const sidc30 = normalizeSIDC(properties.sidc);
+        if (!sidc30) {
+            throw new Error('Invalid SIDC for normalization');
+        }
+        
+        const sidc20 = getBaseSIDC(sidc30);
+        const mainIcon = sidc20.substring(10, 16);
+        
+        // 2. Decode extension
+        const extension = BrazilianSIDCExtension.decode(sidc30.substring(20));
+        
+        // 3. Determine base SIDC for generation
+        let baseSIDC = sidc20;
+        
+        // If has entity extension, use appropriate base SIDC
+        if (extension && extension.entityExtension > 0) {
+            const entityExt = processEntityExtension(extension);
+            if (entityExt && entityExt.baseSIDC) {
+                baseSIDC = entityExt.baseSIDC;
+                console.log(`Using base SIDC for entity extension: ${baseSIDC}`);
+            }
+        }
 
-        // Cache baseado no SIDC + fillColor
-        const cacheKey = `${sidc}_${properties.fillColor || 'default'}`;
+        // Cache key includes sidc30 and fillColor
+        const cacheKey = `${sidc30}_${properties.fillColor || 'default'}`;
         if (this.symbolCache.has(cacheKey)) {
             return this.symbolCache.get(cacheKey);
         }
 
         try {
-            const validation = this.validateSIDC(sidc);
+            const validation = this.validateSIDC(sidc20);
             if (!validation.valid) {
                 console.error('Invalid SIDC:', validation.error);
             }
 
-            // Configurar opções do símbolo
+            // 4. Configure symbol options
             const symbolOptions = {
                 size: DEFAULT_SIZE * 0.5,
                 frame: true,
@@ -164,65 +193,110 @@ export class MilitarySymbolGenerator {
                 colorMode: 'Light'
             };
 
-            // ✅ NOVO: Aplicar cor personalizada se definida
+            // Apply custom color if defined
             if (properties.fillColor) {
                 symbolOptions.fillColor = properties.fillColor;
-                // Não aplicar frameColor para manter o frame padrão
             }
 
-            // Gerar símbolo sempre com tamanho fixo
-            const symbol = new ms.Symbol(sidc, symbolOptions);
+            // 5. Generate base SVG with milsymbol.js
+            const symbol = new ms.Symbol(baseSIDC, symbolOptions);
 
-            // Verificar se o símbolo foi gerado com sucesso
+            // Check if symbol was generated successfully
             if (!symbol || symbol.isValid === false) {
-                console.warn('milsymbol.js returned invalid symbol for SIDC:', sidc);
+                console.warn('milsymbol.js returned invalid symbol for SIDC:', baseSIDC);
             }
 
-            // ✅ NOVO: Pós-processar SVG para aplicar labels brasileiros
+            // 6. Get SVG string
             let svgString = symbol.asSVG();
-            const mainIcon = properties.mainIcon || sidc.substring(10, 16);
-            svgString = applyBrazilianLabelsToSVG(svgString, mainIcon);
 
-            // Converter SVG modificado para data URL
+            // 7. Apply all Brazilian modifications
+            svgString = applyBrazilianModifications(svgString, sidc30, mainIcon);
+
+            // 8. Convert modified SVG to data URL
             const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
 
-            // Converter para PNG usando canvas
+            // 9. Convert to PNG using canvas
             const pngBlob = await this.convertToPngBlob(svgDataURL, DEFAULT_SIZE);
 
-            // Adicionar ao cache
+            // 10. Add to cache
             this.symbolCache.set(cacheKey, pngBlob);
             return pngBlob;
 
         } catch (error) {
-            console.error('Erro ao gerar símbolo:', error);
+            console.error('Error generating symbol:', error);
             throw error;
         }
     }
 
-    // Validar SIDC
+    // Validate SIDC (accepts 20 or 30 digits)
     validateSIDC(sidc) {
-        if (!sidc || sidc.length !== 20) {
-            return { valid: false, error: `SIDC deve ter 20 dígitos, tem ${sidc?.length || 0}` };
+        if (!sidc) {
+            return { valid: false, error: 'SIDC is null or undefined' };
+        }
+        
+        // Remove spaces
+        sidc = sidc.replace(/\s/g, '');
+        
+        if (sidc.length !== 20 && sidc.length !== 30) {
+            return { valid: false, error: `SIDC must be 20 or 30 digits, got ${sidc.length}` };
         }
 
-        // Verificar se todos os caracteres são válidos (números)
-        if (!/^[0-9]{20}$/.test(sidc)) {
-            return { valid: false, error: 'SIDC deve conter apenas números' };
+        // Validate first 20 digits (APP-6D)
+        const sidc20 = sidc.substring(0, 20);
+        if (!/^[0-9]{20}$/.test(sidc20)) {
+            return { valid: false, error: 'First 20 digits must be numeric' };
         }
 
-        // Validar estrutura específica
-        const formatId = sidc.substring(0, 2);
+        // Verify format ID
+        const formatId = sidc20.substring(0, 2);
         if (formatId !== "10") {
-            return { valid: false, error: `Format ID deve ser "10", recebido "${formatId}"` };
+            return { valid: false, error: `Format ID must be "10", got "${formatId}"` };
+        }
+        
+        // If 30 digits, validate extension
+        if (sidc.length === 30) {
+            const extension = sidc.substring(20);
+            if (!/^[0-9]{10}$/.test(extension)) {
+                return { valid: false, error: 'Extension must be 10 numeric digits' };
+            }
+            
+            const countryCode = extension.substring(0, 3);
+            if (countryCode !== '076') {
+                return { 
+                    valid: false, 
+                    error: `Country code must be "076" (Brazil), got "${countryCode}"` 
+                };
+            }
         }
 
         return { valid: true };
     }
 
-    // Gerar preview para UI (reutiliza a lógica de conversão PNG)
+    // Generate preview for UI (reuses PNG conversion logic)
     async generatePreviewDataURL(sidc, size = 80, customColor = null) {
         try {
-            // Configurar opções do símbolo
+            // Normalize to 30 digits
+            const sidc30 = normalizeSIDC(sidc);
+            if (!sidc30) {
+                return null;
+            }
+            
+            const sidc20 = getBaseSIDC(sidc30);
+            const mainIcon = sidc20.substring(10, 16);
+            
+            // Decode extension
+            const extension = BrazilianSIDCExtension.decode(sidc30.substring(20));
+            
+            // Determine base SIDC
+            let baseSIDC = sidc20;
+            if (extension && extension.entityExtension > 0) {
+                const entityExt = processEntityExtension(extension);
+                if (entityExt && entityExt.baseSIDC) {
+                    baseSIDC = entityExt.baseSIDC;
+                }
+            }
+            
+            // Configure symbol options
             const symbolOptions = {
                 size: size,
                 frame: true,
@@ -231,31 +305,30 @@ export class MilitarySymbolGenerator {
                 colorMode: 'Light'
             };
 
-            // ✅ NOVO: Aplicar cor personalizada se definida
+            // Apply custom color if defined
             if (customColor) {
                 symbolOptions.fillColor = customColor;
             }
 
-            // Gerar símbolo normalmente
-            const symbol = new ms.Symbol(sidc, symbolOptions);
+            // Generate symbol
+            const symbol = new ms.Symbol(baseSIDC, symbolOptions);
 
             if (!symbol || symbol.isValid === false) {
-                console.warn('milsymbol.js returned invalid symbol for SIDC:', sidc);
+                console.warn('milsymbol.js returned invalid symbol for SIDC:', baseSIDC);
                 return null;
             }
 
-            // ✅ NOVO: Pós-processar SVG para aplicar labels brasileiros
+            // Get SVG and apply Brazilian modifications
             let svgString = symbol.asSVG();
-            const mainIcon = sidc.substring(10, 16);
-            svgString = applyBrazilianLabelsToSVG(svgString, mainIcon);
+            svgString = applyBrazilianModifications(svgString, sidc30, mainIcon);
 
-            // Converter SVG modificado para data URL
+            // Convert to data URL
             const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
 
-            // Converter para PNG e depois para data URL
+            // Convert to PNG and then to data URL
             const pngBlob = await this.convertToPngBlob(svgDataURL, size);
 
-            // Converter blob para data URL
+            // Convert blob to data URL
             return new Promise((resolve) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);
@@ -263,7 +336,7 @@ export class MilitarySymbolGenerator {
             });
 
         } catch (error) {
-            console.error('Erro ao gerar preview:', error);
+            console.error('Error generating preview:', error);
             return null;
         }
     }

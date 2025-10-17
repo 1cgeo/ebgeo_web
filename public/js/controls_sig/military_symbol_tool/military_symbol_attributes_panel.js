@@ -1,5 +1,11 @@
 // Path: js\controls_sig\military_symbol_tool\military_symbol_attributes_panel.js
 
+import {
+    normalizeSIDC,
+    BrazilianSIDCExtension
+} from './brazilian_sidc_extension.js';
+import { checkCatalogWarnings } from './brazilian_svg_postprocessing.js';
+
 import { MILITARY_DATA } from './military_constants.js';
 import {
     createSliderWithInput,
@@ -294,7 +300,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             if (index >= 0 && index < optionElements.length) {
                 highlightedIndex = index;
                 const highlightedElement = optionElements[index];
-                
+
                 highlightedElement.style.backgroundColor = '#e3f2fd';
                 highlightedElement.style.fontWeight = '600';
                 highlightedElement.classList.add('highlighted');
@@ -307,12 +313,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 const highlightedOption = filteredOptions[index];
                 if (highlightedOption) {
                     const value = highlightedOption.value || highlightedOption.code;
-                    
+
                     const displayText = getOptionDisplayText(highlightedOption);
                     const tooltipText = getOptionTooltipText(highlightedOption);
                     textContainer.textContent = displayText;
                     textContainer.title = tooltipText;
-                    
+
                     onChange(value);
                 }
             }
@@ -469,7 +475,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 highlightedIndex = Math.max(0, filteredOptions.length - 1);
             }
 
-            const currentIndex = filteredOptions.findIndex(opt => 
+            const currentIndex = filteredOptions.findIndex(opt =>
                 (opt.value || opt.code) === currentValue
             );
             if (currentIndex >= 0) {
@@ -528,7 +534,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             showOptions(options);
             dropdown.style.display = 'block';
             searchInput.value = '';
-            
+
             searchInput.focus();
             document.addEventListener('keydown', handleKeyDown);
         }
@@ -536,7 +542,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         function closeDropdown() {
             dropdown.style.display = 'none';
             highlightedIndex = -1;
-            
+
             document.removeEventListener('keydown', handleKeyDown);
         }
 
@@ -553,7 +559,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         searchInput.oninput = () => {
             const newFilteredOptions = searchOptions(searchInput.value);
             showOptions(newFilteredOptions);
-            
+
             if (newFilteredOptions.length > 0) {
                 highlightedIndex = 0;
                 updateHighlight(0);
@@ -588,14 +594,14 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 const tooltipText = getOptionTooltipText(newOption);
                 textContainer.textContent = displayText;
                 textContainer.title = tooltipText;
-                
+
                 highlightedIndex = options.findIndex(opt => opt.value == newValue || opt.code == newValue);
             }
         };
 
         container._cleanup = () => {
             document.removeEventListener('keydown', handleKeyDown);
-            
+
             // Remover da lista global
             const index = openDropdowns.indexOf(dropdown);
             if (index > -1) {
@@ -611,7 +617,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     }
 
     // ===== NEW: SYMBOL GALLERY =====
-    
+
     async function createSymbolGallery(onSymbolClick) {
         const galleryColumn = document.createElement('div');
         galleryColumn.style.cssText = 'flex: 0 0 160px; border-left: 2px solid #e9ecef; padding-left: 20px;';
@@ -649,7 +655,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 try {
                     const sidc = feature.properties.sidc;
                     const dataURL = await militarySymbolControl.symbolGenerator.generatePreviewDataURL(sidc, 60);
-                    
+
                     if (dataURL) {
                         const item = createGalleryItem(feature, dataURL, onSymbolClick);
                         gallery.appendChild(item);
@@ -664,7 +670,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         scrollContainer.appendChild(gallery);
         galleryColumn.appendChild(galleryTitle);
         galleryColumn.appendChild(scrollContainer);
-        
+
         return galleryColumn;
     }
 
@@ -681,23 +687,23 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             justify-content: center;
             background: white;
         `;
-        
+
         const img = document.createElement('img');
         img.src = dataURL;
         img.style.cssText = 'max-width: 50px; max-height: 50px;';
         img.title = `${feature.properties.nome || 'Símbolo'} (${feature.usageCount}x)`;
-        
+
         // Click handler simples
         item.onclick = () => {
             onSymbolClick(feature.properties.sidc);
         };
-        
+
         item.appendChild(img);
         return item;
     }
 
     // ===== NEW: COLOR CONTROL =====
-    
+
     function createColorControl(currentValue, onChange, label) {
         const container = document.createElement('div');
         container.className = 'color-control-container';
@@ -732,7 +738,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         const checkboxLabel = document.createElement('span');
         checkboxLabel.textContent = 'Usar cor personalizada';
         checkboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
-        
+
         // Clicar no label também alterna o checkbox
         checkboxLabel.onclick = () => {
             const checkboxInput = checkbox.find('input')[0];
@@ -761,15 +767,15 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         function updateColorControlState(color) {
             const isCustomColor = !!color;
             const checkboxInput = checkbox.find('input')[0];
-            
+
             // Atualizar checkbox state
             checkboxInput.checked = isCustomColor;
-            
+
             // Atualizar color picker
             colorPicker.disabled = !isCustomColor;
             colorPicker.style.opacity = isCustomColor ? '1' : '0.5';
             colorPicker.style.cursor = isCustomColor ? 'pointer' : 'not-allowed';
-            
+
             // Atualizar valor do color picker
             if (isCustomColor) {
                 colorPicker.value = color;
@@ -833,7 +839,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         controlsColumn.style.cssText = 'flex: 1;';
 
         const previewColumn = document.createElement('div');
-        previewColumn.style.cssText = 'flex: 0 0 220px; text-align: center;'; // Reduzido ligeiramente
+        previewColumn.style.cssText = 'flex: 0 0 240px; text-align: center;'; // Reduzido ligeiramente
 
         // Preview container
         const previewContainer = document.createElement('div');
@@ -866,8 +872,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         const sidcInput = document.createElement('input');
         sidcInput.type = 'text';
-        sidcInput.maxLength = 40;
-        sidcInput.placeholder = '20 dígitos (ex: 10031000161211000000)';
+        sidcInput.maxLength = 30;
+        sidcInput.placeholder = '30 dígitos (ex: 10031000161211000000 0760000000)';
         sidcInput.style.cssText = `
             width: 100%;
             padding: 8px 12px;
@@ -880,8 +886,17 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             box-sizing: border-box;
         `;
 
+        const sidcStatusMessage = document.createElement('div');
+        sidcStatusMessage.style.cssText = `
+            margin-top: 5px;
+            font-size: 11px;
+            min-height: 16px;
+            text-align: center;
+        `;
+
         sidcContainer.appendChild(sidcInputLabel);
         sidcContainer.appendChild(sidcInput);
+        sidcContainer.appendChild(sidcStatusMessage);
 
         previewColumn.appendChild(previewLabel);
         previewColumn.appendChild(previewContainer);
@@ -914,7 +929,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     updatePreviewFromComboboxes();
                 }
             },
-            'Identidade Padrão'
+            'Hostilidade'
             // simplifiedDisplay = false (default)
         );
         column1.appendChild(comboboxes.standardIdentity);
@@ -928,7 +943,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     updatePreviewFromComboboxes();
                 }
             },
-            'Status'
+            'Situação e Condição Operacional'
             // simplifiedDisplay = false (default)
         );
         column1.appendChild(comboboxes.status);
@@ -942,7 +957,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     updatePreviewFromComboboxes();
                 }
             },
-            'QG/Força-Tarefa/Dummy'
+            'Força-Tarefa/Posto de Comando'
             // simplifiedDisplay = false (default)
         );
         column1.appendChild(comboboxes.hqTfDummy);
@@ -1030,12 +1045,17 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             updatePreview();
         }
 
-        // ✅ NEW: Update comboboxes when SIDC changes
         function updateComboboxesFromSIDC(sidc) {
             try {
                 isUpdatingFromSIDC = true;
 
-                const parseResult = militarySymbolControl.symbolGenerator.canParseSIDC(sidc);
+                let normalizedSIDC = sidc;
+                if (sidc.length === 20) {
+                    normalizedSIDC = normalizeSIDC(sidc);
+                    sidcInput.value = normalizedSIDC; // Update input field
+                }
+
+                const parseResult = militarySymbolControl.symbolGenerator.canParseSIDC(normalizedSIDC);
                 if (!parseResult.canParse) {
                     throw new Error(parseResult.error);
                 }
@@ -1050,7 +1070,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 tempProperties.mainIcon = parsed.mainIcon;
                 tempProperties.modifier1 = parsed.modifier1;
                 tempProperties.modifier2 = parsed.modifier2;
-                tempProperties.sidc = sidc;
+                tempProperties.sidc = normalizedSIDC; // ✅ Always 30 digits
 
                 // Update all comboboxes visually
                 Object.keys(comboboxes).forEach(key => {
@@ -1059,10 +1079,24 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     }
                 });
 
-                sidcInput.style.borderColor = '#28a745'; // Green for valid
+                const extension = BrazilianSIDCExtension.decode(normalizedSIDC.substring(20));
+                const warnings = checkCatalogWarnings(extension);
+
+                if (warnings.length > 0) {
+                    sidcInput.style.borderColor = '#ffc107'; // Yellow for warnings
+                    sidcStatusMessage.style.color = '#856404';
+                    sidcStatusMessage.textContent = '⚠️ ' + warnings[0];
+                    console.warn('Uncataloged extensions:', warnings);
+                } else {
+                    sidcInput.style.borderColor = '#28a745'; // Green for valid
+                    sidcStatusMessage.style.color = '#155724';
+                    sidcStatusMessage.textContent = '✓ SIDC válido';
+                }
 
             } catch (error) {
                 sidcInput.style.borderColor = '#dc3545'; // Red for invalid
+                sidcStatusMessage.style.color = '#721c24';
+                sidcStatusMessage.textContent = '✗ ' + error.message;
                 console.warn('Invalid SIDC for parsing:', error.message);
             } finally {
                 isUpdatingFromSIDC = false;
@@ -1070,35 +1104,65 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         }
 
         sidcInput.addEventListener('input', (e) => {
-            let cleanSIDC = e.target.value.replace(/\s/g, '').trim().substring(0, 20);
+            let cleanSIDC = e.target.value.replace(/\s/g, '').trim();
 
             // Update input field with cleaned value
             if (e.target.value !== cleanSIDC) {
                 e.target.value = cleanSIDC;
             }
 
-            // Reset border color
+            // Reset border color and status
             sidcInput.style.borderColor = '#ddd';
+            sidcStatusMessage.textContent = '';
 
             if (cleanSIDC.length === 20) {
+                // Auto-normalize to 30 digits
+                const normalized = normalizeSIDC(cleanSIDC);
+                sidcInput.value = normalized;
+                cleanSIDC = normalized;
                 updateComboboxesFromSIDC(cleanSIDC);
                 updatePreview();
-            } else if (cleanSIDC.length > 0) {
+            } else if (cleanSIDC.length === 30) {
+                updateComboboxesFromSIDC(cleanSIDC);
+                updatePreview();
+            } else if (cleanSIDC.length > 0 && cleanSIDC.length < 20) {
                 sidcInput.style.borderColor = '#ffc107'; // Yellow for incomplete
+                sidcStatusMessage.style.color = '#856404';
+                sidcStatusMessage.textContent = `⚠️ ${cleanSIDC.length}/20 dígitos (mínimo)`;
+            } else if (cleanSIDC.length > 20 && cleanSIDC.length < 30) {
+                sidcInput.style.borderColor = '#ffc107'; // Yellow for incomplete extension
+                sidcStatusMessage.style.color = '#856404';
+                sidcStatusMessage.textContent = `⚠️ ${cleanSIDC.length}/30 dígitos`;
             }
         });
 
         sidcInput.addEventListener('paste', (e) => {
             setTimeout(() => {
-                const cleanSIDC = sidcInput.value.replace(/\s/g, '').trim().substring(0, 20);
+                let cleanSIDC = sidcInput.value.replace(/\s/g, '').trim();
+
+                // Limit to 30 digits
+                if (cleanSIDC.length > 30) {
+                    cleanSIDC = cleanSIDC.substring(0, 30);
+                }
+
                 sidcInput.value = cleanSIDC;
 
                 if (cleanSIDC.length === 20) {
+                    const normalized = normalizeSIDC(cleanSIDC);
+                    sidcInput.value = normalized;
+                    updateComboboxesFromSIDC(normalized);
+                    updatePreview();
+                } else if (cleanSIDC.length === 30) {
                     updateComboboxesFromSIDC(cleanSIDC);
                     updatePreview();
                 }
             }, 10);
         });
+
+        sidcInput.value = normalizeSIDC(
+            tempProperties.sidc ||
+            militarySymbolControl.symbolGenerator.buildSIDC(tempProperties)
+        );
 
         // Função de preview - CORRIGIDA para usar o generator com cor
         async function updatePreview() {
@@ -1115,8 +1179,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
                 // ✅ NOVO: Usar a nova função generatePreviewDataURL com cor personalizada
                 const previewDataURL = await militarySymbolControl.symbolGenerator.generatePreviewDataURL(
-                    sidc, 
-                    80, 
+                    sidc,
+                    80,
                     tempProperties.fillColor // Passar cor personalizada
                 );
 
@@ -1190,7 +1254,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         function closeModal() {
             document.removeEventListener('keydown', handleModalKeyDown);
-            
+
             // Cleanup dos dropdowns
             const comboBoxes = [column1, column2].flatMap(col => Array.from(col.children));
             comboBoxes.forEach(combo => {
@@ -1204,10 +1268,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         function handleModalKeyDown(e) {
             if (e.key === 'Escape') {
                 // Only close modal if no dropdown is open
-                const hasOpenDropdown = openDropdowns.some(dropdown => 
+                const hasOpenDropdown = openDropdowns.some(dropdown =>
                     dropdown.style.display === 'block'
                 );
-                
+
                 if (!hasOpenDropdown) {
                     e.preventDefault();
                     closeModal();
@@ -1225,7 +1289,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 };
 
                 const galleryColumn = await createSymbolGallery(onSymbolClick);
-                
+
                 // Montar modal com 3 colunas
                 modalContent.appendChild(controlsColumn);
                 modalContent.appendChild(previewColumn);

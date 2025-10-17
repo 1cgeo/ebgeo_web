@@ -1,5 +1,6 @@
 // Path: js\controls_sig\military_symbol_tool\add_military_symbol_geometry.js
 import BaseGeometry from '../tool_manager/base_geometry.js';
+import { normalizeSIDC, getBaseSIDC } from './brazilian_sidc_extension.js';
 
 /**
  * Military Symbol Geometry Operations
@@ -17,86 +18,6 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      */
     generate(coordinates) {
         return this.generatePointGeometry(coordinates);
-    }
-
-    /**
-     * Validate military symbol coordinates and SIDC
-     * @param {Array} coordinates - Position coordinates
-     * @param {string} sidc - Symbol Identification Code (20 digits)
-     * @returns {boolean} True if valid
-     */
-    validate(coordinates, sidc = null) {
-        // Validate coordinates
-        if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 2) {
-            return false;
-        }
-
-        if (typeof coordinates[0] !== 'number' || typeof coordinates[1] !== 'number') {
-            return false;
-        }
-
-        if (isNaN(coordinates[0]) || isNaN(coordinates[1])) {
-            return false;
-        }
-
-        // Validate SIDC if provided
-        if (sidc && !this.validateSIDC(sidc)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Validate SIDC format (20 digits)
-     * @param {string} sidc - Symbol Identification Code
-     * @returns {boolean} True if valid SIDC format
-     */
-    validateSIDC(sidc) {
-        if (!sidc || typeof sidc !== 'string') {
-            return false;
-        }
-
-        // Must be exactly 20 digits
-        if (sidc.length !== 20) {
-            return false;
-        }
-
-        // Must contain only numbers
-        if (!/^[0-9]{20}$/.test(sidc)) {
-            return false;
-        }
-
-        // Format ID must be "10"
-        const formatId = sidc.substring(0, 2);
-        if (formatId !== "10") {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Normalize coordinates from various formats
-     * @param {string|Array} coordinates - Coordinates to normalize
-     * @returns {Array|null} Normalized coordinates or null if invalid
-     */
-    normalizeCoordinates(coordinates) {
-        if (typeof coordinates === 'string') {
-            try {
-                coordinates = JSON.parse(coordinates);
-            } catch (e) {
-                console.error('Error parsing coordinates:', coordinates, e);
-                return null;
-            }
-        }
-
-        if (!Array.isArray(coordinates) || coordinates.length < 2) {
-            console.error('Invalid coordinates:', coordinates);
-            return null;
-        }
-
-        return coordinates;
     }
 
     /**
@@ -236,8 +157,8 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
         return Math.min(baseSize * scaleFactor, 10); // Maximum 10x scaling
     }
 
-    /**
-     * Build SIDC from military properties
+        /**
+     * Build SIDC from military properties (20 digits - will be normalized to 30)
      * @param {Object} properties - Military symbol properties
      * @returns {string} 20-digit SIDC string
      */
@@ -254,45 +175,6 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
         const modifier2 = properties.modifier2 || "00";                   // J: 2 digits
 
         return `${formatId}${context}${standardIdentity}${symbolSet}${status}${hqTfDummy}${echelon}${mainIcon}${modifier1}${modifier2}`;
-    }
-
-    /**
-     * Parse SIDC into component properties
-     * @param {string} sidc - 20-digit SIDC string
-     * @returns {Object} Parsed properties or null if invalid
-     */
-    parseSIDC(sidc) {
-        if (!this.validateSIDC(sidc)) {
-            return null;
-        }
-
-        return {
-            formatId: sidc.substring(0, 2),        // A: positions 1-2
-            context: sidc.substring(2, 3),         // B: position 3
-            standardIdentity: sidc.substring(3, 4), // C: position 4
-            symbolSet: sidc.substring(4, 6),       // D: positions 5-6
-            status: sidc.substring(6, 7),          // E: position 7
-            hqTfDummy: sidc.substring(7, 8),       // F: position 8
-            echelon: sidc.substring(8, 10),        // G: positions 9-10
-            mainIcon: sidc.substring(10, 16),      // H: positions 11-16
-            modifier1: sidc.substring(16, 18),     // I: positions 17-18
-            modifier2: sidc.substring(18, 20)      // J: positions 19-20
-        };
-    }
-
-    /**
-     * Check if coordinates represent a valid symbol position
-     * @param {Array} coordinates - Coordinates to check
-     * @returns {boolean} True if valid position
-     */
-    isValidPosition(coordinates) {
-        return coordinates && 
-               Array.isArray(coordinates) && 
-               coordinates.length >= 2 && 
-               typeof coordinates[0] === 'number' && 
-               typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) && 
-               !isNaN(coordinates[1]);
     }
 
     /**
