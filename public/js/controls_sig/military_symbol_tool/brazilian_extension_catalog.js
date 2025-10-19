@@ -1,187 +1,238 @@
 // Path: js\controls_sig\military_symbol_tool\brazilian_extension_catalog.js
 
 /**
- * BRAZILIAN LABEL MAPPINGS
- * Maps mainIcon codes to Brazilian abbreviations with font sizes
- * Used for translating American labels to Brazilian Portuguese in SVG symbols
+ * ========================================
+ * BRAZILIAN LABEL MAPPINGS (Situação 1)
+ * ========================================
+ * Substitui TEXTO dentro dos símbolos
+ * Suporta: Main Icon, Modifier 1, Modifier 2
  */
+
 export const BRAZILIAN_LABEL_MAPPINGS = {
-    '121700': {
-        from: ['SF'],  // American text variations
-        to: 'Cmdos',   // Brazilian text
-        fontSize: '26' // Smaller font size for "Cmdos"
+    // Main Icon (6 dígitos: posições 11-16)
+    mainIcon: {
+        '121700': {
+            from: 'SF',         // String direta (não array)
+            to: 'Cmdos',
+            fontSize: '26'      // Opcional
+        },
     },
-    '121800': {
-        from: ['SOF'], // American text variations
-        to: 'FE',      // Brazilian text
+    
+    // Modifier 1 (2 dígitos: posições 17-18)
+    modifier1: {
+        '77': {
+            from: 'SPT',
+            to: 'Ap'
+        },
+    },
+    
+    // Modifier 2 (2 dígitos: posições 19-20)
+    modifier2: {
     }
 };
 
 /**
- * SPECIAL MODIFIERS CATALOG (bits 10-12)
- * Overlaid on center icon
- * 
- * Structure:
- * {
- *   code: number (1-7),
- *   label: string,
- *   abbr: string,
- *   render: {
- *     type: 'svg' | 'text',
- *     position: { x: number, y: number },
- *     svg?: string,
- *     text?: string,
- *     style?: { fontSize, fontFamily, fontWeight, fill }
- *   }
- * }
- * 
- * Binary Calculation Example (Blindado = 1):
- * Bits: 0 000 00000 0 001 00000 00000
- * Decimal: 1024
- * Extension: 0760001024
- * 
- * SIDC Example: 10031000151301000000 0760001024
+ * ========================================
+ * MAIN ICON GRAPHIC ADAPTATIONS (Situação 2)
+ * ========================================
+ * Substitui elementos SVG completos do Main Icon
+ * Usa find/replace pois não dá para identificar elementos específicos
  */
+
+export const MAIN_ICON_GRAPHIC_ADAPTATIONS = {
+    '121101': {
+        // Infantaria Anfíbia: adiciona ondas
+        type: 'replace',
+        // SVG a ser encontrado e removido (padrão americano)
+        find: '<path d="M25,150 L100,52 175,150" stroke-width="4" stroke="black" fill="none"></path>',
+        // Novo SVG brasileiro (com ondas)
+        replace: `
+            <path d="M25,150 L100,52 175,150" stroke-width="4" stroke="black" fill="none"></path>
+            <path d="M25,150 C45,110 155,110 175,150" stroke-width="4" stroke="black" fill="none"></path>
+        `
+    },
+    
+    '162400': {
+        // Recursos Humanos: texto → guarda-chuva
+        type: 'replace',
+        find: '<text x="100" y="103" text-anchor="middle" font-size="45"',
+        replace: `
+            <g transform="translate(100, 103)">
+                <!-- Guarda-chuva -->
+                <path d="M 0,-20 Q -15,-10 -20,0 L -15,0 Q -10,-5 0,-8 Q 10,-5 15,0 L 20,0 Q 15,-10 0,-20" 
+                      fill="none" stroke="black" stroke-width="2"/>
+                <line x1="0" y1="-8" x2="0" y2="15" stroke="black" stroke-width="2"/>
+                <path d="M 0,15 Q 5,18 8,15" fill="none" stroke="black" stroke-width="2"/>
+            </g>
+        `
+    },
+    
+    '130300': {
+        // Artilharia de Campanha: texto → círculo preenchido
+        type: 'replace',
+        find: '<text x="100" y="103"',
+        replace: '<circle cx="100" cy="103" r="15" fill="black" stroke="black" stroke-width="2"/>'
+    }
+};
+
+/**
+ * ========================================
+ * SPECIAL MODIFIERS CATALOG (Situação 3.1)
+ * ========================================
+ * Bits 10-12: Modificadores especiais sobrepostos
+ * Apenas adiciona elementos (não substitui)
+ */
+
 export const SPECIAL_MODIFIERS_CATALOG = {
-    0: { 
-        code: 0, 
-        label: 'Nenhum',
-        render: null
-    }
+    1: {
+        // Blindado
+        type: 'svg',
+        svg: '<ellipse cx="100" cy="103" rx="30" ry="15" fill="none" stroke="black" stroke-width="3"/>'
+    },
     
-    // TODO: Add cases manually as needed
-    // Example structure:
-    // 1: { 
-    //     code: 1, 
-    //     label: 'Blindado',
-    //     abbr: 'Bld',
-    //     render: {
-    //         type: 'svg',
-    //         position: { x: 100, y: 103 },
-    //         svg: '<ellipse cx="100" cy="103" rx="20" ry="10" fill="none" stroke="black" stroke-width="2"/>'
-    //     }
-    // }
+    2: {
+        // Mecanizado
+        type: 'svg',
+        svg: `
+            <circle cx="85" cy="110" r="5" fill="black"/>
+            <circle cx="115" cy="110" r="5" fill="black"/>
+        `
+    },
+    
+    3: {
+        // Motorizado
+        type: 'svg',
+        svg: '<line x1="70" y1="103" x2="130" y2="103" stroke="black" stroke-width="3"/>'
+    }
 };
 
 /**
- * MODIFIER 2 EXTENSION CATALOG (bits 18-22)
- * Bottom part of frame
- * 
- * Structure: Same as SPECIAL_MODIFIERS_CATALOG
- * 
- * Binary Calculation Example (Selva = 3):
- * Bits: 0 000 00000 0 000 00000 00011
- * Decimal: 3
- * Extension: 0760000003
- * 
- * SIDC Example: 10031000181211000099 0760000003
- * Note: Mod2 = 99 signals extension
+ * ========================================
+ * MOD2 EXTENSION CATALOG (Situação 3.2)
+ * ========================================
+ * Bits 18-22: Modificador 2 estendido (parte inferior)
+ * Apenas adiciona elementos (não substitui)
  */
+
 export const MOD2_EXTENSION_CATALOG = {
-    0: { 
-        code: 0, 
-        label: 'Nenhum',
-        render: null
-    }
+    3: {
+        // Selva
+        type: 'text',
+        position: { x: 100, y: 140 },
+        text: 'Slv',
+        style: {
+            fontSize: '13',
+            fontFamily: 'Arial, sans-serif',
+            fontWeight: 'bold',
+            fill: 'black'
+        }
+    },
     
-    // TODO: Add cases manually as needed
-    // Example structure:
-    // 3: { 
-    //     code: 3, 
-    //     label: 'Selva',
-    //     abbr: 'Slv',
-    //     render: {
-    //         type: 'text',
-    //         position: { x: 100, y: 140 },
-    //         text: 'Slv',
-    //         style: {
-    //             fontSize: '11',
-    //             fontFamily: 'Arial',
-    //             fontWeight: 'bold',
-    //             fill: 'black'
-    //         }
-    //     }
-    // }
+    4: {
+        // Pantanal
+        type: 'text',
+        position: { x: 100, y: 140 },
+        text: 'Ptl',
+        style: {
+            fontSize: '13',
+            fontFamily: 'Arial, sans-serif',
+            fontWeight: 'bold',
+            fill: 'black'
+        }
+    },
+    
+    5: {
+        // Caatinga
+        type: 'text',
+        position: { x: 100, y: 140 },
+        text: 'Cat',
+        style: {
+            fontSize: '13',
+            fontFamily: 'Arial, sans-serif',
+            fontWeight: 'bold',
+            fill: 'black'
+        }
+    }
 };
 
 /**
- * ENTITY EXTENSION CATALOG (bits 4-8)
- * Completely new symbols
+ * ========================================
+ * ENTITY EXTENSION CATALOG (Situação 3.3)
+ * ========================================
+ * Bits 4-8: Novos símbolos completos
+ * Apenas adiciona elementos (não substitui)
  * 
- * Structure:
- * {
- *   code: number (0-31),
- *   label: string,
- *   abbr: string,
- *   baseSIDC: string (20 digits - similar symbol to use as base),
- *   render: { ... same as above ... }
- * }
- * 
- * Binary Calculation Example (Guerra Eletrônica = 0):
- * Bits: 0 000 00000 0 000 00000 00000
- * Decimal: 0
- * Extension: 0760000000
- * 
- * SIDC Example: 10031500312299000000 0760000000
- * Note: Entity Type = 99 signals extension
+ * Nota: baseSIDC deve ser definido no processamento,
+ * não no catálogo (ver brazilian_sidc_extension.js)
  */
+
 export const ENTITY_EXTENSION_CATALOG = {
-    0: { 
-        code: 0, 
-        label: 'Nenhum',
-        render: null
+    0: {
+        // Guerra Eletrônica
+        baseSIDC: '10031500312299000000',
+        type: 'text',
+        position: { x: 100, y: 103 },
+        text: 'GE',
+        style: {
+            fontSize: '45',
+            fontFamily: 'Arial, sans-serif',
+            fontWeight: 'bold',
+            fill: 'black'
+        }
     }
-    
-    // TODO: Add cases manually as needed
-    // Example structure:
-    // 0: {
-    //     code: 0,
-    //     label: 'Guerra Eletrônica',
-    //     abbr: 'GE',
-    //     baseSIDC: '10031500312200000000', // Sensor as base
-    //     render: {
-    //         type: 'text',
-    //         position: { x: 100, y: 103 },
-    //         text: 'GE',
-    //         style: {
-    //             fontSize: '45',
-    //             fontFamily: 'Arial',
-    //             fontWeight: 'bold',
-    //             fill: 'black'
-    //         }
-    //     }
-    // }
 };
 
 /**
- * MODIFIER 1 EXTENSION CATALOG (bits 13-17)
- * Top part of frame
- * 
- * Structure: Same as MOD2_EXTENSION_CATALOG
- * 
- * Binary Calculation: Same pattern as Mod2
- * SIDC Example: Base with Mod1 = 99 signals extension
+ * ========================================
+ * MOD1 EXTENSION CATALOG (Situação 3.4)
+ * ========================================
+ * Bits 13-17: Modificador 1 estendido (parte superior)
+ * Apenas adiciona elementos (não substitui)
  */
+
 export const MOD1_EXTENSION_CATALOG = {
-    0: { 
-        code: 0, 
-        label: 'Nenhum',
-        render: null
+    14: {
+        // Reconhecimento
+        type: 'text',
+        position: { x: 100, y: 65 },
+        text: 'Rec',
+        style: {
+            fontSize: '13',
+            fontFamily: 'Arial, sans-serif',
+            fontWeight: 'bold',
+            fill: 'black'
+        }
     }
-    
-    // TODO: Add cases manually as needed
 };
+
+/**
+ * ========================================
+ * HELPER FUNCTIONS
+ * ========================================
+ */
 
 /**
  * Get catalog entry by type and code
- * @param {string} catalogType - 'special', 'mod1', 'mod2', 'entity'
- * @param {number} code - Extension code
+ * @param {string} catalogType - 'mainIcon', 'modifier1', 'modifier2', 'graphic', 'special', 'mod1', 'mod2', 'entity'
+ * @param {string|number} code - Code to lookup
  * @returns {Object|null} Catalog entry or null
  */
 export function getCatalogEntry(catalogType, code) {
     let catalog;
     
     switch(catalogType) {
+        case 'mainIcon':
+            catalog = BRAZILIAN_LABEL_MAPPINGS.mainIcon;
+            break;
+        case 'modifier1':
+            catalog = BRAZILIAN_LABEL_MAPPINGS.modifier1;
+            break;
+        case 'modifier2':
+            catalog = BRAZILIAN_LABEL_MAPPINGS.modifier2;
+            break;
+        case 'graphic':
+            catalog = MAIN_ICON_GRAPHIC_ADAPTATIONS;
+            break;
         case 'special':
             catalog = SPECIAL_MODIFIERS_CATALOG;
             break;
@@ -198,5 +249,5 @@ export function getCatalogEntry(catalogType, code) {
             return null;
     }
     
-    return catalog[code] || null;
+    return catalog?.[code] || null;
 }
