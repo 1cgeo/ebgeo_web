@@ -72,7 +72,8 @@ class AddStreetViewControl {
         this.nearbyFeaturesCache = new Map();
         this.cacheRadius = 1000; // metros
 
-        this.streetViewPointsLayer= {
+        if (config.features.imagens_panoramicas){
+            this.streetViewPointsLayer= {
             'id': 'street-view',
             'type': 'circle',
             'source': 'streetViewPointsSource',
@@ -96,6 +97,8 @@ class AddStreetViewControl {
                 'line-width': 5
             }
         }
+        };
+
     }
 
     onStreetViewKeyDown = (e) => {
@@ -339,8 +342,10 @@ class AddStreetViewControl {
 
         this.changeButtonColor()
 
-        // ATUALIZADA: Setup do minimapa para PMTiles
-        this.setupMiniMapWithPMTiles();
+        if (config.features.imagens_panoramicas){
+            this.setupMiniMapWithPMTiles();
+        }
+
 
         return this.container;
     }

@@ -79,8 +79,8 @@ map.on('load', async () => {
     map.dragRotate.disable();
     await baseLayerControl.switchMap(true);
     hideLoadingScreen();
-    gridControl._initGridLayers();
-    frameControl._initFrameLayers();
+    // gridControl._initGridLayers();
+    // frameControl._initFrameLayers();
 });
 
 
