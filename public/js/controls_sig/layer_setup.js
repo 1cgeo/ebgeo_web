@@ -1961,9 +1961,7 @@ async function setupFrameLayers(mapInstance) {
             return;
         }
 
-        if (mouseCoordinatesControl.frameControl) {
-            const frameControl = mouseCoordinatesControl.frameControl;
-        }
+        const frameControl = mouseCoordinatesControl.frameControl;
 
 
 
