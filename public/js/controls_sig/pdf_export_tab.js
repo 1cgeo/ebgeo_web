@@ -1,5 +1,5 @@
 // Path: js\controls_sig\pdf_export_tab.js
-
+import config from '../config.js'
 export default class PDFExportTab {
     constructor(map) {
         this.map = map;
@@ -46,18 +46,18 @@ export default class PDFExportTab {
                         ${scaleOptions}
                     </select>
                 </div>
-                
+
                 <div class="orientation-selector">
                     <label>
-                        <input type="radio" name="pdf-orientation" value="landscape" checked> 
+                        <input type="radio" name="pdf-orientation" value="landscape" checked>
                         Paisagem (A4)
                     </label>
                     <label>
-                        <input type="radio" name="pdf-orientation" value="portrait"> 
+                        <input type="radio" name="pdf-orientation" value="portrait">
                         Retrato (A4)
                     </label>
                 </div>
-                
+
                 <button id="export-pdf-btn" class="export-pdf-btn pure-material-button-contained">
                     Exportar PDF
                 </button>
@@ -208,7 +208,7 @@ export default class PDFExportTab {
             realWidthMeters = (297 / 1000) * denominator;  // 297mm → metros → terreno
             realHeightMeters = (210 / 1000) * denominator; // 210mm → metros → terreno
         } else {
-            realWidthMeters = (210 / 1000) * denominator;  // 210mm → metros → terreno  
+            realWidthMeters = (210 / 1000) * denominator;  // 210mm → metros → terreno
             realHeightMeters = (297 / 1000) * denominator; // 297mm → metros → terreno
         }
 
@@ -580,7 +580,7 @@ export default class PDFExportTab {
             usableWidthMM = 297 - (2 * marginMM);  // 297mm - 10mm = 287mm
             usableHeightMM = 210 - (2 * marginMM); // 210mm - 10mm = 200mm
         } else {
-            usableWidthMM = 210 - (2 * marginMM);  // 210mm - 10mm = 200mm  
+            usableWidthMM = 210 - (2 * marginMM);  // 210mm - 10mm = 200mm
             usableHeightMM = 297 - (2 * marginMM); // 297mm - 10mm = 287mm
         }
 
@@ -605,7 +605,8 @@ export default class PDFExportTab {
             this.updateProgress(10, 'Inicializando...');
 
             // 2. Carrega o gdal3.js
-            const Gdal = await initGdalJs({ path: `${window.ENV.PREFIX_URL}/vendors/gdal`, useWorker: false })
+
+            const Gdal = await initGdalJs({ path: `http://${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}/vendors/gdal`, useWorker: false })
 
             await new Promise(resolve => setTimeout(resolve, 200));
 
