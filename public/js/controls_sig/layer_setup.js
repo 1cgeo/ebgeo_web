@@ -2,7 +2,7 @@
 import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle } from './store/store.js';
 import { initFrameLayers } from './frameLayersConfig.js';
 import { GRID_LAYERS, initGridLayers } from './gridLayersConfig.js';
-import {config} from './config.js';
+import config from '../config.js';
 
 export async function setupMapFeatures(mapInstance, analysisLayersManager) {
     try {
