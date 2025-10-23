@@ -1,5 +1,7 @@
 // Path: js\controls_sig\layer_setup.js
-import { getCurrentMapFeatures, getImage } from './store/store.js';
+import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle } from './store/store.js';
+import { initFrameLayers } from './frameLayersConfig.js';
+import { GRID_LAYERS, initGridLayers } from './gridLayersConfig.js';
 
 export async function setupMapFeatures(mapInstance, analysisLayersManager) {
     try {
@@ -31,6 +33,8 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager) {
         setupMilitarySymbolsLayers(features, mapInstance);
         setupTextLayers(features, mapInstance);
         setupAuxiliaryLayers(mapInstance);
+        setupFrameLayers(mapInstance);
+        setupGridLayers(mapInstance);
 
         requestAnimationFrame(() => {
             clearAllMeasurements();
@@ -1938,5 +1942,89 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
 
     } catch (error) {
         console.error('Error restoring boundary dependent features:', error);
+    }
+}
+
+async function setupFrameLayers(mapInstance) {
+    // 1. Inicializa as camadas da moldura
+    initFrameLayers(mapInstance);
+
+    try {
+
+
+        const mouseCoordinatesControl = mapInstance._controls.find(
+            c => c.constructor.name === 'MouseCoordinatesControl'
+        );
+
+        if (!mouseCoordinatesControl) {
+            console.log('Nenhum controle de mouse encontrado');
+            return;
+        }
+
+        if (mouseCoordinatesControl.frameControl) {
+            const frameControl = mouseCoordinatesControl.frameControl;
+        }
+
+
+
+
+        if (!frameControl) {
+            console.log('Nenhum controle de moldura encontrado');
+            return;
+        }
+        const mapName = getCurrentMapNameSync();
+        const savedFrame = await getFrameStyle(mapName);
+
+
+        let scale = 'scale_25k';
+        let visible = false;
+        let fillVisible = true;
+
+        if (savedFrame) {
+            scale = savedFrame.scale ?? 'scale_25k';
+            visible = savedFrame.visible ?? false;
+            fillVisible = savedFrame.fillVisible ?? true;
+        }
+        frameControl._getFrame(scale, visible, fillVisible);
+        frameControl._toggleFillVisibility(null, scale, fillVisible, visible);
+        frameControl._updateButtonState(visible);
+        console.info(`Moldura restaurada: scale = ${scale}, fillVisible = ${fillVisible}, visível=${visible}`);
+
+
+    } catch (error) {
+        console.warn('Erro ao restaurar moldura:', error);
+    }
+}
+
+async function setupGridLayers(mapInstance) {
+    initGridLayers(mapInstance);
+    try {
+        const mapName = getCurrentMapNameSync();
+        const savedGrid = await getGridStyle(mapName);
+
+        if (!savedGrid) {
+            mapInstance.getStyle().layers.forEach(layer => {
+                if (layer.id.startsWith('grid_')) {
+                    if (mapInstance.getLayer(layer.id)) {
+                        mapInstance.setLayoutProperty(layer.id, 'visibility', 'none');
+                    }
+                }
+            });
+            return;
+        }
+        const visible = savedGrid.visible ?? true;
+        const format = savedGrid.format || 'latlong';
+
+        if (visible && GRID_LAYERS[format]) {
+            GRID_LAYERS[format].forEach(layerId => {
+                if (mapInstance.getLayer(layerId)) {
+                    mapInstance.setLayoutProperty(layerId, 'visibility', 'visible');
+                }
+            });
+        }
+
+        console.info(`Grid restaurado: visible = ${visible}, format = ${format}`);
+    } catch (err) {
+        console.warn('Erro ao restaurar grid:', err);
     }
 }

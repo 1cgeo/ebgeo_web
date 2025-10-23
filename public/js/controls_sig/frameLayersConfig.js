@@ -25,27 +25,65 @@ export const FRAME_LAYERS = {
 // Função para adicionar todas as camadas e fontes ao mapa
 export function initFrameLayers(map) {
 
-    map.addSource('moldura_25k', {
-        type: 'vector',
-        url: 'http://IP:PORT/moldura_25k'
-    });
+    if (!map.getSource('moldura_25k')){
+        map.addSource('moldura_25k', {
+            type: 'vector',
+            url: 'http://IP:PORT/moldura_25k'
+        });
+    }
 
-    map.addSource('moldura_50k', {
-        type: 'vector',
-        url: 'http://IP:PORT/moldura_50k'
-    });
+    if (!map.getSource('moldura_ponto_25k')){
+        map.addSource('moldura_ponto_25k', {
+            type: 'vector',
+            url: 'http://IP:PORT/moldura_ponto_25k'
+        });
+    }
 
-    map.addSource('moldura_100k', {
-        type: 'vector',
-        url: 'http://IP:PORT/moldura_100k'
-    });
+    if (!map.getSource('moldura_50k')){
+        map.addSource('moldura_50k', {
+            type: 'vector',
+            url: 'http://IP:PORT/moldura_50k'
+        });
+    }
 
-    map.addSource('moldura_250k', {
-        type: 'vector',
-        url: 'http://IP:PORT/moldura_250k'
-    });
+    if (!map.getSource('moldura_ponto_50k')){
+        map.addSource('moldura_ponto_50k', {
+            type: 'vector',
+            url: 'http://IP:PORT/moldura_ponto_50k'
+        });
+    }
+
+    if (!map.getSource('moldura_100k')){
+        map.addSource('moldura_100k', {
+            type: 'vector',
+            url: 'http://IP:PORT/moldura_100k'
+        });
+    }
+
+    if (!map.getSource('moldura_ponto_100k')){
+        map.addSource('moldura_ponto_100k', {
+            type: 'vector',
+            url: 'http://IP:PORT/moldura_ponto_100k'
+        });
+    }
+
+    if (!map.getSource('moldura_250k')){
+        map.addSource('moldura_250k', {
+            type: 'vector',
+            url: 'http://IP:PORT/moldura_250k'
+        });
+    }
+
+    if (!map.getSource('moldura_ponto_250k')){
+        map.addSource('moldura_ponto_250k', {
+            type: 'vector',
+            url: 'http://IP:PORT/moldura_ponto_250k'
+        });
+    }
 
     // 25k
+
+    if (!map.getLayer("moldura_fill_25k")){
     map.addLayer({
         "id": "moldura_fill_25k",
         "type": "fill",
@@ -68,7 +106,10 @@ export function initFrameLayers(map) {
         "minzoom": 5,
         "maxzoom": 17
     });
+    }
 
+
+    if (!map.getLayer("moldura_border_25k")){
     map.addLayer({
         "id": "moldura_border_25k",
         "type": "line",
@@ -81,7 +122,7 @@ export function initFrameLayers(map) {
                 14, 5 // Tamanho do array >= 2
             ],
             "line-color": [
-                'step', ['length', ['get', 'edicoes_orto']],  '#121211',  // Tamanho do array = 0
+                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',  // Tamanho do array = 0
                 8, 'rgba(145,207,96,1)', // Tamanho do array >= 1
                 14, 'rgba(102,178,255,1)' // Tamanho do array >= 2
             ],
@@ -98,12 +139,15 @@ export function initFrameLayers(map) {
         "minzoom": 5,
         "maxzoom": 17
     });
+    }
 
+
+    if (!map.getLayer("moldura_label_25k")){
     map.addLayer({
         "id": "moldura_label_25k",
         "type": "symbol",
-        "source": "moldura_25k",
-        "source-layer": "situacao_25k",
+        "source": "moldura_ponto_25k",
+        "source-layer": "situacao_ponto_25k",
         "layout": {
             "text-field": [
                 "concat",
@@ -113,7 +157,7 @@ export function initFrameLayers(map) {
                 [
                     "case",
                     [">", ["length", ["get", "edicoes_topo"]], 0],
-                    ["slice", ["get", "edicoes_topo"], 2, 6],
+                    ["slice", ["get", "edicoes_topo"], 0, 4],
                     ""
                 ]
             ],
@@ -121,11 +165,14 @@ export function initFrameLayers(map) {
         },
         "paint": {
         },
-        "minzoom": 9.5,
+        "minzoom": 9.8,
         "maxzoom": 17
     });
 
+    }
     // 50k
+
+    if (!map.getLayer("moldura_fill_50k")){
     map.addLayer({
         "id": "moldura_fill_50k",
         "type": "fill",
@@ -148,7 +195,10 @@ export function initFrameLayers(map) {
         "minzoom": 5,
         "maxzoom": 17
     });
+    }
 
+
+    if (!map.getLayer("moldura_border_50k")){
     map.addLayer({
         "id": "moldura_border_50k",
         "type": "line",
@@ -161,7 +211,7 @@ export function initFrameLayers(map) {
                 14, 5 // Tamanho do array >= 2
             ],
             "line-color": [
-                'step', ['length', ['get', 'edicoes_orto']],  '#121211',  // Tamanho do array = 0
+                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',  // Tamanho do array = 0
                 8, 'rgba(145,207,96,1)', // Tamanho do array >= 1
                 14, 'rgba(102,178,255,1)' // Tamanho do array >= 2
             ],
@@ -178,12 +228,15 @@ export function initFrameLayers(map) {
         "minzoom": 5,
         "maxzoom": 17
     });
+    }
 
+
+    if (!map.getLayer("moldura_label_50k")){
     map.addLayer({
         "id": "moldura_label_50k",
         "type": "symbol",
-        "source": "moldura_50k",
-        "source-layer": "situacao_50k",
+        "source": "moldura_ponto_50k",
+        "source-layer": "situacao_ponto_50k",
         "layout": {
             "text-field": [
                 "concat",
@@ -193,7 +246,7 @@ export function initFrameLayers(map) {
                 [
                     "case",
                     [">", ["length", ["get", "edicoes_topo"]], 0],
-                    ["slice", ["get", "edicoes_topo"], 2, 6],
+                    ["slice", ["get", "edicoes_topo"], 0, 4],
                     ""
                 ]
             ],
@@ -201,11 +254,14 @@ export function initFrameLayers(map) {
         },
         "paint": {
         },
-        "minzoom": 8.5,
+        "minzoom": 8.8,
         "maxzoom": 17
     });
 
+    }
     // 100k
+
+    if (!map.getLayer("moldura_fill_100k")){
     map.addLayer({
         "id": "moldura_fill_100k",
         "type": "fill",
@@ -228,7 +284,10 @@ export function initFrameLayers(map) {
         "minzoom": 5,
         "maxzoom": 17
     });
+    }
 
+
+    if (!map.getLayer("moldura_border_100k")){
     map.addLayer({
         "id": "moldura_border_100k",
         "type": "line",
@@ -241,7 +300,7 @@ export function initFrameLayers(map) {
                 14, 5 // Tamanho do array >= 2
             ],
             "line-color": [
-                'step', ['length', ['get', 'edicoes_orto']],  '#121211',  // Tamanho do array = 0
+                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',  // Tamanho do array = 0
                 8, 'rgba(145,207,96,1)', // Tamanho do array >= 1
                 14, 'rgba(102,178,255,1)' // Tamanho do array >= 2
             ],
@@ -258,12 +317,15 @@ export function initFrameLayers(map) {
         "minzoom": 5,
         "maxzoom": 17
     });
+    }
 
+
+    if (!map.getLayer("moldura_label_100k")){
     map.addLayer({
         "id": "moldura_label_100k",
         "type": "symbol",
-        "source": "moldura_100k",
-        "source-layer": "situacao_100k",
+        "source": "moldura_ponto_100k",
+        "source-layer": "situacao_ponto_100k",
         "layout": {
             "text-field": [
                 "concat",
@@ -273,20 +335,24 @@ export function initFrameLayers(map) {
                 [
                     "case",
                     [">", ["length", ["get", "edicoes_topo"]], 0],
-                    ["slice", ["get", "edicoes_topo"], 2, 6],
+                    ["slice", ["get", "edicoes_topo"], 0, 4],
                     ""
                 ]
             ],
-            "symbol-spacing": 10000,
-            "visibility": "none"
+            // "symbol-spacing": 1,
+            "visibility": "none",
+            "text-allow-overlap": true
         },
         "paint": {
         },
-        "minzoom": 7.5,
+        "minzoom": 7.8,
         "maxzoom": 17
     });
 
+    }
     // 250k
+
+    if (!map.getLayer("moldura_fill_250k")){
     map.addLayer({
         "id": "moldura_fill_250k",
         "type": "fill",
@@ -309,7 +375,10 @@ export function initFrameLayers(map) {
         "minzoom": 5,
         "maxzoom": 17
     });
+    }
 
+
+    if (!map.getLayer("moldura_border_250k")){
     map.addLayer({
         "id": "moldura_border_250k",
         "type": "line",
@@ -322,7 +391,7 @@ export function initFrameLayers(map) {
                 14, 5 // Tamanho do array >= 2
             ],
             "line-color": [
-                'step', ['length', ['get', 'edicoes_orto']],  '#121211',  // Tamanho do array = 0
+                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',  // Tamanho do array = 0
                 8, 'rgba(145,207,96,1)', // Tamanho do array >= 1
                 14, 'rgba(102,178,255,1)' // Tamanho do array >= 2
             ],
@@ -339,12 +408,15 @@ export function initFrameLayers(map) {
         "minzoom": 5,
         "maxzoom": 17
     });
+    }
 
+
+    if (!map.getLayer("moldura_label_250k")){
     map.addLayer({
         "id": "moldura_label_250k",
         "type": "symbol",
-        "source": "moldura_250k",
-        "source-layer": "situacao_250k",
+        "source": "moldura_ponto_250k",
+        "source-layer": "situacao_ponto_250k",
         "layout": {
             "text-field": [
                 "concat",
@@ -354,7 +426,7 @@ export function initFrameLayers(map) {
                 [
                     "case",
                     [">", ["length", ["get", "edicoes_topo"]], 0],
-                    ["slice", ["get", "edicoes_topo"], 2, 6],
+                    ["slice", ["get", "edicoes_topo"], 0, 4],
                     ""
                 ]
             ],
@@ -365,5 +437,6 @@ export function initFrameLayers(map) {
         "minzoom": 6,
         "maxzoom": 17
     });
+    }
 
 }

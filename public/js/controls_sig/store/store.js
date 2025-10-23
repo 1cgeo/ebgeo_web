@@ -27,7 +27,11 @@ import {
     getColorUsage,
     setMapNotes as setMapNotesRepo,
     getMapNotes as getMapNotesRepo,
-    removeMapNotes as removeMapNotesRepo
+    removeMapNotes as removeMapNotesRepo,
+    setFrameStyle as setFrameStyleRepo,
+    getFrameStyle as getFrameStyleRepo,
+    setGridStyle as setGridStyleRepo,
+    getGridStyle as getGridStyleRepo,
 } from './repository.js';
 
 import mapManager from './map-manager.js';
@@ -56,7 +60,7 @@ export const FEATURE_TYPE_ICONS = {
 
 export const FEATURE_TYPE_LAYERS = {
     'point': 'points-layer',
-    'line': 'lines-layer', 
+    'line': 'lines-layer',
     'polygon': 'polygons-layer',
     'text': 'texts-layer',
     'image': 'images-layer',
@@ -74,7 +78,7 @@ export const FEATURE_TYPE_LAYERS = {
 
 export const FEATURE_TYPE_MAPPINGS = {
     'point': 'points',
-    'line': 'lines', 
+    'line': 'lines',
     'polygon': 'polygons',
     'text': 'texts',
     'image': 'images',
@@ -204,11 +208,31 @@ export const setMapNotes = async (mapName, notes) => {
     await setMapNotesRepo(targetMap, notes);
 };
 
+// ===== FRAME STYLE MANAGEMENT =====
+
+export const setFrameStyle = async (mapName, frameStyle) => {
+    await setFrameStyleRepo(mapName, frameStyle);
+};
+
+export const getFrameStyle = async (mapName) => {
+    return await getFrameStyleRepo(mapName);
+};
+
+// ===== GRID STYLE MANAGEMENT =====
+
+export const setGridStyle = async (mapName, gridStyle) => {
+    await setGridStyleRepo(mapName, gridStyle);
+};
+
+export const getGridStyle = async (mapName) => {
+    return await getGridStyleRepo(mapName);
+};
+
 // ===== GROUP MANAGEMENT (NOVO) =====
 
 /**
  * Cria um novo grupo com as features especificadas
- * @param {Array} features - Features a serem agrupadas  
+ * @param {Array} features - Features a serem agrupadas
  * @param {string} mapName - Nome do mapa (null = atual)
  * @returns {Object} Grupo criado
  */
@@ -263,7 +287,7 @@ export const getFeatureGroup = (type, featureId, mapName = null) => {
 /**
  * Verifica se uma feature está agrupada
  * @param {string} type - Tipo da feature
- * @param {string} featureId - ID da feature  
+ * @param {string} featureId - ID da feature
  * @param {string} mapName - Nome do mapa
  * @returns {boolean} True se está agrupada
  */
@@ -315,13 +339,13 @@ export const removeFeatureFromAllGroups = (type, featureId, mapName = null) => {
 export const initializeWithLastActiveMap = async () => {
     const lastActiveMap = await initializeRepository();
     await mapManager.setCurrentMap(lastActiveMap);
-    
+
     // Inicializar cache de cores do projeto
     await mapManager.initializeProjectColorCache();
-    
+
     // NOVO: Carregar grupos em memória
     await groupManager.loadGroupsToMemory(lastActiveMap);
-    
+
     return lastActiveMap;
 };
 
@@ -334,14 +358,14 @@ export const getAllMapNamesStore = async () => {
 export const addMap = async (mapName, mapData = null, colorUsageData = null, notesData = null) => {
     const newMapData = await createMapData(mapName, mapData);
     mapManager.addMapToMemory(mapName);
-    
+
     // Processar cores do mapa
     await mapManager.processMapColors(mapName, newMapData, colorUsageData);
 
     if (notesData && (notesData.title || notesData.description)) {
         await setMapNotes(mapName, notesData);
     }
-    
+
     return newMapData;
 };
 
@@ -360,7 +384,7 @@ export const removeMap = async (mapName) => {
     // removeMapFromMemory agora cuida das cores automaticamente
     await deleteMapData(mapName);
     await mapManager.removeMapFromMemory(mapName);
-    
+
     // NOVO: Limpar grupos do mapa
     await groupManager.clearMapGroups(mapName);
 
@@ -385,7 +409,7 @@ export const removeMap = async (mapName) => {
 export const renameMap = async (oldName, newName) => {
     await renameMapData(oldName, newName);
     mapManager.renameMapInMemory(oldName, newName);
-    
+
     // NOVO: Atualizar cache de grupos se necessário
     if (mapManager.getCurrentMapName() === newName) {
         await groupManager.loadGroupsToMemory(newName);
@@ -394,7 +418,7 @@ export const renameMap = async (oldName, newName) => {
 
 export const setCurrentMap = async (mapName) => {
     await mapManager.setCurrentMap(mapName);
-    
+
     // NOVO: Carregar grupos do novo mapa
     await groupManager.loadGroupsToMemory(mapName);
 };
@@ -480,17 +504,17 @@ export const updateFeature = async (type, feature, mapName = null) => {
     const targetMap = mapName || getCurrentMapNameSync();
     const currentMapData = await getMapData(targetMap);
     const index = currentMapData.features[type].findIndex(f => f.properties.id === cleanedFeature.properties.id);
-    
+
     if (index !== -1) {
         const oldFeature = currentMapData.features[type][index];
-        
+
         // Track mudança de cor
         const oldColor = mapManager.getFeatureColor(oldFeature);
         const newColor = mapManager.getFeatureColor(cleanedFeature);
         if (oldColor !== newColor) {
             mapManager.updateColorUsage(oldColor, newColor, targetMap);
         }
-        
+
         if (JSON.stringify(oldFeature) !== JSON.stringify(cleanedFeature)) {
             currentMapData.features[type][index] = cleanedFeature;
             await updateMapData(targetMap, currentMapData);
@@ -646,7 +670,7 @@ export const addFeatures = async (featuresMap, mapName = null) => {
             const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
             currentMapData.features[type].push(...cleanedFeatures);
             action.features[type] = JSON.parse(JSON.stringify(cleanedFeatures));
-            
+
             // Track cores das novas features
             cleanedFeatures.forEach(feature => {
                 const color = mapManager.getFeatureColor(feature);
@@ -689,12 +713,12 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
     // Track mudança de cor se a propriedade afeta cor
     const isColorProperty = ['color', 'fillColor', 'lineColor', 'outlinecolor', 'backgroundColor'].includes(property);
     let oldColor, newColor;
-    
+
     if (isColorProperty) {
         oldColor = mapManager.getFeatureColor(feature);
         feature.properties[property] = value;
         newColor = mapManager.getFeatureColor(feature);
-        
+
         if (oldColor !== newColor) {
             mapManager.updateColorUsage(oldColor, newColor, targetMap);
         }
@@ -1019,10 +1043,10 @@ export const clearAllDataStore = async () => {
     await clearAllImageData();
     await clearAllAppSettings();
     await clearAllGroupData(); // NOVO: Limpar grupos
-    
+
     // Limpar todos os caches de cor internamente
     await mapManager.clearAllColorCaches();
-    
+
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
 };
 

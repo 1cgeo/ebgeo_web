@@ -129,7 +129,7 @@ const compareVersions = (version1, version2) => {
 const checkAndCleanLegacyData = async () => {
     try {
         const currentSchemaVersion = await appStore.getItem('schemaVersion');
-        
+
         if (!currentSchemaVersion || compareVersions(currentSchemaVersion, MIN_SCHEMA_VERSION) < 0) {
 
             await mapStore.clear();
@@ -201,14 +201,14 @@ const renameMapData = async (oldName, newName) => {
     if (mapData) {
         await mapStore.setItem(newName, mapData);
         await mapStore.removeItem(oldName);
-        
+
         // Transferir dados de cores
         const colorData = await getColorUsage(oldName);
         if (colorData && Object.keys(colorData).length > 0) {
             await setColorUsage(newName, colorData);
             await removeColorUsage(oldName);
         }
-        
+
         // Transferir notas
         const notesData = await getMapNotes(oldName);
         if (notesData && (notesData.title || notesData.description)) {
@@ -312,7 +312,7 @@ const clearAllAppSettings = async () => {
             console.warn(`Erro ao limpar dados do mapa ${mapName}:`, error);
         }
     }
-    
+
     // Limpar settings normais
     await appStore.clear();
 };
@@ -385,6 +385,28 @@ const removeMapNotes = async (mapName) => {
     await appStore.removeItem(key);
 };
 
+// ===== FRAME STYLE OPERATIONS =====
+const setFrameStyle = async (mapName, frameStyle) => {
+    const key = `frameStyle_${mapName}`;
+    await appStore.setItem(key, frameStyle);
+};
+
+const getFrameStyle = async (mapName) => {
+    const key = `frameStyle_${mapName}`;
+    return await appStore.getItem(key);
+};
+
+// ===== GRID STYLE OPERATIONS =====
+const setGridStyle = async (mapName, gridStyle) => {
+    const key = `gridStyle_${mapName}`;
+    await appStore.setItem(key, gridStyle);
+};
+
+const getGridStyle = async (mapName) => {
+    const key = `gridStyle_${mapName}`;
+    return await appStore.getItem(key);
+};
+
 // ===== EXPORTS =====
 
 export {
@@ -392,17 +414,17 @@ export {
     SCHEMA_VERSION,
     MIN_SCHEMA_VERSION,
     MAX_SCHEMA_VERSION,
-    
+
     // Utilities
     getEmptyMapData,
     cleanFeature,
     isInternalProperty,
     compareVersions,
     resetMemoryStore,
-    
+
     // Memory store access
     memoryStore,
-    
+
     // Map operations
     createMapData,
     getMapData,
@@ -410,7 +432,7 @@ export {
     deleteMapData,
     getAllMapNames,
     renameMapData,
-    
+
     // Image operations
     storeImageData,
     getImageData,
@@ -419,12 +441,12 @@ export {
     clearAllImageData,
     clearAllMapData,
     clearAllGroupData, // NOVO
-    
+
     // App settings
     setAppSetting,
     getAppSetting,
     clearAllAppSettings,
-    
+
     // Initialization
     initializeRepository,
 
@@ -437,6 +459,14 @@ export {
     setMapNotes,
     getMapNotes,
     removeMapNotes,
+
+    // Frame style operations
+    setFrameStyle,
+    getFrameStyle,
+
+    // Grid style operations
+    setGridStyle,
+    getGridStyle,
 
     // Group operations (NOVO)
     setMapGroups,

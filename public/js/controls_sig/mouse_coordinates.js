@@ -31,6 +31,10 @@ class MouseCoordinatesControl {
         this._currentElevation = null;
         this._debounceTimer = null;
         this._elevationAbortController = null;
+
+        //controls
+        this.frameControl = null;
+        this.gridControl = null;
     }
 
     onAdd(map) {
@@ -87,22 +91,29 @@ class MouseCoordinatesControl {
         gearButton.addEventListener('click', this._toggleFormatSelector.bind(this));
 
         // Create grid icon button
-        const gridControl = new GridControl(map, gridContainer);
-        const gridButton = document.createElement('div');
-        gridButton.className = 'coordinates-button coordinates-grid-button';
-        gridButton.title = "Ligar/desligar Quadrícula";
-        gridButton.innerHTML = `<img src="./images/grid_icon.svg" alt="Toogle grid" width="16" height="16" />`;
-        gridButton.addEventListener('click', gridControl._showGridMenu.bind(gridControl));
-        gridControl.setButton(gridButton);
+        if (config.features.grid) {
+            this.gridControl = new GridControl(map, gridContainer);
+            const gridButton = document.createElement('div');
+            gridButton.className = 'coordinates-button coordinates-grid-button';
+            gridButton.title = "Ligar/desligar Quadrícula";
+            gridButton.innerHTML = `<img src="./images/grid_icon.svg" alt="Toogle grid" width="16" height="16" />`;
+            gridButton.addEventListener('click', this.gridControl._showGridMenu.bind(this.gridControl));
+            this.gridControl.setButton(gridButton);
+            gridContainer.appendChild(gridButton);
+        }
 
-        // Create frame icon button
-        const frameControl = new FrameControl(map, gridContainer);
-        const frameButton = document.createElement('div');
-        frameButton.className = 'coordinates-button coordinates-grid-button';
-        frameButton.title = "Ligar/desligar Produtos";
-        frameButton.innerHTML = `<img src="./images/frame_icon.svg" alt="Toogle frame" width="16" height="16" />`;
-        frameButton.addEventListener('click', frameControl._showFrameMenu.bind(frameControl));
-        frameControl.setButton(frameButton);
+        if (config.features.frame){
+            // Create frame icon button
+            this.frameControl = new FrameControl(map, gridContainer);
+            const frameButton = document.createElement('div');
+            frameButton.className = 'coordinates-button coordinates-grid-button';
+            frameButton.title = "Ligar/desligar Produtos";
+            frameButton.innerHTML = `<img src="./images/frame_icon.svg" alt="Toogle frame" width="16" height="16" />`;
+            frameButton.addEventListener('click', this.frameControl._showFrameMenu.bind(this.frameControl));
+            this.frameControl.setButton(frameButton);
+            gridContainer.appendChild(frameButton);
+        }
+
 
 
         // Create format selector dropdown (initially hidden)
@@ -141,9 +152,7 @@ class MouseCoordinatesControl {
 
         controlsContainer.appendChild(flyToButton);
         controlsContainer.appendChild(this._elevationButton);
-        controlsContainer.appendChild(gearButton);
-        gridContainer.appendChild(gridButton);
-        gridContainer.appendChild(frameButton);
+        controlsContainer.appendChild(gearButton)
         if (config.features.grid || config.features.frame) {
             this._innerContainer.appendChild(gridContainer);
         }
