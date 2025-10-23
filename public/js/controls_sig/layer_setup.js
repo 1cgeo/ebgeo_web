@@ -1997,32 +1997,41 @@ async function setupFrameLayers(mapInstance) {
 async function setupGridLayers(mapInstance) {
     initGridLayers(mapInstance);
     try {
+         const mouseCoordinatesControl = mapInstance._controls.find(
+            c => c.constructor.name === 'MouseCoordinatesControl'
+        );
+
+        if (!mouseCoordinatesControl) {
+            console.log('Nenhum controle de mouse encontrado');
+            return;
+        }
+
+        const gridControl = mouseCoordinatesControl.gridControl;
+
+
+
+
+        if (!gridControl) {
+            console.log('Nenhum controle de grid encontrado');
+            return;
+        }
         const mapName = getCurrentMapNameSync();
         const savedGrid = await getGridStyle(mapName);
 
-        if (!savedGrid) {
-            mapInstance.getStyle().layers.forEach(layer => {
-                if (layer.id.startsWith('grid_')) {
-                    if (mapInstance.getLayer(layer.id)) {
-                        mapInstance.setLayoutProperty(layer.id, 'visibility', 'none');
-                    }
-                }
-            });
-            return;
-        }
-        const visible = savedGrid.visible ?? true;
-        const format = savedGrid.format || 'latlong';
 
-        if (visible && GRID_LAYERS[format]) {
-            GRID_LAYERS[format].forEach(layerId => {
-                if (mapInstance.getLayer(layerId)) {
-                    mapInstance.setLayoutProperty(layerId, 'visibility', 'visible');
-                }
-            });
-        }
+        let format = 'latlong';
+        let visible = false;
 
-        console.info(`Grid restaurado: visible = ${visible}, format = ${format}`);
-    } catch (err) {
-        console.warn('Erro ao restaurar grid:', err);
+        if (savedGrid) {
+            format = savedGrid.format ?? 'latlong';
+            visible = savedGrid.visible ?? false;
+        }
+        gridControl._getGrid(format, visible, false);
+        gridControl._updateButtonState(visible);
+        console.info(`Grid restaurado: format = ${format}, visível=${visible}`);
+
+
+    } catch (error) {
+        console.warn('Erro ao restaurar grid:', error);
     }
 }

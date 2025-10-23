@@ -1,4 +1,5 @@
 import { GRID_LAYERS, initGridLayers } from './gridLayersConfig.js';
+import { getCurrentMapNameSync, getGridStyle, setGridStyle } from './store/store.js';
 
 class GridControl {
     constructor(map, buttonContainer) {
@@ -12,7 +13,7 @@ class GridControl {
 
     }
 
-    _showGridMenu(e) {
+    async _showGridMenu(e) {
         e.preventDefault();
         e.stopPropagation();
 
@@ -23,6 +24,20 @@ class GridControl {
             this._contextMenu.style.display = 'none';
             return;
         }
+
+        try {
+            const mapName = getCurrentMapNameSync();
+            const savedGrid = await getGridStyle(mapName);
+            if (savedGrid) {
+                console.log(savedGrid.visible)
+                this._currentFormat = savedGrid.format || 'latlong';
+                this._gridVisible = !!savedGrid.visible;
+                this._getGrid(this._currentFormat);
+            }
+        } catch (err) {
+            console.warn('Erro ao verificar estado do grid:', err);
+        }
+
 
         // Atualiza a marcação visual dos itens do menu antes de abrir
         const items = this._contextMenu.querySelectorAll('.coordinates-format-option');
@@ -97,7 +112,7 @@ class GridControl {
         }
 
         // Evento de click
-        item.addEventListener('click', (e) => {
+        item.addEventListener('click', async(e) => {
             e.stopPropagation();
             if (format === 'off') {
                 this._gridVisible = false;
@@ -110,15 +125,22 @@ class GridControl {
                 this._updateButtonState();
             }
             this._contextMenu.style.display = 'none';
+            const mapName = getCurrentMapNameSync();
+            await setGridStyle(mapName, {
+                format: this._currentFormat,
+                visible: this._gridVisible
+            });
         });
+
+
 
         return item;
     }
 
-    _updateButtonState() {
+    _updateButtonState(gridVisible=this._gridVisible) {
         if (!this._gridButton) return;
 
-        if (this._gridVisible) {
+        if (gridVisible) {
             // Grid ativo - botão com estilo ativo
             this._gridButton.style.backgroundColor = 'rgba(80, 141, 78, 0.2)';
             this._gridButton.style.opacity = 1;
@@ -141,11 +163,11 @@ class GridControl {
         initGridLayers(this._map);
     }
 
-    _getGrid(format) {
+    _getGrid(format, gridVisible=this._gridVisible, zoomin=true) {
         const currentZoom = this._map.getZoom();
 
         // Se o zoom for menor que 8, ajusta para 8
-        if (currentZoom < 8 && this._gridVisible) {
+        if (currentZoom < 8 && gridVisible && zoomin) {
             this._map.setZoom(8);
         }
 
@@ -157,7 +179,7 @@ class GridControl {
             });
         });
 
-        if (this._gridVisible && this.GRID_LAYERS[format]) {
+        if (gridVisible && this.GRID_LAYERS[format]) {
             this.GRID_LAYERS[format].forEach(layerId => {
                 if (this._map.getLayer(layerId)) {
                     this._map.setLayoutProperty(layerId, 'visibility', 'visible');

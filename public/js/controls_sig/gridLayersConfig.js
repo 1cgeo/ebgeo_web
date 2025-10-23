@@ -41,47 +41,65 @@ export const GRID_LAYERS = {
 // Função para adicionar todas as camadas e fontes ao mapa
 export function initGridLayers(map) {
 
+    if(!map.getSource('grid_4326_25k')){
     map.addSource('grid_4326_25k', {
         type: 'vector',
-        url: 'http://IP:PORT:4000/grid_4326_25k'
+        url: 'http://IP:PORT/grid_4326_25k'
     });
+    }
 
+    if(!map.getSource('grid_utm_25k')){
     map.addSource('grid_utm_25k', {
         type: 'vector',
-        url: 'http://IP:PORT:4000/grid_utm_25k'
+        url: 'http://IP:PORT/grid_utm_25k'
     });
+    }
 
+    if(!map.getSource('grid_4326_50k')){
     map.addSource('grid_4326_50k', {
         type: 'vector',
-        url: 'http://IP:PORT:4000/grid_4326_50k'
+        url: 'http://IP:PORT/grid_4326_50k'
     });
+    }
 
+    if(!map.getSource('grid_utm_50k')){
     map.addSource('grid_utm_50k', {
         type: 'vector',
-        url: 'http://IP:PORT:4000/grid_utm_50k'
+        url: 'http://IP:PORT/grid_utm_50k'
     });
+    }
 
+    if(!map.getSource('grid_4326_100k')){
     map.addSource('grid_4326_100k', {
         type: 'vector',
-        url: 'http://IP:PORT:4000/grid_4326_100k'
+        url: 'http://IP:PORT/grid_4326_100k'
     });
+    }
 
+    if(!map.getSource('grid_utm_100k')){
     map.addSource('grid_utm_100k', {
         type: 'vector',
-        url: 'http://IP:PORT:4000/grid_utm_100k'
+        url: 'http://IP:PORT/grid_utm_100k'
     });
+    }
 
+    if(!map.getSource('grid_4326_250k')){
     map.addSource('grid_4326_250k', {
         type: 'vector',
-        url: 'http://IP:PORT:4000/grid_4326_250k'
+        url: 'http://IP:PORT/grid_4326_250k'
     });
+    }
 
+    if(!map.getSource('grid_utm_250k')){
     map.addSource('grid_utm_250k', {
         type: 'vector',
-        url: 'http://IP:PORT:4000/grid_utm_250k'
+        url: 'http://IP:PORT/grid_utm_250k'
     });
+    }
+
 
     // Grid 4326 (latlong)
+    if (!map.getLayer("grid_vertical_4326_25k")){
     map.addLayer({
         "id": "grid_vertical_4326_25k",
         "type": "line",
@@ -99,7 +117,9 @@ export function initGridLayers(map) {
         "minzoom": 14,
         "maxzoom": 17
     });
+    }
 
+    if (!map.getLayer("grid_label_vertical_25k")){
     map.addLayer({
         "id": "grid_label_vertical_25k",
         "type": "symbol",
@@ -129,7 +149,9 @@ export function initGridLayers(map) {
         "minzoom": 14,
         "maxzoom": 17
     });
+    }
 
+    if (!map.getLayer("grid_horizontal_4326_25k")){
     map.addLayer({
         "id": "grid_horizontal_4326_25k",
         "type": "line",
@@ -147,7 +169,9 @@ export function initGridLayers(map) {
         "minzoom": 14,
         "maxzoom": 17
     });
+    }
 
+    if (!map.getLayer("grid_label_horizontal_25k")){
     map.addLayer({
         "id": "grid_label_horizontal_25k",
         "type": "symbol",
@@ -178,7 +202,9 @@ export function initGridLayers(map) {
         "maxzoom": 17
     });
 
+    }
     // Grid UTM
+    if (!map.getLayer("grid_vertical_utm_25k")){
     map.addLayer({
         "id": "grid_vertical_utm_25k",
         "type": "line",
@@ -196,7 +222,9 @@ export function initGridLayers(map) {
         "minzoom": 14,
         "maxzoom": 17
     });
+    }
 
+    if (!map.getLayer("grid_label_vertical_utm_25k")){
     map.addLayer({
         "id": "grid_label_vertical_utm_25k",
         "type": "symbol",
@@ -226,7 +254,9 @@ export function initGridLayers(map) {
         "minzoom": 14,
         "maxzoom": 17
     });
+    }
 
+    if (!map.getLayer("grid_horizontal_utm_25k")){
     map.addLayer({
         "id": "grid_horizontal_utm_25k",
         "type": "line",
@@ -244,7 +274,9 @@ export function initGridLayers(map) {
         "minzoom": 14,
         "maxzoom": 17
     });
+    }
 
+    if (!map.getLayer("grid_label_horizontal_utm_25k")){
     map.addLayer({
         "id": "grid_label_horizontal_utm_25k",
         "type": "symbol",
@@ -274,7 +306,9 @@ export function initGridLayers(map) {
         "minzoom": 14,
         "maxzoom": 17
     });
+    }
     // Grid 4326 (latlong)
+    if (!map.getLayer("grid_vertical_4326_50k")){
     map.addLayer({
         "id": "grid_vertical_4326_50k",
         "type": "line",
@@ -292,7 +326,9 @@ export function initGridLayers(map) {
         "minzoom": 13,
         "maxzoom": 14
     });
+    }
 
+    if (!map.getLayer("grid_label_vertical_50k")){
     map.addLayer({
         "id": "grid_label_vertical_50k",
         "type": "symbol",
@@ -322,7 +358,9 @@ export function initGridLayers(map) {
         "minzoom": 13,
         "maxzoom": 14
     });
+    }
 
+    if (!map.getLayer("grid_horizontal_4326_50k")){
     map.addLayer({
         "id": "grid_horizontal_4326_50k",
         "type": "line",
@@ -340,7 +378,9 @@ export function initGridLayers(map) {
         "minzoom": 13,
         "maxzoom": 14
     });
+    }
 
+    if (!map.getLayer("grid_label_horizontal_50k")){
     map.addLayer({
         "id": "grid_label_horizontal_50k",
         "type": "symbol",
@@ -371,7 +411,9 @@ export function initGridLayers(map) {
         "maxzoom": 14
     });
 
+    }
     // Grid UTM
+    if (!map.getLayer("grid_vertical_utm_50k")){
     map.addLayer({
         "id": "grid_vertical_utm_50k",
         "type": "line",
@@ -389,7 +431,9 @@ export function initGridLayers(map) {
         "minzoom": 13,
         "maxzoom": 14
     });
+    }
 
+    if (!map.getLayer("grid_label_vertical_utm_50k")){
     map.addLayer({
         "id": "grid_label_vertical_utm_50k",
         "type": "symbol",
@@ -419,7 +463,9 @@ export function initGridLayers(map) {
         "minzoom": 13,
         "maxzoom": 14
     });
+    }
 
+    if (!map.getLayer("grid_horizontal_utm_50k")){
     map.addLayer({
         "id": "grid_horizontal_utm_50k",
         "type": "line",
@@ -437,7 +483,9 @@ export function initGridLayers(map) {
         "minzoom": 13,
         "maxzoom": 14
     });
+    }
 
+    if (!map.getLayer("grid_label_horizontal_utm_50k")){
     map.addLayer({
         "id": "grid_label_horizontal_utm_50k",
         "type": "symbol",
@@ -467,7 +515,9 @@ export function initGridLayers(map) {
         "minzoom": 13,
         "maxzoom": 14
     });
+    }
     // Grid 4326 (latlong)
+    if (!map.getLayer("grid_vertical_4326_100k")){
     map.addLayer({
         "id": "grid_vertical_4326_100k",
         "type": "line",
@@ -485,7 +535,9 @@ export function initGridLayers(map) {
         "minzoom": 12,
         "maxzoom": 13
     });
+    }
 
+    if (!map.getLayer("grid_label_vertical_100k")){
     map.addLayer({
         "id": "grid_label_vertical_100k",
         "type": "symbol",
@@ -515,7 +567,9 @@ export function initGridLayers(map) {
         "minzoom": 12,
         "maxzoom": 13
     });
+    }
 
+    if (!map.getLayer("grid_horizontal_4326_100k")){
     map.addLayer({
         "id": "grid_horizontal_4326_100k",
         "type": "line",
@@ -533,7 +587,9 @@ export function initGridLayers(map) {
         "minzoom": 12,
         "maxzoom": 13
     });
+    }
 
+    if (!map.getLayer("grid_label_horizontal_100k")){
     map.addLayer({
         "id": "grid_label_horizontal_100k",
         "type": "symbol",
@@ -564,7 +620,9 @@ export function initGridLayers(map) {
         "maxzoom": 13
     });
 
+    }
     // Grid UTM
+    if (!map.getLayer("grid_vertical_utm_100k")){
     map.addLayer({
         "id": "grid_vertical_utm_100k",
         "type": "line",
@@ -582,7 +640,9 @@ export function initGridLayers(map) {
         "minzoom": 12,
         "maxzoom": 13
     });
+    }
 
+    if (!map.getLayer("grid_label_vertical_utm_100k")){
     map.addLayer({
         "id": "grid_label_vertical_utm_100k",
         "type": "symbol",
@@ -612,7 +672,9 @@ export function initGridLayers(map) {
         "minzoom": 12,
         "maxzoom": 13
     });
+    }
 
+    if (!map.getLayer("grid_horizontal_utm_100k")){
     map.addLayer({
         "id": "grid_horizontal_utm_100k",
         "type": "line",
@@ -630,7 +692,9 @@ export function initGridLayers(map) {
         "minzoom": 12,
         "maxzoom": 13
     });
+    }
 
+    if (!map.getLayer("grid_label_horizontal_utm_100k")){
     map.addLayer({
         "id": "grid_label_horizontal_utm_100k",
         "type": "symbol",
@@ -660,7 +724,9 @@ export function initGridLayers(map) {
         "minzoom": 12,
         "maxzoom": 13
     });
+    }
     // Grid 4326 (latlong)
+    if (!map.getLayer("grid_vertical_4326_250k")){
     map.addLayer({
         "id": "grid_vertical_4326_250k",
         "type": "line",
@@ -675,10 +741,12 @@ export function initGridLayers(map) {
             "line-color": "#241f21",
             "line-width": 1.5
         },
-        "minzoom": 7,
+        "minzoom": 8,
         "maxzoom": 12
     });
+    }
 
+    if (!map.getLayer("grid_label_vertical_250k")){
     map.addLayer({
         "id": "grid_label_vertical_250k",
         "type": "symbol",
@@ -705,10 +773,12 @@ export function initGridLayers(map) {
             "text-halo-width": 7.5,
             "text-halo-blur": 1.5
         },
-        "minzoom": 7,
+        "minzoom": 8,
         "maxzoom": 12
     });
+    }
 
+    if (!map.getLayer("grid_horizontal_4326_250k")){
     map.addLayer({
         "id": "grid_horizontal_4326_250k",
         "type": "line",
@@ -723,10 +793,12 @@ export function initGridLayers(map) {
             "line-color": "#241f21",
             "line-width": 1.5
         },
-        "minzoom": 7,
+        "minzoom": 8,
         "maxzoom": 12
     });
+    }
 
+    if (!map.getLayer("grid_label_horizontal_250k")){
     map.addLayer({
         "id": "grid_label_horizontal_250k",
         "type": "symbol",
@@ -753,11 +825,13 @@ export function initGridLayers(map) {
             "text-halo-width": 7.5,
             "text-halo-blur": 1.5
         },
-        "minzoom": 7,
+        "minzoom": 8,
         "maxzoom": 12
     });
 
+    }
     // Grid UTM
+    if (!map.getLayer("grid_vertical_utm_250k")){
     map.addLayer({
         "id": "grid_vertical_utm_250k",
         "type": "line",
@@ -772,10 +846,12 @@ export function initGridLayers(map) {
             "line-color": "#241f21",
             "line-width": 1.5
         },
-        "minzoom": 7,
+        "minzoom": 8,
         "maxzoom": 12
     });
+    }
 
+    if (!map.getLayer("grid_label_vertical_utm_250k")){
     map.addLayer({
         "id": "grid_label_vertical_utm_250k",
         "type": "symbol",
@@ -802,10 +878,12 @@ export function initGridLayers(map) {
             "text-halo-width": 7.5,
             "text-halo-blur": 1.5
         },
-        "minzoom": 7,
+        "minzoom": 8,
         "maxzoom": 12
     });
+    }
 
+    if (!map.getLayer("grid_horizontal_utm_250k")){
     map.addLayer({
         "id": "grid_horizontal_utm_250k",
         "type": "line",
@@ -820,10 +898,12 @@ export function initGridLayers(map) {
             "line-color": "#241f21",
             "line-width": 1.5
         },
-        "minzoom": 7,
+        "minzoom": 8,
         "maxzoom": 12
     });
+    }
 
+    if (!map.getLayer("grid_label_horizontal_utm_250k")){
     map.addLayer({
         "id": "grid_label_horizontal_utm_250k",
         "type": "symbol",
@@ -850,7 +930,8 @@ export function initGridLayers(map) {
             "text-halo-width": 7.5,
             "text-halo-blur": 1.5
         },
-        "minzoom": 7,
+        "minzoom": 8,
         "maxzoom": 12
     });
+    }
 }
