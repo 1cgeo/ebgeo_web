@@ -1,4 +1,4 @@
-// Definição dos grupos de camadas por formato
+// Path: js\controls_sig\frameLayersConfig.js
 export const FRAME_LAYERS = {
   scale_25k: [
     'moldura_fill_25k',

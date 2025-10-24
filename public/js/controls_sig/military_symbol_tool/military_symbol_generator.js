@@ -5,12 +5,41 @@ import {
     applyBrazilianModifications,
     processEntityExtension 
 } from './brazilian_svg_postprocessing.js';
+import landUnitsData from './land_units.js';
 
 const DEFAULT_SIZE = 100;
 
 export class MilitarySymbolGenerator {
     constructor() {
         this.symbolCache = new Map();
+    }
+
+
+    /**
+     * Helper function to find extension value from land_units.js
+     * @param {string} catalogType - 'mainIcon', 'modifier1', 'modifier2'
+     * @param {string} code - Code to search for
+     * @returns {number} Extension value (0 if not found or not an extension)
+     */
+    findExtensionValue(catalogType, code) {
+        if (!code || code === '00') return 0;
+        
+        let catalog;
+        if (catalogType === 'mainIcon') {
+            catalog = landUnitsData.symbol_sets[0]["main icon"];
+        } else if (catalogType === 'modifier1') {
+            catalog = landUnitsData.symbol_sets[0]["modifier 1"];
+        } else if (catalogType === 'modifier2') {
+            catalog = landUnitsData.symbol_sets[0]["modifier 2"];
+        } else {
+            return 0;
+        }
+        
+        // Find entry with matching code
+        const entry = catalog.find(item => item.code === code);
+        
+        // Return extension value if it exists, otherwise 0
+        return entry?.extension || 0;
     }
 
     buildSIDC(properties) {
@@ -28,9 +57,35 @@ export class MilitarySymbolGenerator {
         const modifier1 = properties.modifier1 || "00";                   // I: 2 digits
         const modifier2 = properties.modifier2 || "00";                   // J: 2 digits
 
-        const sidc = `${formatId}${context}${standardIdentity}${symbolSet}${status}${hqTfDummy}${echelon}${mainIcon}${modifier1}${modifier2}`;
+        const sidc20 = `${formatId}${context}${standardIdentity}${symbolSet}${status}${hqTfDummy}${echelon}${mainIcon}${modifier1}${modifier2}`;
 
-        return sidc;
+        // Check if any component requires Brazilian extension
+        const mainIconExtension = this.findExtensionValue('mainIcon', mainIcon);
+        const mod1ExtensionValue = this.findExtensionValue('modifier1', modifier1);
+        const mod2ExtensionValue = this.findExtensionValue('modifier2', modifier2);
+        
+        // Check if any extension is present
+        const hasExtension = mainIconExtension > 0 || mod1ExtensionValue > 0 || mod2ExtensionValue > 0;
+        
+        if (!hasExtension) {
+            // No extensions, return 30-digit SIDC with default extension
+            return sidc20 + '0760000000';
+        }
+        
+        // Build extension fields
+        const extensionFields = {
+            entityExtension: mainIconExtension,
+            isCommand: false,
+            specialModifier: 0,
+            mod1Extension: mod1ExtensionValue,
+            mod2Extension: mod2ExtensionValue
+        };
+        
+        // Encode extension
+        const extension = BrazilianSIDCExtension.encode(extensionFields);
+        
+        // Return 30-digit SIDC
+        return sidc20 + extension;
     }
 
     parseSIDC(sidc) {

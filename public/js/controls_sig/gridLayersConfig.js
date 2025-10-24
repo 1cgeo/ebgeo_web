@@ -1,4 +1,4 @@
-// Definição dos grupos de camadas por formato
+// Path: js\controls_sig\gridLayersConfig.js
 export const GRID_LAYERS = {
   latlong: [
     'grid_vertical_4326_25k',

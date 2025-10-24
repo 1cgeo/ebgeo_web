@@ -54,7 +54,7 @@ export default {
           "entity": "Command and Control",
           "entity_type": "Military Information Support Operations (MISO)",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Operações de Apoio à Informação Militar (MISO)",
+          "entity_type_portugues": "Operações Psicológicas",
           "code": "110600"
         },
         {
@@ -62,7 +62,7 @@ export default {
           "entity_type": "Military Information Support Operations (MISO)",
           "entity_subtype": "Broadcast Transmitter Antennae",
           "entity_portugues": "Comando e Controle",
-          "entity_type_portugues": "Operações de Apoio à Informação Militar (MISO)",
+          "entity_type_portugues": "Operações Psicológicas",
           "entity_subtype_portugues": "Antenas de Transmissão de Radiodifusão",
           "code": "110601"
         },
@@ -2812,9 +2812,12 @@ export default {
           "code": "77"
         },
         {
-          "entity": "{Reserved for future use}",
-          "entity_portugues": "{Reservado para uso futuro}",
-          "code": "79-98"
+          "entity": "Jungle (Brazilian Extension)",
+          "entity_type": "Environment",
+          "entity_portugues": "Selva",
+          "entity_type_portugues": "Ambiente",
+          "code": "99",
+          "extension": 3
         }
       ]
     }

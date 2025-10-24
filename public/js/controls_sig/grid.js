@@ -1,3 +1,4 @@
+// Path: js\controls_sig\grid.js
 import { GRID_LAYERS, initGridLayers } from './gridLayersConfig.js';
 import { getCurrentMapNameSync, getGridStyle, setGridStyle } from './store/store.js';
 

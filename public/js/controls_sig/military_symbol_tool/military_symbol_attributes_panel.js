@@ -872,7 +872,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         const sidcInput = document.createElement('input');
         sidcInput.type = 'text';
-        sidcInput.maxLength = 30;
         sidcInput.placeholder = '30 dígitos (ex: 10031000161211000000 0760000000)';
         sidcInput.style.cssText = `
             width: 100%;
@@ -1105,6 +1104,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         sidcInput.addEventListener('input', (e) => {
             let cleanSIDC = e.target.value.replace(/\s/g, '').trim();
+
+            // Limit to 30 digits AFTER cleaning spaces
+            if (cleanSIDC.length > 30) {
+                cleanSIDC = cleanSIDC.substring(0, 30);
+            }
 
             // Update input field with cleaned value
             if (e.target.value !== cleanSIDC) {
