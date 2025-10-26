@@ -63,9 +63,15 @@ export class MilitarySymbolGenerator {
         const mainIconExtension = this.findExtensionValue('mainIcon', mainIcon);
         const mod1ExtensionValue = this.findExtensionValue('modifier1', modifier1);
         const mod2ExtensionValue = this.findExtensionValue('modifier2', modifier2);
+        const specialModifierValue = properties.specialModifier ? parseInt(properties.specialModifier) : 0;
+        const isCommandValue = properties.isCommand || false;
         
-        // Check if any extension is present
-        const hasExtension = mainIconExtension > 0 || mod1ExtensionValue > 0 || mod2ExtensionValue > 0;
+        // Check if any extension is present (including specialModifier and isCommand)
+        const hasExtension = mainIconExtension > 0 || 
+                             mod1ExtensionValue > 0 || 
+                             mod2ExtensionValue > 0 ||
+                             specialModifierValue > 0 ||
+                             isCommandValue;
         
         if (!hasExtension) {
             // No extensions, return 30-digit SIDC with default extension
@@ -75,8 +81,8 @@ export class MilitarySymbolGenerator {
         // Build extension fields
         const extensionFields = {
             entityExtension: mainIconExtension,
-            isCommand: false,
-            specialModifier: 0,
+            isCommand: isCommandValue,
+            specialModifier: specialModifierValue,
             mod1Extension: mod1ExtensionValue,
             mod2Extension: mod2ExtensionValue
         };
@@ -112,6 +118,17 @@ export class MilitarySymbolGenerator {
             modifier2: sidc20.substring(18, 20)      // J: positions 19-20
         };
 
+
+        // Decode Brazilian extension if present (30-digit SIDC)
+        if (sidc.length === 30) {
+            const extensionString = sidc.substring(20);
+            const extension = BrazilianSIDCExtension.decode(extensionString);
+            
+            if (extension) {
+                properties.specialModifier = extension.specialModifier.toString();
+                properties.isCommand = extension.isCommand;
+            }
+        }
         return properties;
     }
 

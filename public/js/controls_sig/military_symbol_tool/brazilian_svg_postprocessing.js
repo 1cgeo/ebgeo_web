@@ -342,6 +342,25 @@ function insertBeforeEchelon(svgString, elementToInsert) {
     // Fallback: insert before </svg>
     return svgString.replace('</svg>', `${elementToInsert}</svg>`);
 }
+/**
+ * Add command line to SVG (for command elements)
+ * @param {string} svgString - Base SVG
+ * @param {boolean} isCommand - Whether this is a command element
+ * @returns {string} Modified SVG with command line if applicable
+ */
+export function addCommandLineToSVG(svgString, isCommand) {
+    if (!isCommand) {
+        return svgString;
+    }
+    
+    // Command line SVG: horizontal line at top
+    const commandLineSVG = '<path d="M25,80 l150,0 " stroke-width="4" stroke="black" fill="none"></path>';
+    
+    // Insert before echelon (similar to other modifiers)
+    return insertBeforeEchelon(svgString, commandLineSVG);
+}
+
+
 
 /**
  * ========================================
@@ -396,6 +415,11 @@ export function applyBrazilianModifications(svgString, sidc30, mainIcon) {
     // 6. SITUAÇÃO 3.4: Mod1 Extended
     if (extension.mod1Extension > 0) {
         result = addExtendedMod1ToSVG(result, extension.mod1Extension);
+    }
+    
+    // 7. Command Line (if command element)
+    if (extension.isCommand) {
+        result = addCommandLineToSVG(result, extension.isCommand);
     }
     
     return result;

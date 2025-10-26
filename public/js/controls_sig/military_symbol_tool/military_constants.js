@@ -65,4 +65,15 @@ export const MILITARY_DATA = {
 
     // Campo J: Modificador 2 (2 dígitos) - do land_units.json
     modifier2: landUnitsData.symbol_sets[0]["modifier 2"]
+,
+
+    // Modificador Transversal (Extensão Brasileira - Bits 10-12)
+    // Modificador especial sobreposto ao ícone principal
+    specialModifier: [
+        { value: "0", label: "Não Aplicável" },
+        { value: "1", label: "Blindado" },
+        { value: "2", label: "Mecanizado" },
+        { value: "3", label: "Motorizado" },
+        { value: "4", label: "Defesa Aérea" }
+    ]
 };

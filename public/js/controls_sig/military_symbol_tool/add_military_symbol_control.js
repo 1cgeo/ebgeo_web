@@ -560,7 +560,6 @@ class AddMilitarySymbolControl extends BaseControl {
       const symbolBlob = await this.symbolGenerator.generateSymbolBlob(
         feature.properties
       );
-      console.log('update symbol')
 
       // Update imageStore
       await storeImage(symbolId, symbolBlob);
@@ -793,7 +792,6 @@ class AddMilitarySymbolControl extends BaseControl {
               oldSIDC !== sourceFeature.properties.sidc;
             const colorChanged =
               property === "fillColor" && oldFillColor !== value;
-            console.log(sidcChanged, colorChanged)
             if (sidcChanged || colorChanged) {
               this.scheduleSymbolUpdate(feature);
             }

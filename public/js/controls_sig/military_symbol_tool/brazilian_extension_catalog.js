@@ -87,22 +87,28 @@ export const SPECIAL_MODIFIERS_CATALOG = {
     1: {
         // Blindado
         type: 'svg',
-        svg: '<ellipse cx="100" cy="103" rx="30" ry="15" fill="none" stroke="black" stroke-width="3"/>'
+        svg: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="4" stroke="black" fill="none"></path>'
     },
     
     2: {
-        // Mecanizado
+        // Motorizado
         type: 'svg',
-        svg: `
-            <circle cx="85" cy="110" r="5" fill="black"/>
-            <circle cx="115" cy="110" r="5" fill="black"/>
-        `
+        svg: `<path d="M100,50L100,150" stroke-width="4" stroke="black" fill="black"></path>`
     },
     
     3: {
-        // Motorizado
+        // Mecanizado
         type: 'svg',
-        svg: '<line x1="70" y1="103" x2="130" y2="103" stroke="black" stroke-width="3"/>'
+        svg: `<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="4" stroke="black" fill="none"></path>
+            <circle cx="70" cy="125" r="5" stroke-width="4" stroke="black" fill="none"></circle>
+            <circle cx="100" cy="125" r="5" stroke-width="4" stroke="black" fill="none"></circle>
+            <circle cx="130" cy="125" r="5" stroke-width="4" stroke="black" fill="none"></circle>`
+    },
+    
+    4: {
+        // Defesa Aérea
+        type: 'svg',
+        svg: '<path d="M25,150 C45,110 155,110 175,150" stroke-width="4" stroke="black" fill="none"></path>'
     }
 };
 

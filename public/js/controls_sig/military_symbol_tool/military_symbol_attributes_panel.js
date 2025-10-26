@@ -132,7 +132,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         });
     }
 
-    function createDigitalComboBox(options, currentValue, onChange, label, simplifiedDisplay = false) {
+    function createDigitalComboBox(options, currentValue, onChange, label, simplifiedDisplay = false, displayMode = 'modifier') {
         const container = document.createElement('div');
         container.className = 'digital-combo-container';
         container.style.cssText = 'margin-bottom: 20px; position: relative;';
@@ -228,18 +228,21 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         function getOptionDisplayText(option) {
             if (option.entity_portugues) {
-                if (simplifiedDisplay) {
-                    return option.entity_portugues;
-                }
-
-                // Modo normal - hierarquia completa
-                if (option.entity_subtype_portugues && option.entity_type_portugues) {
-                    return option.entity_type_portugues + ' - ' + option.entity_subtype_portugues;
-                }
-                else if (option.entity_type_portugues) {
-                    return option.entity_portugues + ' - ' + option.entity_type_portugues;
-                }
-                else {
+                // For modifiers: show entity_portugues (the main information)
+                // For mainIcon: show the most detailed level (deepest in hierarchy)
+                if (displayMode === 'mainIcon') {
+                    // Main Icon: show deepest level
+                    if (option.entity_subtype_portugues) {
+                        return option.entity_subtype_portugues;
+                    }
+                    else if (option.entity_type_portugues) {
+                        return option.entity_type_portugues;
+                    }
+                    else {
+                        return option.entity_portugues;
+                    }
+                } else {
+                    // Modifiers: show entity_portugues only
                     return option.entity_portugues;
                 }
             }
@@ -248,11 +251,16 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         function getOptionTooltipText(option) {
             if (option.entity_portugues) {
-                const parts = [];
-                if (option.entity_portugues) parts.push(option.entity_portugues);
-                if (option.entity_type_portugues) parts.push(option.entity_type_portugues);
-                if (option.entity_subtype_portugues) parts.push(option.entity_subtype_portugues);
-                return parts.join(' → ');
+                // Always show only the most detailed level available (deepest in hierarchy)
+                if (option.entity_subtype_portugues) {
+                    return option.entity_subtype_portugues;
+                }
+                else if (option.entity_type_portugues) {
+                    return option.entity_type_portugues;
+                }
+                else {
+                    return option.entity_portugues;
+                }
             }
             return option.label;
         }
@@ -390,46 +398,34 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             `;
 
             if (option.entity_portugues) {
-                const hierarchy = document.createElement('div');
-
-                const mainText = document.createElement('div');
-                mainText.textContent = option.entity_portugues;
-                mainText.style.cssText = `
-                    font-weight: ${isCurrentValue ? '700' : '600'}; 
-                    font-size: 14px; 
-                    color: #333; 
-                    margin-bottom: 2px;
-                `;
-                hierarchy.appendChild(mainText);
-
-                if (!simplifiedDisplay) {
-                    if (option.entity_type_portugues) {
-                        const typeText = document.createElement('div');
-                        typeText.textContent = '→ ' + option.entity_type_portugues;
-                        typeText.style.cssText = `
-                            font-size: 14px; 
-                            color: #666; 
-                            margin-bottom: 1px; 
-                            font-weight: 500;
-                            margin-left: 10px;
-                        `;
-                        hierarchy.appendChild(typeText);
-                    }
-
+                // Show based on displayMode
+                let displayText;
+                if (displayMode === 'mainIcon') {
+                    // Main Icon: show deepest level
                     if (option.entity_subtype_portugues) {
-                        const subtypeText = document.createElement('div');
-                        subtypeText.textContent = '→ ' + option.entity_subtype_portugues;
-                        subtypeText.style.cssText = `
-                            font-size: 13px; 
-                            color: #888; 
-                            font-weight: 400;
-                            margin-left: 20px;
-                        `;
-                        hierarchy.appendChild(subtypeText);
+                        displayText = option.entity_subtype_portugues;
                     }
+                    else if (option.entity_type_portugues) {
+                        displayText = option.entity_type_portugues;
+                    }
+                    else {
+                        displayText = option.entity_portugues;
+                    }
+                } else {
+                    // Modifiers: show entity_portugues only
+                    displayText = option.entity_portugues;
                 }
 
-                item.appendChild(hierarchy);
+                const textElement = document.createElement('div');
+                textElement.textContent = displayText;
+                textElement.style.cssText = `
+                    font-weight: ${isCurrentValue ? '700' : '600'}; 
+                    font-size: 14px; 
+                    color: #333;
+                `;
+                textElement.title = displayText;
+
+                item.appendChild(textElement);
             } else {
                 item.textContent = option.label;
                 item.style.fontSize = '14px';
@@ -437,17 +433,16 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 item.style.color = '#333';
             }
 
-            if (!isCurrentValue) {
-                item.onmouseenter = () => {
-                    highlightedIndex = index;
-                    updateHighlight(index);
-                };
-                item.onmouseleave = () => {
-                    if (!item.classList.contains('highlighted')) {
-                        item.style.backgroundColor = '';
-                    }
-                };
-            }
+            // Always add mouse event listeners (preview should work even on selected item)
+            item.onmouseenter = () => {
+                highlightedIndex = index;
+                updateHighlight(index);
+            };
+            item.onmouseleave = () => {
+                if (!item.classList.contains('highlighted')) {
+                    item.style.backgroundColor = '';
+                }
+            };
 
             item.onclick = (e) => {
                 e.stopPropagation();
@@ -975,6 +970,65 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         );
         column1.appendChild(comboboxes.echelon);
 
+        comboboxes.specialModifier = createDigitalComboBox(
+            MILITARY_DATA.specialModifier,
+            tempProperties.specialModifier || "0",
+            (value) => {
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.specialModifier = value;
+                    updatePreviewFromComboboxes();
+                }
+            },
+            'Modificador Transversal'
+            // simplifiedDisplay = false (default)
+        );
+        column1.appendChild(comboboxes.specialModifier);
+
+        // Checkbox Elemento de Comando
+        const commandCheckboxContainer = document.createElement('div');
+        commandCheckboxContainer.style.cssText = 'margin-bottom: 20px;';
+
+        const commandLabel = document.createElement('label');
+        commandLabel.textContent = 'Elemento de Comando:';
+        commandLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+
+        const commandCheckboxWrapper = document.createElement('div');
+        commandCheckboxWrapper.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+        const commandCheckbox = createCheckbox(
+            tempProperties.isCommand || false,
+            (e) => {
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.isCommand = e.target.checked;
+                    updatePreviewFromComboboxes();
+                }
+            }
+        );
+
+        const commandCheckboxLabel = document.createElement('span');
+        commandCheckboxLabel.textContent = 'Esta unidade é um elemento de Comando';
+        commandCheckboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
+        
+        commandCheckboxLabel.onclick = () => {
+            const checkboxInput = commandCheckbox.find('input')[0];
+            checkboxInput.click();
+        };
+
+        commandCheckboxWrapper.appendChild(commandCheckbox[0]);
+        commandCheckboxWrapper.appendChild(commandCheckboxLabel);
+        commandCheckboxContainer.appendChild(commandLabel);
+        commandCheckboxContainer.appendChild(commandCheckboxWrapper);
+        
+        column1.appendChild(commandCheckboxContainer);
+
+        // Store reference for updates
+        comboboxes.isCommand = {
+            updateValue: (newValue) => {
+                const checkboxInput = commandCheckbox.find('input')[0];
+                checkboxInput.checked = !!newValue;
+            }
+        };
+
         // Segunda coluna
         comboboxes.mainIcon = createDigitalComboBox(
             MILITARY_DATA.mainIcons,
@@ -985,7 +1039,9 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     updatePreviewFromComboboxes();
                 }
             },
-            'Ícone Principal'
+            'Ícone Principal',
+            false, // simplifiedDisplay
+            'mainIcon' // displayMode: show deepest level
         );
         column2.appendChild(comboboxes.mainIcon);
 
@@ -1069,6 +1125,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 tempProperties.mainIcon = parsed.mainIcon;
                 tempProperties.modifier1 = parsed.modifier1;
                 tempProperties.modifier2 = parsed.modifier2;
+                tempProperties.specialModifier = parsed.specialModifier || "0";
+                tempProperties.isCommand = parsed.isCommand || false;
                 tempProperties.sidc = normalizedSIDC; // ✅ Always 30 digits
 
                 // Update all comboboxes visually
