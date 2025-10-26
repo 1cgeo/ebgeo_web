@@ -40,6 +40,7 @@ class AddMilitarySymbolControl extends BaseControl {
     context: "0",
     standardIdentity: "3",
     status: "0",
+    symbolSet: "10",  // Default to Land Units
     hqTfDummy: "0",
     echelon: "16",
     mainIcon: "121100",

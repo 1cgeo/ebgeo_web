@@ -6,7 +6,17 @@ import {
 } from './brazilian_sidc_extension.js';
 import { checkCatalogWarnings } from './brazilian_svg_postprocessing.js';
 
-import { MILITARY_DATA } from './military_constants.js';
+import { 
+    MILITARY_DATA, 
+    getMainIcons, 
+    getModifier1, 
+    getModifier2, 
+    getEchelonData, 
+    getSpecialModifierData,
+    isCommandApplicable,
+    isModifier1Applicable,
+    isModifier2Applicable
+} from './military_constants.js';
 import {
     createSliderWithInput,
     createAttributeRow,
@@ -132,7 +142,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         });
     }
 
-    function createDigitalComboBox(options, currentValue, onChange, label, simplifiedDisplay = false, displayMode = 'modifier') {
+    function createDigitalComboBox(options, currentValue, onChange, label, simplifiedDisplay = false, displayMode = 'modifier', disableHoverPreview = false) {
         const container = document.createElement('div');
         container.className = 'digital-combo-container';
         container.style.cssText = 'margin-bottom: 20px; position: relative;';
@@ -327,7 +337,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     textContainer.textContent = displayText;
                     textContainer.title = tooltipText;
 
-                    onChange(value);
+                    // Only call onChange if hover preview is enabled
+                    if (!disableHoverPreview) {
+                        onChange(value);
+                    }
                 }
             }
         }
@@ -913,7 +926,180 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // Store combobox references for programmatic updates
         const comboboxes = {};
 
+        
+        // ===== FUNÇÃO DE RECARREGAMENTO DINÂMICO =====
+        function reloadDependentComboboxes(symbolSetCode) {
+            // ===== REMOVER TODOS OS COMBOS DINÂMICOS DE AMBAS AS COLUNAS =====
+            
+            // Column1: remover escalão/mobilidade/liderança se existir
+            if (comboboxes.echelon && comboboxes.echelon.parentNode) {
+                comboboxes.echelon.remove();
+                comboboxes.echelon = null;
+            }
+            
+            // Column2: remover todos os dinâmicos
+            if (comboboxes.specialModifier && comboboxes.specialModifier.parentNode) {
+                comboboxes.specialModifier.remove();
+                comboboxes.specialModifier = null;
+            }
+            if (commandCheckboxContainer && commandCheckboxContainer.parentNode) {
+                commandCheckboxContainer.remove();
+            }
+            if (comboboxes.mainIcon && comboboxes.mainIcon.parentNode) {
+                comboboxes.mainIcon.remove();
+                comboboxes.mainIcon = null;
+            }
+            if (comboboxes.modifier1 && comboboxes.modifier1.parentNode) {
+                comboboxes.modifier1.remove();
+                comboboxes.modifier1 = null;
+            }
+            if (comboboxes.modifier2 && comboboxes.modifier2.parentNode) {
+                comboboxes.modifier2.remove();
+                comboboxes.modifier2 = null;
+            }
+            if (comboboxes.colorControl && comboboxes.colorControl.parentNode) {
+                comboboxes.colorControl.remove();
+                comboboxes.colorControl = null;
+            }
+            
+            // ===== COLUMN 1: ADICIONAR ESCALÃO/MOBILIDADE/LIDERANÇA (ÚLTIMA POSIÇÃO) =====
+            const echelonData = getEchelonData(symbolSetCode);
+            if (echelonData.applicable) {
+                comboboxes.echelon = createDigitalComboBox(
+                    echelonData.data,
+                    tempProperties.echelon || "00",
+                    (value) => {
+                        if (!isUpdatingFromSIDC) {
+                            tempProperties.echelon = value;
+                            updatePreviewFromComboboxes();
+                        }
+                    },
+                    echelonData.label
+                );
+                column1.appendChild(comboboxes.echelon);
+            }
+            
+            // ===== COLUMN 2: RECRIAR TODOS OS COMBOS NA ORDEM CORRETA =====
+            
+            // 1. Modificador Transversal (se aplicável)
+            const specialModData = getSpecialModifierData(symbolSetCode);
+            if (specialModData.applicable) {
+                comboboxes.specialModifier = createDigitalComboBox(
+                    specialModData.data,
+                    tempProperties.specialModifier || "0",
+                    (value) => {
+                        if (!isUpdatingFromSIDC) {
+                            tempProperties.specialModifier = value;
+                            updatePreviewFromComboboxes();
+                        }
+                    },
+                    'Modificador Transversal'
+                );
+                column2.appendChild(comboboxes.specialModifier);
+            }
+            
+            // 2. Elemento de Comando (só para Unidades)
+            if (isCommandApplicable(symbolSetCode)) {
+                column2.appendChild(commandCheckboxContainer);
+            }
+            
+            // 3. Ícone Principal
+            const mainIconsData = getMainIcons(symbolSetCode);
+            comboboxes.mainIcon = createDigitalComboBox(
+                mainIconsData,
+                tempProperties.mainIcon || "000000",
+                (value) => {
+                    if (!isUpdatingFromSIDC) {
+                        tempProperties.mainIcon = value;
+                        updatePreviewFromComboboxes();
+                    }
+                },
+                'Ícone Principal',
+                false,
+                'mainIcon'
+            );
+            column2.appendChild(comboboxes.mainIcon);
+            
+            // 4. Modificador 1 (se aplicável)
+            if (isModifier1Applicable(symbolSetCode)) {
+                const modifier1Data = getModifier1(symbolSetCode);
+                comboboxes.modifier1 = createDigitalComboBox(
+                    modifier1Data,
+                    tempProperties.modifier1 || "00",
+                    (value) => {
+                        if (!isUpdatingFromSIDC) {
+                            tempProperties.modifier1 = value;
+                            updatePreviewFromComboboxes();
+                        }
+                    },
+                    'Modificador 1',
+                    true
+                );
+                column2.appendChild(comboboxes.modifier1);
+            }
+            
+            // 5. Modificador 2 (se aplicável)
+            if (isModifier2Applicable(symbolSetCode)) {
+                const modifier2Data = getModifier2(symbolSetCode);
+                comboboxes.modifier2 = createDigitalComboBox(
+                    modifier2Data,
+                    tempProperties.modifier2 || "00",
+                    (value) => {
+                        if (!isUpdatingFromSIDC) {
+                            tempProperties.modifier2 = value;
+                            updatePreviewFromComboboxes();
+                        }
+                    },
+                    'Modificador 2',
+                    true
+                );
+                column2.appendChild(comboboxes.modifier2);
+            }
+            
+            // 6. Cor do Símbolo (sempre por último)
+            comboboxes.colorControl = createColorControl(
+                tempProperties.fillColor,
+                (color) => {
+                    tempProperties.fillColor = color;
+                    updatePreviewFromComboboxes();
+                },
+                'Cor do Símbolo'
+            );
+            column2.appendChild(comboboxes.colorControl);
+        }
+
+
         // Primeira coluna
+
+        // ===== COMBOBOX DE SYMBOL SET (DIMENSÃO) =====
+        comboboxes.symbolSet = createDigitalComboBox(
+            MILITARY_DATA.symbolSets,
+            tempProperties.symbolSet || "10",
+            (value) => {
+                if (!isUpdatingFromSIDC) {
+                    tempProperties.symbolSet = value;
+                    
+                    // Reset dependent fields quando mudar dimension
+                    tempProperties.mainIcon = "000000";
+                    tempProperties.modifier1 = "00";
+                    tempProperties.modifier2 = "00";
+                    tempProperties.echelon = "00";
+                    tempProperties.specialModifier = "0";
+                    
+                    // Recarregar comboboxes dependentes
+                    reloadDependentComboboxes(value);
+                    
+                    // Gerar preview com valores default
+                    updatePreviewFromComboboxes();
+                }
+            },
+            'Dimensão',
+            false,
+            'modifier',
+            true // disableHoverPreview = true
+        );
+        column1.appendChild(comboboxes.symbolSet);
+
         comboboxes.standardIdentity = createDigitalComboBox(
             MILITARY_DATA.standardIdentity,
             tempProperties.standardIdentity || "3",
@@ -952,39 +1138,49 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 }
             },
             'Força-Tarefa/Posto de Comando'
-            // simplifiedDisplay = false (default)
         );
         column1.appendChild(comboboxes.hqTfDummy);
 
-        comboboxes.echelon = createDigitalComboBox(
-            MILITARY_DATA.echelon,
-            tempProperties.echelon || "16",
-            (value) => {
-                if (!isUpdatingFromSIDC) {
-                    tempProperties.echelon = value;
-                    updatePreviewFromComboboxes();
-                }
-            },
-            'Escalão'
-            // simplifiedDisplay = false (default)
-        );
-        column1.appendChild(comboboxes.echelon);
+        // ===== ESCALÃO/MOBILIDADE/LIDERANÇA (ÚLTIMA POSIÇÃO DA COLUMN 1) =====
+        const initialSymbolSet = tempProperties.symbolSet || "10";
+        const initialEchelonData = getEchelonData(initialSymbolSet);
+        
+        if (initialEchelonData.applicable) {
+            comboboxes.echelon = createDigitalComboBox(
+                initialEchelonData.data,
+                tempProperties.echelon || "00",
+                (value) => {
+                    if (!isUpdatingFromSIDC) {
+                        tempProperties.echelon = value;
+                        updatePreviewFromComboboxes();
+                    }
+                },
+                initialEchelonData.label
+            );
+            column1.appendChild(comboboxes.echelon);
+        }
 
-        comboboxes.specialModifier = createDigitalComboBox(
-            MILITARY_DATA.specialModifier,
-            tempProperties.specialModifier || "0",
-            (value) => {
-                if (!isUpdatingFromSIDC) {
-                    tempProperties.specialModifier = value;
-                    updatePreviewFromComboboxes();
-                }
-            },
-            'Modificador Transversal'
-            // simplifiedDisplay = false (default)
-        );
-        column1.appendChild(comboboxes.specialModifier);
+        // ===== SEGUNDA COLUNA (DINÂMICA) =====
+        
+        // 1. MODIFICADOR TRANSVERSAL (se aplicável)
+        const initialSpecialModData = getSpecialModifierData(initialSymbolSet);
+        
+        if (initialSpecialModData.applicable) {
+            comboboxes.specialModifier = createDigitalComboBox(
+                initialSpecialModData.data,
+                tempProperties.specialModifier || "0",
+                (value) => {
+                    if (!isUpdatingFromSIDC) {
+                        tempProperties.specialModifier = value;
+                        updatePreviewFromComboboxes();
+                    }
+                },
+                'Modificador Transversal'
+            );
+            column2.appendChild(comboboxes.specialModifier);
+        }
 
-        // Checkbox Elemento de Comando
+        // 2. ELEMENTO DE COMANDO (CHECKBOX) - Só para Unidades
         const commandCheckboxContainer = document.createElement('div');
         commandCheckboxContainer.style.cssText = 'margin-bottom: 20px;';
 
@@ -1019,7 +1215,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         commandCheckboxContainer.appendChild(commandLabel);
         commandCheckboxContainer.appendChild(commandCheckboxWrapper);
         
-        column1.appendChild(commandCheckboxContainer);
+        // Só adicionar se for Unidades
+        if (isCommandApplicable(initialSymbolSet)) {
+            column2.appendChild(commandCheckboxContainer);
+        }
 
         // Store reference for updates
         comboboxes.isCommand = {
@@ -1029,10 +1228,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             }
         };
 
-        // Segunda coluna
+        // 3. ÍCONE PRINCIPAL
         comboboxes.mainIcon = createDigitalComboBox(
-            MILITARY_DATA.mainIcons,
-            tempProperties.mainIcon || "121100",
+            getMainIcons(initialSymbolSet),
+            tempProperties.mainIcon || "000000",
             (value) => {
                 if (!isUpdatingFromSIDC) {
                     tempProperties.mainIcon = value;
@@ -1040,49 +1239,55 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 }
             },
             'Ícone Principal',
-            false, // simplifiedDisplay
-            'mainIcon' // displayMode: show deepest level
+            false,
+            'mainIcon'
         );
         column2.appendChild(comboboxes.mainIcon);
 
-        comboboxes.modifier1 = createDigitalComboBox(
-            MILITARY_DATA.modifier1,
-            tempProperties.modifier1 || "00",
-            (value) => {
-                if (!isUpdatingFromSIDC) {
-                    tempProperties.modifier1 = value;
-                    updatePreviewFromComboboxes();
-                }
-            },
-            'Modificador 1',
-            true // ✅ simplifiedDisplay = true
-        );
-        column2.appendChild(comboboxes.modifier1);
+        // 4. MODIFICADOR 1 (se aplicável)
+        if (isModifier1Applicable(initialSymbolSet)) {
+            comboboxes.modifier1 = createDigitalComboBox(
+                getModifier1(initialSymbolSet),
+                tempProperties.modifier1 || "00",
+                (value) => {
+                    if (!isUpdatingFromSIDC) {
+                        tempProperties.modifier1 = value;
+                        updatePreviewFromComboboxes();
+                    }
+                },
+                'Modificador 1',
+                true
+            );
+            column2.appendChild(comboboxes.modifier1);
+        }
 
-        comboboxes.modifier2 = createDigitalComboBox(
-            MILITARY_DATA.modifier2,
-            tempProperties.modifier2 || "00",
-            (value) => {
-                if (!isUpdatingFromSIDC) {
-                    tempProperties.modifier2 = value;
-                    updatePreviewFromComboboxes();
-                }
-            },
-            'Modificador 2',
-            true // ✅ simplifiedDisplay = true
-        );
-        column2.appendChild(comboboxes.modifier2);
+        // 5. MODIFICADOR 2 (se aplicável)
+        if (isModifier2Applicable(initialSymbolSet)) {
+            comboboxes.modifier2 = createDigitalComboBox(
+                getModifier2(initialSymbolSet),
+                tempProperties.modifier2 || "00",
+                (value) => {
+                    if (!isUpdatingFromSIDC) {
+                        tempProperties.modifier2 = value;
+                        updatePreviewFromComboboxes();
+                    }
+                },
+                'Modificador 2',
+                true
+            );
+            column2.appendChild(comboboxes.modifier2);
+        }
 
-        // ✅ NEW: Controle de cor - adicionado na segunda coluna
-        const colorControl = createColorControl(
+        // 6. COR DO SÍMBOLO (sempre por último)
+        comboboxes.colorControl = createColorControl(
             tempProperties.fillColor,
             (color) => {
                 tempProperties.fillColor = color;
-                updatePreview();
+                updatePreviewFromComboboxes();
             },
             'Cor do Símbolo'
         );
-        column2.appendChild(colorControl);
+        column2.appendChild(comboboxes.colorControl);
 
         comboboxesContainer.appendChild(column1);
         comboboxesContainer.appendChild(column2);
@@ -1129,10 +1334,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 tempProperties.isCommand = parsed.isCommand || false;
                 tempProperties.sidc = normalizedSIDC; // ✅ Always 30 digits
 
-                // Update all comboboxes visually
+                // Update all comboboxes visually (only if they exist)
                 Object.keys(comboboxes).forEach(key => {
-                    if (comboboxes[key].updateValue && tempProperties[key] !== undefined) {
-                        comboboxes[key].updateValue(tempProperties[key]);
+                    const combo = comboboxes[key];
+                    // Verificar se o combo existe e tem updateValue
+                    if (combo && combo.updateValue && tempProperties[key] !== undefined) {
+                        combo.updateValue(tempProperties[key]);
                     }
                 });
 

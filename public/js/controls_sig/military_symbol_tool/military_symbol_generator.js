@@ -1,11 +1,11 @@
-// Path: js\controls_sig\military_symbol_tool\military_symbol_generator.js
+// Path: js/controls_sig/military_symbol_tool/military_symbol_generator.js
 
 import { BrazilianSIDCExtension, normalizeSIDC, getBaseSIDC } from './brazilian_sidc_extension.js';
 import { 
     applyBrazilianModifications,
     processEntityExtension 
 } from './brazilian_svg_postprocessing.js';
-import landUnitsData from './land_units.js';
+import { getSymbolSetData } from './military_constants.js';
 
 const DEFAULT_SIZE = 100;
 
@@ -16,21 +16,29 @@ export class MilitarySymbolGenerator {
 
 
     /**
-     * Helper function to find extension value from land_units.js
+     * Helper function to find extension value from symbol set data
      * @param {string} catalogType - 'mainIcon', 'modifier1', 'modifier2'
      * @param {string} code - Code to search for
+     * @param {string} symbolSetCode - Symbol set code (e.g., "01", "10")
      * @returns {number} Extension value (0 if not found or not an extension)
      */
-    findExtensionValue(catalogType, code) {
+    findExtensionValue(catalogType, code, symbolSetCode) {
         if (!code || code === '00') return 0;
+        
+        // Get symbol set data for the specified dimension
+        const symbolSetData = getSymbolSetData(symbolSetCode);
+        if (!symbolSetData) {
+            console.warn(`Symbol set ${symbolSetCode} not found`);
+            return 0;
+        }
         
         let catalog;
         if (catalogType === 'mainIcon') {
-            catalog = landUnitsData.symbol_sets[0]["main icon"];
+            catalog = symbolSetData["main icon"];
         } else if (catalogType === 'modifier1') {
-            catalog = landUnitsData.symbol_sets[0]["modifier 1"];
+            catalog = symbolSetData["modifier 1"];
         } else if (catalogType === 'modifier2') {
-            catalog = landUnitsData.symbol_sets[0]["modifier 2"];
+            catalog = symbolSetData["modifier 2"];
         } else {
             return 0;
         }
@@ -49,7 +57,7 @@ export class MilitarySymbolGenerator {
         const formatId = "10";                                              // A: 2 digits (always "10")
         const context = "0";                                                // B: 1 digit (0=reality)
         const standardIdentity = properties.standardIdentity || "3";       // C: 1 digit (3=friend)
-        const symbolSet = "10";                                            // D: 2 digits (always "10"=land)
+        const symbolSet = properties.symbolSet || "10";                    // D: 2 digits (DYNAMIC)
         const status = properties.status || "0";                          // E: 1 digit (0=present)
         const hqTfDummy = properties.hqTfDummy || "0";                     // F: 1 digit (0=N/A)
         const echelon = properties.echelon || "16";                       // G: 2 digits (16=battalion)
@@ -59,10 +67,10 @@ export class MilitarySymbolGenerator {
 
         const sidc20 = `${formatId}${context}${standardIdentity}${symbolSet}${status}${hqTfDummy}${echelon}${mainIcon}${modifier1}${modifier2}`;
 
-        // Check if any component requires Brazilian extension
-        const mainIconExtension = this.findExtensionValue('mainIcon', mainIcon);
-        const mod1ExtensionValue = this.findExtensionValue('modifier1', modifier1);
-        const mod2ExtensionValue = this.findExtensionValue('modifier2', modifier2);
+        // Check if any component requires Brazilian extension (pass symbolSet to findExtensionValue)
+        const mainIconExtension = this.findExtensionValue('mainIcon', mainIcon, symbolSet);
+        const mod1ExtensionValue = this.findExtensionValue('modifier1', modifier1, symbolSet);
+        const mod2ExtensionValue = this.findExtensionValue('modifier2', modifier2, symbolSet);
         const specialModifierValue = properties.specialModifier ? parseInt(properties.specialModifier) : 0;
         const isCommandValue = properties.isCommand || false;
         
@@ -143,7 +151,7 @@ export class MilitarySymbolGenerator {
             const parsed = this.parseSIDC(sidc);
             
             // Verify core components are present
-            if (!parsed.context || !parsed.standardIdentity || !parsed.echelon || !parsed.mainIcon) {
+            if (!parsed.context || !parsed.standardIdentity || !parsed.mainIcon) {
                 return { canParse: false, error: 'SIDC missing required components' };
             }
 
@@ -200,25 +208,20 @@ export class MilitarySymbolGenerator {
                         if (blob) {
                             resolve(blob);
                         } else {
-                            reject(new Error('Failed to convert to PNG blob'));
+                            reject(new Error('Failed to convert canvas to blob'));
                         }
-                    }, 'image/png', 1.0);
+                    }, 'image/png');
 
                 } catch (error) {
                     reject(error);
                 }
             };
 
-            img.onerror = () => {
-                reject(new Error('Failed to load image for PNG conversion'));
-            };
-
-            // Load image from data URL
+            img.onerror = () => reject(new Error('Failed to load image'));
             img.src = dataURL;
         });
     }
 
-    // Generate symbol blob
     async generateSymbolBlob(properties) {
         // 1. Normalize SIDC to 30 digits
         const sidc30 = normalizeSIDC(properties.sidc);
