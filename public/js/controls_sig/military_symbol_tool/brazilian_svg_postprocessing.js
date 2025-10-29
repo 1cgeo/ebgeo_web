@@ -1,6 +1,12 @@
 // Path: js\controls_sig\military_symbol_tool\brazilian_svg_postprocessing.js
 
-import { getCatalogEntry } from './brazilian_extension_catalog.js';
+import { 
+    getCatalogEntry, 
+    hasSection, 
+    supportsCommand,
+    getSpecialModifiers,
+    hasExtensions
+} from './brazilian_extension_catalog.js';
 import { BrazilianSIDCExtension } from './brazilian_sidc_extension.js';
 
 /**
@@ -15,10 +21,11 @@ import { BrazilianSIDCExtension } from './brazilian_sidc_extension.js';
  * Apply Brazilian label translations to SVG
  * @param {string} svgString - Base SVG from milsymbol.js
  * @param {string} sidc20 - 20-digit SIDC
+ * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
  * @returns {string} Modified SVG with Brazilian labels
  */
-export function applyBrazilianLabelsToSVG(svgString, sidc20) {
-    if (!svgString || !sidc20) {
+export function applyBrazilianLabelsToSVG(svgString, sidc20, symbolSetCode) {
+    if (!svgString || !sidc20 || !symbolSetCode) {
         return svgString;
     }
 
@@ -30,22 +37,37 @@ export function applyBrazilianLabelsToSVG(svgString, sidc20) {
     const modifier2 = sidc20.substring(18, 20);   // Positions 19-20
 
     // 1. Process Main Icon labels
-    const mainIconMapping = getCatalogEntry('mainIcon', mainIcon);
+    const mainIconMapping = getCatalogEntry(
+        symbolSetCode, 
+        'mainIcon', 
+        'labelMappings', 
+        mainIcon
+    );
     if (mainIconMapping) {
         modifiedSVG = replaceTextInSVG(modifiedSVG, mainIconMapping);
     }
 
     // 2. Process Modifier 1 labels (only if not '00')
     if (modifier1 !== '00') {
-        const mod1Mapping = getCatalogEntry('modifier1', modifier1);
+        const mod1Mapping = getCatalogEntry(
+            symbolSetCode,
+            'modifier1',
+            'labelMappings',
+            modifier1
+        );
         if (mod1Mapping) {
             modifiedSVG = replaceTextInSVG(modifiedSVG, mod1Mapping);
         }
     }
 
-    // 3. Process Modifier 2 labels (only if not '00')
-    if (modifier2 !== '00') {
-        const mod2Mapping = getCatalogEntry('modifier2', modifier2);
+    // 3. Process Modifier 2 labels (only if not '00' and section exists)
+    if (modifier2 !== '00' && hasSection(symbolSetCode, 'modifier2')) {
+        const mod2Mapping = getCatalogEntry(
+            symbolSetCode,
+            'modifier2',
+            'labelMappings',
+            modifier2
+        );
         if (mod2Mapping) {
             modifiedSVG = replaceTextInSVG(modifiedSVG, mod2Mapping);
         }
@@ -55,42 +77,27 @@ export function applyBrazilianLabelsToSVG(svgString, sidc20) {
 }
 
 /**
- * Replace text in SVG based on mapping
+ * Replace text in SVG based on mapping (SIMPLIFIED)
  * @param {string} svgString - SVG to modify
  * @param {Object} mapping - { from: '...', to: '...', fontSize?: '...' }
  * @returns {string} Modified SVG
  */
 function replaceTextInSVG(svgString, mapping) {
-    // from agora é string direta, não array
-    const americanText = mapping.from;
+    const { from, to, fontSize } = mapping;
     
-    // Regex to find <text> elements containing the American text
-    const textElementRegex = new RegExp(
-        `(<text[^>]*>)([^<]*?)${americanText}([^<]*?)(<\\/text>)`, 
-        'gi'
-    );
+    // Simple replace: >TEXT</text>
+    let result = svgString.replace(`>${from}</text>`, `>${to}</text>`);
     
-    // Replace text while maintaining other element content
-    const result = svgString.replace(textElementRegex, (match, openTag, beforeText, afterText, closeTag) => {
-        // Update the text
-        const newContent = beforeText + mapping.to + afterText;
-        
-        // Modify font-size in opening tag if specified
-        let newOpenTag = openTag;
-        
-        if (mapping.fontSize) {
-            if (openTag.includes('font-size=')) {
-                // Replace existing font-size
-                newOpenTag = openTag.replace(/font-size="[^"]*"/, `font-size="${mapping.fontSize}"`);
-            } else {
-                // Add font-size if it doesn't exist
-                newOpenTag = openTag.replace('>', ` font-size="${mapping.fontSize}">`);
-            }
-        }
-        
-        return newOpenTag + newContent + closeTag;
-    });
-
+    // Adjust fontSize if specified and replacement was made
+    if (fontSize && result !== svgString) {
+        // Find the <text> element that now contains the new text and update its font-size
+        const pattern = new RegExp(
+            `(<text[^>]*?)font-size="[^"]*"([^>]*>${to}</text>)`,
+            'g'
+        );
+        result = result.replace(pattern, `$1font-size="${fontSize}"$2`);
+    }
+    
     return result;
 }
 
@@ -98,203 +105,34 @@ function replaceTextInSVG(svgString, mapping) {
  * ========================================
  * SITUAÇÃO 2: ADAPTAÇÃO GRÁFICA
  * ========================================
- * Substitui elementos SVG usando find/replace
+ * Substitui elementos SVG completos usando find/replace
  */
 
 /**
- * Apply graphic adaptations to Main Icon
+ * Apply graphic adaptations to Main Icon (SIMPLIFIED)
  * @param {string} svgString - Base SVG
  * @param {string} mainIcon - 6-digit main icon code
+ * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
  * @returns {string} Modified SVG with adapted icon
  */
-export function applyGraphicAdaptations(svgString, mainIcon) {
-    if (!svgString || !mainIcon) {
+export function applyGraphicAdaptations(svgString, mainIcon, symbolSetCode) {
+    if (!svgString || !mainIcon || !symbolSetCode) {
         return svgString;
     }
 
-    const adaptation = getCatalogEntry('graphic', mainIcon);
+    const adaptation = getCatalogEntry(
+        symbolSetCode,
+        'mainIcon',
+        'graphicAdaptations',
+        mainIcon
+    );
+    
     if (!adaptation) {
         return svgString;
     }
 
-    // Usa find/replace direto
-    // Se 'find' contém início de tag mas não está completa, usar regex flexível
-    let result = svgString;
-    
-    if (adaptation.find.includes('<text') && !adaptation.find.includes('</text>')) {
-        // Caso especial: encontrar tag text completa
-        const findPattern = adaptation.find.replace('<text', '<text[^>]*');
-        const regex = new RegExp(findPattern + '[^<]*<\\/text>', 'g');
-        result = result.replace(regex, adaptation.replace);
-    } else {
-        // Replace direto
-        result = result.replace(adaptation.find, adaptation.replace);
-    }
-
-    return result;
-}
-
-/**
- * ========================================
- * SITUAÇÃO 3.1: MODIFICADOR ESPECIAL
- * ========================================
- * Adiciona elemento gráfico sobreposto
- */
-
-/**
- * Add special modifier to SVG (overlaid on center icon)
- * @param {string} svgString - Base SVG
- * @param {number} specialModifierCode - Code 1-7
- * @returns {string} Modified SVG or original if not cataloged
- */
-export function addSpecialModifierToSVG(svgString, specialModifierCode) {
-    if (!specialModifierCode || specialModifierCode === 0) {
-        return svgString;
-    }
-    
-    const modifier = getCatalogEntry('special', specialModifierCode);
-    
-    if (!modifier) {
-        console.warn(`Special Modifier ${specialModifierCode} not cataloged`);
-        return svgString;
-    }
-    
-    let modifierSVG = '';
-    
-    if (modifier.type === 'svg') {
-        modifierSVG = modifier.svg;
-    } else if (modifier.type === 'text') {
-        modifierSVG = buildTextElement(modifier);
-    }
-    
-    return insertBeforeEchelon(svgString, modifierSVG);
-}
-
-/**
- * ========================================
- * SITUAÇÃO 3.2: MOD2 ESTENDIDO
- * ========================================
- */
-
-/**
- * Add extended Mod2 to SVG (bottom part of frame)
- * @param {string} svgString - Base SVG
- * @param {number} mod2ExtensionCode - Code 1-31
- * @returns {string} Modified SVG or original if not cataloged
- */
-export function addExtendedMod2ToSVG(svgString, mod2ExtensionCode) {
-    if (!mod2ExtensionCode || mod2ExtensionCode === 0) {
-        return svgString;
-    }
-    
-    const mod2 = getCatalogEntry('mod2', mod2ExtensionCode);
-    
-    if (!mod2) {
-        console.warn(`Mod2 Extension ${mod2ExtensionCode} not cataloged`);
-        return svgString;
-    }
-    
-    let mod2SVG = '';
-    
-    if (mod2.type === 'text') {
-        mod2SVG = buildTextElement(mod2);
-    } else if (mod2.type === 'svg') {
-        mod2SVG = mod2.svg;
-    }
-    
-    return insertBeforeEchelon(svgString, mod2SVG);
-}
-
-/**
- * ========================================
- * SITUAÇÃO 3.3: ENTITY ESTENDIDO
- * ========================================
- */
-
-/**
- * Process entity extension
- * @param {Object} extension - Decoded extension
- * @returns {Object|null} Extension info or null if not cataloged
- */
-export function processEntityExtension(extension) {
-    if (!extension || extension.entityExtension === 0) {
-        return null;
-    }
-    
-    const entityExt = getCatalogEntry('entity', extension.entityExtension);
-    
-    if (!entityExt) {
-        console.warn(`Entity Extension ${extension.entityExtension} not cataloged`);
-        return null;
-    }
-    
-    return entityExt;
-}
-
-/**
- * Replace center icon with entity extension
- * @param {string} svgString - Base SVG
- * @param {Object} entityExtension - Entity extension info
- * @returns {string} Modified SVG
- */
-export function replaceWithEntityExtensionIcon(svgString, entityExtension) {
-    if (!entityExtension) {
-        return svgString;
-    }
-    
-    // Remove existing center icon (text with y~103 and font-size=45)
-    const centralTextRegex = /<text\s+x="100"\s+y="10[0-9]"\s+[^>]*font-size="45"[^>]*>([^<]*)<\/text>/;
-    let result = svgString.replace(centralTextRegex, '');
-    
-    // Build new icon
-    let newIconSVG = '';
-    
-    if (entityExtension.type === 'text') {
-        newIconSVG = buildTextElement(entityExtension);
-    } else if (entityExtension.type === 'svg') {
-        newIconSVG = entityExtension.svg;
-    }
-    
-    // Insert after frame (first <path> element)
-    const framePathRegex = /(<path d="M25,50[^>]*><\/path>)/;
-    result = result.replace(framePathRegex, `$1${newIconSVG}`);
-    
-    return result;
-}
-
-/**
- * ========================================
- * SITUAÇÃO 3.4: MOD1 ESTENDIDO
- * ========================================
- */
-
-/**
- * Add extended Mod1 to SVG (top part of frame)
- * @param {string} svgString - Base SVG
- * @param {number} mod1ExtensionCode - Code 1-31
- * @returns {string} Modified SVG or original if not cataloged
- */
-export function addExtendedMod1ToSVG(svgString, mod1ExtensionCode) {
-    if (!mod1ExtensionCode || mod1ExtensionCode === 0) {
-        return svgString;
-    }
-    
-    const mod1 = getCatalogEntry('mod1', mod1ExtensionCode);
-    
-    if (!mod1) {
-        console.warn(`Mod1 Extension ${mod1ExtensionCode} not cataloged`);
-        return svgString;
-    }
-    
-    let mod1SVG = '';
-    
-    if (mod1.type === 'text') {
-        mod1SVG = buildTextElement(mod1);
-    } else if (mod1.type === 'svg') {
-        mod1SVG = mod1.svg;
-    }
-    
-    return insertBeforeEchelon(svgString, mod1SVG);
+    // Direct string replacement - catalog has exact SVG strings
+    return svgString.replace(adaptation.find, adaptation.replace);
 }
 
 /**
@@ -304,63 +142,15 @@ export function addExtendedMod1ToSVG(svgString, mod1ExtensionCode) {
  */
 
 /**
- * Build text SVG element from descriptor
+ * Build text SVG element from descriptor (with default fontFamily)
  * @param {Object} descriptor - { position, text, style }
  * @returns {string} SVG text element
  */
 function buildTextElement(descriptor) {
-    return `
-        <text 
-            x="${descriptor.position.x}" 
-            y="${descriptor.position.y}"
-            text-anchor="middle"
-            font-size="${descriptor.style.fontSize}"
-            font-family="${descriptor.style.fontFamily}"
-            font-weight="${descriptor.style.fontWeight}"
-            fill="${descriptor.style.fill}"
-            dominant-baseline="middle"
-        >${descriptor.text}</text>
-    `;
+    const fontFamily = descriptor.style.fontFamily || 'Arial, sans-serif';
+    
+    return `<text x="${descriptor.position.x}" y="${descriptor.position.y}" text-anchor="middle" font-size="${descriptor.style.fontSize}" font-family="${fontFamily}" font-weight="${descriptor.style.fontWeight}" fill="${descriptor.style.fill}" dominant-baseline="middle">${descriptor.text}</text>`;
 }
-
-/**
- * Insert SVG before echelon group
- * @param {string} svgString - Original SVG
- * @param {string} elementToInsert - SVG to insert
- * @returns {string} Modified SVG
- */
-function insertBeforeEchelon(svgString, elementToInsert) {
-    // Insert BEFORE echelon group (last <g transform= element)
-    const lastGIndex = svgString.lastIndexOf('<g transform=');
-    
-    if (lastGIndex > 0) {
-        return svgString.substring(0, lastGIndex) + 
-               elementToInsert + 
-               svgString.substring(lastGIndex);
-    }
-    
-    // Fallback: insert before </svg>
-    return svgString.replace('</svg>', `${elementToInsert}</svg>`);
-}
-/**
- * Add command line to SVG (for command elements)
- * @param {string} svgString - Base SVG
- * @param {boolean} isCommand - Whether this is a command element
- * @returns {string} Modified SVG with command line if applicable
- */
-export function addCommandLineToSVG(svgString, isCommand) {
-    if (!isCommand) {
-        return svgString;
-    }
-    
-    // Command line SVG: horizontal line at top
-    const commandLineSVG = '<path d="M25,80 l150,0 " stroke-width="4" stroke="black" fill="none"></path>';
-    
-    // Insert before echelon (similar to other modifiers)
-    return insertBeforeEchelon(svgString, commandLineSVG);
-}
-
-
 
 /**
  * ========================================
@@ -369,57 +159,146 @@ export function addCommandLineToSVG(svgString, isCommand) {
  */
 
 /**
- * Complete Brazilian modifications pipeline
+ * Complete Brazilian modifications pipeline (REFACTORED)
+ * 
+ * IMPORTANT: Extensions are added to SVG that already comes EMPTY (codes zeroed)
+ * - No need to remove existing elements
+ * - No need to search for specific positions
+ * - Just append before </svg>
+ * - Order doesn't matter (no overlapping)
+ * 
  * @param {string} svgString - Base SVG from milsymbol.js
  * @param {string} sidc30 - SIDC with 30 digits
- * @param {string} mainIcon - Main icon code (6 digits)
+ * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
  * @returns {string} SVG with all Brazilian modifications applied
  */
-export function applyBrazilianModifications(svgString, sidc30, mainIcon) {
+export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
+    // Validate inputs
+    if (!symbolSetCode) {
+        console.error('symbolSetCode is required for Brazilian modifications');
+        return svgString;
+    }
+    
     // Decode extension
     const extension = BrazilianSIDCExtension.decode(sidc30.substring(20));
     const sidc20 = sidc30.substring(0, 20);
     
+    const mainIconCode = sidc20.substring(10, 16);      // Positions 11-16 (6 digits)
+    const modifier1Code = sidc20.substring(16, 18);     // Positions 17-18 (2 digits)
+    const modifier2Code = sidc20.substring(18, 20);     // Positions 19-20 (2 digits)
+    
     let result = svgString;
     
-    // 1. SITUAÇÃO 2: Graphic adaptations (if any)
-    //    Must be applied BEFORE text replacements
-    result = applyGraphicAdaptations(result, mainIcon);
+    // ========================================
+    // PHASE 1: REPLACEMENTS (American text/graphics → Brazilian)
+    // ========================================
     
-    // 2. SITUAÇÃO 1: Replace text labels (Main Icon + Modifiers)
-    result = applyBrazilianLabelsToSVG(result, sidc20);
+    // 1. Graphic adaptations (replace American SVG with Brazilian)
+    //    Must be applied BEFORE text replacements
+    result = applyGraphicAdaptations(result, mainIconCode, symbolSetCode);
+    
+    // 2. Label mappings (replace American text with Brazilian)
+    result = applyBrazilianLabelsToSVG(result, sidc20, symbolSetCode);
     
     // If no valid extension, return here
     if (!extension) {
         return result;
     }
     
-    // 3. SITUAÇÃO 3.3: Entity Extension (if any)
-    if (extension.entityExtension > 0) {
-        const entityExt = processEntityExtension(extension);
+    // ========================================
+    // PHASE 2: ADDITIONS (Brazilian extensions)
+    // ========================================
+    // SVG already comes EMPTY (codes zeroed in renderSIDC)
+    // Just ADD elements - no need to remove anything
+    // Order doesn't matter - no overlapping issues
+    
+    // 3. Entity Extension (Brazilian center icon)
+    if (hasExtensions(symbolSetCode, 'mainIcon', mainIconCode)) {
+        const entityExt = getCatalogEntry(
+            symbolSetCode,
+            'mainIcon',
+            'extensions',
+            mainIconCode,
+            extension.entityExtension  // Can be 0, 1, 2... 31
+        );
+        
         if (entityExt) {
-            result = replaceWithEntityExtensionIcon(result, entityExt);
+            const svg = entityExt.type === 'text' 
+                ? buildTextElement(entityExt) 
+                : entityExt.svg;
+            result = result.replace('</svg>', svg + '</svg>');
+        } else {
+            console.warn(`Entity Extension ${extension.entityExtension} for code ${mainIconCode} not cataloged for Symbol Set ${symbolSetCode}`);
         }
     }
     
-    // 4. SITUAÇÃO 3.1: Special Modifier
+    // 4. Special Modifier (armored, mechanized, etc)
+    // Keep > 0 check because special modifiers don't have index 0 in catalog
+    // Index 0 means "Not Applicable" in military standard
     if (extension.specialModifier > 0) {
-        result = addSpecialModifierToSVG(result, extension.specialModifier);
+        const modifiersCatalog = getSpecialModifiers(symbolSetCode);
+        
+        if (modifiersCatalog && modifiersCatalog[extension.specialModifier]) {
+            const modifier = modifiersCatalog[extension.specialModifier];
+            const svg = modifier.type === 'text' 
+                ? buildTextElement(modifier) 
+                : modifier.svg;
+            result = result.replace('</svg>', svg + '</svg>');
+        } else {
+            console.warn(`Special Modifier ${extension.specialModifier} not cataloged for Symbol Set ${symbolSetCode}`);
+        }
     }
     
-    // 5. SITUAÇÃO 3.2: Mod2 Extended
-    if (extension.mod2Extension > 0) {
-        result = addExtendedMod2ToSVG(result, extension.mod2Extension);
+    // 5. Modifier 2 Extension
+    if (hasSection(symbolSetCode, 'modifier2') && 
+        hasExtensions(symbolSetCode, 'modifier2', modifier2Code)) {
+        
+        const mod2Ext = getCatalogEntry(
+            symbolSetCode,
+            'modifier2',
+            'extensions',
+            modifier2Code,
+            extension.mod2Extension  // Can be 0, 1, 2... 31
+        );
+        
+        if (mod2Ext) {
+            const svg = mod2Ext.type === 'text' 
+                ? buildTextElement(mod2Ext) 
+                : mod2Ext.svg;
+            result = result.replace('</svg>', svg + '</svg>');
+        } else {
+            console.warn(`Mod2 Extension ${extension.mod2Extension} for code ${modifier2Code} not cataloged for Symbol Set ${symbolSetCode}`);
+        }
     }
     
-    // 6. SITUAÇÃO 3.4: Mod1 Extended
-    if (extension.mod1Extension > 0) {
-        result = addExtendedMod1ToSVG(result, extension.mod1Extension);
+    // 6. Modifier 1 Extension
+    if (hasExtensions(symbolSetCode, 'modifier1', modifier1Code)) {
+        const mod1Ext = getCatalogEntry(
+            symbolSetCode,
+            'modifier1',
+            'extensions',
+            modifier1Code,
+            extension.mod1Extension  // Can be 0, 1, 2... 31
+        );
+        
+        if (mod1Ext) {
+            const svg = mod1Ext.type === 'text' 
+                ? buildTextElement(mod1Ext) 
+                : mod1Ext.svg;
+            result = result.replace('</svg>', svg + '</svg>');
+        } else {
+            console.warn(`Mod1 Extension ${extension.mod1Extension} for code ${modifier1Code} not cataloged for Symbol Set ${symbolSetCode}`);
+        }
     }
     
-    // 7. Command Line (if command element)
+    // 7. Command Line (check if supported)
     if (extension.isCommand) {
-        result = addCommandLineToSVG(result, extension.isCommand);
+        if (supportsCommand(symbolSetCode)) {
+            const commandSVG = '<path d="M25,80 l150,0 " stroke-width="4" stroke="black" fill="none"></path>';
+            result = result.replace('</svg>', commandSVG + '</svg>');
+        } else {
+            console.warn(`Command element not applicable for Symbol Set ${symbolSetCode}`);
+        }
     }
     
     return result;
@@ -427,39 +306,43 @@ export function applyBrazilianModifications(svgString, sidc30, mainIcon) {
 
 /**
  * Check for uncataloged extensions and return warnings
+ * NOTE: This function is for validation/debugging only - it does not affect rendering
  * @param {Object} extension - Decoded extension
+ * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
  * @returns {Array<string>} Array of warning messages
  */
-export function checkCatalogWarnings(extension) {
+export function checkCatalogWarnings(extension, symbolSetCode) {
     if (!extension) return [];
     
     const warnings = [];
     
-    if (extension.entityExtension > 0) {
-        const entry = getCatalogEntry('entity', extension.entityExtension);
-        if (!entry) {
-            warnings.push(`Entity Extension ${extension.entityExtension} not cataloged`);
-        }
+    // Note: These checks are simplified because we don't have the code bases here
+    // They will log warnings during actual rendering when the code bases are available
+    
+    if (extension.entityExtension !== null && extension.entityExtension !== undefined) {
+        // Would need mainIconCode to do proper check - warning logged during rendering
+        warnings.push(`Entity Extension ${extension.entityExtension} detected (verify catalog during rendering)`);
     }
     
     if (extension.specialModifier > 0) {
-        const entry = getCatalogEntry('special', extension.specialModifier);
-        if (!entry) {
-            warnings.push(`Special Modifier ${extension.specialModifier} not cataloged`);
+        const modifiersCatalog = getSpecialModifiers(symbolSetCode);
+        if (!modifiersCatalog || !modifiersCatalog[extension.specialModifier]) {
+            warnings.push(`Special Modifier ${extension.specialModifier} not cataloged for Symbol Set ${symbolSetCode}`);
         }
     }
     
-    if (extension.mod1Extension > 0) {
-        const entry = getCatalogEntry('mod1', extension.mod1Extension);
-        if (!entry) {
-            warnings.push(`Mod1 Extension ${extension.mod1Extension} not cataloged`);
-        }
+    if (extension.mod1Extension !== null && extension.mod1Extension !== undefined) {
+        // Would need modifier1Code to do proper check - warning logged during rendering
+        warnings.push(`Mod1 Extension ${extension.mod1Extension} detected (verify catalog during rendering)`);
     }
     
-    if (extension.mod2Extension > 0) {
-        const entry = getCatalogEntry('mod2', extension.mod2Extension);
-        if (!entry) {
-            warnings.push(`Mod2 Extension ${extension.mod2Extension} not cataloged`);
+    if (extension.mod2Extension !== null && extension.mod2Extension !== undefined) {
+        // Check if modifier2 section exists for this symbol set
+        if (!hasSection(symbolSetCode, 'modifier2')) {
+            warnings.push(`Modifier 2 not applicable for Symbol Set ${symbolSetCode}`);
+        } else {
+            // Would need modifier2Code to do proper check - warning logged during rendering
+            warnings.push(`Mod2 Extension ${extension.mod2Extension} detected (verify catalog during rendering)`);
         }
     }
     

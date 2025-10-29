@@ -436,11 +436,9 @@ class AddMilitarySymbolControl extends BaseControl {
     const coordinates = [lngLat.lng, lngLat.lat];
 
     // Build initial SIDC from default properties (20 digits)
-    const sidc20 = this.geometry.buildSIDC(
+    const sidc30 = this.symbolGenerator.buildSIDC(
       AddMilitarySymbolControl.DEFAULT_PROPERTIES
     );
-
-    const sidc30 = normalizeSIDC(sidc20);
 
     // Calculate initial selection box
     const selectionBox = this.geometry.calculateSelectionBoxGeometry(
@@ -781,8 +779,7 @@ class AddMilitarySymbolControl extends BaseControl {
           if (needsRegeneration) {
             // Calculate new SIDC if SIDC-affecting property changed
             if (this.geometry.affectsSIDC(property)) {
-              const newSIDC20 = this.geometry.buildSIDC(sourceFeature.properties);
-              const newSIDC30 = normalizeSIDC(newSIDC20);
+              const newSIDC30 = this.symbolGenerator.buildSIDC(sourceFeature.properties);
               sourceFeature.properties.sidc = newSIDC30;
               feature.properties.sidc = newSIDC30;
             }

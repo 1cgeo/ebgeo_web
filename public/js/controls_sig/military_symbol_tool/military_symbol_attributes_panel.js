@@ -339,7 +339,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
                     // Only call onChange if hover preview is enabled
                     if (!disableHoverPreview) {
-                        onChange(value);
+                        onChange(value, highlightedOption);
                     }
                 }
             }
@@ -395,166 +395,88 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             textContainer.title = tooltipText;
             currentValue = value;
             closeDropdown();
-            onChange(value);
+            
+            onChange(value, option);
         }
 
-        function createDropdownItem(option, index, isCurrentValue = false) {
-            const item = document.createElement('div');
-            item.className = 'dropdown-option';
-            item.setAttribute('data-index', index);
-            item.style.cssText = `
-                padding: 8px 15px;
-                cursor: pointer;
-                border-bottom: 1px solid #ddd;
-                transition: background-color 0.2s;
-                ${isCurrentValue ? 'background-color: #e3f2fd; font-weight: 600;' : ''}
-            `;
-
-            if (option.entity_portugues) {
-                // Show based on displayMode
-                let displayText;
-                if (displayMode === 'mainIcon') {
-                    // Main Icon: show deepest level
-                    if (option.entity_subtype_portugues) {
-                        displayText = option.entity_subtype_portugues;
-                    }
-                    else if (option.entity_type_portugues) {
-                        displayText = option.entity_type_portugues;
-                    }
-                    else {
-                        displayText = option.entity_portugues;
-                    }
-                } else {
-                    // Modifiers: show entity_portugues only
-                    displayText = option.entity_portugues;
-                }
-
-                const textElement = document.createElement('div');
-                textElement.textContent = displayText;
-                textElement.style.cssText = `
-                    font-weight: ${isCurrentValue ? '700' : '600'}; 
-                    font-size: 14px; 
-                    color: #333;
-                `;
-                textElement.title = displayText;
-
-                item.appendChild(textElement);
-            } else {
-                item.textContent = option.label;
-                item.style.fontSize = '14px';
-                item.style.fontWeight = isCurrentValue ? '600' : '500';
-                item.style.color = '#333';
-            }
-
-            // Always add mouse event listeners (preview should work even on selected item)
-            item.onmouseenter = () => {
-                highlightedIndex = index;
-                updateHighlight(index);
-            };
-            item.onmouseleave = () => {
-                if (!item.classList.contains('highlighted')) {
-                    item.style.backgroundColor = '';
-                }
-            };
-
-            item.onclick = (e) => {
-                e.stopPropagation();
-                selectOption(option);
-            };
-
-            return item;
-        }
-
-        function showOptions(newFilteredOptions) {
+        function renderOptions() {
             optionsList.innerHTML = '';
-            filteredOptions = newFilteredOptions;
             optionElements = [];
 
-            if (filteredOptions.length === 0) {
-                const noResults = document.createElement('div');
-                noResults.textContent = 'Nenhum resultado encontrado';
-                noResults.style.cssText = 'padding: 15px; color: #999; font-style: italic; font-size: 14px; text-align: center;';
-                optionsList.appendChild(noResults);
-                highlightedIndex = -1;
-                return;
-            }
-
-            if (highlightedIndex >= filteredOptions.length) {
-                highlightedIndex = Math.max(0, filteredOptions.length - 1);
-            }
-
-            const currentIndex = filteredOptions.findIndex(opt =>
-                (opt.value || opt.code) === currentValue
-            );
-            if (currentIndex >= 0) {
-                highlightedIndex = currentIndex;
-            }
-
             filteredOptions.forEach((option, index) => {
-                const isSelected = (option.value || option.code) === currentValue;
-                const item = createDropdownItem(option, index, isSelected);
-                optionElements.push(item);
-                optionsList.appendChild(item);
+                const optionElement = document.createElement('div');
+                optionElement.style.cssText = `
+                    padding: 12px 15px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    transition: background-color 0.1s;
+                    color: #333;
+                    user-select: none;
+                `;
+
+                const displayText = getOptionDisplayText(option);
+                optionElement.textContent = displayText;
+
+                // Highlight current value
+                const value = option.value || option.code;
+                if (value == currentValue) {
+                    optionElement.style.backgroundColor = '#e3f2fd';
+                    optionElement.style.fontWeight = '600';
+                }
+
+                optionElement.onmouseenter = () => {
+                    updateHighlight(index);
+                };
+
+                optionElement.onclick = (e) => {
+                    e.stopPropagation();
+                    selectOption(option);
+                };
+
+                optionsList.appendChild(optionElement);
+                optionElements.push(optionElement);
             });
 
-            if (highlightedIndex >= 0 && highlightedIndex < optionElements.length) {
-                updateHighlight(highlightedIndex);
+            // If no options found
+            if (filteredOptions.length === 0) {
+                const noResultElement = document.createElement('div');
+                noResultElement.textContent = 'Nenhuma opção encontrada';
+                noResultElement.style.cssText = `
+                    padding: 12px 15px;
+                    font-size: 14px;
+                    color: #999;
+                    font-style: italic;
+                    text-align: center;
+                `;
+                optionsList.appendChild(noResultElement);
             }
-        }
-
-        // Função para posicionar dropdown
-        function positionDropdown() {
-            const selectRect = selectDisplay.getBoundingClientRect();
-            const viewportHeight = window.innerHeight;
-            const viewportWidth = window.innerWidth;
-
-            // Posição inicial (abaixo do select)
-            let top = selectRect.bottom + 5;
-            let left = selectRect.left;
-            let width = selectRect.width;
-
-            // Verificar se cabe na tela verticalmente
-            if (top + 250 > viewportHeight) {
-                // Se não cabe embaixo, colocar em cima
-                top = selectRect.top - 255;
-
-                // Se ainda não cabe em cima, ajustar altura
-                if (top < 10) {
-                    top = 10;
-                    dropdown.style.maxHeight = (selectRect.top - 20) + 'px';
-                }
-            }
-
-            // Verificar se cabe na tela horizontalmente
-            if (left + width > viewportWidth) {
-                left = viewportWidth - width - 20;
-            }
-
-            dropdown.style.top = top + 'px';
-            dropdown.style.left = left + 'px';
-            dropdown.style.width = width + 'px';
         }
 
         function openDropdown() {
             closeAllDropdowns();
 
-            positionDropdown();
-            showOptions(options);
+            const rect = selectDisplay.getBoundingClientRect();
+            dropdown.style.left = `${rect.left}px`;
+            dropdown.style.top = `${rect.bottom + 5}px`;
+            dropdown.style.width = `${rect.width}px`;
             dropdown.style.display = 'block';
-            searchInput.value = '';
 
-            searchInput.focus();
-            document.addEventListener('keydown', handleKeyDown);
+            searchInput.value = '';
+            filteredOptions = [...options];
+            renderOptions();
+
+            setTimeout(() => searchInput.focus(), 50);
+
+            // Reset highlighted index to current value
+            highlightedIndex = filteredOptions.findIndex(opt =>
+                (opt.value || opt.code) == currentValue
+            );
         }
 
         function closeDropdown() {
             dropdown.style.display = 'none';
-            highlightedIndex = -1;
-
-            document.removeEventListener('keydown', handleKeyDown);
         }
 
-        // Event listeners
         selectDisplay.onclick = (e) => {
             e.stopPropagation();
             if (dropdown.style.display === 'block') {
@@ -564,67 +486,49 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             }
         };
 
-        searchInput.oninput = () => {
-            const newFilteredOptions = searchOptions(searchInput.value);
-            showOptions(newFilteredOptions);
-
-            if (newFilteredOptions.length > 0) {
-                highlightedIndex = 0;
-                updateHighlight(0);
-            }
+        searchInput.oninput = (e) => {
+            const searchTerm = e.target.value;
+            filteredOptions = searchOptions(searchTerm);
+            renderOptions();
+            highlightedIndex = -1;
         };
 
-        searchInput.onkeydown = (e) => {
-            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                e.preventDefault();
-                // Let the global handler take care of navigation
-            }
-        };
+        searchInput.onkeydown = handleKeyDown;
 
         document.addEventListener('click', (e) => {
-            if (!dropdown.contains(e.target) && !selectDisplay.contains(e.target)) {
+            if (!container.contains(e.target) && !dropdown.contains(e.target)) {
                 closeDropdown();
             }
         });
 
         selectContainer.appendChild(selectDisplay);
-        document.body.appendChild(dropdown);
-
         container.appendChild(labelElement);
         container.appendChild(selectContainer);
 
-        // Add method to update programmatically
-        container.updateValue = (newValue) => {
-            currentValue = newValue;
-            const newOption = options.find(opt => opt.value == newValue || opt.code == newValue);
-            if (newOption) {
-                const displayText = getOptionDisplayText(newOption);
-                const tooltipText = getOptionTooltipText(newOption);
-                textContainer.textContent = displayText;
-                textContainer.title = tooltipText;
+        // Adicionar dropdown ao body (não ao container)
+        document.body.appendChild(dropdown);
 
-                highlightedIndex = options.findIndex(opt => opt.value == newValue || opt.code == newValue);
-            }
-        };
-
+        // Add cleanup method
         container._cleanup = () => {
-            document.removeEventListener('keydown', handleKeyDown);
-
-            // Remover da lista global
-            const index = openDropdowns.indexOf(dropdown);
-            if (index > -1) {
-                openDropdowns.splice(index, 1);
-            }
-
             if (dropdown.parentNode) {
                 dropdown.parentNode.removeChild(dropdown);
             }
         };
 
+        // Add updateValue method for programmatic updates
+        container.updateValue = (newValue) => {
+            currentValue = newValue;
+            const option = options.find(opt => (opt.value || opt.code) == newValue);
+            if (option) {
+                const displayText = getOptionDisplayText(option);
+                const tooltipText = getOptionTooltipText(option);
+                textContainer.textContent = displayText;
+                textContainer.title = tooltipText;
+            }
+        };
+
         return container;
     }
-
-    // ===== NEW: SYMBOL GALLERY =====
 
     async function createSymbolGallery(onSymbolClick) {
         const galleryColumn = document.createElement('div');
@@ -998,7 +902,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 column2.appendChild(comboboxes.specialModifier);
             }
             
-            // 2. Elemento de Comando (só para Unidades)
+            // 2. Elemento de Comando (checkbox) - Só para Unidades
             if (isCommandApplicable(symbolSetCode)) {
                 column2.appendChild(commandCheckboxContainer);
             }
@@ -1008,9 +912,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             comboboxes.mainIcon = createDigitalComboBox(
                 mainIconsData,
                 tempProperties.mainIcon || "000000",
-                (value) => {
+                (value, selectedOption) => {
                     if (!isUpdatingFromSIDC) {
                         tempProperties.mainIcon = value;
+                        tempProperties.mainIconExtension = selectedOption?.extension || 0;
                         updatePreviewFromComboboxes();
                     }
                 },
@@ -1026,9 +931,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 comboboxes.modifier1 = createDigitalComboBox(
                     modifier1Data,
                     tempProperties.modifier1 || "00",
-                    (value) => {
+                    (value, selectedOption) => {
                         if (!isUpdatingFromSIDC) {
                             tempProperties.modifier1 = value;
+                            tempProperties.modifier1Extension = selectedOption?.extension || 0;
                             updatePreviewFromComboboxes();
                         }
                     },
@@ -1044,9 +950,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 comboboxes.modifier2 = createDigitalComboBox(
                     modifier2Data,
                     tempProperties.modifier2 || "00",
-                    (value) => {
+                    (value, selectedOption) => {
                         if (!isUpdatingFromSIDC) {
                             tempProperties.modifier2 = value;
+                            tempProperties.modifier2Extension = selectedOption?.extension || 0;
                             updatePreviewFromComboboxes();
                         }
                     },
@@ -1085,6 +992,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     tempProperties.modifier2 = "00";
                     tempProperties.echelon = "00";
                     tempProperties.specialModifier = "0";
+                    
+                    tempProperties.mainIconExtension = null;
+                    tempProperties.modifier1Extension = null;
+                    tempProperties.modifier2Extension = null;
                     
                     // Recarregar comboboxes dependentes
                     reloadDependentComboboxes(value);
@@ -1232,9 +1143,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         comboboxes.mainIcon = createDigitalComboBox(
             getMainIcons(initialSymbolSet),
             tempProperties.mainIcon || "000000",
-            (value) => {
+            (value, selectedOption) => {
                 if (!isUpdatingFromSIDC) {
                     tempProperties.mainIcon = value;
+                    tempProperties.mainIconExtension = selectedOption?.extension || null;
                     updatePreviewFromComboboxes();
                 }
             },
@@ -1249,9 +1161,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             comboboxes.modifier1 = createDigitalComboBox(
                 getModifier1(initialSymbolSet),
                 tempProperties.modifier1 || "00",
-                (value) => {
+                (value, selectedOption) => {
                     if (!isUpdatingFromSIDC) {
                         tempProperties.modifier1 = value;
+                        tempProperties.modifier1Extension = selectedOption?.extension || null;
                         updatePreviewFromComboboxes();
                     }
                 },
@@ -1266,9 +1179,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             comboboxes.modifier2 = createDigitalComboBox(
                 getModifier2(initialSymbolSet),
                 tempProperties.modifier2 || "00",
-                (value) => {
+                (value, selectedOption) => {
                     if (!isUpdatingFromSIDC) {
                         tempProperties.modifier2 = value;
+                        tempProperties.modifier2Extension = selectedOption?.extension || null;
                         updatePreviewFromComboboxes();
                     }
                 },
@@ -1305,6 +1219,65 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             updatePreview();
         }
 
+        // ✅ HELPER: Update all combobox visual values
+        function updateAllComboboxValues() {
+            // Update symbolSet
+            if (comboboxes.symbolSet && comboboxes.symbolSet.updateValue) {
+                comboboxes.symbolSet.updateValue(tempProperties.symbolSet);
+            }
+            
+            // Update standardIdentity
+            if (comboboxes.standardIdentity && comboboxes.standardIdentity.updateValue) {
+                comboboxes.standardIdentity.updateValue(tempProperties.standardIdentity);
+            }
+            
+            // Update status
+            if (comboboxes.status && comboboxes.status.updateValue) {
+                comboboxes.status.updateValue(tempProperties.status);
+            }
+            
+            // Update hqTfDummy
+            if (comboboxes.hqTfDummy && comboboxes.hqTfDummy.updateValue) {
+                comboboxes.hqTfDummy.updateValue(tempProperties.hqTfDummy);
+            }
+            
+            // Update echelon (if exists)
+            if (comboboxes.echelon && comboboxes.echelon.updateValue) {
+                comboboxes.echelon.updateValue(tempProperties.echelon);
+            }
+            
+            // Update specialModifier (if exists)
+            if (comboboxes.specialModifier && comboboxes.specialModifier.updateValue) {
+                comboboxes.specialModifier.updateValue(tempProperties.specialModifier);
+            }
+            
+            // Update isCommand
+            if (comboboxes.isCommand && comboboxes.isCommand.updateValue) {
+                comboboxes.isCommand.updateValue(tempProperties.isCommand);
+            }
+            
+            // Update mainIcon
+            if (comboboxes.mainIcon && comboboxes.mainIcon.updateValue) {
+                comboboxes.mainIcon.updateValue(tempProperties.mainIcon);
+            }
+            
+            // Update modifier1 (if exists)
+            if (comboboxes.modifier1 && comboboxes.modifier1.updateValue) {
+                comboboxes.modifier1.updateValue(tempProperties.modifier1);
+            }
+            
+            // Update modifier2 (if exists)
+            if (comboboxes.modifier2 && comboboxes.modifier2.updateValue) {
+                comboboxes.modifier2.updateValue(tempProperties.modifier2);
+            }
+            
+            // Update colorControl (if exists)
+            if (comboboxes.colorControl && comboboxes.colorControl.updateValue) {
+                comboboxes.colorControl.updateValue(tempProperties.fillColor);
+            }
+        }
+
+        // ✅ CORRIGIDO: Atualiza comboboxes quando cola SIDC, recriando se dimensão mudar
         function updateComboboxesFromSIDC(sidc) {
             try {
                 isUpdatingFromSIDC = true;
@@ -1322,8 +1295,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
                 const parsed = parseResult.properties;
 
-                // Update tempProperties
+                const oldSymbolSet = tempProperties.symbolSet;
+                const newSymbolSet = parsed.symbolSet;
+                const dimensionChanged = oldSymbolSet !== newSymbolSet;
+
                 tempProperties.standardIdentity = parsed.standardIdentity;
+                tempProperties.symbolSet = parsed.symbolSet;
                 tempProperties.status = parsed.status;
                 tempProperties.hqTfDummy = parsed.hqTfDummy;
                 tempProperties.echelon = parsed.echelon;
@@ -1332,19 +1309,23 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 tempProperties.modifier2 = parsed.modifier2;
                 tempProperties.specialModifier = parsed.specialModifier || "0";
                 tempProperties.isCommand = parsed.isCommand || false;
+                
+                tempProperties.mainIconExtension = parsed.mainIconExtension || 0;
+                tempProperties.modifier1Extension = parsed.modifier1Extension || 0;
+                tempProperties.modifier2Extension = parsed.modifier2Extension || 0;
+                
                 tempProperties.sidc = normalizedSIDC; // ✅ Always 30 digits
 
-                // Update all comboboxes visually (only if they exist)
-                Object.keys(comboboxes).forEach(key => {
-                    const combo = comboboxes[key];
-                    // Verificar se o combo existe e tem updateValue
-                    if (combo && combo.updateValue && tempProperties[key] !== undefined) {
-                        combo.updateValue(tempProperties[key]);
-                    }
-                });
+                if (dimensionChanged) {
+                    reloadDependentComboboxes(newSymbolSet);
+                }
 
+                // Atualizar valores visuais de todos os comboboxes
+                updateAllComboboxValues();
+
+                // ✅ FIXED: Pass symbolSetCode to checkCatalogWarnings
                 const extension = BrazilianSIDCExtension.decode(normalizedSIDC.substring(20));
-                const warnings = checkCatalogWarnings(extension);
+                const warnings = checkCatalogWarnings(extension, tempProperties.symbolSet);
 
                 if (warnings.length > 0) {
                     sidcInput.style.borderColor = '#ffc107'; // Yellow for warnings
@@ -1446,7 +1427,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     return;
                 }
 
-                // ✅ NOVO: Usar a nova função generatePreviewDataURL com cor personalizada
                 const previewDataURL = await militarySymbolControl.symbolGenerator.generatePreviewDataURL(
                     sidc,
                     80,

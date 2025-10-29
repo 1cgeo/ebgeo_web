@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/submarinos.js
+// Path: js\controls_sig\military_symbol_tool\data\submarinos.js
 
 export default {
   "symbol_sets": [
@@ -7,6 +7,11 @@ export default {
       "name": "Sea Subsurface",
       "nome_portugues": "Submarinos",
       "main icon": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
         {
                 "entity": "Submersível Militar genérico",
                 "entity_portugues": "Submersível Militar genérico",
@@ -115,6 +120,11 @@ export default {
 ],
       "modifier 1": [
         {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
+        {
                 "entity": "Guerra Antissubmarino",
                 "entity_portugues": "Guerra Antissubmarino",
                 "code": "01"
@@ -196,6 +206,11 @@ export default {
         }
 ],
       "modifier 2": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Propulsão Independente do Ar (aplicável apenas a submarinos militares)",
                 "entity_portugues": "Propulsão Independente do Ar (aplicável apenas a submarinos militares)",

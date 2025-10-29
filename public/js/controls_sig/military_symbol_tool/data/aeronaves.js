@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/aeronaves.js
+// Path: js\controls_sig\military_symbol_tool\data\aeronaves.js
 
 export default {
   "symbol_sets": [
@@ -7,6 +7,11 @@ export default {
       "name": "Air",
       "nome_portugues": "Aeronaves",
       "main icon": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
         {
                 "entity": "Aeronave de asa fixa (genérica)",
                 "entity_portugues": "Aeronave de asa fixa (genérica)",
@@ -84,6 +89,11 @@ export default {
         }
 ],
       "modifier 1": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Ataque",
                 "entity_portugues": "Ataque",
@@ -261,6 +271,11 @@ export default {
         }
 ],
       "modifier 2": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Pesado",
                 "entity_portugues": "Pesado",

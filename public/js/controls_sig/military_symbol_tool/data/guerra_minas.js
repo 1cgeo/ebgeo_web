@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/guerra_minas.js
+// Path: js\controls_sig\military_symbol_tool\data\guerra_minas.js
 
 export default {
   "symbol_sets": [
@@ -7,6 +7,11 @@ export default {
       "name": "Mine Warfare",
       "nome_portugues": "Guerra de Minas",
       "main icon": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
         {
                 "entity": "Mina naval, genérico",
                 "entity_portugues": "Mina naval, genérico",

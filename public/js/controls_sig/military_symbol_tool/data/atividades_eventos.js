@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/atividades_eventos.js
+// Path: js\controls_sig\military_symbol_tool\data\atividades_eventos.js
 
 export default {
   "symbol_sets": [
@@ -7,6 +7,11 @@ export default {
       "name": "Activities",
       "nome_portugues": "Atividades e Eventos",
       "main icon": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
         {
                 "entity": "Incidente",
                 "entity_portugues": "Incidente",
@@ -241,6 +246,11 @@ export default {
         }
 ],
       "modifier 1": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Sequestro",
                 "entity_portugues": "Sequestro",

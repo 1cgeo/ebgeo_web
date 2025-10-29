@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/military_constants.js
+// Path: js\controls_sig\military_symbol_tool\military_constants.js
 
 // Import all symbol set data files
 import landUnitsData from './data/unidades.js';

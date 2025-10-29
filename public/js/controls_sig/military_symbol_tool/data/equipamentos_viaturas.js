@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/equipamentos_viaturas.js
+// Path: js\controls_sig\military_symbol_tool\data\equipamentos_viaturas.js
 
 export default {
   "symbol_sets": [
@@ -7,6 +7,11 @@ export default {
       "name": "Land Equipment",
       "nome_portugues": "Equipamentos e Viaturas",
       "main icon": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
         {
                 "entity": "Fuzil",
                 "entity_portugues": "Fuzil",
@@ -555,6 +560,11 @@ export default {
         }
 ],
       "modifier 1": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Biológico",
                 "entity_portugues": "Biológico",

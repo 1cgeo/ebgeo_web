@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/individuos_desembarcados.js
+// Path: js\controls_sig\military_symbol_tool\data\individuos_desembarcados.js
 
 export default {
   "symbol_sets": [
@@ -7,6 +7,11 @@ export default {
       "name": "Dismounted Individual",
       "nome_portugues": "Indivíduos Desembarcados",
       "main icon": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
         {
                 "entity": "Fuzileiro",
                 "entity_portugues": "Fuzileiro",
@@ -120,6 +125,11 @@ export default {
 ],
       "modifier 1": [
         {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
+        {
                 "entity": "Controle de Distúrbios Civis (CDC)",
                 "entity_portugues": "Controle de Distúrbios Civis (CDC)",
                 "code": "02"
@@ -206,6 +216,11 @@ export default {
         }
 ],
       "modifier 2": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Paraquedista",
                 "entity_portugues": "Paraquedista",

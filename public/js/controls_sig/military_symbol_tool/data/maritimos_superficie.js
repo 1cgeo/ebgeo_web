@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/maritimos_superficie.js
+// Path: js\controls_sig\military_symbol_tool\data\maritimos_superficie.js
 
 export default {
   "symbol_sets": [
@@ -7,6 +7,11 @@ export default {
       "name": "Sea Surface",
       "nome_portugues": "Marítimos de Superfície",
       "main icon": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
         {
                 "entity": "Navio militar genérico",
                 "entity_portugues": "Navio militar genérico",
@@ -448,6 +453,11 @@ export default {
 ],
       "modifier 1": [
         {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
+        {
                 "entity": "Guerra Antiaérea",
                 "entity_portugues": "Guerra Antiaérea",
                 "code": "02"
@@ -603,6 +613,11 @@ export default {
         }
 ],
       "modifier 2": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Propulsão nuclear",
                 "entity_portugues": "Propulsão nuclear",

@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/misseis.js
+// Path: js\controls_sig\military_symbol_tool\data\misseis.js
 
 export default {
   "symbol_sets": [
@@ -8,12 +8,22 @@ export default {
       "nome_portugues": "Mísseis",
       "main icon": [
         {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
+        {
                 "entity": "Míssil",
                 "entity_portugues": "Míssil",
                 "code": "110000"
         }
 ],
       "modifier 1": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Ar (origem)",
                 "entity_portugues": "Ar (origem)",
@@ -41,6 +51,11 @@ export default {
         }
 ],
       "modifier 2": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Ar (destino)",
                 "entity_portugues": "Ar (destino)",

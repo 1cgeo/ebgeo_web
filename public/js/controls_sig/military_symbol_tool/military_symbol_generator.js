@@ -1,11 +1,10 @@
-// Path: js/controls_sig/military_symbol_tool/military_symbol_generator.js
+// Path: js\controls_sig\military_symbol_tool\military_symbol_generator.js
 
 import { BrazilianSIDCExtension, normalizeSIDC, getBaseSIDC } from './brazilian_sidc_extension.js';
 import { 
-    applyBrazilianModifications,
-    processEntityExtension 
+    applyBrazilianModifications
 } from './brazilian_svg_postprocessing.js';
-import { getSymbolSetData } from './military_constants.js';
+import { hasExtensions } from './brazilian_extension_catalog.js';
 
 const DEFAULT_SIZE = 100;
 
@@ -14,42 +13,13 @@ export class MilitarySymbolGenerator {
         this.symbolCache = new Map();
     }
 
-
     /**
-     * Helper function to find extension value from symbol set data
-     * @param {string} catalogType - 'mainIcon', 'modifier1', 'modifier2'
-     * @param {string} code - Code to search for
-     * @param {string} symbolSetCode - Symbol set code (e.g., "01", "10")
-     * @returns {number} Extension value (0 if not found or not an extension)
+     * Build 30-digit SIDC from properties
+     * Uses extension values directly from properties (no guessing)
+     * ALWAYS uses real codes from properties - creates SIDC for storage/display
+     * @param {Object} properties - Symbol properties
+     * @returns {string} 30-digit SIDC
      */
-    findExtensionValue(catalogType, code, symbolSetCode) {
-        if (!code || code === '00') return 0;
-        
-        // Get symbol set data for the specified dimension
-        const symbolSetData = getSymbolSetData(symbolSetCode);
-        if (!symbolSetData) {
-            console.warn(`Symbol set ${symbolSetCode} not found`);
-            return 0;
-        }
-        
-        let catalog;
-        if (catalogType === 'mainIcon') {
-            catalog = symbolSetData["main icon"];
-        } else if (catalogType === 'modifier1') {
-            catalog = symbolSetData["modifier 1"];
-        } else if (catalogType === 'modifier2') {
-            catalog = symbolSetData["modifier 2"];
-        } else {
-            return 0;
-        }
-        
-        // Find entry with matching code
-        const entry = catalog.find(item => item.code === code);
-        
-        // Return extension value if it exists, otherwise 0
-        return entry?.extension || 0;
-    }
-
     buildSIDC(properties) {
         // Build 20-digit SIDC according to MIL-STD-2525D standard
         // Structure: A-B-C-D-E-F-G-H-I-J = 10-0-3-10-0-0-16-121100-00-00
@@ -61,23 +31,41 @@ export class MilitarySymbolGenerator {
         const status = properties.status || "0";                          // E: 1 digit (0=present)
         const hqTfDummy = properties.hqTfDummy || "0";                     // F: 1 digit (0=N/A)
         const echelon = properties.echelon || "16";                       // G: 2 digits (16=battalion)
+
+        // ALWAYS use real codes from properties (never zero them out)
         const mainIcon = properties.mainIcon || "121100";                 // H: 6 digits (121100=infantry)
         const modifier1 = properties.modifier1 || "00";                   // I: 2 digits
         const modifier2 = properties.modifier2 || "00";                   // J: 2 digits
 
         const sidc20 = `${formatId}${context}${standardIdentity}${symbolSet}${status}${hqTfDummy}${echelon}${mainIcon}${modifier1}${modifier2}`;
 
-        // Check if any component requires Brazilian extension (pass symbolSet to findExtensionValue)
-        const mainIconExtension = this.findExtensionValue('mainIcon', mainIcon, symbolSet);
-        const mod1ExtensionValue = this.findExtensionValue('modifier1', modifier1, symbolSet);
-        const mod2ExtensionValue = this.findExtensionValue('modifier2', modifier2, symbolSet);
-        const specialModifierValue = properties.specialModifier ? parseInt(properties.specialModifier) : 0;
+        // Check if extensions exist (null = no extension)
+        const hasMainIconExt = properties.mainIconExtension !== null && 
+                               properties.mainIconExtension !== undefined;
+        const hasMod1Ext = properties.modifier1Extension !== null && 
+                           properties.modifier1Extension !== undefined;
+        const hasMod2Ext = properties.modifier2Extension !== null && 
+                           properties.modifier2Extension !== undefined;
+
+        // Get extension values (default to 0 if not present)
+        const mainIconExtension = hasMainIconExt ? properties.mainIconExtension : 0;
+        const mod1ExtensionValue = hasMod1Ext ? properties.modifier1Extension : 0;
+        const mod2ExtensionValue = hasMod2Ext ? properties.modifier2Extension : 0;
+        
+        // Special modifier: "0" means "Not Applicable"
+        const specialModifierValue = (properties.specialModifier !== undefined && 
+                                      properties.specialModifier !== null &&
+                                      properties.specialModifier !== "0" &&
+                                      properties.specialModifier !== 0) 
+            ? parseInt(properties.specialModifier) 
+            : 0;
+        
         const isCommandValue = properties.isCommand || false;
         
-        // Check if any extension is present (including specialModifier and isCommand)
-        const hasExtension = mainIconExtension > 0 || 
-                             mod1ExtensionValue > 0 || 
-                             mod2ExtensionValue > 0 ||
+        // Check if any extension is present
+        const hasExtension = hasMainIconExt || 
+                             hasMod1Ext || 
+                             hasMod2Ext ||
                              specialModifierValue > 0 ||
                              isCommandValue;
         
@@ -98,10 +86,15 @@ export class MilitarySymbolGenerator {
         // Encode extension
         const extension = BrazilianSIDCExtension.encode(extensionFields);
         
-        // Return 30-digit SIDC
+        // Return 30-digit SIDC with real codes
         return sidc20 + extension;
     }
 
+    /**
+     * Parse SIDC into properties object
+     * @param {string} sidc - 20 or 30 digit SIDC
+     * @returns {Object} Properties object with all SIDC components
+     */
     parseSIDC(sidc) {
         // Validate first
         const validation = this.validateSIDC(sidc);
@@ -126,8 +119,7 @@ export class MilitarySymbolGenerator {
             modifier2: sidc20.substring(18, 20)      // J: positions 19-20
         };
 
-
-        // Decode Brazilian extension if present (30-digit SIDC)
+        // Extract all extension fields including entity/mod1/mod2 extensions
         if (sidc.length === 30) {
             const extensionString = sidc.substring(20);
             const extension = BrazilianSIDCExtension.decode(extensionString);
@@ -135,8 +127,13 @@ export class MilitarySymbolGenerator {
             if (extension) {
                 properties.specialModifier = extension.specialModifier.toString();
                 properties.isCommand = extension.isCommand;
+                
+                properties.mainIconExtension = extension.entityExtension;
+                properties.modifier1Extension = extension.mod1Extension;
+                properties.modifier2Extension = extension.mod2Extension;
             }
         }
+        
         return properties;
     }
 
@@ -196,22 +193,15 @@ export class MilitarySymbolGenerator {
                     // 5. Clear background (transparent)
                     ctx.clearRect(0, 0, targetSize, targetSize);
 
-                    // 6. Calculate position to center image
-                    const offsetX = Math.round((targetSize - newWidth) / 2);
-                    const offsetY = Math.round((targetSize - newHeight) / 2);
+                    // 6. Center image in canvas
+                    const offsetX = (targetSize - newWidth) / 2;
+                    const offsetY = (targetSize - newHeight) / 2;
 
-                    // 7. Draw centered image with correct proportions
+                    // 7. Draw resized image centered
                     ctx.drawImage(img, offsetX, offsetY, newWidth, newHeight);
 
-                    // 8. Convert canvas to PNG blob
-                    canvas.toBlob((blob) => {
-                        if (blob) {
-                            resolve(blob);
-                        } else {
-                            reject(new Error('Failed to convert canvas to blob'));
-                        }
-                    }, 'image/png');
-
+                    // 8. Convert canvas to blob
+                    canvas.toBlob(blob => resolve(blob), 'image/png');
                 } catch (error) {
                     reject(error);
                 }
@@ -223,40 +213,53 @@ export class MilitarySymbolGenerator {
     }
 
     async generateSymbolBlob(properties) {
-        // 1. Normalize SIDC to 30 digits
+        // 1. Normalize SIDC to 30 digits (this is the REAL SIDC with actual codes)
         const sidc30 = normalizeSIDC(properties.sidc);
         if (!sidc30) {
             throw new Error('Invalid SIDC for normalization');
         }
         
         const sidc20 = getBaseSIDC(sidc30);
+        const symbolSetCode = sidc20.substring(4, 6);  // Extract symbol set code
         const mainIcon = sidc20.substring(10, 16);
+        const modifier1 = sidc20.substring(16, 18);
+        const modifier2 = sidc20.substring(18, 20);
         
         // 2. Decode extension
         const extension = BrazilianSIDCExtension.decode(sidc30.substring(20));
         
-        // 3. Determine base SIDC for generation
-        let baseSIDC = sidc20;
+        // 3. Create auxiliary SIDC for rendering (starts with real SIDC)
+        let renderSIDC = sidc20;
         
-        // If has entity extension, use appropriate base SIDC
-        if (extension && extension.entityExtension > 0) {
-            const entityExt = processEntityExtension(extension);
-            if (entityExt && entityExt.baseSIDC) {
-                baseSIDC = entityExt.baseSIDC;
-                console.log(`Using base SIDC for entity extension: ${baseSIDC}`);
-            }
+        // Check catalog to see if mainIcon has extensions available
+        // If it does, zero it out for rendering
+        if (hasExtensions(symbolSetCode, 'mainIcon', mainIcon)) {
+            // Replace mainIcon (positions 10-16) with zeros
+            renderSIDC = renderSIDC.substring(0, 10) + '000000' + renderSIDC.substring(16, 20);
+        }
+        
+        // Check catalog to see if modifier1 has extensions available
+        if (hasExtensions(symbolSetCode, 'modifier1', modifier1)) {
+            // Replace modifier1 (positions 16-18) with zeros
+            renderSIDC = renderSIDC.substring(0, 16) + '00' + renderSIDC.substring(18, 20);
+        }
+        
+        // Check catalog to see if modifier2 has extensions available
+        if (hasExtensions(symbolSetCode, 'modifier2', modifier2)) {
+            // Replace modifier2 (positions 18-20) with zeros
+            renderSIDC = renderSIDC.substring(0, 18) + '00';
         }
 
-        // Cache key includes sidc30 and fillColor
+        // Cache key includes sidc30 (real SIDC) and fillColor
         const cacheKey = `${sidc30}_${properties.fillColor || 'default'}`;
         if (this.symbolCache.has(cacheKey)) {
             return this.symbolCache.get(cacheKey);
         }
 
         try {
-            const validation = this.validateSIDC(sidc20);
+            const validation = this.validateSIDC(renderSIDC);
             if (!validation.valid) {
-                console.error('Invalid SIDC:', validation.error);
+                console.error('Invalid auxiliary SIDC:', validation.error);
             }
 
             // 4. Configure symbol options
@@ -273,19 +276,19 @@ export class MilitarySymbolGenerator {
                 symbolOptions.fillColor = properties.fillColor;
             }
 
-            // 5. Generate base SVG with milsymbol.js
-            const symbol = new ms.Symbol(baseSIDC, symbolOptions);
+            // 5. Generate base SVG with milsymbol.js using auxiliary SIDC
+            const symbol = new ms.Symbol(renderSIDC, symbolOptions);
 
             // Check if symbol was generated successfully
             if (!symbol || symbol.isValid === false) {
-                console.warn('milsymbol.js returned invalid symbol for SIDC:', baseSIDC);
+                console.warn('milsymbol.js returned invalid symbol for auxiliary SIDC:', renderSIDC);
             }
 
             // 6. Get SVG string
             let svgString = symbol.asSVG();
 
-            // 7. Apply all Brazilian modifications
-            svgString = applyBrazilianModifications(svgString, sidc30, mainIcon);
+            // 7. Apply all Brazilian modifications using REAL SIDC (sidc30)
+            svgString = applyBrazilianModifications(svgString, sidc30, symbolSetCode);
 
             // 8. Convert modified SVG to data URL
             const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
@@ -350,25 +353,36 @@ export class MilitarySymbolGenerator {
     // Generate preview for UI (reuses PNG conversion logic)
     async generatePreviewDataURL(sidc, size = 80, customColor = null) {
         try {
-            // Normalize to 30 digits
+            // Normalize to 30 digits (this is the REAL SIDC)
             const sidc30 = normalizeSIDC(sidc);
             if (!sidc30) {
                 return null;
             }
             
             const sidc20 = getBaseSIDC(sidc30);
+            const symbolSetCode = sidc20.substring(4, 6);  // Extract symbol set code
             const mainIcon = sidc20.substring(10, 16);
+            const modifier1 = sidc20.substring(16, 18);
+            const modifier2 = sidc20.substring(18, 20);
             
             // Decode extension
             const extension = BrazilianSIDCExtension.decode(sidc30.substring(20));
             
-            // Determine base SIDC
-            let baseSIDC = sidc20;
-            if (extension && extension.entityExtension > 0) {
-                const entityExt = processEntityExtension(extension);
-                if (entityExt && entityExt.baseSIDC) {
-                    baseSIDC = entityExt.baseSIDC;
-                }
+            // Create auxiliary SIDC for rendering
+            let renderSIDC = sidc20;
+            // Check catalog to see if mainIcon has extensions available
+            if (hasExtensions(symbolSetCode, 'mainIcon', mainIcon)) {
+                renderSIDC = renderSIDC.substring(0, 10) + '000000' + renderSIDC.substring(16, 20);
+            }
+            
+            // Check catalog to see if modifier1 has extensions available
+            if (hasExtensions(symbolSetCode, 'modifier1', modifier1)) {
+                renderSIDC = renderSIDC.substring(0, 16) + '00' + renderSIDC.substring(18, 20);
+            }
+            
+            // Check catalog to see if modifier2 has extensions available
+            if (hasExtensions(symbolSetCode, 'modifier2', modifier2)) {
+                renderSIDC = renderSIDC.substring(0, 18) + '00';
             }
             
             // Configure symbol options
@@ -385,17 +399,17 @@ export class MilitarySymbolGenerator {
                 symbolOptions.fillColor = customColor;
             }
 
-            // Generate symbol
-            const symbol = new ms.Symbol(baseSIDC, symbolOptions);
+            // Generate symbol using auxiliary SIDC
+            const symbol = new ms.Symbol(renderSIDC, symbolOptions);
 
             if (!symbol || symbol.isValid === false) {
-                console.warn('milsymbol.js returned invalid symbol for SIDC:', baseSIDC);
+                console.warn('milsymbol.js returned invalid symbol for auxiliary SIDC:', renderSIDC);
                 return null;
             }
 
-            // Get SVG and apply Brazilian modifications
+            // Get SVG and apply Brazilian modifications using REAL SIDC
             let svgString = symbol.asSVG();
-            svgString = applyBrazilianModifications(svgString, sidc30, mainIcon);
+            svgString = applyBrazilianModifications(svgString, sidc30, symbolSetCode);
 
             // Convert to data URL
             const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);

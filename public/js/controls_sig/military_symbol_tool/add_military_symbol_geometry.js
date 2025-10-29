@@ -157,26 +157,6 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
         return Math.min(baseSize * scaleFactor, 10); // Maximum 10x scaling
     }
 
-        /**
-     * Build SIDC from military properties (20 digits - will be normalized to 30)
-     * @param {Object} properties - Military symbol properties
-     * @returns {string} 20-digit SIDC string
-     */
-    buildSIDC(properties) {
-        const formatId = "10";                                              // A: 2 digits (always "10")
-        const context = properties.context || "0";                         // B: 1 digit (0=reality)
-        const standardIdentity = properties.standardIdentity || "3";       // C: 1 digit (3=friend)
-        const symbolSet = "10";                                            // D: 2 digits (always "10"=land)
-        const status = properties.status || "0";                          // E: 1 digit (0=present)
-        const hqTfDummy = properties.hqTfDummy || "0";                     // F: 1 digit (0=N/A)
-        const echelon = properties.echelon || "16";                       // G: 2 digits (16=battalion)
-        const mainIcon = properties.mainIcon || "121100";                 // H: 6 digits (121100=infantry)
-        const modifier1 = properties.modifier1 || "00";                   // I: 2 digits
-        const modifier2 = properties.modifier2 || "00";                   // J: 2 digits
-
-        return `${formatId}${context}${standardIdentity}${symbolSet}${status}${hqTfDummy}${echelon}${mainIcon}${modifier1}${modifier2}`;
-    }
-
     /**
      * Get bounding box for military symbol (for spatial queries)
      * @param {Array} coordinates - Symbol position
@@ -213,7 +193,9 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
     affectsSIDC(property) {
         const sidcProperties = [
             'context', 'standardIdentity', 'status', 'hqTfDummy',
-            'echelon', 'mainIcon', 'modifier1', 'modifier2'
+            'echelon', 'mainIcon', 'modifier1', 'modifier2',
+            'mainIconExtension', 'modifier1Extension', 'modifier2Extension',
+            'specialModifier', 'isCommand', 'symbolSet'
         ];
         
         return sidcProperties.includes(property);

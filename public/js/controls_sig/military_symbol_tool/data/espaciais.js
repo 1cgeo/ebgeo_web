@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/espaciais.js
+// Path: js\controls_sig\military_symbol_tool\data\espaciais.js
 
 export default {
   "symbol_sets": [
@@ -7,6 +7,11 @@ export default {
       "name": "Space",
       "nome_portugues": "Espaciais",
       "main icon": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
         {
                 "entity": "Veículo Espacial",
                 "entity_portugues": "Veículo Espacial",
@@ -95,6 +100,11 @@ export default {
 ],
       "modifier 1": [
         {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
+        {
                 "entity": "Órbita Baixa",
                 "entity_portugues": "Órbita Baixa",
                 "code": "01"
@@ -121,6 +131,11 @@ export default {
         }
 ],
       "modifier 2": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Óptico",
                 "entity_portugues": "Óptico",

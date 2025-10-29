@@ -30,7 +30,6 @@ class GridControl {
             const mapName = getCurrentMapNameSync();
             const savedGrid = await getGridStyle(mapName);
             if (savedGrid) {
-                console.log(savedGrid.visible)
                 this._currentFormat = savedGrid.format || 'latlong';
                 this._gridVisible = !!savedGrid.visible;
                 this._getGrid(this._currentFormat);

@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\land_units.js
+// Path: js\controls_sig\military_symbol_tool\data\unidades.js
 export default {
   "symbol_sets": [
     {
@@ -999,7 +999,7 @@ export default {
         },
         {
           "entity": "High Altitude",
-          "entity_portugues": "Grande Altitude",
+          "entity_portugues": "Grande Altura",
           "entity_type": "Capability",
           "entity_type_portugues": "Capacidade",
           "code": "16"
@@ -1027,7 +1027,7 @@ export default {
         },
         {
           "entity": "Low Altitude",
-          "entity_portugues": "Baixa Altitude",
+          "entity_portugues": "Baixa Altura",
           "entity_type": "Capability",
           "entity_type_portugues": "Capacidade",
           "code": "23"
@@ -1041,7 +1041,7 @@ export default {
         },
         {
           "entity": "Medium Altitude",
-          "entity_portugues": "Média Altitude",
+          "entity_portugues": "Média Altura",
           "entity_type": "Capability",
           "entity_type_portugues": "Capacidade",
           "code": "25"

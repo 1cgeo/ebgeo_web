@@ -1,4 +1,4 @@
-// Path: js/controls_sig/military_symbol_tool/data/instalacoes.js
+// Path: js\controls_sig\military_symbol_tool\data\instalacoes.js
 
 export default {
   "symbol_sets": [
@@ -7,6 +7,11 @@ export default {
       "name": "Installation",
       "nome_portugues": "Instalações",
       "main icon": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "000000"
+        },
         {
                 "entity": "Instalação QBRN/BNQR",
                 "entity_portugues": "Instalação QBRN/BNQR",
@@ -292,6 +297,11 @@ export default {
 ],
       "modifier 1": [
         {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
+        {
                 "entity": "Biológica",
                 "entity_portugues": "Biológica",
                 "code": "01"
@@ -406,6 +416,11 @@ export default {
         }
 ],
       "modifier 2": [
+        {
+          "entity": "Unspecified",
+          "entity_portugues": "Não especificado",
+          "code": "00"
+        },
         {
                 "entity": "Produção de Armas Biológicas",
                 "entity_portugues": "Produção de Armas Biológicas",
