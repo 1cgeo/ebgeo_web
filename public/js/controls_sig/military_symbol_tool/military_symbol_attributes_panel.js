@@ -15,7 +15,8 @@ import {
     getSpecialModifierData,
     isCommandApplicable,
     isModifier1Applicable,
-    isModifier2Applicable
+    isModifier2Applicable,
+    getTextModifiersConfig
 } from './military_constants.js';
 import {
     createSliderWithInput,
@@ -711,6 +712,232 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         return container;
     }
 
+    /**
+     * Create tab button
+     * @param {string} text - Button text
+     * @param {boolean} active - Whether button is active
+     * @returns {HTMLElement} Button element
+     */
+    function createTabButton(text, active = false) {
+        const button = document.createElement('button');
+        button.textContent = text;
+        button.style.cssText = `
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px 8px 0 0;
+            font-size: 15px;
+            font-weight: ${active ? 'bold' : 'normal'};
+            cursor: pointer;
+            transition: all 0.2s;
+            background: ${active ? '#007bff' : '#f5f5f5'};
+            color: ${active ? 'white' : '#333'};
+        `;
+        
+        if (active) {
+            button.classList.add('active');
+        }
+        
+        return button;
+    }
+
+    /**
+     * Create tabs container with Symbol and Text tabs
+     * @returns {Object} Container with tab elements
+     */
+    function createTabsContainer() {
+        const container = document.createElement('div');
+        container.style.cssText = 'margin-bottom: 20px;';
+        
+        // Tab buttons
+        const tabButtonsContainer = document.createElement('div');
+        tabButtonsContainer.style.cssText = 'display: flex; gap: 5px; margin-bottom: 0;';
+        
+        const simboloButton = createTabButton('Símbolo', true);
+        const textoButton = createTabButton('Texto', false);
+        
+        tabButtonsContainer.appendChild(simboloButton);
+        tabButtonsContainer.appendChild(textoButton);
+        
+        // Tab content containers
+        const simboloTab = document.createElement('div');
+        simboloTab.id = 'simbolo-tab';
+        simboloTab.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 40px; width: 100%;';
+        
+        const textoTab = document.createElement('div');
+        textoTab.id = 'texto-tab';
+        textoTab.style.cssText = 'display: none;';
+        
+        container.appendChild(tabButtonsContainer);
+        container.appendChild(simboloTab);
+        container.appendChild(textoTab);
+        
+        return {
+            container,
+            simboloTab,
+            textoTab,
+            tabButtons: { simbolo: simboloButton, texto: textoButton }
+        };
+    }
+
+    /**
+     * Switch between tabs
+     * @param {string} tabName - 'simbolo' or 'texto'
+     * @param {Object} tabButtons - Tab button elements
+     */
+    function switchTab(tabName, tabButtons) {
+        const simboloTab = document.getElementById('simbolo-tab');
+        const textoTab = document.getElementById('texto-tab');
+        const { simbolo: simboloButton, texto: textoButton } = tabButtons;
+        
+        if (tabName === 'simbolo') {
+            simboloTab.style.display = 'grid';
+            textoTab.style.display = 'none';
+            
+            simboloButton.style.background = '#007bff';
+            simboloButton.style.color = 'white';
+            simboloButton.style.fontWeight = 'bold';
+            simboloButton.classList.add('active');
+            
+            textoButton.style.background = '#f5f5f5';
+            textoButton.style.color = '#333';
+            textoButton.style.fontWeight = 'normal';
+            textoButton.classList.remove('active');
+        } else {
+            simboloTab.style.display = 'none';
+            textoTab.style.display = 'block';
+            
+            textoButton.style.background = '#007bff';
+            textoButton.style.color = 'white';
+            textoButton.style.fontWeight = 'bold';
+            textoButton.classList.add('active');
+            
+            simboloButton.style.background = '#f5f5f5';
+            simboloButton.style.color = '#333';
+            simboloButton.style.fontWeight = 'normal';
+            simboloButton.classList.remove('active');
+        }
+    }
+
+    /**
+     * Create single text field with label (REFACTORED - removed code display)
+     * @param {Object} fieldConfig - Field configuration from catalog
+     * @param {string} currentValue - Current field value
+     * @param {Function} onChange - Callback when value changes
+     * @returns {HTMLElement} Field container element
+     */
+    function createTextField(fieldConfig, currentValue, onChange) {
+        const container = document.createElement('div');
+        container.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px;';
+        
+        // Label without code
+        const label = document.createElement('label');
+        label.textContent = fieldConfig.label;
+        label.style.cssText = 'font-size: 14px; font-weight: 600; color: #333;';
+        label.title = fieldConfig.tooltip;
+        
+        // Input
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = currentValue || '';
+        input.placeholder = fieldConfig.placeholder;
+        input.style.cssText = `
+            padding: 10px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+            font-family: inherit;
+        `;
+        
+        // Focus/blur effects
+        input.onfocus = () => {
+            input.style.borderColor = '#007bff';
+            input.style.boxShadow = '0 0 0 3px rgba(0, 123, 255, 0.1)';
+        };
+        input.onblur = () => {
+            input.style.borderColor = '#ddd';
+            input.style.boxShadow = 'none';
+        };
+        
+        // Real-time update
+        input.oninput = (e) => onChange(e.target.value);
+        
+        container.appendChild(label);
+        container.appendChild(input);
+        
+        // Store input reference for programmatic updates
+        container.inputElement = input;
+        
+        return container;
+    }
+
+    /**
+     * Create text fields container dynamically based on symbol set (REFACTORED - 2 columns, no outer box)
+     * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
+     * @param {Object} tempProperties - Temporary properties object
+     * @param {Function} onUpdate - Callback when any field changes
+     * @param {Function} getTextModifiersConfig - Function to get text modifiers config
+     * @returns {HTMLElement} Container with all text fields
+     */
+    function createTextFieldsContainer(symbolSetCode, tempProperties, onUpdate, getTextModifiersConfig) {
+        const container = document.createElement('div');
+        container.style.cssText = `
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding: 20px;
+        `;
+        
+        const config = getTextModifiersConfig(symbolSetCode);
+        
+        if (!config) {
+            // Full-width message when not available
+            const message = document.createElement('div');
+            message.style.cssText = `
+                grid-column: 1 / -1;
+                padding: 30px;
+                text-align: center;
+                color: #666;
+                background: white;
+                border-radius: 8px;
+            `;
+            
+            const icon = document.createElement('div');
+            icon.textContent = 'ℹ️';
+            icon.style.cssText = 'font-size: 48px; margin-bottom: 15px;';
+            
+            const text = document.createElement('p');
+            text.textContent = 'Amplificadores textuais não disponíveis para esta dimensão.';
+            text.style.cssText = 'margin: 0; font-size: 16px;';
+            
+            const subtext = document.createElement('p');
+            subtext.textContent = 'Selecione "Unidades" ou "Equipamentos e Viaturas" na aba Símbolo.';
+            subtext.style.cssText = 'margin: 10px 0 0 0; font-size: 14px; color: #999;';
+            
+            message.appendChild(icon);
+            message.appendChild(text);
+            message.appendChild(subtext);
+            container.appendChild(message);
+            return container;
+        }
+        
+        // Create input for each text field
+        config.fields.forEach((field) => {
+            const fieldContainer = createTextField(
+                field,
+                tempProperties[field.id] || '',
+                (value) => {
+                    tempProperties[field.id] = value;
+                    onUpdate();
+                }
+            );
+            container.appendChild(fieldContainer);
+        });
+        
+        return container;
+    }
+
     // Modal do símbolo - ATUALIZADO com galeria e controle de cor
     function openSymbolModal() {
         const modalOverlay = document.createElement('div');
@@ -817,15 +1044,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         let tempProperties = { ...feature.properties };
         let isUpdatingFromSIDC = false; // Flag to prevent infinite loops
 
-        // Layout de 8 comboboxes organizados em 2 colunas
-        const comboboxesContainer = document.createElement('div');
-        comboboxesContainer.style.cssText = 'display: flex; gap: 30px;';
-
         const column1 = document.createElement('div');
-        column1.style.cssText = 'flex: 1;';
+        column1.style.cssText = 'display: flex; flex-direction: column; gap: 0;';
 
         const column2 = document.createElement('div');
-        column2.style.cssText = 'flex: 1;';
+        column2.style.cssText = 'display: flex; flex-direction: column; gap: 0;';
 
         // Store combobox references for programmatic updates
         const comboboxes = {};
@@ -996,6 +1219,21 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     tempProperties.mainIconExtension = null;
                     tempProperties.modifier1Extension = null;
                     tempProperties.modifier2Extension = null;
+                    
+                    // Reset text modifiers when changing symbol set
+                    tempProperties.uniqueDesignation = '';
+                    tempProperties.higherFormation = '';
+                    tempProperties.reinforcedReduced = '';
+                    tempProperties.additionalInformation = '';
+                    tempProperties.credibility = '';
+                    tempProperties.location = '';
+                    tempProperties.dateTimeGroup = '';
+                    tempProperties.altitudeDepth = '';
+                    tempProperties.speed = '';
+                    tempProperties.specialHeadquarters = '';
+                    tempProperties.type = '';
+                    tempProperties.iffSif = '';
+                    tempProperties.equipmentTeardownTime = '';
                     
                     // Recarregar comboboxes dependentes
                     reloadDependentComboboxes(value);
@@ -1203,9 +1441,76 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         );
         column2.appendChild(comboboxes.colorControl);
 
-        comboboxesContainer.appendChild(column1);
-        comboboxesContainer.appendChild(column2);
-        controlsColumn.appendChild(comboboxesContainer);
+        // ========================================
+        // CREATE TABS SYSTEM
+        // ========================================
+        
+        // Create tabs container
+        const tabsContainer = createTabsContainer();
+        const { simboloTab, textoTab, tabButtons } = tabsContainer;
+        
+        // Add columns directly to Symbol tab
+        simboloTab.appendChild(column1);
+        simboloTab.appendChild(column2);
+        
+        // Create Text tab content
+        let textFieldsContainer = createTextFieldsContainer(
+            tempProperties.symbolSet || "10",
+            tempProperties,
+            updatePreviewFromComboboxes,
+            getTextModifiersConfig
+        );
+        textoTab.appendChild(textFieldsContainer);
+        
+        // Configure tab switching
+        tabButtons.simbolo.onclick = () => {
+            switchTab('simbolo', tabButtons);
+        };
+        
+        tabButtons.texto.onclick = () => {
+            switchTab('texto', tabButtons);
+        };
+        
+        // Add tabs container to controls column
+        controlsColumn.appendChild(tabsContainer.container);
+        
+        // Update text fields when symbol set changes
+        const originalReloadFunction = reloadDependentComboboxes;
+        reloadDependentComboboxes = (symbolSetCode) => {
+            // Call original function
+            originalReloadFunction(symbolSetCode);
+            
+            // Clear all text modifiers in tempProperties
+            tempProperties.uniqueDesignation = '';
+            tempProperties.higherFormation = '';
+            tempProperties.reinforcedReduced = '';
+            tempProperties.additionalInformation = '';
+            tempProperties.credibility = '';
+            tempProperties.location = '';
+            tempProperties.dateTimeGroup = '';
+            tempProperties.altitudeDepth = '';
+            tempProperties.speed = '';
+            tempProperties.specialHeadquarters = '';
+            tempProperties.type = '';
+            tempProperties.iffSif = '';
+            tempProperties.equipmentTeardownTime = '';
+            
+            // Update text fields for new symbol set
+            // Remove old text fields
+            while (textoTab.firstChild) {
+                textoTab.removeChild(textoTab.firstChild);
+            }
+            
+            // Create new text fields (will show empty values)
+            textFieldsContainer = createTextFieldsContainer(
+                symbolSetCode,
+                tempProperties,
+                updatePreviewFromComboboxes,
+                getTextModifiersConfig
+            );
+            textoTab.appendChild(textFieldsContainer);
+        };
+
 
         // ✅ NEW: Update preview when comboboxes change
         function updatePreviewFromComboboxes() {
@@ -1215,7 +1520,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
             // Update SIDC input field (without triggering its event)
             sidcInput.value = sidc;
-
+            
             updatePreview();
         }
 
@@ -1323,9 +1628,9 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 // Atualizar valores visuais de todos os comboboxes
                 updateAllComboboxValues();
 
-                // ✅ FIXED: Pass symbolSetCode to checkCatalogWarnings
                 const extension = BrazilianSIDCExtension.decode(normalizedSIDC.substring(20));
-                const warnings = checkCatalogWarnings(extension, tempProperties.symbolSet);
+                const sidc20 = normalizedSIDC.substring(0, 20);
+                const warnings = checkCatalogWarnings(extension, tempProperties.symbolSet, sidc20);
 
                 if (warnings.length > 0) {
                     sidcInput.style.borderColor = '#ffc107'; // Yellow for warnings
@@ -1414,7 +1719,31 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             militarySymbolControl.symbolGenerator.buildSIDC(tempProperties)
         );
 
-        // Função de preview - CORRIGIDA para usar o generator com cor
+        /**
+         * Calculates correct sizeMultiplier to match standard preview size (80px)
+         * @param {Object} properties - Complete properties object including text modifiers
+         * @param {number} size - Target size in pixels (default 80)
+         * @returns {Promise<string>} Data URL of the generated symbol with text
+         */
+        async function generatePreviewWithTextModifiers(properties, size = 80) {
+            try {                
+                const result = await militarySymbolControl.symbolGenerator.generateSymbolBlob(
+                    properties
+                );
+                
+                // Convert blob to data URL (use result.blob)
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.readAsDataURL(result.blob);
+                });
+            } catch (error) {
+                console.error('Error generating preview with text modifiers:', error);
+                return null;
+            }
+        }
+
+        // Função de preview - CORRIGIDA para incluir text modifiers
         async function updatePreview() {
             try {
                 const sidc = tempProperties.sidc;
@@ -1427,10 +1756,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     return;
                 }
 
-                const previewDataURL = await militarySymbolControl.symbolGenerator.generatePreviewDataURL(
-                    sidc,
-                    80,
-                    tempProperties.fillColor // Passar cor personalizada
+                // Generate preview with complete properties (including text modifiers)
+                const previewDataURL = await generatePreviewWithTextModifiers(
+                    tempProperties,
+                    80
                 );
 
                 if (previewDataURL) {
@@ -1471,11 +1800,25 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
         applyButton.onclick = async () => {
             // Apply changes to selected features
-            for (const [key, value] of Object.entries(tempProperties)) {
-                if (key !== 'id' && key !== 'source') {
-                    await militarySymbolControl.updateFeaturesProperty(selectedFeatures, key, value);
+            // Explicitly list all properties to ensure text modifiers are included
+            const propertiesToUpdate = [
+                'standardIdentity', 'symbolSet', 'status', 'hqTfDummy', 'echelon',
+                'mainIcon', 'modifier1', 'modifier2', 'specialModifier', 'isCommand',
+                'mainIconExtension', 'modifier1Extension', 'modifier2Extension',
+                'sidc', 'fillColor',
+                // Text modifiers
+                'uniqueDesignation', 'higherFormation', 'reinforcedReduced',
+                'additionalInformation', 'credibility', 'location', 'dateTimeGroup',
+                'altitudeDepth', 'speed', 'specialHeadquarters', 'type', 'iffSif',
+                'equipmentTeardownTime'
+            ];
+            
+            for (const key of propertiesToUpdate) {
+                if (tempProperties.hasOwnProperty(key)) {
+                    await militarySymbolControl.updateFeaturesProperty(selectedFeatures, key, tempProperties[key]);
                 }
             }
+            
             militarySymbolControl.saveFeatures(selectedFeatures, initialPropertiesMap);
             closeModal();
             selectionManager.deselectAllFeatures();
@@ -1496,7 +1839,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         `;
         cancelButton.onmouseenter = () => cancelButton.style.backgroundColor = '#545b62';
         cancelButton.onmouseleave = () => cancelButton.style.backgroundColor = '#6c757d';
-        cancelButton.onclick = () => closeModal();
+        cancelButton.onclick = closeModal;
 
         modalButtons.appendChild(applyButton);
         modalButtons.appendChild(cancelButton);
@@ -1528,21 +1871,38 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             }
         }
 
-        // Criar e adicionar galeria ao modal - NOVO
+        // ✅ CORRIGIDO BUG #2: Async initialization with gallery
         async function initializeModal() {
             try {
-                // Função callback para click na galeria
+                // Callback para click na galeria
                 const onSymbolClick = (sidc) => {
                     updateComboboxesFromSIDC(sidc);
+                    
+                    // Limpar todos os text modifiers (não devem ser restaurados da galeria)
+                    tempProperties.uniqueDesignation = '';
+                    tempProperties.higherFormation = '';
+                    tempProperties.reinforcedReduced = '';
+                    tempProperties.additionalInformation = '';
+                    tempProperties.credibility = '';
+                    tempProperties.location = '';
+                    tempProperties.dateTimeGroup = '';
+                    tempProperties.altitudeDepth = '';
+                    tempProperties.speed = '';
+                    tempProperties.specialHeadquarters = '';
+                    tempProperties.type = '';
+                    tempProperties.iffSif = '';
+                    tempProperties.equipmentTeardownTime = '';
+                    
                     updatePreview();
                 };
 
+                // ✅ Criar galeria de forma assíncrona
                 const galleryColumn = await createSymbolGallery(onSymbolClick);
 
-                // Montar modal com 3 colunas
+                // ✅ Montar modal com 3 colunas (controles, preview, galeria)
                 modalContent.appendChild(controlsColumn);
                 modalContent.appendChild(previewColumn);
-                modalContent.appendChild(galleryColumn); // Nova coluna da galeria
+                modalContent.appendChild(galleryColumn); // ✅ RESTORED!
                 modal.appendChild(modalContent);
                 modal.appendChild(modalButtons);
                 modalOverlay.appendChild(modal);
@@ -1562,7 +1922,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
             } catch (error) {
                 console.error('Erro ao inicializar modal:', error);
-                // Fallback: modal sem galeria
+                
+                // ✅ Fallback: modal sem galeria (graceful degradation)
                 modalContent.appendChild(controlsColumn);
                 modalContent.appendChild(previewColumn);
                 modal.appendChild(modalContent);
@@ -1581,7 +1942,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             }
         }
 
-        // Inicializar modal de forma assíncrona
+        // ✅ Inicializar modal de forma assíncrona
         initializeModal();
     }
 }

@@ -8,9 +8,20 @@ import { hasExtensions } from './brazilian_extension_catalog.js';
 
 const DEFAULT_SIZE = 100;
 
+/**
+ * Military Symbol Generator
+ * Generates military symbols with perfect text scaling
+ * 
+ * Key features:
+ * - Unified generation logic (no duplication)
+ * - Perfect scaling: generates symbol twice (with/without text) to calculate exact growth
+ * - No cache: simplified architecture
+ * - Consistent symbol size regardless of text modifiers
+ * - Returns actual dimensions for accurate bounding box calculations
+ */
 export class MilitarySymbolGenerator {
     constructor() {
-        this.symbolCache = new Map();
+        // Simplified: no cache
     }
 
     /**
@@ -137,6 +148,11 @@ export class MilitarySymbolGenerator {
         return properties;
     }
 
+    /**
+     * Check if SIDC can be parsed
+     * @param {string} sidc - SIDC to check
+     * @returns {Object} { canParse: boolean, error?: string, properties?: Object }
+     */
     canParseSIDC(sidc) {
         try {
             const validation = this.validateSIDC(sidc);
@@ -158,8 +174,237 @@ export class MilitarySymbolGenerator {
         }
     }
 
-    // Convert any image (SVG/PNG/etc) to PNG blob using canvas
-    async convertToPngBlob(dataURL, targetSize = DEFAULT_SIZE) {
+    /**
+     * Validate SIDC (accepts 20 or 30 digits)
+     * @param {string} sidc - SIDC to validate
+     * @returns {Object} { valid: boolean, error?: string }
+     */
+    validateSIDC(sidc) {
+        if (!sidc) {
+            return { valid: false, error: 'SIDC is null or undefined' };
+        }
+        
+        // Remove spaces
+        const cleanSIDC = sidc.replace(/\s/g, '');
+        
+        // Check length (must be 20 or 30 digits)
+        if (cleanSIDC.length !== 20 && cleanSIDC.length !== 30) {
+            return { 
+                valid: false, 
+                error: `Invalid SIDC length: ${cleanSIDC.length} (expected 20 or 30 digits)` 
+            };
+        }
+        
+        // Check if all characters are digits
+        if (!/^\d+$/.test(cleanSIDC)) {
+            return { valid: false, error: 'SIDC must contain only digits' };
+        }
+        
+        return { valid: true };
+    }
+
+    /**
+     * Extract viewBox dimensions from SVG string
+     * @param {string} svgString - SVG markup
+     * @returns {Object|null} { x, y, width, height } or null if not found
+     */
+    extractViewBoxDimensions(svgString) {
+        const match = svgString.match(/viewBox="([^"]+)"/);
+        if (!match) return null;
+        
+        const [x, y, width, height] = match[1].split(' ').map(Number);
+        return { x, y, width, height };
+    }
+
+    /**
+     * Unified symbol generation with PERFECT text scaling and dimension tracking
+     * 
+     * Strategy:
+     * 1. Generate symbol WITHOUT text modifiers → get baseline viewBox (e.g., 100x100)
+     * 2. Generate symbol WITH text modifiers → get expanded viewBox (e.g., 150x250)
+     * 3. Calculate exact growth factor: expandedViewBox / baseViewBox (e.g., 2.5x)
+     * 4. Adjust PNG target size by growth factor (e.g., 100px → 250px)
+     * 5. Result: symbol base always same visual size, PNG grows to accommodate text
+     * 
+     * Key insight: Don't adjust milsymbol's internal size, adjust final PNG canvas size.
+     * This preserves symbol proportions while accommodating text naturally.
+     * 
+     * @param {string} sidc30 - 30-digit SIDC
+     * @param {Object} properties - Symbol properties (includes text modifiers)
+     * @param {number} targetSize - Target size for base symbol (default: 100)
+     * @param {string} customColor - Optional custom fill color
+     * @returns {Promise<Object>} { blob: Blob, width: number, height: number }
+     */
+    async generateSymbol(sidc30, properties, targetSize = DEFAULT_SIZE, customColor = null) {
+        // 1. Prepare SIDC and extract codes
+        const sidc20 = getBaseSIDC(sidc30);
+        const symbolSetCode = sidc20.substring(4, 6);
+        const mainIcon = sidc20.substring(10, 16);
+        const modifier1 = sidc20.substring(16, 18);
+        const modifier2 = sidc20.substring(18, 20);
+        
+        // 2. Create auxiliary SIDC for rendering (zero out Brazilian extensions)
+        let renderSIDC = sidc20;
+        
+        // Check catalog to see if mainIcon has extensions available
+        if (hasExtensions(symbolSetCode, 'mainIcon', mainIcon)) {
+            renderSIDC = renderSIDC.substring(0, 10) + '000000' + renderSIDC.substring(16, 20);
+        }
+        
+        // Check catalog to see if modifier1 has extensions available
+        if (hasExtensions(symbolSetCode, 'modifier1', modifier1)) {
+            renderSIDC = renderSIDC.substring(0, 16) + '00' + renderSIDC.substring(18, 20);
+        }
+        
+        // Check catalog to see if modifier2 has extensions available
+        if (hasExtensions(symbolSetCode, 'modifier2', modifier2)) {
+            renderSIDC = renderSIDC.substring(0, 18) + '00';
+        }
+        
+        // 3. Configure base symbol options (NO text modifiers)
+        const baseOptions = {
+            size: targetSize * 0.5,
+            frame: true,
+            fill: true,
+            strokeWidth: 3,
+            colorMode: 'Light'
+        };
+        
+        if (customColor) {
+            baseOptions.fillColor = customColor;
+        }
+        
+        // 4. Generate baseline SVG WITHOUT text modifiers
+        const symbolBase = new ms.Symbol(renderSIDC, baseOptions);
+        const svgBase = symbolBase.asSVG();
+        const viewBoxBase = this.extractViewBoxDimensions(svgBase);
+        
+        // 5. Extract text modifiers from properties
+        const textModifiers = extractTextModifiers(properties);
+        const hasText = Object.keys(textModifiers).length > 0;
+        
+        let svgString;
+        let finalWidth = targetSize;
+        let finalHeight = targetSize;
+        
+        if (!hasText) {
+            // No text modifiers: use baseline SVG directly
+            svgString = svgBase;
+        } else {
+            // 6. Generate SVG WITH text modifiers (natural size, no adjustment)
+            const optionsWithText = { ...baseOptions, ...textModifiers };
+            const symbolWithText = new ms.Symbol(renderSIDC, optionsWithText);
+            svgString = symbolWithText.asSVG();
+            const viewBoxExpanded = this.extractViewBoxDimensions(svgString);
+            
+            // 7. Calculate EXACT growth factor independently for each axis
+            // This prevents unnecessary padding when text grows more in one direction
+            const growthFactorX = viewBoxExpanded.width / viewBoxBase.width;
+            const growthFactorY = viewBoxExpanded.height / viewBoxBase.height;
+            
+            if (growthFactorX > 1.01) { // More than 1% growth horizontally
+                finalWidth = Math.round(targetSize * growthFactorX);
+            }
+            
+            if (growthFactorY > 1.01) { // More than 1% growth vertically
+                finalHeight = Math.round(targetSize * growthFactorY);
+            }
+            
+            // Debug log to verify calculations
+            if (growthFactorX > 1.01 || growthFactorY > 1.01) {
+                console.debug(`ViewBox growth detected: ` +
+                            `base=${viewBoxBase.width}x${viewBoxBase.height}, ` +
+                            `expanded=${viewBoxExpanded.width}x${viewBoxExpanded.height}, ` +
+                            `growthFactorX=${growthFactorX.toFixed(2)}, ` +
+                            `growthFactorY=${growthFactorY.toFixed(2)}, ` +
+                            `PNG size: ${targetSize}x${targetSize}px → ${finalWidth}x${finalHeight}px`);
+            }
+        }
+        
+        // 9. Apply Brazilian modifications to final SVG
+        svgString = applyBrazilianModifications(svgString, sidc30, symbolSetCode);
+        
+        // 10. Convert to PNG blob with adjusted target dimensions
+        // The finalWidth/finalHeight ensures the symbol maintains visual size
+        // while the PNG canvas grows to accommodate text with minimal padding
+        const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+        const blob = await this.convertToPngBlob(svgDataURL, finalWidth, finalHeight);
+        
+        // ✅ RETURN DIMENSIONS: Return blob with actual dimensions for accurate bounding boxes
+        return {
+            blob: blob,
+            width: finalWidth,
+            height: finalHeight
+        };
+    }
+
+    /**
+     * Generate symbol blob for map rendering with dimensions
+     * Returns object with blob and actual dimensions for accurate bounding box calculation
+     * @param {Object} properties - Feature properties including sidc and text modifiers
+     * @returns {Promise<Object>} { blob: Blob, width: number, height: number }
+     */
+    async generateSymbolBlob(properties) {
+        const sidc30 = normalizeSIDC(properties.sidc);
+        if (!sidc30) {
+            throw new Error('Invalid SIDC for normalization');
+        }
+        
+        return await this.generateSymbol(
+            sidc30,
+            properties,
+            DEFAULT_SIZE,
+            properties.fillColor
+        );
+    }
+
+    /**
+     * Generate preview data URL for UI display
+     * Simplified: delegates to unified generateSymbol() method
+     * @param {string} sidc - 20 or 30 digit SIDC
+     * @param {number} size - Preview size (default: 80)
+     * @param {string} customColor - Optional custom fill color
+     * @returns {Promise<string>} Data URL (base64)
+     */
+    async generatePreviewDataURL(sidc, size = 80, customColor = null) {
+        try {
+            const sidc30 = normalizeSIDC(sidc);
+            if (!sidc30) {
+                return null;
+            }
+            
+            // Parse SIDC to extract properties (including any text modifiers if present)
+            const properties = this.parseSIDC(sidc30);
+            
+            // Generate symbol with dimensions
+            const result = await this.generateSymbol(sidc30, properties, size, customColor);
+            
+            // Convert blob to data URL
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.readAsDataURL(result.blob);
+            });
+        } catch (error) {
+            console.error('Error generating preview:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Convert SVG data URL to PNG blob using canvas
+     * Maintains aspect ratio and centers image in canvas with specified dimensions
+     * @param {string} dataURL - SVG data URL
+     * @param {number} targetWidth - Target canvas width
+     * @param {number} targetHeight - Target canvas height (optional, defaults to targetWidth for square)
+     * @returns {Promise<Blob>} PNG blob
+     */
+    async convertToPngBlob(dataURL, targetWidth = DEFAULT_SIZE, targetHeight = null) {
+        // If targetHeight not specified, create square canvas
+        if (targetHeight === null) {
+            targetHeight = targetWidth;
+        }
+        
         return new Promise((resolve, reject) => {
             const img = new Image();
 
@@ -173,29 +418,32 @@ export class MilitarySymbolGenerator {
                     const aspectRatio = originalWidth / originalHeight;
 
                     // 3. Calculate new dimensions maintaining proportion
+                    // Fit image to canvas while maintaining aspect ratio
                     let newWidth, newHeight;
-                    if (aspectRatio >= 1) {
-                        // Landscape or square
-                        newWidth = targetSize;
-                        newHeight = Math.round(targetSize / aspectRatio);
+                    const canvasAspectRatio = targetWidth / targetHeight;
+                    
+                    if (aspectRatio >= canvasAspectRatio) {
+                        // Image is wider than canvas - fit to width
+                        newWidth = targetWidth;
+                        newHeight = Math.round(targetWidth / aspectRatio);
                     } else {
-                        // Portrait
-                        newHeight = targetSize;
-                        newWidth = Math.round(targetSize * aspectRatio);
+                        // Image is taller than canvas - fit to height
+                        newHeight = targetHeight;
+                        newWidth = Math.round(targetHeight * aspectRatio);
                     }
 
-                    // 4. Create canvas with target size (square for padding)
+                    // 4. Create canvas with target dimensions
                     const canvas = document.createElement('canvas');
-                    canvas.width = targetSize;
-                    canvas.height = targetSize;
+                    canvas.width = targetWidth;
+                    canvas.height = targetHeight;
                     const ctx = canvas.getContext('2d');
 
                     // 5. Clear background (transparent)
-                    ctx.clearRect(0, 0, targetSize, targetSize);
+                    ctx.clearRect(0, 0, targetWidth, targetHeight);
 
                     // 6. Center image in canvas
-                    const offsetX = (targetSize - newWidth) / 2;
-                    const offsetY = (targetSize - newHeight) / 2;
+                    const offsetX = (targetWidth - newWidth) / 2;
+                    const offsetY = (targetHeight - newHeight) / 2;
 
                     // 7. Draw resized image centered
                     ctx.drawImage(img, offsetX, offsetY, newWidth, newHeight);
@@ -211,226 +459,48 @@ export class MilitarySymbolGenerator {
             img.src = dataURL;
         });
     }
+}
 
-    async generateSymbolBlob(properties) {
-        // 1. Normalize SIDC to 30 digits (this is the REAL SIDC with actual codes)
-        const sidc30 = normalizeSIDC(properties.sidc);
-        if (!sidc30) {
-            throw new Error('Invalid SIDC for normalization');
+/**
+ * ========================================
+ * HELPER FUNCTIONS
+ * ========================================
+ */
+
+/**
+ * Extract text modifiers from feature properties
+ * Only includes fields that have non-empty values
+ * @param {Object} properties - Feature properties
+ * @returns {Object} Text modifiers for milsymbol.js (only non-empty)
+ */
+function extractTextModifiers(properties) {
+    const modifiers = {};
+    
+    // Complete list of text fields supported by milsymbol.js
+    // Based on MIL-STD-2525D and MD33-M-02
+    const textFields = [
+        'uniqueDesignation',      // C - Designação
+        'higherFormation',        // B - Subordinação
+        'reinforcedReduced',      // F - Reforço/Redução
+        'additionalInformation',  // H - Informações Adicionais
+        'credibility',            // J - Credibilidade
+        'location',               // Y - Localização
+        'dateTimeGroup',          // W - GDH
+        'altitudeDepth',          // X - Altitude/Profundidade
+        'speed',                  // Z - Velocidade
+        'specialHeadquarters',    // AA - Tipo de PC
+        'type',                   // V - Tipo de Equipamento
+        'iffSif',                 // P - Código IFF
+        'equipmentTeardownTime'   // X1 - Tempo de Destruição
+    ];
+    
+    // Only add fields that have values (not null, undefined, or empty string)
+    textFields.forEach(field => {
+        const value = properties[field];
+        if (value !== null && value !== undefined && value !== '') {
+            modifiers[field] = value;
         }
-        
-        const sidc20 = getBaseSIDC(sidc30);
-        const symbolSetCode = sidc20.substring(4, 6);  // Extract symbol set code
-        const mainIcon = sidc20.substring(10, 16);
-        const modifier1 = sidc20.substring(16, 18);
-        const modifier2 = sidc20.substring(18, 20);
-        
-        // 2. Decode extension
-        const extension = BrazilianSIDCExtension.decode(sidc30.substring(20));
-        
-        // 3. Create auxiliary SIDC for rendering (starts with real SIDC)
-        let renderSIDC = sidc20;
-        
-        // Check catalog to see if mainIcon has extensions available
-        // If it does, zero it out for rendering
-        if (hasExtensions(symbolSetCode, 'mainIcon', mainIcon)) {
-            // Replace mainIcon (positions 10-16) with zeros
-            renderSIDC = renderSIDC.substring(0, 10) + '000000' + renderSIDC.substring(16, 20);
-        }
-        
-        // Check catalog to see if modifier1 has extensions available
-        if (hasExtensions(symbolSetCode, 'modifier1', modifier1)) {
-            // Replace modifier1 (positions 16-18) with zeros
-            renderSIDC = renderSIDC.substring(0, 16) + '00' + renderSIDC.substring(18, 20);
-        }
-        
-        // Check catalog to see if modifier2 has extensions available
-        if (hasExtensions(symbolSetCode, 'modifier2', modifier2)) {
-            // Replace modifier2 (positions 18-20) with zeros
-            renderSIDC = renderSIDC.substring(0, 18) + '00';
-        }
-
-        // Cache key includes sidc30 (real SIDC) and fillColor
-        const cacheKey = `${sidc30}_${properties.fillColor || 'default'}`;
-        if (this.symbolCache.has(cacheKey)) {
-            return this.symbolCache.get(cacheKey);
-        }
-
-        try {
-            const validation = this.validateSIDC(renderSIDC);
-            if (!validation.valid) {
-                console.error('Invalid auxiliary SIDC:', validation.error);
-            }
-
-            // 4. Configure symbol options
-            const symbolOptions = {
-                size: DEFAULT_SIZE * 0.5,
-                frame: true,
-                fill: true,
-                strokeWidth: 3,
-                colorMode: 'Light'
-            };
-
-            // Apply custom color if defined
-            if (properties.fillColor) {
-                symbolOptions.fillColor = properties.fillColor;
-            }
-
-            // 5. Generate base SVG with milsymbol.js using auxiliary SIDC
-            const symbol = new ms.Symbol(renderSIDC, symbolOptions);
-
-            // Check if symbol was generated successfully
-            if (!symbol || symbol.isValid === false) {
-                console.warn('milsymbol.js returned invalid symbol for auxiliary SIDC:', renderSIDC);
-            }
-
-            // 6. Get SVG string
-            let svgString = symbol.asSVG();
-
-            // 7. Apply all Brazilian modifications using REAL SIDC (sidc30)
-            svgString = applyBrazilianModifications(svgString, sidc30, symbolSetCode);
-
-            // 8. Convert modified SVG to data URL
-            const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
-
-            // 9. Convert to PNG using canvas
-            const pngBlob = await this.convertToPngBlob(svgDataURL, DEFAULT_SIZE);
-
-            // 10. Add to cache
-            this.symbolCache.set(cacheKey, pngBlob);
-            return pngBlob;
-
-        } catch (error) {
-            console.error('Error generating symbol:', error);
-            throw error;
-        }
-    }
-
-    // Validate SIDC (accepts 20 or 30 digits)
-    validateSIDC(sidc) {
-        if (!sidc) {
-            return { valid: false, error: 'SIDC is null or undefined' };
-        }
-        
-        // Remove spaces
-        sidc = sidc.replace(/\s/g, '');
-        
-        if (sidc.length !== 20 && sidc.length !== 30) {
-            return { valid: false, error: `SIDC must be 20 or 30 digits, got ${sidc.length}` };
-        }
-
-        // Validate first 20 digits (APP-6D)
-        const sidc20 = sidc.substring(0, 20);
-        if (!/^[0-9]{20}$/.test(sidc20)) {
-            return { valid: false, error: 'First 20 digits must be numeric' };
-        }
-
-        // Verify format ID
-        const formatId = sidc20.substring(0, 2);
-        if (formatId !== "10") {
-            return { valid: false, error: `Format ID must be "10", got "${formatId}"` };
-        }
-        
-        // If 30 digits, validate extension
-        if (sidc.length === 30) {
-            const extension = sidc.substring(20);
-            if (!/^[0-9]{10}$/.test(extension)) {
-                return { valid: false, error: 'Extension must be 10 numeric digits' };
-            }
-            
-            const countryCode = extension.substring(0, 3);
-            if (countryCode !== '076') {
-                return { 
-                    valid: false, 
-                    error: `Country code must be "076" (Brazil), got "${countryCode}"` 
-                };
-            }
-        }
-
-        return { valid: true };
-    }
-
-    // Generate preview for UI (reuses PNG conversion logic)
-    async generatePreviewDataURL(sidc, size = 80, customColor = null) {
-        try {
-            // Normalize to 30 digits (this is the REAL SIDC)
-            const sidc30 = normalizeSIDC(sidc);
-            if (!sidc30) {
-                return null;
-            }
-            
-            const sidc20 = getBaseSIDC(sidc30);
-            const symbolSetCode = sidc20.substring(4, 6);  // Extract symbol set code
-            const mainIcon = sidc20.substring(10, 16);
-            const modifier1 = sidc20.substring(16, 18);
-            const modifier2 = sidc20.substring(18, 20);
-            
-            // Decode extension
-            const extension = BrazilianSIDCExtension.decode(sidc30.substring(20));
-            
-            // Create auxiliary SIDC for rendering
-            let renderSIDC = sidc20;
-            // Check catalog to see if mainIcon has extensions available
-            if (hasExtensions(symbolSetCode, 'mainIcon', mainIcon)) {
-                renderSIDC = renderSIDC.substring(0, 10) + '000000' + renderSIDC.substring(16, 20);
-            }
-            
-            // Check catalog to see if modifier1 has extensions available
-            if (hasExtensions(symbolSetCode, 'modifier1', modifier1)) {
-                renderSIDC = renderSIDC.substring(0, 16) + '00' + renderSIDC.substring(18, 20);
-            }
-            
-            // Check catalog to see if modifier2 has extensions available
-            if (hasExtensions(symbolSetCode, 'modifier2', modifier2)) {
-                renderSIDC = renderSIDC.substring(0, 18) + '00';
-            }
-            
-            // Configure symbol options
-            const symbolOptions = {
-                size: size,
-                frame: true,
-                fill: true,
-                strokeWidth: 2,
-                colorMode: 'Light'
-            };
-
-            // Apply custom color if defined
-            if (customColor) {
-                symbolOptions.fillColor = customColor;
-            }
-
-            // Generate symbol using auxiliary SIDC
-            const symbol = new ms.Symbol(renderSIDC, symbolOptions);
-
-            if (!symbol || symbol.isValid === false) {
-                console.warn('milsymbol.js returned invalid symbol for auxiliary SIDC:', renderSIDC);
-                return null;
-            }
-
-            // Get SVG and apply Brazilian modifications using REAL SIDC
-            let svgString = symbol.asSVG();
-            svgString = applyBrazilianModifications(svgString, sidc30, symbolSetCode);
-
-            // Convert to data URL
-            const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
-
-            // Convert to PNG and then to data URL
-            const pngBlob = await this.convertToPngBlob(svgDataURL, size);
-
-            // Convert blob to data URL
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.readAsDataURL(pngBlob);
-            });
-
-        } catch (error) {
-            console.error('Error generating preview:', error);
-            return null;
-        }
-    }
-
-    clearCache() {
-        this.symbolCache.clear();
-    }
+    });
+    
+    return modifiers;
 }

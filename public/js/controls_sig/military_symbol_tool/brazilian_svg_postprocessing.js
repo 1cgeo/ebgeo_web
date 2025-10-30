@@ -306,24 +306,40 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
 
 /**
  * Check for uncataloged extensions and return warnings
- * NOTE: This function is for validation/debugging only - it does not affect rendering
+ * Performs REAL validation by checking if extensions exist in catalog
  * @param {Object} extension - Decoded extension
  * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
+ * @param {string} sidc20 - 20-digit base SIDC (needed to extract codes)
  * @returns {Array<string>} Array of warning messages
  */
-export function checkCatalogWarnings(extension, symbolSetCode) {
+export function checkCatalogWarnings(extension, symbolSetCode, sidc20) {
     if (!extension) return [];
     
     const warnings = [];
     
-    // Note: These checks are simplified because we don't have the code bases here
-    // They will log warnings during actual rendering when the code bases are available
+    // Extract codes from SIDC (needed for catalog lookups)
+    const mainIconCode = sidc20 ? sidc20.substring(10, 16) : null;    // Positions 11-16
+    const modifier1Code = sidc20 ? sidc20.substring(16, 18) : null;   // Positions 17-18
+    const modifier2Code = sidc20 ? sidc20.substring(18, 20) : null;   // Positions 19-20
     
+    // 1. Entity Extension - check if exists in catalog
     if (extension.entityExtension !== null && extension.entityExtension !== undefined) {
-        // Would need mainIconCode to do proper check - warning logged during rendering
-        warnings.push(`Entity Extension ${extension.entityExtension} detected (verify catalog during rendering)`);
+        if (mainIconCode && hasExtensions(symbolSetCode, 'mainIcon', mainIconCode)) {
+            const entityExt = getCatalogEntry(
+                symbolSetCode,
+                'mainIcon',
+                'extensions',
+                mainIconCode,
+                extension.entityExtension
+            );
+            
+            if (!entityExt) {
+                warnings.push(`Entity Extension ${extension.entityExtension} not cataloged for icon ${mainIconCode}`);
+            }
+        }
     }
     
+    // 2. Special Modifier - check if exists in catalog
     if (extension.specialModifier > 0) {
         const modifiersCatalog = getSpecialModifiers(symbolSetCode);
         if (!modifiersCatalog || !modifiersCatalog[extension.specialModifier]) {
@@ -331,18 +347,42 @@ export function checkCatalogWarnings(extension, symbolSetCode) {
         }
     }
     
+    // 3. Modifier 1 Extension - check if exists in catalog
     if (extension.mod1Extension !== null && extension.mod1Extension !== undefined) {
-        // Would need modifier1Code to do proper check - warning logged during rendering
-        warnings.push(`Mod1 Extension ${extension.mod1Extension} detected (verify catalog during rendering)`);
+        if (modifier1Code && modifier1Code !== '00' && hasExtensions(symbolSetCode, 'modifier1', modifier1Code)) {
+            const mod1Ext = getCatalogEntry(
+                symbolSetCode,
+                'modifier1',
+                'extensions',
+                modifier1Code,
+                extension.mod1Extension
+            );
+            
+            if (!mod1Ext) {
+                warnings.push(`Mod1 Extension ${extension.mod1Extension} not cataloged for modifier ${modifier1Code}`);
+            }
+        }
     }
     
+    // 4. Modifier 2 Extension - check if exists in catalog
     if (extension.mod2Extension !== null && extension.mod2Extension !== undefined) {
-        // Check if modifier2 section exists for this symbol set
+        // First check if modifier2 section exists for this symbol set
         if (!hasSection(symbolSetCode, 'modifier2')) {
-            warnings.push(`Modifier 2 not applicable for Symbol Set ${symbolSetCode}`);
-        } else {
-            // Would need modifier2Code to do proper check - warning logged during rendering
-            warnings.push(`Mod2 Extension ${extension.mod2Extension} detected (verify catalog during rendering)`);
+            if (extension.mod2Extension > 0) {
+                warnings.push(`Modifier 2 not applicable for Symbol Set ${symbolSetCode}`);
+            }
+        } else if (modifier2Code && modifier2Code !== '00' && hasExtensions(symbolSetCode, 'modifier2', modifier2Code)) {
+            const mod2Ext = getCatalogEntry(
+                symbolSetCode,
+                'modifier2',
+                'extensions',
+                modifier2Code,
+                extension.mod2Extension
+            );
+            
+            if (!mod2Ext) {
+                warnings.push(`Mod2 Extension ${extension.mod2Extension} not cataloged for modifier ${modifier2Code}`);
+            }
         }
     }
     

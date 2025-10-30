@@ -66,6 +66,20 @@ class AddMilitarySymbolControl extends BaseControl {
     descricao: "",
     visivel: true,
     bloqueado: false,
+
+    uniqueDesignation: null,      // C - Designação
+    higherFormation: null,        // B - Subordinação
+    reinforcedReduced: null,      // F - Reforço/Redução
+    additionalInformation: null,  // H - Informações Adicionais
+    credibility: null,            // J - Credibilidade
+    location: null,               // Y - Localização
+    dateTimeGroup: null,          // W - GDH (Grupo Data-Hora)
+    altitudeDepth: null,          // X - Altitude/Profundidade
+    speed: null,                  // Z - Velocidade
+    specialHeadquarters: null,    // AA - Tipo de PC
+    type: null,                   // V - Tipo de Equipamento
+    iffSif: null,                 // P - Código IFF/SIF
+    equipmentTeardownTime: null   // X1 - Tempo de Destruição
   };
 
   // ===== FONTE ÚNICA DA VERDADE =====
@@ -462,16 +476,46 @@ class AddMilitarySymbolControl extends BaseControl {
         createdAtZoom: currentZoom,
         calculatedSize: AddMilitarySymbolControl.DEFAULT_PROPERTIES.size,
         selectionBox: selectionBox,
+        uniqueDesignation: null,
+        higherFormation: null,
+        reinforcedReduced: null,
+        additionalInformation: null,
+        credibility: null,
+        location: null,
+        dateTimeGroup: null,
+        altitudeDepth: null,
+        speed: null,
+        specialHeadquarters: null,
+        type: null,
+        iffSif: null,
+        equipmentTeardownTime: null,
       },
       geometry: this.geometry.generate(coordinates),
     };
 
     try {
-      // Generate symbol image and store as blob
-      const symbolBlob = await this.symbolGenerator.generateSymbolBlob(
+      // ✅ Generate symbol and CAPTURE REAL DIMENSIONS
+      const result = await this.symbolGenerator.generateSymbolBlob(
         feature.properties
       );
-      await storeImage(featureId, symbolBlob);
+      
+      // ✅ UPDATE feature with real dimensions from generated image
+      feature.properties.width = result.width;
+      feature.properties.height = result.height;
+      
+      // ✅ RECALCULATE selection box with real dimensions
+      feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
+        coordinates,
+        result.width,
+        result.height,
+        feature.properties.size,
+        feature.properties.rotation,
+        currentZoom,
+        this.selectionManager.uiManager
+      );
+      
+      // Store image (blob only)
+      await storeImage(featureId, result.blob);
 
       // Add to storage
       await addFeature("military_symbols", feature);
@@ -484,7 +528,7 @@ class AddMilitarySymbolControl extends BaseControl {
       this.map.getSource("military_symbols").setData(data);
 
       // Load symbol image to map for rendering
-      await this.loadSymbolToMap(featureId, symbolBlob);
+      await this.loadSymbolToMap(featureId, result.blob);
 
       // Select the new feature
       this.selectionManager.toggleFeatureSelection(
@@ -555,14 +599,45 @@ class AddMilitarySymbolControl extends BaseControl {
       const feature = this.lastSymbolFeature;
       const symbolId = feature.properties.id;
 
-      // Generate new symbol blob
-      const symbolBlob = await this.symbolGenerator.generateSymbolBlob(
+      // ✅ Generate symbol with dimensions
+      const result = await this.symbolGenerator.generateSymbolBlob(
         feature.properties
       );
+      
+      // ✅ UPDATE dimensions in feature
+      feature.properties.width = result.width;
+      feature.properties.height = result.height;
+      
+      // ✅ RECALCULATE selection box with new dimensions
+      feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
+        feature,
+        this.selectionManager.uiManager
+      );
+      
+      // ✅ PERSIST changes to map source
+      const data = JSON.parse(
+        JSON.stringify(this.map.getSource("military_symbols")._data)
+      );
+      const sourceFeature = data.features.find(
+        f => f.properties.id === feature.properties.id
+      );
+      if (sourceFeature) {
+        sourceFeature.properties.width = result.width;
+        sourceFeature.properties.height = result.height;
+        sourceFeature.properties.selectionBox = feature.properties.selectionBox;
+      }
+      this.map.getSource("military_symbols").setData(data);
 
-      // Update imageStore
-      await storeImage(symbolId, symbolBlob);
-      await this.loadSymbolToMap(symbolId, symbolBlob);
+      // Update imageStore and map
+      await storeImage(symbolId, result.blob);
+      await this.loadSymbolToMap(symbolId, result.blob);
+      
+      // ✅ UPDATE selection highlight
+      if (this.selectionManager.uiManager.updateSelectionHighlight) {
+        requestAnimationFrame(() => {
+          this.selectionManager.uiManager.updateSelectionHighlight();
+        });
+      }
     } catch (error) {
       console.error("Error updating symbol:", error);
     }
@@ -576,19 +651,48 @@ class AddMilitarySymbolControl extends BaseControl {
     try {
       const symbolId = feature.properties.id;
 
-      // Generate new symbol blob
-      const symbolBlob = await this.symbolGenerator.generateSymbolBlob(
+      // ✅ Generate symbol with dimensions
+      const result = await this.symbolGenerator.generateSymbolBlob(
         feature.properties
       );
+      
+      feature.properties.width = result.width;
+      feature.properties.height = result.height;
+      
+      feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
+        feature,
+        this.selectionManager.uiManager
+      );
+      
+      // ✅ PERSIST changes to map source
+      const data = JSON.parse(
+        JSON.stringify(this.map.getSource("military_symbols")._data)
+      );
+      const sourceFeature = data.features.find(
+        f => f.properties.id === feature.properties.id
+      );
+      if (sourceFeature) {
+        sourceFeature.properties.width = result.width;
+        sourceFeature.properties.height = result.height;
+        sourceFeature.properties.selectionBox = feature.properties.selectionBox;
+      }
+      this.map.getSource("military_symbols").setData(data);
 
       // Update imageStore
-      await storeImage(symbolId, symbolBlob);
+      await storeImage(symbolId, result.blob);
 
       // Remove old image from map and add new one
       if (this.map.hasImage(symbolId)) {
         this.map.removeImage(symbolId);
       }
-      await this.loadSymbolToMap(symbolId, symbolBlob);
+      await this.loadSymbolToMap(symbolId, result.blob);
+      
+      // ✅ UPDATE selection highlight
+      if (this.selectionManager.uiManager.updateSelectionHighlight) {
+        requestAnimationFrame(() => {
+          this.selectionManager.uiManager.updateSelectionHighlight();
+        });
+      }
     } catch (error) {
       console.error("Error updating symbol image:", error);
     }
@@ -772,9 +876,10 @@ class AddMilitarySymbolControl extends BaseControl {
           sourceFeature.properties.calculatedSize = newCalculatedSize;
           feature.properties.calculatedSize = newCalculatedSize;
         } else {
-          // Properties that affect SIDC or color must regenerate the symbol
           const needsRegeneration =
-            this.geometry.affectsSIDC(property) || property === "fillColor";
+            this.geometry.affectsSIDC(property) ||
+            this.geometry.affectsTextModifiers(property) ||
+            property === "fillColor";
 
           if (needsRegeneration) {
             // Calculate new SIDC if SIDC-affecting property changed
@@ -784,13 +889,14 @@ class AddMilitarySymbolControl extends BaseControl {
               feature.properties.sidc = newSIDC30;
             }
 
-            // Regenerate if SIDC changed OR fillColor changed
             const sidcChanged =
               this.geometry.affectsSIDC(property) &&
               oldSIDC !== sourceFeature.properties.sidc;
             const colorChanged =
               property === "fillColor" && oldFillColor !== value;
-            if (sidcChanged || colorChanged) {
+            const textModifierChanged = this.geometry.affectsTextModifiers(property);  // ✅ NEW
+
+            if (sidcChanged || colorChanged || textModifierChanged) {
               this.scheduleSymbolUpdate(feature);
             }
           }
@@ -981,7 +1087,36 @@ class AddMilitarySymbolControl extends BaseControl {
   };
 
   setDefaultProperties = (properties) => {
-    Object.assign(AddMilitarySymbolControl.DEFAULT_PROPERTIES, properties);
+    // Text modifiers são conteúdo específico de cada símbolo, não configurações padrão
+    const TEXT_MODIFIERS = [
+      'uniqueDesignation',
+      'higherFormation',
+      'reinforcedReduced',
+      'additionalInformation',
+      'credibility',
+      'location',
+      'dateTimeGroup',
+      'altitudeDepth',
+      'speed',
+      'specialHeadquarters',
+      'type',
+      'iffSif',
+      'equipmentTeardownTime'
+    ];
+
+    // Criar cópia das propriedades SEM text modifiers
+    const safeProperties = { ...properties };
+    TEXT_MODIFIERS.forEach(key => {
+      delete safeProperties[key];
+    });
+
+    // Aplicar apenas propriedades seguras (configurações de estilo)
+    Object.assign(AddMilitarySymbolControl.DEFAULT_PROPERTIES, safeProperties);
+
+    // Isso garante que mesmo se houve contaminação anterior, ela é limpa
+    TEXT_MODIFIERS.forEach(key => {
+      AddMilitarySymbolControl.DEFAULT_PROPERTIES[key] = null;
+    });
   };
 
   hasFeatureChanged = (feature, initialProperties) => {

@@ -13,6 +13,13 @@ import submarinos from './data/submarinos.js';
 import guerraMinas from './data/guerra_minas.js';
 import atividadesEventos from './data/atividades_eventos.js';
 
+// Import text modifiers catalog
+import { 
+    getTextModifiersConfig, 
+    hasTextModifiers, 
+    getTextModifierFieldIds 
+} from './text_modifiers_catalog.js';
+
 /**
  * ========================================
  * SYMBOL SET REGISTRY
@@ -337,3 +344,5 @@ export function isHqTfApplicable(symbolSetCode) {
 
 // Export registry for direct access if needed
 export { SYMBOL_SET_REGISTRY };
+// Re-export text modifiers functions
+export { getTextModifiersConfig, hasTextModifiers, getTextModifierFieldIds };

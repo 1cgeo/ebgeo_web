@@ -65,8 +65,8 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      */
     calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager) {
         // Apply size scaling with 62.5% correction factor (same as image tool)
-        const scaledWidth = width * size * 0.625;
-        const scaledHeight = height * size * 0.625;
+        const scaledWidth = width * size * 0.5;
+        const scaledHeight = height * size * 0.5;
         
         // Calculate expanded dimensions accounting for rotation
         const expandedDimensions = uiManager.calculateExpandedDimensions(scaledWidth, scaledHeight, rotation);
@@ -199,6 +199,32 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
         ];
         
         return sidcProperties.includes(property);
+    }
+
+    /**
+     * ✅ NEW: Check if property is a text modifier (requires symbol regeneration)
+     * Text modifiers don't affect SIDC but require regeneration to show text
+     * @param {string} property - Property name being changed
+     * @returns {boolean} True if property is a text modifier
+     */
+    affectsTextModifiers(property) {
+        const textModifierProperties = [
+            'uniqueDesignation',      // C - Designação
+            'higherFormation',        // B - Subordinação
+            'reinforcedReduced',      // F - Reforço/Redução
+            'additionalInformation',  // H - Informações Adicionais
+            'credibility',            // J - Credibilidade
+            'location',               // Y - Localização
+            'dateTimeGroup',          // W - GDH
+            'altitudeDepth',          // X - Altitude/Profundidade
+            'speed',                  // Z - Velocidade
+            'specialHeadquarters',    // AA - Tipo de PC
+            'type',                   // V - Tipo de Equipamento
+            'iffSif',                 // P - Código IFF
+            'equipmentTeardownTime'   // X1 - Tempo de Destruição
+        ];
+        
+        return textModifierProperties.includes(property);
     }
 
     /**
