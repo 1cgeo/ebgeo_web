@@ -6,12 +6,12 @@ import {
 } from './brazilian_sidc_extension.js';
 import { checkCatalogWarnings } from './brazilian_svg_postprocessing.js';
 
-import { 
-    MILITARY_DATA, 
-    getMainIcons, 
-    getModifier1, 
-    getModifier2, 
-    getEchelonData, 
+import {
+    MILITARY_DATA,
+    getMainIcons,
+    getModifier1,
+    getModifier2,
+    getEchelonData,
     getSpecialModifierData,
     isCommandApplicable,
     isModifier1Applicable,
@@ -177,6 +177,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             overflow: hidden;
             word-wrap: break-word;
             hyphens: auto;
+            pointer-events: none;
         `;
         selectDisplay.appendChild(textContainer);
 
@@ -396,7 +397,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             textContainer.title = tooltipText;
             currentValue = value;
             closeDropdown();
-            
+
             onChange(value, option);
         }
 
@@ -733,11 +734,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             background: ${active ? '#007bff' : '#f5f5f5'};
             color: ${active ? 'white' : '#333'};
         `;
-        
+
         if (active) {
             button.classList.add('active');
         }
-        
+
         return button;
     }
 
@@ -748,30 +749,30 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     function createTabsContainer() {
         const container = document.createElement('div');
         container.style.cssText = 'margin-bottom: 20px;';
-        
+
         // Tab buttons
         const tabButtonsContainer = document.createElement('div');
         tabButtonsContainer.style.cssText = 'display: flex; gap: 5px; margin-bottom: 0;';
-        
+
         const simboloButton = createTabButton('Símbolo', true);
         const textoButton = createTabButton('Texto', false);
-        
+
         tabButtonsContainer.appendChild(simboloButton);
         tabButtonsContainer.appendChild(textoButton);
-        
+
         // Tab content containers
         const simboloTab = document.createElement('div');
         simboloTab.id = 'simbolo-tab';
         simboloTab.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 40px; width: 100%;';
-        
+
         const textoTab = document.createElement('div');
         textoTab.id = 'texto-tab';
         textoTab.style.cssText = 'display: none;';
-        
+
         container.appendChild(tabButtonsContainer);
         container.appendChild(simboloTab);
         container.appendChild(textoTab);
-        
+
         return {
             container,
             simboloTab,
@@ -789,16 +790,16 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         const simboloTab = document.getElementById('simbolo-tab');
         const textoTab = document.getElementById('texto-tab');
         const { simbolo: simboloButton, texto: textoButton } = tabButtons;
-        
+
         if (tabName === 'simbolo') {
             simboloTab.style.display = 'grid';
             textoTab.style.display = 'none';
-            
+
             simboloButton.style.background = '#007bff';
             simboloButton.style.color = 'white';
             simboloButton.style.fontWeight = 'bold';
             simboloButton.classList.add('active');
-            
+
             textoButton.style.background = '#f5f5f5';
             textoButton.style.color = '#333';
             textoButton.style.fontWeight = 'normal';
@@ -806,12 +807,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         } else {
             simboloTab.style.display = 'none';
             textoTab.style.display = 'block';
-            
+
             textoButton.style.background = '#007bff';
             textoButton.style.color = 'white';
             textoButton.style.fontWeight = 'bold';
             textoButton.classList.add('active');
-            
+
             simboloButton.style.background = '#f5f5f5';
             simboloButton.style.color = '#333';
             simboloButton.style.fontWeight = 'normal';
@@ -829,13 +830,13 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     function createTextField(fieldConfig, currentValue, onChange) {
         const container = document.createElement('div');
         container.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px;';
-        
+
         // Label without code
         const label = document.createElement('label');
         label.textContent = fieldConfig.label;
         label.style.cssText = 'font-size: 14px; font-weight: 600; color: #333;';
         label.title = fieldConfig.tooltip;
-        
+
         // Input
         const input = document.createElement('input');
         input.type = 'text';
@@ -849,7 +850,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             transition: border-color 0.2s;
             font-family: inherit;
         `;
-        
+
         // Focus/blur effects
         input.onfocus = () => {
             input.style.borderColor = '#007bff';
@@ -859,16 +860,16 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             input.style.borderColor = '#ddd';
             input.style.boxShadow = 'none';
         };
-        
+
         // Real-time update
         input.oninput = (e) => onChange(e.target.value);
-        
+
         container.appendChild(label);
         container.appendChild(input);
-        
+
         // Store input reference for programmatic updates
         container.inputElement = input;
-        
+
         return container;
     }
 
@@ -888,9 +889,9 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             gap: 20px;
             padding: 20px;
         `;
-        
+
         const config = getTextModifiersConfig(symbolSetCode);
-        
+
         if (!config) {
             // Full-width message when not available
             const message = document.createElement('div');
@@ -902,26 +903,26 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 background: white;
                 border-radius: 8px;
             `;
-            
+
             const icon = document.createElement('div');
             icon.textContent = 'ℹ️';
             icon.style.cssText = 'font-size: 48px; margin-bottom: 15px;';
-            
+
             const text = document.createElement('p');
             text.textContent = 'Amplificadores textuais não disponíveis para esta dimensão.';
             text.style.cssText = 'margin: 0; font-size: 16px;';
-            
+
             const subtext = document.createElement('p');
             subtext.textContent = 'Selecione "Unidades" ou "Equipamentos e Viaturas" na aba Símbolo.';
             subtext.style.cssText = 'margin: 10px 0 0 0; font-size: 14px; color: #999;';
-            
+
             message.appendChild(icon);
             message.appendChild(text);
             message.appendChild(subtext);
             container.appendChild(message);
             return container;
         }
-        
+
         // Create input for each text field
         config.fields.forEach((field) => {
             const fieldContainer = createTextField(
@@ -934,7 +935,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             );
             container.appendChild(fieldContainer);
         });
-        
+
         return container;
     }
 
@@ -1053,17 +1054,17 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // Store combobox references for programmatic updates
         const comboboxes = {};
 
-        
+
         // ===== FUNÇÃO DE RECARREGAMENTO DINÂMICO =====
         function reloadDependentComboboxes(symbolSetCode) {
             // ===== REMOVER TODOS OS COMBOS DINÂMICOS DE AMBAS AS COLUNAS =====
-            
+
             // Column1: remover escalão/mobilidade/liderança se existir
             if (comboboxes.echelon && comboboxes.echelon.parentNode) {
                 comboboxes.echelon.remove();
                 comboboxes.echelon = null;
             }
-            
+
             // Column2: remover todos os dinâmicos
             if (comboboxes.specialModifier && comboboxes.specialModifier.parentNode) {
                 comboboxes.specialModifier.remove();
@@ -1088,7 +1089,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 comboboxes.colorControl.remove();
                 comboboxes.colorControl = null;
             }
-            
+
             // ===== COLUMN 1: ADICIONAR ESCALÃO/MOBILIDADE/LIDERANÇA (ÚLTIMA POSIÇÃO) =====
             const echelonData = getEchelonData(symbolSetCode);
             if (echelonData.applicable) {
@@ -1105,9 +1106,9 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 );
                 column1.appendChild(comboboxes.echelon);
             }
-            
+
             // ===== COLUMN 2: RECRIAR TODOS OS COMBOS NA ORDEM CORRETA =====
-            
+
             // 1. Modificador Transversal (se aplicável)
             const specialModData = getSpecialModifierData(symbolSetCode);
             if (specialModData.applicable) {
@@ -1124,12 +1125,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 );
                 column2.appendChild(comboboxes.specialModifier);
             }
-            
+
             // 2. Elemento de Comando (checkbox) - Só para Unidades
             if (isCommandApplicable(symbolSetCode)) {
                 column2.appendChild(commandCheckboxContainer);
             }
-            
+
             // 3. Ícone Principal
             const mainIconsData = getMainIcons(symbolSetCode);
             comboboxes.mainIcon = createDigitalComboBox(
@@ -1147,7 +1148,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 'mainIcon'
             );
             column2.appendChild(comboboxes.mainIcon);
-            
+
             // 4. Modificador 1 (se aplicável)
             if (isModifier1Applicable(symbolSetCode)) {
                 const modifier1Data = getModifier1(symbolSetCode);
@@ -1166,7 +1167,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 );
                 column2.appendChild(comboboxes.modifier1);
             }
-            
+
             // 5. Modificador 2 (se aplicável)
             if (isModifier2Applicable(symbolSetCode)) {
                 const modifier2Data = getModifier2(symbolSetCode);
@@ -1185,7 +1186,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 );
                 column2.appendChild(comboboxes.modifier2);
             }
-            
+
             // 6. Cor do Símbolo (sempre por último)
             comboboxes.colorControl = createColorControl(
                 tempProperties.fillColor,
@@ -1208,18 +1209,18 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             (value) => {
                 if (!isUpdatingFromSIDC) {
                     tempProperties.symbolSet = value;
-                    
+
                     // Reset dependent fields quando mudar dimension
                     tempProperties.mainIcon = "000000";
                     tempProperties.modifier1 = "00";
                     tempProperties.modifier2 = "00";
                     tempProperties.echelon = "00";
                     tempProperties.specialModifier = "0";
-                    
+
                     tempProperties.mainIconExtension = null;
                     tempProperties.modifier1Extension = null;
                     tempProperties.modifier2Extension = null;
-                    
+
                     // Reset text modifiers when changing symbol set
                     tempProperties.uniqueDesignation = '';
                     tempProperties.higherFormation = '';
@@ -1234,10 +1235,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     tempProperties.type = '';
                     tempProperties.iffSif = '';
                     tempProperties.equipmentTeardownTime = '';
-                    
+
                     // Recarregar comboboxes dependentes
                     reloadDependentComboboxes(value);
-                    
+
                     // Gerar preview com valores default
                     updatePreviewFromComboboxes();
                 }
@@ -1293,7 +1294,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // ===== ESCALÃO/MOBILIDADE/LIDERANÇA (ÚLTIMA POSIÇÃO DA COLUMN 1) =====
         const initialSymbolSet = tempProperties.symbolSet || "10";
         const initialEchelonData = getEchelonData(initialSymbolSet);
-        
+
         if (initialEchelonData.applicable) {
             comboboxes.echelon = createDigitalComboBox(
                 initialEchelonData.data,
@@ -1310,10 +1311,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         }
 
         // ===== SEGUNDA COLUNA (DINÂMICA) =====
-        
+
         // 1. MODIFICADOR TRANSVERSAL (se aplicável)
         const initialSpecialModData = getSpecialModifierData(initialSymbolSet);
-        
+
         if (initialSpecialModData.applicable) {
             comboboxes.specialModifier = createDigitalComboBox(
                 initialSpecialModData.data,
@@ -1353,7 +1354,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         const commandCheckboxLabel = document.createElement('span');
         commandCheckboxLabel.textContent = 'Esta unidade é um elemento de Comando';
         commandCheckboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
-        
+
         commandCheckboxLabel.onclick = () => {
             const checkboxInput = commandCheckbox.find('input')[0];
             checkboxInput.click();
@@ -1363,7 +1364,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         commandCheckboxWrapper.appendChild(commandCheckboxLabel);
         commandCheckboxContainer.appendChild(commandLabel);
         commandCheckboxContainer.appendChild(commandCheckboxWrapper);
-        
+
         // Só adicionar se for Unidades
         if (isCommandApplicable(initialSymbolSet)) {
             column2.appendChild(commandCheckboxContainer);
@@ -1444,15 +1445,15 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // ========================================
         // CREATE TABS SYSTEM
         // ========================================
-        
+
         // Create tabs container
         const tabsContainer = createTabsContainer();
         const { simboloTab, textoTab, tabButtons } = tabsContainer;
-        
+
         // Add columns directly to Symbol tab
         simboloTab.appendChild(column1);
         simboloTab.appendChild(column2);
-        
+
         // Create Text tab content
         let textFieldsContainer = createTextFieldsContainer(
             tempProperties.symbolSet || "10",
@@ -1461,25 +1462,25 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             getTextModifiersConfig
         );
         textoTab.appendChild(textFieldsContainer);
-        
+
         // Configure tab switching
         tabButtons.simbolo.onclick = () => {
             switchTab('simbolo', tabButtons);
         };
-        
+
         tabButtons.texto.onclick = () => {
             switchTab('texto', tabButtons);
         };
-        
+
         // Add tabs container to controls column
         controlsColumn.appendChild(tabsContainer.container);
-        
+
         // Update text fields when symbol set changes
         const originalReloadFunction = reloadDependentComboboxes;
         reloadDependentComboboxes = (symbolSetCode) => {
             // Call original function
             originalReloadFunction(symbolSetCode);
-            
+
             // Clear all text modifiers in tempProperties
             tempProperties.uniqueDesignation = '';
             tempProperties.higherFormation = '';
@@ -1494,13 +1495,13 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             tempProperties.type = '';
             tempProperties.iffSif = '';
             tempProperties.equipmentTeardownTime = '';
-            
+
             // Update text fields for new symbol set
             // Remove old text fields
             while (textoTab.firstChild) {
                 textoTab.removeChild(textoTab.firstChild);
             }
-            
+
             // Create new text fields (will show empty values)
             textFieldsContainer = createTextFieldsContainer(
                 symbolSetCode,
@@ -1520,7 +1521,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
             // Update SIDC input field (without triggering its event)
             sidcInput.value = sidc;
-            
+
             updatePreview();
         }
 
@@ -1530,52 +1531,52 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             if (comboboxes.symbolSet && comboboxes.symbolSet.updateValue) {
                 comboboxes.symbolSet.updateValue(tempProperties.symbolSet);
             }
-            
+
             // Update standardIdentity
             if (comboboxes.standardIdentity && comboboxes.standardIdentity.updateValue) {
                 comboboxes.standardIdentity.updateValue(tempProperties.standardIdentity);
             }
-            
+
             // Update status
             if (comboboxes.status && comboboxes.status.updateValue) {
                 comboboxes.status.updateValue(tempProperties.status);
             }
-            
+
             // Update hqTfDummy
             if (comboboxes.hqTfDummy && comboboxes.hqTfDummy.updateValue) {
                 comboboxes.hqTfDummy.updateValue(tempProperties.hqTfDummy);
             }
-            
+
             // Update echelon (if exists)
             if (comboboxes.echelon && comboboxes.echelon.updateValue) {
                 comboboxes.echelon.updateValue(tempProperties.echelon);
             }
-            
+
             // Update specialModifier (if exists)
             if (comboboxes.specialModifier && comboboxes.specialModifier.updateValue) {
                 comboboxes.specialModifier.updateValue(tempProperties.specialModifier);
             }
-            
+
             // Update isCommand
             if (comboboxes.isCommand && comboboxes.isCommand.updateValue) {
                 comboboxes.isCommand.updateValue(tempProperties.isCommand);
             }
-            
+
             // Update mainIcon
             if (comboboxes.mainIcon && comboboxes.mainIcon.updateValue) {
                 comboboxes.mainIcon.updateValue(tempProperties.mainIcon);
             }
-            
+
             // Update modifier1 (if exists)
             if (comboboxes.modifier1 && comboboxes.modifier1.updateValue) {
                 comboboxes.modifier1.updateValue(tempProperties.modifier1);
             }
-            
+
             // Update modifier2 (if exists)
             if (comboboxes.modifier2 && comboboxes.modifier2.updateValue) {
                 comboboxes.modifier2.updateValue(tempProperties.modifier2);
             }
-            
+
             // Update colorControl (if exists)
             if (comboboxes.colorControl && comboboxes.colorControl.updateValue) {
                 comboboxes.colorControl.updateValue(tempProperties.fillColor);
@@ -1614,11 +1615,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 tempProperties.modifier2 = parsed.modifier2;
                 tempProperties.specialModifier = parsed.specialModifier || "0";
                 tempProperties.isCommand = parsed.isCommand || false;
-                
+
                 tempProperties.mainIconExtension = parsed.mainIconExtension || 0;
                 tempProperties.modifier1Extension = parsed.modifier1Extension || 0;
                 tempProperties.modifier2Extension = parsed.modifier2Extension || 0;
-                
+
                 tempProperties.sidc = normalizedSIDC; // ✅ Always 30 digits
 
                 if (dimensionChanged) {
@@ -1726,11 +1727,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
          * @returns {Promise<string>} Data URL of the generated symbol with text
          */
         async function generatePreviewWithTextModifiers(properties, size = 80) {
-            try {                
+            try {
                 const result = await militarySymbolControl.symbolGenerator.generateSymbolBlob(
                     properties
                 );
-                
+
                 // Convert blob to data URL (use result.blob)
                 return new Promise((resolve) => {
                     const reader = new FileReader();
@@ -1812,13 +1813,13 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 'altitudeDepth', 'speed', 'specialHeadquarters', 'type', 'iffSif',
                 'equipmentTeardownTime'
             ];
-            
+
             for (const key of propertiesToUpdate) {
                 if (tempProperties.hasOwnProperty(key)) {
                     await militarySymbolControl.updateFeaturesProperty(selectedFeatures, key, tempProperties[key]);
                 }
             }
-            
+
             militarySymbolControl.saveFeatures(selectedFeatures, initialPropertiesMap);
             closeModal();
             selectionManager.deselectAllFeatures();
@@ -1877,7 +1878,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 // Callback para click na galeria
                 const onSymbolClick = (sidc) => {
                     updateComboboxesFromSIDC(sidc);
-                    
+
                     // Limpar todos os text modifiers (não devem ser restaurados da galeria)
                     tempProperties.uniqueDesignation = '';
                     tempProperties.higherFormation = '';
@@ -1892,7 +1893,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     tempProperties.type = '';
                     tempProperties.iffSif = '';
                     tempProperties.equipmentTeardownTime = '';
-                    
+
                     updatePreview();
                 };
 
@@ -1922,7 +1923,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
             } catch (error) {
                 console.error('Erro ao inicializar modal:', error);
-                
+
                 // ✅ Fallback: modal sem galeria (graceful degradation)
                 modalContent.appendChild(controlsColumn);
                 modalContent.appendChild(previewColumn);
