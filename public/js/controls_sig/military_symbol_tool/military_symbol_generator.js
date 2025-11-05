@@ -473,34 +473,51 @@ export class MilitarySymbolGenerator {
  * @param {Object} properties - Feature properties
  * @returns {Object} Text modifiers for milsymbol.js (only non-empty)
  */
+
+/**
+ * Extract text modifiers from feature properties
+ * Only includes fields that have non-empty values
+ * Maps our property names to milsymbol.js expected names
+ * @param {Object} properties - Feature properties
+ * @returns {Object} Text modifiers for milsymbol.js (only non-empty)
+ */
 function extractTextModifiers(properties) {
     const modifiers = {};
     
-    // Complete list of text fields supported by milsymbol.js
-    // Based on MIL-STD-2525D and MD33-M-02
-    const textFields = [
+    // Direct fields (pass through without transformation)
+    const directFields = [
         'uniqueDesignation',      // C - Designação
         'higherFormation',        // B - Subordinação
+        'quantity',               // C1 - Quantidade
         'reinforcedReduced',      // F - Reforço/Redução
         'additionalInformation',  // H - Informações Adicionais
-        'credibility',            // J - Credibilidade
-        'location',               // Y - Localização
-        'dateTimeGroup',          // W - GDH
-        'altitudeDepth',          // X - Altitude/Profundidade
-        'speed',                  // Z - Velocidade
-        'specialHeadquarters',    // AA - Tipo de PC
-        'type',                   // V - Tipo de Equipamento
+        'type',                   // V - Tipo de Equipamento / Identificação AIS
         'iffSif',                 // P - Código IFF
-        'equipmentTeardownTime'   // X1 - Tempo de Destruição
+        'altitudeDepth',          // X - Altitude/Profundidade
+        'equipmentTeardownTime',  // X1 - Tempo de Destruição
+        'location',               // Y - Localização
+        'speed',                  // Z - Velocidade
+        'specialHeadquarters'     // AA - Tipo de PC
     ];
     
-    // Only add fields that have values (not null, undefined, or empty string)
-    textFields.forEach(field => {
+    // Add direct fields
+    directFields.forEach(field => {
         const value = properties[field];
         if (value !== null && value !== undefined && value !== '') {
             modifiers[field] = value;
         }
     });
+    
+    // MAPPING: dateTimeGroup → dtg (milsymbol.js uses 'dtg' for Field W)
+    if (properties.dateTimeGroup && properties.dateTimeGroup !== '') {
+        modifiers.dtg = properties.dateTimeGroup;
+    }
+    
+    // MAPPING: credibility → evaluationRating (milsymbol.js combines J+K into one field)
+    // Note: 'credibility' now accepts combined format (e.g., "A1", "B3", "F6")
+    if (properties.credibility && properties.credibility !== '') {
+        modifiers.evaluationRating = properties.credibility;
+    }
     
     return modifiers;
 }

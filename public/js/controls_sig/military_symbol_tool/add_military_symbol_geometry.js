@@ -211,17 +211,18 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
         const textModifierProperties = [
             'uniqueDesignation',      // C - Designação
             'higherFormation',        // B - Subordinação
+            'quantity',               // C1 - Quantidade
             'reinforcedReduced',      // F - Reforço/Redução
             'additionalInformation',  // H - Informações Adicionais
-            'credibility',            // J - Credibilidade
-            'location',               // Y - Localização
+            'credibility',            // J - Credibilidade (combinado J+K)
+            'type',                   // V - Tipo de Equipamento / AIS
+            'iffSif',                 // P - Código IFF
             'dateTimeGroup',          // W - GDH
             'altitudeDepth',          // X - Altitude/Profundidade
+            'equipmentTeardownTime',  // X1 - Tempo de Destruição
+            'location',               // Y - Localização
             'speed',                  // Z - Velocidade
-            'specialHeadquarters',    // AA - Tipo de PC
-            'type',                   // V - Tipo de Equipamento
-            'iffSif',                 // P - Código IFF
-            'equipmentTeardownTime'   // X1 - Tempo de Destruição
+            'specialHeadquarters'     // AA - Tipo de PC
         ];
         
         return textModifierProperties.includes(property);

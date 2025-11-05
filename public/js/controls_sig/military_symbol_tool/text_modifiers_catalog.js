@@ -104,6 +104,10 @@ export const TEXT_MODIFIERS_CATALOG = {
             },
             {
                 id: 'credibility',
+                label: 'Credibilidade/Confiabilidade',
+                code: 'J+K',
+                placeholder: 'Ex: A1, B3, F6',
+                tooltip: 'Idoneidade da fonte (A-F) + Veracidade (1-6). Exemplo: A1',
                 label: 'Credibilidade',
                 code: 'J',
                 placeholder: 'Ex: A, B, C, D, E, F',
@@ -348,17 +352,14 @@ export const TEXT_MODIFIERS_CATALOG = {
             },
             {
                 id: 'credibility',
+                label: 'Credibilidade/Confiabilidade',
+                code: 'J+K',
+                placeholder: 'Ex: A1, B3, F6',
+                tooltip: 'Idoneidade da fonte (A-F) + Veracidade (1-6). Exemplo: A1',
                 label: 'Credibilidade',
                 code: 'J',
                 placeholder: 'Ex: A, B, C, D, E, F',
                 tooltip: 'Código alfanumérico de idoneidade da fonte (A-F conforme EB70-MT-10.401)'
-            },
-            {
-                id: 'reliability',
-                label: 'Confiabilidade',
-                code: 'K',
-                placeholder: 'Ex: 1, 2, 3, 4, 5, 6',
-                tooltip: 'Código numérico de veracidade do conteúdo (1-6 conforme EB70-MT-10.401)'
             },
             {
                 id: 'location',
@@ -402,15 +403,8 @@ export const TEXT_MODIFIERS_CATALOG = {
             },
             {
                 id: 'type',
-                label: 'Tipo de Equipamento',
-                code: 'V',
-                placeholder: 'Ex: Niterói Class',
-                tooltip: 'Classe da embarcação ou tipo de armamento'
-            },
-            {
-                id: 'platformType',
                 label: 'Identificação AIS',
-                code: 'AD',
+                code: 'V',
                 placeholder: 'Ex: 710012345',
                 tooltip: 'Sistema Automatic Identification System'
             },
@@ -562,17 +556,14 @@ export const TEXT_MODIFIERS_CATALOG = {
             },
             {
                 id: 'credibility',
+                label: 'Credibilidade/Confiabilidade',
+                code: 'J+K',
+                placeholder: 'Ex: A1, B3, F6',
+                tooltip: 'Idoneidade da fonte (A-F) + Veracidade (1-6). Exemplo: A1',
                 label: 'Credibilidade',
                 code: 'J',
                 placeholder: 'Ex: A, B, C, D, E, F',
                 tooltip: 'Código alfanumérico de idoneidade da fonte (A-F conforme EB70-MT-10.401)'
-            },
-            {
-                id: 'reliability',
-                label: 'Confiabilidade',
-                code: 'K',
-                placeholder: 'Ex: 1, 2, 3, 4, 5, 6',
-                tooltip: 'Código numérico de veracidade do conteúdo (1-6 conforme EB70-MT-10.401)'
             },
             {
                 id: 'location',

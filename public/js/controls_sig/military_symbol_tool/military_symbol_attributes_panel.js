@@ -829,7 +829,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
      */
     function createTextField(fieldConfig, currentValue, onChange) {
         const container = document.createElement('div');
-        container.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px;';
+        container.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-bottom: 5px;';
 
         // Label without code
         const label = document.createElement('label');
@@ -1235,6 +1235,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     tempProperties.type = '';
                     tempProperties.iffSif = '';
                     tempProperties.equipmentTeardownTime = '';
+                    tempProperties.quantity = '';
 
                     // Recarregar comboboxes dependentes
                     reloadDependentComboboxes(value);
@@ -1495,6 +1496,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             tempProperties.type = '';
             tempProperties.iffSif = '';
             tempProperties.equipmentTeardownTime = '';
+                    tempProperties.quantity = '';
 
             // Update text fields for new symbol set
             // Remove old text fields
@@ -1811,7 +1813,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 'uniqueDesignation', 'higherFormation', 'reinforcedReduced',
                 'additionalInformation', 'credibility', 'location', 'dateTimeGroup',
                 'altitudeDepth', 'speed', 'specialHeadquarters', 'type', 'iffSif',
-                'equipmentTeardownTime'
+                'equipmentTeardownTime', 'quantity'
             ];
 
             for (const key of propertiesToUpdate) {
@@ -1893,6 +1895,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     tempProperties.type = '';
                     tempProperties.iffSif = '';
                     tempProperties.equipmentTeardownTime = '';
+                    tempProperties.quantity = '';
 
                     updatePreview();
                 };
