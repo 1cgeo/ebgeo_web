@@ -109,22 +109,23 @@ function replaceTextInSVG(svgString, mapping) {
  */
 
 /**
- * Apply graphic adaptations to Main Icon (SIMPLIFIED)
+ * Apply graphic adaptations (GENERALIZED)
  * @param {string} svgString - Base SVG
- * @param {string} mainIcon - 6-digit main icon code
+ * @param {string} code - Element code (6-digit for mainIcon, 2-digit for modifiers)
+ * @param {string} elementType - Element type: 'mainIcon', 'modifier1', 'modifier2'
  * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
- * @returns {string} Modified SVG with adapted icon
+ * @returns {string} Modified SVG with adapted element
  */
-export function applyGraphicAdaptations(svgString, mainIcon, symbolSetCode) {
-    if (!svgString || !mainIcon || !symbolSetCode) {
+export function applyGraphicAdaptations(svgString, code, elementType, symbolSetCode) {
+    if (!svgString || !code || !elementType || !symbolSetCode) {
         return svgString;
     }
 
     const adaptation = getCatalogEntry(
         symbolSetCode,
-        'mainIcon',
+        elementType,
         'graphicAdaptations',
-        mainIcon
+        code
     );
     
     if (!adaptation) {
@@ -195,7 +196,9 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
     
     // 1. Graphic adaptations (replace American SVG with Brazilian)
     //    Must be applied BEFORE text replacements
-    result = applyGraphicAdaptations(result, mainIconCode, symbolSetCode);
+    result = applyGraphicAdaptations(result, mainIconCode, 'mainIcon', symbolSetCode);
+    result = applyGraphicAdaptations(result, modifier1Code, 'modifier1', symbolSetCode);
+    result = applyGraphicAdaptations(result, modifier2Code, 'modifier2', symbolSetCode);
     
     // 2. Label mappings (replace American text with Brazilian)
     result = applyBrazilianLabelsToSVG(result, sidc20, symbolSetCode);

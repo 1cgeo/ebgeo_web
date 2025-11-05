@@ -309,16 +309,6 @@ export class MilitarySymbolGenerator {
             if (growthFactorY > 1.01) { // More than 1% growth vertically
                 finalHeight = Math.round(targetSize * growthFactorY);
             }
-            
-            // Debug log to verify calculations
-            if (growthFactorX > 1.01 || growthFactorY > 1.01) {
-                console.debug(`ViewBox growth detected: ` +
-                            `base=${viewBoxBase.width}x${viewBoxBase.height}, ` +
-                            `expanded=${viewBoxExpanded.width}x${viewBoxExpanded.height}, ` +
-                            `growthFactorX=${growthFactorX.toFixed(2)}, ` +
-                            `growthFactorY=${growthFactorY.toFixed(2)}, ` +
-                            `PNG size: ${targetSize}x${targetSize}px → ${finalWidth}x${finalHeight}px`);
-            }
         }
         
         // 9. Apply Brazilian modifications to final SVG
