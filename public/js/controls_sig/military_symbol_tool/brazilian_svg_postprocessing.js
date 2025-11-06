@@ -150,7 +150,7 @@ export function applyGraphicAdaptations(svgString, code, elementType, symbolSetC
 function buildTextElement(descriptor) {
     const fontFamily = descriptor.style.fontFamily || 'Arial, sans-serif';
     
-    return `<text x="${descriptor.position.x}" y="${descriptor.position.y}" text-anchor="middle" font-size="${descriptor.style.fontSize}" font-family="${fontFamily}" font-weight="${descriptor.style.fontWeight}" fill="${descriptor.style.fill}" dominant-baseline="middle">${descriptor.text}</text>`;
+    return `<text x="${descriptor.position.x}" y="${descriptor.position.y}" text-anchor="middle" font-size="${descriptor.style.fontSize}" font-family="${fontFamily}" font-weight="${descriptor.style.fontWeight}" fill="${descriptor.style.fill}">${descriptor.text}</text>`;
 }
 
 /**
