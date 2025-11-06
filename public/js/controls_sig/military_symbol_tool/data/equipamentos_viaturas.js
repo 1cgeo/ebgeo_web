@@ -133,8 +133,8 @@ export default {
                 "code": "111104"
         },
         {
-                "entity": "Lançador de Míssil Antiaéreo Médio",
-                "entity_portugues": "Lançador de Míssil Antiaéreo Médio",
+                "entity": "Lançador de Míssil Antiaéreo Médio (TELAR)",
+                "entity_portugues": "Lançador de Míssil Antiaéreo Médio (TELAR)",
                 "code": "111106"
         },
         {
