@@ -78,7 +78,7 @@ const SYMBOL_SET_10_CATALOG = {
             '160600': {
                 type: 'replace',
                 find: '<text x="100" y="103" text-anchor="middle" font-size="39" font-family="Arial" font-weight="bold" dominant-baseline="middle" stroke-width="3" stroke="none" fill="black" >CSS</text>',
-                replace: '<path d="M25,50 l150,0 0,100 -150,0 z" stroke-width="4" stroke="#dee2e6" fill="rgb(128,224,255)" fill-opacity="0" ></path><path d="m 100,80 20,11 0,17 -20,11 -20,-11 0,-17 z" stroke-width="4" stroke="black" fill="none" ></path>'
+                replace: '<path d="m 100,80 20,11 0,17 -20,11 -20,-11 0,-17 z" stroke-width="4" stroke="black" fill="none" ></path>'
             },
             '162400': {
                 type: 'replace',
@@ -220,7 +220,7 @@ const SYMBOL_SET_10_CATALOG = {
             '01': {
                 type: 'replace',
                 find: '<path d="m 105,65 10,0 m -30,0 10,0 M 85,77 c 10,-7 20,-7 30,0" stroke-width="3" stroke="black" fill="none" ></path><path d="m 75.4,60.9 0,9.1 13.1,0 0,-9.1 z m 36,0 0,9.1 13.1,0 0,-9.1 z m -18,0 0,9.1 13.1,0 0,-9.1 z" stroke-width="3" stroke="none" fill="black" ></path>',
-                replace: '<path d="M25,50 l150,0 0,100 -150,0 z" stroke-width="4" stroke="#dee2e6" fill="rgb(128,224,255)" fill-opacity="0" ></path><path d="M85,55 L100,75 115,55" stroke-width="4" stroke="black" fill="none" ></path>'
+                replace: '<path d="M85,55 L100,75 115,55" stroke-width="4" stroke="black" fill="none" ></path>'
             },
             '34': {
                 type: 'replace',
@@ -281,7 +281,7 @@ const SYMBOL_SET_10_CATALOG = {
                 },
                 9: {
                     type: 'svg',
-                    svg: '<path d="M25,50 l150,0 0,100 -150,0 z" stroke-width="4" stroke="#dee2e6" fill="rgb(128,224,255)" fill-opacity="0" ></path><path d="m 75,60 0,15 50,-15 0,15 z" stroke-width="4" stroke="black" fill="black" ></path>'
+                    svg: '<path d="m 75,60 0,15 50,-15 0,15 z" stroke-width="4" stroke="black" fill="black" ></path>'
                 },
                 10: {
                     type: 'text',
@@ -628,24 +628,24 @@ const SYMBOL_SET_CATALOGS = {
 
 /**
  * Get catalog entry with bi-dimensional extension support
- * 
+ *
  * @param {string} symbolSet - Symbol set code (e.g., "10", "15")
  * @param {string} elementType - Element type: "mainIcon", "modifier1", "modifier2"
  * @param {string} modificationType - Modification type: "labelMappings", "graphicAdaptations", "extensions"
  * @param {string} codeBase - Base code (e.g., "121899", "99")
  * @param {number} [extensionNumber=null] - Extension number (0-31), required for "extensions" type
  * @returns {Object|null} Catalog entry or null if not found
- * 
+ *
  * @example
  * // Get extension for main icon
  * const ext = getCatalogEntry('10', 'mainIcon', 'extensions', '121899', 1);
  * // Returns: { type: 'text', text: 'Prec', position: {...}, style: {...} }
- * 
+ *
  * @example
  * // Get label mapping
  * const label = getCatalogEntry('10', 'mainIcon', 'labelMappings', '121800');
  * // Returns: { from: 'SOF', to: 'Op Esp' }
- * 
+ *
  * @example
  * // Get graphic adaptation
  * const graphic = getCatalogEntry('10', 'mainIcon', 'graphicAdaptations', '120400');
@@ -693,10 +693,10 @@ export function getCatalogEntry(symbolSet, elementType, modificationType, codeBa
 
 /**
  * Get entire catalog for a symbol set
- * 
+ *
  * @param {string} symbolSet - Symbol set code (e.g., "10", "15")
  * @returns {Object|null} Catalog object or null if not found
- * 
+ *
  * @example
  * const catalog = getSymbolSetCatalog('10');
  * // Returns: { mainIcon: {...}, modifier1: {...}, modifier2: {...} }
@@ -707,7 +707,7 @@ export function getSymbolSetCatalog(symbolSet) {
 
 /**
  * Check if a code base has extensions in the catalog
- * 
+ *
  * @param {string} symbolSet - Symbol set code
  * @param {string} elementType - Element type
  * @param {string} codeBase - Base code
@@ -725,7 +725,7 @@ export function hasExtensions(symbolSet, elementType, codeBase) {
 
 /**
  * Get all extension numbers for a code base
- * 
+ *
  * @param {string} symbolSet - Symbol set code
  * @param {string} elementType - Element type
  * @param {string} codeBase - Base code
@@ -747,7 +747,7 @@ export function getExtensionNumbers(symbolSet, elementType, codeBase) {
 
 /**
  * Get list of all available symbol sets
- * 
+ *
  * @returns {Array<string>} Array of symbol set codes
  */
 export function getAvailableSymbolSets() {
@@ -762,11 +762,11 @@ export function getAvailableSymbolSets() {
 
 /**
  * Check if a section exists for a symbol set
- * 
+ *
  * @param {string} symbolSet - Symbol set code (e.g., "10", "15")
  * @param {string} sectionName - Section name: "mainIcon", "modifier1", "modifier2", "specialModifiers"
  * @returns {boolean} True if section exists and has content
- * 
+ *
  * @example
  * hasSection('10', 'modifier2'); // true
  * hasSection('15', 'modifier2'); // false (Equipment doesn't use modifier2)
@@ -803,10 +803,10 @@ export function hasSection(symbolSet, sectionName) {
 
 /**
  * Check if command element is supported for a symbol set
- * 
+ *
  * @param {string} symbolSet - Symbol set code (e.g., "10", "15")
  * @returns {boolean} True if command elements are applicable
- * 
+ *
  * @example
  * supportsCommand('10'); // true (Land Units support command)
  * supportsCommand('15'); // false (Equipment doesn't support command)
@@ -828,14 +828,14 @@ export function supportsCommand(symbolSet) {
 
 /**
  * Get special modifiers catalog for a symbol set
- * 
+ *
  * @param {string} symbolSet - Symbol set code (e.g., "10", "15")
  * @returns {Object|null} Special modifiers object or null if not found
- * 
+ *
  * @example
  * const modifiers = getSpecialModifiers('10');
  * // Returns: { 1: { type: 'svg', svg: '...' }, 2: {...}, ... }
- * 
+ *
  * const equipmentMods = getSpecialModifiers('15');
  * // Returns: { 1: { type: 'svg', svg: '...' } } (only armored)
  */
