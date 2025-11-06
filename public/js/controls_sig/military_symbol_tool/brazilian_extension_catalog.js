@@ -503,7 +503,12 @@ const SYMBOL_SET_15_CATALOG = {
                 type: 'replace',
                 find: '<g transform="translate(0,0)" ><g transform="scale(1)" ><path d="m 70,65 c 0,15 60,15 60,0 l 0,65 -60,0 z" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="103" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" dominant-baseline="middle" stroke-width="3" stroke="none" fill="black" >B</text></g></g>',
                 replace: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >On</text><path d="m 70,65 c 0,15 60,15 60,0 l 0,65 -60,0 z" stroke-width="4" stroke="black" fill="none" ></path>'
-            }
+            },
+            '220100': {
+                type: 'replace',
+                find: '<g transform="translate(0,0)" ><g transform="scale(1)" >',
+                replace: '<g transform="translate(15,30)" ><g transform="scale(0.85)" >'
+            },
         },
         extensions: {
             '209900': {
