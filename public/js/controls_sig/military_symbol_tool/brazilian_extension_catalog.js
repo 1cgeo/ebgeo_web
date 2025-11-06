@@ -565,27 +565,21 @@ const SYMBOL_SET_15_CATALOG = {
             },
             '229902': {
                 0: {
-                    type: 'text',
-                    text: 'GE',
-                    position: { x: 100, y: 115 },
-                    style: { fontSize: '42', fontWeight: 'bold', fill: 'black' }
-                }
+                    type: 'svg',
+                    svg: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial, sans-serif" font-weight="bold" fill="black">GE</text><path d="M100,140 l0,-80 M80,80 l20,-20 20,20" stroke-width="4" stroke="black" fill="none" ></path>'
+                },
             },
             '229903': {
                 0: {
-                    type: 'text',
-                    text: 'GE',
-                    position: { x: 100, y: 115 },
-                    style: { fontSize: '42', fontWeight: 'bold', fill: 'black' }
-                }
+                    type: 'svg',
+                    svg: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >GE</text><path d="M100,120 l0,-60 M80,120 l20,20 20,-20" stroke-width="4" stroke="black" fill="black" ></path>'
+                },
             },
             '229904': {
                 0: {
-                    type: 'text',
-                    text: 'GE',
-                    position: { x: 100, y: 115 },
-                    style: { fontSize: '42', fontWeight: 'bold', fill: 'black' }
-                }
+                    type: 'svg',
+                    svg: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >GE</text><g transform="translate(52,32)" ><g transform="scale(0.5)" ><path d="M25,60 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 M25,75 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10 c10,0 0,-10 10,-10 c10,0 0,10 10,10" stroke-width="4" stroke="black" fill="none" ></path></g></g>'
+                },
             }
         }
     },
