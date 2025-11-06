@@ -349,8 +349,8 @@ const SYMBOL_SET_10_CATALOG = {
             '25': { from: 'MA', to: 'Me' },
             '29': { from: 'MC', to: 'MCn' },
             '45': { from: 'SPT', to: 'Ap' },
-            '49': { from: 'VTOL', to: 'VSTOL' },
-            '55': { from: 'K', to: 'Rabst' }
+            '49': { from: 'VTOL', to: 'VSTOL', fontSize: '20' },
+            '55': { from: 'K', to: 'Rabst', fontSize: '20' }
         },
         graphicAdaptations: {
             '05': {
