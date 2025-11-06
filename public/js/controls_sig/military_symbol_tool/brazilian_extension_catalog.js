@@ -48,17 +48,17 @@ const SYMBOL_SET_10_CATALOG = {
             '120601': {
                 type: 'replace',
                 find: '<path d="M60,85 l40,15 40,-15 0,30 -40,-15 -40,15 z" stroke-width="3" stroke="none" fill="black" ></path><path d="M25,150L175,50" stroke-width="3" stroke="black" fill="black" ></path>',
-                replace: '<path d="M60,85 l40,15 40,-15 0,30 -40,-15 -40,15 z" stroke-width="4" stroke="black" fill="black" ></path>'
+                replace: '<path d="M60,85 l40,15 40,-15 0,30 -40,-15 -40,15 z" stroke-width="3" stroke="none" fill="black" ></path>'
             },
             '120801': {
                 type: 'replace',
                 find: '<path d="M100,100 L130,88 c15,0 15,24 0,24 L100,100 70,112 c-15,0 -15,-24 0,-24 Z" stroke-width="3" stroke="none" fill="black" ></path><path d="M25,150L175,50" stroke-width="3" stroke="black" fill="black" ></path>',
-                replace: '<path d="M100,100 L130,88 c15,0 15,24 0,24 L100,100 70,112 c-15,0 -15,-24 0,-24 Z" stroke-width="4" stroke="black" fill="black" ></path>'
+                replace: '<path d="M100,100 L130,88 c15,0 15,24 0,24 L100,100 70,112 c-15,0 -15,-24 0,-24 Z" stroke-width="3" stroke="none" fill="black" ></path>'
             },
             '121101': {
                 type: 'replace',
                 find: '<path d="M25,50 L175,150 M25,150 L175,50" stroke-width="3" stroke="black" fill="black" ></path><path d="m 25,90 c 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 20,-20" stroke-width="3" stroke="black" fill="none" ></path>',
-                replace: '<path d="M25,50 L175,150 M25,150 L175,50" stroke-width="4" stroke="black" fill="black" ></path>'
+                replace: '<path d="M25,50 L175,150 M25,150 L175,50" stroke-width="3" stroke="black" fill="black" ></path>'
             },
             '130100': {
                 type: 'replace',
