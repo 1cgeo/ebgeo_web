@@ -471,8 +471,28 @@ const SYMBOL_SET_15_CATALOG = {
         graphicAdaptations: {
             '110300': {
                 type: 'replace',
-                find: '<circle cx="100" cy="90" r="10" stroke-width="3" stroke="black" fill="none" ></circle',
+                find: '<circle cx="100" cy="90" r="10" stroke-width="3" stroke="black" fill="none" ></circle>',
                 replace: '<circle cx="100" cy="90" r="15" stroke-width="3" stroke="black" fill="none" ></circle>'
+            },
+            '110900': {
+                type: 'replace',
+                find: '<path d="m 115,80 0,40 m -30,-40 0,40 m 15,-60 0,60" stroke-width="3" stroke="black" fill="none" ></path>',
+                replace: '<path d="m 85,75 15,-15 15,15 m 0,5 0,40 m -30,-40 0,40 m 15,-60 0,60" stroke-width="3" stroke="black" fill="none" ></path>'
+            },
+            '110901': {
+                type: 'replace',
+                find: '<path d="m 115,80 0,40 m -30,-40 0,40 m 15,-60 0,60" stroke-width="3" stroke="black" fill="none" ></path>',
+                replace: '<path d="m 85,75 15,-15 15,15 m 0,5 0,40 m -30,-40 0,40 m 15,-60 0,60" stroke-width="3" stroke="black" fill="none" ></path>'
+            },
+            '110902': {
+                type: 'replace',
+                find: '<path d="m 115,80 0,40 m -30,-40 0,40 m 15,-60 0,60" stroke-width="3" stroke="black" fill="none" ></path>',
+                replace: '<path d="m 85,75 15,-15 15,15 m 0,5 0,40 m -30,-40 0,40 m 15,-60 0,60" stroke-width="3" stroke="black" fill="none" ></path>'
+            },
+            '110903': {
+                type: 'replace',
+                find: '<path d="m 115,80 0,40 m -30,-40 0,40 m 15,-60 0,60" stroke-width="3" stroke="black" fill="none" ></path>',
+                replace: '<path d="m 85,75 15,-15 15,15 m 0,5 0,40 m -30,-40 0,40 m 15,-60 0,60" stroke-width="3" stroke="black" fill="none" ></path>'
             },
             '111300': {
                 type: 'replace',
