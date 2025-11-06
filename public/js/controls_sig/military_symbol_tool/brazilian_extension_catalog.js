@@ -227,6 +227,11 @@ const SYMBOL_SET_10_CATALOG = {
                 find: '<path d="m 105,65 10,0 m -30,0 10,0 M 85,77 c 10,-7 20,-7 30,0" stroke-width="3" stroke="black" fill="none" ></path><path d="m 75.4,60.9 0,9.1 13.1,0 0,-9.1 z m 36,0 0,9.1 13.1,0 0,-9.1 z m -18,0 0,9.1 13.1,0 0,-9.1 z" stroke-width="3" stroke="none" fill="black" ></path>',
                 replace: '<path d="M85,55 L100,75 115,55" stroke-width="4" stroke="black" fill="none" ></path>'
             },
+            '31': {
+                type: 'replace',
+                find: '<path d="m 83,70 h 34  m 8,-7 c -10,0 -10,14 0,14  M 75,63 c 10,0 10,14 0,14" stroke-width="3" stroke="black" fill="none" ></path>',
+                replace: '<path d="m 84,70 32,0 m 4,-5 c -5,0 -5,10 0,10 M 80,65 c 5,0 5,10 0,10" stroke-width="4" stroke="black" fill="none" ></path>'
+            },
             '34': {
                 type: 'replace',
                 find: '<path d="M 95,78 V 58 c 0,-5 10,-5 10,0 v 20" stroke-width="3" stroke="black" fill="none" ></path>',
