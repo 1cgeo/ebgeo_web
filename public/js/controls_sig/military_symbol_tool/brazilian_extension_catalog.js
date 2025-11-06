@@ -339,7 +339,7 @@ const SYMBOL_SET_10_CATALOG = {
     modifier2: {
         labelMappings: {
             '06': { from: 'CLR', to: 'Dobst' },
-            '09': { from: 'D', to: 'Descon' },
+            '09': { from: 'D', to: 'Descon', fontSize: '20' },
             '10': { from: 'DEM', to: 'Dml' },
             '15': { from: 'H', to: 'P' },
             '16': { from: 'HA', to: 'G' },
@@ -357,6 +357,11 @@ const SYMBOL_SET_10_CATALOG = {
                 type: 'replace',
                 find: '<text x="122" y="133" text-anchor="middle" font-size="18" font-family="Arial" font-weight="bold" dominant-baseline="middle" stroke-width="3" stroke="none" fill="black" >CS</text>',
                 replace: '<text x="100" y="140" text-anchor="middle" font-size="25" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >Trg</text>'
+            },
+            '27': {
+                type: 'replace',
+                find: '<path d="m 87,142 10,-20 5,10 3,-5 8,15" stroke-width="3" stroke="none" fill="black" ></path>',
+                replace: '<path d="M90,140 L100,120 110,140" stroke-width="4" stroke="none" fill="black" ></path>'
             },
             '32': {
                 type: 'replace',
