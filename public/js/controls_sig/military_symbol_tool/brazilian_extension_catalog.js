@@ -469,6 +469,11 @@ const SYMBOL_SET_15_CATALOG = {
     mainIcon: {
         labelMappings: {},
         graphicAdaptations: {
+            '110300': {
+                type: 'replace',
+                find: '<circle cx="100" cy="90" r="10" stroke-width="3" stroke="black" fill="none" ></circle',
+                replace: '<circle cx="100" cy="90" r="15" stroke-width="3" stroke="black" fill="none" ></circle>'
+            },
             '111300': {
                 type: 'replace',
                 find: '<g transform="translate(0,0)" ><g transform="scale(1)" ><path d="m 100,140 0,-80 m -15,80 0,-65 c 0,-20 30,-20 30,0 l 0,65" stroke-width="3" stroke="black" fill="none" ></path><path d="m 85,140 30,0" stroke-width="3" stroke="black" fill="none" ></path></g></g>',
