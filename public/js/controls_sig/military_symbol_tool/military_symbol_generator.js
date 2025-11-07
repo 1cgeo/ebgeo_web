@@ -488,7 +488,8 @@ function extractTextModifiers(properties) {
         'equipmentTeardownTime',  // X1 - Tempo de Destruição
         'location',               // Y - Localização
         'speed',                  // Z - Velocidade
-        'specialHeadquarters'     // AA - Tipo de PC
+        'specialHeadquarters',    // AA - Tipo de PC
+        'direction'               // Q - Direção/Azimute
     ];
 
     // Add direct fields

@@ -69,6 +69,7 @@ class AddMilitarySymbolControl extends BaseControl {
 
     uniqueDesignation: null,      // C - Designação
     higherFormation: null,        // B - Subordinação
+    quantity: null,               // C1 - Quantidade
     reinforcedReduced: null,      // F - Reforço/Redução
     additionalInformation: null,  // H - Informações Adicionais
     credibility: null,            // J - Credibilidade
@@ -79,7 +80,8 @@ class AddMilitarySymbolControl extends BaseControl {
     specialHeadquarters: null,    // AA - Tipo de PC
     type: null,                   // V - Tipo de Equipamento
     iffSif: null,                 // P - Código IFF/SIF
-    equipmentTeardownTime: null   // X1 - Tempo de Destruição
+    equipmentTeardownTime: null,  // X1 - Tempo de Destruição
+    direction: null               // Q - Direção/Azimute
   };
 
   // ===== FONTE ÚNICA DA VERDADE =====

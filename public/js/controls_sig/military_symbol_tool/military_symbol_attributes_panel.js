@@ -1065,6 +1065,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 comboboxes.echelon = null;
             }
 
+            if (comboboxes.directionContainer && comboboxes.directionContainer.parentNode) {
+                comboboxes.directionContainer.remove();
+                comboboxes.directionContainer = null;
+            }
+
             // Column2: remover todos os dinâmicos
             if (comboboxes.specialModifier && comboboxes.specialModifier.parentNode) {
                 comboboxes.specialModifier.remove();
@@ -1105,6 +1110,60 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     echelonData.label
                 );
                 column1.appendChild(comboboxes.echelon);
+            }
+
+            const directionApplicable = !['20', '40'].includes(symbolSetCode);
+            if (directionApplicable) {
+                const directionContainer = document.createElement('div');
+                directionContainer.style.cssText = 'margin-bottom: 20px;';
+                
+                const directionLabel = document.createElement('label');
+                directionLabel.textContent = 'Direção:';
+                directionLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+                
+                const directionInput = document.createElement('input');
+                directionInput.type = 'text';
+                directionInput.placeholder = 'Azimute em graus';
+                directionInput.value = tempProperties.direction || '';
+                directionInput.style.cssText = `
+                    width: 100%;
+                    padding: 8px 12px;
+                    border: 2px solid #ddd;
+                    border-radius: 6px;
+                    font-size: 14px;
+                    transition: border-color 0.2s;
+                    box-sizing: border-box;
+                `;
+                
+                directionInput.addEventListener('input', (e) => {
+                    let value = e.target.value;
+                    value = value.replace(/[^0-9.]/g, '');
+                    e.target.value = value;
+                    
+                    const numValue = parseFloat(value);
+                    if (!isNaN(numValue)) {
+                        if (numValue < 0 || numValue > 360) {
+                            e.target.style.borderColor = '#dc3545';
+                        } else {
+                            e.target.style.borderColor = '#28a745';
+                            if (!isUpdatingFromSIDC) {
+                                tempProperties.direction = value;
+                                updatePreviewFromComboboxes();
+                            }
+                        }
+                    } else if (value === '') {
+                        e.target.style.borderColor = '#ddd';
+                        if (!isUpdatingFromSIDC) {
+                            tempProperties.direction = '';
+                            updatePreviewFromComboboxes();
+                        }
+                    }
+                });
+                
+                directionContainer.appendChild(directionLabel);
+                directionContainer.appendChild(directionInput);
+                column1.appendChild(directionContainer);
+                comboboxes.directionContainer = directionContainer;
             }
 
             // ===== COLUMN 2: RECRIAR TODOS OS COMBOS NA ORDEM CORRETA =====
@@ -1236,6 +1295,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     tempProperties.iffSif = '';
                     tempProperties.equipmentTeardownTime = '';
                     tempProperties.quantity = '';
+                    tempProperties.direction = '';
 
                     // Recarregar comboboxes dependentes
                     reloadDependentComboboxes(value);
@@ -1309,6 +1369,60 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 initialEchelonData.label
             );
             column1.appendChild(comboboxes.echelon);
+        }
+
+        const initialDirectionApplicable = !['20', '40'].includes(initialSymbolSet);
+        if (initialDirectionApplicable) {
+            const directionContainer = document.createElement('div');
+            directionContainer.style.cssText = 'margin-bottom: 20px;';
+            
+            const directionLabel = document.createElement('label');
+            directionLabel.textContent = 'Direção:';
+            directionLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+            
+            const directionInput = document.createElement('input');
+            directionInput.type = 'text';
+            directionInput.placeholder = 'Azimute em graus';
+            directionInput.value = tempProperties.direction || '';
+            directionInput.style.cssText = `
+                width: 100%;
+                padding: 8px 12px;
+                border: 2px solid #ddd;
+                border-radius: 6px;
+                font-size: 14px;
+                transition: border-color 0.2s;
+                box-sizing: border-box;
+            `;
+            
+            directionInput.addEventListener('input', (e) => {
+                let value = e.target.value;
+                value = value.replace(/[^0-9.]/g, '');
+                e.target.value = value;
+                
+                const numValue = parseFloat(value);
+                if (!isNaN(numValue)) {
+                    if (numValue < 0 || numValue > 360) {
+                        e.target.style.borderColor = '#dc3545';
+                    } else {
+                        e.target.style.borderColor = '#28a745';
+                        if (!isUpdatingFromSIDC) {
+                            tempProperties.direction = value;
+                            updatePreviewFromComboboxes();
+                        }
+                    }
+                } else if (value === '') {
+                    e.target.style.borderColor = '#ddd';
+                    if (!isUpdatingFromSIDC) {
+                        tempProperties.direction = '';
+                        updatePreviewFromComboboxes();
+                    }
+                }
+            });
+            
+            directionContainer.appendChild(directionLabel);
+            directionContainer.appendChild(directionInput);
+            column1.appendChild(directionContainer);
+            comboboxes.directionContainer = directionContainer;
         }
 
         // ===== SEGUNDA COLUNA (DINÂMICA) =====
@@ -1813,7 +1927,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 'uniqueDesignation', 'higherFormation', 'reinforcedReduced',
                 'additionalInformation', 'credibility', 'location', 'dateTimeGroup',
                 'altitudeDepth', 'speed', 'specialHeadquarters', 'type', 'iffSif',
-                'equipmentTeardownTime', 'quantity'
+                'equipmentTeardownTime', 'quantity', 'direction'
             ];
 
             for (const key of propertiesToUpdate) {
