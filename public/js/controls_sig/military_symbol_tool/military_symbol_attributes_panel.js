@@ -2010,6 +2010,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     tempProperties.iffSif = '';
                     tempProperties.equipmentTeardownTime = '';
                     tempProperties.quantity = '';
+                    tempProperties.direction = '';
 
                     updatePreview();
                 };

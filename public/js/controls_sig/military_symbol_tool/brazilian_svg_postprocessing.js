@@ -1,7 +1,9 @@
 // Path: js\controls_sig\military_symbol_tool\brazilian_svg_postprocessing.js
 
 import { 
-    getCatalogEntry, 
+    getCatalogEntry,
+    getCatalogEntryWithStandardIdentity,
+    getCommandElement,
     hasSection, 
     supportsCommand,
     getSpecialModifiers,
@@ -114,25 +116,27 @@ function replaceTextInSVG(svgString, mapping) {
  * @param {string} code - Element code (6-digit for mainIcon, 2-digit for modifiers)
  * @param {string} elementType - Element type: 'mainIcon', 'modifier1', 'modifier2'
  * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
+ * @param {string|null} standardIdentity - Standard Identity value ("0"-"6")
  * @returns {string} Modified SVG with adapted element
  */
-export function applyGraphicAdaptations(svgString, code, elementType, symbolSetCode) {
+export function applyGraphicAdaptations(svgString, code, elementType, symbolSetCode, standardIdentity = null) {
     if (!svgString || !code || !elementType || !symbolSetCode) {
         return svgString;
     }
 
-    const adaptation = getCatalogEntry(
+    const adaptation = getCatalogEntryWithStandardIdentity(
         symbolSetCode,
         elementType,
         'graphicAdaptations',
-        code
+        code,
+        null,
+        standardIdentity
     );
     
     if (!adaptation) {
         return svgString;
     }
 
-    // Direct string replacement - catalog has exact SVG strings
     return svgString.replace(adaptation.find, adaptation.replace);
 }
 
@@ -174,48 +178,31 @@ function buildTextElement(descriptor) {
  * @returns {string} SVG with all Brazilian modifications applied
  */
 export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
-    // Validate inputs
     if (!symbolSetCode) {
         console.error('symbolSetCode is required for Brazilian modifications');
         return svgString;
     }
     
-    // Decode extension
     const extension = BrazilianSIDCExtension.decode(sidc30.substring(20));
     const sidc20 = sidc30.substring(0, 20);
     
-    const mainIconCode = sidc20.substring(10, 16);      // Positions 11-16 (6 digits)
-    const modifier1Code = sidc20.substring(16, 18);     // Positions 17-18 (2 digits)
-    const modifier2Code = sidc20.substring(18, 20);     // Positions 19-20 (2 digits)
+    const standardIdentity = sidc20.substring(2, 3);
+    
+    const mainIconCode = sidc20.substring(10, 16);
+    const modifier1Code = sidc20.substring(16, 18);
+    const modifier2Code = sidc20.substring(18, 20);
     
     let result = svgString;
     
-    // ========================================
-    // PHASE 1: REPLACEMENTS (American text/graphics → Brazilian)
-    // ========================================
+    result = applyGraphicAdaptations(result, mainIconCode, 'mainIcon', symbolSetCode, standardIdentity);
+    result = applyGraphicAdaptations(result, modifier1Code, 'modifier1', symbolSetCode, standardIdentity);
+    result = applyGraphicAdaptations(result, modifier2Code, 'modifier2', symbolSetCode, standardIdentity);
     
-    // 1. Graphic adaptations (replace American SVG with Brazilian)
-    //    Must be applied BEFORE text replacements
-    result = applyGraphicAdaptations(result, mainIconCode, 'mainIcon', symbolSetCode);
-    result = applyGraphicAdaptations(result, modifier1Code, 'modifier1', symbolSetCode);
-    result = applyGraphicAdaptations(result, modifier2Code, 'modifier2', symbolSetCode);
-    
-    // 2. Label mappings (replace American text with Brazilian)
     result = applyBrazilianLabelsToSVG(result, sidc20, symbolSetCode);
     
-    // If no valid extension, return here
     if (!extension) {
         return result;
     }
-    
-    // ========================================
-    // PHASE 2: ADDITIONS (Brazilian extensions)
-    // ========================================
-    // SVG already comes EMPTY (codes zeroed in renderSIDC)
-    // Just ADD elements - no need to remove anything
-    // Order doesn't matter - no overlapping issues
-    
-    // 3. Entity Extension (Brazilian center icon)
     if (hasExtensions(symbolSetCode, 'mainIcon', mainIconCode)) {
         const entityExt = getCatalogEntry(
             symbolSetCode,
@@ -235,14 +222,20 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
         }
     }
     
-    // 4. Special Modifier (armored, mechanized, etc)
-    // Keep > 0 check because special modifiers don't have index 0 in catalog
-    // Index 0 means "Not Applicable" in military standard
     if (extension.specialModifier > 0) {
         const modifiersCatalog = getSpecialModifiers(symbolSetCode);
         
         if (modifiersCatalog && modifiersCatalog[extension.specialModifier]) {
-            const modifier = modifiersCatalog[extension.specialModifier];
+            const modifierEntry = modifiersCatalog[extension.specialModifier];
+            
+            let modifier = modifierEntry;
+            if (modifierEntry.byStandardIdentity && modifierEntry.byStandardIdentity[standardIdentity]) {
+                modifier = {
+                    ...modifierEntry,
+                    ...modifierEntry.byStandardIdentity[standardIdentity]
+                };
+            }
+            
             const svg = modifier.type === 'text' 
                 ? buildTextElement(modifier) 
                 : modifier.svg;
@@ -294,11 +287,12 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
         }
     }
     
-    // 7. Command Line (check if supported)
     if (extension.isCommand) {
         if (supportsCommand(symbolSetCode)) {
-            const commandSVG = '<path d="M25,80 l150,0 " stroke-width="4" stroke="black" fill="none"></path>';
-            result = result.replace('</svg>', commandSVG + '</svg>');
+            const commandEntry = getCommandElement(symbolSetCode, standardIdentity);
+            if (commandEntry) {
+                result = result.replace('</svg>', commandEntry.svg + '</svg>');
+            }
         } else {
             console.warn(`Command element not applicable for Symbol Set ${symbolSetCode}`);
         }
