@@ -24,7 +24,28 @@ const SYMBOL_SET_10_CATALOG = {
                 type: 'replace',
                 find: '<path d="M25,50 100,110 100,90 175,150" stroke-width="3" stroke="black" fill="none" ></path><path d="M 100,108 V 82.5  m -12.5,4.1 4.1,-4.1 4.2,4.1 4.2,-4.1 4,4.1 4,-4.1 5,4.1  M 100,107 c -3.2,0 -5.9,3 -5.9,6 0,3 2.7,6 5.9,6 3,0 6,-3 6,-6 0,-3 -3,-6 -6,-6 z" stroke-width="3" stroke="black" fill="none" ></path>',
                 replace: '<path d="M25,50 100,110 100,90 175,150" stroke-width="4" stroke="black" fill="none" ></path><circle cx="100" cy="130" r="10" stroke-width="4" stroke="black" fill="none" ></circle><path d="M100,120 l0,-60 M70,70 l10,-10 10,10 10,-10 10,10 10,-10 10,10" stroke-width="4" stroke="black" fill="none" ></path>',
-                byStandardIdentity: {}
+                byStandardIdentity: {
+                    '0': {
+                        find: '<path d="M50,65 100,110 100,90 150,135" stroke-width="3" stroke="black" fill="none" ></path><path d="M 100,108 V 82.5  m -12.5,4.1 4.1,-4.1 4.2,4.1 4.2,-4.1 4,4.1 4,-4.1 5,4.1  M 100,107 c -3.2,0 -5.9,3 -5.9,6 0,3 2.7,6 5.9,6 3,0 6,-3 6,-6 0,-3 -3,-6 -6,-6 z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M50,65 100,110 100,90 150,135" stroke-width="4" stroke="black" fill="none"></path><circle cx="100" cy="130" r="10" stroke-width="4" stroke="black" fill="none"></circle><path d="M100,120 l0,-60 M70,70 l10,-10 10,10 10,-10 10,10 10,-10 10,10" stroke-width="4" stroke="black" fill="none"></path>'
+                    },
+                    '1': {
+                        find: '<path d="M50,65 100,110 100,90 150,135" stroke-width="3" stroke="black" fill="none" ></path><path d="M 100,108 V 82.5  m -12.5,4.1 4.1,-4.1 4.2,4.1 4.2,-4.1 4,4.1 4,-4.1 5,4.1  M 100,107 c -3.2,0 -5.9,3 -5.9,6 0,3 2.7,6 5.9,6 3,0 6,-3 6,-6 0,-3 -3,-6 -6,-6 z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M50,65 100,110 100,90 150,135" stroke-width="4" stroke="black" fill="none"></path><circle cx="100" cy="130" r="10" stroke-width="4" stroke="black" fill="none"></circle><path d="M100,120 l0,-60 M70,70 l10,-10 10,10 10,-10 10,10 10,-10 10,10" stroke-width="4" stroke="black" fill="none"></path>'
+                    },
+                    '4': {
+                        find: '<path d="M45,45 100,110 100,90 155,155" stroke-width="3" stroke="black" fill="none" ></path><path d="M 100,108 V 82.5  m -12.5,4.1 4.1,-4.1 4.2,4.1 4.2,-4.1 4,4.1 4,-4.1 5,4.1  M 100,107 c -3.2,0 -5.9,3 -5.9,6 0,3 2.7,6 5.9,6 3,0 6,-3 6,-6 0,-3 -3,-6 -6,-6 z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M45,45 100,110 100,90 155,155" stroke-width="4" stroke="black" fill="none"></path><circle cx="100" cy="130" r="10" stroke-width="4" stroke="black" fill="none"></circle><path d="M100,120 l0,-60 M70,70 l10,-10 10,10 10,-10 10,10 10,-10 10,10" stroke-width="4" stroke="black" fill="none"></path>'
+                    },
+                    '5': {
+                        find: '<path d="M57,70 100,110 100,90 143,130" stroke-width="3" stroke="black" fill="none" ></path><path d="M 100,108 V 82.5  m -12.5,4.1 4.1,-4.1 4.2,4.1 4.2,-4.1 4,4.1 4,-4.1 5,4.1  M 100,107 c -3.2,0 -5.9,3 -5.9,6 0,3 2.7,6 5.9,6 3,0 6,-3 6,-6 0,-3 -3,-6 -6,-6 z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M57,70 100,110 100,90 143,130" stroke-width="4" stroke="black" fill="none"></path><circle cx="100" cy="130" r="10" stroke-width="4" stroke="black" fill="none"></circle><path d="M100,120 l0,-60 M70,70 l10,-10 10,10 10,-10 10,10 10,-10 10,10" stroke-width="4" stroke="black" fill="none"></path>'
+                    },
+                    '6': {
+                        find: '<path d="M57,70 100,110 100,90 143,130" stroke-width="3" stroke="black" fill="none" ></path><path d="M 100,108 V 82.5  m -12.5,4.1 4.1,-4.1 4.2,4.1 4.2,-4.1 4,4.1 4,-4.1 5,4.1  M 100,107 c -3.2,0 -5.9,3 -5.9,6 0,3 2.7,6 5.9,6 3,0 6,-3 6,-6 0,-3 -3,-6 -6,-6 z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M57,70 100,110 100,90 143,130" stroke-width="4" stroke="black" fill="none"></path><circle cx="100" cy="130" r="10" stroke-width="4" stroke="black" fill="none"></circle><path d="M100,120 l0,-60 M70,70 l10,-10 10,10 10,-10 10,10 10,-10 10,10" stroke-width="4" stroke="black" fill="none"></path>'
+                    }
+                }
             },
             '120300': {
                 type: 'replace',
@@ -461,7 +482,7 @@ const SYMBOL_SET_10_CATALOG = {
             }
         }
     },
-        specialModifiers: {
+    specialModifiers: {
         1: {
             type: 'svg',
             svg: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="4" stroke="black" fill="none"></path>',
@@ -701,7 +722,13 @@ const SYMBOL_SET_CATALOGS = {
 const COMMAND_ELEMENTS = {
     '10': {
         default: '<path d="M25,80 l150,0" stroke-width="4" stroke="black" fill="none"></path>',
-        byStandardIdentity: {}
+        byStandardIdentity: {
+            '0': '<path d="M35,80 l130,0" stroke-width="4" stroke="black" fill="none"></path>',
+            '1': '<path d="M35,80 l130,0" stroke-width="4" stroke="black" fill="none"></path>',
+            '4': '<path d="M45,80 l110,0" stroke-width="4" stroke="black" fill="none"></path>',
+            '5': '<path d="M50,80 l100,0" stroke-width="4" stroke="black" fill="none"></path>',
+            '6': '<path d="M50,80 l100,0" stroke-width="4" stroke="black" fill="none"></path>'
+        }
     }
 };
 
@@ -945,26 +972,26 @@ export function getSpecialModifiers(symbolSet) {
  * @returns {Object|null} Catalog entry (with SI variant applied if exists)
  */
 export function getCatalogEntryWithStandardIdentity(
-    symbolSet, 
-    elementType, 
-    modificationType, 
-    codeBase, 
+    symbolSet,
+    elementType,
+    modificationType,
+    codeBase,
     extensionNumber = null,
     standardIdentity = null
 ) {
     const baseEntry = getCatalogEntry(symbolSet, elementType, modificationType, codeBase, extensionNumber);
-    
+
     if (!baseEntry) return null;
-    
+
     if (!standardIdentity) return baseEntry;
-    
+
     if (baseEntry.byStandardIdentity && baseEntry.byStandardIdentity[standardIdentity]) {
         return {
             ...baseEntry,
             ...baseEntry.byStandardIdentity[standardIdentity]
         };
     }
-    
+
     return baseEntry;
 }
 
@@ -978,10 +1005,10 @@ export function getCatalogEntryWithStandardIdentity(
 export function getCommandElement(symbolSet, standardIdentity = null) {
     const commandData = COMMAND_ELEMENTS[symbolSet];
     if (!commandData) return null;
-    
+
     if (standardIdentity && commandData.byStandardIdentity?.[standardIdentity]) {
         return { svg: commandData.byStandardIdentity[standardIdentity] };
     }
-    
+
     return { svg: commandData.default };
 }

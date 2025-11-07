@@ -319,7 +319,6 @@ export class MilitarySymbolGenerator {
         // while the PNG canvas grows to accommodate text with minimal padding
         const svgDataURL = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
         const blob = await this.convertToPngBlob(svgDataURL, finalWidth, finalHeight);
-        console.log(svgString)
 
         // ✅ RETURN DIMENSIONS: Return blob with actual dimensions for accurate bounding boxes
         return {

@@ -186,7 +186,7 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
     const extension = BrazilianSIDCExtension.decode(sidc30.substring(20));
     const sidc20 = sidc30.substring(0, 20);
     
-    const standardIdentity = sidc20.substring(2, 3);
+    const standardIdentity = sidc20.substring(3, 4);
     
     const mainIconCode = sidc20.substring(10, 16);
     const modifier1Code = sidc20.substring(16, 18);
