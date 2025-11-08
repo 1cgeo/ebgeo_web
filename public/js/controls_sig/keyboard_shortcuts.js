@@ -9,7 +9,6 @@ import { undoLastAction, redoLastAction } from './store/store.js';
 class KeyboardShortcuts {
     constructor(config) {
 
-        // Atribuir dependências
         this.map = config.map;
         this.selectionManager = config.selectionManager;
         this.toolManager = config.toolManager;
@@ -18,17 +17,13 @@ class KeyboardShortcuts {
         this.addStreetViewControl = config.addStreetViewControl;
         this.mapControl = config.mapControl;
         
-        // Controles de ferramentas
         this.controls = config.controls;
         
-        // Bind do contexto para o event listener
         this.handleKeyDown = this.handleKeyDown.bind(this);
         this.handleModalKeyDown = this.handleModalKeyDown.bind(this);
         
-        // Flag para controlar se os shortcuts estão ativos
         this.enabled = false;
         
-        // Elementos do modal
         this.modal = null;
         this.modalInitialized = false;
     }
@@ -84,7 +79,6 @@ class KeyboardShortcuts {
         const button = document.getElementById('shortcuts-button');
         const closeBtn = document.querySelector('.shortcuts-modal-close');
 
-        // Abrir modal
         if (button) {
             button.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -92,14 +86,12 @@ class KeyboardShortcuts {
             });
         }
 
-        // Fechar modal - botão X
         if (closeBtn) {
             closeBtn.addEventListener('click', () => {
                 this.hideModal();
             });
         }
 
-        // Fechar modal - clique fora
         if (this.modal) {
             this.modal.addEventListener('click', (e) => {
                 if (e.target === this.modal) {
@@ -108,7 +100,6 @@ class KeyboardShortcuts {
             });
         }
 
-        // Fechar modal - ESC key
         document.addEventListener('keydown', this.handleModalKeyDown);
     }
 
@@ -154,16 +145,13 @@ class KeyboardShortcuts {
             return;
         }
         
-        // Limpar grids existentes
         systemGrid.innerHTML = '';
         toolsGrid.innerHTML = '';
         
-        // Popular atalhos do sistema
         Object.entries(shortcutsInfo.system).forEach(([key, description]) => {
             this.addShortcutToGrid(systemGrid, key, description);
         });
         
-        // Popular atalhos de ferramentas
         Object.entries(shortcutsInfo.tools).forEach(([key, description]) => {
             this.addShortcutToGrid(toolsGrid, key, description);
         });
@@ -209,21 +197,30 @@ class KeyboardShortcuts {
     }
 
     /**
+     * Verifica se o modal de sugestões está aberto
+     */
+    isSuggestionsModalOpen() {
+        const suggestionsModal = document.getElementById('suggestions-modal');
+        return suggestionsModal && suggestionsModal.style.display === 'block';
+    }
+
+    /**
      * Handler principal para eventos de teclado
      */
     async handleKeyDown(e) {
-        // Ignorar se estiver digitando em input/textarea
         if (this.isTypingInInput(e.target)) {
             return;
         }
 
-        // Ignorar se Street View estiver aberto
         if (this.isStreetViewOpen()) {
             return;
         }
 
-        // Ignorar se modal estiver aberto
         if (this.modal && this.modal.style.display === 'block') {
+            return;
+        }
+
+        if (this.isSuggestionsModalOpen()) {
             return;
         }
 
@@ -231,7 +228,6 @@ class KeyboardShortcuts {
             return;
         }
 
-        // Processar atalhos baseados na tecla pressionada
         await this.processShortcut(e);
     }
 
@@ -247,17 +243,14 @@ class KeyboardShortcuts {
         const hasCtrl = e.ctrlKey;
         const hasShift = e.shiftKey;
 
-        // Atalhos de sistema (Delete, Escape, Ctrl+Z, Ctrl+Y)
         if (await this.handleSystemShortcuts(e, key, hasCtrl, hasShift)) {
             return;
         }
 
-        // Atalhos de ferramentas (apenas tecla, sem modificadores)
         if (!hasCtrl && !hasShift) {
             this.handleToolShortcuts(e, key);
         }
 
-        // Atalhos especiais com Ctrl
         if (hasCtrl && !hasShift) {
             await this.handleCtrlShortcuts(e, key);
         }
@@ -325,7 +318,6 @@ class KeyboardShortcuts {
             'b': this.controls.brushControl
         };
 
-        // Atalhos especiais que requerem condições
         if (key === 'v') {
             if (this.map.getTerrain()) {
                 e.preventDefault();
@@ -342,7 +334,6 @@ class KeyboardShortcuts {
             return;
         }
 
-        // Atalhos regulares
         const tool = toolMapping[key];
         if (tool) {
             e.preventDefault();
@@ -356,7 +347,6 @@ class KeyboardShortcuts {
     async handleCtrlShortcuts(e, key) {
         switch (key) {
             case 'c':
-                // NOVO: Só processar se painel de notas não estiver aberto
                 if (!this.isNotesPanel()) {
                     e.preventDefault();
                     this.clipboardManager.copy();
@@ -364,7 +354,6 @@ class KeyboardShortcuts {
                 break;
 
             case 'v':
-                // NOVO: Só processar se painel de notas não estiver aberto
                 if (!this.isNotesPanel()) {
                     e.preventDefault();
                     await this.clipboardManager.paste();
@@ -372,10 +361,8 @@ class KeyboardShortcuts {
                 break;
 
             case 's':
-                // NOVO: Tratar Ctrl+S para painel de notas
                 if (this.isNotesPanel()) {
                     e.preventDefault();
-                    // Chamar método de salvamento do painel através do mapControl
                     if (this.mapControl && this.mapControl.saveCurrentMapNotes) {
                         await this.mapControl.saveCurrentMapNotes();
                     }
@@ -426,12 +413,10 @@ class KeyboardShortcuts {
     destroy() {
         this.disable();
         
-        // Remover event listener do modal
         if (this.modalInitialized) {
             document.removeEventListener('keydown', this.handleModalKeyDown);
         }
         
-        // Fechar modal se estiver aberto
         this.hideModal();
     }
 }

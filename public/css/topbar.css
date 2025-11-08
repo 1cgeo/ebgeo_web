@@ -198,13 +198,6 @@
     color: #333;
 }
 
-.suggestions-intro {
-    font-size: 15px;
-    line-height: 1.6;
-    margin-bottom: 24px;
-    text-align: center;
-}
-
 .suggestions-section {
     margin-bottom: 28px;
 }
@@ -242,34 +235,45 @@
     background-color: #f8f9fa;
     border-radius: 8px;
     border-left: 4px solid var(--ebgeo-main);
-    font-size: 14px;
-    line-height: 1.5;
 }
 
-.cgeo-list li strong {
+.cgeo-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.cgeo-header strong {
     color: var(--ebgeo-primary);
-    display: block;
-    margin-bottom: 4px;
     font-size: 15px;
+    font-weight: 700;
+    min-width: 70px;
+}
+
+.cgeo-description {
+    color: #555;
+    font-size: 13px;
+    line-height: 1.4;
 }
 
 .cgeo-link {
-    display: inline-block;
-    margin-top: 6px;
     color: var(--ebgeo-main);
     font-weight: 600;
     text-decoration: none;
-    padding: 4px 8px;
+    padding: 4px 10px;
     background-color: #e8f5e9;
     border-radius: 4px;
     transition: all 0.2s ease;
     font-size: 13px;
+    white-space: nowrap;
 }
 
 .cgeo-link:hover {
     background-color: var(--ebgeo-main);
     color: white;
-    transform: translateX(4px);
+    transform: translateX(2px);
 }
 
 /* Container do email com botão copiar */
@@ -468,11 +472,24 @@ input[type="checkbox"]:checked ~ #sidebarMenu {
     
     .cgeo-list li {
         padding: 10px;
-        font-size: 13px;
     }
     
-    .cgeo-list li strong {
+    .cgeo-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+    
+    .cgeo-header strong {
         font-size: 14px;
+    }
+    
+    .cgeo-link {
+        font-size: 12px;
+    }
+    
+    .cgeo-description {
+        font-size: 12px;
     }
     
     .email-container {
