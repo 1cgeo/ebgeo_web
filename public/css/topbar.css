@@ -154,6 +154,192 @@
     background-color: var(--ebgeo-light);
 }
 
+/* ===== BOTÕES DE ÍCONE (ATALHOS, TUTORIAL, SUGESTÕES) ===== */
+.icon-only-button {
+    background-color: transparent;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ebgeo-contrast);
+    min-width: 32px;
+    min-height: 32px;
+}
+
+.icon-only-button:hover {
+    background-color: var(--ebgeo-main);
+    transform: scale(1.08);
+}
+
+.icon-only-button:active {
+    transform: scale(0.95);
+}
+
+.icon-only-button svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ===== MODAL DE SUGESTÕES - ESTILOS ESPECÍFICOS ===== */
+.suggestions-modal-content {
+    max-width: 700px;
+}
+
+.suggestions-content {
+    color: #333;
+}
+
+.suggestions-intro {
+    font-size: 15px;
+    line-height: 1.6;
+    margin-bottom: 24px;
+    text-align: center;
+}
+
+.suggestions-section {
+    margin-bottom: 28px;
+}
+
+.suggestions-section:last-child {
+    margin-bottom: 0;
+}
+
+.suggestions-section h4 {
+    color: var(--ebgeo-main);
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--ebgeo-main);
+}
+
+.suggestions-section p {
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 8px 0;
+    color: #555;
+}
+
+/* Lista de CGEOs */
+.cgeo-list {
+    list-style: none;
+    padding: 0;
+    margin: 16px 0;
+}
+
+.cgeo-list li {
+    margin-bottom: 16px;
+    padding: 12px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    border-left: 4px solid var(--ebgeo-main);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.cgeo-list li strong {
+    color: var(--ebgeo-primary);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 15px;
+}
+
+.cgeo-link {
+    display: inline-block;
+    margin-top: 6px;
+    color: var(--ebgeo-main);
+    font-weight: 600;
+    text-decoration: none;
+    padding: 4px 8px;
+    background-color: #e8f5e9;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    font-size: 13px;
+}
+
+.cgeo-link:hover {
+    background-color: var(--ebgeo-main);
+    color: white;
+    transform: translateX(4px);
+}
+
+/* Container do email com botão copiar */
+.email-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+/* Link de email ajustado */
+.email-link {
+    display: inline-block;
+    color: var(--ebgeo-primary);
+    font-size: 17px;
+    font-weight: 600;
+    text-decoration: none;
+    padding: 12px 20px;
+    background-color: #f0f7f0;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.email-link:hover {
+    background-color: var(--ebgeo-main);
+    color: white;
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(80, 141, 78, 0.3);
+}
+
+/* Botão de copiar email */
+.copy-email-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    background-color: var(--ebgeo-main);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+}
+
+.copy-email-btn:hover {
+    background-color: var(--ebgeo-dark);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(49, 87, 48, 0.4);
+}
+
+.copy-email-btn:active {
+    transform: translateY(0);
+}
+
+.copy-email-btn.copied {
+    background-color: var(--success-color);
+}
+
+.copy-email-btn svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    fill: none;
+}
+
 /* ===== MENU MOBILE ===== */
 .openSidebarMenu {
     display: none;
@@ -262,11 +448,61 @@ input[type="checkbox"]:checked ~ #sidebarMenu {
 .button--small {
     font-size: 1.15rem;
 }
+
 /* ===== ESTADOS DE FOCO PARA ACESSIBILIDADE ===== */
 .logo:focus,
 .nav-button:focus,
 .icon-button:focus,
-.tutorial-button:focus {
+.tutorial-button:focus,
+.icon-only-button:focus {
     outline: 2px solid var(--ebgeo-light);
     outline-offset: 2px;
+}
+
+/* ===== RESPONSIVIDADE ===== */
+@media screen and (max-width: 768px) {
+    .suggestions-modal-content {
+        max-width: 95%;
+        margin: 2% auto;
+    }
+    
+    .cgeo-list li {
+        padding: 10px;
+        font-size: 13px;
+    }
+    
+    .cgeo-list li strong {
+        font-size: 14px;
+    }
+    
+    .email-container {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .email-link {
+        font-size: 15px;
+        padding: 10px 16px;
+    }
+    
+    .copy-email-btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .extra-bar-buttons {
+        gap: 8px;
+        margin-right: 10px;
+    }
+    
+    .icon-only-button {
+        padding: 6px;
+        min-width: 28px;
+        min-height: 28px;
+    }
+    
+    .icon-only-button svg {
+        width: 20px;
+        height: 20px;
+    }
 }

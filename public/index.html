@@ -232,15 +232,19 @@
             }
         }
 
-        @media (max-width: 768px) {
+        @media screen and (max-width: 768px) {
             .shortcuts-modal-content {
-                margin: 10% auto;
                 width: 95%;
-                max-height: 70vh;
+                margin: 10% auto;
+                max-height: 85vh;
+            }
+            
+            .shortcuts-modal-header {
+                padding: 16px 20px;
             }
             
             .shortcuts-modal-body {
-                padding: 16px;
+                padding: 20px;
             }
             
             .shortcuts-grid {
@@ -269,7 +273,7 @@
     <meta name="robots" content="noindex, nofollow">
 
     <!-- RESOURCE HINTS -->
-    <link rel="prefetch" href="./vendors/cesium/Cesium.js"> <!-- Carrega quando idle -->
+    <link rel="prefetch" href="./vendors/cesium/Cesium.js">
     <link rel="prefetch" href="./street_view/build/three.min.js">
     <script type="text/javascript"
         src="./vendors/gdal/gdal3.js"
@@ -315,12 +319,32 @@
 
         <!-- Extra Buttons -->
         <div class="extra-bar-buttons">
-            <button id="shortcuts-button" class="tutorial-button" aria-label="Ver atalhos de teclado">
-                Atalhos
+            <button id="shortcuts-button" class="icon-only-button" 
+                    aria-label="Ver atalhos de teclado" 
+                    title="Atalhos">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                    <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h12" />
+                </svg>
             </button>
-            <button onclick="window.open('./docs/doc.html', '_blank')" class="tutorial-button"
-                aria-label="Abrir tutorial">
-                Tutorial
+            <button id="tutorial-button" class="icon-only-button"
+                    onclick="window.open('./docs/doc.html', '_blank')"
+                    aria-label="Abrir tutorial" 
+                    title="Tutorial">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                </svg>
+            </button>
+            <button id="suggestions-button" class="icon-only-button"
+                    aria-label="Informações de suporte" 
+                    title="Suporte">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    <circle cx="9" cy="10" r="1"></circle>
+                    <circle cx="15" cy="10" r="1"></circle>
+                    <path d="M9 14c.8.8 2 1 3 1s2.2-.2 3-1"></path>
+                </svg>
             </button>
         </div>
     </div>
@@ -414,7 +438,82 @@
         </div>
     </div>
 
-    <!-- UtilitÃ¡rios essenciais primeiro -->
+    <!-- SUGGESTIONS MODAL -->
+    <div id="suggestions-modal" class="shortcuts-modal" role="dialog" 
+         aria-labelledby="suggestions-title" aria-hidden="true">
+        <div class="shortcuts-modal-content suggestions-modal-content">
+            <div class="shortcuts-modal-header">
+                <h3 id="suggestions-title">Informações de Suporte</h3>
+                <span class="shortcuts-modal-close" aria-label="Fechar modal">&times;</span>
+            </div>
+            <div class="shortcuts-modal-body">
+                <div class="suggestions-content">
+                    <p class="suggestions-intro">
+                        O EBGeo é desenvolvido pela <strong>Diretoria de Serviço Geográfico</strong>.
+                    </p>
+                    
+                    <div class="suggestions-section">
+                        <h4>Suporte ao Usuário</h4>
+                        <p>Entre em contato com o Centro de Geoinformação correspondente ao Comando Militar de Área:</p>
+                        
+                        <ul class="cgeo-list">
+                            <li>
+                                <strong>1º CGEO:</strong> Comando Militar do Sul
+                                <a href="http://www.1cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                    www.1cgeo.eb.mil.br
+                                </a>
+                            </li>
+                            <li>
+                                <strong>2º CGEO:</strong> Comando Militar do Oeste e Comando Militar do Planalto
+                                <a href="http://www.2cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                    www.2cgeo.eb.mil.br
+                                </a>
+                            </li>
+                            <li>
+                                <strong>3º CGEO:</strong> Comando Militar do Nordeste
+                                <a href="http://www.3cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                    www.3cgeo.eb.mil.br
+                                </a>
+                            </li>
+                            <li>
+                                <strong>4º CGEO:</strong> Comando Militar da Amazônia e Comando Militar do Norte
+                                <a href="http://www.4cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                    www.4cgeo.eb.mil.br
+                                </a>
+                            </li>
+                            <li>
+                                <strong>5º CGEO:</strong> Comando Militar do Leste e Comando Militar do Sudeste
+                                <a href="http://www.5cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                    www.5cgeo.eb.mil.br
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <div class="suggestions-section">
+                        <h4>Sugestões para o Sistema</h4>
+                        <p>Entre em contato com o <strong>1º Centro de Geoinformação</strong>, responsável pelo desenvolvimento do sistema:</p>
+                        
+                        <div class="email-container">
+                            <a href="mailto:ebgeo@1cgeo.eb.mil.br" class="email-link">
+                                ebgeo@1cgeo.eb.mil.br
+                            </a>
+                            <button class="copy-email-btn" data-email="ebgeo@1cgeo.eb.mil.br" 
+                                    aria-label="Copiar email" title="Copiar email">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                                <span>Copiar</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Utilitários essenciais primeiro -->
     <script type="module" src="./js/config.js"></script>
     <script type="module" src="./js/config-loader.js"></script>
     <script src="./vendors/localforage.min.js"></script>

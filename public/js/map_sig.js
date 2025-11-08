@@ -37,6 +37,7 @@ import DragRotateHandler from './controls_sig/drag_rotate_handler.js';
 import ClipboardManager from './controls_sig/tool_manager/clipboard_manager.js';
 import RectangleSelectionControl from './controls_sig/selection_tools/rectangle_selection_control.js';
 import KeyboardShortcuts from './controls_sig/keyboard_shortcuts.js';
+import SuggestionsModal from './controls_sig/suggestions_modal.js';
 import GridControl from './controls_sig/grid.js';
 import FrameControl from './controls_sig/frame.js';
 
@@ -212,11 +213,11 @@ const keyboardShortcuts = new KeyboardShortcuts({
     }
 });
 
-// Ativar os atalhos de teclado
 keyboardShortcuts.enable();
-
-// Inicializar modal de atalhos
 keyboardShortcuts.initModal();
+
+const suggestionsModal = new SuggestionsModal();
+suggestionsModal.init();
 
 //-----------------------------------------------
 // ADICIONAR CONTROLES AO MAPA
@@ -270,7 +271,7 @@ window.addEventListener('error', (event) => {
 // EXPORTS E CLEANUP
 //-----------------------------------------------
 
-// Cleanup ao descarregar a página
 window.addEventListener('beforeunload', () => {
     keyboardShortcuts.destroy();
+    suggestionsModal.destroy();
 });
