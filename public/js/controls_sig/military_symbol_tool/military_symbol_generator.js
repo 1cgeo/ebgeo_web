@@ -488,7 +488,8 @@ function extractTextModifiers(properties) {
         'location',               // Y - Localização
         'speed',                  // Z - Velocidade
         'specialHeadquarters',    // AA - Tipo de PC
-        'direction'               // Q - Direção/Azimute
+        'direction',               // Q - Direção/Azimute
+        'engagementBar'
     ];
 
     // Add direct fields

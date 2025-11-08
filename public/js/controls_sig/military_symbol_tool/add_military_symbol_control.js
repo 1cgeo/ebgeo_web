@@ -81,7 +81,8 @@ class AddMilitarySymbolControl extends BaseControl {
     type: null,                   // V - Tipo de Equipamento
     iffSif: null,                 // P - Código IFF/SIF
     equipmentTeardownTime: null,  // X1 - Tempo de Destruição
-    direction: null               // Q - Direção/Azimute
+    direction: null,               // Q - Direção/Azimute
+    engagementBar: null
   };
 
   // ===== FONTE ÚNICA DA VERDADE =====
@@ -491,6 +492,8 @@ class AddMilitarySymbolControl extends BaseControl {
         type: null,
         iffSif: null,
         equipmentTeardownTime: null,
+        direction: null,
+        engagementBar: null
       },
       geometry: this.geometry.generate(coordinates),
     };
@@ -1103,7 +1106,9 @@ class AddMilitarySymbolControl extends BaseControl {
       'specialHeadquarters',
       'type',
       'iffSif',
-      'equipmentTeardownTime'
+      'equipmentTeardownTime',
+      'direction',
+      'engagementBar'
     ];
 
     // Criar cópia das propriedades SEM text modifiers

@@ -16,7 +16,9 @@ import {
     isCommandApplicable,
     isModifier1Applicable,
     isModifier2Applicable,
-    getTextModifiersConfig
+    getTextModifiersConfig,
+    isEngagementBarApplicable,
+    getEngagementBarData
 } from './military_constants.js';
 import {
     createSliderWithInput,
@@ -756,9 +758,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         const simboloButton = createTabButton('Símbolo', true);
         const textoButton = createTabButton('Texto', false);
+        const engajamentoButton = createTabButton('Barra de Engajamento', false);
 
         tabButtonsContainer.appendChild(simboloButton);
         tabButtonsContainer.appendChild(textoButton);
+        tabButtonsContainer.appendChild(engajamentoButton);
 
         // Tab content containers
         const simboloTab = document.createElement('div');
@@ -769,15 +773,21 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         textoTab.id = 'texto-tab';
         textoTab.style.cssText = 'display: none;';
 
+        const engajamentoTab = document.createElement('div');
+        engajamentoTab.id = 'engajamento-tab';
+        engajamentoTab.style.cssText = 'display: none; padding: 20px;';
+
         container.appendChild(tabButtonsContainer);
         container.appendChild(simboloTab);
         container.appendChild(textoTab);
+        container.appendChild(engajamentoTab);
 
         return {
             container,
             simboloTab,
             textoTab,
-            tabButtons: { simbolo: simboloButton, texto: textoButton }
+            engajamentoTab,
+            tabButtons: { simbolo: simboloButton, texto: textoButton, engajamento: engajamentoButton }
         };
     }
 
@@ -789,34 +799,46 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     function switchTab(tabName, tabButtons) {
         const simboloTab = document.getElementById('simbolo-tab');
         const textoTab = document.getElementById('texto-tab');
-        const { simbolo: simboloButton, texto: textoButton } = tabButtons;
+        const engajamentoTab = document.getElementById('engajamento-tab');
+        const { simbolo: simboloButton, texto: textoButton, engajamento: engajamentoButton } = tabButtons;
+
+        simboloTab.style.display = 'none';
+        textoTab.style.display = 'none';
+        engajamentoTab.style.display = 'none';
+
+        simboloButton.style.background = '#f5f5f5';
+        simboloButton.style.color = '#333';
+        simboloButton.style.fontWeight = 'normal';
+        simboloButton.classList.remove('active');
+
+        textoButton.style.background = '#f5f5f5';
+        textoButton.style.color = '#333';
+        textoButton.style.fontWeight = 'normal';
+        textoButton.classList.remove('active');
+
+        engajamentoButton.style.background = '#f5f5f5';
+        engajamentoButton.style.color = '#333';
+        engajamentoButton.style.fontWeight = 'normal';
+        engajamentoButton.classList.remove('active');
 
         if (tabName === 'simbolo') {
             simboloTab.style.display = 'grid';
-            textoTab.style.display = 'none';
-
             simboloButton.style.background = '#007bff';
             simboloButton.style.color = 'white';
             simboloButton.style.fontWeight = 'bold';
             simboloButton.classList.add('active');
-
-            textoButton.style.background = '#f5f5f5';
-            textoButton.style.color = '#333';
-            textoButton.style.fontWeight = 'normal';
-            textoButton.classList.remove('active');
-        } else {
-            simboloTab.style.display = 'none';
+        } else if (tabName === 'texto') {
             textoTab.style.display = 'block';
-
             textoButton.style.background = '#007bff';
             textoButton.style.color = 'white';
             textoButton.style.fontWeight = 'bold';
             textoButton.classList.add('active');
-
-            simboloButton.style.background = '#f5f5f5';
-            simboloButton.style.color = '#333';
-            simboloButton.style.fontWeight = 'normal';
-            simboloButton.classList.remove('active');
+        } else if (tabName === 'engajamento') {
+            engajamentoTab.style.display = 'block';
+            engajamentoButton.style.background = '#007bff';
+            engajamentoButton.style.color = 'white';
+            engajamentoButton.style.fontWeight = 'bold';
+            engajamentoButton.classList.add('active');
         }
     }
 
@@ -935,6 +957,146 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             );
             container.appendChild(fieldContainer);
         });
+
+        return container;
+    }
+    function createEngagementBarContent(tempProperties, onUpdate) {
+        const container = document.createElement('div');
+        container.style.cssText = 'display: flex; flex-direction: column; gap: 20px; max-width: 600px;';
+
+        const data = getEngagementBarData();
+
+        const stageContainer = document.createElement('div');
+        stageContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+        
+        const stageLabel = document.createElement('label');
+        stageLabel.textContent = 'Estágio do Engajamento:';
+        stageLabel.style.cssText = 'font-weight: bold; font-size: 15px; color: #333;';
+        
+        const stageSelect = document.createElement('select');
+        stageSelect.style.cssText = 'padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
+        
+        const stageDefaultOption = document.createElement('option');
+        stageDefaultOption.value = '';
+        stageDefaultOption.textContent = 'Não Aplicável';
+        stageSelect.appendChild(stageDefaultOption);
+        
+        data.stages.forEach(stage => {
+            const option = document.createElement('option');
+            option.value = stage.value;
+            option.textContent = `${stage.value} - ${stage.label}`;
+            stageSelect.appendChild(option);
+        });
+        
+        stageContainer.appendChild(stageLabel);
+        stageContainer.appendChild(stageSelect);
+
+        const weaponContainer = document.createElement('div');
+        weaponContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+        
+        const weaponLabel = document.createElement('label');
+        weaponLabel.textContent = 'Armamento/Elemento:';
+        weaponLabel.style.cssText = 'font-weight: bold; font-size: 15px; color: #333;';
+        
+        const weaponSelect = document.createElement('select');
+        weaponSelect.style.cssText = 'padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
+        
+        const weaponDefaultOption = document.createElement('option');
+        weaponDefaultOption.value = '';
+        weaponDefaultOption.textContent = 'Não Aplicável';
+        weaponSelect.appendChild(weaponDefaultOption);
+        
+        data.weapons.forEach(weapon => {
+            const option = document.createElement('option');
+            option.value = weapon.value;
+            option.textContent = `${weapon.value} - ${weapon.label}`;
+            weaponSelect.appendChild(option);
+        });
+        
+        weaponContainer.appendChild(weaponLabel);
+        weaponContainer.appendChild(weaponSelect);
+
+        const remoteContainer = document.createElement('div');
+        remoteContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+        
+        const remoteCheckbox = document.createElement('input');
+        remoteCheckbox.type = 'checkbox';
+        remoteCheckbox.id = 'engagement-remote';
+        remoteCheckbox.style.cssText = 'width: 18px; height: 18px; cursor: pointer;';
+        
+        const remoteLabel = document.createElement('label');
+        remoteLabel.htmlFor = 'engagement-remote';
+        remoteLabel.textContent = 'Designação Remota';
+        remoteLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
+        
+        remoteContainer.appendChild(remoteCheckbox);
+        remoteContainer.appendChild(remoteLabel);
+
+        function updateEngagementBar() {
+            const stage = stageSelect.value;
+            const weapon = weaponSelect.value;
+            const remote = remoteCheckbox.checked;
+
+            if (!stage && !weapon) {
+                tempProperties.engagementBar = null;
+            } else {
+                const prefix = remote ? 'R:' : '';
+                let text = '';
+                
+                if (stage && weapon) {
+                    text = `${stage}-${weapon}`;
+                } else if (stage) {
+                    text = stage;
+                } else {
+                    text = weapon;
+                }
+                
+                tempProperties.engagementBar = `${prefix}${text}`;
+            }
+            
+            onUpdate();
+        }
+
+        stageSelect.addEventListener('change', updateEngagementBar);
+        weaponSelect.addEventListener('change', updateEngagementBar);
+        remoteCheckbox.addEventListener('change', updateEngagementBar);
+
+        container.appendChild(stageContainer);
+        container.appendChild(weaponContainer);
+        container.appendChild(remoteContainer);
+
+        container.updateFromProperties = (properties) => {
+            const engagementBar = properties.engagementBar;
+            if (engagementBar) {
+                let processedBar = engagementBar;
+                let isRemote = false;
+                
+                if (processedBar.startsWith('R:')) {
+                    isRemote = true;
+                    processedBar = processedBar.substring(2);
+                }
+                
+                if (processedBar.includes('-')) {
+                    const parts = processedBar.split('-');
+                    stageSelect.value = parts[0] || '';
+                    weaponSelect.value = parts[1] || '';
+                } else {
+                    const stageExists = data.stages.some(s => s.value === processedBar);
+                    if (stageExists) {
+                        stageSelect.value = processedBar;
+                        weaponSelect.value = '';
+                    } else {
+                        stageSelect.value = '';
+                        weaponSelect.value = processedBar;
+                    }
+                }
+                remoteCheckbox.checked = isRemote;
+            } else {
+                stageSelect.value = '';
+                weaponSelect.value = '';
+                remoteCheckbox.checked = false;
+            }
+        };
 
         return container;
     }
@@ -1563,7 +1725,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         // Create tabs container
         const tabsContainer = createTabsContainer();
-        const { simboloTab, textoTab, tabButtons } = tabsContainer;
+        const { simboloTab, textoTab, engajamentoTab, tabButtons } = tabsContainer;
 
         // Add columns directly to Symbol tab
         simboloTab.appendChild(column1);
@@ -1578,6 +1740,24 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         );
         textoTab.appendChild(textFieldsContainer);
 
+        // Create Engagement Bar tab content
+        let engagementBarContainer = createEngagementBarContent(
+            tempProperties,
+            updatePreviewFromComboboxes
+        );
+        engajamentoTab.appendChild(engagementBarContainer);
+        engagementBarContainer.updateFromProperties(tempProperties);
+
+        // Update engagement bar visibility
+        function updateEngagementBarVisibility() {
+            const isApplicable = isEngagementBarApplicable(tempProperties.symbolSet || "10");
+            tabButtons.engajamento.style.display = isApplicable ? '' : 'none';
+            if (!isApplicable && engajamentoTab.style.display === 'block') {
+                switchTab('simbolo', tabButtons);
+            }
+        }
+        updateEngagementBarVisibility();
+
         // Configure tab switching
         tabButtons.simbolo.onclick = () => {
             switchTab('simbolo', tabButtons);
@@ -1585,6 +1765,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         tabButtons.texto.onclick = () => {
             switchTab('texto', tabButtons);
+        };
+
+        tabButtons.engajamento.onclick = () => {
+            switchTab('engajamento', tabButtons);
         };
 
         // Add tabs container to controls column
@@ -1610,7 +1794,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             tempProperties.type = '';
             tempProperties.iffSif = '';
             tempProperties.equipmentTeardownTime = '';
-                    tempProperties.quantity = '';
+            tempProperties.quantity = '';
 
             // Update text fields for new symbol set
             // Remove old text fields
@@ -1626,6 +1810,18 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 getTextModifiersConfig
             );
             textoTab.appendChild(textFieldsContainer);
+
+            // Update engagement bar
+            tempProperties.engagementBar = null;
+            while (engajamentoTab.firstChild) {
+                engajamentoTab.removeChild(engajamentoTab.firstChild);
+            }
+            engagementBarContainer = createEngagementBarContent(
+                tempProperties,
+                updatePreviewFromComboboxes
+            );
+            engajamentoTab.appendChild(engagementBarContainer);
+            updateEngagementBarVisibility();
         };
 
 
@@ -1927,7 +2123,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 'uniqueDesignation', 'higherFormation', 'reinforcedReduced',
                 'additionalInformation', 'credibility', 'location', 'dateTimeGroup',
                 'altitudeDepth', 'speed', 'specialHeadquarters', 'type', 'iffSif',
-                'equipmentTeardownTime', 'quantity', 'direction'
+                'equipmentTeardownTime', 'quantity', 'direction',
+                'engagementBar'
             ];
 
             for (const key of propertiesToUpdate) {
@@ -2011,6 +2208,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     tempProperties.equipmentTeardownTime = '';
                     tempProperties.quantity = '';
                     tempProperties.direction = '';
+                    tempProperties.engagementBar = null;
+
+                    if (engagementBarContainer && engagementBarContainer.updateFromProperties) {
+                        engagementBarContainer.updateFromProperties(tempProperties);
+                    }
 
                     updatePreview();
                 };

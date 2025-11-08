@@ -202,7 +202,7 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ NEW: Check if property is a text modifier (requires symbol regeneration)
+     * Check if property is a text modifier (requires symbol regeneration)
      * Text modifiers don't affect SIDC but require regeneration to show text
      * @param {string} property - Property name being changed
      * @returns {boolean} True if property is a text modifier
@@ -223,7 +223,8 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
             'location',               // Y - Localização
             'speed',                  // Z - Velocidade
             'specialHeadquarters',    // AA - Tipo de PC
-            'direction'               // Q - Direção/Azimute
+            'direction',              // Q - Direção/Azimute
+            'engagementBar'
         ];
         
         return textModifierProperties.includes(property);

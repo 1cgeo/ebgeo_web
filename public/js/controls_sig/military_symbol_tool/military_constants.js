@@ -201,6 +201,46 @@ export const MILITARY_DATA = {
 
 /**
  * ========================================
+ * ENGAGEMENT BAR DATA
+ * ========================================
+ */
+export const ENGAGEMENT_BAR_DATA = {
+    stages: [
+        { value: "ASN", label: "Fixar/Cobrir" },
+        { value: "ENG", label: "Engajar" },
+        { value: "MIF", label: "Míssil em Voo" },
+        { value: "CF", label: "Cessar Fogo" },
+        { value: "CE", label: "Cessar Engajamento" },
+        { value: "HF", label: "Suspender Fogo" },
+        { value: "TE", label: "Encerrar Engajamento" },
+        { value: "BE", label: "Romper Engajamento" },
+        { value: "MBE", label: "Gerenciamento por Exceção" },
+        { value: "M<T", label: "MBE Menor que Limite" },
+        { value: "MLT", label: "Múltiplos Engajamentos" }
+    ],
+    weapons: [
+        { value: "M", label: "Míssil" },
+        { value: "BM", label: "Míssil Balístico" },
+        { value: "CM", label: "Míssil de Cruzeiro" },
+        { value: "GN", label: "Canhão" },
+        { value: "T", label: "Torpedo" },
+        { value: "A", label: "Aeronave de Ataque" },
+        { value: "C", label: "Patrulha Aérea de Combate" },
+        { value: "D", label: "Defesa Aérea" },
+        { value: "UW", label: "Guerra Submarina/Antissubmarino" },
+        { value: "MW", label: "Guerra de Minas" },
+        { value: "SW", label: "Guerra de Superfície" },
+        { value: "EA", label: "Ataque Eletrônico" },
+        { value: "ED", label: "Defesa Eletrônica" },
+        { value: "UV", label: "Veículo Não Tripulado" },
+        { value: "CW", label: "Sistema de Armas de Defesa Aproximada" },
+        { value: "L3", label: "LAMPS" },
+        { value: "VA", label: "Foguete Antissubmarino de Lançamento Vertical" }
+    ]
+};
+
+/**
+ * ========================================
  * ECHELON/MOBILITY/LEADERSHIP HELPERS
  * ========================================
  */
@@ -294,6 +334,24 @@ export function isModifier2Applicable(symbolSetCode) {
     // Não tem modifier 2: Guerra de Minas, Equipamentos/Viaturas, Atividades/Eventos
     const noModifier2 = ['36', '15', '40'];
     return !noModifier2.includes(symbolSetCode);
+}
+
+/**
+ * Check if engagement bar is applicable for symbol set
+ * @param {string} symbolSetCode - Symbol set code
+ * @returns {boolean} True if engagement bar is applicable
+ */
+export function isEngagementBarApplicable(symbolSetCode) {
+    const applicable = ['01', '02', '05', '10', '15', '30', '35', '36'];
+    return applicable.includes(symbolSetCode);
+}
+
+/**
+ * Get engagement bar data (stages and weapons)
+ * @returns {Object} { stages: Array, weapons: Array }
+ */
+export function getEngagementBarData() {
+    return ENGAGEMENT_BAR_DATA;
 }
 
 /**
