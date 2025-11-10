@@ -23,6 +23,7 @@ class AddTextControl extends BaseControl {
         size: 16,
         color: '#000000',
         backgroundColor: '#ffffff',
+        textHaloWidth: 2,
         rotation: 0,
         justify: 'center',
         source: 'text',
@@ -767,6 +768,7 @@ class AddTextControl extends BaseControl {
             feature.properties.size !== initialProperties.size ||
             feature.properties.color !== initialProperties.color ||
             feature.properties.backgroundColor !== initialProperties.backgroundColor ||
+            feature.properties.textHaloWidth !== initialProperties.textHaloWidth ||
             feature.properties.rotation !== initialProperties.rotation ||
             feature.properties.justify !== initialProperties.justify ||
             feature.properties.createdAtZoom !== initialProperties.createdAtZoom ||

@@ -1707,7 +1707,7 @@ function setupTextLayers(features, mapInstance) {
             paint: {
                 'text-color': ['get', 'color'],
                 'text-halo-color': ['get', 'backgroundColor'],
-                'text-halo-width': 2
+                'text-halo-width': ['get', 'textHaloWidth']
             },
             filter: ['!=', ['get', 'visivel'], false]
         });
