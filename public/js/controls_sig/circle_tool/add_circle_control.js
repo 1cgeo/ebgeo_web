@@ -255,12 +255,8 @@ class AddCircleControl extends BaseControl {
     syncEditHandlesAfterDrag = (movedFeatures) => {
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
-            // Always recreate handles with current feature data
             this.createEditHandles(selectedFeature);
         }
-
-        // Update X-marks using moved features data
-        this.updateXMarksFromFeatures(movedFeatures);
     }
 
     // ===== DRAWING SYSTEM =====
@@ -377,8 +373,6 @@ class AddCircleControl extends BaseControl {
             data.features.push(feature);
             this.map.getSource('circles').setData(data);
 
-            this.updateXMarks();
-
             this.drawPoints = [];
             this.toolManager.setActiveTool(null);
             this.selectionManager.toggleFeatureSelection('circle', featureId, feature);
@@ -391,14 +385,12 @@ class AddCircleControl extends BaseControl {
     // ===== EDIT HANDLES SYSTEM =====
 
     selectFeature = (feature) => {
-        // SelectionManager já armazena a feature, só precisamos criar handles
         this.createEditHandles(feature);
         this.setupEditEventListeners();
         this.setupHoverListeners();
     }
 
     deselectFeature = () => {
-        // SelectionManager já remove a feature, só precisamos limpar UI
         this.isDraggingHandle = false;
         this.clearEditHandles();
         this.removeEditEventListeners();
@@ -412,7 +404,6 @@ class AddCircleControl extends BaseControl {
         const handleFeature = this.geometry.createHandles(feature);
         if (!handleFeature) return;
 
-        // Show selection feedback
         this.map.getSource('circle-feedback').setData({
             type: 'Feature',
             geometry: feature.geometry,
@@ -422,7 +413,6 @@ class AddCircleControl extends BaseControl {
             }
         });
 
-        // Show handle
         this.map.getSource('circle-edit-handles').setData({
             type: 'FeatureCollection',
             features: [handleFeature]
@@ -487,7 +477,6 @@ class AddCircleControl extends BaseControl {
             const result = this.geometry.updateFromHandle('radius', this.lastPreviewPosition, selectedFeature);
 
             if (result && result.radius > 10) {
-                // Create updated feature with new radius
                 const updatedFeature = {
                     ...selectedFeature,
                     properties: {
@@ -503,7 +492,6 @@ class AddCircleControl extends BaseControl {
                 this.createEditHandles(updatedFeature);
                 this.updateUIAfterEdit();
                 this.saveFeatureChanges(updatedFeature);
-                this.updateXMarks();
             }
         }
 
@@ -524,7 +512,6 @@ class AddCircleControl extends BaseControl {
 
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
-            // Show updated selection
             this.map.getSource('circle-feedback').setData({
                 type: 'Feature',
                 geometry: preview.geometry,
@@ -534,7 +521,6 @@ class AddCircleControl extends BaseControl {
                 }
             });
 
-            // Update handle
             this.map.getSource('circle-edit-handles').setData({
                 type: 'FeatureCollection',
                 features: [{
@@ -593,52 +579,6 @@ class AddCircleControl extends BaseControl {
         );
     }
 
-    // ===== X-MARKS INTEGRATION =====
-
-    updateXMarks() {
-        const circleSource = this.map.getSource('circles');
-        if (!circleSource) return;
-
-        const circleData = circleSource._data;
-        const xFeatures = this.geometry.generateXMarksForFeatures(circleData.features);
-
-        this.map.getSource('circle-x-marks').setData({
-            type: 'FeatureCollection',
-            features: xFeatures
-        });
-    }
-
-    /**
-     * Update X-marks using provided features instead of map source
-     * This prevents using stale data during drag operations
-     */
-    updateXMarksFromFeatures(updatedFeatures) {
-        // Get all circle features, preferring updated ones
-        const circleSource = this.map.getSource('circles');
-        if (!circleSource) return;
-
-        const allFeatures = [...circleSource._data.features];
-
-        // Replace with updated features that have current center positions
-        updatedFeatures.forEach(updatedFeature => {
-            if (updatedFeature.properties.source === 'circle') {
-                const index = allFeatures.findIndex(f =>
-                    f.properties.id === updatedFeature.properties.id
-                );
-                if (index !== -1) {
-                    allFeatures[index] = updatedFeature;
-                }
-            }
-        });
-
-        const xFeatures = this.geometry.generateXMarksForFeatures(allFeatures);
-
-        this.map.getSource('circle-x-marks').setData({
-            type: 'FeatureCollection',
-            features: xFeatures
-        });
-    }
-
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = (features, property, value) => {
@@ -661,19 +601,12 @@ class AddCircleControl extends BaseControl {
 
         this.map.getSource('circles').setData(data);
 
-        // CRITICAL FIX: Get fresh features from map source before updating SelectionManager
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-            return sourceFeature || feature; // Fallback to original if not found
+            return sourceFeature || feature;
         });
 
-        // Update SelectionManager with fresh features
         this.updateSelectionManagerFeatures(freshFeatures);
-
-        if (property === 'coordinationPoint' || property === 'lineColor' ||
-            property === 'lineWidth' || property === 'radius' || property === 'center') {
-            this.updateXMarks();
-        }
 
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
@@ -682,7 +615,6 @@ class AddCircleControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        // CRITICAL FIX: Always get fresh feature data from map source before saving
         const currentData = this.map.getSource('circles')._data;
         let hasChanges = false;
 
@@ -691,15 +623,10 @@ class AddCircleControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    // Use complete current feature (with updated geometry + properties)
                     await updateFeature('circles', currentFeature);
                     hasChanges = true;
                 }
             }
-        }
-
-        if (hasChanges) {
-            this.updateXMarks();
         }
     }
 
@@ -728,7 +655,6 @@ class AddCircleControl extends BaseControl {
                 console.error(`Error removing circle ${feature.properties.id}:`, error);
             }
         }
-        this.updateXMarks();
     }
 
     setDefaultProperties = (properties) => {
@@ -744,7 +670,6 @@ class AddCircleControl extends BaseControl {
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
             feature.properties.radius !== initialProperties.radius ||
-            feature.properties.coordinationPoint !== initialProperties.coordinationPoint ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
@@ -775,26 +700,17 @@ class AddCircleControl extends BaseControl {
 
             this.map.getSource('circles').setData(data);
 
-            // Update SelectionManager with updated features
             this.updateSelectionManagerFeatures(features);
-
-            this.updateXMarks();
         }
     }
 
     // ===== SELECTION MANAGER INTEGRATION =====
 
-    /**
-     * Update SelectionManager with current feature data
-     */
     updateSelectionManagerFeature(feature) {
         const key = `circle:${feature.properties.id}`;
         this.selectionManager.selectedFeatures.set(key, { type: 'circle', feature });
     }
 
-    /**
-     * Update SelectionManager with multiple features
-     */
     updateSelectionManagerFeatures(features) {
         features.forEach(feature => {
             if (feature.properties.source === 'circle') {
@@ -821,7 +737,6 @@ class AddCircleControl extends BaseControl {
     }
 
     forceUpdateMainSource = (feature) => {
-        // PERFORMANCE FIX: Don't update source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
@@ -853,7 +768,6 @@ class AddCircleControl extends BaseControl {
     }
 
     setupBaseEventListeners = () => {
-        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {

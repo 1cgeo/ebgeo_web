@@ -70,17 +70,6 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
 
     $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
 
-    // Ponto de coordenação
-    const coordinationPointCheckbox = createCheckbox(
-        feature.properties.coordinationPoint || false,
-        (e) => {
-            circleControl.updateFeaturesProperty(selectedFeatures, 'coordinationPoint', e.target.checked);
-            uiManager.updateSelectionHighlight();
-        }
-    );
-
-    $(panel).append(createAttributeRow('Ponto de coordenação:', coordinationPointCheckbox));
-
     // Raio (somente informativo)
     const radiusValue = document.createElement('span');
     radiusValue.textContent = `${Math.round(feature.properties.radius || 1000)} m`;

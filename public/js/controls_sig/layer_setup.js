@@ -44,7 +44,6 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager) {
         requestAnimationFrame(() => {
             clearAllMeasurements();
             restoreMeasurements(features, mapInstance);
-            restoreCircleXMarks(features, mapInstance);
             restoreBoundaryDependentFeatures(features, mapInstance);
         });
     } catch (error) {
@@ -1872,20 +1871,6 @@ function restoreMeasurements(features, mapInstance) {
         }
     } catch (error) {
         console.warn('Erro ao restaurar medições:', error);
-    }
-}
-
-function restoreCircleXMarks(features, mapInstance) {
-    try {
-        const circleControl = mapInstance._controls.find(control =>
-            control.constructor.name === 'AddCircleControl'
-        );
-
-        if (circleControl && typeof circleControl.updateXMarks === 'function') {
-            circleControl.updateXMarks();
-        }
-    } catch (error) {
-        console.warn('Erro ao restaurar X marks dos círculos:', error);
     }
 }
 

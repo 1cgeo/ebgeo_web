@@ -89,47 +89,6 @@ class AddCircleGeometry extends BaseGeometry {
     }
 
     /**
-     * Generate X-mark geometry for coordination points
-     * @param {Array} center - Center coordinates [lng, lat]
-     * @param {number} radius - Radius in meters
-     * @returns {Array} Array of LineString geometries forming X
-     */
-    generateXGeometry(center, radius) {
-        const radiusInDegrees = radius / 111320;
-        const cosLat = Math.cos(center[1] * Math.PI / 180);
-
-        const diagonal1 = {
-            type: 'LineString',
-            coordinates: [
-                [
-                    center[0] - (radiusInDegrees / cosLat) * Math.cos(Math.PI / 4),
-                    center[1] + radiusInDegrees * Math.sin(Math.PI / 4)
-                ],
-                [
-                    center[0] + (radiusInDegrees / cosLat) * Math.cos(Math.PI / 4),
-                    center[1] - radiusInDegrees * Math.sin(Math.PI / 4)
-                ]
-            ]
-        };
-
-        const diagonal2 = {
-            type: 'LineString',
-            coordinates: [
-                [
-                    center[0] + (radiusInDegrees / cosLat) * Math.cos(Math.PI / 4),
-                    center[1] + radiusInDegrees * Math.sin(Math.PI / 4)
-                ],
-                [
-                    center[0] - (radiusInDegrees / cosLat) * Math.cos(Math.PI / 4),
-                    center[1] - radiusInDegrees * Math.sin(Math.PI / 4)
-                ]
-            ]
-        };
-
-        return [diagonal1, diagonal2];
-    }
-
-    /**
      * Create edit handles for circle
      * @param {Object} feature - Circle feature
      * @returns {Object} Handle feature for radius editing
@@ -144,7 +103,6 @@ class AddCircleGeometry extends BaseGeometry {
         const radius = feature.properties.radius;
         const radiusInDegrees = radius / 111320;
 
-        // Single radius handle positioned to the east of center
         const handlePoint = [
             center[0] + (radiusInDegrees / Math.cos(center[1] * Math.PI / 180)),
             center[1]
@@ -220,7 +178,6 @@ class AddCircleGeometry extends BaseGeometry {
 
         const previewGeometry = this.generateCircleGeometry(center, newRadius);
         
-        // Calculate new handle position
         const radiusInDegrees = newRadius / 111320;
         const handlePoint = [
             center[0] + (radiusInDegrees / Math.cos(center[1] * Math.PI / 180)),
@@ -232,40 +189,6 @@ class AddCircleGeometry extends BaseGeometry {
             handlePosition: handlePoint,
             radius: newRadius
         };
-    }
-
-    /**
-     * Generate X-marks for multiple circle features
-     * @param {Array} circleFeatures - Array of circle features
-     * @returns {Array} Array of X-mark features
-     */
-    generateXMarksForFeatures(circleFeatures) {
-        const xFeatures = [];
-
-        circleFeatures.forEach(feature => {
-            if (feature.properties.coordinationPoint) {
-                const center = this.normalizeCenter(feature.properties.center);
-                if (center) {
-                    const xGeometries = this.generateXGeometry(center, feature.properties.radius);
-
-                    xGeometries.forEach((geometry, index) => {
-                        xFeatures.push({
-                            type: 'Feature',
-                            id: `x-mark-${feature.properties.id}-${index}`,
-                            geometry: geometry,
-                            properties: {
-                                parentId: feature.properties.id,
-                                lineColor: feature.properties.lineColor,
-                                lineWidth: feature.properties.lineWidth,
-                                source: 'circle-x'
-                            }
-                        });
-                    });
-                }
-            }
-        });
-
-        return xFeatures;
     }
 
     /**
@@ -294,10 +217,10 @@ class AddCircleGeometry extends BaseGeometry {
         const cosLat = Math.cos(center[1] * Math.PI / 180);
 
         return [
-            center[0] - (radiusInDegrees / cosLat), // minLng
-            center[1] - radiusInDegrees,            // minLat
-            center[0] + (radiusInDegrees / cosLat), // maxLng
-            center[1] + radiusInDegrees             // maxLat
+            center[0] - (radiusInDegrees / cosLat),
+            center[1] - radiusInDegrees,
+            center[0] + (radiusInDegrees / cosLat),
+            center[1] + radiusInDegrees
         ];
     }
 }

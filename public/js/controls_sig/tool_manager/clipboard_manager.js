@@ -374,11 +374,6 @@ class ClipboardManager {
         const control = this.selectionManager.controls.get(sourceType);
 
         if (control) {
-            // Check for special update methods in tool-centric controls
-            if (typeof control.updateXMarks === 'function' && sourceType === 'circle') {
-                control.updateXMarks();
-            }
-
             if (typeof control.updateDependentFeatures === 'function' && sourceType === 'boundary') {
                 features.forEach(feature => {
                     requestAnimationFrame(() => {
