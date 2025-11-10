@@ -47,59 +47,257 @@ const SYMBOL_SET_10_CATALOG = {
                     }
                 }
             },
+            //Anfíbio
             '120300': {
                 type: 'replace',
                 find: '<path d="m 25,90 c 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 20,-20" stroke-width="3" stroke="black" fill="none" ></path>',
                 replace: '<g transform="translate(50,50)" ><g transform="scale(0.5)" ><path d="M 100,145 100,65" stroke-width="4" stroke="black" fill="none" ></path><path d="m 70,70 60,0" stroke-width="4" stroke="black" fill="none" ></path><path d="m 57.8,105.5 c -2.2,0.1 1.3,20.6 2.8,22.1 0.8,0.8 3.5,-3.8 4.6,-2.6 17.4,20.2 33,19.7 34.7,19.6 0,0 0.2,-0 0.3,0 1.7,0.1 17.3,0.5 34.7,-19.6 1,-1.2 3.7,3.4 4.6,2.6 1.4,-1.5 4.9,-21.9 2.8,-22.1 -2.2,-0.1 -4,4.2 -6.7,6.4 -3,2.4 -7.5,3.4 -7.7,4.5 -0.1,0.8 4.9,3.5 3.9,4.9 -5.1,6.3 -15.1,16.6 -31.3,17 l -0.3,4.3 -0.3,-4.3 c -16.2,-0.4 -26.3,-10.7 -31.3,-17 -1.1,-1.3 4,-4.1 3.9,-4.9 -0.2,-1 -4.7,-2 -7.7,-4.5 -2.7,-2.3 -4.5,-6.6 -6.7,-6.4 z" stroke-width="4" stroke="none" fill="black" ></path><circle cx="100" cy="60" r="5" stroke-width="4" stroke="black" fill="none" ></circle></g></g><g transform="scale(2.2)" ><g transform="translate(-54.7,-22)" ><g transform="translate(89.166527,53.75285)" ><g transform="scale(0.002856)" ><path d="M500.83 2885.5l-76.66 116.35 147.66 55.95 8.66 -149.46c-3.01,-66.7 -29.56,-74.33 -79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5166.86 5203.93c33.57,76.38 18.4,127.85 -42.24,195.32 90.8,2.75 137.6,-25.92 172.5,-123.66 -43.78,-34.75 -87.2,-58.64 -130.26,-71.66z" stroke-width="4" stroke="none" fill="black" ></path><path d="M349.13 2973.46c-55.91,46.06 -53.73,104.58 -11.83,171.64l4572.77 1773.13 -3297.69 -1278.72c-12.98,85.74 32.73,153.73 113.92,210.09l2912.55 1245.68c153.37,501.54 509.66,628.22 879.03,454.12 78.56,147.83 142.62,295.68 192.15,443.54l1562.63 830.38c75.54,-332.1 214.99,-648.26 431.58,-945.06l-1769.13 -511.86c-163.14,-72.61 -137.63,-307.88 -388.71,-235.31 -53.45,15.4 -93.57,28.68 -147.19,-7.39 -75.61,-50.89 -94.23,-142.88 -64.51,-261.9l-4985.56 -1888.33zm5100.53 2483.42c-289.69,101.16 -495.28,31.2 -570.16,-257.51 234.42,-60.67 432.86,22.8 570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M1965.9 3585.83c-11.82,-30.55 -52.34,-45.9 -108.31,-41.02 -80.27,82.09 -115.13,188.23 -101.31,317.6 37.82,38.56 92.68,62.02 124.62,53.3 -30.63,-140.89 6.09,-246.82 85,-329.88z" stroke-width="4" stroke="none" fill="black" ></path><path d="M647.83 3086.59c-46.26,37.32 -63.78,91.7 -56.7,156.93" stroke-width="4" stroke="none" fill="black" ></path><path d="M7203.4 2885.38l76.66 116.35 -147.66 55.94 -8.66 -149.45c3.02,-66.71 29.57,-74.34 79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M2537.37 5203.82c-33.56,76.37 -18.39,127.85 42.25,195.31 -90.8,2.76 -137.6,-25.92 -172.5,-123.66 43.78,-34.75 87.2,-58.64 130.25,-71.65z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7355.09 2973.34c55.92,46.06 53.74,104.58 11.84,171.64l-4572.77 1773.13 3297.69 -1278.73c12.97,85.74 -32.73,153.74 -113.93,210.1l-2912.54 1245.67c-153.37,501.55 -509.66,628.23 -879.03,454.13 -78.56,147.83 -142.62,295.68 -192.15,443.54l-1562.64 830.39c-75.53,-332.1 -214.98,-648.26 -431.57,-945.06l1769.13 -511.87c163.13,-72.61 137.63,-307.87 388.7,-235.31 53.45,15.4 93.58,28.67 147.2,-7.4 75.6,-50.88 94.23,-142.87 64.51,-261.9l4985.56 -1888.33zm-5100.52 2483.42c289.69,101.15 495.28,31.2 570.16,-257.51 -234.42,-60.68 -432.86,22.8 -570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5738.34 3585.72c11.82,-30.55 52.34,-45.9 108.31,-41.03 80.26,82.09 115.13,188.23 101.3,317.6 -37.82,38.56 -92.67,62.02 -124.61,53.3 30.63,-140.89 -6.09,-246.81 -85,-329.87z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7056.39 3086.46c46.27,37.33 63.78,91.71 56.71,156.93" stroke-width="4" stroke="none" fill="black" ></path></g></g></g></g>',
-                byStandardIdentity: {}
+                byStandardIdentity: {
+                    '0': {
+                        find: '<path d="m 30,95 c 10,0 0,15 13.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 13.5,0 3.5,-15 13.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<g transform="translate(50,50)" ><g transform="scale(0.5)" ><path d="M 100,145 100,65" stroke-width="4" stroke="black" fill="none" ></path><path d="m 70,70 60,0" stroke-width="4" stroke="black" fill="none" ></path><path d="m 57.8,105.5 c -2.2,0.1 1.3,20.6 2.8,22.1 0.8,0.8 3.5,-3.8 4.6,-2.6 17.4,20.2 33,19.7 34.7,19.6 0,0 0.2,-0 0.3,0 1.7,0.1 17.3,0.5 34.7,-19.6 1,-1.2 3.7,3.4 4.6,2.6 1.4,-1.5 4.9,-21.9 2.8,-22.1 -2.2,-0.1 -4,4.2 -6.7,6.4 -3,2.4 -7.5,3.4 -7.7,4.5 -0.1,0.8 4.9,3.5 3.9,4.9 -5.1,6.3 -15.1,16.6 -31.3,17 l -0.3,4.3 -0.3,-4.3 c -16.2,-0.4 -26.3,-10.7 -31.3,-17 -1.1,-1.3 4,-4.1 3.9,-4.9 -0.2,-1 -4.7,-2 -7.7,-4.5 -2.7,-2.3 -4.5,-6.6 -6.7,-6.4 z" stroke-width="4" stroke="none" fill="black" ></path><circle cx="100" cy="60" r="5" stroke-width="4" stroke="black" fill="none" ></circle></g></g><g transform="scale(2.2)" ><g transform="translate(-54.7,-22)" ><g transform="translate(89.166527,53.75285)" ><g transform="scale(0.002856)" ><path d="M500.83 2885.5l-76.66 116.35 147.66 55.95 8.66 -149.46c-3.01,-66.7 -29.56,-74.33 -79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5166.86 5203.93c33.57,76.38 18.4,127.85 -42.24,195.32 90.8,2.75 137.6,-25.92 172.5,-123.66 -43.78,-34.75 -87.2,-58.64 -130.26,-71.66z" stroke-width="4" stroke="none" fill="black" ></path><path d="M349.13 2973.46c-55.91,46.06 -53.73,104.58 -11.83,171.64l4572.77 1773.13 -3297.69 -1278.72c-12.98,85.74 32.73,153.73 113.92,210.09l2912.55 1245.68c153.37,501.54 509.66,628.22 879.03,454.12 78.56,147.83 142.62,295.68 192.15,443.54l1562.63 830.38c75.54,-332.1 214.99,-648.26 431.58,-945.06l-1769.13 -511.86c-163.14,-72.61 -137.63,-307.88 -388.71,-235.31 -53.45,15.4 -93.57,28.68 -147.19,-7.39 -75.61,-50.89 -94.23,-142.88 -64.51,-261.9l-4985.56 -1888.33zm5100.53 2483.42c-289.69,101.16 -495.28,31.2 -570.16,-257.51 234.42,-60.67 432.86,22.8 570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M1965.9 3585.83c-11.82,-30.55 -52.34,-45.9 -108.31,-41.02 -80.27,82.09 -115.13,188.23 -101.31,317.6 37.82,38.56 92.68,62.02 124.62,53.3 -30.63,-140.89 6.09,-246.82 85,-329.88z" stroke-width="4" stroke="none" fill="black" ></path><path d="M647.83 3086.59c-46.26,37.32 -63.78,91.7 -56.7,156.93" stroke-width="4" stroke="none" fill="black" ></path><path d="M7203.4 2885.38l76.66 116.35 -147.66 55.94 -8.66 -149.45c3.02,-66.71 29.57,-74.34 79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M2537.37 5203.82c-33.56,76.37 -18.39,127.85 42.25,195.31 -90.8,2.76 -137.6,-25.92 -172.5,-123.66 43.78,-34.75 87.2,-58.64 130.25,-71.65z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7355.09 2973.34c55.92,46.06 53.74,104.58 11.84,171.64l-4572.77 1773.13 3297.69 -1278.73c12.97,85.74 -32.73,153.74 -113.93,210.1l-2912.54 1245.67c-153.37,501.55 -509.66,628.23 -879.03,454.13 -78.56,147.83 -142.62,295.68 -192.15,443.54l-1562.64 830.39c-75.53,-332.1 -214.98,-648.26 -431.57,-945.06l1769.13 -511.87c163.13,-72.61 137.63,-307.87 388.7,-235.31 53.45,15.4 93.58,28.67 147.2,-7.4 75.6,-50.88 94.23,-142.87 64.51,-261.9l4985.56 -1888.33zm-5100.52 2483.42c289.69,101.15 495.28,31.2 570.16,-257.51 -234.42,-60.68 -432.86,22.8 -570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5738.34 3585.72c11.82,-30.55 52.34,-45.9 108.31,-41.03 80.26,82.09 115.13,188.23 101.3,317.6 -37.82,38.56 -92.67,62.02 -124.61,53.3 30.63,-140.89 -6.09,-246.81 -85,-329.87z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7056.39 3086.46c46.27,37.33 63.78,91.71 56.71,156.93" stroke-width="4" stroke="none" fill="black" ></path></g></g></g></g>'
+                    },
+                    '1': {
+                        find: '<path d="m 30,95 c 10,0 0,15 13.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 13.5,0 3.5,-15 13.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<g transform="translate(50,50)" ><g transform="scale(0.5)" ><path d="M 100,145 100,65" stroke-width="4" stroke="black" fill="none" ></path><path d="m 70,70 60,0" stroke-width="4" stroke="black" fill="none" ></path><path d="m 57.8,105.5 c -2.2,0.1 1.3,20.6 2.8,22.1 0.8,0.8 3.5,-3.8 4.6,-2.6 17.4,20.2 33,19.7 34.7,19.6 0,0 0.2,-0 0.3,0 1.7,0.1 17.3,0.5 34.7,-19.6 1,-1.2 3.7,3.4 4.6,2.6 1.4,-1.5 4.9,-21.9 2.8,-22.1 -2.2,-0.1 -4,4.2 -6.7,6.4 -3,2.4 -7.5,3.4 -7.7,4.5 -0.1,0.8 4.9,3.5 3.9,4.9 -5.1,6.3 -15.1,16.6 -31.3,17 l -0.3,4.3 -0.3,-4.3 c -16.2,-0.4 -26.3,-10.7 -31.3,-17 -1.1,-1.3 4,-4.1 3.9,-4.9 -0.2,-1 -4.7,-2 -7.7,-4.5 -2.7,-2.3 -4.5,-6.6 -6.7,-6.4 z" stroke-width="4" stroke="none" fill="black" ></path><circle cx="100" cy="60" r="5" stroke-width="4" stroke="black" fill="none" ></circle></g></g><g transform="scale(2.2)" ><g transform="translate(-54.7,-22)" ><g transform="translate(89.166527,53.75285)" ><g transform="scale(0.002856)" ><path d="M500.83 2885.5l-76.66 116.35 147.66 55.95 8.66 -149.46c-3.01,-66.7 -29.56,-74.33 -79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5166.86 5203.93c33.57,76.38 18.4,127.85 -42.24,195.32 90.8,2.75 137.6,-25.92 172.5,-123.66 -43.78,-34.75 -87.2,-58.64 -130.26,-71.66z" stroke-width="4" stroke="none" fill="black" ></path><path d="M349.13 2973.46c-55.91,46.06 -53.73,104.58 -11.83,171.64l4572.77 1773.13 -3297.69 -1278.72c-12.98,85.74 32.73,153.73 113.92,210.09l2912.55 1245.68c153.37,501.54 509.66,628.22 879.03,454.12 78.56,147.83 142.62,295.68 192.15,443.54l1562.63 830.38c75.54,-332.1 214.99,-648.26 431.58,-945.06l-1769.13 -511.86c-163.14,-72.61 -137.63,-307.88 -388.71,-235.31 -53.45,15.4 -93.57,28.68 -147.19,-7.39 -75.61,-50.89 -94.23,-142.88 -64.51,-261.9l-4985.56 -1888.33zm5100.53 2483.42c-289.69,101.16 -495.28,31.2 -570.16,-257.51 234.42,-60.67 432.86,22.8 570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M1965.9 3585.83c-11.82,-30.55 -52.34,-45.9 -108.31,-41.02 -80.27,82.09 -115.13,188.23 -101.31,317.6 37.82,38.56 92.68,62.02 124.62,53.3 -30.63,-140.89 6.09,-246.82 85,-329.88z" stroke-width="4" stroke="none" fill="black" ></path><path d="M647.83 3086.59c-46.26,37.32 -63.78,91.7 -56.7,156.93" stroke-width="4" stroke="none" fill="black" ></path><path d="M7203.4 2885.38l76.66 116.35 -147.66 55.94 -8.66 -149.45c3.02,-66.71 29.57,-74.34 79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M2537.37 5203.82c-33.56,76.37 -18.39,127.85 42.25,195.31 -90.8,2.76 -137.6,-25.92 -172.5,-123.66 43.78,-34.75 87.2,-58.64 130.25,-71.65z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7355.09 2973.34c55.92,46.06 53.74,104.58 11.84,171.64l-4572.77 1773.13 3297.69 -1278.73c12.97,85.74 -32.73,153.74 -113.93,210.1l-2912.54 1245.67c-153.37,501.55 -509.66,628.23 -879.03,454.13 -78.56,147.83 -142.62,295.68 -192.15,443.54l-1562.64 830.39c-75.53,-332.1 -214.98,-648.26 -431.57,-945.06l1769.13 -511.87c163.13,-72.61 137.63,-307.87 388.7,-235.31 53.45,15.4 93.58,28.67 147.2,-7.4 75.6,-50.88 94.23,-142.87 64.51,-261.9l4985.56 -1888.33zm-5100.52 2483.42c289.69,101.15 495.28,31.2 570.16,-257.51 -234.42,-60.68 -432.86,22.8 -570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5738.34 3585.72c11.82,-30.55 52.34,-45.9 108.31,-41.03 80.26,82.09 115.13,188.23 101.3,317.6 -37.82,38.56 -92.67,62.02 -124.61,53.3 30.63,-140.89 -6.09,-246.81 -85,-329.87z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7056.39 3086.46c46.27,37.33 63.78,91.71 56.71,156.93" stroke-width="4" stroke="none" fill="black" ></path></g></g></g></g>'
+                    },
+                    '4': {
+                        find: '<path d="m 45,110 c 18.8,0 0,-20 18,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18,20" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<g transform="translate(50,50)" ><g transform="scale(0.5)" ><path d="M 100,145 100,65" stroke-width="4" stroke="black" fill="none" ></path><path d="m 70,70 60,0" stroke-width="4" stroke="black" fill="none" ></path><path d="m 57.8,105.5 c -2.2,0.1 1.3,20.6 2.8,22.1 0.8,0.8 3.5,-3.8 4.6,-2.6 17.4,20.2 33,19.7 34.7,19.6 0,0 0.2,-0 0.3,0 1.7,0.1 17.3,0.5 34.7,-19.6 1,-1.2 3.7,3.4 4.6,2.6 1.4,-1.5 4.9,-21.9 2.8,-22.1 -2.2,-0.1 -4,4.2 -6.7,6.4 -3,2.4 -7.5,3.4 -7.7,4.5 -0.1,0.8 4.9,3.5 3.9,4.9 -5.1,6.3 -15.1,16.6 -31.3,17 l -0.3,4.3 -0.3,-4.3 c -16.2,-0.4 -26.3,-10.7 -31.3,-17 -1.1,-1.3 4,-4.1 3.9,-4.9 -0.2,-1 -4.7,-2 -7.7,-4.5 -2.7,-2.3 -4.5,-6.6 -6.7,-6.4 z" stroke-width="4" stroke="none" fill="black" ></path><circle cx="100" cy="60" r="5" stroke-width="4" stroke="black" fill="none" ></circle></g></g><g transform="scale(2.2)" ><g transform="translate(-54.7,-22)" ><g transform="translate(89.166527,53.75285)" ><g transform="scale(0.002856)" ><path d="M500.83 2885.5l-76.66 116.35 147.66 55.95 8.66 -149.46c-3.01,-66.7 -29.56,-74.33 -79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5166.86 5203.93c33.57,76.38 18.4,127.85 -42.24,195.32 90.8,2.75 137.6,-25.92 172.5,-123.66 -43.78,-34.75 -87.2,-58.64 -130.26,-71.66z" stroke-width="4" stroke="none" fill="black" ></path><path d="M349.13 2973.46c-55.91,46.06 -53.73,104.58 -11.83,171.64l4572.77 1773.13 -3297.69 -1278.72c-12.98,85.74 32.73,153.73 113.92,210.09l2912.55 1245.68c153.37,501.54 509.66,628.22 879.03,454.12 78.56,147.83 142.62,295.68 192.15,443.54l1562.63 830.38c75.54,-332.1 214.99,-648.26 431.58,-945.06l-1769.13 -511.86c-163.14,-72.61 -137.63,-307.88 -388.71,-235.31 -53.45,15.4 -93.57,28.68 -147.19,-7.39 -75.61,-50.89 -94.23,-142.88 -64.51,-261.9l-4985.56 -1888.33zm5100.53 2483.42c-289.69,101.16 -495.28,31.2 -570.16,-257.51 234.42,-60.67 432.86,22.8 570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M1965.9 3585.83c-11.82,-30.55 -52.34,-45.9 -108.31,-41.02 -80.27,82.09 -115.13,188.23 -101.31,317.6 37.82,38.56 92.68,62.02 124.62,53.3 -30.63,-140.89 6.09,-246.82 85,-329.88z" stroke-width="4" stroke="none" fill="black" ></path><path d="M647.83 3086.59c-46.26,37.32 -63.78,91.7 -56.7,156.93" stroke-width="4" stroke="none" fill="black" ></path><path d="M7203.4 2885.38l76.66 116.35 -147.66 55.94 -8.66 -149.45c3.02,-66.71 29.57,-74.34 79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M2537.37 5203.82c-33.56,76.37 -18.39,127.85 42.25,195.31 -90.8,2.76 -137.6,-25.92 -172.5,-123.66 43.78,-34.75 87.2,-58.64 130.25,-71.65z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7355.09 2973.34c55.92,46.06 53.74,104.58 11.84,171.64l-4572.77 1773.13 3297.69 -1278.73c12.97,85.74 -32.73,153.74 -113.93,210.1l-2912.54 1245.67c-153.37,501.55 -509.66,628.23 -879.03,454.13 -78.56,147.83 -142.62,295.68 -192.15,443.54l-1562.64 830.39c-75.53,-332.1 -214.98,-648.26 -431.57,-945.06l1769.13 -511.87c163.13,-72.61 137.63,-307.87 388.7,-235.31 53.45,15.4 93.58,28.67 147.2,-7.4 75.6,-50.88 94.23,-142.87 64.51,-261.9l4985.56 -1888.33zm-5100.52 2483.42c289.69,101.15 495.28,31.2 570.16,-257.51 -234.42,-60.68 -432.86,22.8 -570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5738.34 3585.72c11.82,-30.55 52.34,-45.9 108.31,-41.03 80.26,82.09 115.13,188.23 101.3,317.6 -37.82,38.56 -92.67,62.02 -124.61,53.3 30.63,-140.89 -6.09,-246.81 -85,-329.87z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7056.39 3086.46c46.27,37.33 63.78,91.71 56.71,156.93" stroke-width="4" stroke="none" fill="black" ></path></g></g></g></g>'
+                    },
+                    '5': {
+                        find: '<path d="m 32,95 c 10,0 0,15 11.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 11.5,0 1.5,-15 11.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<g transform="translate(50,50)" ><g transform="scale(0.5)" ><path d="M 100,145 100,65" stroke-width="4" stroke="black" fill="none" ></path><path d="m 70,70 60,0" stroke-width="4" stroke="black" fill="none" ></path><path d="m 57.8,105.5 c -2.2,0.1 1.3,20.6 2.8,22.1 0.8,0.8 3.5,-3.8 4.6,-2.6 17.4,20.2 33,19.7 34.7,19.6 0,0 0.2,-0 0.3,0 1.7,0.1 17.3,0.5 34.7,-19.6 1,-1.2 3.7,3.4 4.6,2.6 1.4,-1.5 4.9,-21.9 2.8,-22.1 -2.2,-0.1 -4,4.2 -6.7,6.4 -3,2.4 -7.5,3.4 -7.7,4.5 -0.1,0.8 4.9,3.5 3.9,4.9 -5.1,6.3 -15.1,16.6 -31.3,17 l -0.3,4.3 -0.3,-4.3 c -16.2,-0.4 -26.3,-10.7 -31.3,-17 -1.1,-1.3 4,-4.1 3.9,-4.9 -0.2,-1 -4.7,-2 -7.7,-4.5 -2.7,-2.3 -4.5,-6.6 -6.7,-6.4 z" stroke-width="4" stroke="none" fill="black" ></path><circle cx="100" cy="60" r="5" stroke-width="4" stroke="black" fill="none" ></circle></g></g><g transform="scale(2.2)" ><g transform="translate(-54.7,-22)" ><g transform="translate(89.166527,53.75285)" ><g transform="scale(0.002856)" ><path d="M500.83 2885.5l-76.66 116.35 147.66 55.95 8.66 -149.46c-3.01,-66.7 -29.56,-74.33 -79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5166.86 5203.93c33.57,76.38 18.4,127.85 -42.24,195.32 90.8,2.75 137.6,-25.92 172.5,-123.66 -43.78,-34.75 -87.2,-58.64 -130.26,-71.66z" stroke-width="4" stroke="none" fill="black" ></path><path d="M349.13 2973.46c-55.91,46.06 -53.73,104.58 -11.83,171.64l4572.77 1773.13 -3297.69 -1278.72c-12.98,85.74 32.73,153.73 113.92,210.09l2912.55 1245.68c153.37,501.54 509.66,628.22 879.03,454.12 78.56,147.83 142.62,295.68 192.15,443.54l1562.63 830.38c75.54,-332.1 214.99,-648.26 431.58,-945.06l-1769.13 -511.86c-163.14,-72.61 -137.63,-307.88 -388.71,-235.31 -53.45,15.4 -93.57,28.68 -147.19,-7.39 -75.61,-50.89 -94.23,-142.88 -64.51,-261.9l-4985.56 -1888.33zm5100.53 2483.42c-289.69,101.16 -495.28,31.2 -570.16,-257.51 234.42,-60.67 432.86,22.8 570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M1965.9 3585.83c-11.82,-30.55 -52.34,-45.9 -108.31,-41.02 -80.27,82.09 -115.13,188.23 -101.31,317.6 37.82,38.56 92.68,62.02 124.62,53.3 -30.63,-140.89 6.09,-246.82 85,-329.88z" stroke-width="4" stroke="none" fill="black" ></path><path d="M647.83 3086.59c-46.26,37.32 -63.78,91.7 -56.7,156.93" stroke-width="4" stroke="none" fill="black" ></path><path d="M7203.4 2885.38l76.66 116.35 -147.66 55.94 -8.66 -149.45c3.02,-66.71 29.57,-74.34 79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M2537.37 5203.82c-33.56,76.37 -18.39,127.85 42.25,195.31 -90.8,2.76 -137.6,-25.92 -172.5,-123.66 43.78,-34.75 87.2,-58.64 130.25,-71.65z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7355.09 2973.34c55.92,46.06 53.74,104.58 11.84,171.64l-4572.77 1773.13 3297.69 -1278.73c12.97,85.74 -32.73,153.74 -113.93,210.1l-2912.54 1245.67c-153.37,501.55 -509.66,628.23 -879.03,454.13 -78.56,147.83 -142.62,295.68 -192.15,443.54l-1562.64 830.39c-75.53,-332.1 -214.98,-648.26 -431.57,-945.06l1769.13 -511.87c163.13,-72.61 137.63,-307.87 388.7,-235.31 53.45,15.4 93.58,28.67 147.2,-7.4 75.6,-50.88 94.23,-142.87 64.51,-261.9l4985.56 -1888.33zm-5100.52 2483.42c289.69,101.15 495.28,31.2 570.16,-257.51 -234.42,-60.68 -432.86,22.8 -570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5738.34 3585.72c11.82,-30.55 52.34,-45.9 108.31,-41.03 80.26,82.09 115.13,188.23 101.3,317.6 -37.82,38.56 -92.67,62.02 -124.61,53.3 30.63,-140.89 -6.09,-246.81 -85,-329.87z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7056.39 3086.46c46.27,37.33 63.78,91.71 56.71,156.93" stroke-width="4" stroke="none" fill="black" ></path></g></g></g></g>'
+                    },
+                    '6': {
+                        find: '<path d="m 32,95 c 10,0 0,15 11.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 11.5,0 1.5,-15 11.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<g transform="translate(50,50)" ><g transform="scale(0.5)" ><path d="M 100,145 100,65" stroke-width="4" stroke="black" fill="none" ></path><path d="m 70,70 60,0" stroke-width="4" stroke="black" fill="none" ></path><path d="m 57.8,105.5 c -2.2,0.1 1.3,20.6 2.8,22.1 0.8,0.8 3.5,-3.8 4.6,-2.6 17.4,20.2 33,19.7 34.7,19.6 0,0 0.2,-0 0.3,0 1.7,0.1 17.3,0.5 34.7,-19.6 1,-1.2 3.7,3.4 4.6,2.6 1.4,-1.5 4.9,-21.9 2.8,-22.1 -2.2,-0.1 -4,4.2 -6.7,6.4 -3,2.4 -7.5,3.4 -7.7,4.5 -0.1,0.8 4.9,3.5 3.9,4.9 -5.1,6.3 -15.1,16.6 -31.3,17 l -0.3,4.3 -0.3,-4.3 c -16.2,-0.4 -26.3,-10.7 -31.3,-17 -1.1,-1.3 4,-4.1 3.9,-4.9 -0.2,-1 -4.7,-2 -7.7,-4.5 -2.7,-2.3 -4.5,-6.6 -6.7,-6.4 z" stroke-width="4" stroke="none" fill="black" ></path><circle cx="100" cy="60" r="5" stroke-width="4" stroke="black" fill="none" ></circle></g></g><g transform="scale(2.2)" ><g transform="translate(-54.7,-22)" ><g transform="translate(89.166527,53.75285)" ><g transform="scale(0.002856)" ><path d="M500.83 2885.5l-76.66 116.35 147.66 55.95 8.66 -149.46c-3.01,-66.7 -29.56,-74.33 -79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5166.86 5203.93c33.57,76.38 18.4,127.85 -42.24,195.32 90.8,2.75 137.6,-25.92 172.5,-123.66 -43.78,-34.75 -87.2,-58.64 -130.26,-71.66z" stroke-width="4" stroke="none" fill="black" ></path><path d="M349.13 2973.46c-55.91,46.06 -53.73,104.58 -11.83,171.64l4572.77 1773.13 -3297.69 -1278.72c-12.98,85.74 32.73,153.73 113.92,210.09l2912.55 1245.68c153.37,501.54 509.66,628.22 879.03,454.12 78.56,147.83 142.62,295.68 192.15,443.54l1562.63 830.38c75.54,-332.1 214.99,-648.26 431.58,-945.06l-1769.13 -511.86c-163.14,-72.61 -137.63,-307.88 -388.71,-235.31 -53.45,15.4 -93.57,28.68 -147.19,-7.39 -75.61,-50.89 -94.23,-142.88 -64.51,-261.9l-4985.56 -1888.33zm5100.53 2483.42c-289.69,101.16 -495.28,31.2 -570.16,-257.51 234.42,-60.67 432.86,22.8 570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M1965.9 3585.83c-11.82,-30.55 -52.34,-45.9 -108.31,-41.02 -80.27,82.09 -115.13,188.23 -101.31,317.6 37.82,38.56 92.68,62.02 124.62,53.3 -30.63,-140.89 6.09,-246.82 85,-329.88z" stroke-width="4" stroke="none" fill="black" ></path><path d="M647.83 3086.59c-46.26,37.32 -63.78,91.7 -56.7,156.93" stroke-width="4" stroke="none" fill="black" ></path><path d="M7203.4 2885.38l76.66 116.35 -147.66 55.94 -8.66 -149.45c3.02,-66.71 29.57,-74.34 79.66,-22.85z" stroke-width="4" stroke="none" fill="black" ></path><path d="M2537.37 5203.82c-33.56,76.37 -18.39,127.85 42.25,195.31 -90.8,2.76 -137.6,-25.92 -172.5,-123.66 43.78,-34.75 87.2,-58.64 130.25,-71.65z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7355.09 2973.34c55.92,46.06 53.74,104.58 11.84,171.64l-4572.77 1773.13 3297.69 -1278.73c12.97,85.74 -32.73,153.74 -113.93,210.1l-2912.54 1245.67c-153.37,501.55 -509.66,628.23 -879.03,454.13 -78.56,147.83 -142.62,295.68 -192.15,443.54l-1562.64 830.39c-75.53,-332.1 -214.98,-648.26 -431.57,-945.06l1769.13 -511.87c163.13,-72.61 137.63,-307.87 388.7,-235.31 53.45,15.4 93.58,28.67 147.2,-7.4 75.6,-50.88 94.23,-142.87 64.51,-261.9l4985.56 -1888.33zm-5100.52 2483.42c289.69,101.15 495.28,31.2 570.16,-257.51 -234.42,-60.68 -432.86,22.8 -570.16,257.51z" stroke-width="4" stroke="none" fill="black" ></path><path d="M5738.34 3585.72c11.82,-30.55 52.34,-45.9 108.31,-41.03 80.26,82.09 115.13,188.23 101.3,317.6 -37.82,38.56 -92.67,62.02 -124.61,53.3 30.63,-140.89 -6.09,-246.81 -85,-329.87z" stroke-width="4" stroke="none" fill="black" ></path><path d="M7056.39 3086.46c46.27,37.33 63.78,91.71 56.71,156.93" stroke-width="4" stroke="none" fill="black" ></path></g></g></g></g>'
+                    }
+                }
             },
+            //Anticarro
             '120400': {
                 type: 'replace',
                 find: '<path d="M25,150 L100,52 175,150" stroke-width="3" stroke="black" fill="none" ></path>',
                 replace: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >AC</text>',
-                byStandardIdentity: {}
+                byStandardIdentity: {
+                    '0': {
+                        find: '<path d="M55,135 L100,33 145,135" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >AC</text>'
+                    },
+                    '1': {
+                        find: '<path d="M55,135 L100,33 145,135" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >AC</text>'
+                    },
+                    '4': {
+                        find: '<path d="M45,150 L100,47 155,150" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >AC</text>'
+                    },
+                    '5': {
+                        find: '<path d="M60,132 L100,30 140,132" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >AC</text>'
+                    },
+                    '6': {
+                        find: '<path d="M60,132 L100,30 140,132" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >AC</text>'
+                    }
+                }
             },
+            //Cavalaria Blindada ou Mecanizada, Carros de Combate
             '120500': {
                 type: 'replace',
                 find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path>',
-                replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="4" stroke="black" fill="none" ></path><path d="M25,150L175,50" stroke-width="4" stroke="black" fill="black" ></path>',
-                byStandardIdentity: {}
+                replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,150L175,50" stroke-width="3" stroke="black" fill="black" ></path>',
+                byStandardIdentity: {
+                    '0': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path>'
+                    },
+                    '1': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path>'
+                    },
+                    '4': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M45,155L155,45" stroke-width="3" stroke="black" fill="black" ></path>'
+                    },
+                    '5': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path>'
+                    },
+                    '6': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path>'
+                    }
+                }
             },
+            //Carros sobre Lagartas Anfíbios
             '120502': {
                 type: 'replace',
                 find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="m 25,90 c 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 20,-20" stroke-width="3" stroke="black" fill="none" ></path>',
-                replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="4" stroke="black" fill="none" ></path><path d="M25,150L175,50" stroke-width="4" stroke="black" fill="black" ></path><text x="100" y="140" text-anchor="middle" font-size="25" font-family="Arial" font-weight="bold" stroke-width="4" stroke="none" fill="black" >Anf</text>',
-                byStandardIdentity: {}
+                replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,150L175,50" stroke-width="3" stroke="black" fill="black" ></path><text x="100" y="140" text-anchor="middle" font-size="25" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >Anf</text>',
+                byStandardIdentity: {
+                    '0': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="m 30,95 c 10,0 0,15 13.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 13.5,0 3.5,-15 13.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path><text x="100" y="140" text-anchor="middle" font-size="25" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >Anf</text>'
+                    },
+                    '1': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="m 30,95 c 10,0 0,15 13.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 13.5,0 3.5,-15 13.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path><text x="100" y="140" text-anchor="middle" font-size="25" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >Anf</text>'
+                    },
+                    '4': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="m 45,110 c 18.8,0 0,-20 18,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18,20" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M45,155L155,45" stroke-width="3" stroke="black" fill="black" ></path><text x="100" y="140" text-anchor="middle" font-size="25" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >Anf</text>'
+                    },
+                    '5': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="m 32,95 c 10,0 0,15 11.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 11.5,0 1.5,-15 11.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path><text x="100" y="140" text-anchor="middle" font-size="25" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >Anf</text>'
+                    },
+                    '6': {
+                        find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="m 32,95 c 10,0 0,15 11.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 11.5,0 1.5,-15 11.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path><text x="100" y="140" text-anchor="middle" font-size="25" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >Anf</text>'
+                    }
+                }
             },
+            //Aviação de Reconhecimento – Asa Rotativa
             '120601': {
                 type: 'replace',
                 find: '<path d="M60,85 l40,15 40,-15 0,30 -40,-15 -40,15 z" stroke-width="3" stroke="none" fill="black" ></path><path d="M25,150L175,50" stroke-width="3" stroke="black" fill="black" ></path>',
                 replace: '<path d="M60,85 l40,15 40,-15 0,30 -40,-15 -40,15 z" stroke-width="3" stroke="none" fill="black" ></path>',
-                byStandardIdentity: {}
+                byStandardIdentity: {
+                    '0': {
+                        find: '<path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    },
+                    '1': {
+                        find: '<path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    },
+                    '4': {
+                        find: '<path d="M45,155L155,45" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    },
+                    '5': {
+                        find: '<path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    },
+                    '6': {
+                        find: '<path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    }
+                }
             },
+            //Aviação de Reconhecimento – Asa Fixa
             '120801': {
                 type: 'replace',
                 find: '<path d="M100,100 L130,88 c15,0 15,24 0,24 L100,100 70,112 c-15,0 -15,-24 0,-24 Z" stroke-width="3" stroke="none" fill="black" ></path><path d="M25,150L175,50" stroke-width="3" stroke="black" fill="black" ></path>',
                 replace: '<path d="M100,100 L130,88 c15,0 15,24 0,24 L100,100 70,112 c-15,0 -15,-24 0,-24 Z" stroke-width="3" stroke="none" fill="black" ></path>',
-                byStandardIdentity: {}
+                byStandardIdentity: {
+                    '0': {
+                        find: '<path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    },
+                    '1': {
+                        find: '<path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    },
+                    '4': {
+                        find: '<path d="M45,155L155,45" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    },
+                    '5': {
+                        find: '<path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    },
+                    '6': {
+                        find: '<path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: ''
+                    }
+                }
             },
+            // Infantaria Anfíbia
             '121101': {
                 type: 'replace',
                 find: '<path d="M25,50 L175,150 M25,150 L175,50" stroke-width="3" stroke="black" fill="black" ></path><path d="m 25,90 c 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 20,-20" stroke-width="3" stroke="black" fill="none" ></path>',
                 replace: '<path d="M25,50 L175,150 M25,150 L175,50" stroke-width="3" stroke="black" fill="black" ></path>',
-                byStandardIdentity: {}
+                byStandardIdentity: {
+                    '0': {
+                        find: '<path d="m 30,95 c 10,0 0,15 13.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 13.5,0 3.5,-15 13.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: ''
+                    },
+                    '1': {
+                        find: '<path d="m 30,95 c 10,0 0,15 13.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 13.5,0 3.5,-15 13.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: ''
+                    },
+                    '4': {
+                        find: '<path d="m 45,110 c 18.8,0 0,-20 18,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18,20" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: ''
+                    },
+                    '5': {
+                        find: '<path d="m 32,95 c 10,0 0,15 11.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 11.5,0 1.5,-15 11.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: ''
+                    },
+                    '6': {
+                        find: '<path d="m 32,95 c 10,0 0,15 11.5,15 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 11.5,0 1.5,-15 11.5,-15" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: ''
+                    }
+                }
             },
+            // Artilharia Antiaérea
             '130100': {
                 type: 'replace',
                 find: '<path d="M25,150 C25,110 175,110 175,150" stroke-width="3" stroke="black" fill="none" ></path>',
-                replace: '<path d="M25,150 C45,110 155,110 175,150" stroke-width="4" stroke="black" fill="none" ></path><path d="M25,150 L100,52 175,150" stroke-width="4" stroke="black" fill="none" ></path>',
-                byStandardIdentity: {}
+                replace: '<path d="M25,150 C45,110 155,110 175,150" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,150 L100,52 175,150" stroke-width="3" stroke="black" fill="none" ></path>',
+                byStandardIdentity: {
+                    '0': {
+                        find: '<path d="m 55,135 c 10,-20 80,-20 90,0" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="m 55,135 c 10,-20 80,-20 90,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M55,135 L100,33 145,135" stroke-width="3" stroke="black" fill="none" ></path>'
+                    },
+                    '1': {
+                        find: '<path d="m 55,135 c 10,-20 80,-20 90,0" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="m 55,135 c 10,-20 80,-20 90,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M55,135 L100,33 145,135" stroke-width="3" stroke="black" fill="none" ></path>'
+                    },
+                    '4': {
+                        find: '<path d="M45,150 C45,110 155,110 155,150" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M45,150 C65,110 135,110 155,150" stroke-width="3" stroke="black" fill="none" ></path><path d="M45,150 L100,47 155,150" stroke-width="3" stroke="black" fill="none" ></path>'
+                    },
+                    '5': {
+                        find: '<path d="M70,140 C70,115 130,115 130,140" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M60,132 C70,115 130,115 140,132" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,132 L100,30 140,132" stroke-width="3" stroke="black" fill="none" ></path>'
+                    },
+                    '6': {
+                        find: '<path d="M70,140 C70,115 130,115 130,140" stroke-width="3" stroke="black" fill="none" ></path>',
+                        replace: '<path d="M60,132 C70,115 130,115 140,132" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,132 L100,30 140,132" stroke-width="3" stroke="black" fill="none" ></path>'
+                    }
+                }
             },
+            // Busca de Alvos
             '130302': {
                 type: 'replace',
                 find: '<g transform="translate(20,20)" ><g transform="scale(0.8)" ><circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle></g></g><path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,150L175,50" stroke-width="3" stroke="black" fill="black" ></path>',
-                replace: '<circle cx="100" cy="100" r="15" stroke-width="4" stroke="black" fill="black" ></circle>',
-                byStandardIdentity: {}
+                replace: '<circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle>',
+                byStandardIdentity: {
+                    '0': {
+                        find: '<g transform="translate(20,20)" ><g transform="scale(0.8)" ><circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle></g></g><path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: '<circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle>'
+                    },
+                    '1': {
+                        find: '<g transform="translate(20,20)" ><g transform="scale(0.8)" ><circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle></g></g><path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,135L150,65" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: '<circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle>'
+                    },
+                    '4': {
+                        find: '<g transform="translate(20,20)" ><g transform="scale(0.8)" ><circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle></g></g><path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M45,155L155,45" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: '<circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle>'
+                    },
+                    '5': {
+                        find: '<g transform="translate(20,20)" ><g transform="scale(0.8)" ><circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle></g></g><path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: '<circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle>'
+                    },
+                    '6': {
+                        find: '<g transform="translate(20,20)" ><g transform="scale(0.8)" ><circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle></g></g><path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,130L140,70" stroke-width="3" stroke="black" fill="black" ></path>',
+                        replace: '<circle cx="100" cy="100" r="15" stroke-width="3" stroke="black" fill="black" ></circle>'
+                    }
+                }
             },
             '160000': {
                 type: 'replace',
@@ -962,7 +1160,7 @@ export function getSpecialModifiers(symbolSet) {
 
 /**
  * Get catalog entry with Standard Identity fallback
- * 
+ *
  * @param {string} symbolSet - Symbol set code (e.g., "10", "15")
  * @param {string} elementType - Element type: "mainIcon", "modifier1", "modifier2"
  * @param {string} modificationType - Modification type: "labelMappings", "graphicAdaptations", "extensions"
@@ -997,7 +1195,7 @@ export function getCatalogEntryWithStandardIdentity(
 
 /**
  * Get command element SVG for a symbol set
- * 
+ *
  * @param {string} symbolSet - Symbol set code (e.g., "10")
  * @param {string|null} [standardIdentity=null] - Standard Identity value ("0"-"6")
  * @returns {Object|null} Command element object { svg: '...' } or null
