@@ -34,6 +34,7 @@ class AddRectangleControl extends BaseControl {
         fillColor: '#3f4fb5',
         lineWidth: 2,
         opacity: 0.5,
+        borderRadius: 0,
         source: 'rectangle',
         nome: '',
         descricao: '',
@@ -178,7 +179,7 @@ class AddRectangleControl extends BaseControl {
                 width: width,
                 height: height
             },
-            geometry: this.geometry.generate(newCorner1, newCorner2)
+            geometry: this.geometry.generate(newCorner1, newCorner2, feature.properties.borderRadius || 0)
         };
     }
 
@@ -210,7 +211,7 @@ class AddRectangleControl extends BaseControl {
                 width: width,
                 height: height
             },
-            geometry: this.geometry.generate(newCorner1, newCorner2)
+            geometry: this.geometry.generate(newCorner1, newCorner2, feature.properties.borderRadius || 0)
         };
 
         return updatedFeature;
@@ -334,7 +335,7 @@ class AddRectangleControl extends BaseControl {
             if (width >= 10 && height >= 10) {
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.geometry.generate(corner1, corner2);
+                    const previewGeometry = this.geometry.generate(corner1, corner2, selectedFeature.properties.borderRadius || 0);
                     this.showPreview(previewGeometry);
                 }, 8);
             }
@@ -538,7 +539,7 @@ class AddRectangleControl extends BaseControl {
                     const { center } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
 
                     // CRITICAL FIX: Generate final geometry using same method as preview
-                    const finalGeometry = this.geometry.generate(newCorner1, newCorner2);
+                    const finalGeometry = this.geometry.generate(newCorner1, newCorner2, selectedFeature.properties.borderRadius || 0);
 
                     // Create updated feature
                     const updatedFeature = {
@@ -694,7 +695,7 @@ class AddRectangleControl extends BaseControl {
                     feature.properties.height = height;
 
                     // Regenerate geometry
-                    const newGeometry = this.geometry.generate(corner1, corner2);
+                    const newGeometry = this.geometry.generate(corner1, corner2, sourceFeature.properties.borderRadius || 0);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
@@ -742,7 +743,8 @@ class AddRectangleControl extends BaseControl {
             Object.assign(f.properties, initialProps);
             f.geometry = this.geometry.generate(
                 initialProps.corner1,
-                initialProps.corner2
+                initialProps.corner2,
+                initialProps.borderRadius || 0
             );
         });
 
@@ -778,6 +780,7 @@ class AddRectangleControl extends BaseControl {
             feature.properties.fillColor !== initialProperties.fillColor ||
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
+            feature.properties.borderRadius !== initialProperties.borderRadius ||
             feature.properties.width !== initialProperties.width ||
             feature.properties.height !== initialProperties.height ||
             feature.properties.nome !== initialProperties.nome ||

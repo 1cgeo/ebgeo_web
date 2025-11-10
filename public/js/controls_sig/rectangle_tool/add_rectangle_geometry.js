@@ -14,10 +14,11 @@ class AddRectangleGeometry extends BaseGeometry {
      * Generate rectangle geometry from two opposite corners
      * @param {Array} corner1 - First corner coordinates [lng, lat]
      * @param {Array} corner2 - Opposite corner coordinates [lng, lat]
+     * @param {number} borderRadius - Corner radius (0-10 scale, 0 = no rounding)
      * @returns {Object} GeoJSON Polygon geometry
      */
-    generate(corner1, corner2) {
-        return this.generateRectangleGeometry(corner1, corner2);
+    generate(corner1, corner2, borderRadius = 0) {
+        return this.generateRectangleGeometry(corner1, corner2, borderRadius);
     }
 
     /**
@@ -89,25 +90,114 @@ class AddRectangleGeometry extends BaseGeometry {
      * Generate rectangle polygon geometry from two opposite corners
      * @param {Array} corner1 - First corner coordinates [lng, lat]
      * @param {Array} corner2 - Opposite corner coordinates [lng, lat]
+     * @param {number} borderRadius - Corner radius (0-10 scale, 0 = no rounding)
      * @returns {Object} GeoJSON Polygon geometry
      */
-    generateRectangleGeometry(corner1, corner2) {
-        // Create rectangle from any two opposite corners
+    generateRectangleGeometry(corner1, corner2, borderRadius = 0) {
         const minLng = Math.min(corner1[0], corner2[0]);
         const maxLng = Math.max(corner1[0], corner2[0]);
         const minLat = Math.min(corner1[1], corner2[1]);
         const maxLat = Math.max(corner1[1], corner2[1]);
         
+        if (!borderRadius || borderRadius <= 0) {
+            return {
+                type: 'Polygon',
+                coordinates: [[
+                    [minLng, maxLat],
+                    [maxLng, maxLat],
+                    [maxLng, minLat],
+                    [minLng, minLat],
+                    [minLng, maxLat]
+                ]]
+            };
+        }
+        
+        return this.generateRoundedRectangleGeometry(minLng, minLat, maxLng, maxLat, borderRadius);
+    }
+
+    /**
+     * Generate rounded rectangle geometry
+     * @param {number} minLng - Minimum longitude
+     * @param {number} minLat - Minimum latitude
+     * @param {number} maxLng - Maximum longitude
+     * @param {number} maxLat - Maximum latitude
+     * @param {number} borderRadius - Corner radius (0-10 scale)
+     * @returns {Object} GeoJSON Polygon with rounded corners
+     */
+    generateRoundedRectangleGeometry(minLng, minLat, maxLng, maxLat, borderRadius) {
+        const segmentsPerCorner = 8;
+        
+        const centerLat = (minLat + maxLat) / 2;
+        const rectWidth = maxLng - minLng;
+        const rectHeight = maxLat - minLat;
+        
+        const minDimension = Math.min(rectWidth, rectHeight);
+        const radiusScale = borderRadius / 10;
+        const effectiveRadius = minDimension * radiusScale * 0.5;
+        
+        const maxRadius = minDimension / 2;
+        const radius = Math.min(effectiveRadius, maxRadius);
+        
+        const coordinates = [];
+        
+        this.addRoundedCorner(
+            coordinates,
+            maxLng - radius, maxLat - radius,
+            radius, radius,
+            0, Math.PI / 2,
+            segmentsPerCorner
+        );
+        
+        this.addRoundedCorner(
+            coordinates,
+            minLng + radius, maxLat - radius,
+            radius, radius,
+            Math.PI / 2, Math.PI,
+            segmentsPerCorner
+        );
+        
+        this.addRoundedCorner(
+            coordinates,
+            minLng + radius, minLat + radius,
+            radius, radius,
+            Math.PI, 3 * Math.PI / 2,
+            segmentsPerCorner
+        );
+        
+        this.addRoundedCorner(
+            coordinates,
+            maxLng - radius, minLat + radius,
+            radius, radius,
+            3 * Math.PI / 2, 2 * Math.PI,
+            segmentsPerCorner
+        );
+        
+        coordinates.push(coordinates[0]);
+        
         return {
             type: 'Polygon',
-            coordinates: [[
-                [minLng, maxLat], // top-left
-                [maxLng, maxLat], // top-right
-                [maxLng, minLat], // bottom-right
-                [minLng, minLat], // bottom-left
-                [minLng, maxLat]  // close polygon
-            ]]
+            coordinates: [coordinates]
         };
+    }
+
+    /**
+     * Add corner arc points to coordinates array
+     * @param {Array} coordinates - Array to append coordinates to
+     * @param {number} centerLng - Center longitude of the arc
+     * @param {number} centerLat - Center latitude of the arc
+     * @param {number} radiusLng - Radius in longitude direction
+     * @param {number} radiusLat - Radius in latitude direction
+     * @param {number} startAngle - Start angle in radians
+     * @param {number} endAngle - End angle in radians
+     * @param {number} segments - Number of segments in the arc
+     */
+    addRoundedCorner(coordinates, centerLng, centerLat, radiusLng, radiusLat, startAngle, endAngle, segments) {
+        for (let i = 0; i <= segments; i++) {
+            const angle = startAngle + (endAngle - startAngle) * (i / segments);
+            const lng = centerLng + radiusLng * Math.cos(angle);
+            const lat = centerLat + radiusLat * Math.sin(angle);
+            coordinates.push([lng, lat]);
+        }
     }
 
     /**
@@ -124,18 +214,19 @@ class AddRectangleGeometry extends BaseGeometry {
 
         const coords = geometry.coordinates[0];
         
-        // Extract coordinates from the normalized polygon
-        // Based on generateRectangleGeometry structure:
-        // [minLng, maxLat], [maxLng, maxLat], [maxLng, minLat], [minLng, minLat]
-        const minLng = coords[0][0]; // or coords[3][0]
-        const maxLng = coords[1][0]; // or coords[2][0] 
-        const minLat = coords[2][1]; // or coords[3][1]
-        const maxLat = coords[0][1]; // or coords[1][1]
+        let minLng = Infinity, maxLng = -Infinity;
+        let minLat = Infinity, maxLat = -Infinity;
+        
+        for (const coord of coords) {
+            minLng = Math.min(minLng, coord[0]);
+            maxLng = Math.max(maxLng, coord[0]);
+            minLat = Math.min(minLat, coord[1]);
+            maxLat = Math.max(maxLat, coord[1]);
+        }
 
-        // Return as two opposite corners (consistent with how geometry is generated)
         return {
-            corner1: [minLng, minLat], // bottom-left
-            corner2: [maxLng, maxLat]  // top-right
+            corner1: [minLng, minLat],
+            corner2: [maxLng, maxLat]
         };
     }
 
@@ -201,13 +292,11 @@ class AddRectangleGeometry extends BaseGeometry {
      * @returns {Object} {center, width, height} all calculated from corners
      */
     calculateDimensionsFromCorners(corner1, corner2) {
-        // Calculate center
         const center = [
             (corner1[0] + corner2[0]) / 2,
             (corner1[1] + corner2[1]) / 2
         ];
         
-        // Calculate dimensions in meters using Haversine formula
         const width = this.calculateDistance([corner1[0], center[1]], [corner2[0], center[1]]);
         const height = this.calculateDistance([center[0], corner1[1]], [center[0], corner2[1]]);
         
@@ -238,7 +327,6 @@ class AddRectangleGeometry extends BaseGeometry {
             return null;
         }
 
-        // CRITICAL FIX: Use geometry extraction instead of properties
         const currentCorners = this.extractCornersFromGeometry(feature.geometry);
         
         if (!currentCorners.corner1 || !currentCorners.corner2) {
@@ -246,11 +334,9 @@ class AddRectangleGeometry extends BaseGeometry {
             return null;
         }
 
-        // Update the moved corner
         const newCorner1 = handleType === 'corner1' ? newPosition : currentCorners.corner1;
         const newCorner2 = handleType === 'corner2' ? newPosition : currentCorners.corner2;
 
-        // Validate minimum dimensions
         const { width, height, center } = this.calculateDimensionsFromCorners(newCorner1, newCorner2);
         
         if (width < 10 || height < 10) {
@@ -258,7 +344,7 @@ class AddRectangleGeometry extends BaseGeometry {
             return null;
         }
 
-        const updatedGeometry = this.generateRectangleGeometry(newCorner1, newCorner2);
+        const updatedGeometry = this.generateRectangleGeometry(newCorner1, newCorner2, feature.properties.borderRadius || 0);
 
         return {
             geometry: updatedGeometry,
@@ -278,7 +364,6 @@ class AddRectangleGeometry extends BaseGeometry {
      * @returns {Object} Preview geometry and handle positions
      */
     calculatePreview(handleType, newPosition, feature) {
-        // CRITICAL FIX: Use geometry extraction for consistency
         const currentCorners = this.extractCornersFromGeometry(feature.geometry);
         
         if (!currentCorners.corner1 || !currentCorners.corner2) {
@@ -294,9 +379,8 @@ class AddRectangleGeometry extends BaseGeometry {
             return null;
         }
 
-        const previewGeometry = this.generateRectangleGeometry(previewCorner1, previewCorner2);
+        const previewGeometry = this.generateRectangleGeometry(previewCorner1, previewCorner2, feature.properties.borderRadius || 0);
 
-        // CRITICAL FIX: Return normalized corners from geometry, not input corners
         const normalizedCorners = this.extractCornersFromGeometry(previewGeometry);
 
         return {
@@ -343,10 +427,10 @@ class AddRectangleGeometry extends BaseGeometry {
      */
     getBoundingBox(corner1, corner2) {
         return [
-            Math.min(corner1[0], corner2[0]), // minLng
-            Math.min(corner1[1], corner2[1]), // minLat
-            Math.max(corner1[0], corner2[0]), // maxLng
-            Math.max(corner1[1], corner2[1])  // maxLat
+            Math.min(corner1[0], corner2[0]),
+            Math.min(corner1[1], corner2[1]),
+            Math.max(corner1[0], corner2[0]),
+            Math.max(corner1[1], corner2[1])
         ];
     }
 
@@ -358,11 +442,9 @@ class AddRectangleGeometry extends BaseGeometry {
      * @returns {Object} {corner1, corner2} coordinates
      */
     calculateCornersFromCenterAndDimensions(center, width, height) {
-        // Convert dimensions from meters to degrees (approximate)
-        const widthInDegrees = width / 111320; // rough conversion at equator
+        const widthInDegrees = width / 111320;
         const heightInDegrees = height / 111320;
         
-        // Account for latitude distortion for width
         const cosLat = Math.cos(center[1] * Math.PI / 180);
         const adjustedWidthInDegrees = widthInDegrees / cosLat;
 

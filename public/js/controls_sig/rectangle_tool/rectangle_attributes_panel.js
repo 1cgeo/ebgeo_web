@@ -17,7 +17,6 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
     if (selectedFeatures.length === 1) {
         const nameComponent = createEditableFeatureName(
             feature.properties.nome,
@@ -29,9 +28,6 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         $(panel).append(nameComponent);
     }
 
-    // ===== PROPRIEDADES ESPECÍFICAS DO RETÂNGULO =====
-
-    // Cor da linha
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
         rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -39,7 +35,6 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
 
     $(panel).append(createAttributeRow('Linha:', lineColorInput));
 
-    // Cor do preenchimento
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         rectangleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -47,14 +42,12 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
 
     $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
 
-    // Opacidade (0-100% com conversão automática)
     const opacityControl = createSliderWithInput({
         min: 0,
         max: 100,
         step: 1,
         value: Math.round((feature.properties.opacity || 0.7) * 100),
         onChange: (value) => {
-            // Convert from 0-100 range to 0-1 range for internal storage
             rectangleControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
             uiManager.updateSelectionHighlight();
         }
@@ -62,7 +55,6 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
 
     $(panel).append(createAttributeRow('Opacidade:', opacityControl));
 
-    // Largura da linha
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 2, {
         onChange: (value) => {
@@ -73,7 +65,27 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
 
     $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
 
-    // Dimensões (somente informativo)
+    const borderRadiusControl = createSliderWithInput({
+        min: 0,
+        max: 10,
+        step: 1,
+        value: feature.properties.borderRadius || 0,
+        onChange: (value) => {
+            rectangleControl.updateFeaturesProperty(selectedFeatures, 'borderRadius', value);
+            
+            selectedFeatures.forEach(f => {
+                const corner1 = rectangleControl.geometry.normalizeCorner(f.properties.corner1);
+                const corner2 = rectangleControl.geometry.normalizeCorner(f.properties.corner2);
+                f.geometry = rectangleControl.geometry.generate(corner1, corner2, value);
+            });
+            
+            rectangleControl.updateFeatures(selectedFeatures, false, false);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Arredondamento:', borderRadiusControl));
+
     const widthValue = document.createElement('span');
     widthValue.textContent = `${Math.round(feature.properties.width || 100)} m`;
     widthValue.style.cssText = 'font-size: 13px; color: #666; font-weight: 500; margin-right: 10px;';
@@ -88,7 +100,6 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
 
     $(panel).append(createAttributeRow('Dimensões:', dimensionsContainer));
 
-    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     const buttons = createStandardButtons({
         selectedFeatures,
         control: rectangleControl,
