@@ -951,7 +951,28 @@ const SYMBOL_SET_10_CATALOG = {
         4: {
             type: 'svg',
             svg: '<path d="M25,150 C45,110 155,110 175,150" stroke-width="3" stroke="black" fill="none"></path>',
-            byStandardIdentity: {}
+            byStandardIdentity: {
+                '0': {
+                    type: 'svg',
+                    svg: '<path d="m 55,135 c 10,-20 80,-20 90,0" stroke-width="3" stroke="black" fill="none" ></path>'
+                },
+                '1': {
+                    type: 'svg',
+                    svg: '<path d="m 55,135 c 10,-20 80,-20 90,0" stroke-width="3" stroke="black" fill="none" ></path>'
+                },
+                '4': {
+                    type: 'svg',
+                    svg: '<path d="M45,150 C65,110 135,110 155,150" stroke-width="3" stroke="black" fill="none" ></path>'
+                },
+                '5': {
+                    type: 'svg',
+                    svg: '<path d="M60,132 C70,115 130,115 140,132" stroke-width="3" stroke="black" fill="none" ></path>'
+                },
+                '6': {
+                    type: 'svg',
+                    svg: '<path d="M60,132 C70,115 130,115 140,132" stroke-width="3" stroke="black" fill="none" ></path>'
+                }
+            }
         }
     },
 };
