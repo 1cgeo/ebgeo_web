@@ -367,56 +367,305 @@ const SYMBOL_SET_10_CATALOG = {
                     style: { fontSize: '32', fontWeight: 'bold', fill: 'black' }
                 }
             },
+            // Manutenção e Suprimento
             '161199': {
                 0: {
                     type: 'svg',
-                    svg: '<path d="M70,90 c10,0 10,20 0,20 m10,-10 l40,0 m10,-10 c-10,0 -10,20 0,20" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path>'
-                }
+                    svg: '<path d="M70,90 c10,0 10,20 0,20 m10,-10 l40,0 m10,-10 c-10,0 -10,20 0,20" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M70,90 c10,0 10,20 0,20 m10,-10 l40,0 m10,-10 c-10,0 -10,20 0,20" stroke-width="3" stroke="black" fill="none" ></path><path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M70,90 c10,0 10,20 0,20 m10,-10 l40,0 m10,-10 c-10,0 -10,20 0,20" stroke-width="3" stroke="black" fill="none" ></path><path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M70,90 c10,0 10,20 0,20 m10,-10 l40,0 m10,-10 c-10,0 -10,20 0,20" stroke-width="3" stroke="black" fill="none" ></path><path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<path d="M70,90 c10,0 10,20 0,20 m10,-10 l40,0 m10,-10 c-10,0 -10,20 0,20" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<path d="M70,90 c10,0 10,20 0,20 m10,-10 l40,0 m10,-10 c-10,0 -10,20 0,20" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
+                },
             },
             '163499': {
+                // Suprimento Classe IV
                 0: {
                     type: 'svg',
                     svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,120 L100,52 175,120" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M100,50L100,120" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,90 L100,120" stroke-width="3" stroke="black" fill="none" ></path><path d="M100,120L140,90" stroke-width="3" stroke="black" fill="none" ></path>'
                 },
+                //Suprimento Classe VI
                 1: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,120 L60,80 140,80 140,120 M100,80 L100,110" stroke-width="3" stroke="black" fill="none" ></path>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,120 L60,80 140,80 140,120 M100,80 L100,110" stroke-width="3" stroke="black" fill="none" ></path>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><path d="M60,120 L60,80 140,80 140,120 M100,80 L100,110" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><path d="M60,120 L60,80 140,80 140,120 M100,80 L100,110" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,120 L60,80 140,80 140,120 M100,80 L100,110" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<path d="M70,90 c10,0 10,20 0,20 m10,-10 l40,0 m10,-10 c-10,0 -10,20 0,20" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<path d="M70,90 c10,0 10,20 0,20 m10,-10 l40,0 m10,-10 c-10,0 -10,20 0,20" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 },
+                //Suprimento Classe VII
                 2: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,50 100,93 100,77 175,120" stroke-width="3" stroke="black" fill="none" ></path>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,50 100,93 100,77 175,120" stroke-width="3" stroke="black" fill="none" ></path>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><path d="M25,50 100,93 100,77 175,120" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><path d="M25,50 100,93 100,77 175,120" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,50 100,93 100,77 175,120" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<path d="M25,50 100,93 100,77 175,120" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<path d="M25,50 100,93 100,77 175,120" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 },
+                //Suprimento Classe X
                 3: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >X</text>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >X</text>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >X</text>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >X</text>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >X</text>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<text x="100" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >X</text><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<text x="100" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >X</text><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 },
+                //Suprimento de Outras Classes
                 4: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 },
                 5: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >MB</text>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >MB</text>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >MB</text>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >MB</text>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >MB</text>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >MB</text><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<text x="100" y="115" text-anchor="middle" font-size="42" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >MB</text><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 },
                 6: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAB</text>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAB</text>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAB</text>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAB</text>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAB</text>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAB</text><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAB</text><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 },
                 7: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAQ</text>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAQ</text>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAQ</text>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAQ</text>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAQ</text>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAQ</text><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<text x="100" y="110" text-anchor="middle" font-size="35" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >IAQ</text><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 },
                 8: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-30,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(65,20)" ><g transform="scale(0.8)" ><path d="m 65,90 50,0 c 10,0 20,10 20,20 m -40,-30 20,0 m -10,0 0,10" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-30,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(65,20)" ><g transform="scale(0.8)" ><path d="m 65,90 50,0 c 10,0 20,10 20,20 m -40,-30 20,0 m -10,0 0,10" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-30,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(65,20)" ><g transform="scale(0.8)" ><path d="m 65,90 50,0 c 10,0 20,10 20,20 m -40,-30 20,0 m -10,0 0,10" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-30,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(65,20)" ><g transform="scale(0.8)" ><path d="m 65,90 50,0 c 10,0 20,10 20,20 m -40,-30 20,0 m -10,0 0,10" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-30,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(65,20)" ><g transform="scale(0.8)" ><path d="m 65,90 50,0 c 10,0 20,10 20,20 m -40,-30 20,0 m -10,0 0,10" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<g transform="translate(-30,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(65,20)" ><g transform="scale(0.8)" ><path d="m 65,90 50,0 c 10,0 20,10 20,20 m -40,-30 20,0 m -10,0 0,10" stroke-width="3" stroke="black" fill="none" ></path></g></g></g><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<g transform="translate(-30,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(65,20)" ><g transform="scale(0.8)" ><path d="m 65,90 50,0 c 10,0 20,10 20,20 m -40,-30 20,0 m -10,0 0,10" stroke-width="3" stroke="black" fill="none" ></path></g></g></g><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 },
+                //Suprimento Classe I e Outras Classes
                 9: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-25,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(45,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-25,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(45,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-25,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(45,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-25,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(45,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-25,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(45,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<g transform="translate(-25,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(45,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g></g><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<g transform="translate(-25,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(45,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g></g><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 },
                 10: {
                     type: 'svg',
-                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(5,30)" ><g transform="scale(0.7)" ><path d="m 115,95 c 0,15 15,15 15,0 0,-15 -15,-15 -15,0 z m 0,0 -45,0 0,10 10,0 0,-10" stroke-width="3" stroke="black" fill="none" ></path></g></g><g transform="translate(25,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g>'
+                    svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(5,30)" ><g transform="scale(0.7)" ><path d="m 115,95 c 0,15 15,15 15,0 0,-15 -15,-15 -15,0 z m 0,0 -45,0 0,10 10,0 0,-10" stroke-width="3" stroke="black" fill="none" ></path></g></g><g transform="translate(25,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g>',
+                    byStandardIdentity: {
+                        '0': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(5,30)" ><g transform="scale(0.7)" ><path d="m 115,95 c 0,15 15,15 15,0 0,-15 -15,-15 -15,0 z m 0,0 -45,0 0,10 10,0 0,-10" stroke-width="3" stroke="black" fill="none" ></path></g></g><g transform="translate(25,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g>'
+                        },
+                        '1': {
+                            type: 'svg',
+                            svg: '<path d="M35,120 l130,0 " stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(5,30)" ><g transform="scale(0.7)" ><path d="m 115,95 c 0,15 15,15 15,0 0,-15 -15,-15 -15,0 z m 0,0 -45,0 0,10 10,0 0,-10" stroke-width="3" stroke="black" fill="none" ></path></g></g><g transform="translate(25,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g>'
+                        },
+                        '4': {
+                            type: 'svg',
+                            svg: '<path d="M45,120 l110,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(5,30)" ><g transform="scale(0.7)" ><path d="m 115,95 c 0,15 15,15 15,0 0,-15 -15,-15 -15,0 z m 0,0 -45,0 0,10 10,0 0,-10" stroke-width="3" stroke="black" fill="none" ></path></g></g><g transform="translate(25,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g>'
+                        },
+                        '5': {
+                            type: 'svg',
+                            svg: '<g transform="translate(5,30)" ><g transform="scale(0.7)" ><path d="m 115,95 c 0,15 15,15 15,0 0,-15 -15,-15 -15,0 z m 0,0 -45,0 0,10 10,0 0,-10" stroke-width="3" stroke="black" fill="none" ></path></g></g><g transform="translate(25,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        },
+                        '6': {
+                            type: 'svg',
+                            svg: '<g transform="translate(5,30)" ><g transform="scale(0.7)" ><path d="m 115,95 c 0,15 15,15 15,0 0,-15 -15,-15 -15,0 z m 0,0 -45,0 0,10 10,0 0,-10" stroke-width="3" stroke="black" fill="none" ></path></g></g><g transform="translate(25,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g><path d="M50,120 l100,0 " stroke-width="3" stroke="black" fill="none" ></path>'
+                        }
+                    }
                 }
             },
             '209900': {
