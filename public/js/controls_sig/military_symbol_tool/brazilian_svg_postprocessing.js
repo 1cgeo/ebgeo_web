@@ -204,12 +204,13 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
         return result;
     }
     if (hasExtensions(symbolSetCode, 'mainIcon', mainIconCode)) {
-        const entityExt = getCatalogEntry(
+        const entityExt = getCatalogEntryWithStandardIdentity(
             symbolSetCode,
             'mainIcon',
             'extensions',
             mainIconCode,
-            extension.entityExtension  // Can be 0, 1, 2... 31
+            extension.entityExtension,  // Can be 0, 1, 2... 31
+            standardIdentity
         );
         
         if (entityExt) {
@@ -249,12 +250,13 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
     if (hasSection(symbolSetCode, 'modifier2') && 
         hasExtensions(symbolSetCode, 'modifier2', modifier2Code)) {
         
-        const mod2Ext = getCatalogEntry(
+        const mod2Ext = getCatalogEntryWithStandardIdentity(
             symbolSetCode,
             'modifier2',
             'extensions',
             modifier2Code,
-            extension.mod2Extension  // Can be 0, 1, 2... 31
+            extension.mod2Extension,  // Can be 0, 1, 2... 31
+            standardIdentity
         );
         
         if (mod2Ext) {
@@ -269,12 +271,13 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
     
     // 6. Modifier 1 Extension
     if (hasExtensions(symbolSetCode, 'modifier1', modifier1Code)) {
-        const mod1Ext = getCatalogEntry(
+        const mod1Ext = getCatalogEntryWithStandardIdentity(
             symbolSetCode,
             'modifier1',
             'extensions',
             modifier1Code,
-            extension.mod1Extension  // Can be 0, 1, 2... 31
+            extension.mod1Extension,  // Can be 0, 1, 2... 31
+            standardIdentity
         );
         
         if (mod1Ext) {
@@ -318,16 +321,18 @@ export function checkCatalogWarnings(extension, symbolSetCode, sidc20) {
     const mainIconCode = sidc20 ? sidc20.substring(10, 16) : null;    // Positions 11-16
     const modifier1Code = sidc20 ? sidc20.substring(16, 18) : null;   // Positions 17-18
     const modifier2Code = sidc20 ? sidc20.substring(18, 20) : null;   // Positions 19-20
+    const standardIdentity = sidc20 ? sidc20.substring(3, 4) : null;  // Position 4
     
     // 1. Entity Extension - check if exists in catalog
     if (extension.entityExtension !== null && extension.entityExtension !== undefined) {
         if (mainIconCode && hasExtensions(symbolSetCode, 'mainIcon', mainIconCode)) {
-            const entityExt = getCatalogEntry(
+            const entityExt = getCatalogEntryWithStandardIdentity(
                 symbolSetCode,
                 'mainIcon',
                 'extensions',
                 mainIconCode,
-                extension.entityExtension
+                extension.entityExtension,
+                standardIdentity
             );
             
             if (!entityExt) {
@@ -347,12 +352,13 @@ export function checkCatalogWarnings(extension, symbolSetCode, sidc20) {
     // 3. Modifier 1 Extension - check if exists in catalog
     if (extension.mod1Extension !== null && extension.mod1Extension !== undefined) {
         if (modifier1Code && modifier1Code !== '00' && hasExtensions(symbolSetCode, 'modifier1', modifier1Code)) {
-            const mod1Ext = getCatalogEntry(
+            const mod1Ext = getCatalogEntryWithStandardIdentity(
                 symbolSetCode,
                 'modifier1',
                 'extensions',
                 modifier1Code,
-                extension.mod1Extension
+                extension.mod1Extension,
+                standardIdentity
             );
             
             if (!mod1Ext) {
@@ -369,12 +375,13 @@ export function checkCatalogWarnings(extension, symbolSetCode, sidc20) {
                 warnings.push(`Modifier 2 not applicable for Symbol Set ${symbolSetCode}`);
             }
         } else if (modifier2Code && modifier2Code !== '00' && hasExtensions(symbolSetCode, 'modifier2', modifier2Code)) {
-            const mod2Ext = getCatalogEntry(
+            const mod2Ext = getCatalogEntryWithStandardIdentity(
                 symbolSetCode,
                 'modifier2',
                 'extensions',
                 modifier2Code,
-                extension.mod2Extension
+                extension.mod2Extension,
+                standardIdentity
             );
             
             if (!mod2Ext) {
