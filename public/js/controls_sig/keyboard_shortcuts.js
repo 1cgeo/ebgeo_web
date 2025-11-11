@@ -315,7 +315,8 @@ class KeyboardShortcuts {
             'f': this.controls.occupiedFrontControl,
             'm': this.controls.militarySymbolControl,
             'r': this.controls.rectangleControl,
-            'b': this.controls.brushControl
+            'b': this.controls.brushControl,
+            'k': this.controls.coordinationMeasureControl
         };
 
         if (key === 'v') {
@@ -402,7 +403,8 @@ class KeyboardShortcuts {
                 'F': 'Frente ocupada',
                 'M': 'Símbolo militar',
                 'R': 'Ferramenta de retângulo',
-                'B': 'Ferramenta de pincel'
+                'B': 'Ferramenta de pincel',
+                'K': 'Medidas de Coordenação'
             }
         };
     }

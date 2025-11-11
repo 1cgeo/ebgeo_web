@@ -52,7 +52,8 @@ const getEmptyMapData = () => ({
         occupied_fronts: [],
         military_symbols: [],
         setores: [],
-        coordenadas: []
+        coordenadas: [],
+        coordination_measures: []
     },
     zoom: null,
     center_lat: null,

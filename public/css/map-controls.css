@@ -359,6 +359,10 @@
     top: 468px !important;
 }
 
+.coordination-measure-control.controls-column-right {
+    top: 502px !important;
+}
+
 /* ===== ESTILOS BASE DOS CONTROLES ===== */
 .mapboxgl-ctrl-group {
     display: flex !important;

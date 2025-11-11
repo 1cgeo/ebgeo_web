@@ -40,6 +40,7 @@ import KeyboardShortcuts from './controls_sig/keyboard_shortcuts.js';
 import SuggestionsModal from './controls_sig/suggestions_modal.js';
 import GridControl from './controls_sig/grid.js';
 import FrameControl from './controls_sig/frame.js';
+import AddCoordinationMeasureControl from './controls_sig/coordination_measure_tool/add_coordination_measure_control.js';
 
 //-----------------------------------------------
 // CRIAÇÃO E CONFIGURAÇÃO DO MAPA
@@ -118,6 +119,7 @@ const boundaryControl = new AddBoundaryControl(toolManager);
 const occupiedFrontControl = new AddOccupiedFrontControl(toolManager);
 const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
 const brushControl = new AddBrushControl(toolManager);
+const coordinationMeasureControl = new AddCoordinationMeasureControl(toolManager);
 
 selectionManager.registerControl('point', pointControl);
 selectionManager.registerControl('line', lineControl);
@@ -134,6 +136,7 @@ selectionManager.registerControl('boundary', boundaryControl);
 selectionManager.registerControl('occupied_front', occupiedFrontControl);
 selectionManager.registerControl('military_symbol', militarySymbolControl);
 selectionManager.registerControl('brush', brushControl);
+selectionManager.registerControl('coordination_measure', coordinationMeasureControl);
 
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
@@ -209,7 +212,8 @@ const keyboardShortcuts = new KeyboardShortcuts({
         militarySymbolControl,
         brushControl,
         rectangleSelectionControl,
-        vectorTileInfoControl
+        vectorTileInfoControl,
+        coordinationMeasureControl
     }
 });
 
@@ -254,6 +258,7 @@ map.addControl(arrowControl, 'top-right');
 map.addControl(boundaryControl, 'top-right');
 map.addControl(occupiedFrontControl, 'top-right');
 map.addControl(militarySymbolControl, 'top-right');
+map.addControl(coordinationMeasureControl, 'top-right');
 
 //-----------------------------------------------
 // TRATAMENTO DE ERROS GLOBAIS
