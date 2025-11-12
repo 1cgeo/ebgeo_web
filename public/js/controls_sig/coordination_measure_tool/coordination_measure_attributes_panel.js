@@ -12,7 +12,13 @@ import { UI_DATA, SUPPLY_CLASSES } from './coordination_measure_constants.js';
 
 /**
  * Add Coordination Measure attributes to panel
- * Simplified panel with modal for detailed configuration (similar to military symbol)
+ * Follows the same pattern as military symbol attributes panel with 3-column modal
+ * 
+ * @param {HTMLElement} panel - Panel container element
+ * @param {Array} selectedFeatures - Array of selected coordination measure features
+ * @param {Object} coordinationMeasureControl - Control instance
+ * @param {Object} selectionManager - Selection manager instance
+ * @param {Object} uiManager - UI manager instance
  */
 export function addCoordinationMeasureAttributesToPanel(
     panel,
@@ -25,12 +31,12 @@ export function addCoordinationMeasureAttributesToPanel(
 
     const feature = selectedFeatures[0];
 
-    // ✅ Capture initial properties at panel opening
+    // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
     const initialPropertiesMap = new Map(
         selectedFeatures.map(f => [f.properties.id, { ...f.properties }])
     );
 
-    // ===== NOME EDITÁVEL (APENAS SELEÇÃO ÚNICA) =====
+    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
     if (selectedFeatures.length === 1) {
         const nameComponent = createEditableFeatureName(
             feature.properties.nome,
@@ -42,15 +48,16 @@ export function addCoordinationMeasureAttributesToPanel(
         $(panel).append(nameComponent);
     }
 
-    // ===== BOTÃO PARA CONFIGURAR PONTO (APENAS SELEÇÃO ÚNICA) =====
+    // ===== CONFIGURAÇÃO DE PONTO ESPECÍFICA =====
     if (selectedFeatures.length === 1) {
-        const configButton = document.createElement('button');
-        configButton.classList.add('tool-button', 'pure-material-button-contained');
-        configButton.textContent = 'Configurar Ponto...';
-        configButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
-        configButton.onclick = () => openConfigModal();
+        // Botão para abrir modal do ponto
+        const pointButton = document.createElement('button');
+        pointButton.classList.add('tool-button', 'pure-material-button-contained');
+        pointButton.textContent = 'Configurar Ponto...';
+        pointButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
+        pointButton.onclick = () => openPointModal();
 
-        $(panel).append(createAttributeRow('Ponto:', configButton));
+        $(panel).append(createAttributeRow('Ponto:', pointButton));
     }
 
     // ===== CONTROLES DE RENDERIZAÇÃO =====
@@ -85,6 +92,7 @@ export function addCoordinationMeasureAttributesToPanel(
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity || 1.0) * 100), {
         onChange: (value) => {
+            // Convert from 0-100 range to 0-1 range for internal storage
             coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
             uiManager.updateSelectionHighlight();
         }
@@ -92,21 +100,47 @@ export function addCoordinationMeasureAttributesToPanel(
 
     $(panel).append(createAttributeRow('Opacidade:', opacityControl));
 
+    // Rotação (usando steps de 15 graus)
+    const rotationControl = createSliderWithInput({
+        min: -180,
+        max: 180,
+        step: 15,
+        value: feature.properties.rotation || 0,
+        onChange: (value) => {
+            coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'rotation', value);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Rotação (°):', rotationControl));
+
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     const buttons = createStandardButtons({
         selectedFeatures,
         control: coordinationMeasureControl,
         selectionManager,
         initialPropertiesMap,
-        hasSetDefault: false,
-        onSetDefault: null
+        hasSetDefault: selectedFeatures.length === 1, // ✅ ENABLED
+        onSetDefault: () => coordinationMeasureControl.setDefaultProperties(feature.properties)
     });
 
     $(panel).append(buttons);
 
-    // ===== MODAL DE CONFIGURAÇÃO DO PONTO =====
+    // ===== MODAL DO PONTO (3 COLUNAS - PADRÃO MILITARY SYMBOL) =====
 
-    function openConfigModal() {
+    // Variável global para rastrear dropdowns abertos
+    const openDropdowns = [];
+
+    // Função para fechar todos os dropdowns
+    function closeAllDropdowns() {
+        openDropdowns.forEach(dropdown => {
+            if (dropdown.style.display === 'block') {
+                dropdown.style.display = 'none';
+            }
+        });
+    }
+
+    function openPointModal() {
         // Propriedades temporárias (serão aplicadas apenas ao clicar em "Aplicar")
         const tempProperties = { ...feature.properties };
 
@@ -131,7 +165,7 @@ export function addCoordinationMeasureAttributesToPanel(
             background: white;
             border-radius: 12px;
             padding: 30px;
-            max-width: 900px;
+            max-width: 1400px;
             width: 90%;
             max-height: 85vh;
             overflow-y: auto;
@@ -143,17 +177,30 @@ export function addCoordinationMeasureAttributesToPanel(
         header.style.cssText = 'margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #eee;';
         header.innerHTML = `
             <h2 style="margin: 0; font-size: 24px; color: #333;">📍 Configurar Medida de Coordenação</h2>
+            <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">Tipo atual: ${getPointLabel(tempProperties.pointCode)}</p>
         `;
 
-        // Modal content container (2 colunas)
+        // Modal content container (3 colunas)
         const modalContent = document.createElement('div');
-        modalContent.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 25px;';
+        modalContent.style.cssText = `
+            display: grid;
+            grid-template-columns: 35% 25% 40%;
+            gap: 30px;
+            margin-bottom: 25px;
+        `;
 
-        // Coluna 1: Controles
+        // ===== COLUNA 1: CONTROLES =====
         const controlsColumn = document.createElement('div');
-        controlsColumn.style.cssText = 'display: flex; flex-direction: column; gap: 20px;';
+        controlsColumn.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-height: 65vh;
+            overflow-y: auto;
+            padding-right: 10px;
+        `;
 
-        // Coluna 2: Preview
+        // ===== COLUNA 2: PREVIEW =====
         const previewColumn = document.createElement('div');
         previewColumn.style.cssText = `
             display: flex;
@@ -164,324 +211,66 @@ export function addCoordinationMeasureAttributesToPanel(
             background: #f8f9fa;
             border-radius: 8px;
             border: 2px solid #dee2e6;
+            position: sticky;
+            top: 0;
+            max-height: 65vh;
         `;
 
         const previewTitle = document.createElement('h3');
         previewTitle.textContent = 'Preview';
-        previewTitle.style.cssText = 'margin: 0 0 20px 0; font-size: 18px; color: #333;';
+        previewTitle.style.cssText = `
+            margin: 0 0 20px 0;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        `;
         previewColumn.appendChild(previewTitle);
 
+        const previewImageContainer = document.createElement('div');
+        previewImageContainer.style.cssText = `
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 15px;
+        `;
+
         const previewImage = document.createElement('img');
-        previewImage.style.cssText = 'max-width: 100%; max-height: 400px; object-fit: contain;';
-        previewColumn.appendChild(previewImage);
-
-        // ===== COMBO BOX DO TIPO DE PONTO =====
-        const pointTypeCombo = createDigitalComboBox(
-            getPontosGroupedOptions(),
-            tempProperties.pointCode,
-            (newValue) => {
-                tempProperties.pointCode = newValue;
-                updateDynamicFields();
-                updatePreview();
-            },
-            'Tipo de Ponto'
-        );
-
-        controlsColumn.appendChild(pointTypeCombo);
-
-        // Container para subtipo (escalão)
-        const subtypeContainer = document.createElement('div');
-        subtypeContainer.id = 'subtype-container';
-        subtypeContainer.style.display = 'none';
-        controlsColumn.appendChild(subtypeContainer);
-
-        // Container para amplificadores textuais
-        const textModifiersContainer = document.createElement('div');
-        textModifiersContainer.id = 'text-modifiers-container';
-        controlsColumn.appendChild(textModifiersContainer);
-
-        // Montar modal
-        modal.appendChild(header);
-        modalContent.appendChild(controlsColumn);
-        modalContent.appendChild(previewColumn);
-        modal.appendChild(modalContent);
-
-        // Botões do modal
-        const modalButtons = document.createElement('div');
-        modalButtons.style.cssText = 'margin-top: 30px; text-align: center; display: flex; gap: 15px; justify-content: center;';
-
-        const applyButton = document.createElement('button');
-        applyButton.textContent = 'Aplicar';
-        applyButton.style.cssText = `
-            padding: 12px 30px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 500;
-            transition: background-color 0.2s;
+        previewImage.style.cssText = `
+            max-width: 100%;
+            max-height: 400px;
+            object-fit: contain;
         `;
-        applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
-        applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
-        applyButton.onclick = async () => {
-            await applyChanges();
-        };
+        previewImageContainer.appendChild(previewImage);
+        previewColumn.appendChild(previewImageContainer);
 
-        const cancelButton = document.createElement('button');
-        cancelButton.textContent = 'Cancelar';
-        cancelButton.style.cssText = `
-            padding: 12px 30px;
-            background: #6c757d;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 500;
-            transition: background-color 0.2s;
+        const dimensionsInfo = document.createElement('div');
+        dimensionsInfo.style.cssText = `
+            font-size: 12px;
+            color: #666;
+            text-align: center;
         `;
-        cancelButton.onmouseenter = () => cancelButton.style.backgroundColor = '#545b62';
-        cancelButton.onmouseleave = () => cancelButton.style.backgroundColor = '#6c757d';
-        cancelButton.onclick = closeModal;
+        previewColumn.appendChild(dimensionsInfo);
 
-        modalButtons.appendChild(applyButton);
-        modalButtons.appendChild(cancelButton);
-        modal.appendChild(modalButtons);
-
-        modalOverlay.appendChild(modal);
-
-        // Event listeners
-        modalOverlay.onclick = (e) => {
-            if (e.target === modalOverlay) closeModal();
-        };
-
-        document.addEventListener('keydown', handleEscape);
-
-        document.body.appendChild(modalOverlay);
-
-        // Inicializar campos e preview
-        updateDynamicFields();
-        updatePreview();
-
-        // ===== FUNÇÕES AUXILIARES =====
-
-        function handleEscape(e) {
-            if (e.key === 'Escape') {
-                closeModal();
-            }
-        }
-
-        function closeModal() {
-            document.removeEventListener('keydown', handleEscape);
-            document.body.removeChild(modalOverlay);
-        }
-
-        async function applyChanges() {
-            try {
-                // Validar propriedades
-                const errors = validateProperties(tempProperties);
-                if (errors.length > 0) {
-                    alert(errors.join('\n'));
-                    return;
-                }
-
-                // Aplicar mudanças ao feature
-                const propertiesToUpdate = [
-                    'pointCode', 'tipo', 'identificacao', 'gdhIni', 'gdhFim',
-                    'numero', 'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
-                ];
-
-                for (const key of propertiesToUpdate) {
-                    if (tempProperties.hasOwnProperty(key)) {
-                        await coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, key, tempProperties[key]);
-                    }
-                }
-
-                // Regenerar símbolo
-                await coordinationMeasureControl.regenerateSymbol(feature);
-
-                // Salvar e fechar
-                await coordinationMeasureControl.saveFeatures(selectedFeatures, initialPropertiesMap);
-                closeModal();
-                selectionManager.deselectAllFeatures();
-
-            } catch (error) {
-                console.error('Error applying changes:', error);
-                alert('Erro ao aplicar mudanças: ' + error.message);
-            }
-        }
-
-        function updateDynamicFields() {
-            const pointCode = tempProperties.pointCode;
-
-            // Limpar containers
-            subtypeContainer.innerHTML = '';
-            subtypeContainer.style.display = 'none';
-            textModifiersContainer.innerHTML = '';
-
-            if (!pointCode) return;
-
-            // Verificar se é tipo escalão (precisa de subtipo)
-            if (pointCode === 'ECHELON' || pointCode === 'ECHELON_FT') {
-                subtypeContainer.style.display = 'block';
-
-                const subtypeOptions = pointCode === 'ECHELON'
-                    ? UI_DATA.echelonSubtypes.map(s => ({ value: s.code, label: s.label }))
-                    : UI_DATA.echelonFTSubtypes.map(s => ({ value: s.code, label: s.label }));
-
-                const subtypeCombo = createDigitalComboBox(
-                    subtypeOptions,
-                    tempProperties.echelonSubtype || null,
-                    (newValue) => {
-                        tempProperties.echelonSubtype = newValue;
-                        // Atualizar pointCode com o subtipo selecionado
-                        tempProperties.pointCode = newValue;
-                        updateTextModifiersFields(newValue);
-                        updatePreview();
-                    },
-                    'Escalão'
-                );
-
-                subtypeContainer.appendChild(subtypeCombo);
-            } else {
-                // Tipo normal, carregar text modifiers
-                updateTextModifiersFields(pointCode);
-            }
-        }
-
-        function updateTextModifiersFields(pointCode) {
-            textModifiersContainer.innerHTML = '';
-
-            const pointData = COORDINATION_POINTS_CATALOG[pointCode];
-            if (!pointData || !pointData.textFields || pointData.textFields.length === 0) {
-                return;
-            }
-
-            // Título
-            const title = document.createElement('div');
-            title.textContent = 'Amplificadores Textuais';
-            title.style.cssText = 'font-weight: bold; font-size: 15px; color: #333; margin-bottom: 15px; padding-top: 15px; border-top: 1px solid #dee2e6;';
-            textModifiersContainer.appendChild(title);
-
-            // Criar campos
-            pointData.textFields.forEach(fieldName => {
-                const fieldDef = UI_DATA.textFieldDefinitions[fieldName];
-                if (!fieldDef) return;
-
-                const fieldContainer = document.createElement('div');
-                fieldContainer.style.cssText = 'margin-bottom: 15px;';
-
-                const label = document.createElement('label');
-                label.textContent = fieldDef.label + ':';
-                label.style.cssText = 'display: block; margin-bottom: 6px; font-weight: 500; font-size: 14px; color: #333;';
-                if (fieldDef.required) {
-                    label.style.color = '#dc3545';
-                    label.textContent = fieldDef.label + ': *';
-                }
-                fieldContainer.appendChild(label);
-
-                if (fieldDef.type === 'select') {
-                    const select = createSelectField(fieldName, fieldDef, tempProperties);
-                    fieldContainer.appendChild(select);
-                } else {
-                    const input = createInputField(fieldName, fieldDef, tempProperties);
-                    fieldContainer.appendChild(input);
-                }
-
-                if (fieldDef.help) {
-                    const help = document.createElement('div');
-                    help.style.cssText = 'font-size: 11px; color: #6c757d; margin-top: 4px; font-style: italic;';
-                    help.textContent = fieldDef.help;
-                    fieldContainer.appendChild(help);
-                }
-
-                textModifiersContainer.appendChild(fieldContainer);
-            });
-        }
-
-        function createSelectField(fieldName, fieldDef, properties) {
-            const select = document.createElement('select');
-            select.style.cssText = `
-                width: 100%;
-                padding: 10px;
-                border: 2px solid #ddd;
-                border-radius: 6px;
-                font-size: 14px;
-                background: white;
-                cursor: pointer;
-            `;
-
-            const defaultOpt = document.createElement('option');
-            defaultOpt.value = '';
-            defaultOpt.textContent = 'Selecione...';
-            select.appendChild(defaultOpt);
-
-            const options = fieldName === 'classeSuprimento'
-                ? Object.entries(SUPPLY_CLASSES).map(([k, v]) => ({ value: k, label: v }))
-                : fieldDef.options.map(o => ({ value: o, label: o }));
-
-            options.forEach(opt => {
-                const option = document.createElement('option');
-                option.value = opt.value;
-                option.textContent = opt.label;
-                select.appendChild(option);
-            });
-
-            select.value = properties[fieldName] || '';
-
-            select.onchange = (e) => {
-                properties[fieldName] = e.target.value;
-                updatePreview();
-            };
-
-            return select;
-        }
-
-        function createInputField(fieldName, fieldDef, properties) {
-            const input = document.createElement('input');
-            input.type = fieldDef.type;
-            input.placeholder = fieldDef.placeholder || '';
-            input.style.cssText = `
-                width: 100%;
-                padding: 10px;
-                border: 2px solid #ddd;
-                border-radius: 6px;
-                font-size: 14px;
-                box-sizing: border-box;
-            `;
-
-            if (fieldDef.type === 'number') {
-                input.min = '1';
-            }
-
-            input.value = properties[fieldName] || '';
-
-            let debounceTimer = null;
-            input.oninput = (e) => {
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(() => {
-                    let value = e.target.value.trim();
-                    if (fieldDef.type === 'number') {
-                        value = value ? parseInt(value, 10) : null;
-                    }
-                    properties[fieldName] = value;
-                    updatePreview();
-                }, 500);
-            };
-
-            return input;
-        }
-
+        // Update preview function
+        let previewDebounceTimer = null;
         async function updatePreview() {
             try {
+                // Validate pointCode
                 if (!tempProperties.pointCode) {
                     previewImage.style.display = 'none';
+                    dimensionsInfo.textContent = 'Nenhum ponto selecionado';
                     return;
                 }
 
-                // Gerar preview
+                // For ECHELON types, ensure echelonCode is set
+                if (isEchelonPointCode(tempProperties.pointCode) && !tempProperties.echelonCode) {
+                    previewImage.style.display = 'none';
+                    dimensionsInfo.textContent = 'Selecione um escalão';
+                    return;
+                }
+
+                // Generate preview
                 const result = await coordinationMeasureControl.generator.generate(
                     tempProperties.pointCode,
                     tempProperties
@@ -490,51 +279,339 @@ export function addCoordinationMeasureAttributesToPanel(
                 if (result && result.dataUrl) {
                     previewImage.src = result.dataUrl;
                     previewImage.style.display = 'block';
+                    dimensionsInfo.textContent = `${result.width} × ${result.height} px`;
                 } else {
                     previewImage.style.display = 'none';
+                    dimensionsInfo.textContent = 'Falha ao gerar preview';
                 }
-
             } catch (error) {
-                console.error('Error generating preview:', error);
+                console.error('Erro ao gerar preview:', error);
                 previewImage.style.display = 'none';
+                dimensionsInfo.textContent = 'Erro ao gerar preview';
             }
         }
 
-        function validateProperties(properties) {
-            const errors = [];
-            const pointData = COORDINATION_POINTS_CATALOG[properties.pointCode];
+        function updatePreviewDebounced() {
+            clearTimeout(previewDebounceTimer);
+            previewDebounceTimer = setTimeout(() => {
+                updatePreview();
+            }, 200);
+        }
 
-            if (!properties.pointCode) {
-                errors.push('Selecione um tipo de ponto');
-                return errors;
+        // ===== TIPO DE PONTO (COMBO BOX) =====
+        const pointTypeCombo = createDigitalComboBox(
+            getPointsGroupedOptions(),
+            tempProperties.pointCode,
+            (newValue) => {
+                const wasEchelon = isEchelonPointCode(tempProperties.pointCode);
+                const isEchelon = newValue === 'ECHELON' || newValue === 'ECHELON_FT';
+
+                tempProperties.pointCode = newValue;
+
+                // Clear echelon code if switching from echelon to regular point
+                if (wasEchelon && !isEchelon) {
+                    delete tempProperties.echelonCode;
+                }
+
+                // Set default echelon code if switching to echelon
+                if (!wasEchelon && isEchelon) {
+                    tempProperties.echelonCode = newValue === 'ECHELON_FT' ? 'ECHELON_FT_16' : 'ECHELON_16';
+                }
+
+                // Clear text modifiers when changing point type
+                clearAllTextModifiers(tempProperties);
+
+                // Show/hide subtype dropdown
+                subtypeDropdown.style.display = isEchelon ? 'block' : 'none';
+
+                // Rebuild text modifiers section
+                rebuildTextModifiersSection(tempProperties.pointCode);
+
+                updatePreviewDebounced();
+            },
+            'Tipo de Ponto'
+        );
+
+        controlsColumn.appendChild(pointTypeCombo);
+
+        // ===== SUBTIPO DE ESCALÃO (CONDICIONAL) =====
+        const subtypeDropdown = document.createElement('div');
+        subtypeDropdown.style.display = isEchelonPointCode(tempProperties.pointCode) ? 'block' : 'none';
+
+        function updateSubtypeCombo() {
+            subtypeDropdown.innerHTML = '';
+            
+            if (!isEchelonPointCode(tempProperties.pointCode)) return;
+
+            const isFT = tempProperties.pointCode === 'ECHELON_FT';
+            const subtypeCombo = createDigitalComboBox(
+                getEchelonSubtypeOptions(tempProperties.pointCode),
+                tempProperties.echelonCode || (isFT ? 'ECHELON_FT_16' : 'ECHELON_16'),
+                (newValue) => {
+                    tempProperties.echelonCode = newValue;
+                    updatePreviewDebounced();
+                },
+                isFT ? 'Escalão Força-Tarefa' : 'Escalão'
+            );
+
+            subtypeDropdown.appendChild(subtypeCombo);
+        }
+
+        updateSubtypeCombo();
+        controlsColumn.appendChild(subtypeDropdown);
+
+        // ===== AMPLIFICADORES TEXTUAIS =====
+        const textModifiersSection = document.createElement('div');
+        textModifiersSection.style.cssText = `
+            margin-top: 25px;
+            border-top: 2px solid #eee;
+            padding-top: 15px;
+        `;
+
+        // Header com toggle
+        const textModifiersHeader = document.createElement('div');
+        textModifiersHeader.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        `;
+
+        const headerTitle = document.createElement('span');
+        headerTitle.textContent = '📝 Amplificadores Textuais';
+        headerTitle.style.cssText = 'font-weight: bold; font-size: 15px;';
+
+        const toggleIcon = document.createElement('span');
+        toggleIcon.textContent = '▼';
+        toggleIcon.style.cssText = 'font-size: 12px; transition: transform 0.2s;';
+
+        textModifiersHeader.appendChild(headerTitle);
+        textModifiersHeader.appendChild(toggleIcon);
+
+        // Content container (fields)
+        const textModifiersContent = document.createElement('div');
+        textModifiersContent.style.cssText = 'display: flex; flex-direction: column; gap: 15px;';
+        textModifiersContent.style.display = 'none'; // Initially collapsed
+
+        // Toggle functionality
+        let isExpanded = false;
+        textModifiersHeader.onclick = () => {
+            isExpanded = !isExpanded;
+            textModifiersContent.style.display = isExpanded ? 'flex' : 'none';
+            toggleIcon.style.transform = isExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+        };
+
+        textModifiersSection.appendChild(textModifiersHeader);
+        textModifiersSection.appendChild(textModifiersContent);
+        controlsColumn.appendChild(textModifiersSection);
+
+        // Função para reconstruir os campos baseado no pointCode
+        function rebuildTextModifiersSection(pointCode) {
+            textModifiersContent.innerHTML = '';
+
+            const applicableFields = getApplicableTextFields(pointCode);
+
+            applicableFields.forEach(fieldName => {
+                const fieldDef = UI_DATA.textFieldDefinitions[fieldName];
+                if (!fieldDef) return;
+
+                const fieldContainer = createTextModifierField(
+                    fieldName,
+                    fieldDef,
+                    tempProperties[fieldName],
+                    (newValue) => {
+                        tempProperties[fieldName] = newValue;
+                        updatePreviewDebounced();
+                    }
+                );
+
+                textModifiersContent.appendChild(fieldContainer);
+            });
+        }
+
+        // Chamar inicialmente
+        rebuildTextModifiersSection(tempProperties.pointCode);
+
+        // ===== COLUNA 3: GALERIA =====
+        // Criar galeria de forma assíncrona
+        createPointGallery((pointCode) => {
+            // Callback quando clicar em ponto da galeria
+            const wasEchelon = isEchelonPointCode(tempProperties.pointCode);
+            const isEchelon = pointCode === 'ECHELON' || pointCode === 'ECHELON_FT';
+
+            tempProperties.pointCode = pointCode;
+
+            // Handle echelon logic
+            if (!wasEchelon && isEchelon) {
+                tempProperties.echelonCode = pointCode === 'ECHELON_FT' ? 'ECHELON_FT_16' : 'ECHELON_16';
+            } else if (wasEchelon && !isEchelon) {
+                delete tempProperties.echelonCode;
             }
 
-            if (!pointData) {
-                errors.push('Tipo de ponto inválido');
-                return errors;
+            // Clear text modifiers
+            clearAllTextModifiers(tempProperties);
+
+            // Update UI
+            subtypeDropdown.style.display = isEchelon ? 'block' : 'none';
+            updateSubtypeCombo();
+            rebuildTextModifiersSection(pointCode);
+
+            // Update header
+            header.querySelector('p').textContent = `Tipo atual: ${getPointLabel(pointCode)}`;
+
+            updatePreviewDebounced();
+        }).then(galleryColumn => {
+            modalContent.appendChild(controlsColumn);
+            modalContent.appendChild(previewColumn);
+            modalContent.appendChild(galleryColumn);
+
+            modal.appendChild(header);
+            modal.appendChild(modalContent);
+
+            // ===== BOTÕES DO MODAL =====
+            const modalButtons = document.createElement('div');
+            modalButtons.style.cssText = `
+                margin-top: 30px;
+                text-align: center;
+                display: flex;
+                gap: 15px;
+                justify-content: center;
+            `;
+
+            const applyButton = document.createElement('button');
+            applyButton.textContent = 'Aplicar';
+            applyButton.style.cssText = `
+                padding: 12px 30px;
+                background: #007bff;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 16px;
+                font-weight: 500;
+                transition: background-color 0.2s;
+            `;
+            applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
+            applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
+            applyButton.onclick = async () => {
+                // Apply all properties
+                const propertiesToUpdate = [
+                    'pointCode', 'echelonCode',
+                    // Text modifiers
+                    'tipo', 'identificacao', 'gdhIni', 'gdhFim', 'numero',
+                    'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
+                ];
+
+                for (const key of propertiesToUpdate) {
+                    if (tempProperties.hasOwnProperty(key)) {
+                        await coordinationMeasureControl.updateFeaturesProperty(
+                            selectedFeatures, 
+                            key, 
+                            tempProperties[key]
+                        );
+                    }
+                }
+
+                coordinationMeasureControl.saveFeatures(selectedFeatures, initialPropertiesMap);
+                closeModal();
+                selectionManager.deselectAllFeatures();
+            };
+
+            const cancelButton = document.createElement('button');
+            cancelButton.textContent = 'Cancelar';
+            cancelButton.style.cssText = `
+                padding: 12px 30px;
+                background: #6c757d;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 16px;
+                font-weight: 500;
+                transition: background-color 0.2s;
+            `;
+            cancelButton.onmouseenter = () => cancelButton.style.backgroundColor = '#545b62';
+            cancelButton.onmouseleave = () => cancelButton.style.backgroundColor = '#6c757d';
+            cancelButton.onclick = closeModal;
+
+            modalButtons.appendChild(applyButton);
+            modalButtons.appendChild(cancelButton);
+
+            modal.appendChild(modalButtons);
+            modalOverlay.appendChild(modal);
+
+            // Event listeners
+            modalOverlay.onclick = (e) => {
+                if (e.target === modalOverlay) {
+                    closeModal();
+                }
+            };
+
+            document.addEventListener('keydown', handleModalKeyDown);
+
+            // Adicionar ao DOM e gerar preview inicial
+            document.body.appendChild(modalOverlay);
+            updatePreview();
+        });
+
+        function closeModal() {
+            document.removeEventListener('keydown', handleModalKeyDown);
+
+            // Cleanup dos dropdowns
+            const comboBoxes = [controlsColumn].flatMap(col => Array.from(col.children));
+            comboBoxes.forEach(combo => {
+                if (combo._cleanup) {
+                    combo._cleanup();
+                }
+            });
+
+            if (previewDebounceTimer) {
+                clearTimeout(previewDebounceTimer);
             }
 
-            if (pointData.requiresNumber && !properties.numero) {
-                errors.push('Este ponto requer um número');
-            }
+            document.body.removeChild(modalOverlay);
+        }
 
-            if (pointData.hasSupplyIcon && !properties.classeSuprimento) {
-                errors.push('Selecione a classe de suprimento');
-            }
+        function handleModalKeyDown(e) {
+            if (e.key === 'Escape') {
+                // Only close modal if no dropdown is open
+                const hasOpenDropdown = openDropdowns.some(dropdown =>
+                    dropdown.style.display === 'block'
+                );
 
-            return errors;
+                if (!hasOpenDropdown) {
+                    e.preventDefault();
+                    closeModal();
+                }
+            }
         }
     }
 
-    // ===== FUNÇÃO PARA CRIAR DIGITAL COMBO BOX =====
+    // ===== HELPER FUNCTIONS =====
 
+    /**
+     * Create digital combo box (similar to military symbol)
+     */
     function createDigitalComboBox(options, currentValue, onChange, label) {
         const container = document.createElement('div');
         container.style.cssText = 'margin-bottom: 20px; position: relative;';
 
         const labelElement = document.createElement('label');
         labelElement.textContent = label + ':';
-        labelElement.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+        labelElement.style.cssText = `
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 15px;
+            color: #333;
+        `;
+
+        const selectContainer = document.createElement('div');
+        selectContainer.style.cssText = 'position: relative;';
 
         // Display do valor atual
         const selectDisplay = document.createElement('div');
@@ -555,7 +632,12 @@ export function addCoordinationMeasureAttributesToPanel(
         `;
 
         const textContainer = document.createElement('div');
-        textContainer.style.cssText = 'flex: 1; overflow: hidden; word-wrap: break-word;';
+        textContainer.style.cssText = `
+            flex: 1;
+            overflow: hidden;
+            word-wrap: break-word;
+            pointer-events: none;
+        `;
         selectDisplay.appendChild(textContainer);
 
         const dropdownIcon = document.createElement('span');
@@ -567,6 +649,7 @@ export function addCoordinationMeasureAttributesToPanel(
             transform: translateY(-50%);
             font-size: 15px;
             pointer-events: none;
+            color: #000;
         `;
         selectDisplay.appendChild(dropdownIcon);
 
@@ -588,6 +671,9 @@ export function addCoordinationMeasureAttributesToPanel(
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         `;
 
+        // Register dropdown
+        openDropdowns.push(dropdown);
+
         // Atualizar display
         function updateDisplay() {
             const selected = options.find(opt => opt.value === currentValue);
@@ -607,13 +693,19 @@ export function addCoordinationMeasureAttributesToPanel(
 
             item.textContent = option.label;
 
+            if (option.value === currentValue) {
+                item.style.backgroundColor = '#e9ecef';
+            }
+
             item.onmouseenter = () => item.style.backgroundColor = '#f8f9fa';
-            item.onmouseleave = () => item.style.backgroundColor = 'white';
+            item.onmouseleave = () => {
+                item.style.backgroundColor = option.value === currentValue ? '#e9ecef' : 'white';
+            };
 
             item.onclick = () => {
                 currentValue = option.value;
                 updateDisplay();
-                dropdown.style.display = 'none';
+                closeAllDropdowns();
                 onChange(option.value);
             };
 
@@ -624,31 +716,389 @@ export function addCoordinationMeasureAttributesToPanel(
         selectDisplay.onclick = (e) => {
             e.stopPropagation();
             const isOpen = dropdown.style.display === 'block';
+            closeAllDropdowns();
             dropdown.style.display = isOpen ? 'none' : 'block';
             selectDisplay.style.borderColor = isOpen ? '#ddd' : '#007bff';
         };
 
         // Fechar ao clicar fora
-        document.addEventListener('click', () => {
+        const closeDropdown = () => {
             dropdown.style.display = 'none';
             selectDisplay.style.borderColor = '#ddd';
-        });
+        };
+
+        // Store cleanup function
+        container._cleanup = () => {
+            document.removeEventListener('click', closeDropdown);
+            const index = openDropdowns.indexOf(dropdown);
+            if (index > -1) {
+                openDropdowns.splice(index, 1);
+            }
+        };
+
+        document.addEventListener('click', closeDropdown);
 
         updateDisplay();
 
         container.appendChild(labelElement);
-        container.appendChild(selectDisplay);
-        container.appendChild(dropdown);
+        selectContainer.appendChild(selectDisplay);
+        selectContainer.appendChild(dropdown);
+        container.appendChild(selectContainer);
 
         return container;
     }
 
-    // ===== FUNÇÃO AUXILIAR PARA OPÇÕES AGRUPADAS =====
+    /**
+     * Create text modifier field
+     */
+    function createTextModifierField(fieldName, fieldDef, currentValue, onChange) {
+        const container = document.createElement('div');
+        container.style.cssText = 'display: flex; flex-direction: column; gap: 5px;';
 
-    function getPontosGroupedOptions() {
+        // Label
+        const label = document.createElement('label');
+        label.textContent = fieldDef.label + (fieldDef.required ? ' *' : '');
+        label.style.cssText = `
+            font-size: 13px;
+            font-weight: 600;
+            color: ${fieldDef.required ? '#dc3545' : '#495057'};
+        `;
+        container.appendChild(label);
+
+        // Input element
+        let inputElement;
+
+        if (fieldDef.type === 'select') {
+            // Dropdown
+            inputElement = document.createElement('select');
+            inputElement.style.cssText = `
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 6px;
+                font-size: 13px;
+            `;
+
+            // Add empty option
+            const emptyOption = document.createElement('option');
+            emptyOption.value = '';
+            emptyOption.textContent = '-- Selecione --';
+            inputElement.appendChild(emptyOption);
+
+            // Add options
+            fieldDef.options.forEach(optKey => {
+                const option = document.createElement('option');
+                option.value = optKey;
+
+                if (fieldName === 'classeSuprimento') {
+                    option.textContent = SUPPLY_CLASSES[optKey] || optKey;
+                } else {
+                    option.textContent = optKey;
+                }
+
+                inputElement.appendChild(option);
+            });
+
+            inputElement.value = currentValue || '';
+            inputElement.onchange = (e) => onChange(e.target.value || null);
+
+        } else {
+            // Text or number input
+            inputElement = document.createElement('input');
+            inputElement.type = fieldDef.type;
+            inputElement.placeholder = fieldDef.placeholder || '';
+            inputElement.value = currentValue || '';
+            inputElement.style.cssText = `
+                padding: 8px;
+                border: 2px solid #ddd;
+                border-radius: 6px;
+                font-size: 13px;
+            `;
+
+            inputElement.oninput = (e) => {
+                const value = e.target.value.trim();
+                onChange(value === '' ? null : value);
+            };
+        }
+
+        container.appendChild(inputElement);
+
+        // Help text
+        if (fieldDef.help) {
+            const helpText = document.createElement('div');
+            helpText.textContent = fieldDef.help;
+            helpText.style.cssText = 'font-size: 11px; color: #6c757d; font-style: italic;';
+            container.appendChild(helpText);
+        }
+
+        return container;
+    }
+
+    /**
+     * Create point gallery (column 3)
+     */
+    async function createPointGallery(onPointClick) {
+        const galleryColumn = document.createElement('div');
+        galleryColumn.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 20px;
+            background: #ffffff;
+            border-radius: 8px;
+            border: 2px solid #dee2e6;
+            max-height: 65vh;
+            overflow-y: auto;
+        `;
+
+        // Header
+        const galleryHeader = document.createElement('h3');
+        galleryHeader.textContent = '📚 Galeria de Pontos';
+        galleryHeader.style.cssText = `
+            margin: 0 0 15px 0;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        `;
+        galleryColumn.appendChild(galleryHeader);
+
+        // Search box (future enhancement)
+        const searchBox = document.createElement('input');
+        searchBox.type = 'text';
+        searchBox.placeholder = '🔍 Buscar ponto...';
+        searchBox.style.cssText = `
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+        `;
+        galleryColumn.appendChild(searchBox);
+
+        // Categories
+        const categories = [
+            { name: 'Gerais', points: UI_DATA.pointsList.filter(p => p.category === 'Gerais') },
+            { name: 'Movimento e Manobra', points: UI_DATA.pointsList.filter(p => p.category === 'Movimento e Manobra') },
+            { name: 'Passagens', points: UI_DATA.pointsList.filter(p => p.category === 'Passagens') },
+            { name: 'Fogos', points: UI_DATA.pointsList.filter(p => p.category === 'Fogos') },
+            { name: 'Proteção - Obstáculos', points: UI_DATA.pointsList.filter(p => p.category === 'Proteção - Obstáculos') },
+            { name: 'Proteção - Fortificação', points: UI_DATA.pointsList.filter(p => p.category === 'Proteção - Fortificação') },
+            { name: 'Proteção - Minas', points: UI_DATA.pointsList.filter(p => p.category === 'Proteção - Minas') },
+            { name: 'Proteção - QBRN', points: UI_DATA.pointsList.filter(p => p.category === 'Proteção - QBRN') },
+            { name: 'Logística', points: UI_DATA.pointsList.filter(p => p.category === 'Logística') },
+            { name: 'Controle Aéreo', points: UI_DATA.pointsList.filter(p => p.category === 'Controle Aéreo') },
+            { name: 'Controle Marítimo', points: UI_DATA.pointsList.filter(p => p.category === 'Controle Marítimo') }
+        ];
+
+        // Add Escalões category
+        categories.push({
+            name: 'Escalões',
+            points: [
+                { code: 'ECHELON', label: 'Escalão', category: 'Escalões' },
+                { code: 'ECHELON_FT', label: 'Escalão Força-Tarefa', category: 'Escalões' }
+            ]
+        });
+
+        // Create category sections
+        for (const category of categories) {
+            if (category.points.length === 0) continue;
+
+            const categorySection = document.createElement('div');
+            categorySection.style.cssText = 'margin-bottom: 20px;';
+
+            // Category header (collapsible)
+            const categoryHeader = document.createElement('div');
+            categoryHeader.style.cssText = `
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px;
+                background: #e9ecef;
+                border-radius: 8px;
+                cursor: pointer;
+                margin-bottom: 10px;
+                font-weight: 600;
+                font-size: 14px;
+                color: #495057;
+            `;
+
+            const categoryTitle = document.createElement('span');
+            categoryTitle.textContent = `📂 ${category.name} (${category.points.length})`;
+
+            const categoryToggle = document.createElement('span');
+            categoryToggle.textContent = '▼';
+            categoryToggle.style.cssText = 'font-size: 10px; transition: transform 0.2s;';
+
+            categoryHeader.appendChild(categoryTitle);
+            categoryHeader.appendChild(categoryToggle);
+
+            // Grid de pontos
+            const pointsGrid = document.createElement('div');
+            pointsGrid.style.cssText = `
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+                gap: 10px;
+                padding: 5px;
+                display: none;
+            `;
+
+            // Toggle category
+            let isCategoryExpanded = false;
+            categoryHeader.onclick = () => {
+                isCategoryExpanded = !isCategoryExpanded;
+                pointsGrid.style.display = isCategoryExpanded ? 'grid' : 'none';
+                categoryToggle.style.transform = isCategoryExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+            };
+
+            // Add point items (generate thumbnails on demand when category is expanded)
+            const pointItems = [];
+            category.points.forEach(point => {
+                const pointItem = createPointThumbnailPlaceholder(point, onPointClick);
+                pointsGrid.appendChild(pointItem);
+                pointItems.push({ element: pointItem, point });
+            });
+
+            // Generate thumbnails when category is opened
+            const originalToggle = categoryHeader.onclick;
+            categoryHeader.onclick = async () => {
+                originalToggle();
+                
+                if (isCategoryExpanded) {
+                    // Generate thumbnails
+                    for (const item of pointItems) {
+                        if (!item.generated) {
+                            await generateThumbnail(item.element, item.point);
+                            item.generated = true;
+                        }
+                    }
+                }
+            };
+
+            categorySection.appendChild(categoryHeader);
+            categorySection.appendChild(pointsGrid);
+            galleryColumn.appendChild(categorySection);
+        }
+
+        return galleryColumn;
+    }
+
+    /**
+     * Create thumbnail placeholder (image loaded on demand)
+     */
+    function createPointThumbnailPlaceholder(point, onPointClick) {
+        const container = document.createElement('div');
+        container.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: white;
+        `;
+
+        container.onmouseenter = () => {
+            container.style.borderColor = '#007bff';
+            container.style.boxShadow = '0 2px 8px rgba(0,123,255,0.3)';
+        };
+
+        container.onmouseleave = () => {
+            container.style.borderColor = '#dee2e6';
+            container.style.boxShadow = 'none';
+        };
+
+        container.onclick = () => onPointClick(point.code);
+
+        // Image placeholder
+        const img = document.createElement('img');
+        img.style.cssText = `
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
+            margin-bottom: 5px;
+            background: #f8f9fa;
+        `;
+        img.alt = '...';
+
+        // Label
+        const label = document.createElement('div');
+        label.textContent = point.label;
+        label.style.cssText = `
+            font-size: 10px;
+            text-align: center;
+            color: #495057;
+            word-wrap: break-word;
+            max-width: 80px;
+        `;
+
+        container.appendChild(img);
+        container.appendChild(label);
+
+        return container;
+    }
+
+    /**
+     * Generate thumbnail for point
+     */
+    async function generateThumbnail(container, point) {
+        try {
+            const img = container.querySelector('img');
+            
+            // For escalão types, use a default
+            let pointCode = point.code;
+            let properties = { pointCode };
+
+            if (pointCode === 'ECHELON') {
+                properties.echelonCode = 'ECHELON_16';
+            } else if (pointCode === 'ECHELON_FT') {
+                properties.echelonCode = 'ECHELON_FT_16';
+            }
+
+            const result = await coordinationMeasureControl.generator.generate(
+                pointCode,
+                properties
+            );
+
+            if (result && result.dataUrl) {
+                img.src = result.dataUrl;
+            }
+        } catch (error) {
+            console.warn(`Could not generate thumbnail for ${point.code}:`, error);
+        }
+    }
+
+    /**
+     * Get applicable text fields for a given point code
+     */
+    function getApplicableTextFields(pointCode) {
+        if (!pointCode) return [];
+
+        // Get point data from catalog
+        const pointData = COORDINATION_POINTS_CATALOG[pointCode];
+
+        if (pointData && pointData.textFields) {
+            return pointData.textFields;
+        }
+
+        // Check if it's an echelon type
+        if (isEchelonPointCode(pointCode)) {
+            return ['identificacao', 'gdhIni', 'gdhFim'];
+        }
+
+        // Default fields for unknown points
+        return ['tipo', 'identificacao', 'gdhIni', 'gdhFim'];
+    }
+
+    /**
+     * Get points grouped options for combo box
+     */
+    function getPointsGroupedOptions() {
         const options = [];
 
-        // Adicionar pontos normais por categoria
+        // Add regular points by category
         const grouped = {};
         UI_DATA.pointsList.forEach(point => {
             const category = point.category || 'Outros';
@@ -656,20 +1106,112 @@ export function addCoordinationMeasureAttributesToPanel(
             grouped[category].push(point);
         });
 
-        Object.keys(grouped).forEach(category => {
-            grouped[category].forEach(point => {
-                options.push({
-                    value: point.code,
-                    label: `${point.label} (${category})`
+        // Category order
+        const categoryOrder = [
+            'Gerais',
+            'Movimento e Manobra',
+            'Passagens',
+            'Fogos',
+            'Proteção - Obstáculos',
+            'Proteção - Fortificação',
+            'Proteção - Minas',
+            'Proteção - QBRN',
+            'Logística',
+            'Controle Aéreo',
+            'Controle Marítimo'
+        ];
+
+        categoryOrder.forEach(category => {
+            if (grouped[category]) {
+                grouped[category].forEach(point => {
+                    options.push({
+                        value: point.code,
+                        label: `${point.label} (${category})`
+                    });
                 });
-            });
+            }
         });
 
-        // Adicionar tipos especiais (escalão)
-        options.push({ value: 'ECHELON', label: '⭐ Escalão (requer subtipo)' });
-        options.push({ value: 'ECHELON_FT', label: '⭐ Escalão Força-Tarefa (requer subtipo)' });
+        // Add special types (echelon)
+        options.push({
+            value: 'ECHELON',
+            label: '⭐ Escalão (requer subtipo)'
+        });
+        options.push({
+            value: 'ECHELON_FT',
+            label: '⭐ Escalão Força-Tarefa (requer subtipo)'
+        });
 
         return options;
+    }
+
+    /**
+     * Get echelon subtype options
+     */
+    function getEchelonSubtypeOptions(echelonType) {
+        const subtypes = echelonType === 'ECHELON_FT'
+            ? UI_DATA.echelonFTSubtypes
+            : UI_DATA.echelonSubtypes;
+
+        return subtypes.map(st => ({
+            value: st.code,
+            label: st.label
+        }));
+    }
+
+    /**
+     * Check if point code is an echelon type
+     */
+    function isEchelonPointCode(pointCode) {
+        if (!pointCode) return false;
+        return pointCode === 'ECHELON' ||
+            pointCode === 'ECHELON_FT' ||
+            pointCode.startsWith('ECHELON_');
+    }
+
+    /**
+     * Clear all text modifiers from properties
+     */
+    function clearAllTextModifiers(properties) {
+        const modifiers = [
+            'tipo', 'identificacao', 'gdhIni', 'gdhFim', 'numero',
+            'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
+        ];
+
+        modifiers.forEach(mod => {
+            delete properties[mod];
+        });
+    }
+
+    /**
+     * Get point label from code
+     */
+    function getPointLabel(pointCode) {
+        if (!pointCode) return 'Não definido';
+
+        const pointData = COORDINATION_POINTS_CATALOG[pointCode];
+        if (pointData) {
+            return pointData.name || pointData.label || pointCode;
+        }
+
+        // Try to find in UI_DATA
+        const uiPoint = UI_DATA.pointsList.find(p => p.code === pointCode);
+        if (uiPoint) {
+            return uiPoint.label;
+        }
+
+        // Check echelon types
+        const echelon = UI_DATA.echelonSubtypes.find(e => e.code === pointCode);
+        if (echelon) {
+            return echelon.label;
+        }
+
+        const echelonFT = UI_DATA.echelonFTSubtypes.find(e => e.code === pointCode);
+        if (echelonFT) {
+            return echelonFT.label;
+        }
+
+        return pointCode;
     }
 }
 
