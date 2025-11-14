@@ -246,6 +246,8 @@ class BaseLayerControl {
                 // Aplicar a posição com jumpTo
                 this.map.jumpTo({
                     center: [position.center_long, position.center_lat],
+                    bearing: position.bearing,
+                    pitch: position.pitch,
                     zoom: position.zoom
                 });
 
