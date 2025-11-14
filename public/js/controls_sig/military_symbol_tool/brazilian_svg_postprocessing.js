@@ -158,6 +158,23 @@ function buildTextElement(descriptor) {
 }
 
 /**
+ * Convert HEX color to RGB string
+ * @param {string} hex - HEX color (e.g., "#11FF00" or "11FF00")
+ * @returns {string} RGB string (e.g., "rgb(17,255,0)")
+ */
+function hexToRgb(hex) {
+    // Remove # if present
+    hex = hex.replace('#', '');
+    
+    // Parse hex values
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    
+    return `rgb(${r},${g},${b})`;
+}
+
+/**
  * ========================================
  * PIPELINE COMPLETO
  * ========================================
@@ -175,9 +192,10 @@ function buildTextElement(descriptor) {
  * @param {string} svgString - Base SVG from milsymbol.js
  * @param {string} sidc30 - SIDC with 30 digits
  * @param {string} symbolSetCode - Symbol set code (e.g., "10", "15")
+ * @param {Object} customColor - Custom color
  * @returns {string} SVG with all Brazilian modifications applied
  */
-export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
+export function applyBrazilianModifications(svgString, sidc30, symbolSetCode, customColor = null) {
     if (!symbolSetCode) {
         console.error('symbolSetCode is required for Brazilian modifications');
         return svgString;
@@ -201,6 +219,11 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
     result = applyBrazilianLabelsToSVG(result, sidc20, symbolSetCode);
     
     if (!extension) {
+        // Apply engagement bar color if custom color is set
+        if (customColor) {
+            const customRgb = hexToRgb(customColor);
+            result = result.replace(/rgb\(128,224,255\)/g, customRgb);
+        }
         return result;
     }
     if (hasExtensions(symbolSetCode, 'mainIcon', mainIconCode)) {
@@ -299,6 +322,12 @@ export function applyBrazilianModifications(svgString, sidc30, symbolSetCode) {
         } else {
             console.warn(`Command element not applicable for Symbol Set ${symbolSetCode}`);
         }
+    }
+    
+    // Apply engagement bar color if custom color is set
+    if (customColor) {
+        const customRgb = hexToRgb(customColor);
+        result = result.replace(/rgb\(128,224,255\)/g, customRgb);
     }
     
     return result;

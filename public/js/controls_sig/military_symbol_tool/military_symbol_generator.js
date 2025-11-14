@@ -312,7 +312,7 @@ export class MilitarySymbolGenerator {
         }
 
         // 9. Apply Brazilian modifications to final SVG
-        svgString = applyBrazilianModifications(svgString, sidc30, symbolSetCode);
+        svgString = applyBrazilianModifications(svgString, sidc30, symbolSetCode, customColor);
 
         // 10. Convert to PNG blob with adjusted target dimensions
         // The finalWidth/finalHeight ensures the symbol maintains visual size
