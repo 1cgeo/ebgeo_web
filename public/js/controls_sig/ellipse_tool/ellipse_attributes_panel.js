@@ -6,6 +6,7 @@ import {
     createAttributeRow, 
     createStandardButtons,
     createEditableFeatureName,
+    createLineStyleSelect,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
@@ -69,6 +70,15 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
     }));
 
     $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
+
+    // Estilo da linha
+    const lineStyleSelect = createLineStyleSelect(
+        feature.properties.lineStyle || 'solid',
+        (newValue) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+        }
+    );
+    $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     // ✅ FIXED: Pass initialPropertiesMap captured at panel opening

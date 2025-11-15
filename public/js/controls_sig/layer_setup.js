@@ -230,7 +230,15 @@ function setupRectangleLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
+                'line-opacity': 1,
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
             filter: ['!=', ['get', 'visivel'], false]
         });
@@ -497,78 +505,17 @@ function setupLineLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'color'],
                 'line-width': ['get', 'size'],
-                'line-opacity': ['get', 'opacity']
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'solid'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('line-layer-dashed')) {
-        mapInstance.addLayer({
-            id: 'line-layer-dashed',
-            type: 'line',
-            source: 'lines',
-            layout: {
-                'line-cap': 'round',
-                'line-join': 'round'
-            },
-            paint: {
-                'line-color': ['get', 'color'],
-                'line-width': ['get', 'size'],
                 'line-opacity': ['get', 'opacity'],
-                'line-dasharray': [8, 4]
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dashed'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('line-layer-dotted')) {
-        mapInstance.addLayer({
-            id: 'line-layer-dotted',
-            type: 'line',
-            source: 'lines',
-            layout: {
-                'line-cap': 'round',
-                'line-join': 'round'
-            },
-            paint: {
-                'line-color': ['get', 'color'],
-                'line-width': ['get', 'size'],
-                'line-opacity': ['get', 'opacity'],
-                'line-dasharray': [2, 3]
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dotted'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('line-layer-dash-dot')) {
-        mapInstance.addLayer({
-            id: 'line-layer-dash-dot',
-            type: 'line',
-            source: 'lines',
-            layout: {
-                'line-cap': 'round',
-                'line-join': 'round'
-            },
-            paint: {
-                'line-color': ['get', 'color'],
-                'line-width': ['get', 'size'],
-                'line-opacity': ['get', 'opacity'],
-                'line-dasharray': [8, 4, 2, 4]
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dash-dot'],
-                ['!=', ['get', 'visivel'], false]
-            ]
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
@@ -663,66 +610,17 @@ function setupPolygonLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'outlinecolor'],
                 'line-width': ['get', 'size'],
-                'line-opacity': 1
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'solid'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('polygon-layer-dashed')) {
-        mapInstance.addLayer({
-            id: 'polygon-layer-dashed',
-            type: 'line',
-            source: 'polygons',
-            paint: {
-                'line-color': ['get', 'outlinecolor'],
-                'line-width': ['get', 'size'],
                 'line-opacity': 1,
-                'line-dasharray': [8, 4]
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dashed'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('polygon-layer-dotted')) {
-        mapInstance.addLayer({
-            id: 'polygon-layer-dotted',
-            type: 'line',
-            source: 'polygons',
-            paint: {
-                'line-color': ['get', 'outlinecolor'],
-                'line-width': ['get', 'size'],
-                'line-opacity': 1,
-                'line-dasharray': [2, 3]
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dotted'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('polygon-layer-dash-dot')) {
-        mapInstance.addLayer({
-            id: 'polygon-layer-dash-dot',
-            type: 'line',
-            source: 'polygons',
-            paint: {
-                'line-color': ['get', 'outlinecolor'],
-                'line-width': ['get', 'size'],
-                'line-opacity': 1,
-                'line-dasharray': [8, 4, 2, 4]
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dash-dot'],
-                ['!=', ['get', 'visivel'], false]
-            ]
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
@@ -1142,7 +1040,15 @@ function setupEllipseLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
+                'line-opacity': 1,
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
             filter: ['!=', ['get', 'visivel'], false]
         });
@@ -1566,21 +1472,15 @@ function setupCircleLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
-            },
-            filter: ['!=', ['get', 'visivel'], false]
-        });
-    }
-
-    if (!mapInstance.getLayer('circle-x-layer')) {
-        mapInstance.addLayer({
-            id: 'circle-x-layer',
-            type: 'line',
-            source: 'circle-x-marks',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
+                'line-opacity': 1,
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
             filter: ['!=', ['get', 'visivel'], false]
         });

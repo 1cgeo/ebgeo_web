@@ -7,6 +7,7 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createLineStyleSelect,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
@@ -64,6 +65,15 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     }));
 
     $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
+
+    // Estilo da linha
+    const lineStyleSelect = createLineStyleSelect(
+        feature.properties.lineStyle || 'solid',
+        (newValue) => {
+            rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+        }
+    );
+    $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
     const borderRadiusControl = createSliderWithInput({
         min: 0,

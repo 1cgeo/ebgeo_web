@@ -30,6 +30,7 @@ class AddEllipseControl extends BaseControl {
         lineColor: '#3f4fb5',
         fillColor: '#3f4fb5',
         lineWidth: 2,
+        lineStyle: 'solid',
         opacity: 0.5,
         source: 'ellipse',
         nome: '',

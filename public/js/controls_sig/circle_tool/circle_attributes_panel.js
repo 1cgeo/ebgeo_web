@@ -7,6 +7,7 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createLineStyleSelect,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
@@ -69,6 +70,15 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
     }));
 
     $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
+
+    // Estilo da linha
+    const lineStyleSelect = createLineStyleSelect(
+        feature.properties.lineStyle || 'solid',
+        (newValue) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+        }
+    );
+    $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
     // Raio (somente informativo)
     const radiusValue = document.createElement('span');
