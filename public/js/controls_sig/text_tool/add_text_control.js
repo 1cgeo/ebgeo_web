@@ -312,11 +312,11 @@ class AddTextControl extends BaseControl {
      * Update selection boxes for specific features (used after drag or attribute changes)
      * Always uses fresh data from map source to ensure accuracy
      */
-    updateSelectionBoxesForFeatures = (features) => {
+    updateSelectionBoxesForFeatures = async (features) => {
         if (!features || features.length === 0) return;
 
         // CRITICAL: Always get fresh data from map source
-        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        const data = await this.map.getSource('texts').getData();
         let hasChanges = false;
 
         features.forEach(inputFeature => {
@@ -380,7 +380,7 @@ class AddTextControl extends BaseControl {
 
     // ===== TEXT CREATION SYSTEM =====
 
-    handleMapClick = (e) => {
+    handleMapClick = async (e) => {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
@@ -388,13 +388,13 @@ class AddTextControl extends BaseControl {
             return;
         }
 
-        this.createTextFeature(e.lngLat);
+        await this.createTextFeature(e.lngLat);
         this.toolManager.deactivateCurrentTool();
     }
 
     createTextFeature = async (lngLat) => {
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('text', this.map);
+        const featureName = await IDUtils.generateFeatureName('text', this.map);
 
         const currentZoom = this.map.getZoom();
         const coordinates = [lngLat.lng, lngLat.lat];
@@ -428,7 +428,7 @@ class AddTextControl extends BaseControl {
         try {
             await addFeature('texts', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+            const data = await this.map.getSource('texts').getData();
             data.features.push(feature);
             this.map.getSource('texts').setData(data);
 
@@ -463,14 +463,14 @@ class AddTextControl extends BaseControl {
         });
     }
 
-    updateAllTextSizes = () => {
+    updateAllTextSizes = async () => {
         if (!this.map.getSource('texts')) {
             this.pendingZoomUpdate = false;
             return;
         }
 
         const currentZoom = this.map.getZoom();
-        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+        const data = await this.map.getSource('texts').getData();
         let hasChanges = false;
 
         data.features.forEach(feature => {
@@ -527,7 +527,7 @@ class AddTextControl extends BaseControl {
      * This method handles the critical synchronization between the main 'texts' source
      * and the separate 'text-backgrounds' source used for background rendering
      */
-    updateTextBackgroundsSource = () => {
+    updateTextBackgroundsSource = async () => {
         // Check if text-backgrounds source exists
         if (!this.map.getSource('text-backgrounds')) {
             console.warn('text-backgrounds source not found - skipping background sync');
@@ -536,7 +536,8 @@ class AddTextControl extends BaseControl {
 
         try {
             // Get current texts data
-            const currentTexts = this.map.getSource('texts')._data.features;
+            const currentTextsData = await this.map.getSource('texts').getData();
+            const currentTexts = currentTextsData.features;
             
             // Generate background features from current texts
             const backgroundFeatures = currentTexts
@@ -581,8 +582,8 @@ class AddTextControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('texts').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -635,11 +636,11 @@ class AddTextControl extends BaseControl {
         }
 
         // Update map source first
-        this.forceUpdateMainSource(data);
+        await this.forceUpdateMainSource(data);
 
         // 🆕 SYNC BACKGROUNDS: Update text-backgrounds source if properties affect background
         if (this.isBackgroundAffectingProperty(property)) {
-            this.updateTextBackgroundsSource();
+            await this.updateTextBackgroundsSource();
         }
 
         // CRITICAL FIX: Get fresh features from map source before updating SelectionManager  
@@ -665,7 +666,7 @@ class AddTextControl extends BaseControl {
     /**
      * Force update main source with drag protection (same pattern as circle control)
      */
-    forceUpdateMainSource = (data) => {
+    forceUpdateMainSource = async (data) => {
         // PERFORMANCE FIX: Don't update source during drag operations to prevent conflicts
         if (this.selectionManager.uiManager && this.selectionManager.uiManager.isDragging) {
             return;
@@ -708,7 +709,7 @@ class AddTextControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         // Always get fresh feature data from map source before saving
-        const currentData = this.map.getSource('texts')._data;
+        const currentData = await this.map.getSource('texts').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -743,7 +744,7 @@ class AddTextControl extends BaseControl {
                 await removeFeature('texts', featureId);
 
                 // Update map source
-                const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+                const data = await this.map.getSource('texts').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('texts').setData(data);
@@ -753,7 +754,7 @@ class AddTextControl extends BaseControl {
         }
         
         // 🆕 SYNC BACKGROUNDS: Update backgrounds after deletion
-        this.updateTextBackgroundsSource();
+        await this.updateTextBackgroundsSource();
     }
 
     setDefaultProperties = (properties) => {
@@ -788,7 +789,7 @@ class AddTextControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('texts')._data));
+            const data = await this.map.getSource('texts').getData();
             const currentZoom = this.map.getZoom();
             let backgroundNeedsUpdate = false;
 
@@ -818,11 +819,11 @@ class AddTextControl extends BaseControl {
             }
 
             // CRITICAL FIX: Use protected method for source updates
-            this.forceUpdateMainSource(data);
+            await this.forceUpdateMainSource(data);
 
             // 🆕 SYNC BACKGROUNDS: Update backgrounds if any feature has background enabled
             if (backgroundNeedsUpdate) {
-                this.updateTextBackgroundsSource();
+                await this.updateTextBackgroundsSource();
             }
 
             // Update SelectionManager with updated features

@@ -280,7 +280,7 @@ class AddOccupiedFrontControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
-    handleMapClick = (e) => {
+    handleMapClick = async (e) => {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
@@ -294,7 +294,7 @@ class AddOccupiedFrontControl extends BaseControl {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
-            this.createFeature();
+            await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         }
     }
@@ -381,7 +381,7 @@ class AddOccupiedFrontControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('occupied_front', this.map);
+        const featureName = await IDUtils.generateFeatureName('occupied_front', this.map);
         const coordinates = [p1, p2, p3];
 
         const feature = {
@@ -399,7 +399,7 @@ class AddOccupiedFrontControl extends BaseControl {
         try {
             await addFeature('occupied_fronts', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
+            const data = await this.map.getSource('occupied_fronts').getData();
             data.features.push(feature);
             this.map.getSource('occupied_fronts').setData(data);
 
@@ -628,8 +628,8 @@ class AddOccupiedFrontControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('occupied_fronts').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -665,7 +665,7 @@ class AddOccupiedFrontControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         // CRITICAL FIX: Always get fresh feature data from map source before saving
-        const currentData = this.map.getSource('occupied_fronts')._data;
+        const currentData = await this.map.getSource('occupied_fronts').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -697,7 +697,7 @@ class AddOccupiedFrontControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
                 await removeFeature('occupied_fronts', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
+                const data = await this.map.getSource('occupied_fronts').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('occupied_fronts').setData(data);
@@ -728,7 +728,7 @@ class AddOccupiedFrontControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
+            const data = await this.map.getSource('occupied_fronts').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -792,13 +792,13 @@ class AddOccupiedFrontControl extends BaseControl {
         }
     }
 
-    forceUpdateMainSource = (feature) => {
+    forceUpdateMainSource = async (feature) => {
         // Don't update source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('occupied_fronts')._data));
+        const data = await this.map.getSource('occupied_fronts').getData();
         const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {

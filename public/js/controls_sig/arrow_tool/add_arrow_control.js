@@ -309,7 +309,7 @@ class AddArrowControl extends BaseControl {
         }
     }
 
-    handleRightClick = (e) => {
+    handleRightClick = async (e) => {
         if (!this.isActive || this.drawPoints.length === 0) return;
 
         e.preventDefault();
@@ -324,7 +324,7 @@ class AddArrowControl extends BaseControl {
 
         if (this.drawPoints.length >= 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
-            this.createFeature();
+            await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         } else {
             this.stopDrawing();
@@ -418,7 +418,7 @@ class AddArrowControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('arrow', this.map);
+        const featureName = await IDUtils.generateFeatureName('arrow', this.map);
 
         const feature = {
             type: 'Feature',
@@ -435,7 +435,7 @@ class AddArrowControl extends BaseControl {
         try {
             await addFeature('arrows', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
+            const data = await this.map.getSource('arrows').getData();
             data.features.push(feature);
             this.map.getSource('arrows').setData(data);
 
@@ -674,8 +674,8 @@ class AddArrowControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('arrows').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -711,7 +711,7 @@ class AddArrowControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        const currentData = this.map.getSource('arrows')._data;
+        const currentData = await this.map.getSource('arrows').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -742,7 +742,7 @@ class AddArrowControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
                 await removeFeature('arrows', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
+                const data = await this.map.getSource('arrows').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('arrows').setData(data);
@@ -780,7 +780,7 @@ class AddArrowControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
+            const data = await this.map.getSource('arrows').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -837,12 +837,12 @@ class AddArrowControl extends BaseControl {
         }
     }
 
-    forceUpdateMainSource = (feature) => {
+    forceUpdateMainSource = async (feature) => {
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('arrows')._data));
+        const data = await this.map.getSource('arrows').getData();
         const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = { ...feature.properties };

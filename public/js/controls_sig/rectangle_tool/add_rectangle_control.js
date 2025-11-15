@@ -286,7 +286,7 @@ class AddRectangleControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
-    handleMapClick = (e) => {
+    handleMapClick = async (e) => {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
@@ -300,7 +300,7 @@ class AddRectangleControl extends BaseControl {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
-            this.createFeature();
+            await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         }
     }
@@ -335,7 +335,10 @@ class AddRectangleControl extends BaseControl {
             if (width >= 10 && height >= 10) {
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.geometry.generate(corner1, corner2, selectedFeature.properties.borderRadius || 0);
+                    const borderRadius = selectedFeature ? 
+                        (selectedFeature.properties.borderRadius || 0) : 
+                        AddRectangleControl.DEFAULT_PROPERTIES.borderRadius;
+                    const previewGeometry = this.geometry.generate(corner1, corner2, borderRadius);
                     this.showPreview(previewGeometry);
                 }, 8);
             }
@@ -379,7 +382,7 @@ class AddRectangleControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('rectangle', this.map);
+        const featureName = await IDUtils.generateFeatureName('rectangle', this.map);
 
         const feature = {
             type: 'Feature',
@@ -400,7 +403,7 @@ class AddRectangleControl extends BaseControl {
         try {
             await addFeature('rectangles', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+            const data = await this.map.getSource('rectangles').getData();
             data.features.push(feature);
             this.map.getSource('rectangles').setData(data);
 
@@ -514,7 +517,7 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
-    onEditMouseUp = (e) => {
+    onEditMouseUp = async (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature) {
             // CRITICAL FIX: Use current event position, not cached position
@@ -555,7 +558,7 @@ class AddRectangleControl extends BaseControl {
                         geometry: finalGeometry
                     };
 
-                    this.forceUpdateMainSource(updatedFeature);
+                    await this.forceUpdateMainSource(updatedFeature);
                     this.updateSelectionManagerFeature(updatedFeature);
                     
                     // CRITICAL FIX: Recreate handles after brief delay to ensure geometry is updated
@@ -671,8 +674,8 @@ class AddRectangleControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('rectangles').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -721,7 +724,7 @@ class AddRectangleControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         // CRITICAL FIX: Always get fresh feature data from map source before saving
-        const currentData = this.map.getSource('rectangles')._data;
+        const currentData = await this.map.getSource('rectangles').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -758,7 +761,7 @@ class AddRectangleControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
                 await removeFeature('rectangles', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+                const data = await this.map.getSource('rectangles').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('rectangles').setData(data);
@@ -794,7 +797,7 @@ class AddRectangleControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+            const data = await this.map.getSource('rectangles').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -859,13 +862,13 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
-    forceUpdateMainSource = (feature) => {
+    forceUpdateMainSource = async (feature) => {
         // Don't update source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+        const data = await this.map.getSource('rectangles').getData();
         const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {

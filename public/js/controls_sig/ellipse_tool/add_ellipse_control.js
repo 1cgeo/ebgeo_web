@@ -281,7 +281,7 @@ class AddEllipseControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
-    handleMapClick = (e) => {
+    handleMapClick = async (e) => {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
@@ -295,7 +295,7 @@ class AddEllipseControl extends BaseControl {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
-            this.createFeature();
+            await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         }
     }
@@ -378,7 +378,7 @@ class AddEllipseControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('ellipse', this.map);
+        const featureName = await IDUtils.generateFeatureName('ellipse', this.map);
 
         const feature = {
             type: 'Feature',
@@ -398,7 +398,7 @@ class AddEllipseControl extends BaseControl {
         try {
             await addFeature('ellipses', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+            const data = await this.map.getSource('ellipses').getData();
             data.features.push(feature);
             this.map.getSource('ellipses').setData(data);
 
@@ -672,8 +672,8 @@ class AddEllipseControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('ellipses').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -715,7 +715,7 @@ class AddEllipseControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         // Always get fresh feature data from map source before saving
-        const currentData = this.map.getSource('ellipses')._data;
+        const currentData = await this.map.getSource('ellipses').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -749,7 +749,7 @@ class AddEllipseControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
                 await removeFeature('ellipses', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+                const data = await this.map.getSource('ellipses').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('ellipses').setData(data);
@@ -784,7 +784,7 @@ class AddEllipseControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+            const data = await this.map.getSource('ellipses').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -847,13 +847,13 @@ class AddEllipseControl extends BaseControl {
         }
     }
 
-    forceUpdateMainSource = (feature) => {
+    forceUpdateMainSource = async (feature) => {
         // Don't update source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+        const data = await this.map.getSource('ellipses').getData();
         const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {

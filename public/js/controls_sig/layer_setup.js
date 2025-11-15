@@ -1714,9 +1714,9 @@ function setupTextLayers(features, mapInstance) {
     }
 
     // Função helper para atualizar backgrounds quando textos mudarem
-    const updateBackgroundFeatures = () => {
-        const currentTexts = mapInstance.getSource('texts')._data.features;
-        const updatedBackgroundFeatures = currentTexts
+    const updateBackgroundFeatures = async () => {
+        const currentTexts = await mapInstance.getSource('texts').getData();
+        const updatedBackgroundFeatures = currentTexts.features
             .filter(feature => feature.properties.showBackground && feature.properties.selectionBox)
             .map(feature => ({
                 type: 'Feature',

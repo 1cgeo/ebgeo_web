@@ -120,7 +120,7 @@ class ClipboardManager {
                 // Update IDs and name
                 pastedFeature.id = newGeoJSONId;
                 pastedFeature.properties.id = newId;
-                pastedFeature.properties.nome = this.generateUniqueFeatureName(
+                pastedFeature.properties.nome = await this.generateUniqueFeatureName(
                     feature.properties.nome,
                     type
                 );
@@ -140,8 +140,8 @@ class ClipboardManager {
             await addFeatures(newFeaturesByType);
 
             // Update map sources and UI
-            this.updateMapSources(newFeaturesByType);
-            this.autoSelectPastedFeatures(newFeaturesByType);
+            await this.updateMapSources(newFeaturesByType);
+            await this.autoSelectPastedFeatures(newFeaturesByType);
 
             const totalFeatures = Object.values(newFeaturesByType)
                 .reduce((sum, features) => sum + features.length, 0);
@@ -248,9 +248,9 @@ class ClipboardManager {
     /**
      * Generate unique feature name
      */
-    generateUniqueFeatureName(originalName, featureType) {
+    async generateUniqueFeatureName(originalName, featureType) {
         if (!originalName || !originalName.trim()) {
-            return IDUtils.generateFeatureName(featureType, this.map);
+            return await IDUtils.generateFeatureName(featureType, this.map);
         }
 
         if (!originalName.includes('- Cópia')) {
@@ -351,12 +351,12 @@ class ClipboardManager {
     /**
      * Update map sources with pasted features
      */
-    updateMapSources(newFeaturesByType) {
+    async updateMapSources(newFeaturesByType) {
         for (const [storageType, features] of Object.entries(newFeaturesByType)) {
             const mapSource = this.map.getSource(storageType);
 
-            if (mapSource && mapSource._data) {
-                const data = JSON.parse(JSON.stringify(mapSource._data));
+            if (mapSource) {
+                const data = await mapSource.getData();
                 data.features.push(...features);
                 mapSource.setData(data);
 
@@ -387,20 +387,20 @@ class ClipboardManager {
     /**
      * Auto-select pasted features
      */
-    autoSelectPastedFeatures(newFeaturesByType) {
+    async autoSelectPastedFeatures(newFeaturesByType) {
         this.selectionManager.deselectAllFeatures();
 
         for (const [storageType, features] of Object.entries(newFeaturesByType)) {
             const sourceType = this.getSourceTypeFromStorage(storageType);
 
-            features.forEach(feature => {
-                this.selectionManager.toggleFeatureSelection(
+            for (const feature of features) {
+                await this.selectionManager.toggleFeatureSelection(
                     sourceType,
                     feature.properties.id,
                     feature,
                     false
                 );
-            });
+            }
         }
 
         this.selectionManager.updateUI();

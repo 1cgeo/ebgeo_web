@@ -424,7 +424,7 @@ class AddLineControl extends BaseControl {
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
     }
 
-    handleRightClick = (e) => {
+    handleRightClick = async (e) => {
         if (!this.isActive || this.drawPoints.length === 0) return;
 
         e.preventDefault();
@@ -440,7 +440,7 @@ class AddLineControl extends BaseControl {
         // Finish line if we have at least 2 points
         if (this.drawPoints.length >= 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
-            this.createFeature();
+            await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         }
     }
@@ -521,7 +521,7 @@ class AddLineControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('line', this.map);
+        const featureName = await IDUtils.generateFeatureName('line', this.map);
         const coordinates = [...this.drawPoints];
 
         const feature = {
@@ -540,7 +540,7 @@ class AddLineControl extends BaseControl {
         try {
             await addFeature('lines', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
+            const data = await this.map.getSource('lines').getData();
             data.features.push(feature);
             this.map.getSource('lines').setData(data);
 
@@ -690,7 +690,7 @@ class AddLineControl extends BaseControl {
                     }
 
                     // Update everything with complete feature data (including fresh profile)
-                    this.forceUpdateMainSource(updatedFeature);
+                    await this.forceUpdateMainSource(updatedFeature);
                     this.updateSelectionManagerFeature(updatedFeature);
                     this.createEditHandles(updatedFeature);
                     
@@ -909,7 +909,7 @@ class AddLineControl extends BaseControl {
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
+        const data = await this.map.getSource('lines').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -973,7 +973,7 @@ class AddLineControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        const currentData = this.map.getSource('lines')._data;
+        const currentData = await this.map.getSource('lines').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -1009,7 +1009,7 @@ class AddLineControl extends BaseControl {
                 this.removeFeatureMeasurement(featureId);
 
                 await removeFeature('lines', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
+                const data = await this.map.getSource('lines').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('lines').setData(data);
@@ -1044,7 +1044,7 @@ class AddLineControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
+            const data = await this.map.getSource('lines').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -1110,12 +1110,12 @@ class AddLineControl extends BaseControl {
         }
     }
 
-    forceUpdateMainSource = (feature) => {
+    forceUpdateMainSource = async (feature) => {
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('lines')._data));
+        const data = await this.map.getSource('lines').getData();
         const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {

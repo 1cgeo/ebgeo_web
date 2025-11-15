@@ -926,22 +926,21 @@ class FeaturesTab {
         this.selectionManager.deselectAllFeatures();
 
         // Iterar pelas features do grupo corretamente
-        groupData.features.forEach((featureRef) => {
+        for (const featureRef of groupData.features) {
           // featureRef tem { type: sourceType, id: featureId }
-          const completeFeature =
-            this.selectionManager.getCompleteFeatureFromSource(
-              featureRef.type,
-              featureRef.id
-            );
+          const completeFeature = await this.selectionManager.getCompleteFeatureFromSource(
+            featureRef.type,
+            featureRef.id
+          );
           if (completeFeature) {
-            this.selectionManager.toggleFeatureSelection(
+            await this.selectionManager.toggleFeatureSelection(
               featureRef.type,
               featureRef.id,
               completeFeature,
               false
             );
           }
-        });
+        }
 
         this.selectionManager.updateUI();
       }
@@ -999,22 +998,22 @@ class FeaturesTab {
       const currentMapName = getCurrentMapNameSync();
       const group = getMapGroups(currentMapName).get(groupId);
       if (group) {
-        group.features.forEach((featureRef) => {
+        for (const featureRef of group.features) {
           // Usar função correta para conversão de tipos
           const storageType = getStorageTypeFromSource(featureRef.type);
           if (!storageType) {
             console.error(
               `Não foi possível converter tipo ${featureRef.type} para storage type`
             );
-            return;
+            continue;
           }
-          this.propagateFeaturePropertyToSource(
+          await this.propagateFeaturePropertyToSource(
             storageType,
             featureRef.id,
             "visivel",
             newVisibility
           );
-        });
+        }
       }
 
       // Atualizar interface visual
@@ -1038,22 +1037,22 @@ class FeaturesTab {
       const currentMapName = getCurrentMapNameSync();
       const group = getMapGroups(currentMapName).get(groupId);
       if (group) {
-        group.features.forEach((featureRef) => {
+        for (const featureRef of group.features) {
           // Usar função correta para conversão de tipos
           const storageType = getStorageTypeFromSource(featureRef.type);
           if (!storageType) {
             console.error(
               `Não foi possível converter tipo ${featureRef.type} para storage type`
             );
-            return;
+            continue;
           }
-          this.propagateFeaturePropertyToSource(
+          await this.propagateFeaturePropertyToSource(
             storageType,
             featureRef.id,
             "bloqueado",
             newLockState
           );
-        });
+        }
       }
 
       // Atualizar interface visual
@@ -1311,7 +1310,7 @@ class FeaturesTab {
     );
 
     // 2. Propagar para source do mapa
-    this.propagateFeaturePropertyToSource(
+    await this.propagateFeaturePropertyToSource(
       featureType,
       featureId,
       "visivel",
@@ -1361,7 +1360,7 @@ class FeaturesTab {
     );
 
     // 2. Propagar para source do mapa
-    this.propagateFeaturePropertyToSource(
+    await this.propagateFeaturePropertyToSource(
       featureType,
       featureId,
       "bloqueado",
@@ -1397,16 +1396,16 @@ class FeaturesTab {
    * Propaga alteração de propriedade para o source do Mapbox
    * Pega todas as features do source, atualiza a específica e faz setData
    */
-  propagateFeaturePropertyToSource(featureType, featureId, property, value) {
+  async propagateFeaturePropertyToSource(featureType, featureId, property, value) {
     const source = this.map.getSource(featureType);
-    if (!source || !source._data) {
-      console.warn(`Source ${featureType} não encontrado ou sem dados`);
+    if (!source) {
+      console.warn(`Source ${featureType} não encontrado`);
       return;
     }
 
     try {
       // Pegar TODAS as features do source
-      const data = JSON.parse(JSON.stringify(source._data));
+      const data = await source.getData();
 
       const featureIndex = data.features.findIndex(
         (f) => f.properties.id === featureId || f.id === featureId

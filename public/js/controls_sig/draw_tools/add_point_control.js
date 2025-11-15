@@ -246,7 +246,7 @@ class AddPointControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
-    handleMapClick = (e) => {
+    handleMapClick = async (e) => {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
@@ -254,7 +254,7 @@ class AddPointControl extends BaseControl {
             return;
         }
 
-        this.createPointAtCoordinates(e.lngLat.lng, e.lngLat.lat);
+        await this.createPointAtCoordinates(e.lngLat.lng, e.lngLat.lat);
     }
 
     /**
@@ -272,7 +272,7 @@ class AddPointControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('point', this.map);
+        const featureName = await IDUtils.generateFeatureName('point', this.map);
 
         const feature = {
             type: 'Feature',
@@ -288,7 +288,7 @@ class AddPointControl extends BaseControl {
         try {
             await addFeature('points', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('points')._data));
+            const data = await this.map.getSource('points').getData();
             data.features.push(feature);
             this.map.getSource('points').setData(data);
 
@@ -305,8 +305,8 @@ class AddPointControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('points')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('points').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -330,7 +330,7 @@ class AddPointControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         // CRITICAL FIX: Always get fresh feature data from map source before saving
-        const currentData = this.map.getSource('points')._data;
+        const currentData = await this.map.getSource('points').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -361,7 +361,7 @@ class AddPointControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
                 await removeFeature('points', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('points')._data));
+                const data = await this.map.getSource('points').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('points').setData(data);
@@ -392,7 +392,7 @@ class AddPointControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('points')._data));
+            const data = await this.map.getSource('points').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {

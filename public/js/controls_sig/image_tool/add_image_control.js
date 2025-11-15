@@ -332,13 +332,13 @@ class AddImageControl extends BaseControl {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
-    input.onchange = (event) => {
+    input.onchange = async (event) => {
       const file = event.target.files[0];
       if (file) {
         const reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = async () => {
           const imageBase64 = reader.result;
-          this.addImageFeature(e.lngLat, imageBase64);
+          await this.addImageFeature(e.lngLat, imageBase64);
         };
         reader.readAsDataURL(file);
       }
@@ -377,7 +377,7 @@ class AddImageControl extends BaseControl {
             this.selectionManager.uiManager
           );
 
-        feature.properties.nome = IDUtils.generateFeatureName(
+        feature.properties.nome = await IDUtils.generateFeatureName(
           "image",
           this.map
         );
@@ -386,9 +386,7 @@ class AddImageControl extends BaseControl {
         await addFeature("images", feature);
 
         // Add to map
-        const data = JSON.parse(
-          JSON.stringify(this.map.getSource("images")._data)
-        );
+        const data = await this.map.getSource("images").getData();
         data.features.push(feature);
         this.map.getSource("images").setData(data);
 
@@ -524,14 +522,14 @@ class AddImageControl extends BaseControl {
     });
   };
 
-  updateAllImageSizes = () => {
+  updateAllImageSizes = async () => {
     if (!this.map.getSource("images")) {
       this.pendingZoomUpdate = false;
       return;
     }
 
     const currentZoom = this.map.getZoom();
-    const data = JSON.parse(JSON.stringify(this.map.getSource("images")._data));
+    const data = await this.map.getSource("images").getData();
     let hasChanges = false;
 
     data.features.forEach((feature) => {
@@ -587,8 +585,8 @@ class AddImageControl extends BaseControl {
 
   // ===== FEATURE MANAGEMENT INTERFACE =====
 
-  updateFeaturesProperty = (features, property, value) => {
-    const data = JSON.parse(JSON.stringify(this.map.getSource("images")._data));
+  updateFeaturesProperty = async (features, property, value) => {
+    const data = await this.map.getSource("images").getData();
 
     for (const feature of features) {
       const sourceFeature = data.features.find(
@@ -678,7 +676,7 @@ class AddImageControl extends BaseControl {
 
   saveFeatures = async (features, initialPropertiesMap) => {
     // Always get fresh feature data from map source before saving
-    const currentData = this.map.getSource("images")._data;
+    const currentData = await this.map.getSource("images").getData();
     let hasChanges = false;
 
     for (const selectedFeature of features) {
@@ -722,9 +720,7 @@ class AddImageControl extends BaseControl {
         await removeFeature("images", featureId);
 
         // Update map source
-        const data = JSON.parse(
-          JSON.stringify(this.map.getSource("images")._data)
-        );
+        const data = await this.map.getSource("images").getData();
         const idsToDelete = new Set(
           features.map((f) => String(f.properties.id))
         );
@@ -765,9 +761,7 @@ class AddImageControl extends BaseControl {
     onlyUpdateProperties = false
   ) => {
     if (features.length > 0) {
-      const data = JSON.parse(
-        JSON.stringify(this.map.getSource("images")._data)
-      );
+      const data = await this.map.getSource("images").getData();
       const currentZoom = this.map.getZoom();
 
       for (const feature of features) {

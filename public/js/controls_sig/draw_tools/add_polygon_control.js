@@ -306,7 +306,7 @@ class AddPolygonControl extends BaseControl {
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
     }
 
-    handleRightClick = (e) => {
+    handleRightClick = async (e) => {
         if (!this.isActive || this.drawPoints.length === 0) return;
 
         e.preventDefault();
@@ -322,7 +322,7 @@ class AddPolygonControl extends BaseControl {
         // Finish polygon if we have at least 3 points
         if (this.drawPoints.length >= 3) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
-            this.createFeature();
+            await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         } else {
             alert('Polígono deve ter pelo menos 3 pontos');
@@ -430,7 +430,7 @@ class AddPolygonControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('polygon', this.map);
+        const featureName = await IDUtils.generateFeatureName('polygon', this.map);
         const coordinates = [...this.drawPoints];
 
         const feature = {
@@ -448,7 +448,7 @@ class AddPolygonControl extends BaseControl {
         try {
             await addFeature('polygons', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('polygons')._data));
+            const data = await this.map.getSource('polygons').getData();
             data.features.push(feature);
             this.map.getSource('polygons').setData(data);
 
@@ -558,7 +558,7 @@ class AddPolygonControl extends BaseControl {
         }
     }
 
-    onEditMouseUp = () => {
+    onEditMouseUp = async () => {
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
             // Apply geometry changes directly (like Line Tool)
@@ -577,7 +577,7 @@ class AddPolygonControl extends BaseControl {
                     geometry: result.geometry
                 };
 
-                this.forceUpdateMainSource(updatedFeature);
+                await this.forceUpdateMainSource(updatedFeature);
                 this.updateSelectionManagerFeature(updatedFeature);
                 this.createEditHandles(updatedFeature);
                 this.updateUIAfterEdit();
@@ -769,8 +769,8 @@ class AddPolygonControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('polygons')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('polygons').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -814,7 +814,7 @@ class AddPolygonControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        const currentData = this.map.getSource('polygons')._data;
+        const currentData = await this.map.getSource('polygons').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -850,7 +850,7 @@ class AddPolygonControl extends BaseControl {
                 this.removeFeatureMeasurement(featureId);
                 
                 await removeFeature('polygons', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('polygons')._data));
+                const data = await this.map.getSource('polygons').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('polygons').setData(data);
@@ -884,7 +884,7 @@ class AddPolygonControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('polygons')._data));
+            const data = await this.map.getSource('polygons').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -944,12 +944,12 @@ class AddPolygonControl extends BaseControl {
         }
     }
 
-    forceUpdateMainSource = (feature) => {
+    forceUpdateMainSource = async (feature) => {
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('polygons')._data));
+        const data = await this.map.getSource('polygons').getData();
         const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {

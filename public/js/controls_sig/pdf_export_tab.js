@@ -421,7 +421,7 @@ export default class PDFExportTab {
     }
 
     // Corrigir tamanhos zoom-invariant após mudança de zoom
-    correctZoomInvariantFeatures(hiddenMap, finalZoom) {
+    async correctZoomInvariantFeatures(hiddenMap, finalZoom) {
         // Definir tipos e suas propriedades de correção
         const zoomInvariantSources = [
             {
@@ -453,17 +453,17 @@ export default class PDFExportTab {
         let anyChanges = false;
 
         // Aplicar correções para cada source e verificar se houve mudanças
-        zoomInvariantSources.forEach(sourceConfig => {
-            const sourceHasChanges = this.correctSourceFeatures(hiddenMap, sourceConfig, finalZoom);
+        for (const sourceConfig of zoomInvariantSources) {
+            const sourceHasChanges = await this.correctSourceFeatures(hiddenMap, sourceConfig, finalZoom);
             if (sourceHasChanges) {
                 anyChanges = true;
             }
-        });
+        }
 
         return anyChanges; // Retorna true se pelo menos um source teve mudanças
     }
 
-    correctSourceFeatures(hiddenMap, sourceConfig, finalZoom) {
+    async correctSourceFeatures(hiddenMap, sourceConfig, finalZoom) {
         try {
             const source = hiddenMap.getSource(sourceConfig.sourceName);
             if (!source) {
@@ -471,7 +471,7 @@ export default class PDFExportTab {
                 return false; // Retorna false se source não existe
             }
 
-            const data = source._data;
+            const data = await source.getData();
             if (!data?.features?.length) return false; // Retorna false se não há features
 
             let hasChanges = false;
@@ -665,7 +665,7 @@ export default class PDFExportTab {
 
             // 9. Corrigir zoom-invariant features
             const finalZoom = hiddenMap.getZoom();
-            const hadChanges = this.correctZoomInvariantFeatures(hiddenMap, finalZoom);
+            const hadChanges = await this.correctZoomInvariantFeatures(hiddenMap, finalZoom);
 
             // 10. Aguardar renderização final
             if (hadChanges) {
