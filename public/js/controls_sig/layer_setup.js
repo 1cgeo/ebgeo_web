@@ -397,8 +397,8 @@ function setupCoordinationMeasureLayers(features, mapInstance) {
         correctedSymbols = coordinationMeasureControl.applyZoomCorrections(features.coordination_measures);
     }
 
-    if (!mapInstance.getSource('coordination-measures-source')) {
-        mapInstance.addSource('coordination-measures-source', {
+    if (!mapInstance.getSource('coordination_measures')) {
+        mapInstance.addSource('coordination_measures', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -406,7 +406,7 @@ function setupCoordinationMeasureLayers(features, mapInstance) {
             }
         });
     } else {
-        mapInstance.getSource('coordination-measures-source').setData({
+        mapInstance.getSource('coordination_measures').setData({
             type: 'FeatureCollection',
             features: correctedSymbols
         });
@@ -416,7 +416,7 @@ function setupCoordinationMeasureLayers(features, mapInstance) {
         mapInstance.addLayer({
             id: 'coordination-measures-layer',
             type: 'symbol',
-            source: 'coordination-measures-source',
+            source: 'coordination_measures',
             paint: {
                 'icon-opacity': ['get', 'opacity']
             },

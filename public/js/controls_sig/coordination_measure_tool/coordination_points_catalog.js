@@ -58,7 +58,7 @@ const BASE_POINTS = {
     code: "130100",
     name: "Ponto genérico",
     category: "Gerais",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "bottom-center",
     textFields: ["tipo", "identificacao", "gdhIni", "gdhFim"]
   },
@@ -67,7 +67,7 @@ const BASE_POINTS = {
     code: "130600",
     name: "Ponto de Coordenação",
     category: "Gerais",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -77,7 +77,7 @@ const BASE_POINTS = {
     code: "130500",
     name: "Ponto de Ligação (numerado)",
     category: "Movimento e Manobra",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     requiresNumber: true,
     textFields: ["numero", "gdhIni", "gdhFim"]
@@ -87,7 +87,7 @@ const BASE_POINTS = {
     code: "130700",
     name: "Ponto de Decisão (numerado)",
     category: "Movimento e Manobra",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     requiresNumber: true,
     textFields: ["numero", "gdhIni", "gdhFim"]
@@ -97,7 +97,7 @@ const BASE_POINTS = {
     code: "131300",
     name: "Ponto de Interesse (numerado)",
     category: "Movimento e Manobra",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "bottom-center",
     requiresNumber: true,
     textFields: ["numero", "gdhIni", "gdhFim"]
@@ -107,7 +107,7 @@ const BASE_POINTS = {
     code: "160100",
     name: "Posto de Observação",
     category: "Movimento e Manobra",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -117,7 +117,7 @@ const BASE_POINTS = {
     code: "271500",
     name: "Trilha/travessia para pessoas a pé",
     category: "Passagens",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "bottom-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -126,7 +126,7 @@ const BASE_POINTS = {
     code: "290600",
     name: "Travessia/brecha simples",
     category: "Passagens",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -135,7 +135,7 @@ const BASE_POINTS = {
     code: "290699",
     name: "Travessia/brecha dupla",
     category: "Passagens",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -144,7 +144,7 @@ const BASE_POINTS = {
     code: "290800",
     name: "Travessia para carros de combate",
     category: "Passagens",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -153,7 +153,7 @@ const BASE_POINTS = {
     code: "290899_EXT1",
     name: "Local de portada leve",
     category: "Passagens",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -162,7 +162,7 @@ const BASE_POINTS = {
     code: "290899_EXT2",
     name: "Local de portada pesada",
     category: "Passagens",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -171,7 +171,7 @@ const BASE_POINTS = {
     code: "290700",
     name: "Local de passadeira",
     category: "Passagens",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -180,7 +180,7 @@ const BASE_POINTS = {
     code: "271400",
     name: "Ponte ou passagem tática",
     category: "Passagens",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -189,7 +189,7 @@ const BASE_POINTS = {
     code: "271300",
     name: "Local de travessia de assalto",
     category: "Passagens",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -199,7 +199,7 @@ const BASE_POINTS = {
     code: "240601",
     name: "Concentração de fogos",
     category: "Fogos",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "bottom-center",
     textFields: ["numeroConcentracao", "altitude", "gdhIni", "gdhFim"]
   },
@@ -209,7 +209,7 @@ const BASE_POINTS = {
     code: "271201",
     name: "Destruição planejada",
     category: "Proteção - Obstáculos",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -218,7 +218,7 @@ const BASE_POINTS = {
     code: "271203",
     name: "Destruição preparada",
     category: "Proteção - Obstáculos",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -227,7 +227,7 @@ const BASE_POINTS = {
     code: "271204",
     name: "Destruição realizada",
     category: "Proteção - Obstáculos",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -237,7 +237,7 @@ const BASE_POINTS = {
     code: "280900",
     name: "Abrigo individual",
     category: "Proteção - Fortificação",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -246,7 +246,7 @@ const BASE_POINTS = {
     code: "281000",
     name: "Abrigo superficial",
     category: "Proteção - Fortificação",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -255,7 +255,7 @@ const BASE_POINTS = {
     code: "281100",
     name: "Abrigo subterrâneo",
     category: "Proteção - Fortificação",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -264,7 +264,7 @@ const BASE_POINTS = {
     code: "281200",
     name: "Local fortificado",
     category: "Proteção - Fortificação",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -274,7 +274,7 @@ const BASE_POINTS = {
     code: "280600",
     name: "Mina de qualquer tipo",
     category: "Proteção - Minas",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -283,7 +283,7 @@ const BASE_POINTS = {
     code: "280200",
     name: "Mina antipessoal",
     category: "Proteção - Minas",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -292,7 +292,7 @@ const BASE_POINTS = {
     code: "280300",
     name: "Mina anticarro",
     category: "Proteção - Minas",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -301,7 +301,7 @@ const BASE_POINTS = {
     code: "280700",
     name: "Armadilha",
     category: "Proteção - Minas",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -310,7 +310,7 @@ const BASE_POINTS = {
     code: "270701",
     name: "Indicação pontual de campo minado",
     category: "Proteção - Minas",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -319,7 +319,7 @@ const BASE_POINTS = {
     code: "270800",
     name: "Área minada",
     category: "Proteção - Minas",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -329,7 +329,7 @@ const BASE_POINTS = {
     code: "281301",
     name: "Evento químico",
     category: "Proteção - QBRN",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -338,7 +338,7 @@ const BASE_POINTS = {
     code: "281400",
     name: "Evento biológico",
     category: "Proteção - QBRN",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -347,7 +347,7 @@ const BASE_POINTS = {
     code: "281700",
     name: "Evento radiológico",
     category: "Proteção - QBRN",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -356,7 +356,7 @@ const BASE_POINTS = {
     code: "281500",
     name: "Evento nuclear",
     category: "Proteção - QBRN",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -366,7 +366,7 @@ const BASE_POINTS = {
     code: "180000",
     name: "Ponto de Controle Aéreo",
     category: "Controle Aéreo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["numero", "gdhIni", "gdhFim"]
   },
@@ -376,7 +376,7 @@ const BASE_POINTS = {
     code: "210200",
     name: "Ponto de visada",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -385,7 +385,7 @@ const BASE_POINTS = {
     code: "210300",
     name: "Meio defendido",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -394,7 +394,7 @@ const BASE_POINTS = {
     code: "210500",
     name: "Local de desembarque",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -403,7 +403,7 @@ const BASE_POINTS = {
     code: "210600",
     name: "Detonação aérea",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -412,7 +412,7 @@ const BASE_POINTS = {
     code: "210700",
     name: "Ponto zero",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -421,7 +421,7 @@ const BASE_POINTS = {
     code: "210800",
     name: "Ponto de impacto",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -430,7 +430,7 @@ const BASE_POINTS = {
     code: "210900",
     name: "Ponto de impacto previsto",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -439,7 +439,7 @@ const BASE_POINTS = {
     code: "211100",
     name: "Ponto de detecção do míssil",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -448,7 +448,7 @@ const BASE_POINTS = {
     code: "211200",
     name: "Despistador - Contramedida acústica",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -457,7 +457,7 @@ const BASE_POINTS = {
     code: "211300",
     name: "Despistador - Contramedida eletrônica",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -466,7 +466,7 @@ const BASE_POINTS = {
     code: "211500",
     name: "Datum",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -475,7 +475,7 @@ const BASE_POINTS = {
     code: "211700",
     name: "Submarino submerso reportado",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -484,7 +484,7 @@ const BASE_POINTS = {
     code: "211800",
     name: "Santuário",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -493,7 +493,7 @@ const BASE_POINTS = {
     code: "211900",
     name: "Centro da Cobertura",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -502,7 +502,7 @@ const BASE_POINTS = {
     code: "212000",
     name: "Contato perdido",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -511,7 +511,7 @@ const BASE_POINTS = {
     code: "212100",
     name: "Poita",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -520,7 +520,7 @@ const BASE_POINTS = {
     code: "212300",
     name: "Fixo acústico",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -529,7 +529,7 @@ const BASE_POINTS = {
     code: "212400",
     name: "Fixo eletromagnético",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -538,7 +538,7 @@ const BASE_POINTS = {
     code: "212500",
     name: "Detecção de anomalia magnética (MAD)",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -547,7 +547,7 @@ const BASE_POINTS = {
     code: "212600",
     name: "Fixo visual",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -556,7 +556,7 @@ const BASE_POINTS = {
     code: "212700",
     name: "Formação",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -565,7 +565,7 @@ const BASE_POINTS = {
     code: "212800",
     name: "Ancoradouro",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -574,7 +574,7 @@ const BASE_POINTS = {
     code: "212900",
     name: "Ponto de entrada no porto",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -583,7 +583,7 @@ const BASE_POINTS = {
     code: "213000",
     name: "Posição do DIP",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -592,7 +592,7 @@ const BASE_POINTS = {
     code: "213100",
     name: "Busca",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -601,7 +601,7 @@ const BASE_POINTS = {
     code: "213200",
     name: "Área de busca",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -610,7 +610,7 @@ const BASE_POINTS = {
     code: "213300",
     name: "Centro da busca",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -619,7 +619,7 @@ const BASE_POINTS = {
     code: "213400",
     name: "Ponto de referência à navegação",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -628,7 +628,7 @@ const BASE_POINTS = {
     code: "213500",
     name: "Sonoboia",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -637,7 +637,7 @@ const BASE_POINTS = {
     code: "214100",
     name: "Centro da área vital",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   },
@@ -646,7 +646,7 @@ const BASE_POINTS = {
     code: "214700",
     name: "Posição estimada",
     category: "Controle Marítimo",
-    svg: ``,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center-center",
     textFields: ["identificacao", "gdhIni", "gdhFim"]
   }
