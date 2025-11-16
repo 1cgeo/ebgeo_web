@@ -21,7 +21,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     this.geometry = new AddCoordinationMeasureGeometry();
 
     // Symbol generator for coordination measures
-    this.generator = new CoordinationMeasureGenerator();
+    this.symbolGenerator = new CoordinationMeasureGenerator();
 
     // Performance optimization for symbols
     this.symbolRafId = null;
@@ -369,22 +369,21 @@ class AddCoordinationMeasureControl extends BaseControl {
     return false; // Coordination measures don't have edit handles
   };
 
-  syncEditHandlesAfterDrag = (movedFeatures) => {
+  syncEditHandlesAfterDrag = async (movedFeatures) => {
     // Coordination measures don't have edit handles, but we need to update selection boxes
-    this.updateSelectionBoxesForFeatures(movedFeatures);
+    await this.updateSelectionBoxesForFeatures(movedFeatures);
   };
 
   /**
    * Update selection boxes for specific features (used after drag or attribute changes)
    * Always uses fresh data from map source to ensure accuracy
    */
-  updateSelectionBoxesForFeatures = (features) => {
+  updateSelectionBoxesForFeatures = async (features) => {
     if (!features || features.length === 0) return;
 
     // CRITICAL: Always get fresh data from map source
-    const data = JSON.parse(
-      JSON.stringify(this.map.getSource("coordination-measures-source")._data)
-    );
+    const data = await this.map.getSource("coordination-measures-source").getData();
+
     let hasChanges = false;
 
     features.forEach((inputFeature) => {
@@ -449,7 +448,7 @@ class AddCoordinationMeasureControl extends BaseControl {
 
   // ===== COORDINATION MEASURE CREATION SYSTEM =====
 
-  handleMapClick = (e) => {
+  handleMapClick = async (e) => {
     if (!this.isActive) return;
 
     if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
@@ -457,7 +456,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       return;
     }
 
-    this.createCoordinationMeasureFeature(e.lngLat);
+    await this.createCoordinationMeasureFeature(e.lngLat);
     this.toolManager.deactivateCurrentTool();
   };
 
@@ -502,7 +501,7 @@ class AddCoordinationMeasureControl extends BaseControl {
 
     try {
       // Generate symbol and CAPTURE REAL DIMENSIONS
-      const result = await this.generator.generate(
+      const result = await this.symbolGenerator.generate(
         pointCode,
         feature.properties
       );
@@ -531,9 +530,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       await addFeature("coordination-measures-source", feature);
 
       // Add to map
-      const data = JSON.parse(
-        JSON.stringify(this.map.getSource("coordination-measures-source")._data)
-      );
+      const data = await this.map.getSource("coordination-measures-source").getData();
       data.features.push(feature);
       this.map.getSource("coordination-measures-source").setData(data);
 
@@ -625,7 +622,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       };
 
       // Generate symbol with dimensions
-      const result = await this.generator.generate(
+      const result = await this.symbolGenerator.generate(
         feature.properties.pointCode,
         properties
       );
@@ -643,9 +640,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       // PERSIST changes to map source
-      const data = JSON.parse(
-        JSON.stringify(this.map.getSource("coordination-measures-source")._data)
-      );
+      const data = await this.map.getSource("coordination-measures-source").getData();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
       );
@@ -695,7 +690,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       const symbolId = feature.properties.id;
 
       // Generate symbol with dimensions
-      const result = await this.generator.generate(
+      const result = await this.symbolGenerator.generate(
         feature.properties.pointCode,
         properties
       );
@@ -711,9 +706,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       // PERSIST changes to map source
-      const data = JSON.parse(
-        JSON.stringify(this.map.getSource("coordination-measures-source")._data)
-      );
+      const data = await this.map.getSource("coordination-measures-source").getData();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
       );
@@ -774,16 +767,33 @@ class AddCoordinationMeasureControl extends BaseControl {
     }
   };
 
-  updateAllSymbolSizes = () => {
+
+  applyZoomCorrections = (features) => {
+    // Validação defensiva: protege contra features undefined, null ou não-array
+    if (!features || !Array.isArray(features)) {
+      return [];
+    }
+    
+    const currentZoom = this.map.getZoom();
+    return features.map((feature) => {
+      const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+      const scaleFactor = Math.pow(2, zoomDifference);
+      feature.properties.calculatedSize = Math.min(
+        feature.properties.size * scaleFactor,
+        10
+      );
+      return feature;
+    });
+  };
+
+  updateAllSymbolSizes = async () => {
     if (!this.map.getSource("coordination-measures-source")) {
       this.pendingZoomUpdate = false;
       return;
     }
 
     const currentZoom = this.map.getZoom();
-    const data = JSON.parse(
-      JSON.stringify(this.map.getSource("coordination-measures-source")._data)
-    );
+    const data = await this.map.getSource("coordination-measures-source").getData();
     let hasChanges = false;
 
     data.features.forEach((feature) => {
@@ -839,10 +849,8 @@ class AddCoordinationMeasureControl extends BaseControl {
 
   // ===== FEATURE MANAGEMENT INTERFACE =====
 
-  updateFeaturesProperty = (features, property, value) => {
-    const data = JSON.parse(
-      JSON.stringify(this.map.getSource("coordination-measures-source")._data)
-    );
+  updateFeaturesProperty = async (features, property, value) => {
+    const data = await this.map.getSource("coordination-measures-source").getData();
 
     for (const feature of features) {
       const sourceFeature = data.features.find(
@@ -990,7 +998,7 @@ class AddCoordinationMeasureControl extends BaseControl {
 
   saveFeatures = async (features, initialPropertiesMap) => {
     // Always get fresh feature data from map source before saving
-    const currentData = this.map.getSource("coordination-measures-source")._data;
+    const currentData = await this.map.getSource("coordination-measures-source").getData();
     let hasChanges = false;
 
     for (const selectedFeature of features) {
@@ -1048,9 +1056,7 @@ class AddCoordinationMeasureControl extends BaseControl {
         await removeImage(featureId);
 
         // Update map source
-        const data = JSON.parse(
-          JSON.stringify(this.map.getSource("coordination-measures-source")._data)
-        );
+        const data = await this.map.getSource("coordination-measures-source").getData();
         const idsToDelete = new Set(
           features.map((f) => String(f.properties.id))
         );
@@ -1124,9 +1130,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     onlyUpdateProperties = false
   ) => {
     if (features.length > 0) {
-      const data = JSON.parse(
-        JSON.stringify(this.map.getSource("coordination-measures-source")._data)
-      );
+      const data = await this.map.getSource("coordination-measures-source").getData();
       const currentZoom = this.map.getZoom();
 
       for (const feature of features) {

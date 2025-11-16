@@ -22,6 +22,18 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
     }
 
     /**
+     * Generate Point geometry for coordination measure
+     * @param {Array} coordinates - Position coordinates [lng, lat]
+     * @returns {Object} GeoJSON Point geometry
+     */
+    generatePointGeometry(coordinates) {
+        return {
+            type: 'Point',
+            coordinates: [coordinates[0], coordinates[1]]
+        };
+    }
+
+    /**
      * Coordination measures don't have edit handles - they're edited through attribute panel
      * @param {Object} feature - Coordination measure feature
      * @returns {Array} Empty array (no handles)
@@ -54,20 +66,6 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
                typeof coordinates[1] === 'number' &&
                !isNaN(coordinates[0]) && 
                !isNaN(coordinates[1]);
-    }
-
-    // ===== GEOMETRY GENERATION =====
-
-    /**
-     * Generate Point geometry for coordination measure
-     * @param {Array} coordinates - Position coordinates [lng, lat]
-     * @returns {Object} GeoJSON Point geometry
-     */
-    generatePointGeometry(coordinates) {
-        return {
-            type: 'Point',
-            coordinates: [coordinates[0], coordinates[1]]
-        };
     }
 
     // ===== SELECTION BOX OPERATIONS =====

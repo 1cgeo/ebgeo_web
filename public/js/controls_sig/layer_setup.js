@@ -392,8 +392,8 @@ function setupCoordinationMeasureLayers(features, mapInstance) {
         control.constructor.name === 'AddCoordinationMeasureControl'
     );
 
-    let correctedSymbols = features.coordination_measures;
-    if (coordinationMeasureControl) {
+    let correctedSymbols = features.coordination_measures || [];
+    if (coordinationMeasureControl && features.coordination_measures && features.coordination_measures.length > 0) {
         correctedSymbols = coordinationMeasureControl.applyZoomCorrections(features.coordination_measures);
     }
 
