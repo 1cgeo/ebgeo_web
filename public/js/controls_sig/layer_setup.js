@@ -251,7 +251,12 @@ function setupRectangleLayers(features, mapInstance) {
             source: 'rectangle-edit-handles',
             paint: {
                 'circle-radius': 8,
-                'circle-color': '#ff0000',
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',        // VERMELHO para corners
+                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',  // AZUL para rotação
+                    '#ffffff'  // Branco como fallback
+                ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2
             },
