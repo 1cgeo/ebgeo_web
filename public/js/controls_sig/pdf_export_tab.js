@@ -447,6 +447,12 @@ export default class PDFExportTab {
                 property: 'calculatedSize',
                 baseProperty: 'size',
                 maxValue: 10
+            },
+            {
+                sourceName: 'coordination-measures-source',
+                property: 'calculatedSize',
+                baseProperty: 'size',
+                maxValue: 10
             }
         ];
 

@@ -32,6 +32,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager) {
         setupLOSLayers(features, mapInstance);
         setupPointLayers(features, mapInstance);
         setupMilitarySymbolsLayers(features, mapInstance);
+        setupCoordinationMeasureLayers(features, mapInstance);
         setupTextLayers(features, mapInstance);
         setupAuxiliaryLayers(mapInstance);
         if (config.features.grid){
@@ -371,6 +372,51 @@ function setupMilitarySymbolsLayers(features, mapInstance) {
             id: 'military-symbols-layer',
             type: 'symbol',
             source: 'military_symbols',
+            paint: {
+                'icon-opacity': ['get', 'opacity']
+            },
+            layout: {
+                'icon-image': ['get', 'id'],
+                'icon-size': ['get', 'calculatedSize'],
+                'icon-rotate': ['get', 'rotation'],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true
+            },
+            filter: ['!=', ['get', 'visivel'], false]
+        });
+    }
+}
+
+function setupCoordinationMeasureLayers(features, mapInstance) {
+    const coordinationMeasureControl = mapInstance._controls.find(control =>
+        control.constructor.name === 'AddCoordinationMeasureControl'
+    );
+
+    let correctedSymbols = features.coordination_measures;
+    if (coordinationMeasureControl) {
+        correctedSymbols = coordinationMeasureControl.applyZoomCorrections(features.coordination_measures);
+    }
+
+    if (!mapInstance.getSource('coordination-measures-source')) {
+        mapInstance.addSource('coordination-measures-source', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: correctedSymbols
+            }
+        });
+    } else {
+        mapInstance.getSource('coordination-measures-source').setData({
+            type: 'FeatureCollection',
+            features: correctedSymbols
+        });
+    }
+
+    if (!mapInstance.getLayer('coordination-measures-layer')) {
+        mapInstance.addLayer({
+            id: 'coordination-measures-layer',
+            type: 'symbol',
+            source: 'coordination-measures-source',
             paint: {
                 'icon-opacity': ['get', 'opacity']
             },

@@ -54,6 +54,7 @@ export const FEATURE_TYPE_ICONS = {
     'boundary': './images/icon_boundary_black.svg',
     'occupied_front': './images/icon_occupied_front_black.svg',
     'military_symbol': './images/icon_military_black.svg',
+    'coordination_measure': './images/icon_coordination_black.svg',
     'los': './images/icon_los_black.svg',
     'visibility': './images/icon_visibility_black.svg'
 };
@@ -72,6 +73,7 @@ export const FEATURE_TYPE_LAYERS = {
     'boundary': 'boundarys-layer',
     'occupied_front': 'occupied-fronts-layer',
     'military_symbol': 'military-symbols-layer',
+    'coordination_measure': 'coordination-measures-layer',
     'los': 'los-layer',
     'visibility': 'visibility-layer'
 };
@@ -90,6 +92,7 @@ export const FEATURE_TYPE_MAPPINGS = {
     'boundary': 'boundarys',
     'occupied_front': 'occupied_fronts',
     'military_symbol': 'military_symbols',
+    'coordination_measure': 'coordination_measures',
     'los': 'los',
     'visibility': 'visibility'
 };
@@ -108,12 +111,13 @@ export const FEATURE_DISPLAY_NAMES = {
     'boundary': 'Limite',
     'occupied_front': 'Frente Ocupada',
     'military_symbol': 'Símbolo Militar',
+    'coordination_measure': 'Medida de Coordenação',
     'los': 'Linha de Visada',
     'visibility': 'Visibilidade'
 };
 
 export const UNCOPYABLE_FEATURE_TYPES = ['los', 'visibility'];
-export const IMAGE_RESOURCE_FEATURE_TYPES = ['image', 'military_symbol'];
+export const IMAGE_RESOURCE_FEATURE_TYPES = ['image', 'military_symbol', 'coordination_measure'];
 
 // ===== CENTRALIZED UTILITY FUNCTIONS =====
 
