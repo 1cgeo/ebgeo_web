@@ -2,6 +2,7 @@
 
 import {
     createSliderWithInput,
+    createNumericInput,
     createColorPicker,
     createCheckbox,
     createAttributeRow,
@@ -80,12 +81,20 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
     );
     $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
-    // Raio (somente informativo)
-    const radiusValue = document.createElement('span');
-    radiusValue.textContent = `${Math.round(feature.properties.radius || 1000)} m`;
-    radiusValue.style.cssText = 'font-size: 13px; color: #666; font-weight: 500;';
+    // Raio - MUDADO: agora é input editável em vez de apenas informativo
+    const radiusInput = createNumericInput({
+        min: 10,
+        max: 100000,
+        step: 1,
+        value: Math.round(feature.properties.radius || 1000),
+        suffix: ' m',
+        onChange: (value) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'radius', value);
+            uiManager.updateSelectionHighlight();
+        }
+    });
 
-    $(panel).append(createAttributeRow('Raio:', radiusValue));
+    $(panel).append(createAttributeRow('Raio:', radiusInput));
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     const buttons = createStandardButtons({

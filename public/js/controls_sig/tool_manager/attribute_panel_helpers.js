@@ -26,6 +26,90 @@ export const COMPACT_STYLES = {
     minHeight: '28px'        // Reduced from 32px
 };
 
+// ===== NUMERIC INPUT =====
+
+/**
+ * Creates a simple numeric input with validation
+ * @param {Object} config - Configuration object
+ * @param {number} config.min - Minimum value
+ * @param {number} config.max - Maximum value
+ * @param {number} config.step - Step value (default: 1)
+ * @param {number} config.value - Initial value
+ * @param {function} config.onChange - Callback when value changes
+ * @param {string} config.suffix - Optional suffix to display (e.g., " m")
+ * @returns {HTMLElement} Input element
+ */
+export function createNumericInput(config) {
+    const container = document.createElement('div');
+    container.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = config.min;
+    input.max = config.max;
+    input.step = config.step || 1;
+    input.value = config.value;
+    input.style.cssText = `
+        width: 100px;
+        padding: 6px 8px;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        font-size: 13px;
+        text-align: right;
+        box-sizing: border-box;
+    `;
+
+    // Suffix label if provided
+    if (config.suffix) {
+        const suffix = document.createElement('span');
+        suffix.textContent = config.suffix;
+        suffix.style.cssText = 'font-size: 13px; color: #666;';
+        container.appendChild(input);
+        container.appendChild(suffix);
+    } else {
+        container.appendChild(input);
+    }
+
+    const clampValue = (value) => Math.max(config.min, Math.min(config.max, value));
+    const roundToStep = (value, step) => Math.round(value / step) * step;
+
+    let debounceTimer = null;
+
+    // Debounced input handler
+    input.oninput = (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            let value = parseInt(e.target.value, 10);
+            
+            if (isNaN(value)) {
+                value = config.value;
+            } else {
+                value = roundToStep(clampValue(value), config.step || 1);
+            }
+            
+            input.value = value;
+            config.onChange(value);
+        }, config.debounceMs || DEFAULT_SLIDER_CONFIG.debounceMs);
+    };
+
+    // Immediate validation on blur
+    input.onblur = (e) => {
+        clearTimeout(debounceTimer);
+        let value = parseInt(e.target.value, 10);
+        
+        if (isNaN(value)) {
+            value = config.value;
+        } else {
+            value = roundToStep(clampValue(value), config.step || 1);
+        }
+        
+        input.value = value;
+        config.onChange(value);
+    };
+
+    return container;
+}
+
 // ===== ENHANCED SLIDER WITH NUMERIC INPUT =====
 
 /**
