@@ -5,6 +5,7 @@ import { IDUtils } from '../id_utils.js';
 import { addRectangleAttributesToPanel } from './rectangle_attributes_panel.js';
 import AddRectangleGeometry from './add_rectangle_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
+import { HatchPatternGenerator } from '../tool_manager/hatch_pattern_generator.js';
 
 class AddRectangleControl extends BaseControl {
     constructor(toolManager) {
@@ -27,6 +28,7 @@ class AddRectangleControl extends BaseControl {
         
         // CRITICAL FIX: Track current mouse position for accurate capture
         this.currentMousePosition = null;
+        this.hatchGenerator = new HatchPatternGenerator();
     }
 
     static DEFAULT_PROPERTIES = {
@@ -41,7 +43,12 @@ class AddRectangleControl extends BaseControl {
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        hatchEnabled: false,
+        hatchType: 'diagonal-right',
+        hatchColor: '#000000',
+        hatchSpacing: 8,
+        hatchLineWidth: 2
     };
 
     // ===== FONTE ÚNICA DA VERDADE =====
@@ -508,6 +515,10 @@ class AddRectangleControl extends BaseControl {
 
             const data = await this.map.getSource('rectangles').getData();
             data.features.push(feature);
+
+            if (feature.properties.hatchEnabled) {
+                this.updateHatchPatterns(data);
+            }
             this.map.getSource('rectangles').setData(data);
 
             this.drawPoints = [];
@@ -688,6 +699,7 @@ class AddRectangleControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.currentMousePosition = null;
+        this.hatchGenerator = new HatchPatternGenerator();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
@@ -861,6 +873,10 @@ class AddRectangleControl extends BaseControl {
             }
         }
 
+        if (property.startsWith('hatch')) {
+            this.updateHatchPatterns(data);
+        }
+
         this.map.getSource('rectangles').setData(data);
 
         // CRITICAL FIX: Get fresh features from map source before updating SelectionManager
@@ -927,6 +943,15 @@ class AddRectangleControl extends BaseControl {
             }
         }
     }
+    updateHatchPatterns = (data) => {
+        if (!data || !data.features) {
+            return;
+        }
+        const features = data.features.filter(f => f.properties.hatchEnabled);
+        this.hatchGenerator.loadPatternsToMap(this.map, features);
+    }
+
+
 
     setDefaultProperties = (properties) => {
         Object.assign(AddRectangleControl.DEFAULT_PROPERTIES, properties);
@@ -948,6 +973,11 @@ class AddRectangleControl extends BaseControl {
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.hatchEnabled !== initialProperties.hatchEnabled ||
+            feature.properties.hatchType !== initialProperties.hatchType ||
+            feature.properties.hatchColor !== initialProperties.hatchColor ||
+            feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
+            feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
             JSON.stringify(feature.properties.corner1) !== JSON.stringify(initialProperties.corner1) ||
             JSON.stringify(feature.properties.corner2) !== JSON.stringify(initialProperties.corner2)
         );
@@ -1013,6 +1043,7 @@ class AddRectangleControl extends BaseControl {
         this.lastPreviewCenter = null;
         this.activeHandleType = null;
         this.currentMousePosition = null;
+        this.hatchGenerator = new HatchPatternGenerator();
 
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);

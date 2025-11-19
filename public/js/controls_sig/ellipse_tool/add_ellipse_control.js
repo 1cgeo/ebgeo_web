@@ -5,6 +5,7 @@ import { IDUtils } from '../id_utils.js';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
 import AddEllipseGeometry from './add_ellipse_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
+import { HatchPatternGenerator } from '../tool_manager/hatch_pattern_generator.js';
 
 class AddEllipseControl extends BaseControl {
     constructor(toolManager) {
@@ -24,6 +25,7 @@ class AddEllipseControl extends BaseControl {
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
+        this.hatchGenerator = new HatchPatternGenerator();
     }
 
     static DEFAULT_PROPERTIES = {
@@ -36,7 +38,12 @@ class AddEllipseControl extends BaseControl {
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        hatchEnabled: false,
+        hatchType: 'diagonal-right',
+        hatchColor: '#000000',
+        hatchSpacing: 8,
+        hatchLineWidth: 2
     };
 
     // ===== FONTE ÚNICA DA VERDADE =====
@@ -401,6 +408,10 @@ class AddEllipseControl extends BaseControl {
 
             const data = await this.map.getSource('ellipses').getData();
             data.features.push(feature);
+
+            if (feature.properties.hatchEnabled) {
+                this.updateHatchPatterns(data);
+            }
             this.map.getSource('ellipses').setData(data);
 
             this.drawPoints = [];
@@ -697,6 +708,10 @@ class AddEllipseControl extends BaseControl {
             }
         }
 
+        if (property.startsWith('hatch')) {
+            this.updateHatchPatterns(data);
+        }
+
         this.map.getSource('ellipses').setData(data);
 
         // Get fresh features from map source before updating SelectionManager
@@ -759,6 +774,15 @@ class AddEllipseControl extends BaseControl {
             }
         }
     }
+    updateHatchPatterns = (data) => {
+        if (!data || !data.features) {
+            return;
+        }
+        const features = data.features.filter(f => f.properties.hatchEnabled);
+        this.hatchGenerator.loadPatternsToMap(this.map, features);
+    }
+
+
 
     setDefaultProperties = (properties) => {
         Object.assign(AddEllipseControl.DEFAULT_PROPERTIES, properties);
@@ -779,6 +803,11 @@ class AddEllipseControl extends BaseControl {
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.hatchEnabled !== initialProperties.hatchEnabled ||
+            feature.properties.hatchType !== initialProperties.hatchType ||
+            feature.properties.hatchColor !== initialProperties.hatchColor ||
+            feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
+            feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
             JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
         );
     }

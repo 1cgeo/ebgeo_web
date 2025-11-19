@@ -10,18 +10,17 @@ import {
     createLineStyleSelect,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
+import { openHatchConfigModal } from '../tool_manager/hatch_config_modal.js';
 
 export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) {
         return;
     }
 
-    const feature = selectedFeatures[0]; // Use the first selected feature to populate the form.
+    const feature = selectedFeatures[0];
     
-    // Capture initial properties at panel opening
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
     if (selectedFeatures.length === 1) {
         const nameComponent = createEditableFeatureName(
             feature.properties.nome,
@@ -32,22 +31,17 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
         );
         $(panel).append(nameComponent);
     }
-
-    // ===== ATRIBUTOS ESPECÍFICOS DE POLÍGONO =====
     
-    // Cor de preenchimento
     const fillColorInput = createColorPicker(feature.properties.color, (e) => {
         polygonControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
     });
     $(panel).append(createAttributeRow('Cor de preenchimento:', fillColorInput));
 
-    // Cor da borda
     const outlineColorInput = createColorPicker(feature.properties.outlinecolor, (e) => {
         polygonControl.updateFeaturesProperty(selectedFeatures, 'outlinecolor', e.target.value);
     });
     $(panel).append(createAttributeRow('Cor da borda:', outlineColorInput));
 
-    // Opacidade do preenchimento
     const fillOpacitySlider = createSliderWithInput({
         min: 0,
         max: 100,
@@ -59,7 +53,6 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     });
     $(panel).append(createAttributeRow('Opacidade preenchimento:', fillOpacitySlider));
 
-    // Largura da borda
     const borderSizeSlider = createSliderWithInput({
         min: 1,
         max: 10,
@@ -71,7 +64,6 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     });
     $(panel).append(createAttributeRow('Largura da borda:', borderSizeSlider));
 
-    // Estilo da borda
     const borderStyleSelect = createLineStyleSelect(
         feature.properties.lineStyle || 'solid',
         (newValue) => {
@@ -80,16 +72,36 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     );
     $(panel).append(createAttributeRow('Estilo da borda:', borderStyleSelect));
 
-    // Medição
+    const hatchContainer = document.createElement('div');
+    hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+    const hatchCheckbox = createCheckbox(
+        feature.properties.hatchEnabled === true,
+        (e) => {
+            polygonControl.updateFeaturesProperty(selectedFeatures, 'hatchEnabled', e.target.checked);
+        }
+    );
+
+    const hatchConfigButton = document.createElement('button');
+    hatchConfigButton.textContent = '⚙️ Configurar';
+    hatchConfigButton.className = 'tool-button pure-material-tool-button-outlined';
+    hatchConfigButton.style.cssText = 'padding: 4px 8px; font-size: 12px;';
+    hatchConfigButton.onclick = () => {
+        openHatchConfigModal(feature, selectedFeatures, polygonControl);
+    };
+
+    $(hatchContainer).append(hatchCheckbox);
+    $(hatchContainer).append(hatchConfigButton);
+    $(panel).append(createAttributeRow('Hachura:', hatchContainer));
+
     const measureCheckbox = createCheckbox(
-        feature.properties.measure === true, // default false
+        feature.properties.measure === true,
         (e) => {
             polygonControl.updateFeaturesProperty(selectedFeatures, 'measure', e.target.checked);
         }
     );
     $(panel).append(createAttributeRow('Medir:', measureCheckbox));
 
-    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     const buttons = createStandardButtons({
         selectedFeatures,
         control: polygonControl,

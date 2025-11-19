@@ -5,6 +5,7 @@ import { IDUtils } from '../id_utils.js';
 import { addPolygonAttributesToPanel } from './polygon_attributes_panel.js';
 import AddPolygonGeometry from './add_polygon_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
+import { HatchPatternGenerator } from '../tool_manager/hatch_pattern_generator.js';
 
 class AddPolygonControl extends BaseControl {
     constructor(toolManager) {
@@ -24,6 +25,7 @@ class AddPolygonControl extends BaseControl {
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.geometryDebounceTimer = null;
+        this.hatchGenerator = new HatchPatternGenerator();
     }
 
     static DEFAULT_PROPERTIES = {
@@ -37,7 +39,12 @@ class AddPolygonControl extends BaseControl {
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        hatchEnabled: false,
+        hatchType: 'diagonal-right',
+        hatchColor: '#000000',
+        hatchSpacing: 8,
+        hatchLineWidth: 2
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
@@ -139,7 +146,7 @@ class AddPolygonControl extends BaseControl {
     }
 
     getLayerIds() {
-        return ['polygon-fill-layer', 'polygon-layer'];
+        return ['polygon-fill-layer', 'polygon-fill-pattern-layer', 'polygon-layer'];
     }
 
     getSourceNames() {
@@ -450,6 +457,10 @@ class AddPolygonControl extends BaseControl {
 
             const data = await this.map.getSource('polygons').getData();
             data.features.push(feature);
+
+            if (feature.properties.hatchEnabled) {
+                this.updateHatchPatterns(data);
+            }
             this.map.getSource('polygons').setData(data);
 
             this.drawPoints = [];
@@ -787,6 +798,9 @@ class AddPolygonControl extends BaseControl {
             }
         }
 
+        if (property.startsWith('hatch')) {
+            this.updateHatchPatterns(data);
+        }
         this.map.getSource('polygons').setData(data);
 
         // Update measurement if property changed
@@ -811,6 +825,14 @@ class AddPolygonControl extends BaseControl {
         if (selectedFeature && !this.isDraggingHandle) {
             this.createEditHandles(selectedFeature);
         }
+    }
+     
+    updateHatchPatterns = (data) => {
+        if (!data || !data.features) {
+            return;
+        }
+        const features = data.features.filter(f => f.properties.hatchEnabled);
+        this.hatchGenerator.loadPatternsToMap(this.map, features);
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
@@ -878,6 +900,11 @@ class AddPolygonControl extends BaseControl {
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.hatchEnabled !== initialProperties.hatchEnabled ||
+            feature.properties.hatchType !== initialProperties.hatchType ||
+            feature.properties.hatchColor !== initialProperties.hatchColor ||
+            feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
+            feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
             JSON.stringify(feature.properties.baseCoordinates) !== JSON.stringify(initialProperties.baseCoordinates)
         );
     }

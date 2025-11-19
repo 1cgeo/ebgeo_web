@@ -1,5 +1,6 @@
 // Path: js\controls_sig\layer_setup.js
 import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle } from './store/store.js';
+import { HatchPatternGenerator } from './tool_manager/hatch_pattern_generator.js';
 import { initFrameLayers } from './frameLayersConfig.js';
 import { GRID_LAYERS, initGridLayers } from './gridLayersConfig.js';
 import config from '../config.js';
@@ -195,6 +196,9 @@ function setupRectangleLayers(features, mapInstance) {
         });
     }
 
+    const hatchGenerator = new HatchPatternGenerator();
+    hatchGenerator.loadPatternsToMap(mapInstance, features.rectangles || []);
+
     if (!mapInstance.getLayer('rectangle-feedback-layer')) {
         mapInstance.addLayer({
             id: 'rectangle-feedback-layer',
@@ -218,7 +222,29 @@ function setupRectangleLayers(features, mapInstance) {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
             },
-            filter: ['!=', ['get', 'visivel'], false]
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['!=', ['get', 'hatchEnabled'], true]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('rectangle-fill-pattern-layer')) {
+        mapInstance.addLayer({
+            id: 'rectangle-fill-pattern-layer',
+            type: 'fill',
+            source: 'rectangles',
+            paint: {
+                'fill-opacity': ['get', 'opacity'],
+                'fill-pattern': ['get', 'hatchPatternId']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'hatchEnabled'], true],
+                ['has', 'hatchPatternId']
+            ]
         });
     }
 
@@ -580,6 +606,9 @@ function setupPolygonLayers(features, mapInstance) {
         });
     }
 
+    const hatchGenerator = new HatchPatternGenerator();
+    hatchGenerator.loadPatternsToMap(mapInstance, features.polygons || []);
+
     if (!mapInstance.getLayer('polygon-fill-layer')) {
         mapInstance.addLayer({
             id: 'polygon-fill-layer',
@@ -589,7 +618,29 @@ function setupPolygonLayers(features, mapInstance) {
                 'fill-color': ['get', 'color'],
                 'fill-opacity': ['get', 'opacity']
             },
-            filter: ['!=', ['get', 'visivel'], false]
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['!=', ['get', 'hatchEnabled'], true]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('polygon-fill-pattern-layer')) {
+        mapInstance.addLayer({
+            id: 'polygon-fill-pattern-layer',
+            type: 'fill',
+            source: 'polygons',
+            paint: {
+                'fill-opacity': ['get', 'opacity'],
+                'fill-pattern': ['get', 'hatchPatternId']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'hatchEnabled'], true],
+                ['has', 'hatchPatternId']
+            ]
         });
     }
 
@@ -1010,6 +1061,9 @@ function setupEllipseLayers(features, mapInstance) {
         });
     }
 
+    const hatchGeneratorEllipse = new HatchPatternGenerator();
+    hatchGeneratorEllipse.loadPatternsToMap(mapInstance, features.ellipses || []);
+
     if (!mapInstance.getLayer('ellipse-feedback-layer')) {
         mapInstance.addLayer({
             id: 'ellipse-feedback-layer',
@@ -1033,7 +1087,29 @@ function setupEllipseLayers(features, mapInstance) {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
             },
-            filter: ['!=', ['get', 'visivel'], false]
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['!=', ['get', 'hatchEnabled'], true]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('ellipse-fill-pattern-layer')) {
+        mapInstance.addLayer({
+            id: 'ellipse-fill-pattern-layer',
+            type: 'fill',
+            source: 'ellipses',
+            paint: {
+                'fill-opacity': ['get', 'opacity'],
+                'fill-pattern': ['get', 'hatchPatternId']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'hatchEnabled'], true],
+                ['has', 'hatchPatternId']
+            ]
         });
     }
 
@@ -1442,6 +1518,9 @@ function setupCircleLayers(features, mapInstance) {
         });
     }
 
+    const hatchGeneratorCircle = new HatchPatternGenerator();
+    hatchGeneratorCircle.loadPatternsToMap(mapInstance, features.circles || []);
+
     if (!mapInstance.getLayer('circle-feedback-layer')) {
         mapInstance.addLayer({
             id: 'circle-feedback-layer',
@@ -1465,7 +1544,29 @@ function setupCircleLayers(features, mapInstance) {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
             },
-            filter: ['!=', ['get', 'visivel'], false]
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['!=', ['get', 'hatchEnabled'], true]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('circle-fill-pattern-layer')) {
+        mapInstance.addLayer({
+            id: 'circle-fill-pattern-layer',
+            type: 'fill',
+            source: 'circles',
+            paint: {
+                'fill-opacity': ['get', 'opacity'],
+                'fill-pattern': ['get', 'hatchPatternId']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'hatchEnabled'], true],
+                ['has', 'hatchPatternId']
+            ]
         });
     }
 

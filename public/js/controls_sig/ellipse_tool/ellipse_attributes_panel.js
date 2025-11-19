@@ -3,6 +3,7 @@
 import { 
     createSliderWithInput, 
     createColorPicker, 
+    createCheckbox,
     createAttributeRow, 
     createStandardButtons,
     createEditableFeatureName,
@@ -10,6 +11,7 @@ import {
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
+import { openHatchConfigModal } from '../tool_manager/hatch_config_modal.js';
 export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;
 
@@ -79,6 +81,29 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         }
     );
     $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
+
+    // Hachura
+    const hatchContainer = document.createElement('div');
+    hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+    const hatchCheckbox = createCheckbox(
+        feature.properties.hatchEnabled === true,
+        (e) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchEnabled', e.target.checked);
+        }
+    );
+
+    const hatchConfigButton = document.createElement('button');
+    hatchConfigButton.textContent = '⚙️ Configurar';
+    hatchConfigButton.className = 'tool-button pure-material-tool-button-outlined';
+    hatchConfigButton.style.cssText = 'padding: 4px 8px; font-size: 12px;';
+    hatchConfigButton.onclick = () => {
+        openHatchConfigModal(feature, selectedFeatures, ellipseControl);
+    };
+
+    $(hatchContainer).append(hatchCheckbox);
+    $(hatchContainer).append(hatchConfigButton);
+    $(panel).append(createAttributeRow('Hachura:', hatchContainer));
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     // ✅ FIXED: Pass initialPropertiesMap captured at panel opening

@@ -4,6 +4,7 @@ import { IDUtils } from '../id_utils.js';
 import { addCircleAttributesToPanel } from './circle_attributes_panel.js';
 import AddCircleGeometry from './add_circle_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
+import { HatchPatternGenerator } from '../tool_manager/hatch_pattern_generator.js';
 class AddCircleControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
@@ -18,6 +19,7 @@ class AddCircleControl extends BaseControl {
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
+        this.hatchGenerator = new HatchPatternGenerator();
     }
     static DEFAULT_PROPERTIES = {
         lineColor: '#3f4fb5',
@@ -30,7 +32,12 @@ class AddCircleControl extends BaseControl {
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        hatchEnabled: false,
+        hatchType: 'diagonal-right',
+        hatchColor: '#000000',
+        hatchSpacing: 8,
+        hatchLineWidth: 2
     };
     // ===== FONTE ÚNICA DA VERDADE =====
     /**
@@ -306,6 +313,10 @@ class AddCircleControl extends BaseControl {
             await addFeature('circles', feature);
             const data = await this.map.getSource('circles').getData();
             data.features.push(feature);
+
+            if (feature.properties.hatchEnabled) {
+                this.updateHatchPatterns(data);
+            }
             this.map.getSource('circles').setData(data);
             this.drawPoints = [];
             this.toolManager.setActiveTool(null);
@@ -496,6 +507,11 @@ class AddCircleControl extends BaseControl {
                 }
             }
         }
+        
+        if (property.startsWith('hatch')) {
+            this.updateHatchPatterns(data);
+        }
+
         this.map.getSource('circles').setData(data);
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -507,6 +523,15 @@ class AddCircleControl extends BaseControl {
             this.createEditHandles(selectedFeature);
         }
     }
+    updateHatchPatterns = (data) => {
+        if (!data || !data.features) {
+            return;
+        }
+        const features = data.features.filter(f => f.properties.hatchEnabled);
+        this.hatchGenerator.loadPatternsToMap(this.map, features);
+    }
+
+
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('circles').getData();
         let hasChanges = false;
@@ -558,6 +583,11 @@ class AddCircleControl extends BaseControl {
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.hatchEnabled !== initialProperties.hatchEnabled ||
+            feature.properties.hatchType !== initialProperties.hatchType ||
+            feature.properties.hatchColor !== initialProperties.hatchColor ||
+            feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
+            feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
             JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
         );
     }
