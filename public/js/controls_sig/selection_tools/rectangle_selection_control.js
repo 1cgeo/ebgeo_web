@@ -196,7 +196,7 @@ class RectangleSelectionControl {
 
     // ===== RECTANGLE SELECTION EXECUTION =====
 
-    executeRectangleSelection = (event) => {
+    executeRectangleSelection = async (event) => {
         if (this.drawPoints.length !== 2) return;
 
         const [corner1, corner2] = this.drawPoints;
@@ -210,21 +210,25 @@ class RectangleSelectionControl {
             this.selectionManager.deselectAllFeatures();
         }
         
-        // Select found features
-        let selectedCount = 0;
-        featuresInArea.forEach(feature => {
-            const type = feature.toolType;
-            const featureId = feature.properties.id;
-            
-            // Skip blocked features
-            if (feature.properties.bloqueado === true) return;
-            
-            // Only select if not already selected (avoid duplicates)
-            if (!this.selectionManager.isFeatureSelected(type, featureId)) {
-                this.selectionManager.toggleFeatureSelection(type, featureId, feature, false);
-                selectedCount++;
-            }
-        });
+        // Select found features - await all selections
+        const selectionPromises = featuresInArea
+            .filter(feature => {
+                // Skip blocked features
+                if (feature.properties.bloqueado === true) return false;
+                
+                const type = feature.toolType;
+                const featureId = feature.properties.id;
+                
+                // Only select if not already selected (avoid duplicates)
+                return !this.selectionManager.isFeatureSelected(type, featureId);
+            })
+            .map(feature => {
+                const type = feature.toolType;
+                const featureId = feature.properties.id;
+                return this.selectionManager.toggleFeatureSelection(type, featureId, feature, false);
+            });
+
+        await Promise.all(selectionPromises);
 
         // Update UI and provide feedback
         this.selectionManager.updateUI();

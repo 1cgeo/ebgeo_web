@@ -757,7 +757,8 @@ async function setImages(features, mapInstance) {
 
     const allImageFeatures = [
         ...(features.images),
-        ...(features.military_symbols)
+        ...(features.military_symbols),
+        ...(features.coordination_measures || [])
     ];
 
     for (const feature of allImageFeatures) {
