@@ -16,9 +16,9 @@ export class IDUtils {
     /**
      * @param {string} source - Source da feature ('circle', 'ellipse', 'arrow', etc.)
      * @param {Object} map - Instância do mapa MapLibre
-     * @returns {string} Nome gerado ('Círculo #3', 'Seta #1', etc.)
+     * @returns {Promise<string>} Nome gerado ('Círculo #3', 'Seta #1', etc.)
      */
-    static generateFeatureName(source, map) {
+    static async generateFeatureName(source, map) {
         try {
 
             const displayName = getFeatureDisplayName(source);
@@ -28,8 +28,11 @@ export class IDUtils {
 
             if (mapSourceName) {
                 const mapSource = map.getSource(mapSourceName);
-                if (mapSource && mapSource._data && mapSource._data.features) {
-                    featureCount = mapSource._data.features.length;
+                if (mapSource) {
+                    const data = await mapSource.getData();
+                    if (data && data.features) {
+                        featureCount = data.features.length;
+                    }
                 }
             }
 

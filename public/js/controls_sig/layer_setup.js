@@ -1,5 +1,6 @@
 // Path: js\controls_sig\layer_setup.js
 import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle } from './store/store.js';
+import { HatchPatternGenerator } from './tool_manager/hatch_pattern_generator.js';
 import { initFrameLayers } from './frameLayersConfig.js';
 import { GRID_LAYERS, initGridLayers } from './gridLayersConfig.js';
 import config from '../config.js';
@@ -196,6 +197,9 @@ function setupRectangleLayers(features, mapInstance) {
         });
     }
 
+    const hatchGenerator = new HatchPatternGenerator();
+    hatchGenerator.loadPatternsToMap(mapInstance, features.rectangles || []);
+
     if (!mapInstance.getLayer('rectangle-feedback-layer')) {
         mapInstance.addLayer({
             id: 'rectangle-feedback-layer',
@@ -219,7 +223,29 @@ function setupRectangleLayers(features, mapInstance) {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
             },
-            filter: ['!=', ['get', 'visivel'], false]
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['!=', ['get', 'hatchEnabled'], true]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('rectangle-fill-pattern-layer')) {
+        mapInstance.addLayer({
+            id: 'rectangle-fill-pattern-layer',
+            type: 'fill',
+            source: 'rectangles',
+            paint: {
+                'fill-opacity': ['get', 'opacity'],
+                'fill-pattern': ['get', 'hatchPatternId']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'hatchEnabled'], true],
+                ['has', 'hatchPatternId']
+            ]
         });
     }
 
@@ -231,7 +257,15 @@ function setupRectangleLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
+                'line-opacity': 1,
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
             filter: ['!=', ['get', 'visivel'], false]
         });
@@ -244,7 +278,12 @@ function setupRectangleLayers(features, mapInstance) {
             source: 'rectangle-edit-handles',
             paint: {
                 'circle-radius': 8,
-                'circle-color': '#ff0000',
+                'circle-color': [
+                    'case',
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',        // VERMELHO para corners
+                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',  // AZUL para rotação
+                    '#ffffff'  // Branco como fallback
+                ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2
             },
@@ -543,78 +582,17 @@ function setupLineLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'color'],
                 'line-width': ['get', 'size'],
-                'line-opacity': ['get', 'opacity']
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'solid'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('line-layer-dashed')) {
-        mapInstance.addLayer({
-            id: 'line-layer-dashed',
-            type: 'line',
-            source: 'lines',
-            layout: {
-                'line-cap': 'round',
-                'line-join': 'round'
-            },
-            paint: {
-                'line-color': ['get', 'color'],
-                'line-width': ['get', 'size'],
                 'line-opacity': ['get', 'opacity'],
-                'line-dasharray': [8, 4]
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dashed'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('line-layer-dotted')) {
-        mapInstance.addLayer({
-            id: 'line-layer-dotted',
-            type: 'line',
-            source: 'lines',
-            layout: {
-                'line-cap': 'round',
-                'line-join': 'round'
-            },
-            paint: {
-                'line-color': ['get', 'color'],
-                'line-width': ['get', 'size'],
-                'line-opacity': ['get', 'opacity'],
-                'line-dasharray': [2, 3]
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dotted'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('line-layer-dash-dot')) {
-        mapInstance.addLayer({
-            id: 'line-layer-dash-dot',
-            type: 'line',
-            source: 'lines',
-            layout: {
-                'line-cap': 'round',
-                'line-join': 'round'
-            },
-            paint: {
-                'line-color': ['get', 'color'],
-                'line-width': ['get', 'size'],
-                'line-opacity': ['get', 'opacity'],
-                'line-dasharray': [8, 4, 2, 4]
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dash-dot'],
-                ['!=', ['get', 'visivel'], false]
-            ]
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
@@ -674,6 +652,9 @@ function setupPolygonLayers(features, mapInstance) {
         });
     }
 
+    const hatchGenerator = new HatchPatternGenerator();
+    hatchGenerator.loadPatternsToMap(mapInstance, features.polygons || []);
+
     if (!mapInstance.getLayer('polygon-fill-layer')) {
         mapInstance.addLayer({
             id: 'polygon-fill-layer',
@@ -683,7 +664,29 @@ function setupPolygonLayers(features, mapInstance) {
                 'fill-color': ['get', 'color'],
                 'fill-opacity': ['get', 'opacity']
             },
-            filter: ['!=', ['get', 'visivel'], false]
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['!=', ['get', 'hatchEnabled'], true]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('polygon-fill-pattern-layer')) {
+        mapInstance.addLayer({
+            id: 'polygon-fill-pattern-layer',
+            type: 'fill',
+            source: 'polygons',
+            paint: {
+                'fill-opacity': ['get', 'opacity'],
+                'fill-pattern': ['get', 'hatchPatternId']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'hatchEnabled'], true],
+                ['has', 'hatchPatternId']
+            ]
         });
     }
 
@@ -709,66 +712,17 @@ function setupPolygonLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'outlinecolor'],
                 'line-width': ['get', 'size'],
-                'line-opacity': 1
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'solid'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('polygon-layer-dashed')) {
-        mapInstance.addLayer({
-            id: 'polygon-layer-dashed',
-            type: 'line',
-            source: 'polygons',
-            paint: {
-                'line-color': ['get', 'outlinecolor'],
-                'line-width': ['get', 'size'],
                 'line-opacity': 1,
-                'line-dasharray': [8, 4]
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dashed'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('polygon-layer-dotted')) {
-        mapInstance.addLayer({
-            id: 'polygon-layer-dotted',
-            type: 'line',
-            source: 'polygons',
-            paint: {
-                'line-color': ['get', 'outlinecolor'],
-                'line-width': ['get', 'size'],
-                'line-opacity': 1,
-                'line-dasharray': [2, 3]
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dotted'],
-                ['!=', ['get', 'visivel'], false]
-            ]
-        });
-    }
-
-    if (!mapInstance.getLayer('polygon-layer-dash-dot')) {
-        mapInstance.addLayer({
-            id: 'polygon-layer-dash-dot',
-            type: 'line',
-            source: 'polygons',
-            paint: {
-                'line-color': ['get', 'outlinecolor'],
-                'line-width': ['get', 'size'],
-                'line-opacity': 1,
-                'line-dasharray': [8, 4, 2, 4]
-            },
-            filter: ['all',
-                ['==', ['get', 'lineStyle'], 'dash-dot'],
-                ['!=', ['get', 'visivel'], false]
-            ]
+            filter: ['!=', ['get', 'visivel'], false]
         });
     }
 
@@ -1153,6 +1107,9 @@ function setupEllipseLayers(features, mapInstance) {
         });
     }
 
+    const hatchGeneratorEllipse = new HatchPatternGenerator();
+    hatchGeneratorEllipse.loadPatternsToMap(mapInstance, features.ellipses || []);
+
     if (!mapInstance.getLayer('ellipse-feedback-layer')) {
         mapInstance.addLayer({
             id: 'ellipse-feedback-layer',
@@ -1176,7 +1133,29 @@ function setupEllipseLayers(features, mapInstance) {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
             },
-            filter: ['!=', ['get', 'visivel'], false]
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['!=', ['get', 'hatchEnabled'], true]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('ellipse-fill-pattern-layer')) {
+        mapInstance.addLayer({
+            id: 'ellipse-fill-pattern-layer',
+            type: 'fill',
+            source: 'ellipses',
+            paint: {
+                'fill-opacity': ['get', 'opacity'],
+                'fill-pattern': ['get', 'hatchPatternId']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'hatchEnabled'], true],
+                ['has', 'hatchPatternId']
+            ]
         });
     }
 
@@ -1188,7 +1167,15 @@ function setupEllipseLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
+                'line-opacity': 1,
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
             filter: ['!=', ['get', 'visivel'], false]
         });
@@ -1577,6 +1564,9 @@ function setupCircleLayers(features, mapInstance) {
         });
     }
 
+    const hatchGeneratorCircle = new HatchPatternGenerator();
+    hatchGeneratorCircle.loadPatternsToMap(mapInstance, features.circles || []);
+
     if (!mapInstance.getLayer('circle-feedback-layer')) {
         mapInstance.addLayer({
             id: 'circle-feedback-layer',
@@ -1600,7 +1590,29 @@ function setupCircleLayers(features, mapInstance) {
                 'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
             },
-            filter: ['!=', ['get', 'visivel'], false]
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['!=', ['get', 'hatchEnabled'], true]
+            ]
+        });
+    }
+
+    if (!mapInstance.getLayer('circle-fill-pattern-layer')) {
+        mapInstance.addLayer({
+            id: 'circle-fill-pattern-layer',
+            type: 'fill',
+            source: 'circles',
+            paint: {
+                'fill-opacity': ['get', 'opacity'],
+                'fill-pattern': ['get', 'hatchPatternId']
+            },
+            filter: [
+                'all',
+                ['!=', ['get', 'visivel'], false],
+                ['==', ['get', 'hatchEnabled'], true],
+                ['has', 'hatchPatternId']
+            ]
         });
     }
 
@@ -1612,21 +1624,15 @@ function setupCircleLayers(features, mapInstance) {
             paint: {
                 'line-color': ['get', 'lineColor'],
                 'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
-            },
-            filter: ['!=', ['get', 'visivel'], false]
-        });
-    }
-
-    if (!mapInstance.getLayer('circle-x-layer')) {
-        mapInstance.addLayer({
-            id: 'circle-x-layer',
-            type: 'line',
-            source: 'circle-x-marks',
-            paint: {
-                'line-color': ['get', 'lineColor'],
-                'line-width': ['get', 'lineWidth'],
-                'line-opacity': 1
+                'line-opacity': 1,
+                'line-dasharray': [
+                    'match',
+                    ['get', 'lineStyle'],
+                    'dashed', ['literal', [8, 4]],
+                    'dotted', ['literal', [2, 3]],
+                    'dash-dot', ['literal', [8, 4, 2, 4]],
+                    ['literal', [1, 0]] // solid (default)
+                ]
             },
             filter: ['!=', ['get', 'visivel'], false]
         });
@@ -1760,9 +1766,9 @@ function setupTextLayers(features, mapInstance) {
     }
 
     // Função helper para atualizar backgrounds quando textos mudarem
-    const updateBackgroundFeatures = () => {
-        const currentTexts = mapInstance.getSource('texts')._data.features;
-        const updatedBackgroundFeatures = currentTexts
+    const updateBackgroundFeatures = async () => {
+        const currentTexts = await mapInstance.getSource('texts').getData();
+        const updatedBackgroundFeatures = currentTexts.features
             .filter(feature => feature.properties.showBackground && feature.properties.selectionBox)
             .map(feature => ({
                 type: 'Feature',

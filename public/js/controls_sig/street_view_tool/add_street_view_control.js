@@ -313,6 +313,10 @@ class AddStreetViewControl {
 
     }
 
+    getMeshRotationY = (data) => {
+        return data.camera?.mesh_rotation_y ? data.camera.mesh_rotation_y : 270
+    }
+
     onAdd(map) {
         this.map = map;
 
@@ -651,7 +655,7 @@ class AddStreetViewControl {
         }
 
         this.setIconDirection(info.camera.heading)
-        this.offsetRad = THREE.MathUtils.degToRad(270 - info.camera.heading);
+        this.offsetRad = THREE.MathUtils.degToRad(this.getMeshRotationY(info) - info.camera.heading);
         this.mesh.rotation.y = this.offsetRad
 
         this.scene.add(this.mesh);
@@ -864,7 +868,7 @@ class AddStreetViewControl {
         if (this.textureCache.has(imagePath)) {
             const texture = this.textureCache.get(imagePath);
             this.material.map = texture;
-            this.offsetRad = THREE.MathUtils.degToRad(270 - data.camera.heading);
+            this.offsetRad = THREE.MathUtils.degToRad(this.getMeshRotationY(data) - data.camera.heading);
             this.mesh.rotation.y = this.offsetRad;
             cb();
         } else {
@@ -875,7 +879,7 @@ class AddStreetViewControl {
                     loadedTexture.colorSpace = THREE.SRGBColorSpace;
                     this.textureCache.set(imagePath, loadedTexture);
                     this.material.map = loadedTexture;
-                    this.offsetRad = THREE.MathUtils.degToRad(270 - data.camera.heading);
+                    this.offsetRad = THREE.MathUtils.degToRad(this.getMeshRotationY(data) - data.camera.heading);
                     this.mesh.rotation.y = this.offsetRad;
                     cb();
                 }

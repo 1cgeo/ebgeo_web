@@ -415,7 +415,7 @@ class AddLOSControl extends BaseControl {
      * @param {Object} mainFeature - Updated main LOS feature
      */
     async updateProcessedFeaturesAfterMove(mainFeature) {
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+        const processedData = await this.map.getSource('processed-los').getData();
 
         // Remove old processed features
         processedData.features = processedData.features.filter(f =>
@@ -506,7 +506,7 @@ class AddLOSControl extends BaseControl {
         try {
             const coordinates = [this.startPoint, this.endPoint];
             const featureId = IDUtils.generateUniqueId();
-            const featureName = IDUtils.generateFeatureName('los', this.map);
+            const featureName = await IDUtils.generateFeatureName('los', this.map);
 
             const properties = {
                 ...AddLOSControl.DEFAULT_PROPERTIES,
@@ -522,13 +522,13 @@ class AddLOSControl extends BaseControl {
             this.updateFeatureMeasurement(losFeature);
 
             // Update main source
-            const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
+            const data = await this.map.getSource('los').getData();
             data.features.push(losFeature);
             this.map.getSource('los').setData(data);
 
             // Create and save processed features
             const processedFeatures = this.geometry.generateProcessedFeatures(losFeature);
-            const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+            const processedData = await this.map.getSource('processed-los').getData();
 
             for (const processedFeature of processedFeatures) {
                 await addFeature('processed_los', processedFeature);
@@ -551,9 +551,9 @@ class AddLOSControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('los').getData();
+        const processedData = await this.map.getSource('processed-los').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -592,8 +592,8 @@ class AddLOSControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        const currentData = this.map.getSource('los')._data;
-        const processedData = this.map.getSource('processed-los')._data;
+        const currentData = await this.map.getSource('los').getData();
+        const processedData = await this.map.getSource('processed-los').getData();
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -717,8 +717,8 @@ class AddLOSControl extends BaseControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length === 0) return;
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('los')._data));
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-los')._data));
+        const data = await this.map.getSource('los').getData();
+        const processedData = await this.map.getSource('processed-los').getData();
 
         for (const feature of features) {
             const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);

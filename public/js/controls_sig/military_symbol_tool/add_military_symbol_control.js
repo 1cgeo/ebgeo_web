@@ -359,13 +359,11 @@ class AddMilitarySymbolControl extends BaseControl {
    * Update selection boxes for specific features (used after drag or attribute changes)
    * Always uses fresh data from map source to ensure accuracy
    */
-  updateSelectionBoxesForFeatures = (features) => {
+  updateSelectionBoxesForFeatures = async (features) => {
     if (!features || features.length === 0) return;
 
     // CRITICAL: Always get fresh data from map source
-    const data = JSON.parse(
-      JSON.stringify(this.map.getSource("military_symbols")._data)
-    );
+    const data = await this.map.getSource("military_symbols").getData();
     let hasChanges = false;
 
     features.forEach((inputFeature) => {
@@ -430,7 +428,7 @@ class AddMilitarySymbolControl extends BaseControl {
 
   // ===== MILITARY SYMBOL CREATION SYSTEM =====
 
-  handleMapClick = (e) => {
+  handleMapClick = async (e) => {
     if (!this.isActive) return;
 
     if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
@@ -438,13 +436,13 @@ class AddMilitarySymbolControl extends BaseControl {
       return;
     }
 
-    this.createMilitarySymbolFeature(e.lngLat);
+    await this.createMilitarySymbolFeature(e.lngLat);
     this.toolManager.deactivateCurrentTool();
   };
 
   createMilitarySymbolFeature = async (lngLat) => {
     const featureId = IDUtils.generateUniqueId();
-    const featureName = IDUtils.generateFeatureName(
+    const featureName = await IDUtils.generateFeatureName(
       "military_symbol",
       this.map
     );
@@ -526,9 +524,7 @@ class AddMilitarySymbolControl extends BaseControl {
       await addFeature("military_symbols", feature);
 
       // Add to map
-      const data = JSON.parse(
-        JSON.stringify(this.map.getSource("military_symbols")._data)
-      );
+      const data = await this.map.getSource("military_symbols").getData();
       data.features.push(feature);
       this.map.getSource("military_symbols").setData(data);
 
@@ -620,9 +616,7 @@ class AddMilitarySymbolControl extends BaseControl {
       );
       
       // ✅ PERSIST changes to map source
-      const data = JSON.parse(
-        JSON.stringify(this.map.getSource("military_symbols")._data)
-      );
+      const data = await this.map.getSource("military_symbols").getData();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
       );
@@ -670,9 +664,7 @@ class AddMilitarySymbolControl extends BaseControl {
       );
       
       // ✅ PERSIST changes to map source
-      const data = JSON.parse(
-        JSON.stringify(this.map.getSource("military_symbols")._data)
-      );
+      const data = await this.map.getSource("military_symbols").getData();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
       );
@@ -748,16 +740,14 @@ class AddMilitarySymbolControl extends BaseControl {
     });
   };
 
-  updateAllSymbolSizes = () => {
+  updateAllSymbolSizes = async () => {
     if (!this.map.getSource("military_symbols")) {
       this.pendingZoomUpdate = false;
       return;
     }
 
     const currentZoom = this.map.getZoom();
-    const data = JSON.parse(
-      JSON.stringify(this.map.getSource("military_symbols")._data)
-    );
+    const data = await this.map.getSource("military_symbols").getData();
     let hasChanges = false;
 
     data.features.forEach((feature) => {
@@ -813,12 +803,12 @@ class AddMilitarySymbolControl extends BaseControl {
 
   // ===== GALLERY METHODS (for Attributes Panel) =====
 
-  getDistinctSymbolsByUsage() {
+  getDistinctSymbolsByUsage = async () => {
     if (!this.map.getSource("military_symbols")) {
       return [];
     }
 
-    const data = this.map.getSource("military_symbols")._data;
+    const data = await this.map.getSource("military_symbols").getData();
     const symbolCounts = new Map(); // Map<sidc, {feature, count}>
 
     // Count occurrences of each SIDC
@@ -836,14 +826,12 @@ class AddMilitarySymbolControl extends BaseControl {
       .sort((a, b) => b.count - a.count)
       .slice(0, 20)
       .map((item) => ({ ...item.feature, usageCount: item.count }));
-  }
+  };
 
   // ===== FEATURE MANAGEMENT INTERFACE =====
 
-  updateFeaturesProperty = (features, property, value) => {
-    const data = JSON.parse(
-      JSON.stringify(this.map.getSource("military_symbols")._data)
-    );
+  updateFeaturesProperty = async (features, property, value) => {
+    const data = await this.map.getSource("military_symbols").getData();
 
     for (const feature of features) {
       const sourceFeature = data.features.find(
@@ -1020,7 +1008,7 @@ class AddMilitarySymbolControl extends BaseControl {
 
   saveFeatures = async (features, initialPropertiesMap) => {
     // Always get fresh feature data from map source before saving
-    const currentData = this.map.getSource("military_symbols")._data;
+    const currentData = await this.map.getSource("military_symbols").getData();
     let hasChanges = false;
 
     for (const selectedFeature of features) {
@@ -1072,9 +1060,7 @@ class AddMilitarySymbolControl extends BaseControl {
         await removeFeature("military_symbols", featureId);
 
         // Update map source
-        const data = JSON.parse(
-          JSON.stringify(this.map.getSource("military_symbols")._data)
-        );
+        const data = await this.map.getSource("military_symbols").getData();
         const idsToDelete = new Set(
           features.map((f) => String(f.properties.id))
         );
@@ -1160,9 +1146,7 @@ class AddMilitarySymbolControl extends BaseControl {
     onlyUpdateProperties = false
   ) => {
     if (features.length > 0) {
-      const data = JSON.parse(
-        JSON.stringify(this.map.getSource("military_symbols")._data)
-      );
+      const data = await this.map.getSource("military_symbols").getData();
       const currentZoom = this.map.getZoom();
 
       for (const feature of features) {

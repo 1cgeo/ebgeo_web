@@ -349,7 +349,7 @@ class AddBoundaryControl extends BaseControl {
         }, 250);
     }
 
-    handleRightClick = (e) => {
+    handleRightClick = async (e) => {
         if (!this.isActive) return;
 
         e.preventDefault();
@@ -368,7 +368,7 @@ class AddBoundaryControl extends BaseControl {
         }
 
         if (this.drawPoints.length >= 2) {
-            this.createFeature();
+            await this.createFeature();
         }
 
         this.stopDrawing();
@@ -455,7 +455,7 @@ class AddBoundaryControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('boundary', this.map);
+        const featureName = await IDUtils.generateFeatureName('boundary', this.map);
         const properties = {
             ...AddBoundaryControl.DEFAULT_PROPERTIES,
             baseCoordinates: [...this.drawPoints],
@@ -480,11 +480,11 @@ class AddBoundaryControl extends BaseControl {
         try {
             await addFeature('boundarys', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('boundarys')._data));
+            const data = await this.map.getSource('boundarys').getData();
             data.features.push(feature);
             this.map.getSource('boundarys').setData(data);
 
-            this.updateDependentFeatures(feature);
+            await this.updateDependentFeatures(feature);
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
@@ -589,7 +589,7 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
-    onEditMouseUp = () => {
+    onEditMouseUp = async () => {
         const selectedFeature = this.getSelectedFeature();
         // Only update if there was actual mouse movement (lastPreviewPosition exists)
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType && this.lastPreviewPosition) {
@@ -608,9 +608,9 @@ class AddBoundaryControl extends BaseControl {
                     geometry: result.geometry
                 };
 
-                this.forceUpdateMainSource(updatedFeature);
+                await this.forceUpdateMainSource(updatedFeature);
                 this.updateSelectionManagerFeature(updatedFeature);
-                this.updateDependentFeatures(updatedFeature);
+                await this.updateDependentFeatures(updatedFeature);
                 this.createEditHandles(updatedFeature);
                 this.updateUIAfterEdit();
                 this.saveFeatureChanges(updatedFeature);
@@ -713,9 +713,9 @@ class AddBoundaryControl extends BaseControl {
 
     // ===== DEPENDENT FEATURES MANAGEMENT =====
 
-    updateDependentFeatures = (boundaryFeature) => {
-        this.updateBoundaryCircles(boundaryFeature);
-        this.updateBoundaryTexts(boundaryFeature);
+    updateDependentFeatures = async (boundaryFeature) => {
+        await this.updateBoundaryCircles(boundaryFeature);
+        await this.updateBoundaryTexts(boundaryFeature);
     }
 
     updateDependentFeaturesFromMovedFeatures = (movedFeatures) => {
@@ -726,8 +726,8 @@ class AddBoundaryControl extends BaseControl {
         });
     }
 
-    updateBoundaryCircles = (boundaryFeature) => {
-        const circleData = JSON.parse(JSON.stringify(this.map.getSource('boundary-circles')._data));
+    updateBoundaryCircles = async (boundaryFeature) => {
+        const circleData = await this.map.getSource('boundary-circles').getData();
         const featureId = boundaryFeature.properties.id;
 
         circleData.features = circleData.features.filter(f => f.properties.parent !== featureId);
@@ -738,8 +738,8 @@ class AddBoundaryControl extends BaseControl {
         this.map.getSource('boundary-circles').setData(circleData);
     }
 
-    updateBoundaryTexts = (boundaryFeature) => {
-        const textData = JSON.parse(JSON.stringify(this.map.getSource('boundary-texts')._data));
+    updateBoundaryTexts = async (boundaryFeature) => {
+        const textData = await this.map.getSource('boundary-texts').getData();
         const featureId = boundaryFeature.properties.id;
 
         textData.features = textData.features.filter(f => f.properties.parent !== featureId);
@@ -752,8 +752,8 @@ class AddBoundaryControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('boundarys')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('boundarys').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -770,7 +770,7 @@ class AddBoundaryControl extends BaseControl {
 
                 // Update dependent features if needed
                 if (['color', 'lineWidth', 'opacity', 'text_top', 'text_bottom', 'text_size', 'text_distance_ratio', 'echelon', 'symbol_position_ratio', 'symbol_size'].includes(property)) {
-                    this.updateDependentFeatures(sourceFeature);
+                    await this.updateDependentFeatures(sourceFeature);
                 }
             }
         }
@@ -792,7 +792,7 @@ class AddBoundaryControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        const currentData = this.map.getSource('boundarys')._data;
+        const currentData = await this.map.getSource('boundarys').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -819,9 +819,9 @@ class AddBoundaryControl extends BaseControl {
     deleteFeatures = async (features) => {
         if (features.length === 0) return;
 
-        const mainData = JSON.parse(JSON.stringify(this.map.getSource('boundarys')._data));
-        const textData = JSON.parse(JSON.stringify(this.map.getSource('boundary-texts')._data));
-        const circleData = JSON.parse(JSON.stringify(this.map.getSource('boundary-circles')._data));
+        const mainData = await this.map.getSource('boundarys').getData();
+        const textData = await this.map.getSource('boundary-texts').getData();
+        const circleData = await this.map.getSource('boundary-circles').getData();
 
         for (const feature of features) {
             try {
@@ -876,12 +876,12 @@ class AddBoundaryControl extends BaseControl {
 
     updateFeatures = async (features, save = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('boundarys')._data));
+            const data = await this.map.getSource('boundarys').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
                     data.features[featureIndex] = feature;
-                    this.updateDependentFeatures(feature);
+                    await this.updateDependentFeatures(feature);
 
                     if (save) {
                         await updateFeature('boundarys', feature);
@@ -933,13 +933,13 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
-    forceUpdateMainSource = (feature) => {
+    forceUpdateMainSource = async (feature) => {
         // Avoid updating source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('boundarys')._data));
+        const data = await this.map.getSource('boundarys').getData();
         const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = { ...feature.properties };

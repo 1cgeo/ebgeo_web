@@ -2,13 +2,16 @@
 
 import {
     createSliderWithInput,
+    createNumericInput,
     createColorPicker,
     createCheckbox,
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createLineStyleSelect,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
+import { openHatchConfigModal } from '../tool_manager/hatch_config_modal.js';
 
 export function addCircleAttributesToPanel(panel, selectedFeatures, circleControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;
@@ -70,12 +73,52 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
 
     $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
 
-    // Raio (somente informativo)
-    const radiusValue = document.createElement('span');
-    radiusValue.textContent = `${Math.round(feature.properties.radius || 1000)} m`;
-    radiusValue.style.cssText = 'font-size: 13px; color: #666; font-weight: 500;';
+    // Estilo da linha
+    const lineStyleSelect = createLineStyleSelect(
+        feature.properties.lineStyle || 'solid',
+        (newValue) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
+        }
+    );
+    $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
-    $(panel).append(createAttributeRow('Raio:', radiusValue));
+    // Hachura
+    const hatchContainer = document.createElement('div');
+    hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+    const hatchCheckbox = createCheckbox(
+        feature.properties.hatchEnabled === true,
+        (e) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'hatchEnabled', e.target.checked);
+        }
+    );
+
+    const hatchConfigButton = document.createElement('button');
+    hatchConfigButton.textContent = '⚙️ Configurar';
+    hatchConfigButton.className = 'tool-button pure-material-tool-button-outlined';
+    hatchConfigButton.style.cssText = 'padding: 4px 8px; font-size: 12px;';
+    hatchConfigButton.onclick = () => {
+        openHatchConfigModal(feature, selectedFeatures, circleControl);
+    };
+
+    $(hatchContainer).append(hatchCheckbox);
+    $(hatchContainer).append(hatchConfigButton);
+    $(panel).append(createAttributeRow('Hachura:', hatchContainer));
+
+    // Raio - MUDADO: agora é input editável em vez de apenas informativo
+    const radiusInput = createNumericInput({
+        min: 10,
+        max: 100000,
+        step: 1,
+        value: Math.round(feature.properties.radius || 1000),
+        suffix: ' m',
+        onChange: (value) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'radius', value);
+            uiManager.updateSelectionHighlight();
+        }
+    });
+
+    $(panel).append(createAttributeRow('Raio:', radiusInput));
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     const buttons = createStandardButtons({

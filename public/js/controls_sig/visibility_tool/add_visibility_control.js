@@ -390,7 +390,7 @@ class AddVisibilityControl extends BaseControl {
      * @param {Array} newProcessedFeatures - New processed features array
      */
     async updateProcessedFeaturesAfterMove(mainFeature, newProcessedFeatures = null) {
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
+        const processedData = await this.map.getSource('processed-visibility').getData();
 
         // Remove old processed features (exact pattern from LOS)
         processedData.features = processedData.features.filter(f =>
@@ -491,7 +491,7 @@ class AddVisibilityControl extends BaseControl {
             this.showProgressModal();
             
             const featureId = IDUtils.generateUniqueId();
-            const featureName = IDUtils.generateFeatureName('visibility', this.map);
+            const featureName = await IDUtils.generateFeatureName('visibility', this.map);
 
             const properties = {
                 ...AddVisibilityControl.DEFAULT_PROPERTIES,
@@ -525,7 +525,7 @@ class AddVisibilityControl extends BaseControl {
             await this.geometry.delay(50);
 
             // Update main source
-            const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
+            const data = await this.map.getSource('visibility').getData();
             data.features.push(visibilityFeature);
             this.map.getSource('visibility').setData(data);
 
@@ -533,7 +533,7 @@ class AddVisibilityControl extends BaseControl {
             await this.geometry.delay(100);
 
             // Update processed source
-            const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
+            const processedData = await this.map.getSource('processed-visibility').getData();
             processedFeatures.forEach(processedFeature => {
                 processedData.features.push(processedFeature);
             });
@@ -584,9 +584,9 @@ class AddVisibilityControl extends BaseControl {
     /**
      * Update property immediately without recalculation (for UI responsiveness)
      */
-    updatePropertyImmediately = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
+    updatePropertyImmediately = async (features, property, value) => {
+        const data = await this.map.getSource('visibility').getData();
+        const processedData = await this.map.getSource('processed-visibility').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -628,8 +628,8 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(5, 'Detectando mudança de altura...');
             await this.geometry.delay(100);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
-            const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
+            const data = await this.map.getSource('visibility').getData();
+            const processedData = await this.map.getSource('processed-visibility').getData();
 
             for (const feature of features) {
                 const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -712,8 +712,8 @@ class AddVisibilityControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        const currentData = this.map.getSource('visibility')._data;
-        const processedData = this.map.getSource('processed-visibility')._data;
+        const currentData = await this.map.getSource('visibility').getData();
+        const processedData = await this.map.getSource('processed-visibility').getData();
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
@@ -819,8 +819,8 @@ class AddVisibilityControl extends BaseControl {
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length === 0) return;
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('visibility')._data));
-        const processedData = JSON.parse(JSON.stringify(this.map.getSource('processed-visibility')._data));
+        const data = await this.map.getSource('visibility').getData();
+        const processedData = await this.map.getSource('processed-visibility').getData();
 
         for (const feature of features) {
             const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);

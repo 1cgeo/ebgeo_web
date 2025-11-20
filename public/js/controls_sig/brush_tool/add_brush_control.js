@@ -334,7 +334,7 @@ class AddBrushControl extends BaseControl {
         }
     }
 
-    finishDrawing = () => {
+    finishDrawing = async () => {
         if (!this.isDrawing) return;
 
         this.isDrawing = false;
@@ -343,7 +343,7 @@ class AddBrushControl extends BaseControl {
 
         // Create feature if we have enough points
         if (this.points.length >= 2) {
-            this.createFeature();
+            await this.createFeature();
         }
 
         // Clean up
@@ -396,7 +396,7 @@ class AddBrushControl extends BaseControl {
         const calculatedLineWidth = AddBrushControl.DEFAULT_PROPERTIES.lineWidth;
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('brush', this.map);
+        const featureName = await IDUtils.generateFeatureName('brush', this.map);
 
         const feature = {
             type: 'Feature',
@@ -414,7 +414,7 @@ class AddBrushControl extends BaseControl {
         try {
             await addFeature('brushes', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('brushes')._data));
+            const data = await this.map.getSource('brushes').getData();
             data.features.push(feature);
             this.map.getSource('brushes').setData(data);
 
@@ -440,9 +440,9 @@ class AddBrushControl extends BaseControl {
         }
     }
 
-    performZoomUpdate = () => {
+    performZoomUpdate = async () => {
         if(this.map.getSource('brushes')){
-            const data = this.map.getSource('brushes')._data;
+            const data = await this.map.getSource('brushes').getData();
             if (data && data.features) {
                 const updatedFeatures = data.features.map(feature => 
                     this.applyZoomCorrections([feature])[0]
@@ -476,8 +476,8 @@ class AddBrushControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('brushes')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('brushes').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -530,7 +530,7 @@ class AddBrushControl extends BaseControl {
         let correctedFeatures = this.applyZoomCorrections(features);
         
         // CRITICAL FIX: Always get fresh feature data from map source before saving
-        const currentData = this.map.getSource('brushes')._data;
+        const currentData = await this.map.getSource('brushes').getData();
         let hasChanges = false;
 
         for (const selectedFeature of correctedFeatures) {
@@ -561,7 +561,7 @@ class AddBrushControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
                 await removeFeature('brushes', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('brushes')._data));
+                const data = await this.map.getSource('brushes').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('brushes').setData(data);
@@ -593,7 +593,7 @@ class AddBrushControl extends BaseControl {
         let features = this.applyZoomCorrections(featuresBeforeZoomFix);
         
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('brushes')._data));
+            const data = await this.map.getSource('brushes').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {

@@ -1,7 +1,8 @@
 // Path: js\controls_sig\arrow_tool\arrow_attributes_panel.js
 
 import { 
-    createSliderWithInput, 
+    createSliderWithInput,
+    createNumericInput,
     createColorPicker, 
     createCheckbox,
     createAttributeRow,
@@ -32,19 +33,20 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     // ===== PROPRIEDADES ESPECÍFICAS DA SETA =====
 
-    // Largura (metros) - range específico da seta
-    const widthControl = createSliderWithInput({
+    // Largura (metros) - MUDADO: agora é input numérico em vez de slider
+    const widthInput = createNumericInput({
         min: 10,
         max: 10000,
         step: 1,
         value: Math.round(feature.properties.width || 500),
+        suffix: ' m',
         onChange: (value) => {
             arrowControl.updateFeaturesProperty(selectedFeatures, 'width', value);
             uiManager.updateSelectionHighlight();
         }
     });
 
-    $(panel).append(createAttributeRow('Largura (m):', widthControl));
+    $(panel).append(createAttributeRow('Largura:', widthInput));
 
     // Cor de preenchimento
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {

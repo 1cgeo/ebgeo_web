@@ -448,7 +448,7 @@ class AddImportControl {
     /**
      * Analisa o contexto atual do mapa para determinar próximos números disponíveis
      */
-    getTypeCountersFromMapContext() {
+    async getTypeCountersFromMapContext() {
         const typeCounters = {
             points: 1,
             lines: 1,
@@ -462,36 +462,39 @@ class AddImportControl {
         };
 
         // Analisar cada source do mapa
-        Object.keys(typeCounters).forEach(sourceType => {
+        for (const sourceType of Object.keys(typeCounters)) {
             try {
                 const source = this.map.getSource(sourceType);
-                if (source && source._data && source._data.features) {
-                    const existingNumbers = [];
-                    const expectedPrefix = typeMap[sourceType];
+                if (source) {
+                    const data = await source.getData();
+                    if (data && data.features) {
+                        const existingNumbers = [];
+                        const expectedPrefix = typeMap[sourceType];
 
-                    // Extrair números dos nomes existentes
-                    source._data.features.forEach(feature => {
-                        if (feature.properties && feature.properties.nome) {
-                            const name = feature.properties.nome;
-                            // Regex para capturar número após "Tipo #"
-                            const match = name.match(new RegExp(`^${expectedPrefix}\\s*#(\\d+)$`));
-                            if (match) {
-                                existingNumbers.push(parseInt(match[1]));
+                        // Extrair números dos nomes existentes
+                        data.features.forEach(feature => {
+                            if (feature.properties && feature.properties.nome) {
+                                const name = feature.properties.nome;
+                                // Regex para capturar número após "Tipo #"
+                                const match = name.match(new RegExp(`^${expectedPrefix}\\s*#(\\d+)$`));
+                                if (match) {
+                                    existingNumbers.push(parseInt(match[1]));
+                                }
                             }
-                        }
-                    });
+                        });
 
-                    // Encontrar próximo número disponível
-                    if (existingNumbers.length > 0) {
-                        const maxNumber = Math.max(...existingNumbers);
-                        typeCounters[sourceType] = maxNumber + 1;
+                        // Encontrar próximo número disponível
+                        if (existingNumbers.length > 0) {
+                            const maxNumber = Math.max(...existingNumbers);
+                            typeCounters[sourceType] = maxNumber + 1;
+                        }
                     }
                 }
             } catch (error) {
                 console.warn(`Erro ao analisar contexto do source ${sourceType}:`, error);
                 // Manter valor padrão se houver erro
             }
-        });
+        }
 
         return typeCounters;
     }
@@ -607,7 +610,7 @@ class AddImportControl {
         };
 
         // 1️⃣ OBTER CONTADORES BASEADOS NO CONTEXTO ATUAL DO MAPA
-        const typeCounters = this.getTypeCountersFromMapContext();
+        const typeCounters = await this.getTypeCountersFromMapContext();
 
         // 2️⃣ DECOMPOSIÇÃO E CONTAGEM (loop síncrono rápido)
         let totalFeaturesToImport = 0;
@@ -664,7 +667,7 @@ class AddImportControl {
             await addFeatures(featuresByType);
 
             // Atualizar sources do mapa
-            this.updateMapSources(featuresByType);
+            await this.updateMapSources(featuresByType);
 
             // Contar total
             totalCount = Object.values(featuresByType)
@@ -678,20 +681,20 @@ class AddImportControl {
         return totalCount;
     }
 
-    updateMapSources(featuresByType) {
+    async updateMapSources(featuresByType) {
         // Atualizar cada source do mapa com as novas features
-        Object.entries(featuresByType).forEach(([type, features]) => {
-            if (features.length === 0) return;
+        for (const [type, features] of Object.entries(featuresByType)) {
+            if (features.length === 0) continue;
 
             const sourceName = type; // points, lines, polygons
             const source = this.map.getSource(sourceName);
 
-            if (source && source._data) {
-                const currentData = JSON.parse(JSON.stringify(source._data));
+            if (source) {
+                const currentData = await source.getData();
                 currentData.features.push(...features);
                 source.setData(currentData);
             }
-        });
+        }
     }
 
     zoomToAllImportedFeatures(featuresByType) {

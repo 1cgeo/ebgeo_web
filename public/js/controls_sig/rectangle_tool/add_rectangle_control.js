@@ -5,6 +5,7 @@ import { IDUtils } from '../id_utils.js';
 import { addRectangleAttributesToPanel } from './rectangle_attributes_panel.js';
 import AddRectangleGeometry from './add_rectangle_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
+import { HatchPatternGenerator } from '../tool_manager/hatch_pattern_generator.js';
 
 class AddRectangleControl extends BaseControl {
     constructor(toolManager) {
@@ -27,19 +28,27 @@ class AddRectangleControl extends BaseControl {
         
         // CRITICAL FIX: Track current mouse position for accurate capture
         this.currentMousePosition = null;
+        this.hatchGenerator = new HatchPatternGenerator();
     }
 
     static DEFAULT_PROPERTIES = {
         lineColor: '#3f4fb5',
         fillColor: '#3f4fb5',
         lineWidth: 2,
+        lineStyle: 'solid',
         opacity: 0.5,
         borderRadius: 0,
+        bearing: 0,
         source: 'rectangle',
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        hatchEnabled: false,
+        hatchType: 'diagonal-right',
+        hatchColor: '#000000',
+        hatchSpacing: 8,
+        hatchLineWidth: 2
     };
 
     // ===== FONTE ÚNICA DA VERDADE =====
@@ -169,6 +178,11 @@ class AddRectangleControl extends BaseControl {
 
         const { center, width, height } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
 
+        // ✅ FIX: Para bearing = 0, trocar width e height para alinhar com convenção dos handles
+        const bearing = feature.properties.bearing || 0;
+        const finalWidth = bearing === 0 ? height : width;
+        const finalHeight = bearing === 0 ? width : height;
+
         return {
             ...feature,
             properties: {
@@ -176,10 +190,15 @@ class AddRectangleControl extends BaseControl {
                 corner1: newCorner1,
                 corner2: newCorner2,
                 center: center,
-                width: width,
-                height: height
+                width: finalWidth,    // ✅ Ajustado para bearing = 0
+                height: finalHeight   // ✅ Ajustado para bearing = 0
             },
-            geometry: this.geometry.generate(newCorner1, newCorner2, feature.properties.borderRadius || 0)
+            geometry: this.geometry.generate(
+                newCorner1, 
+                newCorner2, 
+                feature.properties.borderRadius || 0,
+                bearing
+            )
         };
     }
 
@@ -192,29 +211,79 @@ class AddRectangleControl extends BaseControl {
     }
 
     updateFeatureForMove(feature, dx, dy, newCoords) {
-        const corner1 = this.geometry.normalizeCorner(feature.properties.corner1);
-        const corner2 = this.geometry.normalizeCorner(feature.properties.corner2);
+        const bearing = feature.properties.bearing || 0;
+        
+        if (bearing !== 0) {
+            // ✅ CORREÇÃO: Para retângulos rotacionados, mover o center e recalcular corners
+            const oldCenter = this.geometry.normalizeCenter(feature.properties.center);
+            const newCenter = [oldCenter[0] + dx, oldCenter[1] + dy];
+            
+            // Manter dimensões originais
+            const width = feature.properties.width;
+            const height = feature.properties.height;
+            
+            // Recalcular corners com o novo center, mantendo dimensões e bearing
+            const halfWidth = width / 2;
+            const halfHeight = height / 2;
+            const newCorner1 = this.geometry.rotateAndTranslate(halfWidth, halfHeight, newCenter, bearing);
+            const newCorner2 = this.geometry.rotateAndTranslate(-halfWidth, -halfHeight, newCenter, bearing);
+            
+            const updatedFeature = {
+                ...feature,
+                properties: {
+                    ...feature.properties,
+                    corner1: newCorner1,
+                    corner2: newCorner2,
+                    center: newCenter,
+                    width: width,
+                    height: height
+                },
+                geometry: this.geometry.generateRotatedRectangleGeometry(
+                    newCenter,
+                    width,
+                    height,
+                    feature.properties.borderRadius || 0,
+                    bearing
+                )
+            };
+            
+            return updatedFeature;
+        } else {
+            // Sem rotação: usar lógica original
+            const corner1 = this.geometry.normalizeCorner(feature.properties.corner1);
+            const corner2 = this.geometry.normalizeCorner(feature.properties.corner2);
 
-        // Move both corners by the same delta
-        const newCorner1 = [corner1[0] + dx, corner1[1] + dy];
-        const newCorner2 = [corner2[0] + dx, corner2[1] + dy];
+            // Move both corners by the same delta
+            const newCorner1 = [corner1[0] + dx, corner1[1] + dy];
+            const newCorner2 = [corner2[0] + dx, corner2[1] + dy];
 
-        const { center, width, height } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
+            const { center, width, height } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
 
-        const updatedFeature = {
-            ...feature,
-            properties: {
-                ...feature.properties,
-                corner1: newCorner1,
-                corner2: newCorner2,
-                center: center,
-                width: width,
-                height: height
-            },
-            geometry: this.geometry.generate(newCorner1, newCorner2, feature.properties.borderRadius || 0)
-        };
+            // ✅ FIX: Para bearing = 0, trocar width e height para alinhar com convenção dos handles
+            // Mesma lógica aplicada em createFeature
+            const finalWidth = height;   // Vertical (norte-sul) vira width
+            const finalHeight = width;   // Horizontal (leste-oeste) vira height
 
-        return updatedFeature;
+            const updatedFeature = {
+                ...feature,
+                properties: {
+                    ...feature.properties,
+                    corner1: newCorner1,
+                    corner2: newCorner2,
+                    center: center,
+                    width: finalWidth,    // ✅ Trocado
+                    height: finalHeight   // ✅ Trocado
+                },
+                geometry: this.geometry.generate(
+                    newCorner1, 
+                    newCorner2, 
+                    feature.properties.borderRadius || 0,
+                    0
+                )
+            };
+
+            return updatedFeature;
+        }
     }
 
     canMove(feature) {
@@ -286,7 +355,7 @@ class AddRectangleControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
-    handleMapClick = (e) => {
+    handleMapClick = async (e) => {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
@@ -300,7 +369,7 @@ class AddRectangleControl extends BaseControl {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
-            this.createFeature();
+            await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         }
     }
@@ -335,7 +404,10 @@ class AddRectangleControl extends BaseControl {
             if (width >= 10 && height >= 10) {
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
-                    const previewGeometry = this.geometry.generate(corner1, corner2, selectedFeature.properties.borderRadius || 0);
+                    const borderRadius = selectedFeature ? 
+                        (selectedFeature.properties.borderRadius || 0) : 
+                        AddRectangleControl.DEFAULT_PROPERTIES.borderRadius;
+                    const previewGeometry = this.geometry.generate(corner1, corner2, borderRadius);
                     this.showPreview(previewGeometry);
                 }, 8);
             }
@@ -379,29 +451,74 @@ class AddRectangleControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('rectangle', this.map);
+        const featureName = await IDUtils.generateFeatureName('rectangle', this.map);
+
+        // ✅ CORREÇÃO: Gerar geometria primeiro
+        const initialBearing = AddRectangleControl.DEFAULT_PROPERTIES.bearing || 0;
+        const geometry = this.geometry.generate(
+            corner1, 
+            corner2, 
+            AddRectangleControl.DEFAULT_PROPERTIES.borderRadius,
+            initialBearing
+        );
+
+        // ✅ CORREÇÃO: Extrair corners REAIS da geometria normalizada
+        let finalCorner1, finalCorner2;
+        
+        if (initialBearing !== 0) {
+            // Com bearing: calcular corners rotacionados
+            const halfWidth = width / 2;
+            const halfHeight = height / 2;
+            finalCorner1 = this.geometry.rotateAndTranslate(halfWidth, halfHeight, center, initialBearing);
+            finalCorner2 = this.geometry.rotateAndTranslate(-halfWidth, -halfHeight, center, initialBearing);
+        } else {
+            // Sem bearing: extrair da geometria normalizada
+            const extractedCorners = this.geometry.extractCornersFromGeometry(geometry);
+            finalCorner1 = extractedCorners.corner1;
+            finalCorner2 = extractedCorners.corner2;
+        }
+
+        // ✅ CORREÇÃO CRÍTICA: Recalcular dimensões a partir dos corners normalizados
+        const finalDimensions = this.geometry.calculateDimensionsFromCorners(finalCorner1, finalCorner2);
+
+        // ✅ FIX: Para bearing = 0, trocar width e height para alinhar com convenção dos handles
+        // Handles esperam: width na direção bearing (norte se bearing=0), height perpendicular (leste se bearing=0)
+        // calculateDimensionsFromCorners retorna: width = horizontal (leste-oeste), height = vertical (norte-sul)
+        // Portanto, precisamos trocar para bearing = 0
+        let finalWidth, finalHeight;
+        if (initialBearing === 0) {
+            finalWidth = finalDimensions.height;   // Vertical (norte-sul) vira width
+            finalHeight = finalDimensions.width;   // Horizontal (leste-oeste) vira height
+        } else {
+            finalWidth = finalDimensions.width;
+            finalHeight = finalDimensions.height;
+        }
 
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
             properties: {
                 ...AddRectangleControl.DEFAULT_PROPERTIES,
-                corner1: corner1,
-                corner2: corner2,
-                center: center,
-                width: width,
-                height: height,
+                corner1: finalCorner1,  // ✅ Corners normalizados
+                corner2: finalCorner2,  // ✅ Corners normalizados
+                center: finalDimensions.center,  // ✅ Center recalculado
+                width: finalWidth,      // ✅ Width ajustado para bearing = 0
+                height: finalHeight,    // ✅ Height ajustado para bearing = 0
                 id: featureId,
                 nome: featureName
             },
-            geometry: this.geometry.generate(corner1, corner2)
+            geometry: geometry
         };
 
         try {
             await addFeature('rectangles', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+            const data = await this.map.getSource('rectangles').getData();
             data.features.push(feature);
+
+            if (feature.properties.hatchEnabled) {
+                this.updateHatchPatterns(data);
+            }
             this.map.getSource('rectangles').setData(data);
 
             this.drawPoints = [];
@@ -435,8 +552,12 @@ class AddRectangleControl extends BaseControl {
     }
 
     createEditHandles = (feature) => {
-        // CRITICAL FIX: Extract corners from actual geometry, not properties
-        const handles = this.geometry.createHandlesFromGeometry(feature.geometry, feature.properties.id);
+        const handles = this.geometry.createHandlesFromGeometry(
+            feature.geometry, 
+            feature.properties.id,
+            feature.properties.bearing,
+            feature.properties
+        );
         if (!handles || handles.length === 0) return;
 
         // Show selection feedback with exact same geometry
@@ -449,7 +570,7 @@ class AddRectangleControl extends BaseControl {
             }
         });
 
-        // Show handles
+        // Show handles (agora pode ter 3 handles se bearing existe)
         this.map.getSource('rectangle-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -490,9 +611,11 @@ class AddRectangleControl extends BaseControl {
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
-            this.activeHandleType = handle.properties.handleId;
+            this.activeHandleType = handle.properties.handleId; // 'corner1', 'corner2', ou 'rotation'
             this.map.dragPan.disable();
-            this.map.getCanvas().style.cursor = 'grabbing';
+            
+            const cursor = this.getCursorForHandleType(this.activeHandleType);
+            this.map.getCanvas().style.cursor = cursor;
             
             // CRITICAL FIX: Store initial mouse position
             this.currentMousePosition = [e.lngLat.lng, e.lngLat.lat];
@@ -500,11 +623,28 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
+    /**
+     * ✅ REFATORADO: Get appropriate cursor for handle type
+     * @param {string} handleType - Type of handle
+     * @returns {string} CSS cursor value
+     */
+    getCursorForHandleType(handleType) {
+        switch (handleType) {
+            case 'width-resize':
+                return 'ew-resize'; // East-west resize (width)
+            case 'height-resize':
+                return 'ns-resize'; // North-south resize (height)
+            case 'rotation':
+                return 'grabbing'; // Rotation cursor
+            default:
+                return 'grabbing';
+        }
+    }
+
     onEditMouseMove = (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (!this.isDraggingHandle || !selectedFeature) return;
 
-        // CRITICAL FIX: Always update current position
         this.currentMousePosition = [e.lngLat.lng, e.lngLat.lat];
         this.lastPreviewPosition = this.currentMousePosition;
 
@@ -514,48 +654,35 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
-    onEditMouseUp = (e) => {
+    onEditMouseUp = async (e) => {
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature) {
-            // CRITICAL FIX: Use current event position, not cached position
             const finalMousePosition = [e.lngLat.lng, e.lngLat.lat];
             
             if (finalMousePosition && this.activeHandleType) {
-                // CRITICAL FIX: Use normalized corners extraction from actual geometry
-                const currentCorners = this.geometry.extractCornersFromGeometry(selectedFeature.geometry);
+                const result = this.geometry.updateFromHandle(
+                    this.activeHandleType, 
+                    finalMousePosition, 
+                    selectedFeature
+                );
                 
-                const newCorner1 = this.activeHandleType === 'corner1' ?
-                    finalMousePosition :
-                    currentCorners.corner1;
-
-                const newCorner2 = this.activeHandleType === 'corner2' ?
-                    finalMousePosition :
-                    currentCorners.corner2;
-
-                // Validate minimum dimensions
-                const { width, height } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
-
-                if (width > 10 && height > 10) {
-                    const { center } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
-
-                    // CRITICAL FIX: Generate final geometry using same method as preview
-                    const finalGeometry = this.geometry.generate(newCorner1, newCorner2, selectedFeature.properties.borderRadius || 0);
-
+                if (result && result.width > 10 && result.height > 10) {
                     // Create updated feature
                     const updatedFeature = {
                         ...selectedFeature,
                         properties: {
                             ...selectedFeature.properties,
-                            corner1: newCorner1,
-                            corner2: newCorner2,
-                            center: center,
-                            width: width,
-                            height: height
+                            corner1: result.corner1,
+                            corner2: result.corner2,
+                            center: result.center,
+                            width: result.width,
+                            height: result.height,
+                            bearing: result.bearing
                         },
-                        geometry: finalGeometry
+                        geometry: result.geometry
                     };
 
-                    this.forceUpdateMainSource(updatedFeature);
+                    await this.forceUpdateMainSource(updatedFeature);
                     this.updateSelectionManagerFeature(updatedFeature);
                     
                     // CRITICAL FIX: Recreate handles after brief delay to ensure geometry is updated
@@ -572,6 +699,7 @@ class AddRectangleControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.currentMousePosition = null;
+        this.hatchGenerator = new HatchPatternGenerator();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
@@ -582,48 +710,84 @@ class AddRectangleControl extends BaseControl {
 
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
-            // CRITICAL FIX: Use geometry extraction for consistent corners
-            const currentCorners = this.geometry.extractCornersFromGeometry(selectedFeature.geometry);
+            const preview = this.geometry.calculatePreview(
+                this.activeHandleType,
+                newPosition,
+                selectedFeature
+            );
             
-            const corner1 = this.activeHandleType === 'corner1' ?
-                newPosition :
-                currentCorners.corner1;
+            if (!preview) return;
 
-            const corner2 = this.activeHandleType === 'corner2' ?
-                newPosition :
-                currentCorners.corner2;
+            // Show updated selection feedback
+            this.map.getSource('rectangle-feedback').setData({
+                type: 'Feature',
+                geometry: preview.geometry,
+                properties: {
+                    ...selectedFeature.properties,
+                    isSelected: true
+                }
+            });
 
-            const { width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
+            // ✅ REFATORADO: Update handles usando width, height e rotation
+            const handles = [
+                {
+                    type: 'Feature',
+                    id: `rectangle-handle-${selectedFeature.properties.id}-width`,
+                    geometry: { 
+                        type: 'Point', 
+                        coordinates: preview.handlePositions.width
+                    },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'vertex', // RED
+                        handleId: 'width-resize',
+                        featureId: selectedFeature.properties.id,
+                        mode: 'rectangle_editing',
+                        meta: 'vertex',
+                        user_isEditingHandle: true
+                    }
+                },
+                {
+                    type: 'Feature',
+                    id: `rectangle-handle-${selectedFeature.properties.id}-height`,
+                    geometry: { 
+                        type: 'Point', 
+                        coordinates: preview.handlePositions.height
+                    },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'vertex', // RED
+                        handleId: 'height-resize',
+                        featureId: selectedFeature.properties.id,
+                        mode: 'rectangle_editing',
+                        meta: 'vertex',
+                        user_isEditingHandle: true
+                    }
+                },
+                {
+                    type: 'Feature',
+                    id: `rectangle-handle-${selectedFeature.properties.id}-rotation`,
+                    geometry: { 
+                        type: 'Point', 
+                        coordinates: preview.handlePositions.rotation
+                    },
+                    properties: {
+                        role: 'handle',
+                        handleType: 'eccentricity', // BLUE
+                        handleId: 'rotation',
+                        featureId: selectedFeature.properties.id,
+                        mode: 'rectangle_editing',
+                        meta: 'vertex',
+                        user_isEditingHandle: true
+                    }
+                }
+            ];
 
-            if (width > 10 && height > 10) {
-                // CRITICAL FIX: Use same geometry generation method as final
-                const previewGeometry = this.geometry.generate(corner1, corner2);
-                this.showEditPreview(previewGeometry, previewGeometry);
-            }
+            this.map.getSource('rectangle-edit-handles').setData({
+                type: 'FeatureCollection',
+                features: handles
+            });
         }, 8);
-    }
-
-    showEditPreview = (geometry, normalizedGeometry) => {
-        const selectedFeature = this.getSelectedFeature();
-        if (!selectedFeature) return;
-
-        // Show updated selection feedback with exact geometry
-        this.map.getSource('rectangle-feedback').setData({
-            type: 'Feature',
-            geometry: normalizedGeometry,
-            properties: {
-                ...selectedFeature.properties,
-                isSelected: true
-            }
-        });
-
-        // CRITICAL FIX: Create handles from the actual normalized geometry
-        const handles = this.geometry.createHandlesFromGeometry(normalizedGeometry, selectedFeature.properties.id);
-
-        this.map.getSource('rectangle-edit-handles').setData({
-            type: 'FeatureCollection',
-            features: handles
-        });
     }
 
     // ===== HOVER SYSTEM =====
@@ -644,10 +808,8 @@ class AddRectangleControl extends BaseControl {
         const hasHandle = this.hasHandleAtPoint(features);
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
-        if (hasHandle) {
-            this.map.getCanvas().style.cursor = 'crosshair';
-        } else if (hasFeature) {
-            this.map.getCanvas().style.cursor = 'move';
+        if (hasHandle || hasFeature) {
+            this.map.getCanvas().style.cursor = 'pointer';
         } else {
             this.map.getCanvas().style.cursor = '';
         }
@@ -655,24 +817,25 @@ class AddRectangleControl extends BaseControl {
 
     hasHandleAtPoint = (features) => {
         return features.some(f =>
-            f.source === 'rectangle-edit-handles' &&
-            f.properties.user_isEditingHandle
+            f.layer.id === 'rectangle-edit-handles-layer' &&
+            f.properties.role === 'handle'
         );
     }
 
     hasSelectedFeatureAtPoint = (features) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return false;
+
         return features.some(f =>
-            f.source === 'rectangles' &&
+            f.properties.source === 'rectangle' &&
             f.properties.id === selectedFeature.properties.id
         );
     }
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('rectangles').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -680,26 +843,38 @@ class AddRectangleControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Recalculate geometry if corners change
-                if (['corner1', 'corner2'].includes(property)) {
-                    const corner1 = sourceFeature.properties.corner1;
-                    const corner2 = sourceFeature.properties.corner2;
-
-                    // Recalculate derived properties
+                if (['borderRadius', 'bearing', 'corner1', 'corner2'].includes(property)) {
+                    const corner1 = this.geometry.normalizeCorner(sourceFeature.properties.corner1);
+                    const corner2 = this.geometry.normalizeCorner(sourceFeature.properties.corner2);
                     const { center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
+                    
+                    // ✅ FIX: Para bearing = 0, trocar width e height para alinhar com convenção dos handles
+                    const bearing = sourceFeature.properties.bearing || 0;
+                    const finalWidth = bearing === 0 ? height : width;
+                    const finalHeight = bearing === 0 ? width : height;
+                    
                     sourceFeature.properties.center = center;
-                    sourceFeature.properties.width = width;
-                    sourceFeature.properties.height = height;
+                    sourceFeature.properties.width = finalWidth;
+                    sourceFeature.properties.height = finalHeight;
                     feature.properties.center = center;
-                    feature.properties.width = width;
-                    feature.properties.height = height;
+                    feature.properties.width = finalWidth;
+                    feature.properties.height = finalHeight;
 
-                    // Regenerate geometry
-                    const newGeometry = this.geometry.generate(corner1, corner2, sourceFeature.properties.borderRadius || 0);
+                    // Regenerate geometry with bearing
+                    const newGeometry = this.geometry.generate(
+                        corner1, 
+                        corner2, 
+                        sourceFeature.properties.borderRadius || 0,
+                        bearing
+                    );
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
             }
+        }
+
+        if (property.startsWith('hatch')) {
+            this.updateHatchPatterns(data);
         }
 
         this.map.getSource('rectangles').setData(data);
@@ -721,7 +896,7 @@ class AddRectangleControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         // CRITICAL FIX: Always get fresh feature data from map source before saving
-        const currentData = this.map.getSource('rectangles')._data;
+        const currentData = await this.map.getSource('rectangles').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -744,7 +919,8 @@ class AddRectangleControl extends BaseControl {
             f.geometry = this.geometry.generate(
                 initialProps.corner1,
                 initialProps.corner2,
-                initialProps.borderRadius || 0
+                initialProps.borderRadius || 0,
+                initialProps.bearing || 0
             );
         });
 
@@ -758,7 +934,7 @@ class AddRectangleControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
                 await removeFeature('rectangles', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+                const data = await this.map.getSource('rectangles').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('rectangles').setData(data);
@@ -767,6 +943,15 @@ class AddRectangleControl extends BaseControl {
             }
         }
     }
+    updateHatchPatterns = (data) => {
+        if (!data || !data.features) {
+            return;
+        }
+        const features = data.features.filter(f => f.properties.hatchEnabled);
+        this.hatchGenerator.loadPatternsToMap(this.map, features);
+    }
+
+
 
     setDefaultProperties = (properties) => {
         Object.assign(AddRectangleControl.DEFAULT_PROPERTIES, properties);
@@ -781,12 +966,18 @@ class AddRectangleControl extends BaseControl {
             feature.properties.opacity !== initialProperties.opacity ||
             feature.properties.lineWidth !== initialProperties.lineWidth ||
             feature.properties.borderRadius !== initialProperties.borderRadius ||
+            feature.properties.bearing !== initialProperties.bearing ||
             feature.properties.width !== initialProperties.width ||
             feature.properties.height !== initialProperties.height ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.hatchEnabled !== initialProperties.hatchEnabled ||
+            feature.properties.hatchType !== initialProperties.hatchType ||
+            feature.properties.hatchColor !== initialProperties.hatchColor ||
+            feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
+            feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
             JSON.stringify(feature.properties.corner1) !== JSON.stringify(initialProperties.corner1) ||
             JSON.stringify(feature.properties.corner2) !== JSON.stringify(initialProperties.corner2)
         );
@@ -794,7 +985,7 @@ class AddRectangleControl extends BaseControl {
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+            const data = await this.map.getSource('rectangles').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -852,6 +1043,7 @@ class AddRectangleControl extends BaseControl {
         this.lastPreviewCenter = null;
         this.activeHandleType = null;
         this.currentMousePosition = null;
+        this.hatchGenerator = new HatchPatternGenerator();
 
         if (this.geometryDebounceTimer) {
             clearTimeout(this.geometryDebounceTimer);
@@ -859,13 +1051,13 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
-    forceUpdateMainSource = (feature) => {
+    forceUpdateMainSource = async (feature) => {
         // Don't update source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('rectangles')._data));
+        const data = await this.map.getSource('rectangles').getData();
         const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {

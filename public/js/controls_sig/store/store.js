@@ -896,12 +896,14 @@ export const setBaseLayer = async (layer, mapName = null) => {
     await updateMapData(targetMap, currentMapData);
 };
 
-export const updateMapPosition = async (center_lat, center_long, zoom, mapName = null) => {
+export const updateMapPosition = async (center_lat, center_long, zoom, bearing, pitch, mapName = null) => {
     const targetMap = mapName || getCurrentMapNameSync();
     const currentMapData = await getMapData(targetMap);
     currentMapData.center_lat = center_lat;
     currentMapData.center_long = center_long;
     currentMapData.zoom = zoom;
+    currentMapData.bearing = bearing;
+    currentMapData.pitch = pitch;
     await updateMapData(targetMap, currentMapData);
 };
 
@@ -910,7 +912,9 @@ export const getMapPosition = async (mapName) => {
     return {
         center_lat: currentMapData.center_lat,
         center_long: currentMapData.center_long,
-        zoom: currentMapData.zoom
+        zoom: currentMapData.zoom,
+        bearing: currentMapData.bearing,
+        pitch: currentMapData.pitch
     };
 };
 
@@ -918,7 +922,9 @@ export const hasMapSavedPosition = async (mapName = null) => {
     const position = await getMapPosition(mapName);
     return position.center_lat !== null &&
         position.center_long !== null &&
-        position.zoom !== null;
+        position.zoom !== null &&
+        position.bearing !== null &&
+        position.pitch !== null;
 };
 
 export const clearMapPosition = async (mapName = null) => {
@@ -928,6 +934,8 @@ export const clearMapPosition = async (mapName = null) => {
     currentMapData.center_lat = null;
     currentMapData.center_long = null;
     currentMapData.zoom = null;
+    currentMapData.bearing = null;
+    currentMapData.pitch = null;
 
     await updateMapData(targetMapName, currentMapData);
 };

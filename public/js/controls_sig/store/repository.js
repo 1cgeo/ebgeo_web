@@ -57,7 +57,9 @@ const getEmptyMapData = () => ({
     },
     zoom: null,
     center_lat: null,
-    center_long: null
+    center_long: null,
+    bearing: null,
+    pitch: null
 });
 
 /**

@@ -149,10 +149,10 @@ class MapManager {
                 await this.baseLayerControl.switchMap();
             }
 
-            return { success: true, message: `Mapa "${mapName}" copiado como "${newMapName}"` };
+            return { success: true, message: `Mapa "${mapName}" duplicado como "${newMapName}"` };
         } catch (error) {
-            console.error('Erro ao copiar mapa:', error);
-            return { success: false, message: 'Erro ao copiar mapa: ' + error.message };
+            console.error('Erro ao duplicar mapa:', error);
+            return { success: false, message: 'Erro ao duplicar mapa: ' + error.message };
         }
     }
 
@@ -163,8 +163,10 @@ class MapManager {
 
             const center = this.map.getCenter();
             const zoom = this.map.getZoom();
+            const bearing = this.map.getBearing();
+            const pitch = this.map.getPitch();
 
-            await updateMapPosition(center.lat, center.lng, zoom);
+            await updateMapPosition(center.lat, center.lng, zoom, bearing, pitch);
 
             const hadSavedPosition = await hasMapSavedPosition(mapName || await getCurrentMapName());
             const message = hadSavedPosition
@@ -502,7 +504,7 @@ class MapManager {
         // Botão copiar
         const copyBtn = document.createElement('button');
         copyBtn.className = 'menu-button';
-        copyBtn.innerHTML = '📋 Copiar';
+        copyBtn.innerHTML = '📋 Duplicar';
         copyBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();

@@ -5,6 +5,7 @@ import { IDUtils } from '../id_utils.js';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
 import AddEllipseGeometry from './add_ellipse_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
+import { HatchPatternGenerator } from '../tool_manager/hatch_pattern_generator.js';
 
 class AddEllipseControl extends BaseControl {
     constructor(toolManager) {
@@ -24,18 +25,25 @@ class AddEllipseControl extends BaseControl {
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
+        this.hatchGenerator = new HatchPatternGenerator();
     }
 
     static DEFAULT_PROPERTIES = {
         lineColor: '#3f4fb5',
         fillColor: '#3f4fb5',
         lineWidth: 2,
+        lineStyle: 'solid',
         opacity: 0.5,
         source: 'ellipse',
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        hatchEnabled: false,
+        hatchType: 'diagonal-right',
+        hatchColor: '#000000',
+        hatchSpacing: 8,
+        hatchLineWidth: 2
     };
 
     // ===== FONTE ÚNICA DA VERDADE =====
@@ -281,7 +289,7 @@ class AddEllipseControl extends BaseControl {
 
     // ===== DRAWING SYSTEM =====
 
-    handleMapClick = (e) => {
+    handleMapClick = async (e) => {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
@@ -295,7 +303,7 @@ class AddEllipseControl extends BaseControl {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length === 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
-            this.createFeature();
+            await this.createFeature();
             this.toolManager.deactivateCurrentTool();
         }
     }
@@ -378,7 +386,7 @@ class AddEllipseControl extends BaseControl {
         }
 
         const featureId = IDUtils.generateUniqueId();
-        const featureName = IDUtils.generateFeatureName('ellipse', this.map);
+        const featureName = await IDUtils.generateFeatureName('ellipse', this.map);
 
         const feature = {
             type: 'Feature',
@@ -398,8 +406,12 @@ class AddEllipseControl extends BaseControl {
         try {
             await addFeature('ellipses', feature);
 
-            const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+            const data = await this.map.getSource('ellipses').getData();
             data.features.push(feature);
+
+            if (feature.properties.hatchEnabled) {
+                this.updateHatchPatterns(data);
+            }
             this.map.getSource('ellipses').setData(data);
 
             this.drawPoints = [];
@@ -672,8 +684,8 @@ class AddEllipseControl extends BaseControl {
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
-    updateFeaturesProperty = (features, property, value) => {
-        const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+    updateFeaturesProperty = async (features, property, value) => {
+        const data = await this.map.getSource('ellipses').getData();
 
         for (const feature of features) {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
@@ -696,6 +708,10 @@ class AddEllipseControl extends BaseControl {
             }
         }
 
+        if (property.startsWith('hatch')) {
+            this.updateHatchPatterns(data);
+        }
+
         this.map.getSource('ellipses').setData(data);
 
         // Get fresh features from map source before updating SelectionManager
@@ -715,7 +731,7 @@ class AddEllipseControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         // Always get fresh feature data from map source before saving
-        const currentData = this.map.getSource('ellipses')._data;
+        const currentData = await this.map.getSource('ellipses').getData();
         let hasChanges = false;
 
         for (const selectedFeature of features) {
@@ -749,7 +765,7 @@ class AddEllipseControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
                 await removeFeature('ellipses', featureId);
-                const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+                const data = await this.map.getSource('ellipses').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
                 this.map.getSource('ellipses').setData(data);
@@ -758,6 +774,15 @@ class AddEllipseControl extends BaseControl {
             }
         }
     }
+    updateHatchPatterns = (data) => {
+        if (!data || !data.features) {
+            return;
+        }
+        const features = data.features.filter(f => f.properties.hatchEnabled);
+        this.hatchGenerator.loadPatternsToMap(this.map, features);
+    }
+
+
 
     setDefaultProperties = (properties) => {
         Object.assign(AddEllipseControl.DEFAULT_PROPERTIES, properties);
@@ -778,13 +803,18 @@ class AddEllipseControl extends BaseControl {
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
             feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.hatchEnabled !== initialProperties.hatchEnabled ||
+            feature.properties.hatchType !== initialProperties.hatchType ||
+            feature.properties.hatchColor !== initialProperties.hatchColor ||
+            feature.properties.hatchSpacing !== initialProperties.hatchSpacing ||
+            feature.properties.hatchLineWidth !== initialProperties.hatchLineWidth ||
             JSON.stringify(feature.properties.center) !== JSON.stringify(initialProperties.center)
         );
     }
 
     updateFeatures = async (features, save = false, onlyUpdateProperties = false) => {
         if (features.length > 0) {
-            const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+            const data = await this.map.getSource('ellipses').getData();
             for (const feature of features) {
                 const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
                 if (featureIndex !== -1) {
@@ -847,13 +877,13 @@ class AddEllipseControl extends BaseControl {
         }
     }
 
-    forceUpdateMainSource = (feature) => {
+    forceUpdateMainSource = async (feature) => {
         // Don't update source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
 
-        const data = JSON.parse(JSON.stringify(this.map.getSource('ellipses')._data));
+        const data = await this.map.getSource('ellipses').getData();
         const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {
