@@ -1,9 +1,18 @@
 // Path: js\controls_sig\coordination_measure_tool\coordination_measure_generator.js
 import { COORDINATION_POINTS_CATALOG } from './coordination_points_catalog.js';
 
+const DEFAULT_SIZE = 100;
+
 /**
- * Gerador de símbolos para Medidas de Coordenação
- * Baseado em MD33-C-01 e MD33-M-02
+ * Coordination Measure Generator
+ * Generates coordination measure symbols from SVG catalog
+ * 
+ * Key features:
+ * - SVG catalog-based generation
+ * - Text modifier support (internal placeholders + external positioning)
+ * - Status-based styling (dashed stroke for "preparado")
+ * - Returns actual dimensions for accurate bounding box calculations
+ * - Compatible with Military Symbol Generator interface
  * 
  * @class CoordinationMeasureGenerator
  */
@@ -13,42 +22,72 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Gera símbolo PNG a partir de código e propriedades
-   * @param {string} pointCode - Código do ponto (ex: "130100")
-   * @param {Object} properties - Propriedades do ponto
-   * @returns {Promise<Object>} Objeto com dataUrl, width, height e anchor
+   * Generate symbol blob for map rendering with dimensions
+   * Public interface - matches Military Symbol Generator
+   * @param {Object} properties - Feature properties including pointCode
+   * @returns {Promise<Object>} { blob: Blob, width: number, height: number, anchor: string }
    */
-  async generate(pointCode, properties) {
-    const pointData = this.catalog[pointCode];
-    
-    if (!pointData) {
-      throw new Error(`Ponto ${pointCode} não encontrado no catálogo`);
+  async generateSymbolBlob(properties) {
+    const pointCode = properties.pointCode;
+    if (!pointCode) {
+      throw new Error('Property pointCode is required');
     }
-
-    let svg = pointData.svg;
     
-    // Substituir placeholders internos do SVG ({{NUMERO}}, {{NOME}})
+    const pointData = this.catalog[pointCode];
+    if (!pointData) {
+      throw new Error(`Point ${pointCode} not found in catalog`);
+    }
+    
+    // Generate SVG with all modifications
+    let svg = pointData.svg;
     svg = this.replacePlaceholders(svg, properties);
     
-    // Aplicar tracejado para status "preparado" (não ocupado)
     if (properties.status === 'preparado' || properties.status === 'preparado-nao-ocupado') {
       svg = this.applyDashedStroke(svg);
     }
     
-    // Adicionar textos externos (GDH, identificação, etc)
     svg = this.addExternalTexts(svg, properties, pointData);
     
-    // Extrair dimensões
+    // Extract dimensions
     const { width, height } = this.extractDimensions(svg);
     
-    // Converter SVG para PNG
-    const { dataUrl, width: finalWidth, height: finalHeight } = await this.svgToPng(svg);
+    // Convert to blob
+    const blob = await this.convertToPngBlob(svg);
+    
+    return {
+      blob: blob,
+      width: width,
+      height: height,
+      anchor: pointData.anchor
+    };
+  }
+
+  /**
+   * Generate symbol with data URL (legacy/convenience method)
+   * Returns dataUrl instead of blob for backward compatibility with existing code
+   * @param {string} pointCode - Point code (ex: "130100")
+   * @param {Object} properties - Point properties
+   * @returns {Promise<Object>} { dataUrl: string, width: number, height: number, anchor: string, blob: Blob }
+   */
+  async generate(pointCode, properties) {
+    // Add pointCode to properties for generateSymbolBlob
+    const propsWithCode = { ...properties, pointCode: pointCode };
+    
+    const result = await this.generateSymbolBlob(propsWithCode);
+    
+    // Convert blob to dataUrl for backward compatibility
+    const dataUrl = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(result.blob);
+    });
     
     return {
       dataUrl: dataUrl,
-      width: finalWidth,
-      height: finalHeight,
-      anchor: pointData.anchor
+      blob: result.blob,
+      width: result.width,
+      height: result.height,
+      anchor: result.anchor
     };
   }
 
@@ -298,16 +337,19 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Converte SVG para PNG usando Canvas
-   * @param {string} svgString - String SVG
-   * @returns {Promise<Object>} Objeto com dataUrl, width e height
+   * Convert SVG string to PNG blob using canvas
+   * Maintains aspect ratio and centers image in canvas with specified dimensions
+   * @param {string} svgString - SVG string
+   * @param {number} targetWidth - Target canvas width (optional, uses natural width if not specified)
+   * @param {number} targetHeight - Target canvas height (optional, uses natural height if not specified)
+   * @returns {Promise<Blob>} PNG blob
    */
-  async svgToPng(svgString) {
+  async convertToPngBlob(svgString, targetWidth = null, targetHeight = null) {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error('Timeout ao processar SVG'));
+        reject(new Error('Timeout processing SVG'));
       }, 5000);
-
+      
       try {
         const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -317,46 +359,74 @@ export class CoordinationMeasureGenerator {
           clearTimeout(timeout);
           
           try {
-            const canvas = document.createElement('canvas');
-            const width = img.naturalWidth || img.width;
-            const height = img.naturalHeight || img.height;
+            // Get natural dimensions
+            const originalWidth = img.naturalWidth || img.width;
+            const originalHeight = img.naturalHeight || img.height;
             
-            if (width === 0 || height === 0) {
-              throw new Error('Dimensões inválidas da imagem');
+            if (originalWidth === 0 || originalHeight === 0) {
+              throw new Error('Invalid image dimensions');
             }
             
-            canvas.width = width;
-            canvas.height = height;
+            // Use natural dimensions if targets not specified
+            const finalWidth = targetWidth || originalWidth;
+            const finalHeight = targetHeight || originalHeight;
             
+            // Create canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = finalWidth;
+            canvas.height = finalHeight;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
             
-            const dataUrl = canvas.toDataURL('image/png');
+            // If resizing, maintain aspect ratio and center
+            if (targetWidth || targetHeight) {
+              const aspectRatio = originalWidth / originalHeight;
+              const canvasAspectRatio = finalWidth / finalHeight;
+              
+              let newWidth, newHeight;
+              if (aspectRatio >= canvasAspectRatio) {
+                // Image is wider than canvas - fit to width
+                newWidth = finalWidth;
+                newHeight = Math.round(finalWidth / aspectRatio);
+              } else {
+                // Image is taller than canvas - fit to height
+                newHeight = finalHeight;
+                newWidth = Math.round(finalHeight * aspectRatio);
+              }
+              
+              // Center image in canvas
+              const offsetX = (finalWidth - newWidth) / 2;
+              const offsetY = (finalHeight - newHeight) / 2;
+              
+              ctx.clearRect(0, 0, finalWidth, finalHeight);
+              ctx.drawImage(img, offsetX, offsetY, newWidth, newHeight);
+            } else {
+              // No resize, direct draw
+              ctx.drawImage(img, 0, 0);
+            }
             
-            URL.revokeObjectURL(url);
-            
-            resolve({
-              dataUrl: dataUrl,
-              width: width,
-              height: height
-            });
+            // Convert to blob
+            canvas.toBlob(pngBlob => {
+              URL.revokeObjectURL(url);
+              resolve(pngBlob);
+            }, 'image/png');
             
           } catch (canvasError) {
             URL.revokeObjectURL(url);
-            reject(new Error('Erro ao processar canvas: ' + canvasError.message));
+            reject(new Error('Canvas processing error: ' + canvasError.message));
           }
         };
         
         img.onerror = (error) => {
           clearTimeout(timeout);
           URL.revokeObjectURL(url);
-          reject(new Error('Erro ao carregar imagem SVG: ' + error));
+          reject(new Error('Failed to load SVG image: ' + error));
         };
         
         img.src = url;
         
       } catch (error) {
-        reject(new Error('Erro ao criar blob SVG: ' + error.message));
+        clearTimeout(timeout);
+        reject(new Error('Failed to create SVG blob: ' + error.message));
       }
     });
   }

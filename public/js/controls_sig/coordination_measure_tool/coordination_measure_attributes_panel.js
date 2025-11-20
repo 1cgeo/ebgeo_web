@@ -271,7 +271,7 @@ export function addCoordinationMeasureAttributesToPanel(
                 }
 
                 // Generate preview
-                const result = await coordinationMeasureControl.generator.generate(
+                const result = await coordinationMeasureControl.symbolGenerator.generate(
                     tempProperties.pointCode,
                     tempProperties
                 );
@@ -1057,7 +1057,7 @@ export function addCoordinationMeasureAttributesToPanel(
                 properties.echelonCode = 'ECHELON_FT_16';
             }
 
-            const result = await coordinationMeasureControl.generator.generate(
+            const result = await coordinationMeasureControl.symbolGenerator.generate(
                 pointCode,
                 properties
             );

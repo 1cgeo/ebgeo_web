@@ -10,8 +10,6 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
         super(properties);
     }
 
-    // ===== CORE INTERFACE (Required) =====
-
     /**
      * Generate point geometry for coordination measure placement
      * @param {Array} coordinates - Position coordinates [lng, lat]
@@ -54,23 +52,6 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
     }
 
     /**
-     * Validate coordination measure coordinates
-     * @param {Array} coordinates - Position coordinates
-     * @returns {boolean} True if valid
-     */
-    validate(coordinates) {
-        return coordinates && 
-               Array.isArray(coordinates) && 
-               coordinates.length >= 2 &&
-               typeof coordinates[0] === 'number' && 
-               typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) && 
-               !isNaN(coordinates[1]);
-    }
-
-    // ===== SELECTION BOX OPERATIONS =====
-
-    /**
      * Calculate selection box geometry for coordination measure with zoom-invariant sizing
      * @param {Array} coordinates - Symbol position [lng, lat]
      * @param {number} width - Symbol width in pixels
@@ -82,7 +63,7 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
      * @returns {Object} GeoJSON Polygon geometry for selection box
      */
     calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager) {
-        // Apply size scaling with 50% correction factor (consistent with image tool)
+        // Apply size scaling with 62.5% correction factor (same as image tool)
         const scaledWidth = width * size * 0.5;
         const scaledHeight = height * size * 0.5;
         
@@ -131,26 +112,6 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
     }
 
     /**
-     * Recalculate selection box for feature
-     * @param {Object} feature - Coordination measure feature
-     * @param {Object} uiManager - UI manager instance
-     * @returns {Object} Updated selection box geometry
-     */
-    recalculateSelectionBox(feature, uiManager) {
-        return this.calculateSelectionBoxGeometry(
-            feature.geometry.coordinates,
-            feature.properties.width,
-            feature.properties.height,
-            feature.properties.size || 1,
-            feature.properties.rotation || 0,
-            feature.properties.createdAtZoom,
-            uiManager
-        );
-    }
-
-    // ===== MOVEMENT OPERATIONS =====
-
-    /**
      * Update coordination measure position for move operation
      * @param {Array} currentCoordinates - Current position
      * @param {number} dx - Delta X in geographic coordinates
@@ -164,7 +125,23 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
         ];
     }
 
-    // ===== ZOOM OPERATIONS =====
+    /**
+     * Recalculate selection box for feature
+     * @param {Object} feature - Coordination measure feature
+     * @param {Object} uiManager - UI manager instance
+     * @returns {Object} Updated selection box geometry
+     */
+    recalculateSelectionBox(feature, uiManager) {
+        return this.calculateSelectionBoxGeometry(
+            feature.geometry.coordinates,
+            feature.properties.width,
+            feature.properties.height,
+            feature.properties.size,
+            feature.properties.rotation,
+            feature.properties.createdAtZoom,
+            uiManager
+        );
+    }
 
     /**
      * Calculate zoom-adjusted size
@@ -179,13 +156,11 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
         return Math.min(baseSize * scaleFactor, 10); // Maximum 10x scaling
     }
 
-    // ===== SPATIAL QUERIES =====
-
     /**
      * Get bounding box for coordination measure (for spatial queries)
      * @param {Array} coordinates - Symbol position
-     * @param {number} width - Symbol width in pixels
-     * @param {number} height - Symbol height in pixels
+     * @param {number} width - Symbol width
+     * @param {number} height - Symbol height
      * @param {number} size - Size multiplier
      * @returns {Array} Bounding box [minLng, minLat, maxLng, maxLat]
      */
@@ -195,7 +170,7 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
         const scaledHeight = height * size * 0.5;
         
         // Convert pixels to rough degree approximation
-        const widthDegrees = scaledWidth / 111320; // Rough conversion at equator
+        const widthDegrees = scaledWidth / 111320; // Rough conversion
         const heightDegrees = scaledHeight / 111320;
         
         const halfWidth = widthDegrees / 2;
@@ -209,18 +184,41 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
         ];
     }
 
-    // ===== VALIDATION HELPERS =====
-
     /**
-     * Check if coordinates represent a valid position
-     * @param {Array} coordinates - Coordinates to check
-     * @returns {boolean} True if valid position
+     * Check if coordination measure properties will affect symbol generation
+     * @param {string} property - Property name being changed
+     * @returns {boolean} True if property affects symbol generation
      */
-    isValidPosition(coordinates) {
-        return this.validate(coordinates);
+    affectsSIDC(property) {
+        const sidcProperties = [
+            'pointCode',
+            'echelonCode'
+        ];
+        
+        return sidcProperties.includes(property);
     }
 
-    // ===== PROPERTY CHANGE DETECTION =====
+    /**
+     * Check if property is a text modifier (requires symbol regeneration)
+     * Text modifiers don't affect SIDC but require regeneration to show text
+     * @param {string} property - Property name being changed
+     * @returns {boolean} True if property is a text modifier
+     */
+    affectsTextModifiers(property) {
+        const textModifierProperties = [
+            'tipo',                  // V - Tipo
+            'identificacao',         // T - Identificação
+            'gdhIni',               // W - GDH Inicial
+            'gdhFim',               // W1 - GDH Final
+            'numero',               // M - Número
+            'classeSuprimento',     // Classe de Suprimento
+            'status',               // Status
+            'numeroConcentracao',   // Número de Concentração
+            'altitude'              // X - Altitude
+        ];
+        
+        return textModifierProperties.includes(property);
+    }
 
     /**
      * Check if property affects visual rendering (selection box recalculation needed)
@@ -230,22 +228,6 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
     affectsVisuals(property) {
         const visualProperties = ['size', 'rotation', 'width', 'height'];
         return visualProperties.includes(property);
-    }
-
-    /**
-     * Check if property requires symbol regeneration
-     * Text modifiers and point code changes require regeneration
-     * @param {string} property - Property name being changed
-     * @returns {boolean} True if property requires regeneration
-     */
-    requiresRegeneration(property) {
-        const regenerationProperties = [
-            'pointCode', 'echelonCode',
-            'tipo', 'identificacao', 'gdhIni', 'gdhFim', 'numero',
-            'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
-        ];
-        
-        return regenerationProperties.includes(property);
     }
 }
 
