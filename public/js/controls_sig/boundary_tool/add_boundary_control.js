@@ -80,7 +80,7 @@ class AddBoundaryControl extends BaseControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.setAttribute("id", "boundary-tool");
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_boundary_black.svg" alt="BOUNDARY" />';
-        button.title = 'Adicionar Linha de Divisão (D)';
+        button.title = 'Adicionar Linha de Limite (D)';
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);

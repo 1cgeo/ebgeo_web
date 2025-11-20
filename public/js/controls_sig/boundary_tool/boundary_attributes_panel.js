@@ -70,7 +70,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         boundaryControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
         uiManager.updateSelectionHighlight();
-    }, 'Cor da linha de divisão');
+    }, 'Cor da linha de limite');
 
     $(panel).append(createAttributeRow('Cor:', colorInput));
 
