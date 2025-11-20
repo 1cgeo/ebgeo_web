@@ -214,7 +214,8 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
             'classeSuprimento',     // Classe de Suprimento
             'status',               // Status
             'numeroConcentracao',   // Número de Concentração
-            'altitude'              // X - Altitude
+            'altitude',             // X - Altitude
+            'fillColor'             // Cor personalizada
         ];
         
         return textModifierProperties.includes(property);

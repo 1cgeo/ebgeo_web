@@ -57,11 +57,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // Botão para abrir modal do símbolo
         const symbolButton = document.createElement('button');
         symbolButton.classList.add('tool-button', 'pure-material-button-contained');
-        symbolButton.textContent = 'Configurar Símbolo...';
+        symbolButton.textContent = 'Configurar';
         symbolButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
         symbolButton.onclick = () => openSymbolModal();
 
-        $(panel).append(createAttributeRow('SIDC:', symbolButton));
+        $(panel).append(createAttributeRow('Símbolo:', symbolButton));
     }
     // ===== CONTROLES DE RENDERIZAÇÃO =====
 
@@ -558,7 +558,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         `;
 
         // Get distinct symbols by usage
-        const distinctSymbols = militarySymbolControl.getDistinctSymbolsByUsage();
+        const distinctSymbols = await militarySymbolControl.getDistinctSymbolsByUsage();
 
         if (distinctSymbols.length === 0) {
             const emptyMessage = document.createElement('div');
@@ -2112,8 +2112,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
         applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
         applyButton.onclick = async () => {
-            // Apply changes to selected features
-            // Explicitly list all properties to ensure text modifiers are included
+            // ✅ BUG FIX #1: Update ALL properties first, then regenerate ONCE
             const propertiesToUpdate = [
                 'standardIdentity', 'symbolSet', 'status', 'hqTfDummy', 'echelon',
                 'mainIcon', 'modifier1', 'modifier2', 'specialModifier', 'isCommand',
@@ -2127,9 +2126,58 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 'engagementBar'
             ];
 
-            for (const key of propertiesToUpdate) {
-                if (tempProperties.hasOwnProperty(key)) {
-                    await militarySymbolControl.updateFeaturesProperty(selectedFeatures, key, tempProperties[key]);
+            // Get source data ONCE
+            const data = await militarySymbolControl.map.getSource("military_symbols").getData();
+            let needsRegeneration = false;
+
+            // Update all properties in the source
+            for (const feature of selectedFeatures) {
+                const sourceFeature = data.features.find(
+                    (f) => f.properties.id == feature.properties.id
+                );
+                
+                if (sourceFeature) {
+                    // Update each property
+                    for (const key of propertiesToUpdate) {
+                        if (tempProperties.hasOwnProperty(key)) {
+                            sourceFeature.properties[key] = tempProperties[key];
+                            feature.properties[key] = tempProperties[key];
+                            
+                            // Check if regeneration is needed
+                            if (militarySymbolControl.geometry.affectsSIDC(key) ||
+                                militarySymbolControl.geometry.affectsTextModifiers(key) ||
+                                key === 'fillColor') {
+                                needsRegeneration = true;
+                            }
+                        }
+                    }
+                    
+                    // Recalculate SIDC if necessary
+                    if (needsRegeneration) {
+                        const newSIDC30 = militarySymbolControl.symbolGenerator.buildSIDC(sourceFeature.properties);
+                        sourceFeature.properties.sidc = newSIDC30;
+                        feature.properties.sidc = newSIDC30;
+                    }
+                }
+            }
+
+            // Update source with ALL changes
+            militarySymbolControl.map.getSource("military_symbols").setData(data);
+
+            // Regenerate symbol ONCE if needed
+            if (needsRegeneration && selectedFeatures.length > 0) {
+                // Get UPDATED feature from source to ensure all properties are present
+                const updatedData = await militarySymbolControl.map.getSource("military_symbols").getData();
+                const updatedFeature = updatedData.features.find(
+                    f => f.properties.id === selectedFeatures[0].properties.id
+                );
+                
+                if (updatedFeature) {
+                    // Regenerate symbol with ALL updated properties
+                    await militarySymbolControl.updateSymbolImage(updatedFeature);
+                    
+                    // Update SelectionManager with updated feature
+                    militarySymbolControl.updateSelectionManagerFeature(updatedFeature);
                 }
             }
 

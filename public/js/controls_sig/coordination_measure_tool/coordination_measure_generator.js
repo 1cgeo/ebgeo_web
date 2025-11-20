@@ -46,6 +46,12 @@ export class CoordinationMeasureGenerator {
       svg = this.applyDashedStroke(svg);
     }
     
+    
+    // Apply custom color if specified
+    if (properties.fillColor) {
+      svg = this.applyCustomColor(svg, properties.fillColor);
+    }
+    
     svg = this.addExternalTexts(svg, properties, pointData);
     
     // Extract dimensions
@@ -140,6 +146,42 @@ export class CoordinationMeasureGenerator {
       /stroke="([^"]*)"/g, 
       'stroke="$1" stroke-dasharray="5,5"'
     );
+  }
+
+  /**
+   * Aplica cor personalizada substituindo rgb(255,255,255) pela cor escolhida
+   * @param {string} svg - String SVG
+   * @param {string} color - Cor em formato hex (ex: #11FF00)
+   * @returns {string} SVG com cor aplicada
+   */
+  applyCustomColor(svg, color) {
+    // Converter cor hex para rgb
+    const rgb = this.hexToRgb(color);
+    if (rgb) {
+      return svg.replace(/rgb\(255,\s*255,\s*255\)/gi, `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`);
+    }
+    return svg;
+  }
+
+  /**
+   * Converte cor hexadecimal para RGB
+   * @param {string} hex - Cor em formato hex (ex: #11FF00)
+   * @returns {Object|null} Objeto com propriedades r, g, b ou null se inválido
+   */
+  hexToRgb(hex) {
+    // Remove # se presente
+    hex = hex.replace(/^#/, '');
+    
+    // Valida formato hex
+    if (!/^[0-9A-F]{6}$/i.test(hex)) {
+      return null;
+    }
+    
+    return {
+      r: parseInt(hex.substr(0, 2), 16),
+      g: parseInt(hex.substr(2, 2), 16),
+      b: parseInt(hex.substr(4, 2), 16)
+    };
   }
 
   /**

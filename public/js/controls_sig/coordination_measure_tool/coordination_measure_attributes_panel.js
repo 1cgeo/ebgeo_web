@@ -5,6 +5,8 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createColorPicker,
+    createCheckbox,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 import { COORDINATION_POINTS_CATALOG } from './coordination_points_catalog.js';
@@ -12,7 +14,7 @@ import { UI_DATA, SUPPLY_CLASSES } from './coordination_measure_constants.js';
 
 /**
  * Add Coordination Measure attributes to panel
- * Follows the same pattern as military symbol attributes panel with 3-column modal
+ * Follows the same pattern as military symbol attributes panel with 2-column modal
  * 
  * @param {HTMLElement} panel - Panel container element
  * @param {Array} selectedFeatures - Array of selected coordination measure features
@@ -53,11 +55,11 @@ export function addCoordinationMeasureAttributesToPanel(
         // Botão para abrir modal do ponto
         const pointButton = document.createElement('button');
         pointButton.classList.add('tool-button', 'pure-material-button-contained');
-        pointButton.textContent = 'Configurar Ponto...';
+        pointButton.textContent = 'Configurar';
         pointButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
         pointButton.onclick = () => openPointModal();
 
-        $(panel).append(createAttributeRow('Ponto:', pointButton));
+        $(panel).append(createAttributeRow('Símbolo:', pointButton));
     }
 
     // ===== CONTROLES DE RENDERIZAÇÃO =====
@@ -126,7 +128,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
     $(panel).append(buttons);
 
-    // ===== MODAL DO PONTO (3 COLUNAS - PADRÃO MILITARY SYMBOL) =====
+    // ===== MODAL DO PONTO (2 COLUNAS) =====
 
     // Variável global para rastrear dropdowns abertos
     const openDropdowns = [];
@@ -138,6 +140,96 @@ export function addCoordinationMeasureAttributesToPanel(
                 dropdown.style.display = 'none';
             }
         });
+    }
+
+    // ===== FUNÇÃO PARA CRIAR CONTROLE DE COR =====
+    function createColorControl(currentValue, onChange, label) {
+        const container = document.createElement('div');
+        container.className = 'color-control-container';
+
+        const labelElement = document.createElement('label');
+        labelElement.textContent = label + ':';
+        labelElement.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+
+        // Container do checkbox e label
+        const checkboxContainer = document.createElement('div');
+        checkboxContainer.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 12px;';
+
+        // Checkbox usando helper
+        const checkbox = createCheckbox(
+            !!currentValue, // true se tem cor, false se é padrão
+            (e) => {
+                const isEnabled = e.target.checked;
+                if (isEnabled) {
+                    // Habilitar cor personalizada - usar cor atual ou verde padrão
+                    const color = currentValue || '#11FF00';
+                    onChange(color);
+                    updateColorControlState(color);
+                } else {
+                    // Desabilitar cor personalizada - usar padrão (branco)
+                    onChange(null);
+                    updateColorControlState(null);
+                }
+            }
+        );
+
+        const checkboxLabel = document.createElement('span');
+        checkboxLabel.textContent = 'Usar cor personalizada';
+        checkboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
+
+        // Clicar no label também alterna o checkbox
+        checkboxLabel.onclick = () => {
+            const checkboxInput = checkbox.find('input')[0];
+            checkboxInput.click();
+        };
+
+        checkboxContainer.appendChild(checkbox[0]);
+        checkboxContainer.appendChild(checkboxLabel);
+
+        // Container dos controles de cor
+        const controlsContainer = document.createElement('div');
+        controlsContainer.style.cssText = 'display: flex; align-items: center; gap: 12px;';
+
+        // Color picker usando helper
+        const colorPicker = createColorPicker(
+            currentValue || '#11FF00',
+            (e) => {
+                const color = e.target.value;
+                onChange(color);
+                updateColorControlState(color);
+            },
+            'Escolher cor personalizada',
+            'current'
+        );
+
+        function updateColorControlState(color) {
+            const isCustomColor = !!color;
+            const checkboxInput = checkbox.find('input')[0];
+
+            // Atualizar checkbox state
+            checkboxInput.checked = isCustomColor;
+
+            // Atualizar color picker
+            colorPicker.disabled = !isCustomColor;
+            colorPicker.style.opacity = isCustomColor ? '1' : '0.5';
+            colorPicker.style.cursor = isCustomColor ? 'pointer' : 'not-allowed';
+
+            // Atualizar valor do color picker
+            if (isCustomColor) {
+                colorPicker.value = color;
+            }
+        }
+
+        // Estado inicial
+        updateColorControlState(currentValue);
+
+        controlsContainer.appendChild(colorPicker);
+
+        container.appendChild(labelElement);
+        container.appendChild(checkboxContainer);
+        container.appendChild(controlsContainer);
+
+        return container;
     }
 
     function openPointModal() {
@@ -165,26 +257,25 @@ export function addCoordinationMeasureAttributesToPanel(
             background: white;
             border-radius: 12px;
             padding: 30px;
-            max-width: 1400px;
+            max-width: 1200px;
             width: 90%;
             max-height: 85vh;
             overflow-y: auto;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
         `;
 
-        // Modal header
+        // Modal header - ✅ MODIFICAÇÃO 1 e 2: Título centralizado e sem "tipo atual"
         const header = document.createElement('div');
         header.style.cssText = 'margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #eee;';
         header.innerHTML = `
-            <h2 style="margin: 0; font-size: 24px; color: #333;">📍 Configurar Medida de Coordenação</h2>
-            <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">Tipo atual: ${getPointLabel(tempProperties.pointCode)}</p>
+            <h2 style="margin: 0; font-size: 24px; color: #333; text-align: center;">Configurar Medida de Coordenação</h2>
         `;
 
-        // Modal content container (3 colunas)
+        // Modal content container - ✅ MODIFICAÇÃO 6: Grid com 2 colunas
         const modalContent = document.createElement('div');
         modalContent.style.cssText = `
             display: grid;
-            grid-template-columns: 35% 25% 40%;
+            grid-template-columns: 55% 45%;
             gap: 30px;
             margin-bottom: 25px;
         `;
@@ -201,56 +292,52 @@ export function addCoordinationMeasureAttributesToPanel(
         `;
 
         // ===== COLUNA 2: PREVIEW =====
+        // ✅ MODIFICAÇÃO 5: "Visualização" fora do container
         const previewColumn = document.createElement('div');
         previewColumn.style.cssText = `
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: flex-start;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border: 2px solid #dee2e6;
             position: sticky;
             top: 0;
             max-height: 65vh;
         `;
 
-        const previewTitle = document.createElement('h3');
-        previewTitle.textContent = 'Preview';
+        // Título fora do container (seguindo padrão do military_symbol)
+        const previewTitle = document.createElement('h4');
+        previewTitle.textContent = 'Visualização';
         previewTitle.style.cssText = `
-            margin: 0 0 20px 0;
-            font-size: 18px;
+            margin-bottom: 15px;
+            font-size: 16px;
             color: #333;
-            font-weight: 600;
         `;
         previewColumn.appendChild(previewTitle);
 
+        // Container do preview com estilo
         const previewImageContainer = document.createElement('div');
         previewImageContainer.style.cssText = `
-            min-height: 200px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 2px solid #dee2e6;
+            min-height: 250px;
+            min-width: 200px;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 15px;
         `;
 
         const previewImage = document.createElement('img');
         previewImage.style.cssText = `
             max-width: 100%;
-            max-height: 400px;
+            max-height: 500px;
             object-fit: contain;
         `;
         previewImageContainer.appendChild(previewImage);
         previewColumn.appendChild(previewImageContainer);
 
-        const dimensionsInfo = document.createElement('div');
-        dimensionsInfo.style.cssText = `
-            font-size: 12px;
-            color: #666;
-            text-align: center;
-        `;
-        previewColumn.appendChild(dimensionsInfo);
+        // ✅ MODIFICAÇÃO 4: Removido dimensionsInfo completamente
 
         // Update preview function
         let previewDebounceTimer = null;
@@ -259,14 +346,12 @@ export function addCoordinationMeasureAttributesToPanel(
                 // Validate pointCode
                 if (!tempProperties.pointCode) {
                     previewImage.style.display = 'none';
-                    dimensionsInfo.textContent = 'Nenhum ponto selecionado';
                     return;
                 }
 
                 // For ECHELON types, ensure echelonCode is set
                 if (isEchelonPointCode(tempProperties.pointCode) && !tempProperties.echelonCode) {
                     previewImage.style.display = 'none';
-                    dimensionsInfo.textContent = 'Selecione um escalão';
                     return;
                 }
 
@@ -279,15 +364,12 @@ export function addCoordinationMeasureAttributesToPanel(
                 if (result && result.dataUrl) {
                     previewImage.src = result.dataUrl;
                     previewImage.style.display = 'block';
-                    dimensionsInfo.textContent = `${result.width} × ${result.height} px`;
                 } else {
                     previewImage.style.display = 'none';
-                    dimensionsInfo.textContent = 'Falha ao gerar preview';
                 }
             } catch (error) {
                 console.error('Erro ao gerar preview:', error);
                 previewImage.style.display = 'none';
-                dimensionsInfo.textContent = 'Erro ao gerar preview';
             }
         }
 
@@ -298,8 +380,9 @@ export function addCoordinationMeasureAttributesToPanel(
             }, 200);
         }
 
-        // ===== TIPO DE PONTO (COMBO BOX) =====
-        const pointTypeCombo = createDigitalComboBox(
+        // ===== TIPO DE PONTO (COMBO BOX COM PREVIEW) =====
+        // ✅ MODIFICAÇÃO 7: Usando combo box com thumbnails
+        const pointTypeCombo = createDigitalComboBoxWithThumbnails(
             getPointsGroupedOptions(),
             tempProperties.pointCode,
             (newValue) => {
@@ -329,7 +412,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
                 updatePreviewDebounced();
             },
-            'Tipo de Ponto'
+            'Tipo'
         );
 
         controlsColumn.appendChild(pointTypeCombo);
@@ -360,52 +443,27 @@ export function addCoordinationMeasureAttributesToPanel(
         updateSubtypeCombo();
         controlsColumn.appendChild(subtypeDropdown);
 
+        // ===== COR PERSONALIZADA =====
+        const colorControlModal = createColorControl(
+            tempProperties.fillColor,
+            (newColor) => {
+                tempProperties.fillColor = newColor;
+                updatePreviewDebounced();
+            },
+            'Cor do símbolo'
+        );
+        controlsColumn.appendChild(colorControlModal);
+
         // ===== AMPLIFICADORES TEXTUAIS =====
         const textModifiersSection = document.createElement('div');
         textModifiersSection.style.cssText = `
-            margin-top: 25px;
-            border-top: 2px solid #eee;
             padding-top: 15px;
         `;
 
-        // Header com toggle
-        const textModifiersHeader = document.createElement('div');
-        textModifiersHeader.style.cssText = `
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            margin-bottom: 10px;
-        `;
-
-        const headerTitle = document.createElement('span');
-        headerTitle.textContent = '📝 Amplificadores Textuais';
-        headerTitle.style.cssText = 'font-weight: bold; font-size: 15px;';
-
-        const toggleIcon = document.createElement('span');
-        toggleIcon.textContent = '▼';
-        toggleIcon.style.cssText = 'font-size: 12px; transition: transform 0.2s;';
-
-        textModifiersHeader.appendChild(headerTitle);
-        textModifiersHeader.appendChild(toggleIcon);
-
-        // Content container (fields)
+        // Content container (sempre visível)
         const textModifiersContent = document.createElement('div');
-        textModifiersContent.style.cssText = 'display: flex; flex-direction: column; gap: 15px;';
-        textModifiersContent.style.display = 'none'; // Initially collapsed
+        textModifiersContent.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 15px;';
 
-        // Toggle functionality
-        let isExpanded = false;
-        textModifiersHeader.onclick = () => {
-            isExpanded = !isExpanded;
-            textModifiersContent.style.display = isExpanded ? 'flex' : 'none';
-            toggleIcon.style.transform = isExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
-        };
-
-        textModifiersSection.appendChild(textModifiersHeader);
         textModifiersSection.appendChild(textModifiersContent);
         controlsColumn.appendChild(textModifiersSection);
 
@@ -436,127 +494,97 @@ export function addCoordinationMeasureAttributesToPanel(
         // Chamar inicialmente
         rebuildTextModifiersSection(tempProperties.pointCode);
 
-        // ===== COLUNA 3: GALERIA =====
-        // Criar galeria de forma assíncrona
-        createPointGallery((pointCode) => {
-            // Callback quando clicar em ponto da galeria
-            const wasEchelon = isEchelonPointCode(tempProperties.pointCode);
-            const isEchelon = pointCode === 'ECHELON' || pointCode === 'ECHELON_FT';
+        // ✅ MODIFICAÇÃO 6: Galeria removida - montar modal diretamente
+        modalContent.appendChild(controlsColumn);
+        modalContent.appendChild(previewColumn);
 
-            tempProperties.pointCode = pointCode;
+        modal.appendChild(header);
+        modal.appendChild(modalContent);
 
-            // Handle echelon logic
-            if (!wasEchelon && isEchelon) {
-                tempProperties.echelonCode = pointCode === 'ECHELON_FT' ? 'ECHELON_FT_16' : 'ECHELON_16';
-            } else if (wasEchelon && !isEchelon) {
-                delete tempProperties.echelonCode;
+        // ===== BOTÕES DO MODAL =====
+        const modalButtons = document.createElement('div');
+        modalButtons.style.cssText = `
+            margin-top: 30px;
+            text-align: center;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        `;
+
+        const applyButton = document.createElement('button');
+        applyButton.textContent = 'Aplicar';
+        applyButton.style.cssText = `
+            padding: 12px 30px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        `;
+        applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
+        applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
+        applyButton.onclick = async () => {
+            // Apply all properties
+            const propertiesToUpdate = [
+                'pointCode', 'echelonCode', 'fillColor',
+                // Text modifiers
+                'tipo', 'identificacao', 'gdhIni', 'gdhFim', 'numero',
+                'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
+            ];
+
+            for (const key of propertiesToUpdate) {
+                if (tempProperties.hasOwnProperty(key)) {
+                    await coordinationMeasureControl.updateFeaturesProperty(
+                        selectedFeatures, 
+                        key, 
+                        tempProperties[key]
+                    );
+                }
             }
 
-            // Clear text modifiers
-            clearAllTextModifiers(tempProperties);
+            coordinationMeasureControl.saveFeatures(selectedFeatures, initialPropertiesMap);
+            closeModal();
+            selectionManager.deselectAllFeatures();
+        };
 
-            // Update UI
-            subtypeDropdown.style.display = isEchelon ? 'block' : 'none';
-            updateSubtypeCombo();
-            rebuildTextModifiersSection(pointCode);
+        const cancelButton = document.createElement('button');
+        cancelButton.textContent = 'Cancelar';
+        cancelButton.style.cssText = `
+            padding: 12px 30px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        `;
+        cancelButton.onmouseenter = () => cancelButton.style.backgroundColor = '#545b62';
+        cancelButton.onmouseleave = () => cancelButton.style.backgroundColor = '#6c757d';
+        cancelButton.onclick = closeModal;
 
-            // Update header
-            header.querySelector('p').textContent = `Tipo atual: ${getPointLabel(pointCode)}`;
+        modalButtons.appendChild(applyButton);
+        modalButtons.appendChild(cancelButton);
 
-            updatePreviewDebounced();
-        }).then(galleryColumn => {
-            modalContent.appendChild(controlsColumn);
-            modalContent.appendChild(previewColumn);
-            modalContent.appendChild(galleryColumn);
+        modal.appendChild(modalButtons);
+        modalOverlay.appendChild(modal);
 
-            modal.appendChild(header);
-            modal.appendChild(modalContent);
-
-            // ===== BOTÕES DO MODAL =====
-            const modalButtons = document.createElement('div');
-            modalButtons.style.cssText = `
-                margin-top: 30px;
-                text-align: center;
-                display: flex;
-                gap: 15px;
-                justify-content: center;
-            `;
-
-            const applyButton = document.createElement('button');
-            applyButton.textContent = 'Aplicar';
-            applyButton.style.cssText = `
-                padding: 12px 30px;
-                background: #007bff;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 16px;
-                font-weight: 500;
-                transition: background-color 0.2s;
-            `;
-            applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
-            applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
-            applyButton.onclick = async () => {
-                // Apply all properties
-                const propertiesToUpdate = [
-                    'pointCode', 'echelonCode',
-                    // Text modifiers
-                    'tipo', 'identificacao', 'gdhIni', 'gdhFim', 'numero',
-                    'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
-                ];
-
-                for (const key of propertiesToUpdate) {
-                    if (tempProperties.hasOwnProperty(key)) {
-                        await coordinationMeasureControl.updateFeaturesProperty(
-                            selectedFeatures, 
-                            key, 
-                            tempProperties[key]
-                        );
-                    }
-                }
-
-                coordinationMeasureControl.saveFeatures(selectedFeatures, initialPropertiesMap);
+        // Event listeners
+        modalOverlay.onclick = (e) => {
+            if (e.target === modalOverlay) {
                 closeModal();
-                selectionManager.deselectAllFeatures();
-            };
+            }
+        };
 
-            const cancelButton = document.createElement('button');
-            cancelButton.textContent = 'Cancelar';
-            cancelButton.style.cssText = `
-                padding: 12px 30px;
-                background: #6c757d;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 16px;
-                font-weight: 500;
-                transition: background-color 0.2s;
-            `;
-            cancelButton.onmouseenter = () => cancelButton.style.backgroundColor = '#545b62';
-            cancelButton.onmouseleave = () => cancelButton.style.backgroundColor = '#6c757d';
-            cancelButton.onclick = closeModal;
+        document.addEventListener('keydown', handleModalKeyDown);
 
-            modalButtons.appendChild(applyButton);
-            modalButtons.appendChild(cancelButton);
-
-            modal.appendChild(modalButtons);
-            modalOverlay.appendChild(modal);
-
-            // Event listeners
-            modalOverlay.onclick = (e) => {
-                if (e.target === modalOverlay) {
-                    closeModal();
-                }
-            };
-
-            document.addEventListener('keydown', handleModalKeyDown);
-
-            // Adicionar ao DOM e gerar preview inicial
-            document.body.appendChild(modalOverlay);
-            updatePreview();
-        });
+        // Adicionar ao DOM e gerar preview inicial
+        document.body.appendChild(modalOverlay);
+        updatePreview();
 
         function closeModal() {
             document.removeEventListener('keydown', handleModalKeyDown);
@@ -594,7 +622,266 @@ export function addCoordinationMeasureAttributesToPanel(
     // ===== HELPER FUNCTIONS =====
 
     /**
-     * Create digital combo box (similar to military symbol)
+     * Generate thumbnail for combo box options
+     * ✅ MODIFICAÇÃO 7: Nova função para gerar thumbnails
+     */
+    async function generatePointThumbnailForCombo(pointCode, defaultEchelonCode) {
+        try {
+            let properties = { pointCode };
+            
+            // Handle echelon types
+            if (pointCode === 'ECHELON' || pointCode === 'ECHELON_FT') {
+                properties.echelonCode = defaultEchelonCode || 
+                    (pointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
+            }
+            
+            const result = await coordinationMeasureControl.symbolGenerator.generate(
+                pointCode,
+                properties
+            );
+            
+            return result?.dataUrl || null;
+        } catch (error) {
+            console.warn(`Erro ao gerar thumbnail para combo: ${pointCode}`, error);
+            return null;
+        }
+    }
+
+    /**
+     * Create digital combo box with thumbnail previews
+     * ✅ MODIFICAÇÃO 7: Nova função para combo box com thumbnails
+     */
+    function createDigitalComboBoxWithThumbnails(options, currentValue, onChange, label) {
+        const container = document.createElement('div');
+        container.style.cssText = 'margin-bottom: 20px; position: relative;';
+
+        const labelElement = document.createElement('label');
+        labelElement.textContent = label + ':';
+        labelElement.style.cssText = `
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            font-size: 15px;
+            color: #333;
+        `;
+
+        const selectContainer = document.createElement('div');
+        selectContainer.style.cssText = 'position: relative;';
+
+        // Display do valor atual
+        const selectDisplay = document.createElement('div');
+        selectDisplay.style.cssText = `
+            width: 100%;
+            padding: 15px 40px 15px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 15px;
+            background: #fff;
+            cursor: pointer;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 50px;
+        `;
+
+        // Container para thumbnail e texto
+        const displayContent = document.createElement('div');
+        displayContent.style.cssText = 'display: flex; align-items: center; gap: 10px; flex: 1;';
+        
+        const displayThumbnail = document.createElement('img');
+        displayThumbnail.style.cssText = `
+            width: 30px;
+            height: 30px;
+            object-fit: contain;
+            flex-shrink: 0;
+        `;
+        
+        const displayText = document.createElement('span');
+        displayText.style.cssText = 'flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+        
+        displayContent.appendChild(displayThumbnail);
+        displayContent.appendChild(displayText);
+        selectDisplay.appendChild(displayContent);
+
+        // Ícone dropdown
+        const dropdownIcon = document.createElement('span');
+        dropdownIcon.innerHTML = '▼';
+        dropdownIcon.style.cssText = `
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 15px;
+            pointer-events: none;
+            color: #000;
+        `;
+        selectDisplay.appendChild(dropdownIcon);
+
+        // Dropdown container
+        const dropdown = document.createElement('div');
+        dropdown.style.cssText = `
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 400px;
+            overflow-y: auto;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            margin-top: 5px;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        `;
+
+        // Register dropdown
+        openDropdowns.push(dropdown);
+
+        // Função para atualizar display
+        async function updateDisplay(value) {
+            const option = options.find(opt => opt.value === value);
+            if (option) {
+                displayText.textContent = option.label;
+                
+                // Gerar thumbnail para display
+                if (option.iconCode) {
+                    const dataUrl = await generatePointThumbnailForCombo(
+                        option.iconCode, 
+                        option.defaultEchelonCode
+                    );
+                    if (dataUrl) {
+                        displayThumbnail.src = dataUrl;
+                        displayThumbnail.style.display = 'block';
+                    } else {
+                        displayThumbnail.style.display = 'none';
+                    }
+                } else {
+                    displayThumbnail.style.display = 'none';
+                }
+            }
+        }
+
+        // Popular dropdown
+        const thumbnailCache = new Map();
+        
+        options.forEach((option) => {
+            const optionElement = document.createElement('div');
+            optionElement.style.cssText = `
+                padding: 12px 15px;
+                cursor: pointer;
+                transition: background-color 0.2s;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                border-bottom: 1px solid #f0f0f0;
+            `;
+
+            // Thumbnail
+            if (option.iconCode) {
+                const thumbnail = document.createElement('img');
+                thumbnail.style.cssText = `
+                    width: 30px;
+                    height: 30px;
+                    object-fit: contain;
+                    flex-shrink: 0;
+                    background: #f8f9fa;
+                `;
+                
+                optionElement.appendChild(thumbnail);
+                
+                // Gerar thumbnail assíncrono
+                if (!thumbnailCache.has(option.iconCode)) {
+                    const promise = generatePointThumbnailForCombo(
+                        option.iconCode, 
+                        option.defaultEchelonCode
+                    );
+                    thumbnailCache.set(option.iconCode, promise);
+                }
+                
+                thumbnailCache.get(option.iconCode).then(dataUrl => {
+                    if (dataUrl) thumbnail.src = dataUrl;
+                });
+            }
+
+            // Label
+            const labelSpan = document.createElement('span');
+            labelSpan.textContent = option.label;
+            labelSpan.style.cssText = 'flex: 1; overflow: hidden; text-overflow: ellipsis;';
+            optionElement.appendChild(labelSpan);
+
+            // Hover effect
+            optionElement.onmouseenter = () => {
+                optionElement.style.backgroundColor = '#f8f9fa';
+            };
+            optionElement.onmouseleave = () => {
+                optionElement.style.backgroundColor = option.value === currentValue ? '#e9ecef' : 'transparent';
+            };
+
+            // Set initial background for current value
+            if (option.value === currentValue) {
+                optionElement.style.backgroundColor = '#e9ecef';
+            }
+
+            // Click handler
+            optionElement.onclick = () => {
+                currentValue = option.value;
+                onChange(option.value);
+                updateDisplay(option.value);
+                closeAllDropdowns();
+                
+                // Update selected state
+                dropdown.querySelectorAll('div').forEach(div => {
+                    div.style.backgroundColor = 'transparent';
+                });
+                optionElement.style.backgroundColor = '#e9ecef';
+            };
+
+            dropdown.appendChild(optionElement);
+        });
+
+        // Toggle dropdown
+        selectDisplay.onclick = (e) => {
+            e.stopPropagation();
+            const isOpen = dropdown.style.display === 'block';
+            closeAllDropdowns();
+            dropdown.style.display = isOpen ? 'none' : 'block';
+            selectDisplay.style.borderColor = isOpen ? '#ddd' : '#007bff';
+        };
+
+        // Close on outside click
+        const closeDropdown = () => {
+            dropdown.style.display = 'none';
+            selectDisplay.style.borderColor = '#ddd';
+        };
+
+        // Store cleanup function
+        container._cleanup = () => {
+            document.removeEventListener('click', closeDropdown);
+            const index = openDropdowns.indexOf(dropdown);
+            if (index > -1) {
+                openDropdowns.splice(index, 1);
+            }
+        };
+
+        document.addEventListener('click', closeDropdown);
+
+        selectContainer.appendChild(selectDisplay);
+        selectContainer.appendChild(dropdown);
+        container.appendChild(labelElement);
+        container.appendChild(selectContainer);
+
+        // Initialize display
+        updateDisplay(currentValue);
+
+        return container;
+    }
+
+    /**
+     * Create digital combo box (simple version without thumbnails)
      */
     function createDigitalComboBox(options, currentValue, onChange, label) {
         const container = document.createElement('div');
@@ -757,11 +1044,11 @@ export function addCoordinationMeasureAttributesToPanel(
 
         // Label
         const label = document.createElement('label');
-        label.textContent = fieldDef.label + (fieldDef.required ? ' *' : '');
+        label.textContent = fieldDef.label;
         label.style.cssText = `
             font-size: 13px;
             font-weight: 600;
-            color: ${fieldDef.required ? '#dc3545' : '#495057'};
+            color: #495057;
         `;
         container.appendChild(label);
 
@@ -833,242 +1120,10 @@ export function addCoordinationMeasureAttributesToPanel(
         return container;
     }
 
-    /**
-     * Create point gallery (column 3)
-     */
-    async function createPointGallery(onPointClick) {
-        const galleryColumn = document.createElement('div');
-        galleryColumn.style.cssText = `
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            padding: 20px;
-            background: #ffffff;
-            border-radius: 8px;
-            border: 2px solid #dee2e6;
-            max-height: 65vh;
-            overflow-y: auto;
-        `;
-
-        // Header
-        const galleryHeader = document.createElement('h3');
-        galleryHeader.textContent = '📚 Galeria de Pontos';
-        galleryHeader.style.cssText = `
-            margin: 0 0 15px 0;
-            font-size: 18px;
-            color: #333;
-            font-weight: 600;
-        `;
-        galleryColumn.appendChild(galleryHeader);
-
-        // Search box (future enhancement)
-        const searchBox = document.createElement('input');
-        searchBox.type = 'text';
-        searchBox.placeholder = '🔍 Buscar ponto...';
-        searchBox.style.cssText = `
-            width: 100%;
-            padding: 10px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 14px;
-            margin-bottom: 15px;
-            box-sizing: border-box;
-        `;
-        galleryColumn.appendChild(searchBox);
-
-        // Categories
-        const categories = [
-            { name: 'Gerais', points: UI_DATA.pointsList.filter(p => p.category === 'Gerais') },
-            { name: 'Movimento e Manobra', points: UI_DATA.pointsList.filter(p => p.category === 'Movimento e Manobra') },
-            { name: 'Passagens', points: UI_DATA.pointsList.filter(p => p.category === 'Passagens') },
-            { name: 'Fogos', points: UI_DATA.pointsList.filter(p => p.category === 'Fogos') },
-            { name: 'Proteção - Obstáculos', points: UI_DATA.pointsList.filter(p => p.category === 'Proteção - Obstáculos') },
-            { name: 'Proteção - Fortificação', points: UI_DATA.pointsList.filter(p => p.category === 'Proteção - Fortificação') },
-            { name: 'Proteção - Minas', points: UI_DATA.pointsList.filter(p => p.category === 'Proteção - Minas') },
-            { name: 'Proteção - QBRN', points: UI_DATA.pointsList.filter(p => p.category === 'Proteção - QBRN') },
-            { name: 'Logística', points: UI_DATA.pointsList.filter(p => p.category === 'Logística') },
-            { name: 'Controle Aéreo', points: UI_DATA.pointsList.filter(p => p.category === 'Controle Aéreo') },
-            { name: 'Controle Marítimo', points: UI_DATA.pointsList.filter(p => p.category === 'Controle Marítimo') }
-        ];
-
-        // Add Escalões category
-        categories.push({
-            name: 'Escalões',
-            points: [
-                { code: 'ECHELON', label: 'Escalão', category: 'Escalões' },
-                { code: 'ECHELON_FT', label: 'Escalão Força-Tarefa', category: 'Escalões' }
-            ]
-        });
-
-        // Create category sections
-        for (const category of categories) {
-            if (category.points.length === 0) continue;
-
-            const categorySection = document.createElement('div');
-            categorySection.style.cssText = 'margin-bottom: 20px;';
-
-            // Category header (collapsible)
-            const categoryHeader = document.createElement('div');
-            categoryHeader.style.cssText = `
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 10px;
-                background: #e9ecef;
-                border-radius: 8px;
-                cursor: pointer;
-                margin-bottom: 10px;
-                font-weight: 600;
-                font-size: 14px;
-                color: #495057;
-            `;
-
-            const categoryTitle = document.createElement('span');
-            categoryTitle.textContent = `📂 ${category.name} (${category.points.length})`;
-
-            const categoryToggle = document.createElement('span');
-            categoryToggle.textContent = '▼';
-            categoryToggle.style.cssText = 'font-size: 10px; transition: transform 0.2s;';
-
-            categoryHeader.appendChild(categoryTitle);
-            categoryHeader.appendChild(categoryToggle);
-
-            // Grid de pontos
-            const pointsGrid = document.createElement('div');
-            pointsGrid.style.cssText = `
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-                gap: 10px;
-                padding: 5px;
-                display: none;
-            `;
-
-            // Toggle category
-            let isCategoryExpanded = false;
-            categoryHeader.onclick = () => {
-                isCategoryExpanded = !isCategoryExpanded;
-                pointsGrid.style.display = isCategoryExpanded ? 'grid' : 'none';
-                categoryToggle.style.transform = isCategoryExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
-            };
-
-            // Add point items (generate thumbnails on demand when category is expanded)
-            const pointItems = [];
-            category.points.forEach(point => {
-                const pointItem = createPointThumbnailPlaceholder(point, onPointClick);
-                pointsGrid.appendChild(pointItem);
-                pointItems.push({ element: pointItem, point });
-            });
-
-            // Generate thumbnails when category is opened
-            const originalToggle = categoryHeader.onclick;
-            categoryHeader.onclick = async () => {
-                originalToggle();
-                
-                if (isCategoryExpanded) {
-                    // Generate thumbnails
-                    for (const item of pointItems) {
-                        if (!item.generated) {
-                            await generateThumbnail(item.element, item.point);
-                            item.generated = true;
-                        }
-                    }
-                }
-            };
-
-            categorySection.appendChild(categoryHeader);
-            categorySection.appendChild(pointsGrid);
-            galleryColumn.appendChild(categorySection);
-        }
-
-        return galleryColumn;
-    }
-
-    /**
-     * Create thumbnail placeholder (image loaded on demand)
-     */
-    function createPointThumbnailPlaceholder(point, onPointClick) {
-        const container = document.createElement('div');
-        container.style.cssText = `
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 8px;
-            border: 2px solid #dee2e6;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s;
-            background: white;
-        `;
-
-        container.onmouseenter = () => {
-            container.style.borderColor = '#007bff';
-            container.style.boxShadow = '0 2px 8px rgba(0,123,255,0.3)';
-        };
-
-        container.onmouseleave = () => {
-            container.style.borderColor = '#dee2e6';
-            container.style.boxShadow = 'none';
-        };
-
-        container.onclick = () => onPointClick(point.code);
-
-        // Image placeholder
-        const img = document.createElement('img');
-        img.style.cssText = `
-            width: 60px;
-            height: 60px;
-            object-fit: contain;
-            margin-bottom: 5px;
-            background: #f8f9fa;
-        `;
-        img.alt = '...';
-
-        // Label
-        const label = document.createElement('div');
-        label.textContent = point.label;
-        label.style.cssText = `
-            font-size: 10px;
-            text-align: center;
-            color: #495057;
-            word-wrap: break-word;
-            max-width: 80px;
-        `;
-
-        container.appendChild(img);
-        container.appendChild(label);
-
-        return container;
-    }
-
-    /**
-     * Generate thumbnail for point
-     */
-    async function generateThumbnail(container, point) {
-        try {
-            const img = container.querySelector('img');
-            
-            // For escalão types, use a default
-            let pointCode = point.code;
-            let properties = { pointCode };
-
-            if (pointCode === 'ECHELON') {
-                properties.echelonCode = 'ECHELON_16';
-            } else if (pointCode === 'ECHELON_FT') {
-                properties.echelonCode = 'ECHELON_FT_16';
-            }
-
-            const result = await coordinationMeasureControl.symbolGenerator.generate(
-                pointCode,
-                properties
-            );
-
-            if (result && result.dataUrl) {
-                img.src = result.dataUrl;
-            }
-        } catch (error) {
-            console.warn(`Could not generate thumbnail for ${point.code}:`, error);
-        }
-    }
+    // ✅ MODIFICAÇÃO 6: Funções da galeria removidas
+    // - createPointGallery
+    // - createPointThumbnailPlaceholder
+    // - generateThumbnail
 
     /**
      * Get applicable text fields for a given point code
@@ -1094,6 +1149,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
     /**
      * Get points grouped options for combo box
+     * ✅ MODIFICAÇÃO 7: Incluindo iconCode para thumbnails
      */
     function getPointsGroupedOptions() {
         const options = [];
@@ -1126,7 +1182,9 @@ export function addCoordinationMeasureAttributesToPanel(
                 grouped[category].forEach(point => {
                     options.push({
                         value: point.code,
-                        label: `${point.label} (${category})`
+                        label: `${point.label} (${category})`,
+                        iconCode: point.code,  // ✅ NOVO: para gerar thumbnail
+                        isEchelon: false
                     });
                 });
             }
@@ -1135,11 +1193,17 @@ export function addCoordinationMeasureAttributesToPanel(
         // Add special types (echelon)
         options.push({
             value: 'ECHELON',
-            label: '⭐ Escalão (requer subtipo)'
+            label: '⭐ Escalão (requer subtipo)',
+            iconCode: 'ECHELON',  // ✅ NOVO
+            isEchelon: true,
+            defaultEchelonCode: 'ECHELON_16'  // ✅ NOVO: para preview
         });
         options.push({
             value: 'ECHELON_FT',
-            label: '⭐ Escalão Força-Tarefa (requer subtipo)'
+            label: '⭐ Escalão Força-Tarefa (requer subtipo)',
+            iconCode: 'ECHELON_FT',  // ✅ NOVO
+            isEchelon: true,
+            defaultEchelonCode: 'ECHELON_FT_16'  // ✅ NOVO: para preview
         });
 
         return options;

@@ -161,19 +161,16 @@ export const UI_DATA = {
     numero: { 
       label: "Número", 
       type: "number", 
-      placeholder: "Ex: 3", 
-      required: true 
+      placeholder: "Ex: 3"
     },
     classeSuprimento: { 
       label: "Classe de Suprimento", 
       type: "select", 
-      required: true, 
       options: Object.keys(SUPPLY_CLASSES) 
     },
     status: { 
       label: "Status", 
       type: "select", 
-      required: true, 
       options: ["ocupado", "preparado", "preparado-nao-ocupado"]
     },
     numeroConcentracao: { 
