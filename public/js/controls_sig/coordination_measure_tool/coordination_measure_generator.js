@@ -9,7 +9,7 @@ const DEFAULT_SIZE = 80;
  * 
  * Key features:
  * - SVG catalog-based generation
- * - Text modifier support (internal placeholders + external positioning)
+ * - Text modifier support (configured per point type in catalog)
  * - Status-based styling (dashed stroke for "preparado")
  * - Returns actual dimensions for accurate bounding box calculations
  * - Compatible with Military Symbol Generator interface
@@ -38,66 +38,56 @@ export class CoordinationMeasureGenerator {
       throw new Error(`Point ${pointCode} not found in catalog`);
     }
     
-    // Generate SVG with all modifications
+    // Get base SVG from catalog
     let svg = pointData.svg;
-    svg = this.replacePlaceholders(svg, properties);
-    
-    if (properties.status === 'preparado' || properties.status === 'preparado-nao-ocupado') {
-      svg = this.applyDashedStroke(svg);
-    }
-    
     
     // Apply custom color if specified
     if (properties.fillColor) {
       svg = this.applyCustomColor(svg, properties.fillColor);
     }
     
+    // ✅ Step 1: Extract baseline viewBox (symbol WITHOUT text)
+    const baseViewBox = this.extractDimensions(svg);
     
-    svg = this.addExternalTexts(svg, properties, pointData);
+    // ✅ Step 2: Check if has text modifiers
+    const hasText = this.hasExternalText(properties, pointData);
     
-    // Extract original dimensions from SVG
-    const { width: originalWidth, height: originalHeight } = this.extractDimensions(svg);
+    let finalWidth = DEFAULT_SIZE;
+    let finalHeight = DEFAULT_SIZE;
     
-    // Check if has external text
-    const hasText = this.hasExternalText(properties);
-    
-    // Calculate canvas dimensions using DEFAULT_SIZE
-    let canvasWidth, canvasHeight;
-    if (hasText) {
-      // With text: use larger canvas to accommodate external text
-      const aspectRatio = originalWidth / originalHeight;
-      if (aspectRatio >= 1) {
-        // Landscape or square
-        canvasWidth = DEFAULT_SIZE * 1.5;
-        canvasHeight = canvasWidth / aspectRatio;
-      } else {
-        // Portrait
-        canvasHeight = DEFAULT_SIZE * 1.5;
-        canvasWidth = canvasHeight * aspectRatio;
-      }
+    if (!hasText) {
+      // No text: use baseline directly
+      // Keep original viewBox, no modifications needed
     } else {
-      // Without text: standard proportional sizing
-      const aspectRatio = originalWidth / originalHeight;
-      if (aspectRatio >= 1) {
-        canvasWidth = DEFAULT_SIZE;
-        canvasHeight = DEFAULT_SIZE / aspectRatio;
-      } else {
-        canvasHeight = DEFAULT_SIZE;
-        canvasWidth = DEFAULT_SIZE * aspectRatio;
+      // ✅ Step 3: Calculate what expanded viewBox WOULD BE with text
+      const expandedViewBox = this.calculateDynamicViewBox(svg, properties, pointData);
+      
+      // ✅ Step 4: Calculate EXACT growth factor for each axis (like military symbol)
+      const growthFactorX = expandedViewBox.width / baseViewBox.width;
+      const growthFactorY = expandedViewBox.height / baseViewBox.height;
+      
+      // ✅ Step 5: Apply growth to canvas dimensions (symbol stays DEFAULT_SIZE visually)
+      if (growthFactorX > 1.01) {
+        finalWidth = Math.round(DEFAULT_SIZE * growthFactorX);
       }
+      
+      if (growthFactorY > 1.01) {
+        finalHeight = Math.round(DEFAULT_SIZE * growthFactorY);
+      }
+      
+      // ✅ Step 6: Now add text to SVG (this will modify viewBox)
+      svg = this.addExternalTexts(svg, properties, pointData);
     }
     
-    // Round to integers
-    canvasWidth = Math.round(canvasWidth);
-    canvasHeight = Math.round(canvasHeight);
-    
-    // Convert to blob with normalized dimensions
-    const blob = await this.convertToPngBlob(svg, canvasWidth, canvasHeight);
+    // ✅ Step 7: Convert to PNG with calculated dimensions
+    // The SVG with expanded viewBox renders in expanded canvas
+    // Net result: symbol base stays at DEFAULT_SIZE pixels visually
+    const blob = await this.convertToPngBlob(svg, finalWidth, finalHeight);
     
     return {
       blob: blob,
-      width: canvasWidth,
-      height: canvasHeight,
+      width: finalWidth,
+      height: finalHeight,
       anchor: pointData.anchor
     };
   }
@@ -132,42 +122,20 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Check if properties contain external text modifiers
+   * Check if properties contain external text modifiers based on catalog config
    * @param {Object} properties - Point properties
+   * @param {Object} pointData - Point data from catalog
    * @returns {boolean} True if has any external text
    */
-  hasExternalText(properties) {
-    return !!(
-      properties.gdhIni ||
-      properties.gdhFim ||
-      properties.identificacao ||
-      properties.tipo ||
-      properties.numeroConcentracao ||
-      properties.altitude ||
-      properties.classeSuprimento
-    );
-  }
-
-  /**
-   * Substitui placeholders internos do SVG
-   * @param {string} svg - String SVG
-   * @param {Object} properties - Propriedades do ponto
-   * @returns {string} SVG com placeholders substituídos
-   */
-  replacePlaceholders(svg, properties) {
-    let result = svg;
+  hasExternalText(properties, pointData) {
+    const textFieldsConfig = pointData.textFields || {};
+    const fieldNames = Object.keys(textFieldsConfig);
     
-    // Nome da unidade (para escalões)
-    if (properties.nome) {
-      result = result.replace(/\{\{NOME\}\}/g, this.escapeXml(properties.nome));
-    }
-    
-    // Número (para pontos numerados)
-    if (properties.numero !== undefined && properties.numero !== null) {
-      result = result.replace(/\{\{NUMERO\}\}/g, properties.numero.toString());
-    }
-    
-    return result;
+    // Check if any configured field has a value
+    return fieldNames.some(fieldName => {
+      const value = properties[fieldName];
+      return value !== undefined && value !== null && value !== '';
+    });
   }
 
   /**
@@ -236,79 +204,63 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Adiciona elementos de texto externos ao símbolo
+   * Adiciona elementos de texto externos ao símbolo e ajusta viewBox
    * @param {string} svg - String SVG
    * @param {Object} properties - Propriedades do ponto
    * @param {Object} pointData - Dados do catálogo do ponto
-   * @returns {string} SVG com textos adicionados
+   * @returns {string} SVG com textos adicionados e viewBox ajustado
    */
   addExternalTexts(svg, properties, pointData) {
     const textElements = [];
-    const positions = this.getTextPositions(pointData);
+    const textFieldsConfig = pointData.textFields || {};
     
-    // GDH Início
-    if (properties.gdhIni && positions.gdhIni) {
+    // Iterar sobre cada campo configurado no catálogo
+    Object.entries(textFieldsConfig).forEach(([fieldName, config]) => {
+      const value = properties[fieldName];
+      
+      // Se não tem valor, não renderizar
+      if (!value && value !== 0) return;
+      
+      // Criar elemento de texto
       textElements.push(this.createTextElement(
-        positions.gdhIni.x,
-        positions.gdhIni.y,
-        properties.gdhIni,
-        { anchor: positions.gdhIni.anchor, fontSize: 8 }
+        config.position.x,
+        config.position.y,
+        value,
+        {
+          anchor: config.anchor,
+          fontSize: config.fontSize,
+          fontWeight: config.fontWeight || 'normal',
+          fill: config.fill || 'black'
+        }
       ));
-    }
-    
-    // GDH Fim
-    if (properties.gdhFim && positions.gdhFim) {
-      textElements.push(this.createTextElement(
-        positions.gdhFim.x,
-        positions.gdhFim.y,
-        properties.gdhFim,
-        { anchor: positions.gdhFim.anchor, fontSize: 8 }
-      ));
-    }
-    
-    // Identificação (para pontos não-numerados)
-    if (properties.identificacao && positions.identificacao) {
-      textElements.push(this.createTextElement(
-        positions.identificacao.x,
-        positions.identificacao.y,
-        properties.identificacao,
-        { anchor: positions.identificacao.anchor, fontSize: 10, fontWeight: 'bold' }
-      ));
-    }
-    
-    // Tipo (para ponto genérico e similares)
-    if (properties.tipo && positions.tipo) {
-      textElements.push(this.createTextElement(
-        positions.tipo.x,
-        positions.tipo.y,
-        properties.tipo,
-        { anchor: positions.tipo.anchor, fontSize: 10, fontWeight: 'bold' }
-      ));
-    }
-    
-    // Número da concentração (específico para fogos - código 240601)
-    if (properties.numeroConcentracao && positions.numeroConcentracao) {
-      textElements.push(this.createTextElement(
-        positions.numeroConcentracao.x,
-        positions.numeroConcentracao.y,
-        properties.numeroConcentracao,
-        { anchor: positions.numeroConcentracao.anchor, fontSize: 12, fontWeight: 'bold' }
-      ));
-    }
-    
-    // Altitude (específico para fogos - código 240601)
-    if (properties.altitude && positions.altitude) {
-      textElements.push(this.createTextElement(
-        positions.altitude.x,
-        positions.altitude.y,
-        properties.altitude,
-        { anchor: positions.altitude.anchor, fontSize: 10 }
-      ));
-    }
+    });
     
     // Inserir textos antes do fechamento do SVG
-    const textsString = textElements.join('\n');
-    return svg.replace('</svg>', textsString + '\n</svg>');
+    if (textElements.length > 0) {
+      const textsString = textElements.join('\n  ');
+      svg = svg.replace('</svg>', textsString + '\n</svg>');
+      
+      // Recalcular e atualizar viewBox para incluir texto
+      const dynamicVB = this.calculateDynamicViewBox(svg, properties, pointData);
+      
+      // Substituir viewBox no SVG
+      svg = svg.replace(
+        /viewBox="[^"]*"/,
+        `viewBox="${dynamicVB.viewBoxString}"`
+      );
+      
+      // Atualizar width e height
+      svg = svg.replace(
+        /width="[^"]*"/,
+        `width="${dynamicVB.width}"`
+      );
+      svg = svg.replace(
+        /height="[^"]*"/,
+        `height="${dynamicVB.height}"`
+      );
+    }
+    
+    return svg;
   }
 
   /**
@@ -327,114 +279,48 @@ export class CoordinationMeasureGenerator {
       fill = 'black'
     } = options;
     
-    return `  <text x="${x}" y="${y}" text-anchor="${anchor}" font-size="${fontSize}" font-weight="${fontWeight}" fill="${fill}">${this.escapeXml(content)}</text>`;
+    return `  <text x="${x}" y="${y}" text-anchor="${anchor}" font-size="${fontSize}" font-weight="${fontWeight}" fill="${fill}" font-family="Arial">${this.escapeXml(content)}</text>`;
   }
 
   /**
-   * Determina posições dos textos baseado no tipo de ponto
-   * @param {Object} pointData - Dados do catálogo do ponto
-   * @returns {Object} Objeto com posições dos textos
-   */
-  getTextPositions(pointData) {
-    const anchor = pointData.anchor;
-    const code = pointData.code;
-    
-    // Pontos tipo "pin" (bottom-center)
-    if (anchor === 'bottom-center') {
-      // Concentração de fogos (código 240601) tem layout específico
-      if (code === '240601') {
-        return {
-          numeroConcentracao: { x: 40, y: 28, anchor: 'middle' },
-          altitude: { x: 40, y: 45, anchor: 'middle' },
-          gdhIni: { x: 5, y: 25, anchor: 'start' },
-          gdhFim: { x: 5, y: 45, anchor: 'start' }
-        };
-      }
-      
-      // Ponto de suprimento (código 321700 e variantes) tem layout específico
-      if (code === '321700' || code.startsWith('SUPPLY_')) {
-        return {
-          identificacao: { x: 15, y: 55, anchor: 'middle' },
-          gdhIni: { x: -5, y: 10, anchor: 'end' },
-          gdhFim: { x: -5, y: 25, anchor: 'end' }
-        };
-      }
-      
-      // Ponto de interesse (131300) - ponta do pin indica localização
-      if (code === '131300') {
-        return {
-          identificacao: { x: 15, y: 55, anchor: 'middle' },
-          gdhIni: { x: -5, y: 10, anchor: 'end' },
-          gdhFim: { x: -5, y: 25, anchor: 'end' }
-        };
-      }
-      
-      // Layout padrão para pins (ponto genérico - 130100)
-      return {
-        tipo: { x: 15, y: -5, anchor: 'middle' },
-        identificacao: { x: 15, y: 55, anchor: 'middle' },
-        gdhIni: { x: -5, y: 10, anchor: 'end' },
-        gdhFim: { x: -5, y: 25, anchor: 'end' }
-      };
-    }
-    
-    // Pontos centrados (center-center)
-    if (anchor === 'center-center') {
-      // Escalões têm layout específico
-      if (pointData.isEchelon) {
-        return {
-          gdhIni: { x: -5, y: 15, anchor: 'end' },
-          gdhFim: { x: -5, y: 45, anchor: 'end' }
-        };
-      }
-      
-      // Ponto de controle aéreo (180000) - agora usa número
-      if (code === '180000') {
-        return {
-          gdhIni: { x: -25, y: -10, anchor: 'end' },
-          gdhFim: { x: -25, y: 5, anchor: 'end' }
-        };
-      }
-      
-      // Layout padrão para pontos centrados
-      return {
-        identificacao: { x: 45, y: 5, anchor: 'start' },
-        gdhIni: { x: -25, y: -10, anchor: 'end' },
-        gdhFim: { x: -25, y: 5, anchor: 'end' }
-      };
-    }
-    
-    return {};
-  }
-
-  /**
-   * Extrai dimensões do viewBox do SVG
+   * Extrai dimensões completas do viewBox do SVG
    * @param {string} svg - String SVG
-   * @returns {Object} Objeto com width e height
+   * @returns {Object} Objeto com minX, minY, width, height, maxX, maxY
    */
   extractDimensions(svg) {
     const viewBoxMatch = svg.match(/viewBox="([^"]+)"/);
     
     if (viewBoxMatch) {
-      const values = viewBoxMatch[1].split(/\s+/);
+      const values = viewBoxMatch[1].split(/\s+/).map(parseFloat);
       if (values.length === 4) {
         return {
-          width: parseInt(values[2], 10),
-          height: parseInt(values[3], 10)
+          minX: values[0],
+          minY: values[1],
+          width: values[2],
+          height: values[3],
+          maxX: values[0] + values[2],
+          maxY: values[1] + values[3]
         };
       }
     }
     
     // Dimensão padrão caso não encontre viewBox
-    return { width: 40, height: 40 };
+    return { 
+      minX: 0, 
+      minY: 0, 
+      width: 40, 
+      height: 40,
+      maxX: 40,
+      maxY: 40
+    };
   }
 
   /**
    * Convert SVG string to PNG blob using canvas
    * Maintains aspect ratio and centers image in canvas with specified dimensions
    * @param {string} svgString - SVG string
-   * @param {number} targetWidth - Target canvas width (optional, uses natural width if not specified)
-   * @param {number} targetHeight - Target canvas height (optional, uses natural height if not specified)
+   * @param {number} targetWidth - Target canvas width (uses natural width if null)
+   * @param {number} targetHeight - Target canvas height (uses natural height if null)
    * @returns {Promise<Blob>} PNG blob
    */
   async convertToPngBlob(svgString, targetWidth = null, targetHeight = null) {
@@ -452,50 +338,55 @@ export class CoordinationMeasureGenerator {
           clearTimeout(timeout);
           
           try {
-            // Get natural dimensions
-            const originalWidth = img.naturalWidth || img.width;
-            const originalHeight = img.naturalHeight || img.height;
+            // Get natural dimensions from rendered SVG
+            const naturalWidth = img.naturalWidth || img.width;
+            const naturalHeight = img.naturalHeight || img.height;
             
-            if (originalWidth === 0 || originalHeight === 0) {
+            if (naturalWidth === 0 || naturalHeight === 0) {
               throw new Error('Invalid image dimensions');
             }
             
-            // Use natural dimensions if targets not specified
-            const finalWidth = targetWidth || originalWidth;
-            const finalHeight = targetHeight || originalHeight;
+            // ✅ Use natural dimensions if targets not specified
+            const finalWidth = targetWidth || naturalWidth;
+            const finalHeight = targetHeight || naturalHeight;
             
-            // Create canvas
+            // Create canvas with final dimensions
             const canvas = document.createElement('canvas');
             canvas.width = finalWidth;
             canvas.height = finalHeight;
             const ctx = canvas.getContext('2d');
             
-            // If resizing, maintain aspect ratio and center
-            if (targetWidth || targetHeight) {
-              const aspectRatio = originalWidth / originalHeight;
-              const canvasAspectRatio = finalWidth / finalHeight;
-              
-              let newWidth, newHeight;
-              if (aspectRatio >= canvasAspectRatio) {
-                // Image is wider than canvas - fit to width
-                newWidth = finalWidth;
-                newHeight = Math.round(finalWidth / aspectRatio);
-              } else {
-                // Image is taller than canvas - fit to height
-                newHeight = finalHeight;
-                newWidth = Math.round(finalHeight * aspectRatio);
-              }
-              
-              // Center image in canvas
-              const offsetX = (finalWidth - newWidth) / 2;
-              const offsetY = (finalHeight - newHeight) / 2;
-              
-              ctx.clearRect(0, 0, finalWidth, finalHeight);
-              ctx.drawImage(img, offsetX, offsetY, newWidth, newHeight);
+            // Clear background (transparent)
+            ctx.clearRect(0, 0, finalWidth, finalHeight);
+            
+            // ✅ Draw image scaled to fit canvas while maintaining aspect ratio
+            const aspectRatio = naturalWidth / naturalHeight;
+            const canvasAspectRatio = finalWidth / finalHeight;
+            
+            let drawWidth, drawHeight, offsetX, offsetY;
+            
+            if (Math.abs(aspectRatio - canvasAspectRatio) < 0.01) {
+              // Aspect ratios match - draw full size
+              drawWidth = finalWidth;
+              drawHeight = finalHeight;
+              offsetX = 0;
+              offsetY = 0;
+            } else if (aspectRatio >= canvasAspectRatio) {
+              // Image is wider - fit to width
+              drawWidth = finalWidth;
+              drawHeight = Math.round(finalWidth / aspectRatio);
+              offsetX = 0;
+              offsetY = (finalHeight - drawHeight) / 2;
             } else {
-              // No resize, direct draw
-              ctx.drawImage(img, 0, 0);
+              // Image is taller - fit to height
+              drawHeight = finalHeight;
+              drawWidth = Math.round(finalHeight * aspectRatio);
+              offsetX = (finalWidth - drawWidth) / 2;
+              offsetY = 0;
             }
+            
+            // Draw resized and centered image
+            ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
             
             // Convert to blob
             canvas.toBlob(pngBlob => {
@@ -539,11 +430,6 @@ export class CoordinationMeasureGenerator {
       return errors;
     }
     
-    // Validar campo "numero" para pontos numerados
-    if (pointData.requiresNumber && !properties.numero) {
-      errors.push('Este ponto requer um número');
-    }
-    
     // Validar classe de suprimento
     if (pointData.hasSupplyIcon && !properties.classeSuprimento) {
       errors.push('Selecione a classe de suprimento');
@@ -566,45 +452,22 @@ export class CoordinationMeasureGenerator {
       }
     }
     
-    // Validar formato GDH se fornecido
-    if (properties.gdhIni && !this.validateGDH(properties.gdhIni)) {
-      errors.push('GDH Início com formato inválido (use: ddhhmmZ mês)');
-    }
-    
-    if (properties.gdhFim && !this.validateGDH(properties.gdhFim)) {
-      errors.push('GDH Fim com formato inválido (use: ddhhmmZ mês ou "Mdt O")');
-    }
-    
     return errors;
   }
 
   /**
-   * Valida formato de Group Date-Hour (GDH)
-   * @param {string} gdh - String GDH a validar
-   * @returns {boolean} true se válido
-   */
-  validateGDH(gdh) {
-    if (!gdh || gdh === "Mdt O") return true;
-    
-    // Formato: ddhhmmZ MÊS
-    // Exemplo: 121400Z JUN
-    const regex = /^\d{6}Z\s[A-Z]{3}$/;
-    return regex.test(gdh);
-  }
-
-  /**
-   * Obtém lista de campos necessários para um ponto
+   * Obtém lista de campos de texto disponíveis para um ponto
    * @param {string} pointCode - Código do ponto
    * @returns {Array<string>} Lista de nomes de campos
    */
-  getRequiredFields(pointCode) {
+  getAvailableTextFields(pointCode) {
     const pointData = this.catalog[pointCode];
     
-    if (!pointData) {
+    if (!pointData || !pointData.textFields) {
       return [];
     }
     
-    return pointData.textFields || [];
+    return Object.keys(pointData.textFields);
   }
 
   /**
@@ -651,6 +514,103 @@ export class CoordinationMeasureGenerator {
       }
     });
     return Array.from(categories).sort();
+  }
+
+  /**
+   * Estima largura do texto em unidades SVG
+   * @param {string} text - Texto a medir
+   * @param {number} fontSize - Tamanho da fonte
+   * @param {string} fontWeight - Peso da fonte ('normal' ou 'bold')
+   * @returns {number} Largura estimada em unidades SVG
+   */
+  estimateTextWidth(text, fontSize, fontWeight = 'normal') {
+    // Aproximação empírica para fontes sans-serif
+    const charWidth = fontWeight === 'bold' ? fontSize * 0.7 : fontSize * 0.6;
+    return String(text).length * charWidth;
+  }
+
+  /**
+   * Calcula viewBox dinâmico que expande para incluir todos os textos
+   * @param {string} svg - String SVG
+   * @param {Object} properties - Propriedades do ponto (valores dos textos)
+   * @param {Object} pointData - Dados do catálogo do ponto
+   * @returns {Object} ViewBox expandido { minX, minY, width, height, maxX, maxY, viewBoxString }
+   */
+  calculateDynamicViewBox(svg, properties, pointData) {
+    // Extrair viewBox original do SVG
+    const original = this.extractDimensions(svg);
+    
+    // Inicializar limites com o viewBox original
+    let minX = original.minX;
+    let minY = original.minY;
+    let maxX = original.maxX;
+    let maxY = original.maxY;
+    
+    // Margem adicional ao redor dos textos
+    const MARGIN = 5;
+    
+    // Obter configuração de campos de texto
+    const textFieldsConfig = pointData.textFields || {};
+    
+    // Para cada campo de texto configurado
+    Object.entries(textFieldsConfig).forEach(([fieldName, config]) => {
+      const value = properties[fieldName];
+      
+      // Ignorar campos sem valor
+      if (value === undefined || value === null || value === '') return;
+      
+      const x = config.position.x;
+      const y = config.position.y;
+      const anchor = config.anchor;
+      const fontSize = config.fontSize;
+      const fontWeight = config.fontWeight || 'normal';
+      
+      // Estimar largura do texto
+      const textWidth = this.estimateTextWidth(value, fontSize, fontWeight);
+      
+      // Calcular limites do texto baseado na âncora
+      let textMinX, textMaxX;
+      
+      if (anchor === 'start') {
+        textMinX = x;
+        textMaxX = x + textWidth;
+      } else if (anchor === 'end') {
+        textMinX = x - textWidth;
+        textMaxX = x;
+      } else { // middle
+        textMinX = x - (textWidth / 2);
+        textMaxX = x + (textWidth / 2);
+      }
+      
+      // Calcular limites verticais
+      const textMinY = y - fontSize;
+      const textMaxY = y + (fontSize * 0.3);
+      
+      // Expandir viewBox se necessário
+      minX = Math.min(minX, textMinX - MARGIN);
+      maxX = Math.max(maxX, textMaxX + MARGIN);
+      minY = Math.min(minY, textMinY - MARGIN);
+      maxY = Math.max(maxY, textMaxY + MARGIN);
+    });
+    
+    // Arredondar valores
+    minX = Math.floor(minX);
+    minY = Math.floor(minY);
+    maxX = Math.ceil(maxX);
+    maxY = Math.ceil(maxY);
+    
+    const width = maxX - minX;
+    const height = maxY - minY;
+    
+    return {
+      minX,
+      minY,
+      width,
+      height,
+      maxX,
+      maxY,
+      viewBoxString: `${minX} ${minY} ${width} ${height}`
+    };
   }
 }
 

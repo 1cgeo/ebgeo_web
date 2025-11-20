@@ -9,7 +9,7 @@ import {
     createCheckbox,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
-import { COORDINATION_POINTS_CATALOG } from './coordination_points_catalog.js';
+import { COORDINATION_POINTS_CATALOG, getAvailableTextFields } from './coordination_points_catalog.js';
 import { UI_DATA, SUPPLY_CLASSES } from './coordination_measure_constants.js';
 
 /**
@@ -386,7 +386,7 @@ export function addCoordinationMeasureAttributesToPanel(
             clearTimeout(previewDebounceTimer);
             previewDebounceTimer = setTimeout(() => {
                 updatePreview();
-            }, 200);
+            }, 50);
         }
 
         // ===== TIPO DE PONTO (COMBO BOX COM PREVIEW) =====
@@ -402,7 +402,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
                 // Clear echelon code if switching from echelon to regular point
                 if (wasEchelon && !isEchelon) {
-                    delete tempProperties.echelonCode;
+                    tempProperties.echelonCode = null; // ✅ Set to null instead of delete
                 }
 
                 // Set default echelon code when switching to any echelon type
@@ -486,7 +486,7 @@ export function addCoordinationMeasureAttributesToPanel(
         function rebuildTextModifiersSection(pointCode) {
             textModifiersContent.innerHTML = '';
 
-            const applicableFields = getApplicableTextFields(pointCode);
+            const applicableFields = getAvailableTextFields(pointCode);
 
             applicableFields.forEach(fieldName => {
                 const fieldDef = UI_DATA.textFieldDefinitions[fieldName];
@@ -542,7 +542,7 @@ export function addCoordinationMeasureAttributesToPanel(
         applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
         applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
         applyButton.onclick = async () => {
-            // Apply all properties
+            // Apply all properties at once to avoid race conditions
             const propertiesToUpdate = [
                 'pointCode', 'echelonCode', 'fillColor',
                 // Text modifiers
@@ -550,13 +550,51 @@ export function addCoordinationMeasureAttributesToPanel(
                 'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
             ];
 
-            for (const key of propertiesToUpdate) {
-                if (tempProperties.hasOwnProperty(key)) {
-                    await coordinationMeasureControl.updateFeaturesProperty(
-                        selectedFeatures, 
-                        key, 
-                        tempProperties[key]
-                    );
+            // Get source data ONCE
+            const data = await coordinationMeasureControl.map.getSource("coordination_measures").getData();
+            let needsRegeneration = false;
+
+            // Update all properties in the source
+            for (const feature of selectedFeatures) {
+                const sourceFeature = data.features.find(
+                    (f) => f.properties.id == feature.properties.id
+                );
+                
+                if (sourceFeature) {
+                    // Update each property
+                    for (const key of propertiesToUpdate) {
+                        if (tempProperties.hasOwnProperty(key)) {
+                            sourceFeature.properties[key] = tempProperties[key];
+                            feature.properties[key] = tempProperties[key];
+                            
+                            // Check if regeneration is needed
+                            if (coordinationMeasureControl.geometry.affectsSIDC(key) ||
+                                coordinationMeasureControl.geometry.affectsTextModifiers(key) ||
+                                key === 'fillColor') {
+                                needsRegeneration = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update source with ALL changes
+            coordinationMeasureControl.map.getSource("coordination_measures").setData(data);
+
+            // Regenerate symbol ONCE if needed
+            if (needsRegeneration && selectedFeatures.length > 0) {
+                // Get UPDATED feature from source to ensure all properties are present
+                const updatedData = await coordinationMeasureControl.map.getSource("coordination_measures").getData();
+                const updatedFeature = updatedData.features.find(
+                    f => f.properties.id === selectedFeatures[0].properties.id
+                );
+                
+                if (updatedFeature) {
+                    // Regenerate symbol with ALL updated properties
+                    await coordinationMeasureControl.updateSymbolImage(updatedFeature);
+                    
+                    // Update SelectionManager with updated feature
+                    coordinationMeasureControl.updateSelectionManagerFeature(updatedFeature);
                 }
             }
 
@@ -743,29 +781,30 @@ export function addCoordinationMeasureAttributesToPanel(
             background: white;
             border: 2px solid #ddd;
             border-radius: 8px;
-            display: none;
             z-index: 10001;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            min-width: 200px;
+            display: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            min-width: 300px;
         `;
 
         // Register dropdown
         openDropdowns.push(dropdown);
 
-        // Função para atualizar display
+        // Atualizar display com thumbnail
         async function updateDisplay(value) {
-            const option = options.find(opt => opt.value === value);
-            if (option) {
-                displayText.textContent = option.label;
+            const selected = options.find(opt => opt.value === value);
+            if (selected) {
+                displayText.textContent = selected.label;
                 
-                // Gerar thumbnail para display apenas se tiver iconCode
-                if (option.iconCode) {
-                    const dataUrl = await generatePointThumbnailForCombo(
-                        option.iconCode, 
-                        option.defaultEchelonCode
+                // Generate thumbnail if iconCode exists
+                if (selected.iconCode) {
+                    const thumbnailUrl = await generatePointThumbnailForCombo(
+                        selected.iconCode,
+                        selected.defaultEchelonCode
                     );
-                    if (dataUrl) {
-                        displayThumbnail.src = dataUrl;
+                    
+                    if (thumbnailUrl) {
+                        displayThumbnail.src = thumbnailUrl;
                         displayThumbnail.style.display = 'block';
                     } else {
                         displayThumbnail.style.display = 'none';
@@ -773,75 +812,65 @@ export function addCoordinationMeasureAttributesToPanel(
                 } else {
                     displayThumbnail.style.display = 'none';
                 }
+            } else {
+                displayText.textContent = 'Selecione...';
+                displayThumbnail.style.display = 'none';
             }
         }
 
-        // Popular dropdown
-        const thumbnailCache = new Map();
-        
-        options.forEach((option) => {
+        // Popular dropdown com thumbnails
+        options.forEach(option => {
             const optionElement = document.createElement('div');
             optionElement.style.cssText = `
                 padding: 12px 15px;
                 cursor: pointer;
+                font-size: 14px;
                 transition: background-color 0.2s;
+                border-bottom: 1px solid #f0f0f0;
                 display: flex;
                 align-items: center;
                 gap: 10px;
-                border-bottom: 1px solid #f0f0f0;
             `;
 
-            // Thumbnail
+            // Thumbnail na opção
+            const optionThumbnail = document.createElement('img');
+            optionThumbnail.style.cssText = `
+                width: 25px;
+                height: 25px;
+                object-fit: contain;
+                flex-shrink: 0;
+            `;
+
+            const optionText = document.createElement('span');
+            optionText.textContent = option.label;
+            optionText.style.cssText = 'flex: 1;';
+
+            // Generate thumbnail if iconCode exists
             if (option.iconCode) {
-                const thumbnail = document.createElement('img');
-                thumbnail.style.cssText = `
-                    width: 30px;
-                    height: 30px;
-                    object-fit: contain;
-                    flex-shrink: 0;
-                    background: #f8f9fa;
-                `;
-                
-                optionElement.appendChild(thumbnail);
-                
-                // Gerar thumbnail assíncrono
-                if (!thumbnailCache.has(option.iconCode)) {
-                    const promise = generatePointThumbnailForCombo(
-                        option.iconCode, 
-                        option.defaultEchelonCode
-                    );
-                    thumbnailCache.set(option.iconCode, promise);
-                }
-                
-                thumbnailCache.get(option.iconCode).then(dataUrl => {
-                    if (dataUrl) thumbnail.src = dataUrl;
-                });
+                generatePointThumbnailForCombo(option.iconCode, option.defaultEchelonCode)
+                    .then(thumbnailUrl => {
+                        if (thumbnailUrl) {
+                            optionThumbnail.src = thumbnailUrl;
+                            optionElement.insertBefore(optionThumbnail, optionText);
+                        }
+                    });
             }
+            
+            optionElement.appendChild(optionText);
 
-            // Label
-            const labelSpan = document.createElement('span');
-            labelSpan.textContent = option.label;
-            labelSpan.style.cssText = 'flex: 1; overflow: hidden; text-overflow: ellipsis;';
-            optionElement.appendChild(labelSpan);
-
-            // Hover effect
-            optionElement.onmouseenter = () => {
-                optionElement.style.backgroundColor = '#f8f9fa';
-            };
-            optionElement.onmouseleave = () => {
-                optionElement.style.backgroundColor = option.value === currentValue ? '#e9ecef' : 'transparent';
-            };
-
-            // Set initial background for current value
             if (option.value === currentValue) {
                 optionElement.style.backgroundColor = '#e9ecef';
             }
 
-            // Click handler
+            optionElement.onmouseenter = () => optionElement.style.backgroundColor = '#f8f9fa';
+            optionElement.onmouseleave = () => {
+                optionElement.style.backgroundColor = option.value === currentValue ? '#e9ecef' : 'transparent';
+            };
+
             optionElement.onclick = () => {
                 currentValue = option.value;
-                onChange(option.value);
                 updateDisplay(option.value);
+                onChange(option.value);
                 closeAllDropdowns();
                 
                 // Update selected state
@@ -1160,33 +1189,6 @@ export function addCoordinationMeasureAttributesToPanel(
         return container;
     }
 
-    // ✅ MODIFICAÇÃO 6: Funções da galeria removidas
-    // - createPointGallery
-    // - createPointThumbnailPlaceholder
-    // - generateThumbnail
-
-    /**
-     * Get applicable text fields for a given point code
-     */
-    function getApplicableTextFields(pointCode) {
-        if (!pointCode) return [];
-
-        // Get point data from catalog
-        const pointData = COORDINATION_POINTS_CATALOG[pointCode];
-
-        if (pointData && pointData.textFields) {
-            return pointData.textFields;
-        }
-
-        // Check if it's an echelon type
-        if (isEchelonPointCode(pointCode)) {
-            return ['identificacao', 'gdhIni', 'gdhFim'];
-        }
-
-        // Default fields for unknown points
-        return ['tipo', 'identificacao', 'gdhIni', 'gdhFim'];
-    }
-
     /**
      * Get points grouped options for combo box
      * ✅ MODIFICAÇÃO 7: Incluindo iconCode para thumbnails
@@ -1276,6 +1278,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
     /**
      * Clear all text modifiers from properties
+     * Sets to null instead of delete to ensure they are cleared when applied
      */
     function clearAllTextModifiers(properties) {
         const modifiers = [
@@ -1284,7 +1287,7 @@ export function addCoordinationMeasureAttributesToPanel(
         ];
 
         modifiers.forEach(mod => {
-            delete properties[mod];
+            properties[mod] = null; // ✅ Set to null instead of delete
         });
     }
 
