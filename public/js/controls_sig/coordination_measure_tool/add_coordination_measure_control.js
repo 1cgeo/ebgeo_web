@@ -476,9 +476,18 @@ class AddCoordinationMeasureControl extends BaseControl {
     };
 
     try {
+      // Determine actual point code to use
+      let actualPointCode = pointCode;
+      
+      // Handle echelon placeholders - use the actual echelon code
+      if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
+        actualPointCode = feature.properties.echelonCode || 
+          (actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
+      }
+      
       // ✅ Generate symbol and CAPTURE REAL DIMENSIONS
       const result = await this.symbolGenerator.generate(
-        pointCode,
+        actualPointCode,
         feature.properties
       );
 
@@ -592,12 +601,23 @@ class AddCoordinationMeasureControl extends BaseControl {
         classeSuprimento: feature.properties.classeSuprimento,
         status: feature.properties.status,
         numeroConcentracao: feature.properties.numeroConcentracao,
-        altitude: feature.properties.altitude
+        altitude: feature.properties.altitude,
+        fillColor: feature.properties.fillColor,
+        echelonCode: feature.properties.echelonCode
       };
+
+      // Determine actual point code to use
+      let actualPointCode = feature.properties.pointCode;
+      
+      // Handle echelon placeholders - use the actual echelon code
+      if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
+        actualPointCode = feature.properties.echelonCode || 
+          (actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
+      }
 
       // ✅ Generate symbol with dimensions
       const result = await this.symbolGenerator.generate(
-        feature.properties.pointCode,
+        actualPointCode,
         properties
       );
 
@@ -607,23 +627,32 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.height = result.height;
       feature.properties.anchor = result.anchor;
 
-      // ✅ RECALCULATE selection box with new dimensions
-      feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
-        feature,
-        this.selectionManager.uiManager
-      );
-
-      // ✅ PERSIST changes to map source
+      // ✅ GET CURRENT coordinates from map source BEFORE recalculating selection box
       const data = await this.map.getSource("coordination_measures").getData();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
       );
+      
       if (sourceFeature) {
+        // ✅ RECALCULATE selection box using CURRENT coordinates from source
+        const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+          sourceFeature.geometry.coordinates,
+          result.width,
+          result.height,
+          feature.properties.size,
+          feature.properties.rotation,
+          feature.properties.createdAtZoom,
+          this.selectionManager.uiManager
+        );
+        
+        feature.properties.selectionBox = newSelectionBox;
+        
+        // ✅ PERSIST changes to map source
         sourceFeature.properties.imageUrl = result.dataUrl;
         sourceFeature.properties.width = result.width;
         sourceFeature.properties.height = result.height;
         sourceFeature.properties.anchor = result.anchor;
-        sourceFeature.properties.selectionBox = feature.properties.selectionBox;
+        sourceFeature.properties.selectionBox = newSelectionBox;
       }
       this.map.getSource("coordination_measures").setData(data);
 
@@ -660,12 +689,23 @@ class AddCoordinationMeasureControl extends BaseControl {
         classeSuprimento: feature.properties.classeSuprimento,
         status: feature.properties.status,
         numeroConcentracao: feature.properties.numeroConcentracao,
-        altitude: feature.properties.altitude
+        altitude: feature.properties.altitude,
+        fillColor: feature.properties.fillColor,
+        echelonCode: feature.properties.echelonCode
       };
+
+      // Determine actual point code to use
+      let actualPointCode = feature.properties.pointCode;
+      
+      // Handle echelon placeholders - use the actual echelon code
+      if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
+        actualPointCode = feature.properties.echelonCode || 
+          (actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
+      }
 
       // ✅ Generate symbol with dimensions
       const result = await this.symbolGenerator.generate(
-        feature.properties.pointCode,
+        actualPointCode,
         properties
       );
 
@@ -674,22 +714,32 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.height = result.height;
       feature.properties.anchor = result.anchor;
 
-      feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
-        feature,
-        this.selectionManager.uiManager
-      );
-
-      // ✅ PERSIST changes to map source
+      // ✅ GET CURRENT coordinates from map source BEFORE recalculating selection box
       const data = await this.map.getSource("coordination_measures").getData();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
       );
+      
       if (sourceFeature) {
+        // ✅ RECALCULATE selection box using CURRENT coordinates from source
+        const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+          sourceFeature.geometry.coordinates,
+          result.width,
+          result.height,
+          feature.properties.size,
+          feature.properties.rotation,
+          feature.properties.createdAtZoom,
+          this.selectionManager.uiManager
+        );
+        
+        feature.properties.selectionBox = newSelectionBox;
+        
+        // ✅ PERSIST changes to map source
         sourceFeature.properties.imageUrl = result.dataUrl;
         sourceFeature.properties.width = result.width;
         sourceFeature.properties.height = result.height;
         sourceFeature.properties.anchor = result.anchor;
-        sourceFeature.properties.selectionBox = feature.properties.selectionBox;
+        sourceFeature.properties.selectionBox = newSelectionBox;
       }
       this.map.getSource("coordination_measures").setData(data);
 
@@ -1023,7 +1073,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       const textModifierProperties = [
         'tipo', 'identificacao', 'gdhIni', 'gdhFim',
         'numero', 'classeSuprimento', 'status',
-        'numeroConcentracao', 'altitude'
+        'numeroConcentracao', 'altitude', 'fillColor'
       ];
 
       const needsRegeneration = [...sidcProperties, ...textModifierProperties]
@@ -1106,6 +1156,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.status !== initialProperties.status ||
       feature.properties.numeroConcentracao !== initialProperties.numeroConcentracao ||
       feature.properties.altitude !== initialProperties.altitude ||
+      feature.properties.fillColor !== initialProperties.fillColor ||
       feature.properties.size !== initialProperties.size ||
       feature.properties.opacity !== initialProperties.opacity ||
       feature.properties.rotation !== initialProperties.rotation ||

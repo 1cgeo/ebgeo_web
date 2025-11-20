@@ -1,7 +1,7 @@
 // Path: js\controls_sig\coordination_measure_tool\coordination_measure_generator.js
 import { COORDINATION_POINTS_CATALOG } from './coordination_points_catalog.js';
 
-const DEFAULT_SIZE = 100;
+const DEFAULT_SIZE = 80;
 
 /**
  * Coordination Measure Generator
@@ -52,18 +52,52 @@ export class CoordinationMeasureGenerator {
       svg = this.applyCustomColor(svg, properties.fillColor);
     }
     
+    
     svg = this.addExternalTexts(svg, properties, pointData);
     
-    // Extract dimensions
-    const { width, height } = this.extractDimensions(svg);
+    // Extract original dimensions from SVG
+    const { width: originalWidth, height: originalHeight } = this.extractDimensions(svg);
     
-    // Convert to blob
-    const blob = await this.convertToPngBlob(svg);
+    // Check if has external text
+    const hasText = this.hasExternalText(properties);
+    
+    // Calculate canvas dimensions using DEFAULT_SIZE
+    let canvasWidth, canvasHeight;
+    if (hasText) {
+      // With text: use larger canvas to accommodate external text
+      const aspectRatio = originalWidth / originalHeight;
+      if (aspectRatio >= 1) {
+        // Landscape or square
+        canvasWidth = DEFAULT_SIZE * 1.5;
+        canvasHeight = canvasWidth / aspectRatio;
+      } else {
+        // Portrait
+        canvasHeight = DEFAULT_SIZE * 1.5;
+        canvasWidth = canvasHeight * aspectRatio;
+      }
+    } else {
+      // Without text: standard proportional sizing
+      const aspectRatio = originalWidth / originalHeight;
+      if (aspectRatio >= 1) {
+        canvasWidth = DEFAULT_SIZE;
+        canvasHeight = DEFAULT_SIZE / aspectRatio;
+      } else {
+        canvasHeight = DEFAULT_SIZE;
+        canvasWidth = DEFAULT_SIZE * aspectRatio;
+      }
+    }
+    
+    // Round to integers
+    canvasWidth = Math.round(canvasWidth);
+    canvasHeight = Math.round(canvasHeight);
+    
+    // Convert to blob with normalized dimensions
+    const blob = await this.convertToPngBlob(svg, canvasWidth, canvasHeight);
     
     return {
       blob: blob,
-      width: width,
-      height: height,
+      width: canvasWidth,
+      height: canvasHeight,
       anchor: pointData.anchor
     };
   }
@@ -95,6 +129,23 @@ export class CoordinationMeasureGenerator {
       height: result.height,
       anchor: result.anchor
     };
+  }
+
+  /**
+   * Check if properties contain external text modifiers
+   * @param {Object} properties - Point properties
+   * @returns {boolean} True if has any external text
+   */
+  hasExternalText(properties) {
+    return !!(
+      properties.gdhIni ||
+      properties.gdhFim ||
+      properties.identificacao ||
+      properties.tipo ||
+      properties.numeroConcentracao ||
+      properties.altitude ||
+      properties.classeSuprimento
+    );
   }
 
   /**

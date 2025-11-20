@@ -349,15 +349,24 @@ export function addCoordinationMeasureAttributesToPanel(
                     return;
                 }
 
-                // For ECHELON types, ensure echelonCode is set
+                // For ECHELON placeholders, ensure echelonCode is set
                 if (isEchelonPointCode(tempProperties.pointCode) && !tempProperties.echelonCode) {
                     previewImage.style.display = 'none';
                     return;
                 }
 
+                // Determine actual point code to use
+                let actualPointCode = tempProperties.pointCode;
+                
+                // Handle echelon placeholders - use the actual echelon code
+                if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
+                    actualPointCode = tempProperties.echelonCode || 
+                        (actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
+                }
+
                 // Generate preview
                 const result = await coordinationMeasureControl.symbolGenerator.generate(
-                    tempProperties.pointCode,
+                    actualPointCode,
                     tempProperties
                 );
 
@@ -396,16 +405,22 @@ export function addCoordinationMeasureAttributesToPanel(
                     delete tempProperties.echelonCode;
                 }
 
-                // Set default echelon code if switching to echelon
-                if (!wasEchelon && isEchelon) {
+                // Set default echelon code when switching to any echelon type
+                // (includes switching between ECHELON and ECHELON_FT)
+                if (isEchelon) {
                     tempProperties.echelonCode = newValue === 'ECHELON_FT' ? 'ECHELON_FT_16' : 'ECHELON_16';
                 }
 
                 // Clear text modifiers when changing point type
                 clearAllTextModifiers(tempProperties);
 
-                // Show/hide subtype dropdown
-                subtypeDropdown.style.display = isEchelon ? 'block' : 'none';
+                // Show/hide and update subtype dropdown
+                if (isEchelon) {
+                    subtypeDropdown.style.display = 'block';
+                    updateSubtypeCombo();
+                } else {
+                    subtypeDropdown.style.display = 'none';
+                }
 
                 // Rebuild text modifiers section
                 rebuildTextModifiersSection(tempProperties.pointCode);
@@ -427,7 +442,7 @@ export function addCoordinationMeasureAttributesToPanel(
             if (!isEchelonPointCode(tempProperties.pointCode)) return;
 
             const isFT = tempProperties.pointCode === 'ECHELON_FT';
-            const subtypeCombo = createDigitalComboBox(
+            const subtypeCombo = createDigitalComboBoxWithThumbnails(
                 getEchelonSubtypeOptions(tempProperties.pointCode),
                 tempProperties.echelonCode || (isFT ? 'ECHELON_FT_16' : 'ECHELON_16'),
                 (newValue) => {
@@ -627,17 +642,15 @@ export function addCoordinationMeasureAttributesToPanel(
      */
     async function generatePointThumbnailForCombo(pointCode, defaultEchelonCode) {
         try {
-            let properties = { pointCode };
-            
-            // Handle echelon types
+            // Handle echelon placeholders - use the actual echelon code
             if (pointCode === 'ECHELON' || pointCode === 'ECHELON_FT') {
-                properties.echelonCode = defaultEchelonCode || 
+                pointCode = defaultEchelonCode || 
                     (pointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
             }
             
             const result = await coordinationMeasureControl.symbolGenerator.generate(
                 pointCode,
-                properties
+                {}  // Empty properties for thumbnail generation
             );
             
             return result?.dataUrl || null;
@@ -646,6 +659,7 @@ export function addCoordinationMeasureAttributesToPanel(
             return null;
         }
     }
+
 
     /**
      * Create digital combo box with thumbnail previews
@@ -723,19 +737,16 @@ export function addCoordinationMeasureAttributesToPanel(
         // Dropdown container
         const dropdown = document.createElement('div');
         dropdown.style.cssText = `
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
+            position: fixed;
             max-height: 400px;
             overflow-y: auto;
             background: white;
             border: 2px solid #ddd;
             border-radius: 8px;
-            margin-top: 5px;
             display: none;
-            z-index: 1000;
+            z-index: 10001;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            min-width: 200px;
         `;
 
         // Register dropdown
@@ -747,7 +758,7 @@ export function addCoordinationMeasureAttributesToPanel(
             if (option) {
                 displayText.textContent = option.label;
                 
-                // Gerar thumbnail para display
+                // Gerar thumbnail para display apenas se tiver iconCode
                 if (option.iconCode) {
                     const dataUrl = await generatePointThumbnailForCombo(
                         option.iconCode, 
@@ -848,8 +859,19 @@ export function addCoordinationMeasureAttributesToPanel(
             e.stopPropagation();
             const isOpen = dropdown.style.display === 'block';
             closeAllDropdowns();
-            dropdown.style.display = isOpen ? 'none' : 'block';
-            selectDisplay.style.borderColor = isOpen ? '#ddd' : '#007bff';
+            
+            if (!isOpen) {
+                // Calcular posição do dropdown
+                const rect = selectDisplay.getBoundingClientRect();
+                dropdown.style.top = (rect.bottom + 5) + 'px';
+                dropdown.style.left = rect.left + 'px';
+                dropdown.style.width = rect.width + 'px';
+                dropdown.style.display = 'block';
+                selectDisplay.style.borderColor = '#007bff';
+            } else {
+                dropdown.style.display = 'none';
+                selectDisplay.style.borderColor = '#ddd';
+            }
         };
 
         // Close on outside click
@@ -865,12 +887,17 @@ export function addCoordinationMeasureAttributesToPanel(
             if (index > -1) {
                 openDropdowns.splice(index, 1);
             }
+            // Remover dropdown do body
+            if (dropdown.parentNode) {
+                dropdown.parentNode.removeChild(dropdown);
+            }
         };
 
         document.addEventListener('click', closeDropdown);
 
         selectContainer.appendChild(selectDisplay);
-        selectContainer.appendChild(dropdown);
+        // Adicionar dropdown ao body para position: fixed funcionar
+        document.body.appendChild(dropdown);
         container.appendChild(labelElement);
         container.appendChild(selectContainer);
 
@@ -943,19 +970,16 @@ export function addCoordinationMeasureAttributesToPanel(
         // Dropdown container
         const dropdown = document.createElement('div');
         dropdown.style.cssText = `
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
+            position: fixed;
             max-height: 300px;
             overflow-y: auto;
             background: white;
             border: 2px solid #ddd;
-            border-top: none;
-            border-radius: 0 0 8px 8px;
-            z-index: 1000;
+            border-radius: 8px;
+            z-index: 10001;
             display: none;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            min-width: 200px;
         `;
 
         // Register dropdown
@@ -1004,8 +1028,19 @@ export function addCoordinationMeasureAttributesToPanel(
             e.stopPropagation();
             const isOpen = dropdown.style.display === 'block';
             closeAllDropdowns();
-            dropdown.style.display = isOpen ? 'none' : 'block';
-            selectDisplay.style.borderColor = isOpen ? '#ddd' : '#007bff';
+            
+            if (!isOpen) {
+                // Calcular posição do dropdown
+                const rect = selectDisplay.getBoundingClientRect();
+                dropdown.style.top = (rect.bottom + 5) + 'px';
+                dropdown.style.left = rect.left + 'px';
+                dropdown.style.width = rect.width + 'px';
+                dropdown.style.display = 'block';
+                selectDisplay.style.borderColor = '#007bff';
+            } else {
+                dropdown.style.display = 'none';
+                selectDisplay.style.borderColor = '#ddd';
+            }
         };
 
         // Fechar ao clicar fora
@@ -1021,6 +1056,10 @@ export function addCoordinationMeasureAttributesToPanel(
             if (index > -1) {
                 openDropdowns.splice(index, 1);
             }
+            // Remover dropdown do body
+            if (dropdown.parentNode) {
+                dropdown.parentNode.removeChild(dropdown);
+            }
         };
 
         document.addEventListener('click', closeDropdown);
@@ -1029,7 +1068,8 @@ export function addCoordinationMeasureAttributesToPanel(
 
         container.appendChild(labelElement);
         selectContainer.appendChild(selectDisplay);
-        selectContainer.appendChild(dropdown);
+        // Adicionar dropdown ao body para position: fixed funcionar
+        document.body.appendChild(dropdown);
         container.appendChild(selectContainer);
 
         return container;
@@ -1193,17 +1233,17 @@ export function addCoordinationMeasureAttributesToPanel(
         // Add special types (echelon)
         options.push({
             value: 'ECHELON',
-            label: '⭐ Escalão (requer subtipo)',
-            iconCode: 'ECHELON',  // ✅ NOVO
+            label: 'Escalão (requer subtipo)',
+            iconCode: null,  // Sem preview para placeholder
             isEchelon: true,
-            defaultEchelonCode: 'ECHELON_16'  // ✅ NOVO: para preview
+            defaultEchelonCode: 'ECHELON_16'
         });
         options.push({
             value: 'ECHELON_FT',
-            label: '⭐ Escalão Força-Tarefa (requer subtipo)',
-            iconCode: 'ECHELON_FT',  // ✅ NOVO
+            label: 'Escalão Força-Tarefa (requer subtipo)',
+            iconCode: null,  // Sem preview para placeholder
             isEchelon: true,
-            defaultEchelonCode: 'ECHELON_FT_16'  // ✅ NOVO: para preview
+            defaultEchelonCode: 'ECHELON_FT_16'
         });
 
         return options;
@@ -1219,7 +1259,8 @@ export function addCoordinationMeasureAttributesToPanel(
 
         return subtypes.map(st => ({
             value: st.code,
-            label: st.label
+            label: st.label,
+            iconCode: st.code  // Adicionar iconCode para gerar thumbnails
         }));
     }
 
