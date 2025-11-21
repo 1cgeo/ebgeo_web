@@ -162,7 +162,11 @@ importControl.setControls(pointControl, lineControl, polygonControl);
 const terrainControl = new TerrainControl(config.map2d);
 const screenshotControl = new ScreenshotControl();
 
-const mouseCoordinatesControl = new MouseCoordinatesControl(pointControl);
+const mouseCoordinatesControl = new MouseCoordinatesControl(
+    pointControl,
+    coordinationMeasureControl,
+    militarySymbolControl
+);
 
 // Context menu e drag rotate customizados
 const contextMenuControl = new ContextMenuControl(mouseCoordinatesControl, toolManager, selectionManager);

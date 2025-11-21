@@ -12,7 +12,7 @@ import FrameControl from './frame.js';
 import config from '../config.js';
 
 class MouseCoordinatesControl {
-    constructor(pointControl) {
+    constructor(pointControl, coordinationMeasureControl, militarySymbolControl) {
         this._map = null;
         this._container = null;
         this._innerContainer = null;
@@ -23,6 +23,8 @@ class MouseCoordinatesControl {
         this._modal = null;
         this._currentCoordinates = { lat: 0, lng: 0 };
         this._pointControl = pointControl;
+        this._coordinationMeasureControl = coordinationMeasureControl;
+        this._militarySymbolControl = militarySymbolControl;
 
         // Elevation properties
         this._elevationEnabled = false;
@@ -195,29 +197,29 @@ class MouseCoordinatesControl {
             this._elevationButton.title = "Mostrar/ocultar elevação";
             this._elevationButton.disabled = false;
         } else {
-            this._elevationButton.innerHTML = `<img src="./images/elevation_disabled_icon.svg" alt="Elevation Disabled" width="16" height="16" />`;
-            this._terrainAvailable = false;
-            this._elevationEnabled = false;
-            this._currentElevation = null;
-            this._elevationButton.title = "Elevação indisponível (terreno necessário)";
+            // Terrain not available - disable button with grayed icon
+            this._elevationButton.innerHTML = `<img src="./images/elevation_icon.svg" alt="Elevation" width="16" height="16" style="opacity: 0.3;" />`;
+            this._elevationButton.title = "Elevação indisponível (terreno não carregado)";
             this._elevationButton.disabled = true;
-        }
 
-        // Update coordinates display
-        this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
+            // Reset elevation display if terrain is removed
+            if (this._elevationEnabled) {
+                this._elevationEnabled = false;
+                this._currentElevation = null;
+                this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
+            }
+        }
     }
 
     _toggleElevation() {
-        // Block interaction if terrain is not available
         if (!this._terrainAvailable) {
-            return; // Don't toggle if terrain is not available
+            return; // Do nothing if terrain is not available
         }
 
         this._elevationEnabled = !this._elevationEnabled;
 
-        // Update button appearance only if terrain is available
         if (this._elevationEnabled) {
-            this._elevationButton.style.backgroundColor = '#508D4E';
+            this._elevationButton.style.backgroundColor = '#4CAF50';
             this._elevationButton.style.color = 'white';
         } else {
             this._elevationButton.style.backgroundColor = '';
@@ -225,52 +227,44 @@ class MouseCoordinatesControl {
             this._currentElevation = null;
         }
 
-        // Update coordinates display immediately
+        // Trigger update
         this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
     }
 
     async _getElevationDebounced(lat, lng) {
-        // Cancel previous request
-        if (this._elevationAbortController) {
-            this._elevationAbortController.abort();
-        }
-
-        // Clear previous timer
-        if (this._debounceTimer) {
-            clearTimeout(this._debounceTimer);
-        }
-
         return new Promise((resolve) => {
+            clearTimeout(this._debounceTimer);
+
             this._debounceTimer = setTimeout(async () => {
+                if (this._elevationAbortController) {
+                    this._elevationAbortController.abort();
+                }
+
+                this._elevationAbortController = new AbortController();
+                const signal = this._elevationAbortController.signal;
+
                 try {
-                    this._elevationAbortController = new AbortController();
-                    const elevation = await getTerrainElevation(this._map, [lng, lat]);
-
-                    // Check if request was aborted
-                    if (this._elevationAbortController.signal.aborted) {
-                        return;
-                    }
-
+                    const elevation = await getTerrainElevation(this._map, lat, lng, signal);
                     resolve(elevation);
                 } catch (error) {
-                    console.warn('Error getting elevation:', error);
-                    // Fallback: disable elevation on error
-                    this._elevationEnabled = false;
-                    this._elevationButton.style.backgroundColor = '';
-                    this._elevationButton.style.color = '';
+                    if (error.name === 'AbortError') {
+                        // Request was aborted, this is fine
+                    } else {
+                        console.warn('Failed to get elevation:', error);
+                    }
                     resolve(null);
                 }
-            }, 10); // 300ms debounce
+            }, 50);
         });
     }
 
     _createFlyToModal() {
-        // Create modal container
+        // Create modal backdrop
         this._modal = document.createElement('div');
         this._modal.className = 'coordinates-modal';
         this._modal.style.display = 'none';
 
-        // Create modal content
+        // Create modal content container
         const modalContent = document.createElement('div');
         modalContent.className = 'coordinates-modal-content';
 
@@ -332,13 +326,13 @@ class MouseCoordinatesControl {
         validationMessage.className = 'coordinates-validation-message';
         validationMessage.id = 'coordinates-validation';
 
-        // Create buttons
+        // Create buttons container - usando padrão do attribute panel helpers
         const buttonContainer = document.createElement('div');
         buttonContainer.className = 'coordinates-modal-buttons';
 
         const flyButton = document.createElement('button');
         flyButton.textContent = 'Ir para';
-        flyButton.className = 'coordinates-fly-button';
+        flyButton.classList.add('tool-button', 'pure-material-tool-button-contained');
         flyButton.addEventListener('click', () => {
             const formatId = formatSelect.value;
             const inputValue = input.value.trim();
@@ -356,29 +350,66 @@ class MouseCoordinatesControl {
             }
         });
 
-        const createPointButton = document.createElement('button');
-        createPointButton.textContent = 'Criar ponto';
-        createPointButton.className = 'coordinates-create-point-button';
-        createPointButton.addEventListener('click', () => {
+        // Create type selector for the create button
+        const createTypeSelect = document.createElement('select');
+        createTypeSelect.id = 'coordinates-create-type';
+        createTypeSelect.style.cssText = 'margin-left: 8px; padding: 8px; border-radius: 4px; border: 1px solid #ccc;';
+        
+        const pointOption = document.createElement('option');
+        pointOption.value = 'point';
+        pointOption.textContent = 'Ponto';
+        
+        const militaryOption = document.createElement('option');
+        militaryOption.value = 'military';
+        militaryOption.textContent = 'Simbologia militar';
+        
+        const coordinationOption = document.createElement('option');
+        coordinationOption.value = 'coordination';
+        coordinationOption.textContent = 'Medida de coordenação';
+        
+        createTypeSelect.appendChild(pointOption);
+        createTypeSelect.appendChild(militaryOption);
+        createTypeSelect.appendChild(coordinationOption);
+
+        // Create consolidated create button
+        const createButton = document.createElement('button');
+        createButton.textContent = 'Criar';
+        createButton.classList.add('tool-button', 'pure-material-tool-button-contained');
+        createButton.addEventListener('click', () => {
             const formatId = formatSelect.value;
             const inputValue = input.value.trim();
             const coordinates = parseCoordinates(inputValue, formatId);
 
-            if (coordinates) {
-                this._createPointAtCoordinates(coordinates.lng, coordinates.lat);
-                this._modal.style.display = 'none';
-                input.value = '';
-                validationMessage.textContent = '';
-                validationMessage.className = 'coordinates-validation-message';
-            } else {
+            if (!coordinates) {
                 validationMessage.textContent = 'Coordenadas inválidas para o formato selecionado';
                 validationMessage.className = 'coordinates-validation-message error';
+                return;
             }
+
+            const createType = createTypeSelect.value;
+            
+            // Call appropriate creation method based on selected type
+            switch (createType) {
+                case 'point':
+                    this._createPointAtCoordinates(coordinates.lng, coordinates.lat);
+                    break;
+                case 'military':
+                    this._createMilitarySymbolAtCoordinates(coordinates.lng, coordinates.lat);
+                    break;
+                case 'coordination':
+                    this._createCoordinationMeasureAtCoordinates(coordinates.lng, coordinates.lat);
+                    break;
+            }
+
+            this._modal.style.display = 'none';
+            input.value = '';
+            validationMessage.textContent = '';
+            validationMessage.className = 'coordinates-validation-message';
         });
 
         const cancelButton = document.createElement('button');
         cancelButton.textContent = 'Cancelar';
-        cancelButton.className = 'coordinates-cancel-button';
+        cancelButton.classList.add('tool-button', 'pure-material-tool-button-contained');
         cancelButton.addEventListener('click', () => {
             this._modal.style.display = 'none';
             input.value = '';
@@ -387,7 +418,8 @@ class MouseCoordinatesControl {
         });
 
         buttonContainer.appendChild(flyButton);
-        buttonContainer.appendChild(createPointButton);
+        buttonContainer.appendChild(createButton);
+        buttonContainer.appendChild(createTypeSelect);
         buttonContainer.appendChild(cancelButton);
 
         // Assemble modal
@@ -411,6 +443,22 @@ class MouseCoordinatesControl {
 
     async _createPointAtCoordinates(lng, lat) {
         const feature = await this._pointControl.createPointAtCoordinates(lng, lat);
+        if (feature) {
+            this._flyToCoordinates(lng, lat);
+        }
+    }
+
+    async _createCoordinationMeasureAtCoordinates(lng, lat) {
+        const lngLat = { lng, lat };
+        const feature = await this._coordinationMeasureControl.createCoordinationMeasureFeature(lngLat);
+        if (feature) {
+            this._flyToCoordinates(lng, lat);
+        }
+    }
+
+    async _createMilitarySymbolAtCoordinates(lng, lat) {
+        const lngLat = { lng, lat };
+        const feature = await this._militarySymbolControl.createMilitarySymbolFeature(lngLat);
         if (feature) {
             this._flyToCoordinates(lng, lat);
         }
