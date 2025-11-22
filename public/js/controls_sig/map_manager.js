@@ -52,7 +52,7 @@ class MapManager {
             }
 
             await addMap(mapName.trim());
-            setCurrentMap(mapName.trim());
+            await setCurrentMap(mapName.trim());
 
             if (this.baseLayerControl) {
                 await this.baseLayerControl.switchMap();
@@ -193,6 +193,7 @@ class MapManager {
     // ===== MAP COMBINATION =====
     async combineSelectedMapsIntoTarget(selectedMapNames, targetMapName) {
         const originalCurrentMap = await getCurrentMapName();
+        const idMappings = {}; // ✅ Coletar mapeamentos de IDs
 
         try {
             let totalFeatures = 0;
@@ -200,32 +201,45 @@ class MapManager {
             for (const mapName of selectedMapNames) {
                 const mapData = await getMapDataStore(mapName);
                 if (mapData && mapData.features) {
-                    for (const [featureType, features] of Object.entries(mapData.features)) {
+                    // Usar regenerateMapIds para regenerar IDs e duplicar recursos
+                    const { newMapData, idMapping } = await IDUtils.regenerateMapIds(mapData, targetMapName);
+                    idMappings[mapName] = idMapping; // ✅ Armazenar mapeamento para atualizar grupos
+                    
+                    // Setar contexto UMA VEZ antes do loop
+                    setCurrentMap(targetMapName);
+                    
+                    // Adicionar features principais
+                    for (const [featureType, features] of Object.entries(newMapData.features)) {
                         if (Array.isArray(features)) {
                             for (const feature of features) {
-                                const featureCopy = {
-                                    ...JSON.parse(JSON.stringify(feature)),
-                                    id: Date.now().toString() + Math.random().toString(36).substr(2, 9)
-                                };
-
-                                setCurrentMap(targetMapName);
-                                await addFeature(featureType, featureCopy);
+                                await addFeature(featureType, feature);
                                 totalFeatures++;
                             }
+                        }
+                    }
+                    
+                    // Copiar features processadas (LOS/Visibility)
+                    if (newMapData.features.processed_los && newMapData.features.processed_los.length > 0) {
+                        for (const processedFeature of newMapData.features.processed_los) {
+                            await addFeature('processed_los', processedFeature);
+                        }
+                    }
+                    
+                    if (newMapData.features.processed_visibility && newMapData.features.processed_visibility.length > 0) {
+                        for (const processedFeature of newMapData.features.processed_visibility) {
+                            await addFeature('processed_visibility', processedFeature);
                         }
                     }
                 }
             }
 
-            // NOVO: Combinar grupos dos mapas selecionados no mapa de destino
+            // Passar mapeamentos de IDs para combineMapGroups
             try {
-                await groupManager.combineMapGroups(selectedMapNames, targetMapName);
+                await groupManager.combineMapGroups(selectedMapNames, targetMapName, idMappings);
             } catch (groupError) {
                 console.warn('Erro ao combinar grupos:', groupError);
                 // Continuar mesmo se houver erro com grupos
             }
-
-            setCurrentMap(originalCurrentMap);
 
             if (originalCurrentMap === targetMapName && this.baseLayerControl) {
                 await this.baseLayerControl.switchMap(false);
@@ -233,8 +247,10 @@ class MapManager {
 
             return { success: true, totalFeatures };
         } catch (error) {
-            setCurrentMap(originalCurrentMap);
             throw error;
+        } finally {
+            // Garantir restauração do contexto sempre
+            setCurrentMap(originalCurrentMap);
         }
     }
 
@@ -328,75 +344,67 @@ class MapManager {
 
         return mapData;
     }
-
-    // ===== VALIDATIONS =====
-    validateMapName(name) {
-        return name && name.trim().length > 0;
-    }
-
-    async canDeleteMap(mapName) {
-        const allMapNames = await getAllMapNamesStore();
-        return allMapNames.length > 1;
-    }
-
-    async canCreateNewMap() {
-        const allMapNames = await getAllMapNamesStore();
-        const canCreate = allMapNames.length < 100;
-
-        if (!canCreate) {
-            showError(`Limite atingido: ${allMapNames.length}/100 mapas. Exclua alguns mapas antes de criar novos.`);
-        }
-
-        return canCreate;
-    }
-
-    // ===== CLEAR ALL DATA =====
     async clearAllData() {
         try {
             await clearAllDataStore();
 
-            // Criar novo mapa padrão
-            await addMap('Principal');
+            if (this.selectionManager) {
+                this.selectionManager.deselectAllFeatures();
+            }
+
             setCurrentMap('Principal');
 
-            await this.baseLayerControl.switchMap();
+            if (this.baseLayerControl) {
+                await this.baseLayerControl.switchMap();
+            }
 
-            return { success: true, message: 'Todos os dados foram limpos' };
+            return { success: true, message: 'Todos os dados foram apagados' };
         } catch (error) {
             console.error('Erro ao limpar dados:', error);
             return { success: false, message: 'Erro ao limpar dados' };
         }
     }
 
+    // ===== VALIDATION =====
+    validateMapName(name) {
+        if (!name || !name.trim()) {
+            return false;
+        }
+        if (name.trim().length > 50) {
+            return false;
+        }
+        return true;
+    }
+
+    async canCreateNewMap() {
+        const allMapNames = await getAllMapNamesStore();
+        if (allMapNames.length >= 100) {
+            alert('Limite de 100 mapas atingido. Delete mapas existentes antes de criar novos.');
+            return false;
+        }
+        return true;
+    }
+
     // ===== DROPDOWN MANAGEMENT =====
     toggleDropdown(button, mapName) {
-        const isCurrentlyActive = button.classList.contains('dropdown-active');
+        const isOpen = button.dataset.dropdownOpen === 'true';
 
-        // Sempre fechar todos os dropdowns primeiro
-        this.closeAllDropdowns(false);
-
-        // Se estava ativo, não reabrir (toggle)
-        if (isCurrentlyActive) {
+        if (isOpen) {
+            this.closeAllDropdowns(true);
             return;
         }
 
-        this.deactivateActiveTools();
+        this.closeAllDropdowns(false);
 
-        // Criar novo dropdown
         const dropdown = document.createElement('div');
         dropdown.className = 'dropdown-content';
-        dropdown.style.display = 'block';
-        dropdown.dataset.mapName = mapName;
         dropdown.dataset.buttonId = button.dataset.buttonId || Date.now().toString();
 
-        // Anexar ao body
-        document.body.appendChild(dropdown);
-
-        // Posicionar e popular
-        this.positionDropdown(dropdown, button);
         this.populateDropdown(dropdown, mapName);
 
-        // Marcar como ativo
+        document.body.appendChild(dropdown);
+        this.positionDropdown(dropdown, button);
+
         button.classList.add('dropdown-active');
         button.dataset.dropdownOpen = 'true';
 
@@ -501,7 +509,7 @@ class MapManager {
             dropdownContent.appendChild(clearPositionBtn);
         }
 
-        // Botão copiar
+        // Botão duplicar
         const copyBtn = document.createElement('button');
         copyBtn.className = 'menu-button';
         copyBtn.innerHTML = '📋 Duplicar';

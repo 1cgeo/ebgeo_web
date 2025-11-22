@@ -54,7 +54,7 @@ export class IDUtils {
      * 
      * @param {Object} mapData - Dados do mapa
      * @param {string} mapName - Nome do novo mapa
-     * @returns {Object} Objeto contendo newMapData
+     * @returns {Object} Objeto contendo newMapData e idMapping
      */
     static async regenerateMapIds(mapData, mapName) {
         const idMapping = new Map();
@@ -111,7 +111,7 @@ export class IDUtils {
         // Atualizar nome do mapa
         newMapData.nome = mapName;
 
-        return { newMapData };
+        return { newMapData, idMapping };
     }
 
     /**

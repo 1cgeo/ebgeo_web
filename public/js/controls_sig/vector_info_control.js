@@ -131,6 +131,7 @@ class VectorTileInfoControl {
 
                 if (vectorTileFeatures.length === 1) {
                     // Única feature: exibir direto
+                    this._hideVectorTileSelectionMenu();
                     this.uiManager.showVectorTileInfoPanel(vectorTileFeatures[0]);
                 } else {
                     // Múltiplas features: mostrar menu

@@ -336,8 +336,11 @@ export class GroupManager {
 
     /**
      * Combina grupos de múltiplos mapas em um mapa de destino
+     * @param {Array} sourceMapNames - Nomes dos mapas fonte
+     * @param {string} targetMapName - Nome do mapa destino
+     * @param {Object} idMappings - Mapeamentos de IDs antigos → novos por mapa
      */
-    async combineMapGroups(sourceMapNames, targetMapName) {
+    async combineMapGroups(sourceMapNames, targetMapName, idMappings = {}) {
         try {
             const targetGroups = await getMapGroups(targetMapName);
             const existingNames = new Set(
@@ -348,7 +351,13 @@ export class GroupManager {
             for (const sourceMapName of sourceMapNames) {
                 const sourceGroups = await getMapGroups(sourceMapName);
                 
-                Object.values(sourceGroups).forEach(group => {
+                // ✅ Obter mapeamento de IDs para este mapa (se fornecido)
+                const mapIdMapping = idMappings[sourceMapName] || new Map();
+                
+                // ✅ Atualizar IDs das features nos grupos
+                const updatedGroups = this._updateGroupFeatureIds(sourceGroups, mapIdMapping);
+                
+                Object.values(updatedGroups).forEach(group => {
                     const newGroupId = IDUtils.generateUniqueId();
                     
                     // Resolver conflito de nomes
@@ -457,6 +466,31 @@ export class GroupManager {
                 console.error(`Erro ao salvar grupos do mapa ${mapName}:`, error);
             }
         }, 0);
+    }
+
+    /**
+     * Atualizar IDs das features dentro dos grupos após regeneração
+     * @param {Object} groups - Grupos com IDs antigos
+     * @param {Map} idMapping - Mapeamento oldId → newId
+     * @returns {Object} Grupos com IDs atualizados
+     */
+    _updateGroupFeatureIds(groups, idMapping) {
+        const updatedGroups = {};
+        
+        Object.entries(groups).forEach(([groupId, group]) => {
+            updatedGroups[groupId] = {
+                ...group,
+                features: group.features.map(featureRef => {
+                    const newId = idMapping.get(featureRef.id);
+                    return {
+                        type: featureRef.type,
+                        id: newId || featureRef.id  // Fallback para ID original se não mapeado
+                    };
+                })
+            };
+        });
+        
+        return updatedGroups;
     }
 }
 

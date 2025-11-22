@@ -513,7 +513,7 @@ class MapControl {
             <div class="maps-selection" style="max-height: 200px; overflow-y: auto; margin-bottom: 20px;"></div>
             <div style="display: flex; justify-content: flex-end; gap: 10px;">
                 <button class="cancel-btn" style="padding: 8px 16px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; background: white;">Cancelar</button>
-                <button class="confirm-btn" style="padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; background-color: #508D4E; color: white;" disabled>Combinar</button>
+                <button class="confirm-btn" style="padding: 8px 16px; border: none; border-radius: 4px; cursor: not-allowed; background-color: #508D4E; color: white; opacity: 0.5;" disabled>Combinar</button>
             </div>
         `;
 
@@ -555,6 +555,7 @@ class MapControl {
                 }
 
                 confirmBtn.disabled = selectedMaps.size === 0;
+                confirmBtn.style.cursor = selectedMaps.size === 0 ? 'not-allowed' : 'pointer';
                 confirmBtn.style.opacity = selectedMaps.size === 0 ? '0.5' : '1';
             });
 
@@ -576,13 +577,22 @@ class MapControl {
         modalContent.querySelector('.confirm-btn').addEventListener('click', async () => {
             if (selectedMaps.size > 0) {
                 try {
-                    await this.mapManager.combineSelectedMapsIntoTarget(Array.from(selectedMaps), targetMapName);
+                    const result = await this.mapManager.combineSelectedMapsIntoTarget(Array.from(selectedMaps), targetMapName);
                     document.body.removeChild(modal);
-                    this.showToast(`${selectedMaps.size} mapa(s) combinado(s) em "${targetMapName}"`, 'success');
+
+                    // ✅ Feedback detalhado sobre sucesso
+                    const message = result.totalFeatures > 0
+                        ? `${selectedMaps.size} mapa(s) combinado(s): ${result.totalFeatures} feições adicionadas a "${targetMapName}"`
+                        : `Mapas combinados mas nenhuma feição foi encontrada`;
+
+                    this.showToast(message, result.totalFeatures > 0 ? 'success' : 'info');
                     await this.updateMapList();
                 } catch (error) {
                     console.error('Erro ao combinar mapas:', error);
-                    alert('Erro ao combinar mapas.');
+
+                    // ✅ Mensagem de erro mais útil
+                    const errorMsg = error.message || 'Erro desconhecido ao combinar mapas';
+                    this.showToast(`Erro: ${errorMsg}`, 'error');
                 }
             }
         });
