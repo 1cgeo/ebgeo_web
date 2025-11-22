@@ -6,6 +6,14 @@ import AddBoundaryGeometry from './add_boundary_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
 
 class AddBoundaryControl extends BaseControl {
+    // ===== SYMBOL SIZE CONSTANTS =====
+    static SYMBOL_SIZE_CONSTANTS = {
+        MIN_SIZE_KM: 0.05,          // Minimum symbol size (50 meters)
+        DEFAULT_SIZE_KM: 1,         // Fallback size if zoom calculation fails
+        ZOOM_BASE_MULTIPLIER: 0.125, // Base multiplier for zoom-adaptive sizing
+        ZOOM_EXPONENT_BASE: 2       // Exponential base for zoom scaling
+    };
+
     constructor(toolManager) {
         super(toolManager);
 
@@ -37,7 +45,7 @@ class AddBoundaryControl extends BaseControl {
         source: 'boundary',
         type: 'boundary',
         symbol_position_ratio: 0.5,
-        symbol_size: 1,
+        symbol_size: 1, // Will be overridden by zoom-adaptive calculation on creation
         text_size: 35,
         echelon: 'XXX',
         text_top: '',
@@ -48,6 +56,28 @@ class AddBoundaryControl extends BaseControl {
         visivel: true,
         bloqueado: false
     };
+
+    // ===== ZOOM-ADAPTIVE SIZING =====
+
+    /**
+     * Calculate symbol size based on current zoom level
+     * @param {number} zoom - Current map zoom level
+     * @returns {number} Symbol size in kilometers
+     */
+    calculateSymbolSizeForZoom(zoom) {
+        const { ZOOM_BASE_MULTIPLIER, ZOOM_EXPONENT_BASE, DEFAULT_SIZE_KM, MIN_SIZE_KM } = 
+            AddBoundaryControl.SYMBOL_SIZE_CONSTANTS;
+        
+        try {
+            // Exponential decay: higher zoom = smaller symbols
+            // Zoom 5 → ~8km, Zoom 10 → ~0.5km, Zoom 15 → ~0.05km
+            const calculatedSize = Math.pow(ZOOM_EXPONENT_BASE, 16 - zoom) * ZOOM_BASE_MULTIPLIER;
+            return Math.max(MIN_SIZE_KM, calculatedSize);
+        } catch (error) {
+            console.warn('Error calculating zoom-adaptive size, using default:', error);
+            return DEFAULT_SIZE_KM;
+        }
+    }
 
     // ===== SINGLE SOURCE OF TRUTH =====
 
@@ -408,8 +438,13 @@ class AddBoundaryControl extends BaseControl {
             if (previewPoints.length >= 1) {
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
+                    // Calculate zoom-adaptive size for preview
+                    const currentZoom = this.map.getZoom();
+                    const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
+                    
                     const previewProperties = {
                         ...AddBoundaryControl.DEFAULT_PROPERTIES,
+                        symbol_size: previewSize, // Use zoom-adaptive size in preview
                         baseCoordinates: previewPoints
                     };
                     const previewGeometry = this.geometry.generate(previewProperties);
@@ -456,8 +491,14 @@ class AddBoundaryControl extends BaseControl {
 
         const featureId = IDUtils.generateUniqueId();
         const featureName = await IDUtils.generateFeatureName('boundary', this.map);
+        
+        // Calculate zoom-adaptive symbol size
+        const currentZoom = this.map.getZoom();
+        const adaptiveSymbolSize = this.calculateSymbolSizeForZoom(currentZoom);
+        
         const properties = {
             ...AddBoundaryControl.DEFAULT_PROPERTIES,
+            symbol_size: adaptiveSymbolSize, // Override with zoom-adaptive size
             baseCoordinates: [...this.drawPoints],
             id: featureId,
             nome: featureName

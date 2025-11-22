@@ -10,9 +10,25 @@ import BaseGeometry from '../tool_manager/base_geometry.js';
  * - Dependent features (circles, texts)
  */
 class AddBoundaryGeometry extends BaseGeometry {
+    // ===== GEOMETRY CONSTANTS =====
+    static GEOMETRY_CONSTANTS = {
+        MIN_DISTANCE_METERS: 5,
+        MIN_LENGTH_KM: 0.001,           // Minimum line length for processing
+        MIN_SIZE_KM: 0.05,              // Minimum symbol size (matches control)
+        SYMBOL_WIDTH_MULTIPLIER: 1.5,   // Symbol width = numSymbols * size * this
+        GAP_WIDTH_MULTIPLIER: 1.2,      // Gap width = symbolWidth * this
+        SYMBOL_SPACING_MULTIPLIER: 1.5, // Spacing between symbols
+        VERTICAL_OFFSET_DIVISOR: 1.5,   // For I symbol positioning
+        SYMBOL_POSITION_EPSILON: 0.01,  // Small distance for handle placement
+        TEXT_DISTANCE_MIN: 0.1,         // Minimum text distance ratio
+        TEXT_DISTANCE_MAX: 3.0,         // Maximum text distance ratio
+        POSITION_RATIO_MIN: 0.01,       // Minimum position ratio
+        POSITION_RATIO_MAX: 0.99        // Maximum position ratio
+    };
+
     constructor(properties = {}) {
         super(properties);
-        this.MIN_DISTANCE_METERS = 5;
+        this.MIN_DISTANCE_METERS = AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_DISTANCE_METERS;
     }
 
     /**
@@ -196,14 +212,14 @@ class AddBoundaryGeometry extends BaseGeometry {
             const line = turf.lineString(validCoords);
             const totalLength = turf.length(line, { units: 'kilometers' });
 
-            if (totalLength < 0.001) {
+            if (totalLength < AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
                 return [validCoords];
             }
 
             // Dynamic gap based on echelon symbols
             const numSymbols = (echelon && echelon.length > 0) ? echelon.length : 3;
-            const symbolWidth = numSymbols * symbolSize * 1.5;
-            const gapWidth = symbolWidth * 1.2;
+            const symbolWidth = numSymbols * symbolSize * AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_WIDTH_MULTIPLIER;
+            const gapWidth = symbolWidth * AddBoundaryGeometry.GEOMETRY_CONSTANTS.GAP_WIDTH_MULTIPLIER;
             const centerDistance = totalLength * ratio;
 
             const gapStartDistance = Math.max(0, centerDistance - (gapWidth / 2));
@@ -211,7 +227,7 @@ class AddBoundaryGeometry extends BaseGeometry {
 
             const segments = [];
 
-            if (gapStartDistance > 0.001) {
+            if (gapStartDistance > AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
                 const startPoint = turf.point(validCoords[0]);
                 const gapStartPoint = turf.along(line, gapStartDistance, { units: 'kilometers' });
                 const segment1 = turf.lineSlice(startPoint, gapStartPoint, line);
@@ -221,7 +237,7 @@ class AddBoundaryGeometry extends BaseGeometry {
                 }
             }
 
-            if (gapEndDistance < totalLength - 0.001) {
+            if (gapEndDistance < totalLength - AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
                 const gapEndPoint = turf.along(line, gapEndDistance, { units: 'kilometers' });
                 const endPoint = turf.point(validCoords[validCoords.length - 1]);
                 const segment2 = turf.lineSlice(gapEndPoint, endPoint, line);
@@ -263,14 +279,14 @@ class AddBoundaryGeometry extends BaseGeometry {
             const line = turf.lineString(validCoords);
             const totalLength = turf.length(line, { units: 'kilometers' });
 
-            if (totalLength < 0.001) {
+            if (totalLength < AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
                 return [];
             }
 
             const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
 
-            const distance1 = Math.max(0.001, totalLength * ratio - 0.01);
-            const distance2 = Math.min(totalLength - 0.001, totalLength * ratio + 0.01);
+            const distance1 = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio - AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
+            const distance2 = Math.min(totalLength - AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio + AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
 
             const p1 = turf.along(line, distance1, { units: 'kilometers' });
             const p2 = turf.along(line, distance2, { units: 'kilometers' });
@@ -296,7 +312,7 @@ class AddBoundaryGeometry extends BaseGeometry {
         const symbolLines = [];
         const polygons = [];
         const numSymbols = echelon.length;
-        const spacing = size * 1.5;
+        const spacing = size * AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_SPACING_MULTIPLIER;
         const totalWidth = (numSymbols - 1) * spacing;
         const firstSymbolBearing = bearing;
         const firstSymbolCenter = turf.destination(centerPoint, -totalWidth / 2, firstSymbolBearing, { units: 'kilometers' });
@@ -319,8 +335,8 @@ class AddBoundaryGeometry extends BaseGeometry {
                     break;
                 case 'I':
                     const iAngle = bearing - 90;
-                    const p_top = turf.destination(currentCenter, size / 1.5, iAngle, { units: 'kilometers' });
-                    const p_bottom = turf.destination(currentCenter, -size / 1.5, iAngle, { units: 'kilometers' });
+                    const p_top = turf.destination(currentCenter, size / AddBoundaryGeometry.GEOMETRY_CONSTANTS.VERTICAL_OFFSET_DIVISOR, iAngle, { units: 'kilometers' });
+                    const p_bottom = turf.destination(currentCenter, -size / AddBoundaryGeometry.GEOMETRY_CONSTANTS.VERTICAL_OFFSET_DIVISOR, iAngle, { units: 'kilometers' });
                     symbolLines.push([p_top.geometry.coordinates, p_bottom.geometry.coordinates]);
                     break;
                 case 'o':
@@ -533,7 +549,7 @@ class AddBoundaryGeometry extends BaseGeometry {
             const line = turf.lineString(validCoords);
             const totalLength = turf.length(line, { units: 'kilometers' });
 
-            if (totalLength > 0.001) {
+            if (totalLength > AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
                 // Symbol position handle (blue)
                 const symbolPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
                 const symbolHandleId = `boundary-handle-${id}-symbol`;
@@ -558,8 +574,8 @@ class AddBoundaryGeometry extends BaseGeometry {
 
                 // Size handle (green)
                 const size = feature.properties.symbol_size || 2;
-                const distance1 = Math.max(0.001, totalLength * ratio - 0.01);
-                const distance2 = Math.min(totalLength - 0.001, totalLength * ratio + 0.01);
+                const distance1 = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio - AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
+                const distance2 = Math.min(totalLength - AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio + AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
 
                 const p1 = turf.along(line, distance1, { units: 'kilometers' });
                 const p2 = turf.along(line, distance2, { units: 'kilometers' });
@@ -664,7 +680,7 @@ class AddBoundaryGeometry extends BaseGeometry {
                 const totalLength = turf.length(line, { units: 'kilometers' });
                 const centerPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
                 const newSize = turf.distance(centerPoint, turf.point(newPosition), { units: 'kilometers' }) * 2;
-                updatedProperties.symbol_size = Math.max(0.5, newSize);
+                updatedProperties.symbol_size = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_SIZE_KM, newSize);
                 break;
 
             case 'symbol_handle':
@@ -673,7 +689,7 @@ class AddBoundaryGeometry extends BaseGeometry {
                 const pointOnLine = turf.nearestPointOnLine(symbolLine, turf.point(newPosition), { units: 'kilometers' });
                 const distance = pointOnLine.properties.location;
                 const symbolTotalLength = turf.length(symbolLine, { units: 'kilometers' });
-                updatedProperties.symbol_position_ratio = Math.max(0.01, Math.min(0.99, distance / symbolTotalLength));
+                updatedProperties.symbol_position_ratio = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.POSITION_RATIO_MIN, Math.min(AddBoundaryGeometry.GEOMETRY_CONSTANTS.POSITION_RATIO_MAX, distance / symbolTotalLength));
                 break;
 
             case 'text_distance_handle':
@@ -685,7 +701,7 @@ class AddBoundaryGeometry extends BaseGeometry {
                 const newDistance = turf.distance(textCenterPoint, turf.point(newPosition), { units: 'kilometers' });
                 const symbolSize = feature.properties.symbol_size || 2;
                 const newRatio = newDistance / symbolSize;
-                updatedProperties.text_distance_ratio = Math.max(0.1, Math.min(3.0, newRatio));
+                updatedProperties.text_distance_ratio = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.TEXT_DISTANCE_MIN, Math.min(AddBoundaryGeometry.GEOMETRY_CONSTANTS.TEXT_DISTANCE_MAX, newRatio));
                 break;
 
             case 'vertex':
