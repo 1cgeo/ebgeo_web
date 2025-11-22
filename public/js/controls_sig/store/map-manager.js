@@ -215,6 +215,9 @@ class MapManager {
         const targetMap = mapName || this.memoryStore.currentMap;
         const isCurrentMap = targetMap === this.memoryStore.currentMap;
         
+        if (oldColor === 'none') oldColor = null;
+        if (newColor === 'none') newColor = null;
+        
         if (isCurrentMap) {
             // Atualizar cache de memória apenas se for o mapa atual
             if (oldColor) {

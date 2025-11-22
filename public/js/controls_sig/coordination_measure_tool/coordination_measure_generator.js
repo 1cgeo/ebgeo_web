@@ -46,10 +46,8 @@ export class CoordinationMeasureGenerator {
       svg = this.applyCustomColor(svg, properties.fillColor);
     }
     
-    // ✅ Step 1: Extract baseline viewBox (symbol WITHOUT text)
     const baseViewBox = this.extractDimensions(svg);
     
-    // ✅ Step 2: Check if has text modifiers
     const hasText = this.hasExternalText(properties, pointData);
     
     let finalWidth = DEFAULT_SIZE;
@@ -59,14 +57,11 @@ export class CoordinationMeasureGenerator {
       // No text: use baseline directly
       // Keep original viewBox, no modifications needed
     } else {
-      // ✅ Step 3: Calculate what expanded viewBox WOULD BE with text
       const expandedViewBox = this.calculateDynamicViewBox(svg, properties, pointData);
       
-      // ✅ Step 4: Calculate EXACT growth factor for each axis (like military symbol)
       const growthFactorX = expandedViewBox.width / baseViewBox.width;
       const growthFactorY = expandedViewBox.height / baseViewBox.height;
       
-      // ✅ Step 5: Apply growth to canvas dimensions (symbol stays DEFAULT_SIZE visually)
       if (growthFactorX > 1.01) {
         finalWidth = Math.round(DEFAULT_SIZE * growthFactorX);
       }
@@ -75,11 +70,9 @@ export class CoordinationMeasureGenerator {
         finalHeight = Math.round(DEFAULT_SIZE * growthFactorY);
       }
       
-      // ✅ Step 6: Now add text to SVG (this will modify viewBox)
       svg = this.addExternalTexts(svg, properties, pointData);
     }
     
-    // ✅ Step 7: Convert to PNG with calculated dimensions
     // The SVG with expanded viewBox renders in expanded canvas
     // Net result: symbol base stays at DEFAULT_SIZE pixels visually
     const blob = await this.convertToPngBlob(svg, finalWidth, finalHeight);
@@ -174,6 +167,11 @@ export class CoordinationMeasureGenerator {
    * @returns {string} SVG com cor aplicada
    */
   applyCustomColor(svg, color) {
+    // Sem preenchimento
+    if (color === 'none') {
+      return svg.replace(/fill="rgb\(255,\s*255,\s*255\)"/gi, 'fill="none"');
+    }
+    
     // Converter cor hex para rgb
     const rgb = this.hexToRgb(color);
     if (rgb) {
