@@ -25,6 +25,8 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createFeatureHeaderWithOptions,
+    createFeatureOptionsButton,
     createCoordinateEditor,
     createColorPicker,
     createCheckbox,
@@ -36,19 +38,39 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
     const feature = selectedFeatures[0];
 
-    // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
     // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
     if (selectedFeatures.length === 1) {
-        const nameComponent = createEditableFeatureName(
+        const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
             (newName) => {
                 militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
                 uiManager.updateSelectionHighlight();
-            }
+            },
+            selectedFeatures,
+            selectionManager,
+            uiManager
         );
-        $(panel).append(nameComponent);
+        $(panel).append(headerComponent);
+    } else if (selectedFeatures.length > 1) {
+        const multiSelectHeader = document.createElement('div');
+        multiSelectHeader.className = 'feature-header-with-options';
+        
+        const infoText = document.createElement('div');
+        infoText.className = 'feature-name-wrapper';
+        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+        infoText.textContent = `${selectedFeatures.length} símbolos militares selecionados`;
+        
+        const optionsButton = createFeatureOptionsButton(
+            selectedFeatures,
+            selectionManager,
+            uiManager
+        );
+        
+        multiSelectHeader.appendChild(infoText);
+        multiSelectHeader.appendChild(optionsButton);
+        $(panel).append(multiSelectHeader);
     }
 
     // ===== CONFIGURAÇÃO DE SÍMBOLO ESPECÍFICA =====

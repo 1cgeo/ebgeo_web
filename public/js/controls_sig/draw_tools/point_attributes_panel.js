@@ -7,6 +7,8 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createFeatureHeaderWithOptions,
+    createFeatureOptionsButton,
     createCoordinateEditor,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
@@ -21,16 +23,39 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
     // Capture initial properties at panel opening
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
+    // ===== HEADER COM NOME EDITÁVEL + BOTÃO DE OPÇÕES =====
     if (selectedFeatures.length === 1) {
-        const nameComponent = createEditableFeatureName(
+        // Usar novo componente que inclui nome + botão de opções
+        const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
             (newName) => {
                 pointControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
                 uiManager.updateSelectionHighlight();
-            }
+            },
+            selectedFeatures,
+            selectionManager,
+            uiManager
         );
-        $(panel).append(nameComponent);
+        $(panel).append(headerComponent);
+    } else if (selectedFeatures.length > 1) {
+        // Para seleção múltipla: mostrar info + botão de opções
+        const multiSelectHeader = document.createElement('div');
+        multiSelectHeader.className = 'feature-header-with-options';
+        
+        const infoText = document.createElement('div');
+        infoText.className = 'feature-name-wrapper';
+        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+        infoText.textContent = `${selectedFeatures.length} pontos selecionados`;
+        
+        const optionsButton = createFeatureOptionsButton(
+            selectedFeatures,
+            selectionManager,
+            uiManager
+        );
+        
+        multiSelectHeader.appendChild(infoText);
+        multiSelectHeader.appendChild(optionsButton);
+        $(panel).append(multiSelectHeader);
     }
 
     // ===== ATRIBUTOS ESPECÍFICOS DE PONTO =====
@@ -55,16 +80,27 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
 
     // Opacidade
     const opacitySlider = createSliderWithInput(getCommonConfig('opacity',
-        Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 1) * 100), {
-        onChange: (newValue) => {
-            pointControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
+        Math.round((feature.properties.opacity !== undefined ?
+            feature.properties.opacity : 1) * 100),
+        (value) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
         }
-    }));
+    ));
     $(panel).append(createAttributeRow('Opacidade:', opacitySlider));
 
-    // ===== EDITOR DE COORDENADAS (APENAS SELEÇÃO ÚNICA) =====
+    // Ponto de coordenação
+    const coordinationPointCheckbox = createCheckbox(
+        feature.properties.coordinationPoint || false,
+        (e) => {
+            pointControl.updateFeaturesProperty(selectedFeatures, 'coordinationPoint', e.target.checked);
+            uiManager.updateSelectionHighlight();
+        }
+    );
+    $(panel).append(createAttributeRow('Ponto de coordenação:', coordinationPointCheckbox));
+
+    // Editor de coordenadas (apenas para seleção única)
     if (selectedFeatures.length === 1) {
-        const coordEditor = createCoordinateEditor(
+        const coordinateEditor = createCoordinateEditor(
             feature,
             uiManager,
             async (lat, lng) => {
@@ -79,12 +115,9 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
                 await pointControl.updateFeatures([updatedFeature], true, false);
                 
                 uiManager.updateSelectionHighlight();
-                
-                setTimeout(() => uiManager.updatePanels(), 100);
-            },
-            false
+            }
         );
-        $(panel).append(coordEditor);
+        $(panel).append(coordinateEditor);
     }
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====

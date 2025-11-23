@@ -5,6 +5,8 @@ import {
     createCheckbox,
     createStandardButtons,
     createEditableFeatureName,
+    createFeatureHeaderWithOptions,
+    createFeatureOptionsButton,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
@@ -13,19 +15,39 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
 
     const feature = selectedFeatures[0];
     
-    // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
     // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
     if (selectedFeatures.length === 1) {
-        const nameComponent = createEditableFeatureName(
+        const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
             (newName) => {
                 losControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
                 uiManager.updateSelectionHighlight();
-            }
+            },
+            selectedFeatures,
+            selectionManager,
+            uiManager
         );
-        $(panel).append(nameComponent);
+        $(panel).append(headerComponent);
+    } else if (selectedFeatures.length > 1) {
+        const multiSelectHeader = document.createElement('div');
+        multiSelectHeader.className = 'feature-header-with-options';
+        
+        const infoText = document.createElement('div');
+        infoText.className = 'feature-name-wrapper';
+        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+        infoText.textContent = `${selectedFeatures.length} linhas de visada selecionados`;
+        
+        const optionsButton = createFeatureOptionsButton(
+            selectedFeatures,
+            selectionManager,
+            uiManager
+        );
+        
+        multiSelectHeader.appendChild(infoText);
+        multiSelectHeader.appendChild(optionsButton);
+        $(panel).append(multiSelectHeader);
     }
 
     // ===== PROPRIEDADES ESPECÍFICAS DA LOS =====

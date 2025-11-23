@@ -1,5 +1,7 @@
 // Path: js\controls_sig\tool_manager\ui_manager.js
 
+import { cleanupFeatureDropdownListeners } from './attribute_panel_helpers.js';
+
 // No more import dependencies on individual panel functions - tools handle their own panels
 
 class UIManager {
@@ -700,6 +702,8 @@ class UIManager {
                 saveButton.click();
             }
             panel.remove();
+            
+            cleanupFeatureDropdownListeners();
         }
     }
 }

@@ -5,6 +5,8 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createFeatureHeaderWithOptions,
+    createFeatureOptionsButton,
     createCoordinateEditor,
     createColorPicker,
     createCheckbox,
@@ -41,14 +43,35 @@ export function addCoordinationMeasureAttributesToPanel(
 
     // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
     if (selectedFeatures.length === 1) {
-        const nameComponent = createEditableFeatureName(
+        const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
             (newName) => {
                 coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
                 uiManager.updateSelectionHighlight();
-            }
+            },
+            selectedFeatures,
+            selectionManager,
+            uiManager
         );
-        $(panel).append(nameComponent);
+        $(panel).append(headerComponent);
+    } else if (selectedFeatures.length > 1) {
+        const multiSelectHeader = document.createElement('div');
+        multiSelectHeader.className = 'feature-header-with-options';
+        
+        const infoText = document.createElement('div');
+        infoText.className = 'feature-name-wrapper';
+        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+        infoText.textContent = `${selectedFeatures.length} medidas selecionados`;
+        
+        const optionsButton = createFeatureOptionsButton(
+            selectedFeatures,
+            selectionManager,
+            uiManager
+        );
+        
+        multiSelectHeader.appendChild(infoText);
+        multiSelectHeader.appendChild(optionsButton);
+        $(panel).append(multiSelectHeader);
     }
 
     // ===== CONFIGURAÇÃO DE PONTO ESPECÍFICA =====
@@ -149,7 +172,7 @@ export function addCoordinationMeasureAttributesToPanel(
         control: coordinationMeasureControl,
         selectionManager,
         initialPropertiesMap,
-        hasSetDefault: selectedFeatures.length === 1, // ✅ ENABLED
+        hasSetDefault: selectedFeatures.length === 1,
         onSetDefault: () => coordinationMeasureControl.setDefaultProperties(feature.properties)
     });
 
@@ -291,14 +314,14 @@ export function addCoordinationMeasureAttributesToPanel(
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
         `;
 
-        // Modal header - ✅ MODIFICAÇÃO 1 e 2: Título centralizado e sem "tipo atual"
+        // Modal header - Título centralizado e sem "tipo atual"
         const header = document.createElement('div');
         header.style.cssText = 'margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #eee;';
         header.innerHTML = `
             <h2 style="margin: 0; font-size: 24px; color: #333; text-align: center;">Configurar Medida de Coordenação</h2>
         `;
 
-        // Modal content container - ✅ MODIFICAÇÃO 6: Grid com 2 colunas
+        // Modal content container - Grid com 2 colunas
         const modalContent = document.createElement('div');
         modalContent.style.cssText = `
             display: grid;
@@ -319,7 +342,6 @@ export function addCoordinationMeasureAttributesToPanel(
         `;
 
         // ===== COLUNA 2: PREVIEW =====
-        // ✅ MODIFICAÇÃO 5: "Visualização" fora do container
         const previewColumn = document.createElement('div');
         previewColumn.style.cssText = `
             display: flex;
@@ -364,7 +386,6 @@ export function addCoordinationMeasureAttributesToPanel(
         previewImageContainer.appendChild(previewImage);
         previewColumn.appendChild(previewImageContainer);
 
-        // ✅ MODIFICAÇÃO 4: Removido dimensionsInfo completamente
 
         // Update preview function
         let previewDebounceTimer = null;
@@ -417,7 +438,6 @@ export function addCoordinationMeasureAttributesToPanel(
         }
 
         // ===== TIPO DE PONTO (COMBO BOX COM PREVIEW) =====
-        // ✅ MODIFICAÇÃO 7: Usando combo box com thumbnails
         const pointTypeCombo = createDigitalComboBoxWithThumbnails(
             getPointsGroupedOptions(),
             tempProperties.pointCode,
@@ -1249,7 +1269,7 @@ export function addCoordinationMeasureAttributesToPanel(
                     options.push({
                         value: point.code,
                         label: `${point.label} (${category})`,
-                        iconCode: point.code,  // ✅ NOVO: para gerar thumbnail
+                        iconCode: point.code,
                         isEchelon: false
                     });
                 });

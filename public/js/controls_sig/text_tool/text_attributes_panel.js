@@ -6,6 +6,8 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createFeatureHeaderWithOptions,
+    createFeatureOptionsButton,
     createCheckbox,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
@@ -18,14 +20,35 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
     if (selectedFeatures.length === 1) {
-        const nameComponent = createEditableFeatureName(
+        const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
             (newName) => {
                 textControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
                 uiManager.updateSelectionHighlight();
-            }
+            },
+            selectedFeatures,
+            selectionManager,
+            uiManager
         );
-        $(panel).append(nameComponent);
+        $(panel).append(headerComponent);
+    } else if (selectedFeatures.length > 1) {
+        const multiSelectHeader = document.createElement('div');
+        multiSelectHeader.className = 'feature-header-with-options';
+        
+        const infoText = document.createElement('div');
+        infoText.className = 'feature-name-wrapper';
+        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+        infoText.textContent = `${selectedFeatures.length} textos selecionados`;
+        
+        const optionsButton = createFeatureOptionsButton(
+            selectedFeatures,
+            selectionManager,
+            uiManager
+        );
+        
+        multiSelectHeader.appendChild(infoText);
+        multiSelectHeader.appendChild(optionsButton);
+        $(panel).append(multiSelectHeader);
     }
 
     const tabsContainer = document.createElement('div');
@@ -152,7 +175,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     }));
 
-    $(textTabContent).append(createAttributeRow('Rotação:', rotateControl));
+    $(textTabContent).append(createAttributeRow('RotaÃ§Ã£o:', rotateControl));
 
     const justifyLabel = document.createElement('label');
     justifyLabel.textContent = 'Justificativa:';

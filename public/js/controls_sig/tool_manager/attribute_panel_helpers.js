@@ -1209,3 +1209,348 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
     // Focus input
     setTimeout(() => input.focus(), 100);
 }
+// ===== FEATURE HEADER WITH OPTIONS (NOVO) =====
+
+/**
+ * Cria header da feature com nome editável + botão de opções
+ * @param {string} initialName - Nome inicial da feature
+ * @param {Function} onNameChange - Callback quando nome muda
+ * @param {Array} selectedFeatures - Features selecionadas
+ * @param {Object} selectionManager - Instância do SelectionManager
+ * @param {Object} uiManager - Instância do UIManager
+ * @returns {HTMLElement} Container com nome + botão
+ */
+export function createFeatureHeaderWithOptions(
+    initialName,
+    onNameChange,
+    selectedFeatures,
+    selectionManager,
+    uiManager
+) {
+    const container = document.createElement('div');
+    container.className = 'feature-header-with-options';
+
+    // Wrapper para o nome editável
+    const nameWrapper = document.createElement('div');
+    nameWrapper.className = 'feature-name-wrapper';
+    
+    // Nome editável (usa a função existente, sem modificações)
+    const nameComponent = createEditableFeatureName(initialName, onNameChange);
+    nameWrapper.appendChild(nameComponent);
+
+    // Botão de opções (3 pontos)
+    const optionsButton = createFeatureOptionsButton(
+        selectedFeatures,
+        selectionManager,
+        uiManager
+    );
+
+    container.appendChild(nameWrapper);
+    container.appendChild(optionsButton);
+
+    return container;
+}
+
+/**
+ * Cria o botão de opções (3 pontos verticais)
+ */
+export function createFeatureOptionsButton(selectedFeatures, selectionManager, uiManager) {
+    const button = document.createElement('button');
+    button.className = 'feature-options-button';
+    button.title = 'Opções';
+    
+    // SVG com 3 pontos verticais
+    button.innerHTML = `<img src="./images/icon_more_info.svg" alt="Opções" />`;
+
+    // Verificar se deve desabilitar o botão
+    const shouldDisable = shouldDisableOptionsButton(selectedFeatures);
+    button.disabled = shouldDisable;
+
+    if (shouldDisable) {
+        button.title = 'Disponível apenas para seleção de features do mesmo tipo';
+    }
+
+    // Event listener para abrir/fechar dropdown
+    button.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const isOpen = button.dataset.dropdownOpen === 'true';
+        
+        if (isOpen) {
+            closeAllFeatureDropdowns(true);
+        } else {
+            closeAllFeatureDropdowns(false);
+            openFeatureDropdown(button, selectedFeatures, selectionManager, uiManager);
+        }
+    });
+
+    // Inicializar event listeners globais (apenas uma vez)
+    initializeFeatureDropdownListeners();
+
+    return button;
+}
+
+/**
+ * Verifica se o botão de opções deve ser desabilitado
+ * Desabilita se houver mais de uma feature de TIPOS DIFERENTES
+ */
+function shouldDisableOptionsButton(selectedFeatures) {
+    if (selectedFeatures.length <= 1) {
+        return false; // Sempre habilitado para 0 ou 1 feature
+    }
+
+    // Verificar se todas as features têm o mesmo tipo
+    const firstType = selectedFeatures[0].properties.source;
+    const allSameType = selectedFeatures.every(f => 
+        f.properties.source === firstType
+    );
+
+    return !allSameType; // Desabilita se NÃO forem todos do mesmo tipo
+}
+
+/**
+ * Abre o dropdown de opções
+ */
+function openFeatureDropdown(button, selectedFeatures, selectionManager, uiManager) {
+    const dropdown = document.createElement('div');
+    dropdown.className = 'feature-dropdown-content';
+    dropdown.dataset.buttonId = `feature-options-${Date.now()}`;
+
+    // Criar item do menu: "Selecionar todos com mesmo tipo"
+    const selectAllButton = document.createElement('button');
+    selectAllButton.className = 'feature-menu-button';
+    selectAllButton.textContent = 'Selecionar todos com mesmo tipo';
+    
+    selectAllButton.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        await selectAllFeaturesOfSameType(selectedFeatures, selectionManager, uiManager);
+        closeAllFeatureDropdowns(true);
+    });
+
+    dropdown.appendChild(selectAllButton);
+
+    // Anexar ao body
+    document.body.appendChild(dropdown);
+
+    // Posicionar dropdown
+    positionFeatureDropdown(dropdown, button);
+
+    // Marcar botão como ativo
+    button.classList.add('dropdown-active');
+    button.dataset.dropdownOpen = 'true';
+}
+
+/**
+ * Posiciona o dropdown próximo ao botão
+ */
+function positionFeatureDropdown(dropdown, button) {
+    requestAnimationFrame(() => {
+        const rect = button.getBoundingClientRect();
+        const dropdownRect = dropdown.getBoundingClientRect();
+        const dropdownWidth = dropdownRect.width || 220;
+        const dropdownHeight = dropdownRect.height || 100;
+
+        let top = rect.bottom + 4;
+        let left = rect.right - dropdownWidth;
+
+        const viewport = {
+            width: window.innerWidth,
+            height: window.innerHeight
+        };
+
+        const padding = 10;
+
+        // Ajustar horizontalmente
+        if (left < padding) {
+            left = rect.left;
+        }
+        if (left + dropdownWidth > viewport.width - padding) {
+            left = Math.max(padding, viewport.width - dropdownWidth - padding);
+        }
+
+        // Ajustar verticalmente
+        if (top + dropdownHeight > viewport.height - padding) {
+            const topAbove = rect.top - dropdownHeight - 4;
+            if (topAbove >= padding) {
+                top = topAbove;
+            } else {
+                top = Math.max(padding, Math.min(top, viewport.height - dropdownHeight - padding));
+            }
+        }
+
+        dropdown.style.top = `${top}px`;
+        dropdown.style.left = `${left}px`;
+    });
+}
+
+/**
+ * Fecha todos os dropdowns de features
+ */
+function closeAllFeatureDropdowns(animated = false) {
+    const dropdowns = document.querySelectorAll('.feature-dropdown-content');
+
+    if (animated && dropdowns.length > 0) {
+        dropdowns.forEach(dropdown => {
+            if (dropdown.parentElement === document.body) {
+                dropdown.classList.add('closing');
+                setTimeout(() => {
+                    if (dropdown.parentNode) {
+                        dropdown.remove();
+                    }
+                }, 150);
+            }
+        });
+    } else {
+        dropdowns.forEach(dropdown => {
+            if (dropdown.parentElement === document.body) {
+                dropdown.remove();
+            }
+        });
+    }
+
+    // Limpar estado dos botões ativos
+    const activeButtons = document.querySelectorAll('.feature-options-button.dropdown-active');
+    activeButtons.forEach(button => {
+        button.classList.remove('dropdown-active');
+        delete button.dataset.dropdownOpen;
+    });
+}
+
+/**
+ * Seleciona todas as features do mesmo tipo da seleção atual
+ */
+async function selectAllFeaturesOfSameType(selectedFeatures, selectionManager, uiManager) {
+    if (selectedFeatures.length === 0) return;
+
+    // Obter tipo da primeira feature
+    const firstFeature = selectedFeatures[0];
+    const targetType = firstFeature.properties.source;
+
+    // Obter control correspondente ao tipo
+    const control = selectionManager.controls.get(targetType);
+    if (!control) {
+        console.warn(`Control não encontrado para tipo: ${targetType}`);
+        return;
+    }
+
+    // Obter source names do control
+    const sourceNames = control.getSourceNames();
+    if (!sourceNames || sourceNames.length === 0) {
+        console.warn(`Source names não encontrados para tipo: ${targetType}`);
+        return;
+    }
+
+    // Coletar todas as features do tipo
+    const allFeaturesOfType = [];
+    
+    for (const sourceName of sourceNames) {
+        const source = selectionManager.map.getSource(sourceName);
+        if (source) {
+            const data = await source.getData();
+            if (data && data.features) {
+                allFeaturesOfType.push(...data.features);
+            }
+        }
+    }
+
+    if (allFeaturesOfType.length === 0) {
+        console.warn(`Nenhuma feature encontrada para tipo: ${targetType}`);
+        return;
+    }
+
+    // Limpar seleção atual
+    selectionManager.deselectAllFeatures();
+
+    // Selecionar todas as features do tipo
+    for (const feature of allFeaturesOfType) {
+        const featureId = feature.properties.id;
+        if (!selectionManager.isFeatureSelected(targetType, featureId)) {
+            await selectionManager.toggleFeatureSelection(targetType, featureId, feature, false);
+        }
+    }
+
+    // Atualizar UI
+    uiManager.updateSelectionHighlight();
+    uiManager.updatePanels();
+}
+
+/**
+ * Inicializa event listeners globais para dropdowns de features
+ * (executado apenas uma vez)
+ */
+let featureDropdownListenersInitialized = false;
+
+// ✅ FIX MEMORY LEAK: Armazenar referências dos handlers para cleanup
+let dropdownClickHandler = null;
+let dropdownKeydownHandler = null;
+let dropdownScrollHandler = null;
+let dropdownResizeHandler = null;
+
+function initializeFeatureDropdownListeners() {
+    if (featureDropdownListenersInitialized) return;
+
+    // Criar handlers nomeados (antes eram arrow functions anônimas)
+    dropdownClickHandler = (e) => {
+        if (!e.target.closest('.feature-dropdown-content') && 
+            !e.target.closest('.feature-options-button')) {
+            closeAllFeatureDropdowns(false);
+        }
+    };
+
+    dropdownKeydownHandler = (e) => {
+        if (e.key === 'Escape') {
+            closeAllFeatureDropdowns(true);
+        }
+    };
+
+    dropdownScrollHandler = () => {
+        closeAllFeatureDropdowns(false);
+    };
+
+    dropdownResizeHandler = () => {
+        closeAllFeatureDropdowns(false);
+    };
+
+    // Adicionar listeners usando handlers nomeados
+    document.addEventListener('click', dropdownClickHandler);
+    document.addEventListener('keydown', dropdownKeydownHandler);
+    document.addEventListener('scroll', dropdownScrollHandler, true);
+    window.addEventListener('resize', dropdownResizeHandler);
+
+    featureDropdownListenersInitialized = true;
+}
+
+/**
+ * ✅ NOVA FUNÇÃO: Remove event listeners globais (previne memory leaks)
+ * IMPORTANTE: Chame ao destruir o painel de atributos
+ */
+export function cleanupFeatureDropdownListeners() {
+    if (!featureDropdownListenersInitialized) return;
+
+    // Remover todos os listeners
+    if (dropdownClickHandler) {
+        document.removeEventListener('click', dropdownClickHandler);
+    }
+    if (dropdownKeydownHandler) {
+        document.removeEventListener('keydown', dropdownKeydownHandler);
+    }
+    if (dropdownScrollHandler) {
+        document.removeEventListener('scroll', dropdownScrollHandler, true);
+    }
+    if (dropdownResizeHandler) {
+        window.removeEventListener('resize', dropdownResizeHandler);
+    }
+
+    // Fechar dropdowns abertos
+    closeAllFeatureDropdowns(false);
+
+    // Resetar estado
+    dropdownClickHandler = null;
+    dropdownKeydownHandler = null;
+    dropdownScrollHandler = null;
+    dropdownResizeHandler = null;
+    featureDropdownListenersInitialized = false;
+}
