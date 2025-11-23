@@ -47,8 +47,36 @@ class AddArrowControl extends BaseControl {
         bloqueado: false
     };
 
+    // ===== ZOOM-ADAPTIVE WIDTH CONSTANTS =====
+    static WIDTH_SIZE_CONSTANTS = {
+        MIN_WIDTH_M: 50,           // Largura mínima: 50 metros
+        DEFAULT_WIDTH_M: 500,      // Fallback se cálculo falhar
+        ZOOM_BASE_MULTIPLIER: 40, // Multiplicador base
+        ZOOM_EXPONENT_BASE: 2      // Base exponencial
+    };
+
     // ===== SINGLE SOURCE OF TRUTH =====
 
+
+    /**
+     * Calcula largura da seta baseada no zoom atual
+     * @param {number} zoom - Nível de zoom do mapa
+     * @returns {number} Largura em metros
+     */
+    calculateWidthForZoom(zoom) {
+        const { ZOOM_BASE_MULTIPLIER, ZOOM_EXPONENT_BASE, DEFAULT_WIDTH_M, MIN_WIDTH_M } =
+            AddArrowControl.WIDTH_SIZE_CONSTANTS;
+        
+        try {
+            // Decaimento exponencial: zoom alto = setas menores
+            // Zoom 5 → ~8000m, Zoom 10 → ~500m, Zoom 15 → ~50m
+            const calculatedWidth = Math.pow(ZOOM_EXPONENT_BASE, 16 - zoom) * ZOOM_BASE_MULTIPLIER;
+            return Math.max(MIN_WIDTH_M, calculatedWidth);
+        } catch (error) {
+            console.warn('Error calculating zoom-adaptive width, using default:', error);
+            return DEFAULT_WIDTH_M;
+        }
+    }
     /**
      * Get currently selected arrow feature from SelectionManager
      * @returns {Object|null} Selected arrow feature or null
@@ -362,9 +390,16 @@ class AddArrowControl extends BaseControl {
 
             clearTimeout(this.geometryDebounceTimer);
             this.geometryDebounceTimer = setTimeout(() => {
+                // Calcular largura adaptativa para preview
+                const currentZoom = this.map.getZoom();
+                const previewWidth = this.calculateWidthForZoom(currentZoom);
+                
                 const previewGeometry = this.geometry.generate(
                     this.lastPreviewPoints, 
-                    AddArrowControl.DEFAULT_PROPERTIES
+                    {
+                        ...AddArrowControl.DEFAULT_PROPERTIES,
+                        width: previewWidth
+                    }
                 );
 
                 if (previewGeometry) {
@@ -420,16 +455,24 @@ class AddArrowControl extends BaseControl {
         const featureId = IDUtils.generateUniqueId();
         const featureName = await IDUtils.generateFeatureName('arrow', this.map);
 
+        // Calcular largura adaptativa ao zoom
+        const currentZoom = this.map.getZoom();
+        const adaptiveWidth = this.calculateWidthForZoom(currentZoom);
+
         const feature = {
             type: 'Feature',
             id: Date.now().toString(),
             properties: {
                 ...AddArrowControl.DEFAULT_PROPERTIES,
+                width: adaptiveWidth,
                 baseCoordinates: [...this.drawPoints],
                 id: featureId,
                 nome: featureName
             },
-            geometry: this.geometry.generate(this.drawPoints, AddArrowControl.DEFAULT_PROPERTIES)
+            geometry: this.geometry.generate(this.drawPoints, {
+                ...AddArrowControl.DEFAULT_PROPERTIES,
+                width: adaptiveWidth
+            })
         };
 
         try {
