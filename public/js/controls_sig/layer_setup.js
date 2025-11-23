@@ -463,6 +463,11 @@ function setupCoordinationMeasureLayers(features, mapInstance) {
                 'icon-image': ['get', 'id'],
                 'icon-size': ['get', 'calculatedSize'],
                 'icon-rotate': ['get', 'rotation'],
+                'icon-anchor': [
+                    'coalesce',
+                    ['get', 'anchor'],
+                    'center' // fallback para features antigas
+                ],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true
             },

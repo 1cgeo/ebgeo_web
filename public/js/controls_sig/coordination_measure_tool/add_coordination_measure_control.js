@@ -184,7 +184,8 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.size,
       feature.properties.rotation,
       feature.properties.createdAtZoom,
-      this.selectionManager.uiManager
+      this.selectionManager.uiManager,
+      feature.properties.anchor
     );
 
     return { geometry: selectionBox };
@@ -233,7 +234,8 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.size,
       feature.properties.rotation,
       feature.properties.createdAtZoom,
-      this.selectionManager.uiManager
+      this.selectionManager.uiManager,
+      feature.properties.anchor
     );
 
     return {
@@ -262,7 +264,8 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.size,
       feature.properties.rotation,
       feature.properties.createdAtZoom,
-      this.selectionManager.uiManager
+      this.selectionManager.uiManager,
+      feature.properties.anchor
     );
 
     const updatedFeature = {
@@ -368,7 +371,8 @@ class AddCoordinationMeasureControl extends BaseControl {
             currentSourceFeature.properties.size,
             currentSourceFeature.properties.rotation,
             currentSourceFeature.properties.createdAtZoom,
-            this.selectionManager.uiManager
+            this.selectionManager.uiManager,
+            currentSourceFeature.properties.anchor
           );
 
           // Update selection box in source feature
@@ -447,7 +451,8 @@ class AddCoordinationMeasureControl extends BaseControl {
       AddCoordinationMeasureControl.DEFAULT_PROPERTIES.size,
       AddCoordinationMeasureControl.DEFAULT_PROPERTIES.rotation,
       currentZoom,
-      this.selectionManager.uiManager
+      this.selectionManager.uiManager,
+      'center'
     );
 
     const feature = {
@@ -505,7 +510,8 @@ class AddCoordinationMeasureControl extends BaseControl {
         feature.properties.size,
         feature.properties.rotation,
         currentZoom,
-        this.selectionManager.uiManager
+        this.selectionManager.uiManager,
+        result.anchor
       );
 
       // Store image (blob only)
@@ -642,7 +648,8 @@ class AddCoordinationMeasureControl extends BaseControl {
           feature.properties.size,
           feature.properties.rotation,
           feature.properties.createdAtZoom,
-          this.selectionManager.uiManager
+          this.selectionManager.uiManager,
+          result.anchor
         );
         
         feature.properties.selectionBox = newSelectionBox;
@@ -729,7 +736,8 @@ class AddCoordinationMeasureControl extends BaseControl {
           feature.properties.size,
           feature.properties.rotation,
           feature.properties.createdAtZoom,
-          this.selectionManager.uiManager
+          this.selectionManager.uiManager,
+          result.anchor
         );
         
         feature.properties.selectionBox = newSelectionBox;
@@ -951,7 +959,8 @@ class AddCoordinationMeasureControl extends BaseControl {
             sourceFeature.properties.size,
             sourceFeature.properties.rotation,
             sourceFeature.properties.createdAtZoom,
-            this.selectionManager.uiManager
+            this.selectionManager.uiManager,
+            sourceFeature.properties.anchor
           );
 
           sourceFeature.properties.selectionBox = newSelectionBox;
@@ -1020,7 +1029,8 @@ class AddCoordinationMeasureControl extends BaseControl {
           feature.properties.size, // Use original size, not calculatedSize
           feature.properties.rotation,
           feature.properties.createdAtZoom, // CRUCIAL: creation zoom
-          this.selectionManager.uiManager
+          this.selectionManager.uiManager,
+          feature.properties.anchor
         );
     }
 

@@ -60,9 +60,10 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
      * @param {number} rotation - Rotation in degrees
      * @param {number} createdAtZoom - Zoom level when symbol was created
      * @param {Object} uiManager - UI manager for utility functions
+     * @param {string} anchor - Icon anchor position (default: 'center')
      * @returns {Object} GeoJSON Polygon geometry for selection box
      */
-    calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager) {
+    calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager, anchor = 'center') {
         // Apply size scaling with 62.5% correction factor (same as image tool)
         const scaledWidth = width * size * 0.5;
         const scaledHeight = height * size * 0.5;
@@ -84,7 +85,27 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
             createdAtZoom
         );
         
-        return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
+        // Ajustar coordenadas baseado na âncora
+        let adjustedCoordinates = [...coordinates];
+        
+        // Calcular offset em graus baseado na âncora
+        if (anchor && anchor !== 'center') {
+            const heightOffsetDegrees = uiManager.pixelsToDegrees(
+                scaledHeight / 2,
+                centerLat,
+                createdAtZoom
+            );
+            
+            if (anchor.includes('bottom')) {
+                // Âncora embaixo: mover selection box para cima
+                adjustedCoordinates[1] += heightOffsetDegrees;
+            } else if (anchor.includes('top')) {
+                // Âncora em cima: mover selection box para baixo
+                adjustedCoordinates[1] -= heightOffsetDegrees;
+            }
+        }
+        
+        return this.createSelectionBoxFromDegrees(adjustedCoordinates, widthDegrees, heightDegrees);
     }
 
     /**
