@@ -5,6 +5,7 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createCoordinateEditor,
     createColorPicker,
     createCheckbox,
     getCommonConfig
@@ -117,6 +118,32 @@ export function addCoordinationMeasureAttributesToPanel(
     $(panel).append(createAttributeRow('Rotação (°):', rotationControl));
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
+
+    // ===== EDITOR DE COORDENADAS (APENAS SELEÇÃO ÚNICA) =====
+    if (selectedFeatures.length === 1) {
+        const coordEditor = createCoordinateEditor(
+            feature,
+            uiManager,
+            async (lat, lng) => { // ✅ FIX: Make callback async
+                const updatedFeature = {
+                    ...feature,
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [lng, lat]
+                    }
+                };
+                
+                // Update the feature with new coordinates (await to ensure it completes)
+                await coordinationMeasureControl.updateFeatures([updatedFeature], true, false);
+                
+                uiManager.updateSelectionHighlight();
+                
+                setTimeout(() => uiManager.updatePanels(), 100);
+            },
+            false
+        );
+        $(panel).append(coordEditor);
+    }
     const buttons = createStandardButtons({
         selectedFeatures,
         control: coordinationMeasureControl,
@@ -676,7 +703,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
     /**
      * Generate thumbnail for combo box options
-     * ✅ MODIFICAÇÃO 7: Nova função para gerar thumbnails
      */
     async function generatePointThumbnailForCombo(pointCode, defaultEchelonCode) {
         try {
@@ -701,7 +727,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
     /**
      * Create digital combo box with thumbnail previews
-     * ✅ MODIFICAÇÃO 7: Nova função para combo box com thumbnails
      */
     function createDigitalComboBoxWithThumbnails(options, currentValue, onChange, label) {
         const container = document.createElement('div');
@@ -1191,7 +1216,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
     /**
      * Get points grouped options for combo box
-     * ✅ MODIFICAÇÃO 7: Incluindo iconCode para thumbnails
      */
     function getPointsGroupedOptions() {
         const options = [];

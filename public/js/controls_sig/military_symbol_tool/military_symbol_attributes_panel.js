@@ -25,6 +25,7 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createCoordinateEditor,
     createColorPicker,
     createCheckbox,
     getCommonConfig
@@ -118,7 +119,32 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     $(panel).append(createAttributeRow('Rotação (°):', rotationControl));
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
-    // ✅ FIXED: Pass initialPropertiesMap captured at panel opening
+
+    // ===== EDITOR DE COORDENADAS (APENAS SELEÇÃO ÚNICA) =====
+    if (selectedFeatures.length === 1) {
+        const coordEditor = createCoordinateEditor(
+            feature,
+            uiManager,
+            async (lat, lng) => {
+                const updatedFeature = {
+                    ...feature,
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [lng, lat]
+                    }
+                };
+                
+                // Update the feature with new coordinates (await to ensure it completes)
+                await militarySymbolControl.updateFeatures([updatedFeature], true, false);
+                
+                uiManager.updateSelectionHighlight();
+                
+                setTimeout(() => uiManager.updatePanels(), 100);
+            },
+            false
+        );
+        $(panel).append(coordEditor);
+    }
     const buttons = createStandardButtons({
         selectedFeatures,
         control: militarySymbolControl,
@@ -130,8 +156,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
     $(panel).append(buttons);
 
-    // ===== MODAL DO SÍMBOLO (LÓGICA ESPECÍFICA MANTIDA) =====
-    // ⚠️ MANTER: Modal complexo específico do military symbol
+    // ===== MODAL DO SÍMBOLO =====
 
     // Variável global para rastrear dropdowns abertos
     const openDropdowns = [];
@@ -2271,7 +2296,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 // ✅ Montar modal com 3 colunas (controles, preview, galeria)
                 modalContent.appendChild(controlsColumn);
                 modalContent.appendChild(previewColumn);
-                modalContent.appendChild(galleryColumn); // ✅ RESTORED!
+                modalContent.appendChild(galleryColumn);
                 modal.appendChild(modalContent);
                 modal.appendChild(modalButtons);
                 modalOverlay.appendChild(modal);

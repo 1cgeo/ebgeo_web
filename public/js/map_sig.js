@@ -167,6 +167,8 @@ const mouseCoordinatesControl = new MouseCoordinatesControl(
     coordinationMeasureControl,
     militarySymbolControl
 );
+uiManager.setMouseCoordinatesControl(mouseCoordinatesControl);
+
 
 // Context menu e drag rotate customizados
 const contextMenuControl = new ContextMenuControl(mouseCoordinatesControl, toolManager, selectionManager);

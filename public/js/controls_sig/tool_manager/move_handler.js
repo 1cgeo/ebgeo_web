@@ -256,6 +256,8 @@ class MoveHandler {
             this.selectionManager.updateProfile();
             this.syncEditHandlesForMovedFeatures(updatedFeatures);
             this.updateMeasurementsForMovedFeatures(updatedFeatures);
+            
+            this.uiManager.updatePanels();
         }
 
         // Reset state

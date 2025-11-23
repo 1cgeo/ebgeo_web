@@ -43,6 +43,10 @@ class UIManager {
         this.featureSearchControl = featureSearchControl;
     }
 
+    setMouseCoordinatesControl(mouseCoordinatesControl) {
+        this.mouseCoordinatesControl = mouseCoordinatesControl;
+    }
+
     setDragging = (isDragging) => {
         this.isDragging = isDragging;
     }

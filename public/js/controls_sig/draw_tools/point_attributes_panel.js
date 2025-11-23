@@ -7,6 +7,7 @@ import {
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
+    createCoordinateEditor,
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
@@ -60,6 +61,31 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
         }
     }));
     $(panel).append(createAttributeRow('Opacidade:', opacitySlider));
+
+    // ===== EDITOR DE COORDENADAS (APENAS SELEÇÃO ÚNICA) =====
+    if (selectedFeatures.length === 1) {
+        const coordEditor = createCoordinateEditor(
+            feature,
+            uiManager,
+            async (lat, lng) => {
+                const updatedFeature = {
+                    ...feature,
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [lng, lat]
+                    }
+                };
+                
+                await pointControl.updateFeatures([updatedFeature], true, false);
+                
+                uiManager.updateSelectionHighlight();
+                
+                setTimeout(() => uiManager.updatePanels(), 100);
+            },
+            false
+        );
+        $(panel).append(coordEditor);
+    }
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     const buttons = createStandardButtons({
