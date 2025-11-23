@@ -105,19 +105,55 @@ class Add3DModelsViewerControl {
                 data: geojson
             });
 
-            // Adicionar layer de círculos
+            // Criar ícone SVG inline (marcador tipo pin/gota - estilo MapLibre)
+            const markerPinSvg = `<svg width="48" height="64" viewBox="0 0 48 64" xmlns="http://www.w3.org/2000/svg">
+                <ellipse cx="24" cy="60" rx="12" ry="4" fill="#000000" opacity="0.3"/>
+                <path d="M24,2 C13.5,2 5,10.5 5,21 C5,32 24,58 24,58 C24,58 43,32 43,21 C43,10.5 34.5,2 24,2 Z" fill="#508d4e" stroke="#ffffff" stroke-width="2"/>
+                <circle cx="24" cy="21" r="10" fill="#ffffff" opacity="0.9"/>
+                <g transform="translate(24, 21) scale(0.5)">
+                    <path d="M0,-8 L-7,-4 L-7,4 L0,8 L7,4 L7,-4 Z" fill="#508d4e" stroke="#508d4e" stroke-width="1"/>
+                    <path d="M0,-8 L-7,-4 L0,0 Z" fill="#3d6e3b"/>
+                    <path d="M0,-8 L7,-4 L0,0 Z" fill="#6ba85e"/>
+                </g>
+            </svg>`;
+            
+            // Aguardar imagem carregar antes de adicionar layers
+            await new Promise((resolve, reject) => {
+                const img = new Image(48, 64);
+                img.onload = () => {
+                    try {
+                        if (!this.map.hasImage('3d-model-marker')) {
+                            this.map.addImage('3d-model-marker', img, { pixelRatio: 2 });
+                        }
+                        resolve();
+                    } catch (error) {
+                        console.error('Erro ao adicionar imagem ao mapa:', error);
+                        reject(error);
+                    }
+                };
+                img.onerror = (error) => {
+                    console.error('Erro ao carregar SVG:', error);
+                    reject(new Error('Falha ao carregar imagem do marcador'));
+                };
+                // Usar encodeURIComponent ao invés de btoa para melhor compatibilidade
+                img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markerPinSvg);
+            });
+
+            // Adicionar layer de ícones (marcador tipo pin)
             this.map.addLayer({
                 id: this.markersLayer,
-                type: 'circle',
+                type: 'symbol',
                 source: this.markersLayer,
-                paint: {
-                    'circle-radius': 10,
-                    'circle-color': '#508d4e',
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#ffffff'
-                },
                 layout: {
+                    'icon-image': '3d-model-marker',
+                    'icon-size': 1.7,  // Tamanho adequado para o pin
+                    'icon-anchor': 'bottom',  // Pin aponta para baixo
+                    'icon-allow-overlap': true,
+                    'icon-ignore-placement': true,
                     'visibility': 'none'
+                },
+                paint: {
+                    'icon-opacity': 1.0
                 }
             });
 
@@ -128,15 +164,18 @@ class Add3DModelsViewerControl {
                 source: this.markersLayer,
                 layout: {
                     'text-field': ['get', 'name'],
-                    'text-size': 12,
-                    'text-offset': [0, 1.5],
+                    'text-size': 16,  // Fonte maior
+                    'text-offset': [0, 0.3], 
                     'text-anchor': 'top',
+                    'text-allow-overlap': false,
+                    'text-letter-spacing': 0.05,
                     'visibility': 'none'
                 },
                 paint: {
-                    'text-color': '#508d4e',
-                    'text-halo-color': '#ffffff',
-                    'text-halo-width': 2
+                    'text-color': '#ffffff',  // Texto BRANCO
+                    'text-halo-color': '#000000',  // Buffer PRETO
+                    'text-halo-width': 2,
+                    'text-halo-blur': 1
                 }
             });
         } else {

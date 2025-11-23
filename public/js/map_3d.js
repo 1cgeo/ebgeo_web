@@ -675,6 +675,29 @@ async function loadCesiumAndInitWithTileset(tilesetId) {
 }
 
 /**
+ * Registra event listeners dos botões de ferramentas 3D
+ */
+function registerToolEventListeners() {
+    // Usar setTimeout para garantir que DOM esteja pronto
+    setTimeout(() => {
+        const buttons = $('.button-tool-3d');
+        
+        if (buttons.length === 0) {
+            console.warn('⚠️ Botões de ferramentas 3D não encontrados');
+            return;
+        }
+        
+        // Remover listeners antigos para evitar duplicação
+        buttons.off('click');
+        
+        // Registrar listeners das ferramentas
+        buttons.on('click', activeTool);
+        
+        console.log(`✅ ${buttons.length} botões de ferramentas 3D registrados`);
+    }, 100);
+}
+
+/**
  * Abre o viewer 3D com um tileset específico
  * (Função pública chamada pela ferramenta)
  */
@@ -692,6 +715,9 @@ export async function openViewerWithTileset(tilesetId) {
         init3DFeatures();
         resumeRendering();
     }
+
+    // Sempre registrar event listeners ao abrir viewer (mesmo em reaberturas)
+    registerToolEventListeners();
 
     cesiumState.isVisible = true;
 }
