@@ -132,6 +132,9 @@ const config = {
     maxZoom: 17.9,           // Zoom máximo permitido
     maxPitch: 65,            // Inclinação máxima da câmera (0-60 graus)
 
+    // Projeção do mapa
+    globe_projection:false,
+
     // Configurações avançadas de carregamento de tiles
     sourceTileLodParams: [5, 6.0],  // [threshold, factor] para otimização de tiles
 

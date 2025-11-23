@@ -80,6 +80,11 @@ map.on('load', async () => {
     map.boxZoom.disable();
     map.dragRotate.disable();
     await baseLayerControl.switchMap(true);
+    
+    // Aplicar projeção globo se habilitada
+    if (config.map2d.globe_projection) {
+        map.setProjection({ type: 'globe' });
+    }
     hideLoadingScreen();
     // gridControl._initGridLayers();
     // frameControl._initFrameLayers();
