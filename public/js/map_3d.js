@@ -598,3 +598,159 @@ function initCesiumEventHandlers() {
     }
     return null;
 }
+// ===== NOVAS FUNÇÕES PARA VISUALIZADOR DE MODELOS 3D =====
+// Adicionado para suportar ferramenta de visualização de modelos 3D
+// (Single tileset loading ao invés de carregar todos)
+
+let currentTileset = null;
+let currentTilesetId = null;
+
+/**
+ * Carrega um único tileset (ao invés de todos)
+ */
+async function loadSingleTileset(viewer, tilesetId) {
+    // 0. Validar viewer
+    if (!viewer || viewer.isDestroyed()) {
+        throw new Error('Viewer inválido ou destruído');
+    }
+    
+    // 1. Limpar tileset anterior
+    if (currentTileset) {
+        viewer.scene.primitives.remove(currentTileset);
+        if (!currentTileset.isDestroyed()) {
+            currentTileset.destroy();
+        }
+        currentTileset = null;
+        currentTilesetId = null;
+    }
+
+    // 2. Buscar configuração
+    const tilesetConfig = config.tilesets.find(t => t.id === tilesetId);
+    if (!tilesetConfig) {
+        throw new Error(`Tileset ${tilesetId} não encontrado em config.tilesets`);
+    }
+
+    // 3. Criar tileset
+    currentTileset = await createOptimizedTileset(viewer, tilesetConfig);
+    currentTilesetId = tilesetId;
+
+    // 4. Voar para localização
+    viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(
+            tilesetConfig.locate.lon,
+            tilesetConfig.locate.lat,
+            tilesetConfig.locate.height
+        ),
+        duration: 2.0
+    });
+
+    return currentTileset;
+}
+
+/**
+ * Inicializa Cesium com um tileset específico (lazy loading)
+ */
+async function loadCesiumAndInitWithTileset(tilesetId) {
+    if (!cesiumState.viewer) {
+        // Primeira vez - usar função existente para carregar Cesium e criar viewer
+        await loadCesiumAndInit();
+        
+        // Limpar tilesets carregados automaticamente
+        const primitives = cesiumState.viewer.scene.primitives;
+        for (let i = primitives.length - 1; i >= 0; i--) {
+            const primitive = primitives.get(i);
+            if (primitive instanceof Cesium.Cesium3DTileset) {
+                primitives.remove(primitive);
+                if (!primitive.isDestroyed()) {
+                    primitive.destroy();
+                }
+            }
+        }
+    }
+
+    // Carregar tileset específico
+    await loadSingleTileset(cesiumState.viewer, tilesetId);
+    
+    return cesiumState.viewer;
+}
+
+/**
+ * Abre o viewer 3D com um tileset específico
+ * (Função pública chamada pela ferramenta)
+ */
+export async function openViewerWithTileset(tilesetId) {
+    // Verificar se viewer existe E não foi destruído
+    const viewerExists = cesiumState.viewer && !cesiumState.viewer.isDestroyed();
+    
+    if (viewerExists) {
+        // Viewer já existe e é válido - apenas trocar tileset
+        await switchTileset(tilesetId);
+        resumeRendering();
+    } else {
+        // Primeira abertura OU viewer foi destruído - carregar tudo
+        await loadCesiumAndInitWithTileset(tilesetId);
+        init3DFeatures();
+        resumeRendering();
+    }
+
+    cesiumState.isVisible = true;
+}
+
+/**
+ * Fecha o viewer 3D (pausa sem destruir)
+ * (Função pública chamada pela ferramenta)
+ */
+export function closeViewer() {
+    if (cesiumState.viewer && !cesiumState.viewer.isDestroyed() && cesiumState.isVisible) {
+        pauseRendering();
+        cesiumState.isVisible = false;
+    }
+}
+
+/**
+ * Limpa apenas as ferramentas ativas sem destruir o viewer
+ * (Versão leve do cleanup3DFeatures para troca de modelos)
+ */
+function cleanupActiveTools() {
+    // Limpa ferramentas usando módulos carregados
+    try {
+        if (cesiumState.modules.viewshed) {
+            cesiumState.modules.viewshed.clearAllViewField();
+        }
+    } catch (error) {
+        console.warn('Erro na limpeza de ferramentas:', error);
+    }
+
+    // Limpa ferramentas de medição
+    if (window.measure && window.measure._drawLayer) {
+        window.measure._drawLayer.entities.removeAll();
+        if (window.measure.removeDrawLineMeasureGraphics) {
+            window.measure.removeDrawLineMeasureGraphics();
+        }
+        if (window.measure.removeDrawAreaMeasureGraphics) {
+            window.measure.removeDrawAreaMeasureGraphics();
+        }
+    }
+    
+    // Limpa entities (mas não destrói o viewer)
+    if (cesiumState.viewer && !cesiumState.viewer.isDestroyed()) {
+        cesiumState.viewer.entities.removeAll();
+    }
+}
+
+/**
+ * Troca de tileset (já estando com viewer aberto)
+ * (Função pública chamada pela ferramenta ao clicar em outro marcador)
+ */
+export async function switchTileset(newTilesetId) {
+    if (!cesiumState.viewer || cesiumState.viewer.isDestroyed()) return;
+    
+    // Limpar apenas ferramentas ativas (NÃO destruir o viewer!)
+    cleanupActiveTools();
+    
+    // Carregar novo tileset
+    await loadSingleTileset(cesiumState.viewer, newTilesetId);
+    
+    // Reinicializar ferramentas
+    init3DFeatures();
+}

@@ -269,6 +269,11 @@ class KeyboardShortcuts {
 
             case 'escape':
                 e.preventDefault();
+                // Fechar viewer 3D se estiver aberto
+                if ($('#map-3d-container').is(':visible')) {
+                    $('#close-3d-viewer-button').trigger('click');
+                    return true;
+                }
                 this.toolManager.deactivateCurrentTool();
                 this.selectionManager.deselectAllFeatures();
                 return true;

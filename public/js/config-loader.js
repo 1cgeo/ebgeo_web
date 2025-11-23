@@ -15,7 +15,7 @@ export function applyAppConfig() {
     applySubtitleToTopbar();
     
     // Criar botões dos tilesets
-    createTilesetButtons();
+    // createTilesetButtons(); // DESABILITADO: Modelos 3D agora são acessados por ferramenta
 }
 
 /**

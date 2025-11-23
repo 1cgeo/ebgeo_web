@@ -61,21 +61,26 @@
     top: 196px !important;
 }
 
-.street-view-control.controls-column-left {
+
+.models3d-view-control.controls-column-left {
     top: 230px !important;
+}
+
+.street-view-control.controls-column-left {
+    top: 264px !important;
 }
 
 /* Grupo de controles de terreno */
 .terrain-control.controls-column-left {
-    top: 264px !important;
-}
-
-.los-control.controls-column-left {
     top: 298px !important;
 }
 
-.visibility-control.controls-column-left {
+.los-control.controls-column-left {
     top: 332px !important;
+}
+
+.visibility-control.controls-column-left {
+    top: 366px !important;
 }
 
 .terrain-control button:disabled {

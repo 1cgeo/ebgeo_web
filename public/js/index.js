@@ -42,7 +42,8 @@ function setupEventListeners() {
         $('#3d-button').remove();
     } else {
         // Mode switching (otimizado) - apenas se 3D estiver habilitado
-        $(".bar-center-buttons a").off('click').on('click', handleModeSwitch);
+        // DESABILITADO: Agora 3D é ativado por ferramenta, não por botão
+        //         $(".bar-center-buttons a").off('click').on('click', handleModeSwitch);
     }
 }
 

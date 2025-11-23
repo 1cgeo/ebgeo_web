@@ -304,7 +304,7 @@
         </div>
 
         <!-- Navigation Buttons Container -->
-        <div class="nav-buttons-container">
+        <div class="nav-buttons-container" style="display: none;">
             <div class="bar-center-buttons">
                 <a id="sig-button" class="nav-button icon-button active-button" aria-label="Modo SIG">
                     <img src="./images/icon_sig.svg" alt="SIG" width="25" height="25" loading="eager">
@@ -356,12 +356,7 @@
     <div id="map-3d-container" style="display: none;" role="application" aria-label="Mapa 3D">
         <div id="map-3d"></div>
         <div id="map-3d-tool-bar" class="card" role="toolbar">
-            <div id="model-3d-container">
-                <p><b>Modelos 3D</b></p>
-                <hr class="solid">
-                <div id="locate-3d-container">
-                </div>
-            </div>
+            
             <div id="tool-3d-container">
                 <p><b>Ferramentas</b></p>
                 <hr class="solid">
@@ -408,6 +403,12 @@
     </a>
 
     <a id="close-street-view-button" href="#" style="display: none;" aria-label="Fechar street view">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M15 9l-6 6M9 9l6 6" />
+        </svg>
+    </a>
+    <a id="close-3d-viewer-button" href="#" style="display: none;" aria-label="Fechar visualização 3D">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <circle cx="12" cy="12" r="10" />
             <path d="M15 9l-6 6M9 9l6 6" />

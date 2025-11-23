@@ -11,6 +11,7 @@ import UIManager from './controls_sig/tool_manager/ui_manager.js';
 import MoveHandler from './controls_sig/tool_manager/move_handler.js';
 import MapControl from './controls_sig/map_control.js';
 import AddStreetViewControl from './controls_sig/street_view_tool/add_street_view_control.js';
+import Add3DModelsViewerControl from './controls_sig/3d_models_viewer_tool/add_3d_models_viewer_control.js';
 import VectorTileInfoControl from './controls_sig/vector_info_control.js';
 import FeatureSearchControl from './controls_sig/feature_search_control.js';
 import ScreenshotControl from './controls_sig/screenshot_control.js';
@@ -114,6 +115,7 @@ const visibilityControl = new AddVisibilityControl(toolManager);
 
 const importControl = new AddImportControl(toolManager);
 
+const add3DModelsViewerControl = new Add3DModelsViewerControl(toolManager);
 const addStreetViewControl = new AddStreetViewControl();
 
 const circleControl = new AddCircleControl(toolManager);
@@ -205,6 +207,7 @@ const keyboardShortcuts = new KeyboardShortcuts({
     baseLayerControl,
     clipboardManager,
     addStreetViewControl,
+    add3DModelsViewerControl,
     mapControl,
     controls: {
         pointControl,
@@ -251,6 +254,7 @@ map.addControl(screenshotControl, 'top-right');
 map.addControl(vectorTileInfoControl, 'top-right');
 map.addControl(rectangleSelectionControl, 'top-right');
 map.addControl(addStreetViewControl, 'top-right');
+map.addControl(add3DModelsViewerControl, 'top-right');
 map.addControl(terrainControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
@@ -282,6 +286,10 @@ window.addEventListener('unhandledrejection', (event) => {
 window.addEventListener('error', (event) => {
     console.error('Erro JavaScript:', event.error);
 });
+// Exportar ferramentas para acesso global (usado por 3D models viewer)
+window.streetViewControl = addStreetViewControl;
+window.modelsViewerControl = add3DModelsViewerControl;
+
 
 //-----------------------------------------------
 // EXPORTS E CLEANUP
