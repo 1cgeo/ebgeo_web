@@ -84,12 +84,12 @@ const BASE_POINTS = {
       }
     }
   },
-  
+
   "130600": {
     code: "130600",
     name: "Ponto de Coordenação",
     category: "Gerais",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 65,135 70,-70 m -70,0 70,70" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><circle cx="100" cy="100" r="50" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><circle cx="100" cy="100" r="50" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle><path d="M 64.64,64.64 L 135.36,135.36 M 135.36,64.64 L 64.64,135.36" stroke-width="4" stroke="black" fill="none" ></path></svg>`,
     anchor: "center",
     textFields: {} // Símbolo autoexplicativo - texto opcional
   },
@@ -103,36 +103,36 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {
       numero: {
-        position: { x: 50, y: 50 },
+        position: { x: 100, y: 100 },
         anchor: 'middle',
-        fontSize: 14,
+        fontSize: 30,
         fontWeight: 'bold'
       }
     }
   },
-  
+
   "130700": {
     code: "130700",
     name: "Ponto de Decisão (numerado)",
     category: "Movimento e Manobra",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="148" height="143" viewBox="26 21 148 143"><path d="M 99.9998,25.5886 117.061,76.5192 170.77,77.0054 127.604,108.968 143.738,160.2 100,129.024 56.2624,160.2 72.3967,108.968 29.2306,77.0059 82.9403,76.5192 Z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><circle cx="100" cy="100" r="50" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle></svg>`,
     anchor: "center",
     textFields: {
       tipo: {
-        position: { x: 50, y: -10 },
+        position: { x: 100, y: 90 },
         anchor: 'middle',
-        fontSize: 10,
+        fontSize: 20,
         fontWeight: 'bold'
       },
       numero: {
-        position: { x: 50, y: 50 },
+        position: { x: 100, y: 120 },
         anchor: 'middle',
-        fontSize: 14,
+        fontSize: 20,
         fontWeight: 'bold'
       }
     }
   },
-  
+
   "131300": {
     code: "131300",
     name: "Ponto de Interesse (numerado)",
@@ -141,28 +141,28 @@ const BASE_POINTS = {
     anchor: "bottom",
     textFields: {
       numero: {
-        position: { x: 50, y: 30 },
+        position: { x: 100, y: 15 },
         anchor: 'middle',
-        fontSize: 14,
+        fontSize: 20,
         fontWeight: 'bold'
       }
     }
   },
-  
+
   "160100": {
     code: "160100",
     name: "Posto de Observação",
     category: "Movimento e Manobra",
     svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="118" viewBox="46 36 108 118"><path d="m 100,45 47.6,82.5 -95.2,0 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
     anchor: "center",
-    textFields: {
-      tipo: {
-        position: { x: 50, y: -10 },
-        anchor: 'middle',
-        fontSize: 11,
-        fontWeight: 'bold'
-      }
-    }
+    // textFields: {
+    //   tipo: {
+    //     position: { x: 50, y: -10 },
+    //     anchor: 'middle',
+    //     fontSize: 11,
+    //     fontWeight: 'bold'
+    //   }
+    // }
   },
 
   // ===== PASSAGENS (símbolos autoexplicativos - sem texto) =====
@@ -174,7 +174,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "290600": {
     code: "290600",
     name: "Travessia/brecha simples",
@@ -183,7 +183,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "290699": {
     code: "290699",
     name: "Travessia/brecha dupla",
@@ -192,7 +192,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "290800": {
     code: "290800",
     name: "Travessia para carros de combate",
@@ -201,7 +201,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "290899_EXT1": {
     code: "290899_EXT1",
     name: "Local de portada leve",
@@ -210,7 +210,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "290899_EXT2": {
     code: "290899_EXT2",
     name: "Local de portada pesada",
@@ -219,7 +219,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "290700": {
     code: "290700",
     name: "Local de passadeira",
@@ -228,7 +228,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "271400": {
     code: "271400",
     name: "Ponte ou passagem tática",
@@ -237,7 +237,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "271300": {
     code: "271300",
     name: "Local de travessia de assalto",
@@ -278,7 +278,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "271203": {
     code: "271203",
     name: "Destruição preparada",
@@ -287,7 +287,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "271204": {
     code: "271204",
     name: "Destruição realizada",
@@ -306,7 +306,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "281000": {
     code: "281000",
     name: "Abrigo superficial",
@@ -315,7 +315,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "281100": {
     code: "281100",
     name: "Abrigo subterrâneo",
@@ -324,7 +324,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "281200": {
     code: "281200",
     name: "Local fortificado",
@@ -343,7 +343,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "280200": {
     code: "280200",
     name: "Mina antipessoal",
@@ -352,7 +352,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "280300": {
     code: "280300",
     name: "Mina anticarro",
@@ -361,7 +361,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "280700": {
     code: "280700",
     name: "Armadilha",
@@ -370,7 +370,7 @@ const BASE_POINTS = {
     anchor: "bottom",
     textFields: {}
   },
-  
+
   "270701": {
     code: "270701",
     name: "Indicação pontual de campo minado",
@@ -379,7 +379,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "270800": {
     code: "270800",
     name: "Área minada",
@@ -398,7 +398,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "281400": {
     code: "281400",
     name: "Evento biológico",
@@ -407,7 +407,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "281700": {
     code: "281700",
     name: "Evento radiológico",
@@ -416,7 +416,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "281500": {
     code: "281500",
     name: "Evento nuclear",
@@ -452,7 +452,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "210300": {
     code: "210300",
     name: "Meio defendido",
@@ -461,7 +461,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "210500": {
     code: "210500",
     name: "Local de desembarque",
@@ -470,7 +470,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "210600": {
     code: "210600",
     name: "Detonação aérea",
@@ -479,7 +479,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "210700": {
     code: "210700",
     name: "Ponto zero",
@@ -488,7 +488,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "210800": {
     code: "210800",
     name: "Ponto de impacto",
@@ -497,7 +497,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "210900": {
     code: "210900",
     name: "Ponto de impacto previsto",
@@ -506,7 +506,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "211100": {
     code: "211100",
     name: "Ponto de detecção do míssil",
@@ -515,7 +515,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "211200": {
     code: "211200",
     name: "Despistador - Contramedida acústica",
@@ -524,7 +524,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "211300": {
     code: "211300",
     name: "Despistador - Contramedida eletrônica",
@@ -533,7 +533,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "211500": {
     code: "211500",
     name: "Datum",
@@ -542,7 +542,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "211700": {
     code: "211700",
     name: "Submarino submerso reportado",
@@ -551,7 +551,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "211800": {
     code: "211800",
     name: "Santuário",
@@ -560,7 +560,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "211900": {
     code: "211900",
     name: "Centro da Cobertura",
@@ -569,7 +569,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "212000": {
     code: "212000",
     name: "Contato perdido",
@@ -578,7 +578,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "212100": {
     code: "212100",
     name: "Poita",
@@ -587,7 +587,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "212300": {
     code: "212300",
     name: "Fixo acústico",
@@ -596,7 +596,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "212400": {
     code: "212400",
     name: "Fixo eletromagnético",
@@ -605,7 +605,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "212500": {
     code: "212500",
     name: "Detecção de anomalia magnética (MAD)",
@@ -614,7 +614,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "212600": {
     code: "212600",
     name: "Fixo visual",
@@ -623,7 +623,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "212700": {
     code: "212700",
     name: "Formação",
@@ -632,7 +632,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "212800": {
     code: "212800",
     name: "Ancoradouro",
@@ -641,7 +641,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "212900": {
     code: "212900",
     name: "Ponto de entrada no porto",
@@ -650,7 +650,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "213000": {
     code: "213000",
     name: "Posição do DIP",
@@ -659,7 +659,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "213100": {
     code: "213100",
     name: "Busca",
@@ -668,7 +668,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "213200": {
     code: "213200",
     name: "Área de busca",
@@ -677,7 +677,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "213300": {
     code: "213300",
     name: "Centro da busca",
@@ -686,7 +686,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "213400": {
     code: "213400",
     name: "Ponto de referência à navegação",
@@ -695,7 +695,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "213500": {
     code: "213500",
     name: "Sonoboia",
@@ -704,7 +704,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "214100": {
     code: "214100",
     name: "Centro da área vital",
@@ -713,7 +713,7 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {}
   },
-  
+
   "214700": {
     code: "214700",
     name: "Posição estimada",
@@ -727,7 +727,7 @@ const BASE_POINTS = {
 // Função para gerar pontos de escalão
 function generateEchelonPoints() {
   const echelonPoints = {};
-  
+
   // Escalões normais
   Object.entries(ECHELON_CODES).forEach(([code, label]) => {
     const pointCode = `ECHELON_${code}`;
@@ -742,7 +742,7 @@ function generateEchelonPoints() {
       textFields: {} // Escalões não têm texto adicional
     };
   });
-  
+
   // Escalões Força-Tarefa
   Object.entries(ECHELON_CODES).forEach(([code, label]) => {
     const pointCode = `ECHELON_FT_${code}`;
@@ -758,14 +758,14 @@ function generateEchelonPoints() {
       textFields: {} // Escalões FT não têm texto adicional
     };
   });
-  
+
   return echelonPoints;
 }
 
 // Função para gerar pontos de suprimento
 function generateSupplyPoints() {
   const supplyPoints = {};
-  
+
   Object.entries(SUPPLY_CLASSES).forEach(([classCode, className]) => {
     const pointCode = `SUPPLY_${classCode}`;
     supplyPoints[pointCode] = {
@@ -795,7 +795,7 @@ function generateSupplyPoints() {
       }
     };
   });
-  
+
   return supplyPoints;
 }
 
