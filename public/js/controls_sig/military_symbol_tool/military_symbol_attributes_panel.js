@@ -74,7 +74,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     }
 
     // ===== CONFIGURAÇÃO DE SÍMBOLO ESPECÍFICA =====
-    // ⚠️ MANTER: Modal específico do SIDC
     if (selectedFeatures.length === 1) {
 
         // Botão para abrir modal do símbolo
@@ -160,6 +159,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 await militarySymbolControl.updateFeatures([updatedFeature], true, false);
                 
                 uiManager.updateSelectionHighlight();
+                
+                if (coordEditor.updateCoordinates) {
+                    coordEditor.updateCoordinates(lat, lng);
+                }
                 
                 setTimeout(() => uiManager.updatePanels(), 100);
             },
@@ -1148,7 +1151,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         return container;
     }
 
-    // Modal do símbolo - ATUALIZADO com galeria e controle de cor
     function openSymbolModal() {
         const modalOverlay = document.createElement('div');
         modalOverlay.style.cssText = `
@@ -1211,7 +1213,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         previewLabel.textContent = 'Visualização';
         previewLabel.style.cssText = 'margin-bottom: 15px; font-size: 16px; color: #333;';
 
-        // ✅ NEW: Editable SIDC field
         const sidcContainer = document.createElement('div');
         sidcContainer.style.cssText = 'margin-top: 15px;';
 
@@ -1872,7 +1873,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         };
 
 
-        // ✅ NEW: Update preview when comboboxes change
         function updatePreviewFromComboboxes() {
             // Build SIDC from current tempProperties
             const sidc = militarySymbolControl.symbolGenerator.buildSIDC(tempProperties);
@@ -1884,7 +1884,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             updatePreview();
         }
 
-        // ✅ HELPER: Update all combobox visual values
+        // HELPER: Update all combobox visual values
         function updateAllComboboxValues() {
             // Update symbolSet
             if (comboboxes.symbolSet && comboboxes.symbolSet.updateValue) {
@@ -1942,7 +1942,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             }
         }
 
-        // ✅ CORRIGIDO: Atualiza comboboxes quando cola SIDC, recriando se dimensão mudar
         function updateComboboxesFromSIDC(sidc) {
             try {
                 isUpdatingFromSIDC = true;
@@ -1979,7 +1978,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 tempProperties.modifier1Extension = parsed.modifier1Extension || 0;
                 tempProperties.modifier2Extension = parsed.modifier2Extension || 0;
 
-                tempProperties.sidc = normalizedSIDC; // ✅ Always 30 digits
+                tempProperties.sidc = normalizedSIDC; // Always 30 digits
 
                 if (dimensionChanged) {
                     reloadDependentComboboxes(newSymbolSet);
@@ -2103,7 +2102,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             }
         }
 
-        // Função de preview - CORRIGIDA para incluir text modifiers
         async function updatePreview() {
             try {
                 const sidc = tempProperties.sidc;
@@ -2139,7 +2137,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // Initialize SIDC input field
         sidcInput.value = tempProperties.sidc || militarySymbolControl.symbolGenerator.buildSIDC(tempProperties);
 
-        // Botões do modal
         const modalButtons = document.createElement('div');
         modalButtons.style.cssText = 'margin-top: 30px; text-align: center; display: flex; gap: 15px; justify-content: center;';
 
@@ -2159,7 +2156,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
         applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
         applyButton.onclick = async () => {
-            // ✅ BUG FIX #1: Update ALL properties first, then regenerate ONCE
             const propertiesToUpdate = [
                 'standardIdentity', 'symbolSet', 'status', 'hqTfDummy', 'echelon',
                 'mainIcon', 'modifier1', 'modifier2', 'specialModifier', 'isCommand',
@@ -2280,7 +2276,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             }
         }
 
-        // ✅ CORRIGIDO BUG #2: Async initialization with gallery
         async function initializeModal() {
             try {
                 // Callback para click na galeria
@@ -2312,10 +2307,8 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     updatePreview();
                 };
 
-                // ✅ Criar galeria de forma assíncrona
                 const galleryColumn = await createSymbolGallery(onSymbolClick);
 
-                // ✅ Montar modal com 3 colunas (controles, preview, galeria)
                 modalContent.appendChild(controlsColumn);
                 modalContent.appendChild(previewColumn);
                 modalContent.appendChild(galleryColumn);
@@ -2339,7 +2332,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             } catch (error) {
                 console.error('Erro ao inicializar modal:', error);
 
-                // ✅ Fallback: modal sem galeria (graceful degradation)
                 modalContent.appendChild(controlsColumn);
                 modalContent.appendChild(previewColumn);
                 modal.appendChild(modalContent);
@@ -2358,7 +2350,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             }
         }
 
-        // ✅ Inicializar modal de forma assíncrona
         initializeModal();
     }
 }

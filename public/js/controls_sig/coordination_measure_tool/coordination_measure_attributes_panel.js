@@ -161,6 +161,10 @@ export function addCoordinationMeasureAttributesToPanel(
                 
                 uiManager.updateSelectionHighlight();
                 
+                if (coordEditor.updateCoordinates) {
+                    coordEditor.updateCoordinates(lat, lng);
+                }
+                
                 setTimeout(() => uiManager.updatePanels(), 100);
             },
             false

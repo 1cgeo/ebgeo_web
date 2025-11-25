@@ -81,22 +81,13 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
     // Opacidade
     const opacitySlider = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity !== undefined ?
-            feature.properties.opacity : 1) * 100),
-        (value) => {
+            feature.properties.opacity : 1) * 100), {
+        onChange: (value) => {
             pointControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
         }
-    ));
+    }));
     $(panel).append(createAttributeRow('Opacidade:', opacitySlider));
 
-    // Ponto de coordenação
-    const coordinationPointCheckbox = createCheckbox(
-        feature.properties.coordinationPoint || false,
-        (e) => {
-            pointControl.updateFeaturesProperty(selectedFeatures, 'coordinationPoint', e.target.checked);
-            uiManager.updateSelectionHighlight();
-        }
-    );
-    $(panel).append(createAttributeRow('Ponto de coordenação:', coordinationPointCheckbox));
 
     // Editor de coordenadas (apenas para seleção única)
     if (selectedFeatures.length === 1) {
@@ -115,6 +106,10 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
                 await pointControl.updateFeatures([updatedFeature], true, false);
                 
                 uiManager.updateSelectionHighlight();
+                
+                if (coordinateEditor.updateCoordinates) {
+                    coordinateEditor.updateCoordinates(lat, lng);
+                }
             }
         );
         $(panel).append(coordinateEditor);

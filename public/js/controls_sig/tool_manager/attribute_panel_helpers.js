@@ -1031,6 +1031,10 @@ export function createCoordinateEditor(feature, uiManager, onCoordinateChange, d
         });
     };
 
+
+    container.updateCoordinates = (newLat, newLng) => {
+        coordsText.value = formatCoordinates(newLat, newLng, currentFormat);
+    };
     return container;
 }
 
