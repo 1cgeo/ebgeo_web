@@ -20,6 +20,7 @@ class UIManager {
         this.geometryHashes = new Map();
         this.rafId = null;
         this.map.on('zoom', this.handleZoomChange);
+        this.activeChart = null;
     }
 
     handleZoomChange = () => {
@@ -286,6 +287,8 @@ class UIManager {
 
         this.addDeleteButton(panel);
         document.body.appendChild(panel);
+
+        panel.style.display = 'flex'
     }
 
     /**
@@ -477,6 +480,15 @@ class UIManager {
             document.body.appendChild(panel);
         }
 
+        if (this.activeChart) {
+            try {
+                this.activeChart.destroy();
+            } catch (error) {
+                console.warn('Erro ao destruir chart anterior:', error);
+            }
+            this.activeChart = null;
+        }
+
         panel.innerHTML = '';
         const canvas = document.createElement('canvas');
         panel.appendChild(canvas);
@@ -525,7 +537,7 @@ class UIManager {
             });
         }
 
-        new Chart(canvas, {
+        this.activeChart = new Chart(canvas, {
             type: 'line',
             data: {
                 labels: labels,
@@ -552,6 +564,15 @@ class UIManager {
     }
 
     hideProfilePanel() {
+        if (this.activeChart) {
+            try {
+                this.activeChart.destroy();
+            } catch (error) {
+                console.warn('Error destroying chart:', error);
+            }
+            this.activeChart = null;
+        }
+
         const panel = document.querySelector('.profile-panel');
         if (panel) {
             panel.remove();
