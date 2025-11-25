@@ -2,9 +2,9 @@
 import config from '../../config.js';
 
 // Schema versioning
-const SCHEMA_VERSION = '1.3';
+const SCHEMA_VERSION = '1.4';
 const MIN_SCHEMA_VERSION = '1.3';
-const MAX_SCHEMA_VERSION = '1.3';
+const MAX_SCHEMA_VERSION = '1.4';
 
 // LocalForage instances - PRIVADAS, não exportadas
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
@@ -320,6 +320,40 @@ const clearAllAppSettings = async () => {
     await appStore.clear();
 };
 
+// ===== MIGRATION FUNCTIONS =====
+
+/**
+ * Migra um mapa individual para v1.4 (adiciona coordination_measures se não existir)
+ */
+const migrateMapTo14 = async (mapName, mapData) => {
+    if (!mapData.features.coordination_measures) {
+        mapData.features.coordination_measures = [];
+        await mapStore.setItem(mapName, mapData);
+        return true;
+    }
+    return false;
+};
+
+/**
+ * Migra todos os mapas para v1.4
+ */
+const migrateAllMapsTo14 = async () => {
+    const mapNames = await getAllMapNames();
+    let migratedCount = 0;
+    
+    for (const mapName of mapNames) {
+        const mapData = await mapStore.getItem(mapName);
+        if (mapData) {
+            const wasMigrated = await migrateMapTo14(mapName, mapData);
+            if (wasMigrated) migratedCount++;
+        }
+    }
+    
+    if (migratedCount > 0) {
+        console.log(`✅ Migrated ${migratedCount} map(s) to v1.4`);
+    }
+};
+
 // ===== INITIALIZATION =====
 
 const initializeRepository = async () => {
@@ -327,7 +361,12 @@ const initializeRepository = async () => {
         await checkAndCleanLegacyData();
 
         const currentSchemaVersion = await appStore.getItem('schemaVersion');
-        if (!currentSchemaVersion) {
+        
+        // Migração 1.3 → 1.4
+        if (currentSchemaVersion === '1.3') {
+            await migrateAllMapsTo14();
+            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        } else if (!currentSchemaVersion) {
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         }
 

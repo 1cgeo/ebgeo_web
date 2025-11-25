@@ -25,6 +25,17 @@ import config from '../config.js';
 import { showToast, showSuccess } from './utilities/toast_service.js';
 import groupManager from './tool_manager/group_manager.js';
 
+/**
+ * Normaliza estrutura de mapData para a versão atual
+ * Garante que coordination_measures existe (adicionado em v1.4)
+ */
+const normalizeMapDataForCurrentVersion = (mapData) => {
+    if (!mapData.features.coordination_measures) {
+        mapData.features.coordination_measures = [];
+    }
+    return mapData;
+};
+
 export class ExportImportService {
     constructor(baseLayerControl, mapControl, mapManager) {
         this.baseLayerControl = baseLayerControl;
@@ -382,6 +393,9 @@ export class ExportImportService {
                     // Regenerar IDs das features
                     const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
 
+                    // Normalizar estrutura para versão atual
+                    normalizeMapDataForCurrentVersion(newMapData);
+
                     // Buscar dados originais do arquivo para preservar cores e notas
                     const originalColorUsage = data.colorUsage?.[originalMapName] || null;
                     const originalNotes = data.mapNotes?.[originalMapName] || null;
@@ -397,6 +411,9 @@ export class ExportImportService {
 
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
+                    // Normalizar estrutura para versão atual
+                    normalizeMapDataForCurrentVersion(mapData);
+
                     const colorUsageData = data.colorUsage?.[mapName] || null;
                     const notesData = data.mapNotes?.[mapName] || null;
                     await addMap(mapName, mapData, colorUsageData, notesData);
