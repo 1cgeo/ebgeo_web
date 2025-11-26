@@ -13,7 +13,7 @@ import {
   getFeatureGroup,
   updateGroupProperty,
   getCurrentMapNameSync,
-  getStorageTypeFromSource, // Para conversão correta de tipos
+  getStorageTypeFromSource,
 } from "./store/store.js";
 import { FeatureNavigationUtils } from "./utilities/feature_navigation_utils.js";
 import config from "../config.js";
@@ -25,6 +25,11 @@ class FeaturesTab {
     this.container = null;
 
     this.analysisLayersManager = analysisLayersManager;
+
+    this._sourceDataHandler = null;
+    this._groupsChangedHandler = null;
+    this._debounceTimer = null;
+    this._isVisible = false;
 
     this.INLINE_ICONS = {
       EYE_VISIBLE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -441,36 +446,7 @@ class FeaturesTab {
     title.textContent = "Feições";
     title.style.cssText = "font-weight: 500; font-size: 14px;";
 
-    const refreshButton = document.createElement("button");
-    refreshButton.className = "refresh-button";
-    refreshButton.innerHTML = "🔄";
-    refreshButton.title = "Atualizar lista";
-    refreshButton.style.cssText = `
-            background: none;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            padding: 4px 8px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: opacity 0.2s ease;
-        `;
-
-    refreshButton.onclick = async () => {
-      refreshButton.disabled = true;
-      refreshButton.style.opacity = "0.6";
-      refreshButton.style.cursor = "not-allowed";
-
-      await this.loadFeatures();
-
-      setTimeout(() => {
-        refreshButton.disabled = false;
-        refreshButton.style.opacity = "1";
-        refreshButton.style.cursor = "pointer";
-      }, 100);
-    };
-
     header.appendChild(title);
-    header.appendChild(refreshButton);
 
     return header;
   }
@@ -1488,9 +1464,62 @@ class FeaturesTab {
     }
   }
 
+  _setupEventListeners() {
+    this._sourceDataHandler = (e) => this._handleSourceData(e);
+    this.map.on('sourcedata', this._sourceDataHandler);
+
+    this._groupsChangedHandler = () => this._scheduleRefresh();
+    document.addEventListener('groups-changed', this._groupsChangedHandler);
+  }
+
+  _removeEventListeners() {
+    if (this._sourceDataHandler) {
+      this.map.off('sourcedata', this._sourceDataHandler);
+      this._sourceDataHandler = null;
+    }
+    if (this._groupsChangedHandler) {
+      document.removeEventListener('groups-changed', this._groupsChangedHandler);
+      this._groupsChangedHandler = null;
+    }
+  }
+
+  _handleSourceData(e) {
+    if (!this._isVisible) return;
+    if (!this._isRelevantSource(e.sourceId)) return;
+    this._scheduleRefresh();
+  }
+
+  _isRelevantSource(sourceId) {
+    const FEATURE_SOURCES = [
+      'points', 'lines', 'polygons', 'texts', 'images',
+      'circles', 'rectangles', 'ellipses', 'brushes', 'arrows',
+      'boundarys', 'occupied_fronts', 'military_symbols',
+      'coordination_measures', 'los', 'visibility'
+    ];
+    return FEATURE_SOURCES.includes(sourceId);
+  }
+
+  _scheduleRefresh() {
+    if (!this._isVisible) return;
+    clearTimeout(this._debounceTimer);
+    this._debounceTimer = setTimeout(() => {
+      this.loadFeatures();
+    }, 300);
+  }
+
+  destroy() {
+    this._removeEventListeners();
+    clearTimeout(this._debounceTimer);
+  }
+
   async show() {
     if (this.container) {
+      this._isVisible = true;
       this.container.style.display = "block";
+
+      if (!this._sourceDataHandler) {
+        this._setupEventListeners();
+      }
 
       // Carregar estado do hillshade se o control existe
       const hillshadeContainer =
@@ -1508,7 +1537,9 @@ class FeaturesTab {
 
   hide() {
     if (this.container) {
+      this._isVisible = false;
       this.container.style.display = "none";
+      clearTimeout(this._debounceTimer);
     }
   }
 

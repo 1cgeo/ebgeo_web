@@ -57,6 +57,8 @@ export class GroupManager {
         // Persistir em background
         this._saveGroupsToDBAsync(targetMap);
 
+        this._notifyGroupsChanged();
+
         return newGroup;
     }
 
@@ -131,6 +133,8 @@ export class GroupManager {
         // Persistir
         this._saveGroupsToDBAsync(targetMap);
 
+        this._notifyGroupsChanged();
+
         return combinedGroup;
     }
 
@@ -158,6 +162,8 @@ export class GroupManager {
 
         // Persistir
         this._saveGroupsToDBAsync(targetMap);
+
+        this._notifyGroupsChanged();
 
         return features;
     }
@@ -351,10 +357,10 @@ export class GroupManager {
             for (const sourceMapName of sourceMapNames) {
                 const sourceGroups = await getMapGroups(sourceMapName);
                 
-                // ✅ Obter mapeamento de IDs para este mapa (se fornecido)
+                // Obter mapeamento de IDs para este mapa (se fornecido)
                 const mapIdMapping = idMappings[sourceMapName] || new Map();
                 
-                // ✅ Atualizar IDs das features nos grupos
+                // Atualizar IDs das features nos grupos
                 const updatedGroups = this._updateGroupFeatureIds(sourceGroups, mapIdMapping);
                 
                 Object.values(updatedGroups).forEach(group => {
@@ -442,6 +448,10 @@ export class GroupManager {
     }
 
     // ===== MÉTODOS PRIVADOS =====
+
+    _notifyGroupsChanged() {
+        document.dispatchEvent(new CustomEvent('groups-changed'));
+    }
 
     /**
      * Garante que existe cache de grupos para um mapa
