@@ -214,7 +214,7 @@ export function createSliderWithInput(config) {
 /**
  * Creates a color picker that opens enhanced modal on click
  */
-export function createColorPicker(value, onChange, title, scope = 'current', allowNoFill = false) {
+export function createColorPicker(value, onChange, title, scope = 'current') {
     const colorInput = document.createElement('input');
     colorInput.classList.add("picker-color");
     colorInput.type = 'color';
@@ -222,8 +222,7 @@ export function createColorPicker(value, onChange, title, scope = 'current', all
     const realValue = value;
     colorInput.dataset.realValue = realValue || '';
     
-    // Se for "none", usar cor padrão para visual do input
-    colorInput.value = (realValue === 'none') ? '#FFFFFF' : (realValue || '#000000');
+    colorInput.value = realValue || '#000000';
     
     colorInput.title = title || 'Clique para escolher cor';
     colorInput.style.cssText = 'width: 40px; height: 30px; border: none; border-radius: 4px; cursor: pointer;';
@@ -232,7 +231,7 @@ export function createColorPicker(value, onChange, title, scope = 'current', all
     colorInput.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        openColorPickerModal(colorInput, onChange, scope, allowNoFill);
+        openColorPickerModal(colorInput, onChange, scope);
     });
 
     // Manter funcionalidade de change para compatibilidade
@@ -244,7 +243,7 @@ export function createColorPicker(value, onChange, title, scope = 'current', all
 /**
  * Abre modal do color picker avançado
  */
-function openColorPickerModal(triggerElement, onChange, scope, allowNoFill = false) {
+function openColorPickerModal(triggerElement, onChange, scope) {
     // Fechar modal existente se houver
     closeExistingColorModal();
 
@@ -272,12 +271,12 @@ function openColorPickerModal(triggerElement, onChange, scope, allowNoFill = fal
 
     const nativeColorPicker = document.createElement('input');
     nativeColorPicker.type = 'color';
-    nativeColorPicker.value = (realValue === 'none') ? '#FFFFFF' : triggerElement.value;
+    nativeColorPicker.value = triggerElement.value;
     nativeColorPicker.className = 'color-picker-native';
 
     nativePickerContainer.appendChild(nativeColorPicker);
 
-    const paletteContainer = createColorPaletteModal(realValue, onChange, scope, triggerElement, allowNoFill);
+    const paletteContainer = createColorPaletteModal(realValue, onChange, scope, triggerElement);
 
     // Montar conteúdo
     content.appendChild(header);
@@ -288,7 +287,6 @@ function openColorPickerModal(triggerElement, onChange, scope, allowNoFill = fal
     // Event listeners
     nativeColorPicker.oninput = (e) => {
         const color = e.target.value;
-        // CORRIGIDO: Usar referência direta
         triggerElement.value = color;
         triggerElement.dataset.realValue = color;
         updateActivePaletteButton(paletteContainer, color);
@@ -327,9 +325,8 @@ function openColorPickerModal(triggerElement, onChange, scope, allowNoFill = fal
 
 /**
  * Cria palette de cores para o modal
- * CORRIGIDO: Recebe triggerElement como parâmetro
  */
-function createColorPaletteModal(currentValue, onChange, scope, triggerElement, allowNoFill = false) {
+function createColorPaletteModal(currentValue, onChange, scope, triggerElement) {
     const paletteContainer = document.createElement('div');
     paletteContainer.className = 'color-palette-modal-container';
 
@@ -348,7 +345,6 @@ function createColorPaletteModal(currentValue, onChange, scope, triggerElement, 
 
     if (frequentColors.length > 0) {
         frequentColors.forEach(({ color, count }) => {
-            // CORRIGIDO: Passar triggerElement e onChange para button
             const colorButton = createModalColorButton(color, count, currentValue, onChange, triggerElement);
             paletteGrid.appendChild(colorButton);
         });
@@ -360,38 +356,6 @@ function createColorPaletteModal(currentValue, onChange, scope, triggerElement, 
         paletteGrid.appendChild(noColorsMessage);
     }
 
-
-    // Adicionar botão "Sem preenchimento" se allowNoFill for true
-    if (allowNoFill) {
-        const noFillButton = document.createElement('button');
-        noFillButton.className = 'color-button-modal no-fill-button';
-        noFillButton.title = 'Sem preenchimento';
-        noFillButton.textContent = '∅';
-        noFillButton.dataset.color = 'none';
-        noFillButton.style.cssText = 'background: repeating-linear-gradient(45deg, #f0f0f0, #f0f0f0 10px, #e0e0e0 10px, #e0e0e0 20px); color: #999; font-weight: bold; font-size: 18px;';
-        
-        if (currentValue === 'none') {
-            noFillButton.classList.add('active');
-        }
-        
-        noFillButton.onclick = (e) => {
-            e.preventDefault();
-            triggerElement.value = '#000000'; // Valor dummy para o input color
-            triggerElement.dataset.realValue = 'none';
-            
-            const paletteContainer = noFillButton.closest('.color-palette-modal-container');
-            if (paletteContainer) {
-                updateActivePaletteButton(paletteContainer, 'none');
-            }
-            
-            const fakeEvent = { target: { value: 'none' } };
-            onChange(fakeEvent);
-            
-            closeExistingColorModal();
-        };
-        
-        paletteGrid.appendChild(noFillButton);
-    }
     paletteContainer.appendChild(paletteGrid);
     return paletteContainer;
 }

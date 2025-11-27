@@ -253,7 +253,7 @@ export function addCoordinationMeasureAttributesToPanel(
                 updateColorControlState(color);
             },
             'Escolher cor personalizada',
-            'current', true
+            'current'
         );
 
         function updateColorControlState(color) {
@@ -268,8 +268,8 @@ export function addCoordinationMeasureAttributesToPanel(
             colorPicker.style.opacity = isCustomColor ? '1' : '0.5';
             colorPicker.style.cursor = isCustomColor ? 'pointer' : 'not-allowed';
 
-            // Atualizar valor do color picker
-            if (isCustomColor && color !== 'none') {
+            // Atualizar valor do color picker se cor personalizada ativa
+            if (isCustomColor) {
                 colorPicker.value = color;
             }
         }

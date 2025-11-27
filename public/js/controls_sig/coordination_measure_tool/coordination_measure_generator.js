@@ -41,10 +41,11 @@ export class CoordinationMeasureGenerator {
     // Get base SVG from catalog
     let svg = pointData.svg;
     
-    // Apply custom color if specified
-    if (properties.fillColor) {
-      svg = this.applyCustomColor(svg, properties.fillColor);
-    }
+    // Apply color: custom color if specified, otherwise transparent (default)
+    // fillColor === null or undefined → transparent ('none')
+    // fillColor === hex color → apply that color
+    const colorToApply = properties.fillColor || 'none';
+    svg = this.applyCustomColor(svg, colorToApply);
     
     const baseViewBox = this.extractDimensions(svg);
     

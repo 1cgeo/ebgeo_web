@@ -1,6 +1,5 @@
 // Path: js\controls_sig\features_tab.js
 import {
-  getCurrentMapFeatures,
   updateFeatureProperty,
   getFeatureById,
   getMapHillshadeState,
@@ -600,9 +599,10 @@ class FeaturesTab {
     this.showLoadingSpinner();
 
     try {
-      // Garantir pelo menos 500ms de delay para o feedback visual
+      // Obter features diretamente dos sources do mapa
+      // Isso garante que mudanças não salvas (ex: nome editado) sejam refletidas
       const [features] = await Promise.all([
-        getCurrentMapFeatures(),
+        this._getFeaturesFromMapSources(),
         new Promise((resolve) => setTimeout(resolve, 100)),
       ]);
 
@@ -1490,13 +1490,44 @@ class FeaturesTab {
   }
 
   _isRelevantSource(sourceId) {
-    const FEATURE_SOURCES = [
-      'points', 'lines', 'polygons', 'texts', 'images',
-      'circles', 'rectangles', 'ellipses', 'brushes', 'arrows',
-      'boundarys', 'occupied_fronts', 'military_symbols',
-      'coordination_measures', 'los', 'visibility'
-    ];
-    return FEATURE_SOURCES.includes(sourceId);
+    return this.FEATURE_SOURCES.includes(sourceId);
+  }
+
+  /**
+   * Lista de sources de features do mapa
+   */
+  FEATURE_SOURCES = [
+    'points', 'lines', 'polygons', 'texts', 'images',
+    'circles', 'rectangles', 'ellipses', 'brushes', 'arrows',
+    'boundarys', 'occupied_fronts', 'military_symbols',
+    'coordination_measures', 'los', 'visibility'
+  ];
+
+  /**
+   * Obtém features diretamente dos sources do mapa (não do IndexedDB)
+   * Isso garante que mudanças não salvas sejam refletidas no painel
+   */
+  async _getFeaturesFromMapSources() {
+    const features = {};
+    
+    for (const sourceId of this.FEATURE_SOURCES) {
+      features[sourceId] = [];
+      
+      const source = this.map.getSource(sourceId);
+      if (!source) continue;
+      
+      try {
+        const data = await source.getData();
+        if (data && data.features) {
+          features[sourceId] = data.features;
+        }
+      } catch (error) {
+        // Source pode não ter getData() ou estar vazio
+        console.debug(`Não foi possível obter dados do source ${sourceId}:`, error.message);
+      }
+    }
+    
+    return features;
   }
 
   _scheduleRefresh() {
