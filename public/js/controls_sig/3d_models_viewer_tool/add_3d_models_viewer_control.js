@@ -31,6 +31,16 @@ class Add3DModelsViewerControl {
         button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
+
+        // Desabilitar se map_3d está desabilitado OU se não há tilesets configurados
+        const isMap3dEnabled = config.features?.map_3d ?? true;
+        const hasTilesets = config.hasTilesets();
+        
+        if (!isMap3dEnabled || !hasTilesets) {
+            this.container.classList.add('disabled');
+            button.disabled = true;
+        }
+
         this.changeButtonColor();
         return this.container;
     }
@@ -98,14 +108,12 @@ class Add3DModelsViewerControl {
             features: features
         };
 
-        // Adicionar source se não existir
         if (!this.map.getSource(this.markersLayer)) {
             this.map.addSource(this.markersLayer, {
                 type: 'geojson',
                 data: geojson
             });
 
-            // Criar ícone SVG inline (marcador tipo pin/gota - estilo MapLibre)
             const markerPinSvg = `<svg width="48" height="64" viewBox="0 0 48 64" xmlns="http://www.w3.org/2000/svg">
                 <ellipse cx="24" cy="60" rx="12" ry="4" fill="#000000" opacity="0.3"/>
                 <path d="M24,2 C13.5,2 5,10.5 5,21 C5,32 24,58 24,58 C24,58 43,32 43,21 C43,10.5 34.5,2 24,2 Z" fill="#508d4e" stroke="#ffffff" stroke-width="2"/>
@@ -135,11 +143,9 @@ class Add3DModelsViewerControl {
                     console.error('Erro ao carregar SVG:', error);
                     reject(new Error('Falha ao carregar imagem do marcador'));
                 };
-                // Usar encodeURIComponent ao invés de btoa para melhor compatibilidade
                 img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markerPinSvg);
             });
 
-            // Adicionar layer de ícones (marcador tipo pin)
             this.map.addLayer({
                 id: this.markersLayer,
                 type: 'symbol',
@@ -179,7 +185,6 @@ class Add3DModelsViewerControl {
                 }
             });
         } else {
-            // Atualizar dados se já existir
             this.map.getSource(this.markersLayer).setData(geojson);
         }
     }
@@ -219,7 +224,6 @@ class Add3DModelsViewerControl {
             this.setFullMap(false);
             $('#close-3d-viewer-button').show();
 
-            // Importar dinamicamente map_3d (subir 2 níveis: ../.. desde controls_sig/3d_models_viewer_tool/)
             const map3dModule = await import('../../map_3d.js');
             await map3dModule.openViewerWithTileset(tilesetId);
 
@@ -232,7 +236,6 @@ class Add3DModelsViewerControl {
 
     async closeViewer() {
         try {
-            // Importar dinamicamente map_3d (subir 2 níveis: ../.. desde controls_sig/3d_models_viewer_tool/)
             const map3dModule = await import('../../map_3d.js');
             map3dModule.closeViewer();
 

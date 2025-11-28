@@ -104,6 +104,24 @@
     border-color: #e0e0e0 !important;
 }
 
+/* 3D Models Viewer Control Disabled */
+.models3d-view-control.disabled {
+    cursor: not-allowed !important;
+}
+
+.models3d-view-control.disabled button {
+    cursor: not-allowed !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    border-color: #e0e0e0 !important;
+    background-color: #f5f5f5 !important;
+}
+
+.models3d-view-control.disabled button:hover {
+    background-color: #f5f5f5 !important;
+    border-color: #e0e0e0 !important;
+}
+
 /* Vector Info Control Disabled */
 .vector-info-control.disabled {
     cursor: not-allowed !important;
