@@ -14,7 +14,8 @@ import {
     clearAllDataStore,
     getMapDataStore,
     getColorUsage,
-    getMapNotes
+    getMapNotes,
+    setMapOrder
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -329,8 +330,6 @@ class MapManager {
         const mapNames = await getAllMapNamesStore();
         const currentMapName = await getCurrentMapName();
 
-        // Ordenar alfabeticamente
-        mapNames.sort();
 
         const mapData = [];
         for (const mapName of mapNames) {
@@ -343,6 +342,11 @@ class MapManager {
         }
 
         return mapData;
+    }
+
+    // ===== MAP ORDER =====
+    async updateMapOrder(orderedMapNames) {
+        await setMapOrder(orderedMapNames);
     }
     async clearAllData() {
         try {

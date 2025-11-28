@@ -449,6 +449,15 @@ const getGridStyle = async (mapName) => {
     return await appStore.getItem(key);
 };
 
+// ===== MAP ORDER OPERATIONS =====
+const getMapOrder = async () => {
+    return await appStore.getItem('mapOrder') || [];
+};
+
+const setMapOrder = async (orderArray) => {
+    await appStore.setItem('mapOrder', orderArray);
+};
+
 // ===== EXPORTS =====
 
 export {
@@ -509,6 +518,10 @@ export {
     // Grid style operations
     setGridStyle,
     getGridStyle,
+
+    // Map order operations
+    getMapOrder,
+    setMapOrder,
 
     // Group operations (NOVO)
     setMapGroups,

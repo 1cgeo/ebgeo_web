@@ -37,7 +37,6 @@ class MapControl {
         this.selectionManager = selectionManager;
         this.mapManager.selectionManager = selectionManager;
 
-        // Resolver referência circular
         this.mapManager.setMapControl(this);
     }
 
@@ -65,7 +64,6 @@ class MapControl {
         const col = $("<div>", { id: 'header-map-list', class: "header-container-column" });
         const headerContainer = $("<div>", { class: "header-container-row" }).append(col);
 
-        // Adicionar botão de colapso ao header
         const collapseButton = document.createElement('button');
         collapseButton.className = 'collapse-button';
         collapseButton.id = 'collapse-panel-btn';
@@ -79,7 +77,6 @@ class MapControl {
         // Event listener para colapso
         collapseButton.addEventListener('click', () => this.collapsePanel());
 
-        // Inserir botão no header container
         headerContainer[0].appendChild(collapseButton);
 
         // Container para o menu
@@ -87,7 +84,6 @@ class MapControl {
         col.append(titleContainer);
         $(this.container).append(headerContainer);
 
-        // Criar área de conteúdo das abas
         this.contentArea = document.createElement('div');
         this.contentArea.className = 'tab-content-area';
 
@@ -103,7 +99,6 @@ class MapControl {
 
         this.featuresTabContainer = this.featuresTab.createUI();
 
-        // Adicionar conteúdo ao content area
         this.contentArea.appendChild(this.mapList);
         this.contentArea.appendChild(this.pdfExportContainer);
         this.contentArea.appendChild(this.featuresTabContainer);
@@ -112,7 +107,9 @@ class MapControl {
         // Atualizar lista de mapas
         this.updateMapList();
 
-        // Criar botão de reabrir (inicialmente escondido)
+        // Inicializar Sortable para reordenação de mapas
+        this.initSortable();
+
         this.createReopenButton();
 
         return this.container;
@@ -330,6 +327,29 @@ class MapControl {
         document.body.appendChild(this.reopenButton);
     }
 
+    initSortable() {
+        if (typeof Sortable === 'undefined') {
+            console.warn('Sortable.js não carregado');
+            return;
+        }
+
+        this.sortableInstance = Sortable.create(this.mapList, {
+            handle: '.map-drag-handle',
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            chosenClass: 'sortable-chosen',
+            dragClass: 'sortable-drag',
+            onEnd: async (evt) => {
+                // Extrair nova ordem dos data-map-name
+                const newOrder = Array.from(this.mapList.querySelectorAll('li'))
+                    .map(li => li.dataset.mapName)
+                    .filter(Boolean);
+                
+                await this.mapManager.updateMapOrder(newOrder);
+            }
+        });
+    }
+
     updateVisibilityForCurrentTab() {
         this.updateActionsVisibility();
         this.updateBaseLayerControlVisibility();
@@ -454,6 +474,13 @@ class MapControl {
             this.mapManager.toggleDropdown(moreInfo, mapData.name);
         });
 
+        // Drag handle para reordenação
+        const dragHandle = document.createElement('div');
+        dragHandle.className = 'map-drag-handle';
+        dragHandle.innerHTML = '☰';
+        dragHandle.title = 'Arraste para reordenar';
+
+        listItem.appendChild(dragHandle);
         listItem.appendChild(itemContent);
         listItem.appendChild(notesButton);
         listItem.appendChild(moreInfo);

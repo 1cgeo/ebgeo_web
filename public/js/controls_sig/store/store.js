@@ -32,11 +32,13 @@ import {
     getFrameStyle as getFrameStyleRepo,
     setGridStyle as setGridStyleRepo,
     getGridStyle as getGridStyleRepo,
+    getMapOrder as getMapOrderRepo,
+    setMapOrder as setMapOrderRepo,
 } from './repository.js';
 
 import mapManager from './map-manager.js';
 import config from '../../config.js';
-import groupManager from '../tool_manager/group_manager.js'; // NOVO: Instância do GroupManager
+import groupManager from '../tool_manager/group_manager.js'; // NOVO: InstÃ¢ncia do GroupManager
 
 // ===== CENTRALIZED FEATURE TYPE MAPPINGS =====
 
@@ -356,7 +358,39 @@ export const initializeWithLastActiveMap = async () => {
 // ===== MAP MANAGEMENT =====
 
 export const getAllMapNamesStore = async () => {
-    return await getAllMapNames();
+    const allMaps = await getAllMapNames();
+    const savedOrder = await getMapOrderRepo();
+    
+    // Se não há ordem salva, retorna os mapas como estão
+    if (!savedOrder || savedOrder.length === 0) {
+        return allMaps;
+    }
+    
+    // Ordenar: primeiro os que estão na ordem salva, depois os novos
+    const orderedMaps = [];
+    const remainingMaps = new Set(allMaps);
+    
+    for (const mapName of savedOrder) {
+        if (remainingMaps.has(mapName)) {
+            orderedMaps.push(mapName);
+            remainingMaps.delete(mapName);
+        }
+    }
+    
+    // Adicionar mapas novos (não presentes na ordem salva) ao final
+    for (const mapName of remainingMaps) {
+        orderedMaps.push(mapName);
+    }
+    
+    return orderedMaps;
+};
+
+export const getMapOrder = async () => {
+    return await getMapOrderRepo();
+};
+
+export const setMapOrder = async (orderArray) => {
+    await setMapOrderRepo(orderArray);
 };
 
 export const addMap = async (mapName, mapData = null, colorUsageData = null, notesData = null) => {
