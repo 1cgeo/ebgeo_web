@@ -667,6 +667,11 @@ class AddCoordinationMeasureControl extends BaseControl {
       await storeImage(symbolId, result.blob);
       await this.loadSymbolToMap(symbolId, result.blob);
 
+      // ✅ INVALIDATE cache for this feature (anchor/selectionBox changed)
+      if (this.selectionManager.uiManager.invalidateCache) {
+        this.selectionManager.uiManager.invalidateCache(symbolId);
+      }
+
       // ✅ UPDATE selection highlight
       if (this.selectionManager.uiManager.updateSelectionHighlight) {
         requestAnimationFrame(() => {
@@ -759,6 +764,11 @@ class AddCoordinationMeasureControl extends BaseControl {
         this.map.removeImage(symbolId);
       }
       await this.loadSymbolToMap(symbolId, result.blob);
+
+      // ✅ INVALIDATE cache for this feature (anchor/selectionBox changed)
+      if (this.selectionManager.uiManager.invalidateCache) {
+        this.selectionManager.uiManager.invalidateCache(symbolId);
+      }
 
       // ✅ UPDATE selection highlight
       if (this.selectionManager.uiManager.updateSelectionHighlight) {

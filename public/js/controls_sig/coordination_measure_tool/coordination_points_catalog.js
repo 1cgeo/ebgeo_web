@@ -103,9 +103,9 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {
       numero: {
-        position: { x: 100, y: 100 },
+        position: { x: 100, y: 115 },
         anchor: 'middle',
-        fontSize: 30,
+        fontSize: 40,
         fontWeight: 'bold'
       }
     }
@@ -119,15 +119,15 @@ const BASE_POINTS = {
     anchor: "center",
     textFields: {
       tipo: {
-        position: { x: 100, y: 90 },
+        position: { x: 100, y: 95 },
         anchor: 'middle',
-        fontSize: 20,
+        fontSize: 30,
         fontWeight: 'bold'
       },
       numero: {
-        position: { x: 100, y: 120 },
+        position: { x: 100, y: 130 },
         anchor: 'middle',
-        fontSize: 20,
+        fontSize: 30,
         fontWeight: 'bold'
       }
     }
@@ -141,9 +141,9 @@ const BASE_POINTS = {
     anchor: "bottom",
     textFields: {
       numero: {
-        position: { x: 100, y: 15 },
+        position: { x: 100, y: 30 },
         anchor: 'middle',
-        fontSize: 20,
+        fontSize: 40,
         fontWeight: 'bold'
       }
     }
@@ -155,14 +155,6 @@ const BASE_POINTS = {
     category: "Movimento e Manobra",
     svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="118" viewBox="46 36 108 118"><path d="m 100,45 47.6,82.5 -95.2,0 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
     anchor: "center",
-    // textFields: {
-    //   tipo: {
-    //     position: { x: 50, y: -10 },
-    //     anchor: 'middle',
-    //     fontSize: 11,
-    //     fontWeight: 'bold'
-    //   }
-    // }
   },
 
   // ===== PASSAGENS (símbolos autoexplicativos - sem texto) =====
@@ -252,19 +244,19 @@ const BASE_POINTS = {
     code: "240601",
     name: "Concentração de fogos",
     category: "Fogos",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="m 50,100 100,0 m -50,-50 0,100" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><path d="M100 50v38m0 24v38m-50-50h38m24 0h38" stroke-width="2" stroke="#000" fill="none"/><circle cx="100" cy="100" r="5"/></svg>`,
     anchor: "center",
     textFields: {
       numeroConcentracao: {
-        position: { x: 100, y: 40 },
-        anchor: 'middle',
+        position: { x: 110, y: 90 },
+        anchor: 'start',
         fontSize: 12,
-        fontWeight: 'bold'
+        fontWeight: 'normal'
       },
       altitude: {
-        position: { x: 100, y: 165 },
-        anchor: 'middle',
-        fontSize: 10
+        position: { x: 90, y: 115 },
+        anchor: 'end',
+        fontSize: 12
       }
     }
   },
@@ -431,13 +423,13 @@ const BASE_POINTS = {
     code: "180000",
     name: "Ponto de Controle Aéreo",
     category: "Controle Aéreo",
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="128" viewBox="56 36 88 128"><path d="m 140,165 0,-130 m -80,0 0,130" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></path><circle cx="100" cy="100" r="15" stroke-width="4" stroke="black" fill="black" ></circle></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="108" height="108" viewBox="46 46 108 108"><circle cx="100" cy="100" r="50" stroke-width="4" stroke="black" fill="rgb(255,255,255)" ></circle></svg>`,
     anchor: "center",
     textFields: {
       numero: {
-        position: { x: 50, y: 50 },
+        position: { x: 100, y: 115 },
         anchor: 'middle',
-        fontSize: 14,
+        fontSize: 40,
         fontWeight: 'bold'
       }
     }
@@ -778,19 +770,19 @@ function generateSupplyPoints() {
       supplyClass: classCode,
       textFields: {
         identificacao: {
-          position: { x: 70, y: 5 },
-          anchor: 'end',
-          fontSize: 10
+          position: { x: 150, y: -40 },
+          anchor: 'start',
+          fontSize: 20
         },
         gdhIni: {
-          position: { x: 10, y: 5 },
-          anchor: 'start',
-          fontSize: 8
+          position: { x: 50, y: -40 },
+          anchor: 'end',
+          fontSize: 20
         },
         gdhFim: {
-          position: { x: 10, y: 15 },
-          anchor: 'start',
-          fontSize: 8
+          position: { x: 50, y: -10 },
+          anchor: 'end',
+          fontSize: 20
         }
       }
     };

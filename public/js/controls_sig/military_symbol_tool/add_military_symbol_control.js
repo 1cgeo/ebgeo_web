@@ -631,6 +631,11 @@ class AddMilitarySymbolControl extends BaseControl {
       await storeImage(symbolId, result.blob);
       await this.loadSymbolToMap(symbolId, result.blob);
       
+      // ✅ INVALIDATE cache for this feature (dimensions/selectionBox changed)
+      if (this.selectionManager.uiManager.invalidateCache) {
+        this.selectionManager.uiManager.invalidateCache(symbolId);
+      }
+
       // ✅ UPDATE selection highlight
       if (this.selectionManager.uiManager.updateSelectionHighlight) {
         requestAnimationFrame(() => {
@@ -684,6 +689,11 @@ class AddMilitarySymbolControl extends BaseControl {
       }
       await this.loadSymbolToMap(symbolId, result.blob);
       
+      // ✅ INVALIDATE cache for this feature (dimensions/selectionBox changed)
+      if (this.selectionManager.uiManager.invalidateCache) {
+        this.selectionManager.uiManager.invalidateCache(symbolId);
+      }
+
       // ✅ UPDATE selection highlight
       if (this.selectionManager.uiManager.updateSelectionHighlight) {
         requestAnimationFrame(() => {

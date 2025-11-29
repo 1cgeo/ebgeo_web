@@ -68,7 +68,10 @@ class UIManager {
             size: feature.properties.size,
             rotation: feature.properties.rotation,
             width: feature.properties.width,
-            height: feature.properties.height
+            height: feature.properties.height,
+            anchor: feature.properties.anchor,
+            // Include selectionBox hash for pre-calculated boxes (coordination measures, military symbols)
+            selectionBox: feature.properties.selectionBox ? JSON.stringify(feature.properties.selectionBox) : null
         });
 
         let hash = 0;
