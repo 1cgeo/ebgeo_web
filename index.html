@@ -16,17 +16,28 @@
     <!-- CSS principal (processado pelo Vite) -->
     <link rel="stylesheet" href="/src/css/style.css">
 
-    <!-- Estilos críticos para loading screen (antes do CSS externo carregar) -->
     <style>
-        /* Reset mínimo para evitar flash */
-        body, html {
+        body,
+        html {
             margin: 0;
             padding: 0;
             height: 100%;
             width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
 
-        /* Loading screen - precisa estar inline para aparecer imediatamente */
+        #map-sig {
+            position: relative;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            cursor: default;
+            margin-top: 42px;
+        }
+
         .loading-background {
             position: fixed;
             background-color: #508D4E;
@@ -47,6 +58,10 @@
             justify-content: center;
         }
 
+        #map-3d-container {
+            display: none;
+        }
+
         .progress-bar {
             width: 200px;
             height: 4px;
@@ -64,13 +79,182 @@
         }
 
         @keyframes progressLoad {
-            0% { width: 0%; }
-            100% { width: 100%; }
+            0% {
+                width: 0%;
+            }
+
+            100% {
+                width: 100%;
+            }
         }
 
-        /* Esconde elementos até o CSS externo carregar */
         .loading-hidden {
             opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .loading-hidden.loaded {
+            opacity: 1;
+        }
+
+        /* ===== MODAL DE ATALHOS ===== */
+        .shortcuts-modal {
+            display: none;
+            position: fixed;
+            z-index: 1001;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s ease;
+        }
+
+        .shortcuts-modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border: none;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s ease;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .shortcuts-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px;
+            background: #427842;
+            color: white;
+            border-radius: 12px 12px 0 0;
+        }
+
+        .shortcuts-modal-header h3 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .shortcuts-modal-close {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+            padding: 4px 8px;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .shortcuts-modal-close:hover {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.1);
+            transform: scale(1.1);
+        }
+
+        .shortcuts-modal-body {
+            padding: 24px;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .shortcuts-section {
+            margin-bottom: 32px;
+        }
+
+        .shortcuts-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .shortcuts-section h4 {
+            color: #508D4E;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #508D4E;
+        }
+
+        .shortcuts-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 12px 24px;
+            align-items: center;
+        }
+
+        .shortcut-key {
+            background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            font-weight: bold;
+            color: #495057;
+            text-align: center;
+            min-width: 60px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            white-space: nowrap;
+        }
+
+        .shortcut-description {
+            color: #333;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-50px) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @media screen and (max-width: 768px) {
+            .shortcuts-modal-content {
+                width: 95%;
+                margin: 10% auto;
+                max-height: 85vh;
+            }
+
+            .shortcuts-modal-header {
+                padding: 16px 20px;
+            }
+
+            .shortcuts-modal-body {
+                padding: 20px;
+            }
+
+            .shortcuts-grid {
+                gap: 8px 16px;
+            }
+
+            .shortcut-key {
+                min-width: 50px;
+                padding: 4px 8px;
+                font-size: 12px;
+            }
+
+            .shortcut-description {
+                font-size: 13px;
+            }
         }
     </style>
 
