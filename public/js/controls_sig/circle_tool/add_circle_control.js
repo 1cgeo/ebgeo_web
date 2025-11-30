@@ -184,7 +184,8 @@ class AddCircleControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_circle_red.svg' :
             './images/icon_circle_black.svg';
-        $("#circle-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="CIRCLE" />`);
+        const btn = document.getElementById('circle-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="CIRCLE" />`;
     }
     // ===== SELECTION SYSTEM INTEGRATION =====
     onFeatureSelected = (feature) => {

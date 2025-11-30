@@ -234,7 +234,8 @@ class AddBrushControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_brush_red.svg' :
             './images/icon_brush_black.svg';
-        $("#brush-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="BRUSH" />`);
+        const btn = document.getElementById('brush-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="BRUSH" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

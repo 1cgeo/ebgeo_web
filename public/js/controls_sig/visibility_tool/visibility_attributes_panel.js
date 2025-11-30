@@ -35,7 +35,7 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -53,7 +53,7 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
 
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     let observerHeightDebounceTimer = null;
@@ -82,7 +82,7 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         }
     });
 
-    $(panel).append(createAttributeRow('Altura do Observador (m):', observerHeightControl));
+    panel.appendChild(createAttributeRow('Altura do Observador (m):', observerHeightControl));
 
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round(feature.properties.opacity * 100), {
@@ -92,9 +92,10 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         }
     }));
 
-    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
 
-    const buttonContainer = $("<div>", { class: "attr-container-row" });
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'attr-container-row';
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
@@ -115,6 +116,7 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
         selectionManager.deselectAllFeatures();
     };
 
-    buttonContainer.append(saveButton).append(discardButton);
-    $(panel).append(buttonContainer);
+    buttonContainer.appendChild(saveButton);
+    buttonContainer.appendChild(discardButton);
+    panel.appendChild(buttonContainer);
 }

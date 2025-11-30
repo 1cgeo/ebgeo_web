@@ -60,7 +60,8 @@ class Add3DModelsViewerControl {
         this.isActive = true;
         this.changeButtonColor();
 
-        $('#close-3d-viewer-button').on('click', this.closeViewer);
+        const closeBtn = document.getElementById('close-3d-viewer-button');
+        if (closeBtn) closeBtn.addEventListener('click', this.closeViewer);
 
         await this.loadMarkers();
         this.showMarkers();
@@ -70,9 +71,11 @@ class Add3DModelsViewerControl {
         this.isActive = false;
         this.changeButtonColor();
         this.hideMarkers();
-        $('#close-3d-viewer-button').off('click', this.closeViewer);
+        const closeBtn = document.getElementById('close-3d-viewer-button');
+        if (closeBtn) closeBtn.removeEventListener('click', this.closeViewer);
 
-        if ($('#map-3d-container').is(':visible')) {
+        const map3dContainer = document.getElementById('map-3d-container');
+        if (map3dContainer && map3dContainer.style.display !== 'none') {
             this.closeViewer();
         }
     }
@@ -81,7 +84,8 @@ class Add3DModelsViewerControl {
         const iconSrc = this.isActive
             ? './images/icon_3d_red.svg'
             : './images/icon_3d_black.svg';
-        $("#models3d-viewer-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" />`);
+        const btn = document.getElementById('models3d-viewer-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" />`;
     }
 
     async loadMarkers() {
@@ -213,7 +217,8 @@ class Add3DModelsViewerControl {
     async openViewer(tilesetId) {
         try {
             this.setFullMap(false);
-            $('#close-3d-viewer-button').show();
+            const closeBtn = document.getElementById('close-3d-viewer-button');
+            if (closeBtn) closeBtn.style.display = 'flex';
 
             const map3dModule = await import('../../map_3d.js');
             await map3dModule.openViewerWithTileset(tilesetId);
@@ -221,7 +226,8 @@ class Add3DModelsViewerControl {
         } catch (error) {
             console.error('Error opening 3D viewer:', error);
             this.setFullMap(true);
-            $('#close-3d-viewer-button').hide();
+            const closeBtn = document.getElementById('close-3d-viewer-button');
+            if (closeBtn) closeBtn.style.display = 'none';
         }
     }
 
@@ -231,16 +237,21 @@ class Add3DModelsViewerControl {
             map3dModule.closeViewer();
 
             this.setFullMap(true);
-            $('#close-3d-viewer-button').hide();
+            const closeBtn = document.getElementById('close-3d-viewer-button');
+            if (closeBtn) closeBtn.style.display = 'none';
         } catch (error) {
             console.error('Error closing 3D viewer:', error);
         }
     }
 
     setFullMap(full) {
-        $('#top-bar').css({ display: full ? 'flex' : 'none' });
-        $('#map-sig').css({ display: full ? 'block' : 'none' });
-        $('#map-3d-container').css({ display: full ? 'none' : 'block' });
+        const topBar = document.getElementById('top-bar');
+        const mapSig = document.getElementById('map-sig');
+        const map3dContainer = document.getElementById('map-3d-container');
+
+        if (topBar) topBar.style.display = full ? 'flex' : 'none';
+        if (mapSig) mapSig.style.display = full ? 'block' : 'none';
+        if (map3dContainer) map3dContainer.style.display = full ? 'none' : 'block';
     }
 
     showHoverCursor() {

@@ -33,7 +33,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -51,7 +51,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
 
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
@@ -59,14 +59,14 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         uiManager.updateSelectionHighlight();
     }, 'Cor da linha da elipse');
 
-    $(panel).append(createAttributeRow('Linha:', lineColorInput));
+    panel.appendChild(createAttributeRow('Linha:', lineColorInput));
 
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         ellipseControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
     }, 'Cor do preenchimento da elipse');
 
-    $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
+    panel.appendChild(createAttributeRow('Preenchimento:', fillColorInput));
 
     const opacityControl = createSliderWithInput(getCommonConfig('complete_opacity',
         Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100), {
@@ -76,7 +76,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         }
     }));
 
-    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
 
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 2, {
@@ -86,7 +86,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         }
     }));
 
-    $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
+    panel.appendChild(createAttributeRow('Largura (px):', lineWidthControl));
 
     const lineStyleSelect = createLineStyleSelect(
         feature.properties.lineStyle || 'solid',
@@ -94,7 +94,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
             ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
         }
     );
-    $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
+    panel.appendChild(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
     const hatchContainer = document.createElement('div');
     hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
@@ -114,9 +114,9 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         openHatchConfigModal(feature, selectedFeatures, ellipseControl);
     };
 
-    $(hatchContainer).append(hatchCheckbox);
-    $(hatchContainer).append(hatchConfigButton);
-    $(panel).append(createAttributeRow('Hachura:', hatchContainer));
+    hatchContainer.appendChild(hatchCheckbox);
+    hatchContainer.appendChild(hatchConfigButton);
+    panel.appendChild(createAttributeRow('Hachura:', hatchContainer));
 
     const buttons = createStandardButtons({
         selectedFeatures,
@@ -127,5 +127,5 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         onSetDefault: () => ellipseControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

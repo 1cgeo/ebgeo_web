@@ -211,7 +211,8 @@ class AddPointControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_point_red.svg' :
             './images/icon_point_black.svg';
-        $("#point-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="POINT" />`);
+        const btn = document.getElementById('point-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="POINT" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

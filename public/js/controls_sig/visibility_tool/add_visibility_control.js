@@ -250,11 +250,13 @@ class AddVisibilityControl extends BaseControl {
 
     updateButtonAppearance = () => {
         const terrainEnabled = this.geometry.isTerrainAvailable(this.map);
+        const btn = document.getElementById('visibility-tool');
+        if (!btn) return;
 
         if (!terrainEnabled) {
             this.container.classList.add('disabled');
             this.container.querySelector('button').disabled = true;
-            $("#visibility-tool").html('<img class="icon-sig-tool" src="./images/icon_visibility_disabled.svg" alt="VISIBILITY DISABLED" />');
+            btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_visibility_disabled.svg" alt="VISIBILITY DISABLED" />';
         } else {
             this.container.classList.remove('disabled');
             this.container.querySelector('button').disabled = false;
@@ -262,7 +264,7 @@ class AddVisibilityControl extends BaseControl {
             const iconSrc = this.isActive ?
                 './images/icon_visibility_red.svg' :
                 './images/icon_visibility_black.svg';
-            $("#visibility-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="VISIBILITY" />`);
+            btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="VISIBILITY" />`;
         }
     }
 

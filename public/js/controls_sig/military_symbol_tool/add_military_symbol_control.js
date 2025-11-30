@@ -316,9 +316,8 @@ class AddMilitarySymbolControl extends BaseControl {
     const iconSrc = this.isActive
       ? "./images/icon_military_red.svg"
       : "./images/icon_military_black.svg";
-    $("#military-symbol-tool").html(
-      `<img class="icon-military-tool" src="${iconSrc}" alt="MILITARY" />`
-    );
+    const btn = document.getElementById('military-symbol-tool');
+    if (btn) btn.innerHTML = `<img class="icon-military-tool" src="${iconSrc}" alt="MILITARY" />`;
   };
 
   // ===== SELECTION SYSTEM INTEGRATION =====

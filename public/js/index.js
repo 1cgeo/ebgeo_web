@@ -5,14 +5,15 @@ import { } from './map_sig.js';
 import { cleanup3DFeatures } from './map_3d.js';
 
 // ===== INITIALIZATION =====
-$(document).ready(() => {
+document.addEventListener('DOMContentLoaded', () => {
     if (window.performance?.mark) {
         window.performance.mark('app-init');
     }
 
     const map3dEnabled = config.features?.map_3d ?? true;
     if (!map3dEnabled) {
-        $('#3d-button').remove();
+        const btn3d = document.getElementById('3d-button');
+        if (btn3d) btn3d.remove();
     }
 });
 
@@ -23,9 +24,12 @@ $(document).ready(() => {
  * Shows elements marked with 'loading-hidden' class and initializes Feather icons
  */
 export function hideLoadingScreen() {
-    $('.loading-background').fadeOut(500, function () {
-        $(this).remove();
-    });
+    const loadingBg = document.querySelector('.loading-background');
+    if (loadingBg) {
+        loadingBg.style.transition = 'opacity 0.5s';
+        loadingBg.style.opacity = '0';
+        setTimeout(() => loadingBg.remove(), 500);
+    }
 
     document.querySelectorAll('.loading-hidden').forEach(function (el) {
         el.classList.add('loaded');
@@ -46,7 +50,8 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ===== STREET VIEW SETUP =====
-$('#mini-map-street-view').css({ display: 'none' });
+const miniMapStreetView = document.getElementById('mini-map-street-view');
+if (miniMapStreetView) miniMapStreetView.style.display = 'none';
 
 // ===== DEBUG HELPERS =====
 if (typeof process === 'undefined' || process.env?.NODE_ENV !== 'production') {

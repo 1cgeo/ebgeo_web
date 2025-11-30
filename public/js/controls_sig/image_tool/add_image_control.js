@@ -262,9 +262,8 @@ class AddImageControl extends BaseControl {
     const iconSrc = this.isActive
       ? "./images/icon_photo_red.svg"
       : "./images/icon_photo_black.svg";
-    $("#photo-tool").html(
-      `<img class="icon-sig-tool" src="${iconSrc}" alt="PHOTO" />`
-    );
+    const btn = document.getElementById('photo-tool');
+    if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="PHOTO" />`;
   };
 
   // ===== SELECTION SYSTEM INTEGRATION =====

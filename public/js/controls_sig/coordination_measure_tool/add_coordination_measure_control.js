@@ -291,9 +291,8 @@ class AddCoordinationMeasureControl extends BaseControl {
     const iconSrc = this.isActive
       ? "./images/icon_coordination_red.svg"
       : "./images/icon_coordination_black.svg";
-    $("#coordination-measure-tool").html(
-      `<img class="icon-coordination-tool" src="${iconSrc}" alt="COORD" />`
-    );
+    const btn = document.getElementById('coordination-measure-tool');
+    if (btn) btn.innerHTML = `<img class="icon-coordination-tool" src="${iconSrc}" alt="COORD" />`;
   };
 
   // ===== SELECTION SYSTEM INTEGRATION =====

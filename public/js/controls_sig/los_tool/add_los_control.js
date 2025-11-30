@@ -258,11 +258,13 @@ class AddLOSControl extends BaseControl {
 
     updateButtonAppearance = () => {
         const terrainEnabled = this.geometry.isTerrainAvailable(this.map);
+        const btn = document.getElementById('los-tool');
+        if (!btn) return;
 
         if (!terrainEnabled) {
             this.container.classList.add('disabled');
             this.container.querySelector('button').disabled = true;
-            $("#los-tool").html('<img class="icon-sig-tool" src="./images/icon_los_disabled.svg" alt="LOS DISABLED" />');
+            btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_los_disabled.svg" alt="LOS DISABLED" />';
         } else {
             this.container.classList.remove('disabled');
             this.container.querySelector('button').disabled = false;
@@ -270,7 +272,7 @@ class AddLOSControl extends BaseControl {
             const iconSrc = this.isActive ?
                 './images/icon_los_red.svg' :
                 './images/icon_los_black.svg';
-            $("#los-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="LOS" />`);
+            btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="LOS" />`;
         }
     }
 

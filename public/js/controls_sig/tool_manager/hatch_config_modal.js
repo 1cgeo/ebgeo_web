@@ -40,7 +40,7 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
         }
     );
     const typeRow = createAttributeRow('Tipo:', typeSelect);
-    $(content).append(typeRow);
+    content.appendChild(typeRow);
 
     const colorInput = createColorPicker(
         feature.properties.hatchColor || '#000000',
@@ -49,7 +49,7 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
         }
     );
     const colorRow = createAttributeRow('Cor:', colorInput);
-    $(content).append(colorRow);
+    content.appendChild(colorRow);
 
     const spacingSlider = createSliderWithInput({
         min: 4,
@@ -61,7 +61,7 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
         }
     });
     const spacingRow = createAttributeRow('Espaçamento:', spacingSlider);
-    $(content).append(spacingRow);
+    content.appendChild(spacingRow);
 
     const widthSlider = createSliderWithInput({
         min: 1,
@@ -73,7 +73,7 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
         }
     });
     const widthRow = createAttributeRow('Espessura:', widthSlider);
-    $(content).append(widthRow);
+    content.appendChild(widthRow);
 
     const closeButton = document.createElement('button');
     closeButton.textContent = 'Fechar';

@@ -32,7 +32,7 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -50,7 +50,7 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
@@ -58,14 +58,14 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         uiManager.updateSelectionHighlight();
     }, 'Cor da linha do retângulo');
 
-    $(panel).append(createAttributeRow('Linha:', lineColorInput));
+    panel.appendChild(createAttributeRow('Linha:', lineColorInput));
 
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         rectangleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
     }, 'Cor do preenchimento do retângulo');
 
-    $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
+    panel.appendChild(createAttributeRow('Preenchimento:', fillColorInput));
 
     const opacityControl = createSliderWithInput({
         min: 0,
@@ -78,7 +78,7 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         }
     });
 
-    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
 
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 2, {
@@ -88,7 +88,7 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         }
     }));
 
-    $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
+    panel.appendChild(createAttributeRow('Largura (px):', lineWidthControl));
 
     // Estilo da linha
     const lineStyleSelect = createLineStyleSelect(
@@ -97,7 +97,7 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
             rectangleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
         }
     );
-    $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
+    panel.appendChild(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
     // Hachura
     const hatchContainer = document.createElement('div');
@@ -118,9 +118,9 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         openHatchConfigModal(feature, selectedFeatures, rectangleControl);
     };
 
-    $(hatchContainer).append(hatchCheckbox);
-    $(hatchContainer).append(hatchConfigButton);
-    $(panel).append(createAttributeRow('Hachura:', hatchContainer));
+    hatchContainer.appendChild(hatchCheckbox);
+    hatchContainer.appendChild(hatchConfigButton);
+    panel.appendChild(createAttributeRow('Hachura:', hatchContainer));
 
     const borderRadiusControl = createSliderWithInput({
         min: 0,
@@ -141,7 +141,7 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         }
     });
 
-    $(panel).append(createAttributeRow('Arredondamento:', borderRadiusControl));
+    panel.appendChild(createAttributeRow('Arredondamento:', borderRadiusControl));
 
     const widthValue = document.createElement('span');
     widthValue.textContent = `${Math.round(feature.properties.width || 100)} m`;
@@ -155,7 +155,7 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     dimensionsContainer.appendChild(widthValue);
     dimensionsContainer.appendChild(heightValue);
 
-    $(panel).append(createAttributeRow('Dimensões:', dimensionsContainer));
+    panel.appendChild(createAttributeRow('Dimensões:', dimensionsContainer));
 
     const buttons = createStandardButtons({
         selectedFeatures,
@@ -166,5 +166,5 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         onSetDefault: () => rectangleControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

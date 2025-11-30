@@ -262,7 +262,8 @@ class AddArrowControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_arrow_red.svg' :
             './images/icon_arrow_black.svg';
-        $("#arrow-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="ARROW" />`);
+        const btn = document.getElementById('arrow-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="ARROW" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

@@ -41,7 +41,7 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -59,13 +59,13 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
 
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         pointControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
     });
-    $(panel).append(createAttributeRow('Cor:', colorInput));
+    panel.appendChild(createAttributeRow('Cor:', colorInput));
 
     const sizeSlider = createSliderWithInput({
         min: 6,
@@ -76,7 +76,7 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
             pointControl.updateFeaturesProperty(selectedFeatures, 'size', newValue);
         }
     });
-    $(panel).append(createAttributeRow('Tamanho:', sizeSlider));
+    panel.appendChild(createAttributeRow('Tamanho:', sizeSlider));
 
     const opacitySlider = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity !== undefined ?
@@ -85,7 +85,7 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
             pointControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
         }
     }));
-    $(panel).append(createAttributeRow('Opacidade:', opacitySlider));
+    panel.appendChild(createAttributeRow('Opacidade:', opacitySlider));
 
     if (selectedFeatures.length === 1) {
         const coordinateEditor = createCoordinateEditor(
@@ -109,7 +109,7 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
                 }
             }
         );
-        $(panel).append(coordinateEditor);
+        panel.appendChild(coordinateEditor);
     }
 
     const buttons = createStandardButtons({
@@ -121,5 +121,5 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
         onSetDefault: () => pointControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

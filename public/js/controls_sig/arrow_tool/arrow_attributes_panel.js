@@ -30,7 +30,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -48,7 +48,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const widthInput = createNumericInput({
@@ -63,21 +63,21 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         }
     });
 
-    $(panel).append(createAttributeRow('Largura:', widthInput));
+    panel.appendChild(createAttributeRow('Largura:', widthInput));
 
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
     }, 'Cor de preenchimento da seta');
 
-    $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
+    panel.appendChild(createAttributeRow('Preenchimento:', fillColorInput));
 
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
         uiManager.updateSelectionHighlight();
     }, 'Cor da borda da seta');
 
-    $(panel).append(createAttributeRow('Borda:', lineColorInput));
+    panel.appendChild(createAttributeRow('Borda:', lineColorInput));
 
     const setDefaultIfMissing = (value, defaultValue) => {
         return (value !== null && value !== undefined) ? value : defaultValue;
@@ -94,7 +94,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         }
     });
 
-    $(panel).append(createAttributeRow('Opacidade do preenchimento:', fillOpacityControl));
+    panel.appendChild(createAttributeRow('Opacidade do preenchimento:', fillOpacityControl));
 
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 3, {
@@ -104,21 +104,21 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         }
     }));
 
-    $(panel).append(createAttributeRow('Largura da borda (px):', lineWidthControl));
+    panel.appendChild(createAttributeRow('Largura da borda (px):', lineWidthControl));
 
     const airmobileCheckbox = createCheckbox(feature.properties.airmobile || false, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'airmobile', e.target.checked);
         uiManager.updateSelectionHighlight();
     });
 
-    $(panel).append(createAttributeRow('Aeromóvel / Aeroterrestre:', airmobileCheckbox));
+    panel.appendChild(createAttributeRow('Aeromóvel / Aeroterrestre:', airmobileCheckbox));
 
     const showArrowHeadCheckbox = createCheckbox(feature.properties.showArrowHead !== false, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', e.target.checked);
         uiManager.updateSelectionHighlight();
     });
 
-    $(panel).append(createAttributeRow('Seta:', showArrowHeadCheckbox));
+    panel.appendChild(createAttributeRow('Seta:', showArrowHeadCheckbox));
 
     const buttons = createStandardButtons({
         selectedFeatures,
@@ -129,5 +129,5 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         onSetDefault: () => arrowControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }
