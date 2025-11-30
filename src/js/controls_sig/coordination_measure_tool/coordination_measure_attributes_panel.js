@@ -1256,5 +1256,3 @@ export function addCoordinationMeasureAttributesToPanel(
         return pointCode;
     }
 }
-
-export default addCoordinationMeasureAttributesToPanel;

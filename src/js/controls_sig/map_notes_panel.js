@@ -558,5 +558,3 @@ class MapNotesEditPanel {
         this.isVisible = false;
     }
 }
-
-export default MapNotesManager;

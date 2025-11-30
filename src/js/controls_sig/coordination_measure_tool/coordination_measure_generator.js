@@ -576,5 +576,3 @@ export class CoordinationMeasureGenerator {
     };
   }
 }
-
-export default CoordinationMeasureGenerator;

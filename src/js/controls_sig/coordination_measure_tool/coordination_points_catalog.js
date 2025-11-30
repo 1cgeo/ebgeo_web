@@ -851,5 +851,3 @@ export const COORDINATION_POINTS_CATALOG = {
   ...generateEchelonPoints(),
   ...generateSupplyPoints()
 };
-
-export default COORDINATION_POINTS_CATALOG;
