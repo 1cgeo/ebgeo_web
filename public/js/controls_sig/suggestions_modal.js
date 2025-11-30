@@ -1,19 +1,18 @@
 // Path: js/controls_sig/suggestions_modal.js
 
 /**
- * EBGeo suggestions/support modal manager
- * Responsible for opening/closing the modal and managing interactions
+ * Manages the suggestions/support modal for EBGeo application
  */
 class SuggestionsModal {
     constructor() {
         this.modal = null;
         this.modalInitialized = false;
-        
+
         this.handleModalKeyDown = this.handleModalKeyDown.bind(this);
     }
 
     /**
-     * Initializes the suggestions modal
+     * Initializes the suggestions modal and sets up event listeners
      */
     init() {
         if (this.modalInitialized) {
@@ -70,7 +69,7 @@ class SuggestionsModal {
     }
 
     /**
-     * Sets up copy email buttons
+     * Sets up copy-to-clipboard functionality for email buttons
      */
     setupCopyButtons() {
         const copyButtons = this.modal.querySelectorAll('.copy-email-btn');
@@ -85,12 +84,14 @@ class SuggestionsModal {
     }
 
     /**
-     * Copies text to clipboard and shows feedback
+     * Copies text to clipboard and shows visual feedback
+     * @param {string} text - Text to copy
+     * @param {HTMLElement} button - Button that triggered the action
      */
     async copyToClipboard(text, button) {
         try {
             await navigator.clipboard.writeText(text);
-            
+
             const originalText = button.innerHTML;
             button.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -99,12 +100,12 @@ class SuggestionsModal {
                 <span>Copiado!</span>
             `;
             button.classList.add('copied');
-            
+
             setTimeout(() => {
                 button.innerHTML = originalText;
                 button.classList.remove('copied');
             }, 2000);
-            
+
         } catch (err) {
             console.error('Error copying:', err);
             this.copyToClipboardFallback(text, button);
@@ -112,7 +113,9 @@ class SuggestionsModal {
     }
 
     /**
-     * Fallback for copying in browsers that don't support clipboard API
+     * Fallback method for copying to clipboard in older browsers
+     * @param {string} text - Text to copy
+     * @param {HTMLElement} button - Button that triggered the action
      */
     copyToClipboardFallback(text, button) {
         const textArea = document.createElement('textarea');
@@ -121,10 +124,10 @@ class SuggestionsModal {
         textArea.style.left = '-999999px';
         document.body.appendChild(textArea);
         textArea.select();
-        
+
         try {
             document.execCommand('copy');
-            
+
             const originalText = button.innerHTML;
             button.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -133,7 +136,7 @@ class SuggestionsModal {
                 <span>Copiado!</span>
             `;
             button.classList.add('copied');
-            
+
             setTimeout(() => {
                 button.innerHTML = originalText;
                 button.classList.remove('copied');
@@ -146,7 +149,8 @@ class SuggestionsModal {
     }
 
     /**
-     * Handler for ESC key
+     * Handles ESC key to close modal
+     * @param {KeyboardEvent} e - Keyboard event
      */
     handleModalKeyDown(e) {
         if (e.key === 'Escape' && this.modal && this.modal.style.display === 'block') {
@@ -182,13 +186,13 @@ class SuggestionsModal {
     }
 
     /**
-     * Cleanup - removes event listeners and closes modal
+     * Cleans up event listeners and closes modal
      */
     destroy() {
         if (this.modalInitialized) {
             document.removeEventListener('keydown', this.handleModalKeyDown);
         }
-        
+
         this.hide();
     }
 }

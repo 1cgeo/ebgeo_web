@@ -1,4 +1,4 @@
-// Path: js\controls_sig\frameLayersConfig.js
+// Path: js/controls_sig/frameLayersConfig.js
 export const FRAME_LAYERS = {
   scale_25k: [
     'moldura_fill_25k',
@@ -22,7 +22,10 @@ export const FRAME_LAYERS = {
   ],
 };
 
-// Função para adicionar todas as camadas e fontes ao mapa
+/**
+ * Initializes all frame layers and sources on the map
+ * @param {Object} map - MapLibre map instance
+ */
 export function initFrameLayers(map) {
 
     if (!map.getSource('moldura_25k')){

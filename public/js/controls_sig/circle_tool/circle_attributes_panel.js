@@ -1,4 +1,4 @@
-// Path: js\controls_sig\circle_tool\circle_attributes_panel.js
+// Path: js/controls_sig/circle_tool/circle_attributes_panel.js
 
 import {
     createSliderWithInput,
@@ -19,10 +19,10 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    
+
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
+    // ===== EDITABLE FEATURE NAME (SINGLE SELECTION ONLY) =====
     if (selectedFeatures.length === 1) {
         const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
@@ -55,37 +55,27 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         $(panel).append(multiSelectHeader);
     }
 
-    // ===== PROPRIEDADES ESPECÍFICAS DO CÍRCULO =====
-
-    // Line color
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
         circleControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
         uiManager.updateSelectionHighlight();
     }, 'Cor da linha do círculo');
 
     $(panel).append(createAttributeRow('Linha:', lineColorInput));
-
-    // Fill color
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         circleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
     }, 'Cor do preenchimento do círculo');
 
     $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
-
-    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('complete_opacity',
         Math.round((feature.properties.opacity || 0.7) * 100), {
         onChange: (value) => {
-            // Convert from 0-100 range to 0-1 range for internal storage
             circleControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
             uiManager.updateSelectionHighlight();
         }
     }));
 
     $(panel).append(createAttributeRow('Opacidade:', opacityControl));
-
-    // Line width (pixels)
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 2, {
         onChange: (value) => {
@@ -95,8 +85,6 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
     }));
 
     $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
-
-    // Estilo da linha
     const lineStyleSelect = createLineStyleSelect(
         feature.properties.lineStyle || 'solid',
         (newValue) => {
@@ -104,8 +92,6 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         }
     );
     $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
-
-    // Hachura
     const hatchContainer = document.createElement('div');
     hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
 
@@ -127,8 +113,6 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
     $(hatchContainer).append(hatchCheckbox);
     $(hatchContainer).append(hatchConfigButton);
     $(panel).append(createAttributeRow('Hachura:', hatchContainer));
-
-    // Radius
     const radiusInput = createNumericInput({
         min: 10,
         max: 100000,
@@ -142,8 +126,6 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
     });
 
     $(panel).append(createAttributeRow('Raio:', radiusInput));
-
-    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     const buttons = createStandardButtons({
         selectedFeatures,
         control: circleControl,

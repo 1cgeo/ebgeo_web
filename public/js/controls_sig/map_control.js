@@ -1,4 +1,4 @@
-// Path: js\controls_sig\map_control.js
+// Path: js/controls_sig/map_control.js
 import {
     initializeWithLastActiveMap,
     setCurrentMap,
@@ -18,14 +18,12 @@ class MapControl {
         this.analysisLayersManager = analysisLayersManager;
         this.selectionManager = null;
 
-        // Componentes
         this.mapManager = new MapManager(baseLayerControl, this.selectionManager);
         this.exportImportService = new ExportImportService(baseLayerControl, this, this.mapManager);
 
         this.isCollapsed = false;
         this.reopenButton = null;
 
-        // Sistema de abas
         this.currentTab = 'maps';
         this.pdfExportTab = null;
         this.featuresTab = null;
@@ -60,7 +58,6 @@ class MapControl {
         this.container.id = 'map-list'
         this.container.className = 'list-map-container';
 
-        // Criar header container usando jQuery (mantendo compatibilidade)
         const col = $("<div>", { id: 'header-map-list', class: "header-container-column" });
         const headerContainer = $("<div>", { class: "header-container-row" }).append(col);
 
@@ -74,12 +71,10 @@ class MapControl {
         </svg>
     `;
 
-        // Event listener para colapso
         collapseButton.addEventListener('click', () => this.collapsePanel());
 
         headerContainer[0].appendChild(collapseButton);
 
-        // Container para o menu
         const titleContainer = $("<div>", { id: 'menu-map-list', class: "menu-container" });
         col.append(titleContainer);
         $(this.container).append(headerContainer);
@@ -87,11 +82,9 @@ class MapControl {
         this.contentArea = document.createElement('div');
         this.contentArea.className = 'tab-content-area';
 
-        // Criar lista de mapas (aba Maps) 
         this.mapList = document.createElement('ul');
         this.mapList.className = 'map-list';
 
-        // Criar container PDF Export (aba PDF)
         this.pdfExportContainer = document.createElement('div');
         this.pdfExportContainer.className = 'pdf-export-tab-content';
         this.pdfExportContainer.innerHTML = this.pdfExportTab.createUI();
@@ -104,10 +97,8 @@ class MapControl {
         this.contentArea.appendChild(this.featuresTabContainer);
         this.container.appendChild(this.contentArea);
 
-        // Atualizar lista de mapas
         this.updateMapList();
 
-        // Inicializar Sortable para reordenação de mapas
         this.initSortable();
 
         this.createReopenButton();
@@ -118,10 +109,8 @@ class MapControl {
     async loadMenu() {
         await initializeWithLastActiveMap();
 
-        // Limpar menu existente
         $("#menu-map-list").empty();
 
-        // 1. Criar seletor de abas
         const tabSelector = document.createElement('div');
         tabSelector.className = 'tab-selector';
 
@@ -144,30 +133,24 @@ class MapControl {
         tabSelector.appendChild(featuresTab);
         tabSelector.appendChild(pdfTab);
 
-        // Adicionar tab selector ao header
         $("#header-map-list").append(tabSelector);
 
-        // 2. Adicionar base layer control
         const baseLayerControl = $('.base-layer-control');
         if (baseLayerControl.length > 0) {
             baseLayerControl.appendTo('#header-map-list');
         }
 
-        // 3. Criar container para ações da aba Maps
         this.mapsActionsContainer = document.createElement('div');
         this.mapsActionsContainer.className = 'maps-actions-container';
         this.mapsActionsContainer.id = 'maps-actions-container';
 
-        // Container único para todos os botões em uma fileira
         const allActionsContainer = document.createElement('div');
         allActionsContainer.className = 'all-actions-container';
 
-        // Usar o serviço de export/import para criar os botões
         const saveButton = this.exportImportService.createSaveButton();
         const loadButton = this.exportImportService.createLoadButton();
         const loadAdditiveButton = this.exportImportService.createLoadAdditiveButton();
 
-        // Botão para adicionar mapa
         const addButton = document.createElement('button');
         addButton.className = 'map-action-button add-map-button';
         addButton.innerHTML = `<img src="./images/icon_add.svg" alt="Adicionar mapa" />`;
@@ -186,37 +169,32 @@ class MapControl {
             }
         };
 
-        // Botão para limpar todos os dados
         const clearButton = document.createElement('button');
         clearButton.className = 'map-action-button destructive-action';
         clearButton.innerHTML = `<img src="./images/icon_trash_red.svg" alt="Limpar tudo" />`;
         clearButton.title = 'Limpar todos os dados (irreversível)';
         clearButton.onclick = () => this.clearAllData();
 
-        // Adicionar todos os botões na mesma fileira
         allActionsContainer.appendChild(saveButton);
         allActionsContainer.appendChild(loadButton);
         allActionsContainer.appendChild(loadAdditiveButton);
         allActionsContainer.appendChild(addButton);
         allActionsContainer.appendChild(clearButton);
 
-        // Adicionar ao container de ações
         this.mapsActionsContainer.appendChild(allActionsContainer);
 
-        // 4. Adicionar actions container ao menu
         $("#menu-map-list").append(this.mapsActionsContainer);
 
-        // Configurar visibilidade inicial
         this.updateVisibilityForCurrentTab();
 
         await this.updateMapList();
     }
 
     // ===== TAB MANAGEMENT =====
+
     switchToTab(tabName) {
         this.currentTab = tabName;
 
-        // Atualizar botões visuais
         const tabButtons = this.container.querySelectorAll('.tab-button');
         tabButtons.forEach(btn => btn.classList.remove('active'));
 
@@ -274,6 +252,7 @@ class MapControl {
     }
 
     // ===== PANEL MANAGEMENT =====
+
     collapsePanel(type = 'normal') {
         this.container.classList.add('collapsed');
 
@@ -329,7 +308,7 @@ class MapControl {
 
     initSortable() {
         if (typeof Sortable === 'undefined') {
-            console.warn('Sortable.js não carregado');
+            console.warn('Sortable.js not loaded');
             return;
         }
 
@@ -340,11 +319,10 @@ class MapControl {
             chosenClass: 'sortable-chosen',
             dragClass: 'sortable-drag',
             onEnd: async (evt) => {
-                // Extrair nova ordem dos data-map-name
                 const newOrder = Array.from(this.mapList.querySelectorAll('li'))
                     .map(li => li.dataset.mapName)
                     .filter(Boolean);
-                
+
                 await this.mapManager.updateMapOrder(newOrder);
             }
         });
@@ -380,10 +358,10 @@ class MapControl {
     }
 
     // ===== INTERFACE UPDATES =====
+
     async updateMapList() {
         const mapListData = await this.mapManager.generateMapListData();
 
-        // Mapear itens existentes no DOM por data-map-name
         const existingItems = new Map();
         this.mapList.querySelectorAll('li').forEach(item => {
             const mapName = item.dataset.mapName;
@@ -392,7 +370,6 @@ class MapControl {
             }
         });
 
-        // Remover mapas que não existem mais
         for (const [mapName, item] of existingItems) {
             if (!mapListData.find(data => data.name === mapName)) {
                 item.remove();
@@ -400,7 +377,6 @@ class MapControl {
             }
         }
 
-        // Limpar lista para reordenar
         this.mapList.innerHTML = '';
 
         for (const mapData of mapListData) {
@@ -449,7 +425,6 @@ class MapControl {
             }
         });
 
-        // Botão de notas
         const notesButton = document.createElement('button');
         notesButton.className = 'map-notes-button';
         notesButton.title = 'Notas do mapa';
@@ -464,7 +439,6 @@ class MapControl {
             this.showMapNotes(mapData.name);
         });
 
-        // Botão "mais opções" - delegar para MapManager
         const moreInfo = document.createElement('button');
         moreInfo.className = 'more-info-icon';
         moreInfo.innerHTML = `<img src="./images/icon_more_info.svg" alt="Mais opções" />`;
@@ -474,7 +448,6 @@ class MapControl {
             this.mapManager.toggleDropdown(moreInfo, mapData.name);
         });
 
-        // Drag handle para reordenação
         const dragHandle = document.createElement('div');
         dragHandle.className = 'map-drag-handle';
         dragHandle.innerHTML = '☰';
@@ -493,6 +466,7 @@ class MapControl {
     }
 
     // ===== MODAL MANAGEMENT =====
+
     async showCombineMapsModal(targetMapName) {
         const { getAllMapNamesStore } = await import('./store/store.js');
         const allMapNames = await getAllMapNamesStore();
@@ -503,7 +477,6 @@ class MapControl {
             return;
         }
 
-        // Criar modal
         const modal = document.createElement('div');
         modal.className = 'combine-maps-modal';
         modal.style.cssText = `
@@ -548,7 +521,6 @@ class MapControl {
         const confirmBtn = modalContent.querySelector('.confirm-btn');
         const selectedMaps = new Set();
 
-        // Criar checkboxes para mapas disponíveis
         availableMaps.forEach(mapName => {
             const mapItem = document.createElement('div');
             mapItem.style.cssText = 'display: flex; align-items: center; padding: 8px; border: 1px solid #eee; margin-bottom: 5px; border-radius: 4px;';
@@ -567,7 +539,6 @@ class MapControl {
             mapItem.appendChild(checkbox);
             mapItem.appendChild(label);
 
-            // Tornar todo o item clicável
             mapItem.addEventListener('click', (e) => {
                 if (e.target !== checkbox) {
                     checkbox.checked = !checkbox.checked;
@@ -592,7 +563,6 @@ class MapControl {
         modal.appendChild(modalContent);
         document.body.appendChild(modal);
 
-        // Event listeners
         modalContent.querySelector('.modal-close').addEventListener('click', () => {
             document.body.removeChild(modal);
         });
@@ -607,7 +577,6 @@ class MapControl {
                     const result = await this.mapManager.combineSelectedMapsIntoTarget(Array.from(selectedMaps), targetMapName);
                     document.body.removeChild(modal);
 
-                    // ✅ Feedback detalhado sobre sucesso
                     const message = result.totalFeatures > 0
                         ? `${selectedMaps.size} mapa(s) combinado(s): ${result.totalFeatures} feições adicionadas a "${targetMapName}"`
                         : `Mapas combinados mas nenhuma feição foi encontrada`;
@@ -615,16 +584,14 @@ class MapControl {
                     this.showToast(message, result.totalFeatures > 0 ? 'success' : 'info');
                     await this.updateMapList();
                 } catch (error) {
-                    console.error('Erro ao combinar mapas:', error);
+                    console.error('Error combining maps:', error);
 
-                    // ✅ Mensagem de erro mais útil
                     const errorMsg = error.message || 'Erro desconhecido ao combinar mapas';
                     this.showToast(`Erro: ${errorMsg}`, 'error');
                 }
             }
         });
 
-        // Fechar ao clicar fora
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
                 document.body.removeChild(modal);
@@ -633,6 +600,7 @@ class MapControl {
     }
 
     // ===== UTILITY METHODS =====
+
     async clearAllData() {
         if (confirm('Tem certeza que deseja limpar todos os dados? Esta ação é irreversível.')) {
             this.deactivateActiveTools();

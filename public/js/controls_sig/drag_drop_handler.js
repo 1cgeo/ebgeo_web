@@ -1,4 +1,4 @@
-// Path: js\controls_sig\drag_drop_handler.js
+// Path: js/controls_sig/drag_drop_handler.js
 import { showError } from './utilities/toast_service.js';
 
 class DragDropHandler {
@@ -14,12 +14,11 @@ class DragDropHandler {
         this.importControl = importControl;
         this.mapControl = mapControl;
         this.imageControl = imageControl;
-        
+
         this.isDragOver = false;
-        this.dragCounter = 0; // Para controlar dragenter/dragleave corretamente
+        this.dragCounter = 0;
         this.overlay = null;
-        
-        // Bind methods
+
         this.handleDragEnter = this.handleDragEnter.bind(this);
         this.handleDragOver = this.handleDragOver.bind(this);
         this.handleDragLeave = this.handleDragLeave.bind(this);
@@ -38,7 +37,7 @@ class DragDropHandler {
         this.mapElement.removeEventListener('dragover', this.handleDragOver);
         this.mapElement.removeEventListener('dragleave', this.handleDragLeave);
         this.mapElement.removeEventListener('drop', this.handleDrop);
-        
+
         this.hideDropOverlay();
     }
 
@@ -47,7 +46,7 @@ class DragDropHandler {
     handleDragEnter(event) {
         event.preventDefault();
         this.dragCounter++;
-        
+
         if (this.dragCounter === 1) {
             const file = this.getFirstFile(event);
             if (file) {
@@ -65,7 +64,7 @@ class DragDropHandler {
     handleDragLeave(event) {
         event.preventDefault();
         this.dragCounter--;
-        
+
         if (this.dragCounter === 0) {
             this.hideDropOverlay();
         }
@@ -77,7 +76,7 @@ class DragDropHandler {
         this.hideDropOverlay();
 
         const files = Array.from(event.dataTransfer.files);
-        
+
         if (files.length === 0) {
             return;
         }
@@ -95,7 +94,6 @@ class DragDropHandler {
             return;
         }
 
-        // Capturar coordenadas do drop para imagens
         let dropCoordinates = null;
         if (fileType === 'IMAGE') {
             const rect = this.mapElement.getBoundingClientRect();
@@ -104,13 +102,12 @@ class DragDropHandler {
             dropCoordinates = this.imageControl.map.unproject([x, y]);
         }
 
-        // Desativar ferramentas antes de processar
         this.toolManager.deactivateCurrentTool();
 
         try {
             await this.processFile(file, fileType, dropCoordinates);
         } catch (error) {
-            console.error('Erro ao processar arquivo via drag & drop:', error);
+            console.error('Error processing file via drag & drop:', error);
             showError(`Erro ao processar arquivo: ${error.message}`);
         }
     }
@@ -125,35 +122,35 @@ class DragDropHandler {
                 return item.getAsFile();
             }
         }
-        
+
         const files = event.dataTransfer.files;
         if (files && files.length > 0) {
             return files[0];
         }
-        
+
         return null;
     }
 
     getFileType(fileName) {
         const extension = this.getFileExtension(fileName);
-        
+
         if (DragDropHandler.FILE_TYPES.EBGEO.includes(extension)) {
             return 'EBGEO';
         }
-        
+
         if (DragDropHandler.FILE_TYPES.GEO_IMPORT.includes(extension)) {
             return 'GEO_IMPORT';
         }
-        
+
         if (DragDropHandler.FILE_TYPES.IMAGE.includes(extension)) {
             return 'IMAGE';
         }
-        
+
         return 'INVALID';
     }
 
     getFileExtension(fileName) {
-        return fileName.toLowerCase().substring(fileName.lastIndexOf('.')); 
+        return fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
     }
 
     isValidFile(file) {
@@ -164,22 +161,21 @@ class DragDropHandler {
     async processFile(file, fileType, dropCoordinates = null) {
         switch (fileType) {
             case 'EBGEO':
-                // Para arquivos .ebgeo, perguntar se quer substituir ou adicionar
                 const result = await this.askImportMode();
                 if (result.cancelled) {
-                    return; // Operação cancelada
+                    return;
                 }
                 await this.mapControl.exportImportService.processFileDirectly(file, result.additive);
                 break;
-                
+
             case 'GEO_IMPORT':
                 await this.importControl.processFileDirectly(file);
                 break;
-                
+
             case 'IMAGE':
                 await this.processImageFile(file, dropCoordinates);
                 break;
-                
+
             default:
                 throw new Error(`Tipo de arquivo não suportado: ${fileType}`);
         }
@@ -190,9 +186,8 @@ class DragDropHandler {
             throw new Error('Coordenadas inválidas para posicionamento da imagem');
         }
 
-        // Reutilizar lógica do AddImageControl
         const reader = new FileReader();
-        
+
         return new Promise((resolve, reject) => {
             reader.onload = async () => {
                 try {
@@ -203,11 +198,11 @@ class DragDropHandler {
                     reject(error);
                 }
             };
-            
+
             reader.onerror = () => {
                 reject(new Error('Erro ao ler arquivo de imagem'));
             };
-            
+
             reader.readAsDataURL(file);
         });
     }
@@ -277,18 +272,18 @@ class DragDropHandler {
 
         dialog.querySelector('#btn-replace').onclick = () => {
             cleanup();
-            resolve({ cancelled: false, additive: false }); // Substituir
+            resolve({ cancelled: false, additive: false });
         };
 
         dialog.querySelector('#btn-add').onclick = () => {
             cleanup();
-            resolve({ cancelled: false, additive: true }); // Adicionar
+            resolve({ cancelled: false, additive: true });
         };
 
         modal.onclick = (e) => {
             if (e.target === modal) {
                 cleanup();
-                resolve({ cancelled: true }); // Cancelar se clicar fora
+                resolve({ cancelled: true });
             }
         };
 
@@ -299,7 +294,7 @@ class DragDropHandler {
     // ===== VISUAL FEEDBACK =====
 
     showDropOverlay(fileType, fileName) {
-        this.hideDropOverlay(); // Remove overlay anterior se houver
+        this.hideDropOverlay();
 
         this.overlay = document.createElement('div');
         this.overlay.style.cssText = `
@@ -343,41 +338,41 @@ class DragDropHandler {
 
     getOverlayColor(fileType) {
         switch (fileType) {
-            case 'EBGEO': 
-                return 'rgba(40, 167, 69, 0.85)'; // Verde
-            case 'GEO_IMPORT': 
-                return 'rgba(0, 123, 255, 0.85)'; // Azul
-            case 'IMAGE': 
-                return 'rgba(255, 193, 7, 0.85)'; // Amarelo/dourado
+            case 'EBGEO':
+                return 'rgba(40, 167, 69, 0.85)';
+            case 'GEO_IMPORT':
+                return 'rgba(0, 123, 255, 0.85)';
+            case 'IMAGE':
+                return 'rgba(255, 193, 7, 0.85)';
             case 'INVALID':
-            default: 
-                return 'rgba(220, 53, 69, 0.85)'; // Vermelho
+            default:
+                return 'rgba(220, 53, 69, 0.85)';
         }
     }
 
     getBorderColor(fileType) {
         switch (fileType) {
-            case 'EBGEO': 
-                return '#28a745'; // Verde mais escuro
-            case 'GEO_IMPORT': 
-                return '#007bff'; // Azul mais escuro
-            case 'IMAGE': 
-                return '#ffc107'; // Amarelo mais escuro
+            case 'EBGEO':
+                return '#28a745';
+            case 'GEO_IMPORT':
+                return '#007bff';
+            case 'IMAGE':
+                return '#ffc107';
             case 'INVALID':
-            default: 
-                return '#dc3545'; // Vermelho mais escuro
+            default:
+                return '#dc3545';
         }
     }
 
     getFileIcon(fileType) {
         switch (fileType) {
-            case 'EBGEO': 
-                return '📦'; // Projeto
-            case 'GEO_IMPORT': 
-                return '🗺️'; // Mapa/Geo
+            case 'EBGEO':
+                return '';
+            case 'GEO_IMPORT':
+                return '';
             case 'INVALID':
-            default: 
-                return '❌'; // Erro
+            default:
+                return '';
         }
     }
 

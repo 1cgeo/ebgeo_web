@@ -663,7 +663,7 @@ class AddPolygonControl extends BaseControl {
                 coords.splice(insertIndex, 0, newPosition);
                 selectedFeature.properties.baseCoordinates = coords;
 
-                // CRITICAL: Convert handle from midpoint → vertex
+                // Convert handle from midpoint to vertex
                 if (this.activeHandle && this.activeHandle.properties) {
                     this.activeHandle.properties.handleType = 'vertex';
                     this.activeHandle.properties.handleId = `vertex-${insertIndex}`;
@@ -960,7 +960,7 @@ class AddPolygonControl extends BaseControl {
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
 
-        // CRITICAL FIX: Only reset activeHandle if NOT currently dragging
+        // Only reset activeHandle if not currently dragging
         if (!this.isDraggingHandle) {
             this.activeHandle = null;
             this.activeHandleType = null;

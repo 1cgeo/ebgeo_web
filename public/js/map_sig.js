@@ -78,7 +78,6 @@ map.on('load', async () => {
     map.dragRotate.disable();
     await baseLayerControl.switchMap(true);
 
-    // Apply globe projection if enabled
     if (config.map2d.globe_projection) {
         map.setProjection({ type: 'globe' });
     }
@@ -86,8 +85,6 @@ map.on('load', async () => {
     // gridControl._initGridLayers();
     // frameControl._initFrameLayers();
 });
-
-
 
 // ===== CONTROLS INITIALIZATION =====
 
@@ -190,7 +187,7 @@ const clipboardManager = new ClipboardManager(selectionManager, map);
 const rectangleSelectionControl = new RectangleSelectionControl(toolManager);
 selectionManager.setRectangleSelectionControl(rectangleSelectionControl);
 
-// ===== KEYBOARD SHORTCUTS CONFIGURATION =====
+// ===== KEYBOARD SHORTCUTS =====
 
 const keyboardShortcuts = new KeyboardShortcuts({
     map,
@@ -249,7 +246,6 @@ map.addControl(terrainControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
 
-// RIGHT COLUMN - Drawing tools
 map.addControl(pointControl, 'top-right');
 map.addControl(lineControl, 'top-right');
 map.addControl(polygonControl, 'top-right');
@@ -274,12 +270,11 @@ window.addEventListener('unhandledrejection', (event) => {
 window.addEventListener('error', (event) => {
     console.error('JavaScript error:', event.error);
 });
-// Export tools for global access (used by 3D models viewer)
+
 window.streetViewControl = addStreetViewControl;
 window.modelsViewerControl = add3DModelsViewerControl;
 
-
-// ===== EXPORTS AND CLEANUP =====
+// ===== CLEANUP =====
 
 window.addEventListener('beforeunload', () => {
     keyboardShortcuts.destroy();

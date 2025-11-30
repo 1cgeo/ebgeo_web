@@ -1,4 +1,4 @@
-// js/controls_sig/3d_models_viewer_tool/add_3d_models_viewer_control.js
+// Path: js/controls_sig/3d_models_viewer_tool/add_3d_models_viewer_control.js
 
 import config from '../../config.js';
 
@@ -10,8 +10,7 @@ class Add3DModelsViewerControl {
         this.markersLayer = '3d-models-markers';
         this.map = null;
         this.container = null;
-        
-        // Bind methods
+
         this.handleMarkerClick = this.handleMarkerClick.bind(this);
         this.showHoverCursor = this.showHoverCursor.bind(this);
         this.hideHoverCursor = this.hideHoverCursor.bind(this);
@@ -32,10 +31,9 @@ class Add3DModelsViewerControl {
 
         this.container.appendChild(button);
 
-        // Desabilitar se map_3d está desabilitado OU se não há tilesets configurados
         const isMap3dEnabled = config.features?.map_3d ?? true;
         const hasTilesets = config.hasTilesets();
-        
+
         if (!isMap3dEnabled || !hasTilesets) {
             this.container.classList.add('disabled');
             button.disabled = true;
@@ -50,22 +48,20 @@ class Add3DModelsViewerControl {
     }
 
     async activate() {
-        // Toggle behavior
         if (this.isActive) {
             this.toolManager.deactivateCurrentTool();
             return;
         }
 
-        // Fechar street view se estiver aberto
         if (window.streetViewControl?.isOpen) {
             window.streetViewControl.closeStreetView();
         }
 
         this.isActive = true;
         this.changeButtonColor();
-        
+
         $('#close-3d-viewer-button').on('click', this.closeViewer);
-        
+
         await this.loadMarkers();
         this.showMarkers();
     }
@@ -75,22 +71,20 @@ class Add3DModelsViewerControl {
         this.changeButtonColor();
         this.hideMarkers();
         $('#close-3d-viewer-button').off('click', this.closeViewer);
-        
-        // Se o viewer estiver aberto, fechar
+
         if ($('#map-3d-container').is(':visible')) {
             this.closeViewer();
         }
     }
 
     changeButtonColor() {
-        const iconSrc = this.isActive 
-            ? './images/icon_3d_red.svg' 
+        const iconSrc = this.isActive
+            ? './images/icon_3d_red.svg'
             : './images/icon_3d_black.svg';
         $("#models3d-viewer-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" />`);
     }
 
     async loadMarkers() {
-        // Create
         const features = config.tilesets.map(tileset => ({
             type: 'Feature',
             geometry: {
@@ -124,8 +118,7 @@ class Add3DModelsViewerControl {
                     <path d="M0,-8 L7,-4 L0,0 Z" fill="#6ba85e"/>
                 </g>
             </svg>`;
-            
-            // Aguardar imagem carregar antes de adicionar layers
+
             await new Promise((resolve, reject) => {
                 const img = new Image(48, 64);
                 img.onload = () => {
@@ -135,13 +128,13 @@ class Add3DModelsViewerControl {
                         }
                         resolve();
                     } catch (error) {
-                        console.error('Erro ao adicionar imagem ao mapa:', error);
+                        console.error('Error adding image to map:', error);
                         reject(error);
                     }
                 };
                 img.onerror = (error) => {
-                    console.error('Erro ao carregar SVG:', error);
-                    reject(new Error('Falha ao carregar imagem do marcador'));
+                    console.error('Error loading SVG:', error);
+                    reject(new Error('Failed to load marker image'));
                 };
                 img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markerPinSvg);
             });
@@ -152,8 +145,8 @@ class Add3DModelsViewerControl {
                 source: this.markersLayer,
                 layout: {
                     'icon-image': '3d-model-marker',
-                    'icon-size': 1.7,  // Size
-                    'icon-anchor': 'bottom',  // Pin aponta para baixo
+                    'icon-size': 1.7,
+                    'icon-anchor': 'bottom',
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true,
                     'visibility': 'none'
@@ -163,23 +156,22 @@ class Add3DModelsViewerControl {
                 }
             });
 
-            // Add
             this.map.addLayer({
                 id: this.markersLayer + '-labels',
                 type: 'symbol',
                 source: this.markersLayer,
                 layout: {
                     'text-field': ['get', 'name'],
-                    'text-size': 16,  // Fonte maior
-                    'text-offset': [0, 0.3], 
+                    'text-size': 16,
+                    'text-offset': [0, 0.3],
                     'text-anchor': 'top',
                     'text-allow-overlap': false,
                     'text-letter-spacing': 0.05,
                     'visibility': 'none'
                 },
                 paint: {
-                    'text-color': '#ffffff',  // Texto BRANCO
-                    'text-halo-color': '#000000',  // Buffer PRETO
+                    'text-color': '#ffffff',
+                    'text-halo-color': '#000000',
                     'text-halo-width': 2,
                     'text-halo-blur': 1
                 }
@@ -220,7 +212,6 @@ class Add3DModelsViewerControl {
 
     async openViewer(tilesetId) {
         try {
-            // Esconder mapa 2D e mostrar 3D
             this.setFullMap(false);
             $('#close-3d-viewer-button').show();
 
@@ -228,7 +219,7 @@ class Add3DModelsViewerControl {
             await map3dModule.openViewerWithTileset(tilesetId);
 
         } catch (error) {
-            console.error('Erro ao abrir viewer 3D:', error);
+            console.error('Error opening 3D viewer:', error);
             this.setFullMap(true);
             $('#close-3d-viewer-button').hide();
         }
@@ -242,7 +233,7 @@ class Add3DModelsViewerControl {
             this.setFullMap(true);
             $('#close-3d-viewer-button').hide();
         } catch (error) {
-            console.error('Erro ao fechar viewer 3D:', error);
+            console.error('Error closing 3D viewer:', error);
         }
     }
 

@@ -1,13 +1,13 @@
-// Path: js\controls_sig\utilities\toast_service.js
+// Path: js/controls_sig/utilities/toast_service.js
 
 class ToastService {
     static DEFAULT_DURATION = 3000;
     static DEFAULT_POSITION = 'top-center';
     static Z_INDEX = 10000;
-    
+
     static TYPES = {
         SUCCESS: 'success',
-        ERROR: 'error', 
+        ERROR: 'error',
         INFO: 'info',
         WARNING: 'warning'
     };
@@ -22,13 +22,13 @@ class ToastService {
     static activeToasts = new Set();
 
     /**
-     * Exibe um toast com configurações personalizadas
-     * @param {string} message - Mensagem a ser exibida
-     * @param {string} type - Tipo do toast (success, error, info, warning)
-     * @param {Object} options - Opções adicionais
-     * @param {number} options.duration - Duração em ms (0 = infinito)
-     * @param {string} options.position - Posição do toast
-     * @param {boolean} options.closable - Se pode ser fechado manualmente
+     * Displays a toast with custom configuration
+     * @param {string} message - Message to display
+     * @param {string} type - Toast type (success, error, info, warning)
+     * @param {Object} options - Additional options
+     * @param {number} options.duration - Duration in ms (0 = infinite)
+     * @param {string} options.position - Toast position
+     * @param {boolean} options.closable - Whether manually closable
      */
     static showToast(message, type = ToastService.TYPES.INFO, options = {}) {
         const config = {
@@ -41,60 +41,58 @@ class ToastService {
         const toast = ToastService.createToastElement(message, type, config);
         ToastService.positionToast(toast, config.position);
         ToastService.showToastElement(toast, config);
-        
+
         return toast;
     }
 
     /**
-     * Exibe toast de sucesso
-     * @param {string} message - Mensagem de sucesso
-     * @param {Object} options - Opções adicionais
+     * Displays success toast
+     * @param {string} message - Success message
+     * @param {Object} options - Additional options
      */
     static showSuccess(message, options = {}) {
         return ToastService.showToast(message, ToastService.TYPES.SUCCESS, options);
     }
 
     /**
-     * Exibe toast de erro
-     * @param {string} message - Mensagem de erro
-     * @param {Object} options - Opções adicionais
+     * Displays error toast
+     * @param {string} message - Error message
+     * @param {Object} options - Additional options
      */
     static showError(message, options = {}) {
         return ToastService.showToast(message, ToastService.TYPES.ERROR, {
-            duration: 4000, // Erros ficam um pouco mais tempo
+            duration: 4000,
             ...options
         });
     }
 
     /**
-     * Exibe toast informativo
-     * @param {string} message - Mensagem informativa
-     * @param {Object} options - Opções adicionais
+     * Displays info toast
+     * @param {string} message - Info message
+     * @param {Object} options - Additional options
      */
     static showInfo(message, options = {}) {
         return ToastService.showToast(message, ToastService.TYPES.INFO, options);
     }
 
     /**
-     * Exibe toast de aviso
-     * @param {string} message - Mensagem de aviso
-     * @param {Object} options - Opções adicionais
+     * Displays warning toast
+     * @param {string} message - Warning message
+     * @param {Object} options - Additional options
      */
     static showWarning(message, options = {}) {
         return ToastService.showToast(message, ToastService.TYPES.WARNING, options);
     }
 
     /**
-     * Cria elemento DOM do toast
-     * @private
+     * Creates toast DOM element
      */
     static createToastElement(message, type, config) {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         toast.setAttribute('role', 'alert');
         toast.setAttribute('aria-live', 'polite');
-        
-        // Estilo base do toast
+
         toast.style.cssText = `
             position: fixed;
             padding: 12px 18px;
@@ -113,15 +111,13 @@ class ToastService {
             transform: translateY(-10px);
         `;
 
-        // Container para mensagem e botão de fechar
         const content = document.createElement('div');
         content.style.cssText = 'display: flex; align-items: center; gap: 8px;';
-        
+
         const messageSpan = document.createElement('span');
         messageSpan.textContent = message;
         content.appendChild(messageSpan);
 
-        // Botão de fechar se configurado
         if (config.closable) {
             const closeButton = document.createElement('button');
             closeButton.innerHTML = '×';
@@ -136,19 +132,19 @@ class ToastService {
                 opacity: 0.8;
                 line-height: 1;
             `;
-            
+
             closeButton.addEventListener('click', () => {
                 ToastService.hideToast(toast);
             });
-            
+
             closeButton.addEventListener('mouseenter', () => {
                 closeButton.style.opacity = '1';
             });
-            
+
             closeButton.addEventListener('mouseleave', () => {
                 closeButton.style.opacity = '0.8';
             });
-            
+
             content.appendChild(closeButton);
         }
 
@@ -157,13 +153,12 @@ class ToastService {
     }
 
     /**
-     * Posiciona o toast na tela
-     * @private
+     * Positions toast on screen
      */
     static positionToast(toast, position) {
         const activeCount = ToastService.activeToasts.size;
-        const offsetY = activeCount * 60; // 60px entre toasts
-        
+        const offsetY = activeCount * 60;
+
         switch (position) {
             case 'top-center':
                 toast.style.top = `${80 + offsetY}px`;
@@ -192,7 +187,6 @@ class ToastService {
                 toast.style.left = '20px';
                 break;
             default:
-                // Fallback para top-center
                 toast.style.top = `${80 + offsetY}px`;
                 toast.style.left = '50%';
                 toast.style.transform = 'translateX(-50%) translateY(-10px)';
@@ -200,17 +194,15 @@ class ToastService {
     }
 
     /**
-     * Exibe o toast com animação
-     * @private
+     * Shows toast with animation
      */
     static showToastElement(toast, config) {
         document.body.appendChild(toast);
         ToastService.activeToasts.add(toast);
 
-        // Animar entrada
         requestAnimationFrame(() => {
             toast.style.opacity = '1';
-            
+
             if (config.position.includes('top')) {
                 toast.style.transform = toast.style.transform.replace('translateY(-10px)', 'translateY(0)');
             } else if (config.position.includes('bottom')) {
@@ -218,7 +210,6 @@ class ToastService {
             }
         });
 
-        // Auto-hide se configurado
         if (config.duration > 0) {
             setTimeout(() => {
                 ToastService.hideToast(toast);
@@ -227,15 +218,14 @@ class ToastService {
     }
 
     /**
-     * Esconde um toast específico
-     * @param {HTMLElement} toast - Elemento do toast para esconder
+     * Hides a specific toast
+     * @param {HTMLElement} toast - Toast element to hide
      */
     static hideToast(toast) {
         if (!toast || !toast.parentNode) return;
 
         toast.style.opacity = '0';
-        
-        // Animar saída
+
         if (toast.style.transform.includes('translateY(0)')) {
             if (toast.style.top) {
                 toast.style.transform = toast.style.transform.replace('translateY(0)', 'translateY(-10px)');
@@ -254,28 +244,25 @@ class ToastService {
     }
 
     /**
-     * Reposiciona toasts ativos após remoção
-     * @private
+     * Repositions active toasts after removal
      */
     static repositionActiveToasts() {
         const activeToastsArray = Array.from(ToastService.activeToasts);
-        
+
         activeToastsArray.forEach((toast, index) => {
             const offsetY = index * 60;
-            
+
             if (toast.style.top) {
-                // Toast no topo
                 const baseTop = toast.style.top.includes('80px') ? 80 : 20;
                 toast.style.top = `${baseTop + offsetY}px`;
             } else if (toast.style.bottom) {
-                // Toast no fundo  
                 toast.style.bottom = `${20 + offsetY}px`;
             }
         });
     }
 
     /**
-     * Remove todos os toasts ativos
+     * Removes all active toasts
      */
     static clearAllToasts() {
         const activeToastsArray = Array.from(ToastService.activeToasts);
@@ -285,7 +272,7 @@ class ToastService {
     }
 
     /**
-     * Verifica se há toasts ativos
+     * Checks if there are active toasts
      * @returns {boolean}
      */
     static hasActiveToasts() {
@@ -293,7 +280,7 @@ class ToastService {
     }
 
     /**
-     * Retorna o número de toasts ativos
+     * Returns number of active toasts
      * @returns {number}
      */
     static getActiveToastCount() {
@@ -301,7 +288,6 @@ class ToastService {
     }
 }
 
-// Exportar métodos estáticos para facilitar uso
 export const showToast = ToastService.showToast.bind(ToastService);
 export const showSuccess = ToastService.showSuccess.bind(ToastService);
 export const showError = ToastService.showError.bind(ToastService);

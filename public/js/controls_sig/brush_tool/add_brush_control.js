@@ -10,19 +10,17 @@ class AddBrushControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // State management
         this.isDrawing = false;
         this.points = [];
         this.lastPixelPoint = null;
 
-        // Geometry handler
         this.geometry = new AddBrushGeometry();
 
-        // Performance optimization
+        // RAF-based preview
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
 
-        // Zoom handling
+        // Zoom-based line width scaling
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
     }
@@ -39,7 +37,7 @@ class AddBrushControl extends BaseControl {
         bloqueado: false
     };
 
-    // ===== FONTE ÚNICA DA VERDADE =====
+    // ===== SELECTION MANAGER INTEGRATION =====
 
     /**
      * Get currently selected brush feature from SelectionManager
@@ -122,7 +120,7 @@ class AddBrushControl extends BaseControl {
     }
 
     getEditHandleSources() {
-        return []; // Brush features don't have edit handles
+        return [];
     }
 
     createSelectionBox(feature) {
@@ -153,7 +151,7 @@ class AddBrushControl extends BaseControl {
     }
 
     getEditHandleSource() {
-        return null; // Brush features don't have edit handles
+        return null;
     }
 
     canCopy(feature) {
@@ -165,10 +163,9 @@ class AddBrushControl extends BaseControl {
     }
 
     prepareForPaste(feature, offset) {
-        // Apply offset to all coordinates using geometry class
         const newCoordinates = this.geometry.applyOffset(
-            feature.geometry.coordinates, 
-            offset.dx, 
+            feature.geometry.coordinates,
+            offset.dx,
             offset.dy
         );
 
@@ -182,7 +179,6 @@ class AddBrushControl extends BaseControl {
     }
 
     calculateMoveOffset(feature, referencePoint) {
-        // Use geometry class to get reference center point
         const centerPoint = this.geometry.getCenter(feature.geometry.coordinates);
         if (!centerPoint) {
             return [0, 0];
@@ -195,10 +191,9 @@ class AddBrushControl extends BaseControl {
     }
 
     updateFeatureForMove(feature, dx, dy, newCoords) {
-        // Use geometry class to apply offset to all coordinates
         const newCoordinates = this.geometry.applyOffset(
-            feature.geometry.coordinates, 
-            dx, 
+            feature.geometry.coordinates,
+            dx,
             dy
         );
 
@@ -228,7 +223,7 @@ class AddBrushControl extends BaseControl {
 
     deactivate = () => {
         this.isActive = false;
-        this.finishDrawing(); // Clean up any active drawing
+        this.finishDrawing();
         this.map.getCanvas().style.cursor = '';
         this.updateButtonAppearance();
         this.removeDrawingEventListeners();
@@ -242,44 +237,37 @@ class AddBrushControl extends BaseControl {
         $("#brush-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="BRUSH" />`);
     }
 
-    // ===== SELECTION SYSTEM INTEGRATION (NO EDIT HANDLES) =====
+    // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        // Brush features don't have edit handles - just show selection highlight
     }
 
     onFeatureDeselected = (feature) => {
-        // No handles to clean up
     }
 
     onGlobalDeselect = () => {
-        // No handles to clean up
     }
 
     isEditingMode = () => {
-        return false; // Brush features are not editable via handles
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return false; // Brush features don't have edit handles
+        return false;
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
-        // No handles to sync for brush features
     }
 
     // ===== DRAWING SYSTEM =====
 
     handleMapClick = (e) => {
-        // Brush tool uses mousedown/mouseup interaction, not clicks
-        // This method is required by toolManager interface but not used for brush
     }
 
     setupDrawingEventListeners = () => {
         this.map.on('mousedown', this.onMouseDown);
         this.map.on('mousemove', this.onMouseMove);
         this.map.on('mouseup', this.onMouseUp);
-        // Handle mouse leave to finish drawing if user drags outside
         this.map.getCanvas().addEventListener('mouseleave', this.onMouseLeave);
     }
 
@@ -293,7 +281,6 @@ class AddBrushControl extends BaseControl {
     onMouseDown = (e) => {
         if (!this.isActive) return;
 
-        // Start drawing
         this.isDrawing = true;
         this.points = [[e.lngLat.lng, e.lngLat.lat]];
         this.lastPixelPoint = e.point;
@@ -306,16 +293,13 @@ class AddBrushControl extends BaseControl {
     onMouseMove = (e) => {
         if (!this.isActive || !this.isDrawing) return;
 
-        // Performance optimization - only add point if moved enough pixels
         if (!this.geometry.isPixelDistanceSufficient(this.lastPixelPoint, e.point)) {
-            return; // Skip this point
+            return;
         }
 
-        // Add point to the line
         this.points.push([e.lngLat.lng, e.lngLat.lat]);
         this.lastPixelPoint = e.point;
 
-        // Update preview with RAF optimization
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
             this.previewRafId = requestAnimationFrame(this.updatePreview);
@@ -341,12 +325,10 @@ class AddBrushControl extends BaseControl {
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = 'crosshair';
 
-        // Create feature if we have enough points
         if (this.points.length >= 2) {
             await this.createFeature();
         }
 
-        // Clean up
         this.points = [];
         this.lastPixelPoint = null;
         this.clearPreview();
@@ -358,7 +340,7 @@ class AddBrushControl extends BaseControl {
                 type: 'Feature',
                 geometry: {
                     type: 'LineString',
-                    coordinates: [...this.points] // Copy array
+                    coordinates: [...this.points]
                 },
                 properties: {
                     isPreview: true,
@@ -391,7 +373,6 @@ class AddBrushControl extends BaseControl {
             return;
         }
 
-        // Calculate current zoom and line width
         const currentZoom = this.map.getZoom();
         const calculatedLineWidth = AddBrushControl.DEFAULT_PROPERTIES.lineWidth;
 
@@ -486,7 +467,6 @@ class AddBrushControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Recalculate line width if needed
                 if (property === 'lineWidth') {
                     const currentZoom = this.map.getZoom();
                     const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
@@ -502,7 +482,6 @@ class AddBrushControl extends BaseControl {
                     sourceFeature.properties[property] = roundedValue;
                     feature.properties[property] = roundedValue;
 
-                    // Recalculate calculatedLineWidth
                     const currentZoom = this.map.getZoom();
                     const zoomDifference = currentZoom - roundedValue;
                     const scaleFactor = Math.pow(2, zoomDifference);
@@ -516,21 +495,17 @@ class AddBrushControl extends BaseControl {
 
         this.map.getSource('brushes').setData(data);
 
-        // CRITICAL FIX: Get fresh features from map source before updating SelectionManager
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-            return sourceFeature || feature; // Fallback to original if not found
+            return sourceFeature || feature;
         });
 
-        // Update SelectionManager with fresh features
         this.updateSelectionManagerFeatures(freshFeatures);
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        // Apply zoom corrections before saving
         let correctedFeatures = this.applyZoomCorrections(features);
-        
-        // CRITICAL FIX: Always get fresh feature data from map source before saving
+
         const currentData = await this.map.getSource('brushes').getData();
         let hasChanges = false;
 
@@ -539,7 +514,6 @@ class AddBrushControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    // Use complete current feature (with updated geometry + properties)
                     await updateFeature('brushes', currentFeature);
                     hasChanges = true;
                 }
@@ -592,7 +566,7 @@ class AddBrushControl extends BaseControl {
 
     updateFeatures = async (featuresBeforeZoomFix, save = false, onlyUpdateProperties = false) => {
         let features = this.applyZoomCorrections(featuresBeforeZoomFix);
-        
+
         if (features.length > 0) {
             const data = await this.map.getSource('brushes').getData();
             for (const feature of features) {
@@ -614,15 +588,13 @@ class AddBrushControl extends BaseControl {
 
             this.map.getSource('brushes').setData(data);
 
-            // Update SelectionManager with updated features
             this.updateSelectionManagerFeatures(features);
         }
     }
 
-    // ===== SELECTION MANAGER INTEGRATION =====
-
     /**
      * Update SelectionManager with current feature data
+     * @param {Object} feature - Feature to update
      */
     updateSelectionManagerFeature(feature) {
         const key = `brush:${feature.properties.id}`;
@@ -631,6 +603,7 @@ class AddBrushControl extends BaseControl {
 
     /**
      * Update SelectionManager with multiple features
+     * @param {Array} features - Features to update
      */
     updateSelectionManagerFeatures(features) {
         features.forEach(feature => {

@@ -1,4 +1,4 @@
-// Path: js\controls_sig\circle_tool\add_circle_control.js
+// Path: js/controls_sig/circle_tool/add_circle_control.js
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addCircleAttributesToPanel } from './circle_attributes_panel.js';
@@ -8,12 +8,9 @@ import { HatchPatternGenerator } from '../tool_manager/hatch_pattern_generator.j
 class AddCircleControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
-        // State management
         this.drawPoints = [];
         this.isDraggingHandle = false;
-        // Geometry handler
         this.geometry = new AddCircleGeometry();
-        // Performance optimization - RAF system
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
@@ -39,7 +36,7 @@ class AddCircleControl extends BaseControl {
         hatchSpacing: 8,
         hatchLineWidth: 2
     };
-    // ===== FONTE ÚNICA DA VERDADE =====
+    // ===== SELECTION MANAGER INTEGRATION =====
     /**
      * Get currently selected circle feature from SelectionManager
      * @returns {Object|null} Selected circle feature or null

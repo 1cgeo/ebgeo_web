@@ -2,16 +2,20 @@
 
 import { getMapHillshadeState } from './store/store.js';
 
+/**
+ * Gets terrain elevation at given coordinates
+ * @param {Object} map - MapLibre GL map instance
+ * @param {Array|Object} coordinates - [lng, lat] or {lng, lat}
+ * @param {Object} options - Query options
+ * @returns {Promise<number>} Elevation in meters
+ */
 export async function getTerrainElevation(map, coordinates, options = { exaggerated: false }) {
-    // Fixed reference point outside the DEM
     const fixedPoint = [0, 0];
     const fixedPointElevation = await map.queryTerrainElevation(fixedPoint, options) || 0;
 
-    // Get the elevation at the given coordinates
     const sceneElevation = await map.queryTerrainElevation(coordinates, options) || 0;
     const altitude = sceneElevation - fixedPointElevation;
 
-    // Use exaggeration from terrain config to adjust elevation
     const terrain = map.getTerrain();
     const exaggeration = terrain?.exaggeration || 1.5;
 
@@ -44,7 +48,6 @@ class TerrainControl {
 
         this._container.appendChild(this._button);
 
-        // Listen to terrain events to update button state
         this._map.on('terrain', this._updateTerrainIcon);
 
         return this._container;
@@ -64,24 +67,20 @@ class TerrainControl {
             return;
         }
 
-        // Add terrainSource for elevation queries and 3D terrain
         if (!this._map.getSource('terrainSource')) {
             this._map.addSource('terrainSource', this.terrainSourceConfig);
         }
 
-        // Add hillshadeSource if configured, but NOT the layer yet
         if (this.hillshadeConfig?.enabled) {
             if (!this._map.getSource('hillshadeSource')) {
                 this._map.addSource('hillshadeSource', this.hillshadeSourceConfig);
             }
 
-            // NEW: Restore hillshade state (which will manage the layer)
             try {
                 const hillshadeEnabled = await getMapHillshadeState();
                 this.setHillshadeVisibility(hillshadeEnabled);
             } catch (error) {
                 console.warn('Error restoring hillshade state:', error);
-                // In case of error, use default (disabled)
                 this.setHillshadeVisibility(false);
             }
         }
@@ -95,11 +94,9 @@ class TerrainControl {
         }
 
         if (this._map.getTerrain()) {
-            // Disable 3D terrain
             this._wasTerrainActive = false;
             this._map.setTerrain(null);
         } else {
-            // Enable 3D terrain
             this._wasTerrainActive = true;
             this._map.setTerrain(this.terrainConfig);
         }
@@ -107,43 +104,35 @@ class TerrainControl {
 
     _updateTerrainIcon = () => {
         if (!this._button || !this.terrainSourceConfig) {
-            // Terrain source not available - disabled state
             this._button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_terrain_disabled.svg" alt="TERRAIN DISABLED" />';
             this._button.disabled = true;
             this._button.title = 'Terreno não disponível';
             return;
         }
 
-        // Check if terrain source exists (not if terrain 3D is active)
         const terrainSourceExists = this._map.getSource('terrainSource') !== undefined;
         if (!terrainSourceExists) {
-            // Source failed to load - disabled state
             this._button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_terrain_disabled.svg" alt="TERRAIN DISABLED" />';
             this._button.disabled = true;
             this._button.title = 'Terreno não disponível';
             return;
         }
 
-        // Source available - check 3D terrain state
         if (this._map.getTerrain()) {
-            // 3D terrain enabled - active state
             this._button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_terrain_active.svg" alt="TERRAIN 3D ON" />';
             this._button.disabled = false;
             this._button.title = 'Desligar terreno 3D';
         } else {
-            // 3D terrain disabled - normal state
             this._button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_terrain_black.svg" alt="TERRAIN 3D OFF" />';
             this._button.disabled = false;
             this._button.title = 'Ligar terreno 3D';
         }
     }
 
-    // ===== PUBLIC METHOD FOR HILLSHADE CONTROL =====
+    // ===== HILLSHADE VISIBILITY CONTROL =====
 
     /**
-     * Public method to control hillshade visibility
-     * Called by features_tab.js
-     * Uses analysis-separator for correct positioning
+     * Controls hillshade layer visibility
      * @param {boolean} enabled - true to show, false to hide
      */
     setHillshadeVisibility = (enabled) => {
@@ -156,12 +145,10 @@ class TerrainControl {
             return;
         }
 
-        // Ensure layer exists in correct position
         if (!this._map.getLayer('hillshade')) {
             this._addHillshadeLayerInCorrectPosition();
         }
 
-        // Only change visibility (NEVER remove/add)
         const visibility = enabled ? 'visible' : 'none';
         try {
             this._map.setLayoutProperty('hillshade', 'visibility', visibility);
@@ -171,17 +158,12 @@ class TerrainControl {
     }
 
     _addHillshadeLayerInCorrectPosition() {
-        // Use analysis-separator as reference
-        // Hillshade goes BEFORE the separator (between basemap and analysis layers)
         const beforeId = 'analysis-separator';
 
         try {
             if (this._map.getLayer(beforeId)) {
-                // Position hillshade BEFORE the analysis layers separator
                 this._map.addLayer(this.hillshadeConfig.layer, beforeId);
             } else {
-                // Fallback: if separator doesn't exist yet, add normally
-                // (this can happen during initialization)
                 this._map.addLayer(this.hillshadeConfig.layer);
                 console.warn('Separator analysis-separator not found, adding hillshade without reference');
             }

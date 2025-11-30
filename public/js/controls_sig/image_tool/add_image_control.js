@@ -1,4 +1,5 @@
-// Path: js\controls_sig\image_tool\add_image_control.js
+// Path: js/controls_sig/image_tool/add_image_control.js
+
 import {
   addFeature,
   updateFeature,
@@ -16,10 +17,7 @@ class AddImageControl extends BaseControl {
   constructor(toolManager) {
     super(toolManager);
 
-    // Geometry handler
     this.geometry = new AddImageGeometry();
-
-    // Zoom handling for zoom-invariant behavior
     this.zoomRafId = null;
     this.pendingZoomUpdate = false;
   }
@@ -29,12 +27,9 @@ class AddImageControl extends BaseControl {
     rotation: 0,
     opacity: 1,
     source: "image",
-
-    // Zoom-invariant properties (following text control pattern)
     createdAtZoom: 0,
     calculatedSize: 1,
-    selectionBox: null, // Pre-calculated GeoJSON Polygon geometry
-
+    selectionBox: null,
     nome: "",
     descricao: "",
     visivel: true,
@@ -44,7 +39,7 @@ class AddImageControl extends BaseControl {
   static MAX_IMAGE_DIMENSION = 800;
   static IMAGE_QUALITY = 0.7;
 
-  // ===== FONTE ÚNICA DA VERDADE =====
+  // ===== SINGLE SOURCE OF TRUTH =====
 
   /**
    * Get currently selected image feature from SelectionManager
@@ -138,16 +133,14 @@ class AddImageControl extends BaseControl {
   }
 
   getEditHandleSources() {
-    return []; // Images don't have edit handles
+    return [];
   }
 
   createSelectionBox(feature) {
-    // Images use pre-calculated selection boxes stored as properties
     if (feature.properties.selectionBox) {
       return { geometry: feature.properties.selectionBox };
     }
 
-    // Fallback: calculate on demand if missing
     const selectionBox = this.geometry.calculateSelectionBoxGeometry(
       feature.geometry.coordinates,
       feature.properties.width,
@@ -162,7 +155,7 @@ class AddImageControl extends BaseControl {
   }
 
   getSelectionBoxStrategy() {
-    return "preCalculated"; // Images use stored selection boxes
+    return "preCalculated";
   }
 
   getSelectionBoxPadding() {
@@ -178,7 +171,7 @@ class AddImageControl extends BaseControl {
   }
 
   getEditHandleSource() {
-    return null; // Images don't have edit handles
+    return null;
   }
 
   canCopy(feature) {
@@ -196,7 +189,6 @@ class AddImageControl extends BaseControl {
       oldCoordinates[1] + offset.dy,
     ];
 
-    // Recalculate selection box for new position
     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
       newCoordinates,
       feature.properties.width,
@@ -225,7 +217,6 @@ class AddImageControl extends BaseControl {
   updateFeatureForMove(feature, dx, dy, newCoords) {
     const newCoordinates = [newCoords.lng, newCoords.lat];
 
-    // Recalculate selection box for new position
     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
       newCoordinates,
       feature.properties.width,
@@ -298,19 +289,17 @@ class AddImageControl extends BaseControl {
   };
 
   isEditingMode = () => {
-    return false; // Images don't have edit handles
+    return false;
   };
 
   hasEditHandle = (featureId) => {
-    return false; // Images don't have edit handles
+    return false;
   };
 
   syncEditHandlesAfterDrag = (movedFeatures) => {
-    // Images don't have edit handles, no action needed
   };
 
   selectFeature = (feature) => {
-    // Images don't have edit handles, just selection feedback
     this.setupHoverListeners();
   };
 
@@ -329,7 +318,6 @@ class AddImageControl extends BaseControl {
       return;
     }
 
-    // Trigger file upload dialog
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
@@ -353,20 +341,16 @@ class AddImageControl extends BaseControl {
 
     this.resizeImage(imageBase64, async (resizedImageBase64, width, height) => {
       try {
-        // Convert to blob and save to imageStore
         const response = await fetch(resizedImageBase64);
         const blob = await response.blob();
         await storeImage(imageId, blob);
 
-        // Create feature with zoom-invariant properties
         const feature = this.createImageFeature(lngLat, imageId, width, height);
 
-        // Set zoom properties
         const currentZoom = this.map.getZoom();
         feature.properties.createdAtZoom = currentZoom;
         feature.properties.calculatedSize = feature.properties.size;
 
-        // Calculate selection box
         feature.properties.selectionBox =
           this.geometry.calculateSelectionBoxGeometry(
             feature.geometry.coordinates,
@@ -383,18 +367,14 @@ class AddImageControl extends BaseControl {
           this.map
         );
 
-        // Save to IndexedDB
         await addFeature("images", feature);
 
-        // Add to map
         const data = await this.map.getSource("images").getData();
         data.features.push(feature);
         this.map.getSource("images").setData(data);
 
-        // Load image to map for rendering
         await this.loadImageToMap(imageId, blob);
 
-        // Select the new feature
         this.selectionManager.toggleFeatureSelection("image", imageId, feature);
         this.selectionManager.updateUI();
       } catch (error) {
@@ -598,7 +578,6 @@ class AddImageControl extends BaseControl {
         sourceFeature.properties[property] = value;
         feature.properties[property] = value;
 
-        // Special handling for createdAtZoom
         if (property === "createdAtZoom") {
           const roundedValue = Math.round(value * 10) / 10;
           sourceFeature.properties[property] = roundedValue;
@@ -619,19 +598,16 @@ class AddImageControl extends BaseControl {
           feature.properties.selectionBox =
             sourceFeature.properties.selectionBox;
         } else {
-          // Recalculate selection box if intrinsic properties changed
           const shouldRecalculateSelectionBox = ["size", "rotation"].includes(
             property
           );
 
-          // Ensure consistency
           this.ensureFeatureConsistency(
             sourceFeature,
             null,
             shouldRecalculateSelectionBox
           );
 
-          // Sync back
           feature.properties.calculatedSize =
             sourceFeature.properties.calculatedSize;
           feature.properties.selectionBox =
@@ -641,8 +617,6 @@ class AddImageControl extends BaseControl {
     }
 
     this.map.getSource("images").setData(data);
-
-    // Update SelectionManager with fresh features
     this.updateSelectionManagerFeatures(features);
   };
 
@@ -653,7 +627,6 @@ class AddImageControl extends BaseControl {
   ) => {
     const zoom = currentZoom || this.map.getZoom();
 
-    // Update calculatedSize
     const zoomDifference = zoom - feature.properties.createdAtZoom;
     const scaleFactor = Math.pow(2, zoomDifference);
     feature.properties.calculatedSize = Math.min(
@@ -661,7 +634,6 @@ class AddImageControl extends BaseControl {
       10
     );
 
-    // Recalculate selection box if needed
     if (forceRecalculateSelectionBox || !feature.properties.selectionBox) {
       feature.properties.selectionBox =
         this.geometry.calculateSelectionBoxGeometry(
@@ -677,7 +649,6 @@ class AddImageControl extends BaseControl {
   };
 
   saveFeatures = async (features, initialPropertiesMap) => {
-    // Always get fresh feature data from map source before saving
     const currentData = await this.map.getSource("images").getData();
     let hasChanges = false;
 
@@ -693,7 +664,6 @@ class AddImageControl extends BaseControl {
         );
 
         if (currentFeature) {
-          // Use complete current feature (with updated geometry + properties)
           await updateFeature("images", currentFeature);
           hasChanges = true;
         }
@@ -718,10 +688,8 @@ class AddImageControl extends BaseControl {
       try {
         const featureId = feature.properties.id;
 
-        // Remove from storage
         await removeFeature("images", featureId);
 
-        // Update map source
         const data = await this.map.getSource("images").getData();
         const idsToDelete = new Set(
           features.map((f) => String(f.properties.id))
@@ -780,7 +748,6 @@ class AddImageControl extends BaseControl {
             data.features[featureIndex] = feature;
           }
 
-          // Ensure consistency for updated feature
           this.ensureFeatureConsistency(
             data.features[featureIndex],
             currentZoom,
@@ -797,8 +764,6 @@ class AddImageControl extends BaseControl {
       }
 
       this.map.getSource("images").setData(data);
-
-      // Update SelectionManager with updated features
       this.updateSelectionManagerFeatures(features);
     }
   };
@@ -807,6 +772,7 @@ class AddImageControl extends BaseControl {
 
   /**
    * Update SelectionManager with current feature data
+   * @param {Object} feature - Feature to update in SelectionManager
    */
   updateSelectionManagerFeature(feature) {
     const key = `image:${feature.properties.id}`;
@@ -815,6 +781,7 @@ class AddImageControl extends BaseControl {
 
   /**
    * Update SelectionManager with multiple features
+   * @param {Array} features - Features to update in SelectionManager
    */
   updateSelectionManagerFeatures(features) {
     features.forEach((feature) => {
@@ -827,7 +794,6 @@ class AddImageControl extends BaseControl {
   // ===== UTILITY METHODS =====
 
   setupBaseEventListeners = () => {
-    // Base listeners setup if needed
   };
 
   removeAllEventListeners = () => {

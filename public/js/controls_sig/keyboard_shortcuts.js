@@ -1,14 +1,13 @@
-// Path: js\controls_sig\keyboard_shortcuts.js
+// Path: js/controls_sig/keyboard_shortcuts.js
 import { undoLastAction, redoLastAction } from './store/store.js';
 
 /**
- * Gerenciador de atalhos de teclado para o mapa SIG
- * Centraliza todos os shortcuts e suas respectivas ações
- * Inclui modal para exibir os atalhos disponíveis
+ * Keyboard shortcuts manager for the SIG map
+ * Centralizes all shortcuts and their respective actions
+ * Includes modal to display available shortcuts
  */
 class KeyboardShortcuts {
     constructor(config) {
-
         this.map = config.map;
         this.selectionManager = config.selectionManager;
         this.toolManager = config.toolManager;
@@ -16,20 +15,20 @@ class KeyboardShortcuts {
         this.clipboardManager = config.clipboardManager;
         this.addStreetViewControl = config.addStreetViewControl;
         this.mapControl = config.mapControl;
-        
+
         this.controls = config.controls;
-        
+
         this.handleKeyDown = this.handleKeyDown.bind(this);
         this.handleModalKeyDown = this.handleModalKeyDown.bind(this);
-        
+
         this.enabled = false;
-        
+
         this.modal = null;
         this.modalInitialized = false;
     }
 
     /**
-     * Ativa os atalhos de teclado
+     * Enable keyboard shortcuts
      */
     enable() {
         if (!this.enabled) {
@@ -39,7 +38,7 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Desativa os atalhos de teclado
+     * Disable keyboard shortcuts
      */
     disable() {
         if (this.enabled) {
@@ -49,7 +48,7 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Inicializa o modal de atalhos
+     * Initialize shortcuts modal
      */
     initModal() {
         if (this.modalInitialized) {
@@ -58,13 +57,13 @@ class KeyboardShortcuts {
 
         const button = document.getElementById('shortcuts-button');
         if (!button) {
-            console.warn('Botão de atalhos não encontrado');
+            console.warn('Shortcuts button not found');
             return;
         }
 
         this.modal = document.getElementById('shortcuts-modal');
         if (!this.modal) {
-            console.warn('Modal de atalhos não encontrado');
+            console.warn('Shortcuts modal not found');
             return;
         }
 
@@ -73,7 +72,7 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Configura os event listeners do modal
+     * Setup modal event listeners
      */
     setupModalEventListeners() {
         const button = document.getElementById('shortcuts-button');
@@ -104,11 +103,11 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Mostra o modal de atalhos
+     * Show shortcuts modal
      */
     showModal() {
         if (!this.modal) {
-            console.warn('Modal não inicializado');
+            console.warn('Modal not initialized');
             return;
         }
 
@@ -119,7 +118,7 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Esconde o modal de atalhos
+     * Hide shortcuts modal
      */
     hideModal() {
         if (!this.modal) {
@@ -132,49 +131,53 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Popula o modal com os atalhos
+     * Populate modal with shortcuts
      */
     populateModal() {
         const shortcutsInfo = this.getShortcutsInfo();
-        
+
         const systemGrid = document.getElementById('system-shortcuts');
         const toolsGrid = document.getElementById('tools-shortcuts');
-        
+
         if (!systemGrid || !toolsGrid) {
-            console.warn('Elementos do grid do modal não encontrados');
+            console.warn('Modal grid elements not found');
             return;
         }
-        
+
         systemGrid.innerHTML = '';
         toolsGrid.innerHTML = '';
-        
+
         Object.entries(shortcutsInfo.system).forEach(([key, description]) => {
             this.addShortcutToGrid(systemGrid, key, description);
         });
-        
+
         Object.entries(shortcutsInfo.tools).forEach(([key, description]) => {
             this.addShortcutToGrid(toolsGrid, key, description);
         });
     }
 
     /**
-     * Adiciona um atalho ao grid
+     * Add shortcut to grid
+     * @param {HTMLElement} grid - Grid element
+     * @param {string} key - Shortcut key
+     * @param {string} description - Shortcut description
      */
     addShortcutToGrid(grid, key, description) {
         const keyElement = document.createElement('div');
         keyElement.className = 'shortcut-key';
         keyElement.textContent = key;
-        
+
         const descElement = document.createElement('div');
         descElement.className = 'shortcut-description';
         descElement.textContent = description;
-        
+
         grid.appendChild(keyElement);
         grid.appendChild(descElement);
     }
 
     /**
-     * Handler para teclas do modal
+     * Handle modal key down events
+     * @param {KeyboardEvent} e - Keyboard event
      */
     handleModalKeyDown(e) {
         if (e.key === 'Escape' && this.modal && this.modal.style.display === 'block') {
@@ -183,21 +186,25 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Verifica se o usuário está digitando em um campo de entrada
+     * Check if user is typing in an input field
+     * @param {HTMLElement} target - Event target
+     * @returns {boolean} True if typing in input
      */
     isTypingInInput(target) {
         return ['INPUT', 'TEXTAREA'].includes(target.tagName);
     }
 
     /**
-     * Verifica se o Street View está aberto
+     * Check if Street View is open
+     * @returns {boolean} True if Street View is open
      */
     isStreetViewOpen() {
         return this.addStreetViewControl.isOpen;
     }
 
     /**
-     * Verifica se o modal de sugestões está aberto
+     * Check if suggestions modal is open
+     * @returns {boolean} True if suggestions modal is open
      */
     isSuggestionsModalOpen() {
         const suggestionsModal = document.getElementById('suggestions-modal');
@@ -205,7 +212,8 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Handler principal para eventos de teclado
+     * Main keyboard event handler
+     * @param {KeyboardEvent} e - Keyboard event
      */
     async handleKeyDown(e) {
         if (this.isTypingInInput(e.target)) {
@@ -236,7 +244,8 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Processa o atalho baseado na tecla e modificadores
+     * Process shortcut based on key and modifiers
+     * @param {KeyboardEvent} e - Keyboard event
      */
     async processShortcut(e) {
         const key = e.key.toLowerCase();
@@ -257,7 +266,12 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Manipula atalhos de sistema (Delete, Escape, Undo/Redo)
+     * Handle system shortcuts (Delete, Escape, Undo/Redo)
+     * @param {KeyboardEvent} e - Keyboard event
+     * @param {string} key - Pressed key
+     * @param {boolean} hasCtrl - Ctrl key pressed
+     * @param {boolean} hasShift - Shift key pressed
+     * @returns {boolean} True if shortcut was handled
      */
     async handleSystemShortcuts(e, key, hasCtrl, hasShift) {
         switch (key) {
@@ -269,7 +283,6 @@ class KeyboardShortcuts {
 
             case 'escape':
                 e.preventDefault();
-                // Fechar viewer 3D se estiver aberto
                 if ($('#map-3d-container').is(':visible')) {
                     $('#close-3d-viewer-button').trigger('click');
                     return true;
@@ -302,7 +315,9 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Manipula atalhos de ativação de ferramentas
+     * Handle tool activation shortcuts
+     * @param {KeyboardEvent} e - Keyboard event
+     * @param {string} key - Pressed key
      */
     handleToolShortcuts(e, key) {
         const toolMapping = {
@@ -348,7 +363,9 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Manipula atalhos com Ctrl (Copy/Paste)
+     * Handle Ctrl shortcuts (Copy/Paste/Save)
+     * @param {KeyboardEvent} e - Keyboard event
+     * @param {string} key - Pressed key
      */
     async handleCtrlShortcuts(e, key) {
         switch (key) {
@@ -378,7 +395,8 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Retorna informações sobre todos os atalhos disponíveis
+     * Get information about all available shortcuts
+     * @returns {Object} Object containing system and tools shortcuts
      */
     getShortcutsInfo() {
         return {
@@ -415,15 +433,15 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Cleanup - remove event listeners e fecha modal
+     * Cleanup - remove event listeners and close modal
      */
     destroy() {
         this.disable();
-        
+
         if (this.modalInitialized) {
             document.removeEventListener('keydown', this.handleModalKeyDown);
         }
-        
+
         this.hideModal();
     }
 }

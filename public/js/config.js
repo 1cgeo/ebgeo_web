@@ -1,9 +1,9 @@
-// Path: js\config.js
-// ===== CONFIGURAÇÃO COMPLETA DO SISTEMA MAPSIG =====
-// Este arquivo centraliza todas as configurações do sistema de mapas 2D e 3D
+// Path: js/config.js
+
+// ===== MAPSIG SYSTEM CONFIGURATION =====
 
 const config = {
-  // ===== CONFIGURAÇÕES GERAIS DA APLICAÇÃO =====
+  // ===== APPLICATION SETTINGS =====
   app: {
     title: "EBGeo",        // Título exibido na interface
     subtitle: ""            // Subtítulo da aplicação
@@ -22,18 +22,16 @@ const config = {
     prefix_name: '' // nome da aplicação na url, como aman, arandu, etc. Deixar vazio para testes locais
   },
 
-
-  // ===== CONFIGURAÇÕES DE BUSCA =====
+  // ===== SEARCH SETTINGS =====
   search: {
     apiUrl: "http://localhost:3000/busca"  // URL da API de busca de features
   },
 
   export: {
-    pdfApiUrl: "http://localhost:3001/api/export-georeferenced-pdf" // URL da API de exportação de PDF georreferenciado
+    pdfApiUrl: "http://localhost:3001/api/export-georeferenced-pdf" // URL da API de exportação de PDF georreferenciado (não utilizado atualmente)
   },
 
-  // ===== CONFIGURAÇÃO DE BASEMAPS =====
-  // Define quais basemaps estão disponíveis e suas configurações
+  // ===== BASEMAP CONFIGURATION =====
   basemaps: {
     'carta-topografica': {
       enabled: true,
@@ -67,6 +65,7 @@ const config = {
     }
   },
 
+  // ===== ANALYSIS LAYERS =====
   analysisLayers: {
     enabled: false, // Feature flag global
     layers: [
@@ -123,7 +122,6 @@ const config = {
 
   // ===== CONFIGURAÇÕES DO MAPA 2D =====
   map2d: {
-    // ----- Configurações Básicas do Mapa -----
     bounds: [
       [-58.1,-33.4], // [longitude_min, latitude_min]
       [-48.7,-27.1] // [longitude_max, latitude_max]
@@ -132,7 +130,7 @@ const config = {
     maxZoom: 17.9,           // Zoom máximo permitido
     maxPitch: 65,            // Inclinação máxima da câmera (0-60 graus)
 
-    // Projeção do mapa
+    // Modo Globo
     globe_projection:false,
 
     // Configurações avançadas de carregamento de tiles
@@ -155,8 +153,7 @@ const config = {
       // Nota: Para URLs externas use: "https://example.com/terrain/{z}/{x}/{y}.png"
     },
 
-    // ===== CONFIGURAÇÃO DO HILLSHADE SOURCE =====
-    // Source separado para o efeito visual de relevo (pode ser o mesmo que terrain)
+    // ----- Hillshade Source -----
     hillshadeSource: {
       type: "raster-dem",                                    // Tipo: sempre "raster-dem"
       url: "https://demotiles.maplibre.org/terrain-tiles/tiles.json",             // URL dos tiles de elevação
@@ -165,19 +162,15 @@ const config = {
       //maxzoom: 10                                           // Zoom máximo do hillshade
     },
 
-    // ===== CONFIGURAÇÃO DO TERRENO 3D =====
-    // Controla a visualização 3D do terreno (toggle on/off)
+    // ----- 3D Terrain Toggle -----
     terrain: {
       source: 'terrainSource',                              // Nome do source a usar
       exaggeration: 1.5                                       // Multiplicador da elevação (1.0 = normal)
     },
 
-    // ===== CONFIGURAÇÃO DO HILLSHADE =====
-    // Efeito visual de sombreamento do relevo
+    // ----- Hillshade Layer -----
     hillshade: {
-      enabled: true,                                        // true = ativa hillshade | false = desativa
-
-      // Configuração da camada hillshade
+      enabled: false,
       layer: {
         id: 'hillshade',                                    // ID da camada (não alterar)
         type: 'hillshade',                                  // Tipo da camada (não alterar)
@@ -201,27 +194,22 @@ const config = {
       },
     },
 
+    // ----- Street View Sources -----
     streetViewPointsSource: {
       type: 'vector',
-      url: 'http://IP:PORT/fotos' //passar para localhost
+      url: 'http://IP:PORT/fotos'
     },
-
     streetViewPointsSourceLayer: 'fotos',
-
-
 
     streetViewLinesSource: {
       type: 'vector',
-      url: 'http://IP:PORT/fotos_linha' //passar para localhost
+      url: 'http://IP:PORT/fotos_linha'
     },
-
     streetViewLinesSourceLayer: 'fotos_linha',
-
   },
 
-  // ===== CONFIGURAÇÕES DO MAPA 3D (CESIUM) =====
+  // ===== 3D MAP CONFIGURATION (CESIUM) =====
   map3d: {
-    // ----- Limites Geográficos 3D -----
     bounds: {
       west: -44.449656,      // Longitude oeste
       south: -22.455922,     // Latitude sul
@@ -229,7 +217,7 @@ const config = {
       north: -22.455920      // Latitude norte
     },
 
-    // ----- Posição Inicial da Câmera -----
+    // ----- Initial Camera Position -----
     initialCamera: {
       longitude: -44.4481491,     // Longitude inicial
       latitude: -22.4546061,      // Latitude inicial
@@ -239,7 +227,7 @@ const config = {
       roll: -1                    // Rotação (-180 a 180 graus)
     },
 
-    // ----- Configurações da Interface 3D -----
+    // ----- Viewer UI Settings -----
     viewer: {
       infoBox: false,             // Caixa de informações
       vrButton: false,            // Botão de realidade virtual
@@ -254,9 +242,8 @@ const config = {
       //shadows: false,              // Desativa completamente as sombras
     },
 
-    // ----- Provedores de Dados 3D -----
+    // ----- Data Providers -----
     providers: {
-      // ===== PROVIDER DE IMAGENS 3D =====
       imagery: {
         enabled: true,          // true = usa imagery local | false = desabilita
         type: 'UrlTemplate',    // Tipos: 'UrlTemplate', 'WMS', 'SingleTile'
@@ -268,8 +255,6 @@ const config = {
           tileHeight: 256,      // Altura dos tiles
         }
       },
-
-      // ===== PROVIDER DE TERRENO 3D =====
       terrain: {
         enabled: true,          // true = usa terrain local | false = usa ellipsoid (plano)
         type: 'Cesium',         // Tipos: 'Cesium' (quantized-mesh), 'Ellipsoid' (plano)
@@ -281,8 +266,7 @@ const config = {
     }
   },
 
-  // ===== CONFIGURAÇÃO DE TILESETS 3D =====
-  // Modelos 3D para carregar no mapa (3d tiles)
+  // ===== 3D TILESETS =====
   tilesets: [
     {
       url: "/3d/PCL/tileset.json",                     // Caminho para o tileset
@@ -295,33 +279,43 @@ const config = {
         height: 1000                                   // Altura da câmera
       }
     }
-    // Adicione mais tilesets aqui seguindo o mesmo padrão
   ]
 };
 
-// ===== FUNÇÕES AUXILIARES =====
-// Não modificar essas funções
+// ===== HELPER FUNCTIONS =====
 
-// Verifica se há tilesets configurados
+/**
+ * Check if any tilesets are configured
+ * @returns {boolean} True if tilesets exist
+ */
 config.hasTilesets = () => config.tilesets && config.tilesets.length > 0;
 
-// Validação para não deixar todos os basemaps desabilitados
+/**
+ * Validate basemaps configuration - ensures at least one basemap is enabled
+ */
 config.validateBasemapsConfig = () => {
   const enabled = Object.values(config.basemaps).filter(b => b.enabled);
   if (enabled.length === 0) {
-    console.warn('⚠️ Todos basemaps desabilitados! Habilitando carta-topografica como fallback');
+    console.warn('All basemaps disabled! Enabling carta-topografica as fallback');
     config.basemaps['carta-topografica'].enabled = true;
   }
 };
 
-// Obter basemaps habilitados ordenados por prioridade
+/**
+ * Get enabled basemaps sorted by priority
+ * @returns {Array} Array of [id, config] tuples sorted by priority
+ */
 config.getEnabledBasemaps = () => {
   return Object.entries(config.basemaps)
     .filter(([id, basemapConfig]) => basemapConfig.enabled)
     .sort(([,a], [,b]) => a.priority - b.priority);
 };
 
-// Determinar layout CSS baseado na quantidade de basemaps
+/**
+ * Determine CSS layout class based on basemap count
+ * @param {number} count - Number of enabled basemaps
+ * @returns {string} CSS class name for grid layout
+ */
 config.getBasemapLayoutClass = (count) => {
   switch(count) {
     case 1: return 'base-layer-grid-1x1';
@@ -333,21 +327,26 @@ config.getBasemapLayoutClass = (count) => {
   }
 };
 
-// Obter fallback válido para basemap
+/**
+ * Get valid basemap fallback when current selection is unavailable
+ * @param {string|null} currentBasemap - Currently selected basemap ID
+ * @returns {string} Valid basemap ID
+ */
 config.getValidBasemapFallback = (currentBasemap = null) => {
   const enabled = config.getEnabledBasemaps();
   if (enabled.length === 0) return 'carta-topografica';
 
-  // Se o atual estiver habilitado, manter
   if (currentBasemap && config.basemaps[currentBasemap]?.enabled) {
     return currentBasemap;
   }
 
-  // Senão, primeiro da lista ordenada
   return enabled[0][0];
 };
 
-// Helper para criar imagery provider baseado na configuração
+/**
+ * Create imagery provider configuration object
+ * @returns {Object|boolean} Provider config or false if disabled
+ */
 config.createImageryProvider = () => {
   const imageryConfig = config.map3d.providers.imagery;
   if (!imageryConfig.enabled) return false;
@@ -357,7 +356,6 @@ config.createImageryProvider = () => {
       return {
         provider: 'UrlTemplateImageryProvider',
         url: imageryConfig.url,
-        // Configurações essenciais para imagery
         maximumLevel: imageryConfig.options.maximumLevel || 18,
         minimumLevel: imageryConfig.options.minimumLevel || 0,
         tileWidth: imageryConfig.options.tileWidth || 256,
@@ -379,7 +377,10 @@ config.createImageryProvider = () => {
   }
 };
 
-// Helper para criar terrain provider baseado na configuração
+/**
+ * Create terrain provider configuration object
+ * @returns {Object} Provider config (defaults to ellipsoid if disabled)
+ */
 config.createTerrainProvider = () => {
   const terrainConfig = config.map3d.providers.terrain;
   if (!terrainConfig.enabled) {
@@ -391,7 +392,6 @@ config.createTerrainProvider = () => {
       return {
         provider: 'CesiumTerrainProvider',
         url: terrainConfig.url,
-        // Apenas options essenciais
         requestVertexNormals: terrainConfig.options.requestVertexNormals || false
       };
     case 'Ellipsoid':

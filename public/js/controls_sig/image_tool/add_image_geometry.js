@@ -1,4 +1,5 @@
-// Path: js\controls_sig\image_tool\add_image_geometry.js
+// Path: js/controls_sig/image_tool/add_image_geometry.js
+
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**
@@ -75,7 +76,7 @@ class AddImageGeometry extends BaseGeometry {
      * @returns {Array} Empty array (no handles)
      */
     createHandles(feature) {
-        return []; // Images don't have edit handles
+        return [];
     }
 
     /**
@@ -86,7 +87,7 @@ class AddImageGeometry extends BaseGeometry {
      * @returns {null} Always null (not supported)
      */
     updateFromHandle(handleType, newPosition, feature) {
-        return null; // Images don't have edit handles
+        return null;
     }
 
     /**
@@ -101,27 +102,24 @@ class AddImageGeometry extends BaseGeometry {
      * @returns {Object} GeoJSON Polygon geometry for selection box
      */
     calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager) {
-        // Apply size scaling with 62.5% correction factor (same as existing code)
         const scaledWidth = width * size * 0.625;
         const scaledHeight = height * size * 0.625;
-        
-        // Calculate expanded dimensions accounting for rotation
+
         const expandedDimensions = uiManager.calculateExpandedDimensions(scaledWidth, scaledHeight, rotation);
         const padding = 5;
-        
-        // Use creation zoom level for degree conversion (zoom-invariant)
+
         const centerLat = coordinates[1];
         const widthDegrees = uiManager.pixelsToDegrees(
-            expandedDimensions.width + (padding * 2), 
-            centerLat, 
+            expandedDimensions.width + (padding * 2),
+            centerLat,
             createdAtZoom
         );
         const heightDegrees = uiManager.pixelsToDegrees(
-            expandedDimensions.height + (padding * 2), 
-            centerLat, 
+            expandedDimensions.height + (padding * 2),
+            centerLat,
             createdAtZoom
         );
-        
+
         return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
     }
 
@@ -218,22 +216,20 @@ class AddImageGeometry extends BaseGeometry {
      * @returns {Array} Bounding box [minLng, minLat, maxLng, maxLat]
      */
     getBoundingBox(coordinates, width, height, size) {
-        // Approximate bounding box using scaled dimensions
         const scaledWidth = width * size * 0.625;
         const scaledHeight = height * size * 0.625;
-        
-        // Convert pixels to rough degree approximation
-        const widthDegrees = scaledWidth / 111320; // Rough conversion
+
+        const widthDegrees = scaledWidth / 111320;
         const heightDegrees = scaledHeight / 111320;
-        
+
         const halfWidth = widthDegrees / 2;
         const halfHeight = heightDegrees / 2;
 
         return [
-            coordinates[0] - halfWidth, // minLng
-            coordinates[1] - halfHeight, // minLat
-            coordinates[0] + halfWidth,  // maxLng
-            coordinates[1] + halfHeight  // maxLat
+            coordinates[0] - halfWidth,
+            coordinates[1] - halfHeight,
+            coordinates[0] + halfWidth,
+            coordinates[1] + halfHeight
         ];
     }
 }

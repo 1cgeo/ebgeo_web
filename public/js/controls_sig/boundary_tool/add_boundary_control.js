@@ -17,23 +17,22 @@ class AddBoundaryControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // State management - simplified from original 7 variables
+        // State management
         this.drawPoints = [];
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.activeHandleIndex = null;
 
-        // Geometry handler
         this.geometry = new AddBoundaryGeometry();
 
-        // Performance optimization - RAF system
+        // RAF-based preview system for performance
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
         this.geometryDebounceTimer = null;
 
-        // Boundary-specific drawing
+        // Double-click detection
         this.clickTimer = null;
         this.lastClickCoords = null;
     }
@@ -45,7 +44,7 @@ class AddBoundaryControl extends BaseControl {
         source: 'boundary',
         type: 'boundary',
         symbol_position_ratio: 0.5,
-        symbol_size: 1, // Will be overridden by zoom-adaptive calculation on creation
+        symbol_size: 1,
         text_size: 35,
         echelon: 'XXX',
         text_top: '',
@@ -65,12 +64,10 @@ class AddBoundaryControl extends BaseControl {
      * @returns {number} Symbol size in kilometers
      */
     calculateSymbolSizeForZoom(zoom) {
-        const { ZOOM_BASE_MULTIPLIER, ZOOM_EXPONENT_BASE, DEFAULT_SIZE_KM, MIN_SIZE_KM } = 
+        const { ZOOM_BASE_MULTIPLIER, ZOOM_EXPONENT_BASE, DEFAULT_SIZE_KM, MIN_SIZE_KM } =
             AddBoundaryControl.SYMBOL_SIZE_CONSTANTS;
-        
+
         try {
-            // Exponential decay: higher zoom = smaller symbols
-            // Zoom 5 → ~8km, Zoom 10 → ~0.5km, Zoom 15 → ~0.05km
             const calculatedSize = Math.pow(ZOOM_EXPONENT_BASE, 16 - zoom) * ZOOM_BASE_MULTIPLIER;
             return Math.max(MIN_SIZE_KM, calculatedSize);
         } catch (error) {
@@ -79,7 +76,7 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
-    // ===== SINGLE SOURCE OF TRUTH =====
+    // ===== SELECTION MANAGER INTEGRATION =====
 
     /**
      * Get currently selected boundary feature from SelectionManager
@@ -231,7 +228,6 @@ class AddBoundaryControl extends BaseControl {
             return [0, 0];
         }
 
-        // Use first point as reference
         const firstPoint = coordinates[0];
         return [
             firstPoint[0] - referencePoint.lng,
@@ -366,7 +362,6 @@ class AddBoundaryControl extends BaseControl {
 
         const newPoint = [e.lngLat.lng, e.lngLat.lat];
 
-        // Skip if too close to last point
         if (this.geometry.isPointTooClose(newPoint, this.drawPoints)) {
             return;
         }
@@ -385,7 +380,6 @@ class AddBoundaryControl extends BaseControl {
         e.preventDefault();
         e.stopPropagation();
 
-        // Clear click timer logic
         clearTimeout(this.clickTimer);
         this.clickTimer = null;
         this.lastClickCoords = null;
@@ -404,7 +398,6 @@ class AddBoundaryControl extends BaseControl {
         this.stopDrawing();
     }
 
-    // RAF-based preview system
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length >= 1) {
             this.lastPreviewPoints = [...this.drawPoints];
@@ -423,11 +416,9 @@ class AddBoundaryControl extends BaseControl {
             return;
         }
 
-        // Edit mode - updating boundary via handle drag
         if (this.isDraggingHandle && this.getSelectedFeature() && this.activeHandleType) {
             this.updateBoundaryPreview(this.lastPreviewPosition);
         }
-        // Drawing mode - showing boundary preview
         else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 1) {
             let previewPoints = [...this.lastPreviewPoints];
             if (this.lastClickCoords) {
@@ -438,13 +429,12 @@ class AddBoundaryControl extends BaseControl {
             if (previewPoints.length >= 1) {
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
-                    // Calculate zoom-adaptive size for preview
                     const currentZoom = this.map.getZoom();
                     const previewSize = this.calculateSymbolSizeForZoom(currentZoom);
-                    
+
                     const previewProperties = {
                         ...AddBoundaryControl.DEFAULT_PROPERTIES,
-                        symbol_size: previewSize, // Use zoom-adaptive size in preview
+                        symbol_size: previewSize,
                         baseCoordinates: previewPoints
                     };
                     const previewGeometry = this.geometry.generate(previewProperties);
@@ -483,7 +473,6 @@ class AddBoundaryControl extends BaseControl {
     createFeature = async () => {
         if (this.drawPoints.length < 2) return;
 
-        // Validation
         if (!this.geometry.validate(this.drawPoints)) {
             console.warn('Insufficient valid points for boundary creation');
             return;
@@ -491,14 +480,13 @@ class AddBoundaryControl extends BaseControl {
 
         const featureId = IDUtils.generateUniqueId();
         const featureName = await IDUtils.generateFeatureName('boundary', this.map);
-        
-        // Calculate zoom-adaptive symbol size
+
         const currentZoom = this.map.getZoom();
         const adaptiveSymbolSize = this.calculateSymbolSizeForZoom(currentZoom);
-        
+
         const properties = {
             ...AddBoundaryControl.DEFAULT_PROPERTIES,
-            symbol_size: adaptiveSymbolSize, // Override with zoom-adaptive size
+            symbol_size: adaptiveSymbolSize,
             baseCoordinates: [...this.drawPoints],
             id: featureId,
             nome: featureName,
@@ -561,14 +549,12 @@ class AddBoundaryControl extends BaseControl {
         const handles = this.geometry.createHandles(feature);
         if (!handles || handles.length === 0) return;
 
-        // Show selection feedback
         this.map.getSource('boundary-feedback').setData({
             type: 'Feature',
             geometry: feature.geometry,
             properties: {}
         });
 
-        // Show handles
         this.map.getSource('boundary-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -633,7 +619,6 @@ class AddBoundaryControl extends BaseControl {
 
     onEditMouseUp = async () => {
         const selectedFeature = this.getSelectedFeature();
-        // Only update if there was actual mouse movement (lastPreviewPosition exists)
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType && this.lastPreviewPosition) {
             const result = this.geometry.updateFromHandle(
                 this.activeHandleType,
@@ -643,7 +628,6 @@ class AddBoundaryControl extends BaseControl {
             );
 
             if (result) {
-                // Update feature with new properties and geometry
                 const updatedFeature = {
                     ...selectedFeature,
                     properties: result.properties,
@@ -672,12 +656,10 @@ class AddBoundaryControl extends BaseControl {
 
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
-            // Capture state at timeout execution to avoid race conditions
             const currentHandleType = this.activeHandleType;
             const currentFeature = this.getSelectedFeature();
             const currentHandleIndex = this.activeHandleIndex;
-            
-            // Only proceed if state is still valid
+
             if (currentHandleType && currentFeature) {
                 const result = this.geometry.updateFromHandle(
                     currentHandleType,
@@ -687,7 +669,6 @@ class AddBoundaryControl extends BaseControl {
                 );
 
                 if (result) {
-                    // Show updated preview
                     this.showEditPreview(result.geometry, result.properties);
                 }
             }
@@ -695,14 +676,12 @@ class AddBoundaryControl extends BaseControl {
     }
 
     showEditPreview = (geometry, properties) => {
-        // Feature preview
         this.map.getSource('boundary-feedback').setData({
             type: 'Feature',
             geometry: geometry,
             properties: {}
         });
 
-        // Updated handles
         const tempFeature = { properties, geometry };
         const handles = this.geometry.createHandles(tempFeature);
         this.map.getSource('boundary-edit-handles').setData({
@@ -803,14 +782,12 @@ class AddBoundaryControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Regenerate geometry if needed
                 if (['baseCoordinates', 'symbol_position_ratio', 'symbol_size', 'echelon', 'text_distance_ratio'].includes(property)) {
                     const newGeometry = this.geometry.generate(sourceFeature.properties);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
 
-                // Update dependent features if needed
                 if (['color', 'lineWidth', 'opacity', 'text_top', 'text_bottom', 'text_size', 'text_distance_ratio', 'echelon', 'symbol_position_ratio', 'symbol_size'].includes(property)) {
                     await this.updateDependentFeatures(sourceFeature);
                 }
@@ -819,7 +796,6 @@ class AddBoundaryControl extends BaseControl {
 
         this.map.getSource('boundarys').setData(data);
 
-        // Update SelectionManager with fresh features
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             return sourceFeature || feature;
@@ -976,7 +952,6 @@ class AddBoundaryControl extends BaseControl {
     }
 
     forceUpdateMainSource = async (feature) => {
-        // Avoid updating source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }

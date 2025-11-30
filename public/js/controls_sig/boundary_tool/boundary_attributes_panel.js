@@ -1,8 +1,8 @@
-// Path: js\controls_sig\boundary_tool\boundary_attributes_panel.js
+// Path: js/controls_sig/boundary_tool/boundary_attributes_panel.js
 
-import { 
-    createSliderWithInput, 
-    createColorPicker, 
+import {
+    createSliderWithInput,
+    createColorPicker,
     createAttributeRow,
     createStandardButtons,
     createEditableFeatureName,
@@ -15,11 +15,10 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    
-    // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
+
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
+    // ===== EDITABLE FEATURE NAME (SINGLE SELECTION ONLY) =====
     if (selectedFeatures.length === 1) {
         const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
@@ -52,8 +51,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         $(panel).append(multiSelectHeader);
     }
 
-    // ===== DROPDOWN DE ESCALÃO (ESPECÍFICO) =====
-    // ⚠️ MANTER: Lógica específica do dropdown de escalão
+    // ===== ECHELON DROPDOWN =====
     const echelonLabel = document.createElement('label');
     echelonLabel.textContent = 'Escalão:';
     const echelonSelect = document.createElement('select');
@@ -112,21 +110,17 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity || 1) * 100), {
         onChange: (value) => {
-            // Convert from 0-100 range to 0-1 range for internal storage
             boundaryControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
             uiManager.updateSelectionHighlight();
         }
     }));
 
     $(panel).append(createAttributeRow('Opacidade:', opacityControl));
-
-    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
-    // ✅ FIXED: Pass initialPropertiesMap captured at panel opening
     const buttons = createStandardButtons({
         selectedFeatures,
         control: boundaryControl,
         selectionManager,
-        initialPropertiesMap, // ✅ PASS THE ORIGINAL STATE
+        initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
         onSetDefault: () => boundaryControl.setDefaultProperties(feature.properties)
     });

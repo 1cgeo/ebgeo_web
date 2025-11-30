@@ -1,4 +1,4 @@
-// Path: js\controls_sig\draw_tools\add_point_control.js
+// Path: js/controls_sig/draw_tools/add_point_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
@@ -10,7 +10,6 @@ class AddPointControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // Geometry handler
         this.geometry = new AddPointGeometry();
     }
 
@@ -26,7 +25,7 @@ class AddPointControl extends BaseControl {
         bloqueado: false
     };
 
-    // ===== FONTE ÚNICA DA VERDADE =====
+    // ===== SINGLE SOURCE OF TRUTH =====
 
     /**
      * Get currently selected point feature from SelectionManager
@@ -102,7 +101,7 @@ class AddPointControl extends BaseControl {
     }
 
     getEditHandleSources() {
-        return []; // Point features don't have edit handles
+        return [];
     }
 
     createSelectionBox(feature) {
@@ -110,7 +109,7 @@ class AddPointControl extends BaseControl {
             const coordinates = feature.geometry.coordinates;
             const zoom = this.map.getZoom();
             const paddingPixels = this.getSelectionBoxPadding();
-            
+
             return this.geometry.createSelectionBoxGeometry(coordinates, paddingPixels, zoom);
         } catch (error) {
             console.warn('Error creating point selection box:', error);
@@ -119,11 +118,11 @@ class AddPointControl extends BaseControl {
     }
 
     getSelectionBoxStrategy() {
-        return 'custom'; // Point uses custom selection box calculation
+        return 'custom';
     }
 
     getSelectionBoxPadding() {
-        return 15; // Larger padding for point features to make them easier to select
+        return 15;
     }
 
     getLayerIds() {
@@ -135,7 +134,7 @@ class AddPointControl extends BaseControl {
     }
 
     getEditHandleSource() {
-        return null; // Point features don't have edit handles
+        return null;
     }
 
     canCopy(feature) {
@@ -147,10 +146,9 @@ class AddPointControl extends BaseControl {
     }
 
     prepareForPaste(feature, offset) {
-        // Apply offset to point coordinates using geometry class
         const newCoordinates = this.geometry.applyOffset(
-            feature.geometry.coordinates, 
-            offset.dx, 
+            feature.geometry.coordinates,
+            offset.dx,
             offset.dy
         );
 
@@ -164,7 +162,6 @@ class AddPointControl extends BaseControl {
     }
 
     calculateMoveOffset(feature, referencePoint) {
-        // Use geometry class to get center point (same as coordinates for points)
         const centerPoint = this.geometry.getCenter(feature.geometry.coordinates);
         if (!centerPoint) {
             return [0, 0];
@@ -177,10 +174,9 @@ class AddPointControl extends BaseControl {
     }
 
     updateFeatureForMove(feature, dx, dy, newCoords) {
-        // Use geometry class to apply offset to coordinates
         const newCoordinates = this.geometry.applyOffset(
-            feature.geometry.coordinates, 
-            dx, 
+            feature.geometry.coordinates,
+            dx,
             dy
         );
 
@@ -218,30 +214,26 @@ class AddPointControl extends BaseControl {
         $("#point-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="POINT" />`);
     }
 
-    // ===== SELECTION SYSTEM INTEGRATION (NO EDIT HANDLES) =====
+    // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        // Point features don't have edit handles - just show selection highlight
     }
 
     onFeatureDeselected = (feature) => {
-        // No handles to clean up
     }
 
     onGlobalDeselect = () => {
-        // No handles to clean up
     }
 
     isEditingMode = () => {
-        return false; // Point features are not editable via handles
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return false; // Point features don't have edit handles
+        return false;
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
-        // No handles to sync for point features
     }
 
     // ===== DRAWING SYSTEM =====
@@ -250,7 +242,7 @@ class AddPointControl extends BaseControl {
         if (!this.isActive) return;
 
         if (!e.lngLat || isNaN(e.lngLat.lng) || isNaN(e.lngLat.lat)) {
-            console.warn('Coordenadas inválidas para ponto');
+            console.warn('Invalid coordinates for point');
             return;
         }
 
@@ -261,13 +253,13 @@ class AddPointControl extends BaseControl {
      * Create point at specific coordinates
      * @param {number} lng - Longitude
      * @param {number} lat - Latitude
-     * @returns {Object|null} Created feature or null if error
+     * @returns {Promise<Object|null>} Created feature or null if error
      */
     createPointAtCoordinates = async (lng, lat) => {
         const coordinates = [lng, lat];
 
         if (!this.geometry.validate(coordinates)) {
-            console.warn('Coordenadas inválidas para ponto');
+            console.warn('Invalid coordinates for point');
             return null;
         }
 
@@ -299,7 +291,7 @@ class AddPointControl extends BaseControl {
 
             return feature;
         } catch (error) {
-            console.error('Erro ao criar ponto:', error);
+            console.error('Error creating point:', error);
             return null;
         }
     }
@@ -319,18 +311,15 @@ class AddPointControl extends BaseControl {
 
         this.map.getSource('points').setData(data);
 
-        // CRITICAL FIX: Get fresh features from map source before updating SelectionManager
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-            return sourceFeature || feature; // Fallback to original if not found
+            return sourceFeature || feature;
         });
 
-        // Update SelectionManager with fresh features
         this.updateSelectionManagerFeatures(freshFeatures);
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        // CRITICAL FIX: Always get fresh feature data from map source before saving
         const currentData = await this.map.getSource('points').getData();
         let hasChanges = false;
 
@@ -339,7 +328,6 @@ class AddPointControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    // Use complete current feature (with updated geometry + properties)
                     await updateFeature('points', currentFeature);
                     hasChanges = true;
                 }
@@ -413,24 +401,17 @@ class AddPointControl extends BaseControl {
 
             this.map.getSource('points').setData(data);
 
-            // Update SelectionManager with updated features
             this.updateSelectionManagerFeatures(features);
         }
     }
 
     // ===== SELECTION MANAGER INTEGRATION =====
 
-    /**
-     * Update SelectionManager with current feature data
-     */
     updateSelectionManagerFeature(feature) {
         const key = `point:${feature.properties.id}`;
         this.selectionManager.selectedFeatures.set(key, { type: 'point', feature });
     }
 
-    /**
-     * Update SelectionManager with multiple features
-     */
     updateSelectionManagerFeatures(features) {
         features.forEach(feature => {
             if (feature.properties.source === 'point') {
@@ -442,11 +423,9 @@ class AddPointControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     setupBaseEventListeners = () => {
-        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {
-        // Clean up any event listeners specific to point tool
     }
 }
 

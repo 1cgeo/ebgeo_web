@@ -1,4 +1,5 @@
 // Path: js/controls_sig/baselayers/osm_layer.js
+
 export default {
     "version": 8,
     "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",

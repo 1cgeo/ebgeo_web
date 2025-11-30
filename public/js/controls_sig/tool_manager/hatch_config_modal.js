@@ -1,4 +1,4 @@
-// Path: js\controls_sig\tool_manager\hatch_config_modal.js
+// Path: js/controls_sig/tool_manager/hatch_config_modal.js
 
 import { createSliderWithInput, createColorPicker, createAttributeRow } from './attribute_panel_helpers.js';
 
@@ -85,7 +85,7 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
     content.appendChild(closeButton);
 
     modal.appendChild(content);
-    
+
     modal.onclick = (e) => {
         if (e.target === modal) {
             document.body.removeChild(modal);

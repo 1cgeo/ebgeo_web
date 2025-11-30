@@ -1,4 +1,4 @@
-// Path: js\controls_sig\occupied_front_tool\add_occupied_front_control.js
+// Path: js/controls_sig/occupied_front_tool/add_occupied_front_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
@@ -10,15 +10,12 @@ class AddOccupiedFrontControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // State management
         this.drawPoints = [];
         this.isDraggingHandle = false;
         this.activeHandleType = null;
 
-        // Geometry handler
         this.geometry = new AddOccupiedFrontGeometry();
 
-        // Performance optimization - RAF system
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
@@ -37,7 +34,7 @@ class AddOccupiedFrontControl extends BaseControl {
         bloqueado: false
     };
 
-    // ===== FONTE ÚNICA DA VERDADE =====
+    // ===== SINGLE SOURCE OF TRUTH =====
 
     /**
      * Get currently selected occupied front feature from SelectionManager
@@ -132,7 +129,7 @@ class AddOccupiedFrontControl extends BaseControl {
     }
 
     getSelectionBoxPadding() {
-        return 8; // Slightly larger padding for complex geometry
+        return 8;
     }
 
     getLayerIds() {
@@ -174,13 +171,12 @@ class AddOccupiedFrontControl extends BaseControl {
     }
 
     calculateMoveOffset(feature, referencePoint) {
-        // Use the first coordinate (p1 - origin) as reference for movement
         const coords = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         if (!coords || coords.length < 1) {
             return [0, 0];
         }
 
-        const origin = coords[0]; // p1 is the origin point
+        const origin = coords[0];
         return [
             origin[0] - referencePoint.lng,
             origin[1] - referencePoint.lat
@@ -193,7 +189,6 @@ class AddOccupiedFrontControl extends BaseControl {
             return feature;
         }
 
-        // Move all base coordinates by the same delta
         const newBaseCoords = coords.map(coord => [
             coord[0] + dx,
             coord[1] + dy
@@ -273,7 +268,6 @@ class AddOccupiedFrontControl extends BaseControl {
     syncEditHandlesAfterDrag = (movedFeatures) => {
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
-            // Always recreate handles with current feature data
             this.createEditHandles(selectedFeature);
         }
     }
@@ -324,7 +318,6 @@ class AddOccupiedFrontControl extends BaseControl {
             const p1 = this.lastPreviewCenter;
             const p2 = this.lastPreviewPosition;
 
-            // Calculate P3 automatically with 50° angle
             const distance = this.geometry.calculateDistance(p1, p2);
             const bearing = this.geometry.calculateBearing(p1, p2);
             const p3 = this.geometry.destination(p1, distance, bearing + 50);
@@ -334,7 +327,7 @@ class AddOccupiedFrontControl extends BaseControl {
                 this.geometryDebounceTimer = setTimeout(() => {
                     const previewGeometry = this.geometry.generate([p1, p2, p3]);
                     this.showPreview(previewGeometry);
-                }, 12); // More debouncing for complex geometry
+                }, 12);
             }
         }
 
@@ -366,10 +359,9 @@ class AddOccupiedFrontControl extends BaseControl {
     }
 
     createFeature = async () => {
-        const p1 = this.drawPoints[0]; // Origin
-        const p2 = this.drawPoints[1]; // Upper arm
+        const p1 = this.drawPoints[0];
+        const p2 = this.drawPoints[1];
 
-        // Calculate P3 automatically with 50° angle
         const distance = this.geometry.calculateDistance(p1, p2);
         const bearing = this.geometry.calculateBearing(p1, p2);
         const p3 = this.geometry.destination(p1, distance, bearing + 50);
@@ -416,14 +408,12 @@ class AddOccupiedFrontControl extends BaseControl {
     // ===== EDIT HANDLES SYSTEM =====
 
     selectFeature = (feature) => {
-        // SelectionManager já armazena a feature, só precisamos criar handles
         this.createEditHandles(feature);
         this.setupEditEventListeners();
         this.setupHoverListeners();
     }
 
     deselectFeature = () => {
-        // SelectionManager já remove a feature, só precisamos limpar UI
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.clearEditHandles();
@@ -438,7 +428,6 @@ class AddOccupiedFrontControl extends BaseControl {
         const handles = this.geometry.createHandles(feature);
         if (!handles || handles.length === 0) return;
 
-        // Show selection feedback
         this.map.getSource('occupied-front-feedback').setData({
             type: 'Feature',
             geometry: feature.geometry,
@@ -448,7 +437,6 @@ class AddOccupiedFrontControl extends BaseControl {
             }
         });
 
-        // Show handles
         this.map.getSource('occupied-front-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -489,7 +477,7 @@ class AddOccupiedFrontControl extends BaseControl {
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
-            this.activeHandleType = handle.properties.handleId; // 'p1', 'p2', or 'p3'
+            this.activeHandleType = handle.properties.handleId;
             this.map.dragPan.disable();
             this.map.getCanvas().style.cursor = 'grabbing';
             e.preventDefault();
@@ -515,12 +503,10 @@ class AddOccupiedFrontControl extends BaseControl {
                 const coords = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
 
                 if (coords && coords.length >= 3) {
-                    // Update specific handle position
                     if (this.activeHandleType === 'p1') coords[0] = this.lastPreviewPosition;
                     else if (this.activeHandleType === 'p2') coords[1] = this.lastPreviewPosition;
                     else if (this.activeHandleType === 'p3') coords[2] = this.lastPreviewPosition;
 
-                    // Create updated feature
                     const updatedFeature = {
                         ...selectedFeature,
                         properties: {
@@ -554,7 +540,6 @@ class AddOccupiedFrontControl extends BaseControl {
 
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
-            // Update specific handle position for preview
             const previewCoords = [...coords];
             if (this.activeHandleType === 'p1') previewCoords[0] = newPosition;
             else if (this.activeHandleType === 'p2') previewCoords[1] = newPosition;
@@ -566,7 +551,6 @@ class AddOccupiedFrontControl extends BaseControl {
                 properties: { ...selectedFeature.properties, baseCoordinates: previewCoords }
             });
 
-            // Show updated selection
             this.map.getSource('occupied-front-feedback').setData({
                 type: 'Feature',
                 geometry: previewGeometry,
@@ -576,12 +560,11 @@ class AddOccupiedFrontControl extends BaseControl {
                 }
             });
 
-            // Update handles
             this.map.getSource('occupied-front-edit-handles').setData({
                 type: 'FeatureCollection',
                 features: previewHandles
             });
-        }, 12); // More debouncing for complex geometry
+        }, 12);
     }
 
     // ===== HOVER SYSTEM =====
@@ -638,7 +621,6 @@ class AddOccupiedFrontControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Recalculate geometry if baseCoordinates change
                 if (property === 'baseCoordinates') {
                     const newGeometry = this.geometry.generate(sourceFeature.properties.baseCoordinates);
                     sourceFeature.geometry = newGeometry;
@@ -649,13 +631,11 @@ class AddOccupiedFrontControl extends BaseControl {
 
         this.map.getSource('occupied_fronts').setData(data);
 
-        // CRITICAL FIX: Get fresh features from map source before updating SelectionManager
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-            return sourceFeature || feature; // Fallback to original if not found
+            return sourceFeature || feature;
         });
 
-        // Update SelectionManager with fresh features
         this.updateSelectionManagerFeatures(freshFeatures);
 
         const selectedFeature = this.getSelectedFeature();
@@ -665,7 +645,6 @@ class AddOccupiedFrontControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        // CRITICAL FIX: Always get fresh feature data from map source before saving
         const currentData = await this.map.getSource('occupied_fronts').getData();
         let hasChanges = false;
 
@@ -674,7 +653,6 @@ class AddOccupiedFrontControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    // Use complete current feature (with updated geometry + properties)
                     await updateFeature('occupied_fronts', currentFeature);
                     hasChanges = true;
                 }
@@ -749,7 +727,6 @@ class AddOccupiedFrontControl extends BaseControl {
 
             this.map.getSource('occupied_fronts').setData(data);
 
-            // Update SelectionManager with updated features
             this.updateSelectionManagerFeatures(features);
         }
     }
@@ -758,6 +735,7 @@ class AddOccupiedFrontControl extends BaseControl {
 
     /**
      * Update SelectionManager with current feature data
+     * @param {Object} feature - Feature to update in SelectionManager
      */
     updateSelectionManagerFeature(feature) {
         const key = `occupied_front:${feature.properties.id}`;
@@ -766,6 +744,7 @@ class AddOccupiedFrontControl extends BaseControl {
 
     /**
      * Update SelectionManager with multiple features
+     * @param {Array} features - Array of features to update
      */
     updateSelectionManagerFeatures(features) {
         features.forEach(feature => {
@@ -794,7 +773,6 @@ class AddOccupiedFrontControl extends BaseControl {
     }
 
     forceUpdateMainSource = async (feature) => {
-        // Don't update source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
@@ -826,7 +804,6 @@ class AddOccupiedFrontControl extends BaseControl {
     }
 
     setupBaseEventListeners = () => {
-        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {

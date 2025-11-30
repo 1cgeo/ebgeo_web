@@ -1,10 +1,10 @@
-// Path: js\controls_sig\context_menu_control.js
+// Path: js/controls_sig/context_menu_control.js
 import { formatCoordinates } from './utilities/coordinate_converter.js';
 import { showSuccess } from './utilities/toast_service.js';
-import { 
-    getFeatureGroup, 
-    createGroup, 
-    combineGroups, 
+import {
+    getFeatureGroup,
+    createGroup,
+    combineGroups,
     ungroupFeatures,
     getLayers,
     moveFeaturesToLayer,
@@ -19,7 +19,7 @@ class ContextMenuControl {
         this._selectionManager = selectionManager;
         this._contextMenu = null;
         this._lastCoordinates = null;
-        
+
         this._onRightClick = this._onRightClick.bind(this);
         this._onMapClick = this._onMapClick.bind(this);
         this._onDocumentClick = this._onDocumentClick.bind(this);
@@ -29,11 +29,11 @@ class ContextMenuControl {
     onAdd(map) {
         this._map = map;
         this._createContextMenu();
-        
+
         this._map.getCanvas().addEventListener('contextmenu', this._onRightClick);
         this._map.on('click', this._onMapClick);
         document.addEventListener('click', this._onDocumentClick);
-        
+
         return document.createElement('div');
     }
 
@@ -43,11 +43,11 @@ class ContextMenuControl {
             this._map.off('click', this._onMapClick);
         }
         document.removeEventListener('click', this._onDocumentClick);
-        
+
         if (this._contextMenu && this._contextMenu.parentNode) {
             this._contextMenu.parentNode.removeChild(this._contextMenu);
         }
-        
+
         this._map = null;
     }
 
@@ -132,13 +132,13 @@ class ContextMenuControl {
     async _addLayerMoveOptions(selectedFeatures) {
         const layers = await getLayers();
         const activeLayerId = getActiveLayerIdSync();
-        
+
         const currentLayerId = selectedFeatures[0]?.properties?.layerId || 'default';
-        
+
         const availableLayers = layers.filter(l => !l.locked && l.id !== currentLayerId);
-        
+
         if (availableLayers.length === 0) {
-            return false; // Nada foi adicionado
+            return false;
         }
 
         const submenuContainer = document.createElement('div');
@@ -183,12 +183,12 @@ class ContextMenuControl {
         availableLayers.forEach(layer => {
             const layerItem = document.createElement('div');
             layerItem.className = 'context-menu-item';
-            
+
             let displayName = layer.name;
             if (layer.id === activeLayerId) {
                 displayName += ' ★';
             }
-            
+
             layerItem.textContent = displayName;
             layerItem.style.cssText = `
                 padding: 8px 16px;
@@ -201,7 +201,7 @@ class ContextMenuControl {
             layerItem.addEventListener('mouseenter', () => {
                 layerItem.style.backgroundColor = '#f5f5f5';
             });
-            
+
             layerItem.addEventListener('mouseleave', () => {
                 layerItem.style.backgroundColor = '';
             });
@@ -218,7 +218,7 @@ class ContextMenuControl {
         moveToLayerItem.addEventListener('mouseenter', () => {
             moveToLayerItem.style.backgroundColor = '#f5f5f5';
             submenu.style.display = 'block';
-            
+
             const rect = submenu.getBoundingClientRect();
             const windowWidth = window.innerWidth;
             if (rect.right > windowWidth) {
@@ -235,8 +235,8 @@ class ContextMenuControl {
         submenuContainer.appendChild(moveToLayerItem);
         submenuContainer.appendChild(submenu);
         this._contextMenu.appendChild(submenuContainer);
-        
-        return true; // Algo foi adicionado
+
+        return true;
     }
 
     async _handleMoveToLayer(features, targetLayerId, targetLayerName) {
@@ -260,7 +260,6 @@ class ContextMenuControl {
                         }
                         source.setData(data);
                     } catch (e) {
-                        // Source may not support getData
                     }
                 }
             }
@@ -269,7 +268,7 @@ class ContextMenuControl {
 
             document.dispatchEvent(new CustomEvent('layers-changed'));
         } catch (error) {
-            console.error('Erro ao mover features:', error);
+            console.error('Error moving features:', error);
             alert('Erro ao mover feições: ' + error.message);
         }
     }
@@ -293,22 +292,22 @@ class ContextMenuControl {
             user-select: none;
             transition: background-color 0.2s;
         `;
-        
+
         item.addEventListener('mouseenter', () => {
             item.style.backgroundColor = '#f5f5f5';
         });
-        
+
         item.addEventListener('mouseleave', () => {
             item.style.backgroundColor = '';
         });
-        
+
         item.addEventListener('click', (e) => {
             e.stopPropagation();
             try {
                 clickHandler();
                 this._hideMenu();
             } catch (error) {
-                console.error('Erro na operação do menu:', error);
+                console.error('Error in menu operation:', error);
                 alert('Erro: ' + error.message);
             }
         });
@@ -367,11 +366,13 @@ class ContextMenuControl {
     }
 
     /**
-     * Verifica se todas as features estão na mesma camada
+     * Checks if all features are in the same layer
+     * @param {Array} features - Array of features to check
+     * @returns {boolean} true if all features are in same layer
      */
     _allFeaturesInSameLayer(features) {
         if (features.length <= 1) return true;
-        
+
         const firstLayerId = features[0]?.properties?.layerId || 'default';
         return features.every(f => (f.properties?.layerId || 'default') === firstLayerId);
     }
@@ -425,16 +426,16 @@ class ContextMenuControl {
 
     async _onRightClick(e) {
         e.preventDefault();
-        
+
         if (this._toolManager && this._toolManager.hasActiveTool()) {
             return;
         }
-        
+
         const coordinates = this._map.unproject([e.offsetX, e.offsetY]);
         this._lastCoordinates = { lat: coordinates.lat, lng: coordinates.lng };
-        
+
         await this._rebuildContextMenu();
-        
+
         this._showMenu(e.clientX, e.clientY);
     }
 
@@ -450,19 +451,19 @@ class ContextMenuControl {
 
     _showMenu(x, y) {
         if (!this._contextMenu) return;
-        
+
         this._contextMenu.style.left = `${x}px`;
         this._contextMenu.style.top = `${y}px`;
         this._contextMenu.style.display = 'block';
-        
+
         const rect = this._contextMenu.getBoundingClientRect();
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
-        
+
         if (rect.right > windowWidth) {
             this._contextMenu.style.left = `${x - rect.width}px`;
         }
-        
+
         if (rect.bottom > windowHeight) {
             this._contextMenu.style.top = `${y - rect.height}px`;
         }
@@ -479,11 +480,11 @@ class ContextMenuControl {
             this._hideMenu();
             return;
         }
-        
+
         const { lat, lng } = this._lastCoordinates;
         const currentFormat = this._mouseCoordinatesControl.getCurrentFormat();
         const textToCopy = formatCoordinates(lat, lng, currentFormat);
-        
+
         this._copyToClipboard(textToCopy);
         this._hideMenu();
     }

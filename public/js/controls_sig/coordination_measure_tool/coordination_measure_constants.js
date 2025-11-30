@@ -1,4 +1,5 @@
-// Path: js\controls_sig\coordination_measure_tool\coordination_measure_constants.js
+// Path: js/controls_sig/coordination_measure_tool/coordination_measure_constants.js
+
 export const ECHELON_CODES = {
   "00": "Não Especificado",
   "11": "Equipe/Guarnição",
@@ -111,7 +112,7 @@ export const UI_DATA = {
     { code: "214100", label: "Centro da área vital", category: "Controle Marítimo" },
     { code: "214700", label: "Posição estimada", category: "Controle Marítimo" }
   ],
-  
+
   echelonSubtypes: [
     { code: "ECHELON_00", label: "Não Especificado" },
     { code: "ECHELON_11", label: "Equipe/Guarnição" },
@@ -128,7 +129,7 @@ export const UI_DATA = {
     { code: "ECHELON_25", label: "Teatro de Operações" },
     { code: "ECHELON_26", label: "Valor Indeterminado" }
   ],
-  
+
   echelonFTSubtypes: [
     { code: "ECHELON_FT_00", label: "Não Especificado" },
     { code: "ECHELON_FT_11", label: "Equipe/Guarnição" },
@@ -145,54 +146,54 @@ export const UI_DATA = {
     { code: "ECHELON_FT_25", label: "Teatro de Operações" },
     { code: "ECHELON_FT_26", label: "Valor Indeterminado" }
   ],
-  
+
   textFieldDefinitions: {
-    tipo: { 
-      label: "Tipo", 
-      type: "text", 
-      placeholder: "Ex: P Lib" 
+    tipo: {
+      label: "Tipo",
+      type: "text",
+      placeholder: "Ex: P Lib"
     },
-    identificacao: { 
-      label: "Identificação", 
-      type: "text", 
-      placeholder: "Ex: ALFA" 
+    identificacao: {
+      label: "Identificação",
+      type: "text",
+      placeholder: "Ex: ALFA"
     },
-    gdhIni: { 
-      label: "GDH Início", 
-      type: "text", 
-      placeholder: "Ex: 121400Z JUN", 
-      help: "Formato: ddhhmmZ mês" 
+    gdhIni: {
+      label: "GDH Início",
+      type: "text",
+      placeholder: "Ex: 121400Z JUN",
+      help: "Formato: ddhhmmZ mês"
     },
-    gdhFim: { 
-      label: "GDH Fim", 
-      type: "text", 
-      placeholder: "Ex: 121800Z JUN ou Mdt O", 
-      help: "Formato: ddhhmmZ mês ou 'Mdt O'" 
+    gdhFim: {
+      label: "GDH Fim",
+      type: "text",
+      placeholder: "Ex: 121800Z JUN ou Mdt O",
+      help: "Formato: ddhhmmZ mês ou 'Mdt O'"
     },
-    numero: { 
-      label: "Número", 
-      type: "number", 
+    numero: {
+      label: "Número",
+      type: "number",
       placeholder: "Ex: 3"
     },
-    classeSuprimento: { 
-      label: "Classe de Suprimento", 
-      type: "select", 
-      options: Object.keys(SUPPLY_CLASSES) 
+    classeSuprimento: {
+      label: "Classe de Suprimento",
+      type: "select",
+      options: Object.keys(SUPPLY_CLASSES)
     },
-    status: { 
-      label: "Status", 
-      type: "select", 
+    status: {
+      label: "Status",
+      type: "select",
       options: ["ocupado", "preparado", "preparado-nao-ocupado"]
     },
-    numeroConcentracao: { 
-      label: "Nº Concentração", 
-      type: "text", 
-      placeholder: "Ex: HA 107" 
+    numeroConcentracao: {
+      label: "Nº Concentração",
+      type: "text",
+      placeholder: "Ex: HA 107"
     },
-    altitude: { 
-      label: "Altitude", 
-      type: "text", 
-      placeholder: "Ex: 850 m" 
+    altitude: {
+      label: "Altitude",
+      type: "text",
+      placeholder: "Ex: 850 m"
     }
   }
 };

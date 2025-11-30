@@ -1,34 +1,30 @@
-// Path: js\controls_sig\los_tool\add_los_geometry.js
+// Path: js/controls_sig/los_tool/add_los_geometry.js
+
 import BaseGeometry from '../tool_manager/base_geometry.js';
 import { getTerrainElevation } from '../terrain_control.js';
 
 /**
  * Line of Sight Geometry Operations
- * Handles all geometric calculations for LOS features including:
- * - Terrain-based line of sight calculations
- * - Elevation profile generation
- * - Processed features (visible/obstructed split)
- * - Async movement recalculations
+ * Handles all geometric calculations for LOS features including terrain-based
+ * line of sight calculations, elevation profile generation, and processed features
  */
 class AddLOSGeometry extends BaseGeometry {
     constructor(properties = {}) {
         super(properties);
-        
-        // LOS specific constants
+
         this.VISIBLE_COLOR = '#00FF00';
         this.OBSTRUCTED_COLOR = '#FF0000';
-        this.SAMPLE_DISTANCE = 60; // meters per sample (2x DEM resolution)
-        this.OBSERVER_HEIGHT = 2; // meters above ground
+        this.SAMPLE_DISTANCE = 60;
+        this.OBSERVER_HEIGHT = 2;
         this.PROFILE_STEPS = 25;
     }
 
     /**
-     * Generate LOS geometry (not applicable - LOS uses calculateLOS)
+     * Generate LOS geometry (simple LineString for preview)
      * @param {Array} coordinates - Line coordinates
      * @returns {Object} GeoJSON geometry
      */
     generate(coordinates) {
-        // LOS geometry is generated through calculateLOS
         return {
             type: 'LineString',
             coordinates: coordinates
@@ -56,13 +52,12 @@ class AddLOSGeometry extends BaseGeometry {
     }
 
     /**
-     * Extract coordinates from LOS geometry (handles MultiLineString and LineString)
-     * @param {Object} geometry - GeoJSON geometry
+     * Extract coordinates from LOS geometry
+     * @param {Object} geometry - GeoJSON geometry (MultiLineString or LineString)
      * @returns {Array} [startPoint, endPoint]
      */
     extractCoordinatesFromGeometry(geometry) {
         if (geometry.type === 'MultiLineString') {
-            // Use first and last point from the two lines
             const firstLine = geometry.coordinates[0];
             const secondLine = geometry.coordinates[1];
             return [firstLine[0], secondLine[secondLine.length - 1]];
@@ -70,7 +65,7 @@ class AddLOSGeometry extends BaseGeometry {
             const coords = geometry.coordinates;
             return [coords[0], coords[coords.length - 1]];
         }
-        
+
         console.warn('Unknown LOS geometry type:', geometry.type);
         return null;
     }
@@ -92,21 +87,16 @@ class AddLOSGeometry extends BaseGeometry {
         const steps = Math.ceil(length / this.SAMPLE_DISTANCE);
         const stepLength = length / steps;
 
-        // Get start and end elevations
         const startElevation = await getTerrainElevation(map, startCoordinates) + this.OBSERVER_HEIGHT;
         const endElevation = await getTerrainElevation(map, endCoordinates);
 
         let firstObstructedPoint = null;
 
-        // Sample along the line to find first obstruction
         for (let i = 1; i <= steps; i++) {
             const segment = turf.along(line, i * stepLength, { units: 'meters' });
             const segmentCoordinates = segment.geometry.coordinates;
 
-            // Calculate expected elevation on the line of sight
             const expectedElevation = startElevation + (endElevation - startElevation) * (i / steps);
-
-            // Query actual terrain elevation
             const actualElevation = await getTerrainElevation(map, segmentCoordinates);
 
             if (actualElevation > expectedElevation) {
@@ -115,7 +105,6 @@ class AddLOSGeometry extends BaseGeometry {
             }
         }
 
-        // Generate visible and obstructed segments
         const visibleLine = firstObstructedPoint
             ? turf.lineString([startCoordinates, firstObstructedPoint])
             : turf.lineString([startCoordinates, endCoordinates]);
@@ -161,16 +150,15 @@ class AddLOSGeometry extends BaseGeometry {
     }
 
     /**
-     * Generate processed features for visual display (green/red lines)
+     * Generate processed features for visual display
      * @param {Object} mainFeature - Main LOS feature
-     * @returns {Array} Array of processed features with colors
+     * @returns {Array} Array of processed features with colors (green for visible, red for obstructed)
      */
     generateProcessedFeatures(mainFeature) {
         const properties = mainFeature.properties;
         const processedFeatures = [];
 
         if (mainFeature.geometry.type === 'MultiLineString') {
-            // Visible portion (green)
             processedFeatures.push({
                 type: 'Feature',
                 id: properties.id + '-visible',
@@ -185,7 +173,6 @@ class AddLOSGeometry extends BaseGeometry {
                 }
             });
 
-            // Obstructed portion (red)
             processedFeatures.push({
                 type: 'Feature',
                 id: properties.id + '-obstructed',
@@ -200,7 +187,6 @@ class AddLOSGeometry extends BaseGeometry {
                 }
             });
         } else {
-            // Fully visible line (green)
             processedFeatures.push({
                 type: 'Feature',
                 id: properties.id + '-visible',
@@ -228,10 +214,8 @@ class AddLOSGeometry extends BaseGeometry {
         }
 
         try {
-            // Recalculate LOS analysis
             const losResult = await this.calculateLOS(newCoordinates, map);
-            
-            // Generate new geometry
+
             let newGeometry;
             if (losResult.obstructed) {
                 newGeometry = {
@@ -248,7 +232,6 @@ class AddLOSGeometry extends BaseGeometry {
                 };
             }
 
-            // Calculate new profile data
             const profileData = await this.calculateProfile(newCoordinates, map);
 
             return {
@@ -304,19 +287,19 @@ class AddLOSGeometry extends BaseGeometry {
     }
 
     /**
-     * No edit handles for LOS (implements BaseGeometry interface)
+     * No edit handles for LOS
      * @param {Object} feature - LOS feature
-     * @returns {Array} Empty array (no handles)
+     * @returns {Array} Empty array
      */
     createHandles(feature) {
-        return []; // LOS doesn't have interactive handles
+        return [];
     }
 
     /**
-     * No handle updates for LOS (implements BaseGeometry interface)
-     * @param {string} handleType - Handle type (not applicable)
-     * @param {Array} newPosition - New position (not applicable)
-     * @param {Object} feature - Feature (not applicable)
+     * No handle updates for LOS
+     * @param {string} handleType - Handle type
+     * @param {Array} newPosition - New position
+     * @param {Object} feature - Feature
      * @returns {null} Not applicable for LOS
      */
     updateFromHandle(handleType, newPosition, feature) {
@@ -339,10 +322,10 @@ class AddLOSGeometry extends BaseGeometry {
         const lats = [start[1], end[1]];
 
         return [
-            Math.min(...lngs), // minLng
-            Math.min(...lats), // minLat
-            Math.max(...lngs), // maxLng
-            Math.max(...lats)  // maxLat
+            Math.min(...lngs),
+            Math.min(...lats),
+            Math.max(...lngs),
+            Math.max(...lats)
         ];
     }
 

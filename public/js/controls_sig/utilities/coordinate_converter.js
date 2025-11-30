@@ -1,8 +1,8 @@
-// Path: js\controls_sig\utilities\coordinate_converter.js
+// Path: js/controls_sig/utilities/coordinate_converter.js
 
 /**
- * Utilitário centralizado para conversão entre diferentes formatos de coordenadas
- * Suporta Lat/Long (Decimal e GMS), UTM WGS84 e MGRS
+ * Centralized utility for coordinate format conversions
+ * Supports Lat/Long (Decimal and DMS), UTM WGS84, and MGRS
  */
 
 export const COORDINATE_FORMATS = [
@@ -13,7 +13,9 @@ export const COORDINATE_FORMATS = [
 ];
 
 /**
- * Obter placeholder para cada formato
+ * Gets placeholder for each format
+ * @param {string} formatId - Format identifier
+ * @returns {string} Placeholder text
  */
 export function getPlaceholderForFormat(formatId) {
     switch (formatId) {
@@ -31,7 +33,10 @@ export function getPlaceholderForFormat(formatId) {
 }
 
 /**
- * Converte coordenadas de string para objeto {lat, lng}
+ * Converts coordinates from string to {lat, lng} object
+ * @param {string} input - Input coordinate string
+ * @param {string} formatId - Format identifier
+ * @returns {Object|null} {lat, lng} object or null if invalid
  */
 export function parseCoordinates(input, formatId) {
     try {
@@ -54,7 +59,11 @@ export function parseCoordinates(input, formatId) {
 }
 
 /**
- * Converte coordenadas {lat, lng} para string no formato especificado
+ * Converts {lat, lng} to string in specified format
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @param {string} formatId - Format identifier
+ * @returns {string} Formatted coordinate string
  */
 export function formatCoordinates(lat, lng, formatId) {
     try {
@@ -77,7 +86,11 @@ export function formatCoordinates(lat, lng, formatId) {
 }
 
 /**
- * Obter formato para exibição (separado da conversão para cópia)
+ * Gets display format (separate from copy format)
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @param {string} formatId - Format identifier
+ * @returns {Object} Display format object with parts
  */
 export function getDisplayFormat(lat, lng, formatId) {
     try {
@@ -115,7 +128,7 @@ export function getDisplayFormat(lat, lng, formatId) {
 }
 
 /**
- * Parse Lat/Long em vários formatos
+ * Parses Lat/Long in various formats
  */
 function parseLatLong(input) {
     const patterns = [
@@ -140,16 +153,15 @@ function parseLatLong(input) {
 }
 
 /**
- * Parse Lat/Long GMS (Grau, Minuto, Segundo)
- * Aceita múltiplos formatos:
+ * Parses Lat/Long DMS (Degrees, Minutes, Seconds)
+ * Accepts multiple formats:
  * - 30º07'56.8" S 55º01'04.3" O
  * - 30°07'56.8" S 55°01'04.3" O
  * - 30 07 56.8 S 55 01 04.3 O
- * - 30º07'56" S 55º01'04" O (sem decimais)
- * - 30º07' S 55º01' O (sem segundos)
+ * - 30º07'56" S 55º01'04" O (without decimal seconds)
+ * - 30º07' S 55º01' O (without seconds)
  */
 function parseLatLongDMS(input) {
-    // Remove espaços extras e normaliza
     const normalized = input.trim();
     
     // Padrão para capturar GMS completo com segundos decimais
@@ -181,7 +193,6 @@ function parseLatLongDMS(input) {
             let lat, lng;
 
             if (hasSeconds) {
-                // Com segundos
                 const latDeg = parseInt(match[1], 10);
                 const latMin = parseInt(match[2], 10);
                 const latSec = parseFloat(match[3]);
@@ -192,15 +203,12 @@ function parseLatLongDMS(input) {
                 const lngSec = parseFloat(match[7]);
                 const lngDir = match[8].toUpperCase();
 
-                // Converter para decimal
                 lat = latDeg + (latMin / 60) + (latSec / 3600);
                 lng = lngDeg + (lngMin / 60) + (lngSec / 3600);
 
-                // Aplicar sinal baseado na direção
                 if (latDir === 'S') lat = -lat;
                 if (lngDir === 'O' || lngDir === 'W') lng = -lng;
             } else {
-                // Sem segundos
                 const latDeg = parseInt(match[1], 10);
                 const latMin = parseInt(match[2], 10);
                 const latDir = match[3].toUpperCase();
@@ -209,21 +217,18 @@ function parseLatLongDMS(input) {
                 const lngMin = parseInt(match[5], 10);
                 const lngDir = match[6].toUpperCase();
 
-                // Converter para decimal
                 lat = latDeg + (latMin / 60);
                 lng = lngDeg + (lngMin / 60);
 
-                // Aplicar sinal baseado na direção
                 if (latDir === 'S') lat = -lat;
                 if (lngDir === 'O' || lngDir === 'W') lng = -lng;
             }
 
-            // Validar ranges
             if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
                 return { lat, lng };
             }
         } catch (e) {
-            console.error('Error parsing GMS:', e);
+            console.error('Error parsing DMS:', e);
             return null;
         }
     }
@@ -232,7 +237,7 @@ function parseLatLongDMS(input) {
 }
 
 /**
- * Parse UTM WGS84
+ * Parses UTM WGS84 coordinates
  */
 function parseUTMWGS84(input) {
     if (typeof proj4 === 'undefined') {
@@ -266,7 +271,7 @@ function parseUTMWGS84(input) {
 }
 
 /**
- * Parse MGRS
+ * Parses MGRS coordinates
  */
 function parseMGRS(input) {
     if (typeof mgrs === 'undefined') {
@@ -285,38 +290,33 @@ function parseMGRS(input) {
 }
 
 /**
- * Format Lat/Long
+ * Formats Lat/Long as decimal
  */
 function formatLatLong(lat, lng) {
     return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
 }
 
 /**
- * Format Lat/Long GMS
- * Formato: 30º07'56.8" S 55º01'04.3" O
+ * Formats Lat/Long as DMS
+ * Format: 30º07'56.8" S 55º01'04.3" O
  */
 function formatLatLongDMS(lat, lng) {
-    // Determinar direções
     const latDir = lat >= 0 ? 'N' : 'S';
     const lngDir = lng >= 0 ? 'L' : 'O';
 
-    // Trabalhar com valores absolutos
     const absLat = Math.abs(lat);
     const absLng = Math.abs(lng);
 
-    // Converter latitude
     const latDeg = Math.floor(absLat);
     const latMinDecimal = (absLat - latDeg) * 60;
     const latMin = Math.floor(latMinDecimal);
     const latSec = (latMinDecimal - latMin) * 60;
 
-    // Converter longitude
     const lngDeg = Math.floor(absLng);
     const lngMinDecimal = (absLng - lngDeg) * 60;
     const lngMin = Math.floor(lngMinDecimal);
     const lngSec = (lngMinDecimal - lngMin) * 60;
 
-    // Formatar com 1 casa decimal nos segundos
     const latStr = `${latDeg}º${latMin.toString().padStart(2, '0')}'${latSec.toFixed(1).padStart(4, '0')}" ${latDir}`;
     const lngStr = `${lngDeg}º${lngMin.toString().padStart(2, '0')}'${lngSec.toFixed(1).padStart(4, '0')}" ${lngDir}`;
 
@@ -324,7 +324,7 @@ function formatLatLongDMS(lat, lng) {
 }
 
 /**
- * Format UTM WGS84
+ * Formats coordinates as UTM WGS84
  */
 function formatUTMWGS84(lat, lng) {
     if (typeof proj4 === 'undefined') {
@@ -347,7 +347,7 @@ function formatUTMWGS84(lat, lng) {
 }
 
 /**
- * Format MGRS
+ * Formats coordinates as MGRS
  */
 function formatMGRS(lat, lng) {
     if (typeof mgrs === 'undefined') {
@@ -364,30 +364,25 @@ function formatMGRS(lat, lng) {
 }
 
 /**
- * Get GMS display format
+ * Gets DMS display format
  */
 function getDMSDisplayFormat(lat, lng) {
-    // Determinar direções
     const latDir = lat >= 0 ? 'N' : 'S';
     const lngDir = lng >= 0 ? 'L' : 'O';
 
-    // Trabalhar com valores absolutos
     const absLat = Math.abs(lat);
     const absLng = Math.abs(lng);
 
-    // Converter latitude
     const latDeg = Math.floor(absLat);
     const latMinDecimal = (absLat - latDeg) * 60;
     const latMin = Math.floor(latMinDecimal);
     const latSec = (latMinDecimal - latMin) * 60;
 
-    // Converter longitude
     const lngDeg = Math.floor(absLng);
     const lngMinDecimal = (absLng - lngDeg) * 60;
     const lngMin = Math.floor(lngMinDecimal);
     const lngSec = (lngMinDecimal - lngMin) * 60;
 
-    // Formatar com 1 casa decimal nos segundos
     const latStr = `${latDeg}º${latMin.toString().padStart(2, '0')}'${latSec.toFixed(1).padStart(4, '0')}" ${latDir}`;
     const lngStr = `${lngDeg}º${lngMin.toString().padStart(2, '0')}'${lngSec.toFixed(1).padStart(4, '0')}" ${lngDir}`;
 
@@ -400,7 +395,7 @@ function getDMSDisplayFormat(lat, lng) {
 }
 
 /**
- * Get UTM WGS84 display format
+ * Gets UTM WGS84 display format
  */
 function getUTMWGS84DisplayFormat(lat, lng) {
     if (typeof proj4 === 'undefined') {
@@ -438,7 +433,7 @@ function getUTMWGS84DisplayFormat(lat, lng) {
 }
 
 /**
- * Get MGRS display format
+ * Gets MGRS display format
  */
 function getMGRSDisplayFormat(lat, lng) {
     if (typeof mgrs === 'undefined') {
@@ -470,17 +465,17 @@ function getMGRSDisplayFormat(lat, lng) {
 }
 
 /**
- * Format MGRS string with proper spacing
+ * Formats MGRS string with proper spacing
  */
 function formatMGRSString(mgrsString) {
     if (mgrsString.length !== 15) {
         return mgrsString;
     }
 
-    const zone = mgrsString.substring(0, 3);        // "23K"
-    const square = mgrsString.substring(3, 5);      // "TP"
-    const easting = mgrsString.substring(5, 10);    // "80834"
-    const northing = mgrsString.substring(10, 15);  // "16602"
+    const zone = mgrsString.substring(0, 3);
+    const square = mgrsString.substring(3, 5);
+    const easting = mgrsString.substring(5, 10);
+    const northing = mgrsString.substring(10, 15);
 
     return `${zone} ${square} ${easting} ${northing}`;
 }

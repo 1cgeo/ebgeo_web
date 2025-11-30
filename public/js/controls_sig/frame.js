@@ -22,7 +22,6 @@ class FrameControl {
         e.preventDefault();
         e.stopPropagation();
 
-        // Se o menu já está visível, fecha
         const isVisible = this._contextMenu.style.display === 'block';
 
         if (isVisible) {
@@ -37,9 +36,7 @@ class FrameControl {
                 this.currentScale = savedFrame.scale || 'scale_25k';
                 this.frameVisible = !!savedFrame.visible;
                 this._fillVisible = savedFrame.fillVisible || false;
-                // this._initFrameLayers(); // garante que as camadas estão criadas
                 if (this.frameVisible) {
-                    // Define o modo de preenchimento ANTES de chamar _getFrame
                     this._fillMode = this._fillVisible ? 'normal' : 'sem_fill';
                     this._getFrame(this.currentScale);
                 }
@@ -50,10 +47,8 @@ class FrameControl {
                 this._fillVisible = true;
             }
         } catch (err) {
-            console.warn('Erro ao verificar estado da moldura:', err);
+            console.warn('Error checking frame state:', err);
         }
-
-        // Atualiza a marcação visual dos itens do menu antes de abrir
         const items = this._contextMenu.querySelectorAll('.coordinates-format-option');
         items.forEach(item => {
             const scale = item.dataset.format;
@@ -104,13 +99,10 @@ class FrameControl {
         const offOption = this._createMenuItem('Desligar', 'off');
         this._contextMenu.appendChild(offOption);
 
-        // Linha separadora visual
         const separator = document.createElement('div');
         separator.style.borderTop = '1px solid rgba(0,0,0,0.1)';
         separator.style.margin = '4px 0';
         this._contextMenu.appendChild(separator);
-
-        // Opção Alternar preenchimento
         const toggleFillOption = this._createMenuItem('Ocultar produtos disp.', 'toggle_fill');
         toggleFillOption.classList.add('toggle-fill-option');
         this._contextMenu.appendChild(toggleFillOption);
@@ -142,7 +134,6 @@ class FrameControl {
             item.style.fontWeight = 'bold';
         }
 
-        // Evento de click
         item.addEventListener('click', async(e) => {
             e.stopPropagation();
 
@@ -168,7 +159,6 @@ class FrameControl {
             }
             this._contextMenu.style.display = 'none';
 
-            // Salvar estado atual da moldura
             const mapName = getCurrentMapNameSync();
             await setFrameStyle(mapName, {
                 scale: this.currentScale,
@@ -181,8 +171,6 @@ class FrameControl {
     }
 
     _updateButtonState(frameVisible=this.frameVisible) {
-        // if (!this._frameButton) return;
-
         if (this._transitioning) {
             this._frameButton.style.opacity = 0.4;
             this._frameButton.style.backgroundColor = '';
@@ -191,10 +179,8 @@ class FrameControl {
         }
 
         if (frameVisible) {
-            // Frame ativo - botão com estilo ativo
             this._frameButton.style.opacity = 1;
         } else {
-            // Frame inativo - botão com estilo normal
             this._frameButton.style.backgroundColor = '';
             this._frameButton.style.opacity = 0.5;
             this._frameButton.title = "Exibir produtos";
@@ -247,20 +233,16 @@ class FrameControl {
             const fillLayer = `moldura_fill_${scale.split('_')[1]}`;
             const borderLayer = `moldura_border_${scale.split('_')[1]}`;
             if (!fillVisible) {
-                // Garante que o novo conjunto também fique sem preenchimento
                 this._map.setLayoutProperty(fillLayer, 'visibility', 'none');
                 this._map.setPaintProperty(borderLayer, 'line-color', '#aaaaaaff');
                 this._map.setPaintProperty(borderLayer, 'line-width', 1);
                 this._map.setPaintProperty(borderLayer, 'line-offset', 0);
 
-                // Atualiza o item do menu se estiver aberto
                 const toggleItem = this._contextMenu?.querySelector('[data-format="toggle_fill"]');
                 if (toggleItem) toggleItem.textContent = 'Mostrar produtos disp.';
             } else {
-                // Garante que o novo conjunto tenha preenchimento visível
                 this._map.setLayoutProperty(fillLayer, 'visibility', 'visible');
 
-                // Atualiza o item do menu se estiver aberto
                 const toggleItem = this._contextMenu?.querySelector('[data-format="toggle_fill"]');
                 if (toggleItem) toggleItem.textContent = 'Ocultar produtos disp.';
             }
@@ -276,21 +258,18 @@ class FrameControl {
         this._fillMode = this._fillMode === 'normal' ? 'sem_fill' : 'normal';
         const fillLayer = `moldura_fill_${scale.split('_')[1]}`;
         const borderLayer = `moldura_border_${scale.split('_')[1]}`;
-        // Verifica se as camadas existem
+
         if (!this._map.getLayer(fillLayer) || !this._map.getLayer(borderLayer)) {
-            console.warn('Camadas da moldura não encontradas');
+            console.warn('Frame layers not found');
             return;
         }
 
-        // Se for desligar o preenchimento
         if (!fillVisible) {
-            // Guarda estilos originais
             this._originalFillColor = this._map.getPaintProperty(fillLayer, 'fill-color');
             this._originalLineColor = this._map.getPaintProperty(borderLayer, 'line-color');
             this._originalLineWidth = this._map.getPaintProperty(borderLayer, 'line-width');
             this._originalLineOffset = this._map.getPaintProperty(borderLayer, 'line-offset');
 
-            // Remove o preenchimento e deixa a borda preta
             this._map.setLayoutProperty(fillLayer, 'visibility', 'none');
             this._map.setPaintProperty(borderLayer, 'line-color', '#aaaaaaff');
             this._map.setPaintProperty(borderLayer, 'line-width', 1);
@@ -300,7 +279,6 @@ class FrameControl {
             }
         }
         else {
-            // Restaura estilos originais
             if (this._originalFillColor)
                 this._map.setPaintProperty(fillLayer, 'fill-color', this._originalFillColor);
             if (this._originalLineColor)
@@ -310,7 +288,6 @@ class FrameControl {
             if (this._originalLineOffset)
                 this._map.setPaintProperty(borderLayer, 'line-offset', this._originalLineOffset);
 
-            // Reexibe o preenchimento
             this._map.setLayoutProperty(fillLayer, 'visibility', 'visible');
 
             if (item){

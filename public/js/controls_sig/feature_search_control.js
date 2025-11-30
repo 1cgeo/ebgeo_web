@@ -1,4 +1,4 @@
-// Path: js\controls_sig\feature_search_control.js
+// Path: js/controls_sig/feature_search_control.js
 import config from '../config.js';
 import { showError } from './utilities/toast_service.js';
 
@@ -7,8 +7,8 @@ class FeatureSearchControl {
     this._apiUrl = config.search.apiUrl;
     this._marker = null;
     this._uiManager = uiManager;
-    this._isExpanded = false; // Estado do toggle
-    this._disabled = !this._apiUrl; // Disabled se não tiver apiUrl
+    this._isExpanded = false;
+    this._disabled = !this._apiUrl;
   }
 
   onAdd(map) {
@@ -16,14 +16,12 @@ class FeatureSearchControl {
     this._container = document.createElement('div');
     this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group feature-search-control controls-column-left';
 
-    // Criar botão com ícone de lupa
     this._button = document.createElement('button');
     this._button.type = 'button';
     this._button.className = 'mapbox-gl-draw_ctrl-draw-btn';
     this._button.setAttribute("id", "feature-search-tool");
     this._button.title = 'Buscar';
 
-    // SVG da lupa (cinza se disabled, preto se enabled)
     const strokeColor = this._disabled ? '#999' : '#333';
     const cursorStyle = this._disabled ? 'not-allowed' : 'pointer';
 
@@ -37,28 +35,23 @@ class FeatureSearchControl {
     this._button.style.cursor = cursorStyle;
     this._button.disabled = this._disabled;
 
-    // Adicionar classe disabled se necessário
     if (this._disabled) {
       this._container.classList.add('disabled');
     }
 
-    // Input de busca (inicialmente oculto)
     this._input = document.createElement('input');
     this._input.type = 'text';
     this._input.placeholder = 'Busque por nome';
     this._input.className = 'feature-search-input';
     this._input.style.display = 'none';
 
-    // Lista de sugestões
     this._suggestionsList = document.createElement('ul');
     this._suggestionsList.className = 'feature-search-suggestions';
 
-    // Adicionar elementos ao container
     this._container.appendChild(this._button);
     this._container.appendChild(this._input);
     this._container.appendChild(this._suggestionsList);
 
-    // Event listeners
     this._button.addEventListener('click', (e) => {
       e.preventDefault();
       if (!this._disabled) {
@@ -94,7 +87,6 @@ class FeatureSearchControl {
     this._input.style.display = 'block';
     this._container.classList.add('expanded');
 
-    // Foco no input com pequeno delay para garantir que está visível
     setTimeout(() => {
       this._input.focus();
     }, 100);

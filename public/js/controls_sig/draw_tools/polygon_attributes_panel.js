@@ -1,8 +1,8 @@
-// Path: js\controls_sig\draw_tools\polygon_attributes_panel.js
+// Path: js/controls_sig/draw_tools/polygon_attributes_panel.js
 
-import { 
-    createSliderWithInput, 
-    createColorPicker, 
+import {
+    createSliderWithInput,
+    createColorPicker,
     createCheckbox,
     createAttributeRow,
     createStandardButtons,
@@ -14,13 +14,21 @@ import {
 } from '../tool_manager/attribute_panel_helpers.js';
 import { openHatchConfigModal } from '../tool_manager/hatch_config_modal.js';
 
+/**
+ * Add polygon attributes to the attributes panel
+ * @param {HTMLElement} panel - Panel container element
+ * @param {Array} selectedFeatures - Array of selected polygon features
+ * @param {Object} polygonControl - Polygon control instance
+ * @param {Object} selectionManager - Selection manager instance
+ * @param {Object} uiManager - UI manager instance
+ */
 export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) {
         return;
     }
 
     const feature = selectedFeatures[0];
-    
+
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
     if (selectedFeatures.length === 1) {
@@ -38,23 +46,23 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
-        
+
         const infoText = document.createElement('div');
         infoText.className = 'feature-name-wrapper';
         infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
         infoText.textContent = `${selectedFeatures.length} polígonos selecionados`;
-        
+
         const optionsButton = createFeatureOptionsButton(
             selectedFeatures,
             selectionManager,
             uiManager
         );
-        
+
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
         $(panel).append(multiSelectHeader);
     }
-    
+
     const fillColorInput = createColorPicker(feature.properties.color, (e) => {
         polygonControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
     });

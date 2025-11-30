@@ -1,4 +1,5 @@
-// Path: js\controls_sig\visibility_tool\add_visibility_control.js
+// Path: js/controls_sig/visibility_tool/add_visibility_control.js
+
 import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addVisibilityAttributesToPanel } from './visibility_attributes_panel.js';
@@ -9,32 +10,24 @@ class AddVisibilityControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // State management
         this.startPoint = null;
-
-        // Geometry handler
         this.geometry = new AddVisibilityGeometry();
 
-        // Performance optimization - RAF system
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
 
-        // Async operation queue to prevent race conditions (following LOS pattern)
         this.recalculateQueue = Promise.resolve();
 
-        // Debounce system for observer height changes
         this.observerHeightDebounceTimer = null;
-        this.OBSERVER_HEIGHT_DEBOUNCE_DELAY = 1000; // 1 second
+        this.OBSERVER_HEIGHT_DEBOUNCE_DELAY = 1000;
 
-        // Progress modal components
         this.progressModal = null;
         this.progressBar = null;
         this.progressText = null;
 
-        // Store reference in toolManager for terrain integration
         this.toolManager.visibilityControl = this;
     }
 
@@ -95,11 +88,11 @@ class AddVisibilityControl extends BaseControl {
             this.selectionManager.uiManager.removeControl(this.container);
             this.deactivate();
             this.removeAllEventListeners();
-            
+
             if (this.progressModal && this.progressModal.parentNode) {
                 this.progressModal.parentNode.removeChild(this.progressModal);
             }
-            
+
             this.map = undefined;
         } catch (error) {
             console.error('Error removing AddVisibilityControl:', error);
@@ -130,7 +123,7 @@ class AddVisibilityControl extends BaseControl {
     }
 
     getEditHandleSources() {
-        return []; // Visibility doesn't have edit handles
+        return [];
     }
 
     createSelectionBox(feature) {
@@ -161,7 +154,7 @@ class AddVisibilityControl extends BaseControl {
     }
 
     getEditHandleSource() {
-        return null; // Visibility doesn't have edit handles
+        return null;
     }
 
     canCopy(feature) {
@@ -179,7 +172,6 @@ class AddVisibilityControl extends BaseControl {
         const newCenter = [oldCenter[0] + offset.dx, oldCenter[1] + offset.dy];
 
         try {
-            // Recalculate visibility with new position (async)
             const result = await this.geometry.recalculateFromCoordinates(newCenter, feature, this.map);
 
             return {
@@ -210,19 +202,16 @@ class AddVisibilityControl extends BaseControl {
     }
 
     /**
-     * Update feature for immediate move (following LOS pattern exactly)
-     * Returns translated feature with updated geometry for immediate visual feedback
+     * Update feature for immediate move with translated geometry
      * @param {Object} feature - Original feature
      * @param {number} dx - Longitude delta
-     * @param {number} dy - Latitude delta 
+     * @param {number} dy - Latitude delta
      * @param {Object} newCoords - New coordinates object
      * @returns {Object} Updated feature with translated geometry
      */
     updateFeatureForMove(feature, dx, dy, newCoords) {
-        // Update center position
         const newCenter = [newCoords.lng, newCoords.lat];
 
-        // Translate geometry immediately using new method (following LOS pattern)
         const translatedGeometry = this.geometry.translateGeometry(feature.geometry, dx, dy);
 
         return {
@@ -232,7 +221,6 @@ class AddVisibilityControl extends BaseControl {
                 center: newCenter
             },
             geometry: translatedGeometry
-            // Keep original cellData temporarily - will be recalculated in syncEditHandlesAfterDrag
         };
     }
 
@@ -244,7 +232,7 @@ class AddVisibilityControl extends BaseControl {
 
     activate = () => {
         if (!this.geometry.isTerrainAvailable(this.map)) {
-            return false; // Block activation
+            return false;
         }
         this.isActive = true;
         this.startPoint = null;
@@ -264,12 +252,10 @@ class AddVisibilityControl extends BaseControl {
         const terrainEnabled = this.geometry.isTerrainAvailable(this.map);
 
         if (!terrainEnabled) {
-            // Disabled state
             this.container.classList.add('disabled');
             this.container.querySelector('button').disabled = true;
             $("#visibility-tool").html('<img class="icon-sig-tool" src="./images/icon_visibility_disabled.svg" alt="VISIBILITY DISABLED" />');
         } else {
-            // Normal state
             this.container.classList.remove('disabled');
             this.container.querySelector('button').disabled = false;
 
@@ -283,39 +269,34 @@ class AddVisibilityControl extends BaseControl {
     // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        // Visibility features don't need special selection handling
     }
 
     onFeatureDeselected = (feature) => {
-        // No special cleanup needed
     }
 
     onGlobalDeselect = () => {
-        // No special cleanup needed
     }
 
     isEditingMode = () => {
-        return false; // Visibility doesn't have edit handles
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return false; // Visibility doesn't have edit handles
+        return false;
     }
 
     /**
-     * Sync edit handles after drag (following LOS pattern exactly)
-     * Uses queued async operations to prevent race conditions
+     * Sync edit handles after drag using queued async operations
      * @param {Array} movedFeatures - Array of moved features
      */
     syncEditHandlesAfterDrag = async (movedFeatures) => {
-        // Queue async recalculation operations to prevent race conditions (LOS pattern)
         this.recalculateQueue = this.recalculateQueue.then(async () => {
             await this.recalculateMovedVisibilityFeatures(movedFeatures);
         });
     }
 
     /**
-     * Recalculate visibility features after movement (following LOS pattern)
+     * Recalculate visibility features after movement
      * @param {Array} movedFeatures - Array of moved features
      */
     async recalculateMovedVisibilityFeatures(movedFeatures) {
@@ -324,23 +305,19 @@ class AddVisibilityControl extends BaseControl {
                 try {
                     const featureId = movedFeature.properties.id;
 
-                    // Show progress modal for long operations
                     this.showProgressModal();
                     this.updateProgress(5, 'Detectando nova posição...');
                     await this.geometry.delay(100);
 
-                    // CRITICAL FIX: Use center from properties (updated in updateFeatureForMove)
-                    // instead of extracting from geometry (following LOS pattern)
                     const newCenter = this.geometry.normalizeCenter(movedFeature.properties.center);
 
                     if (newCenter) {
                         this.updateProgress(10, 'Preparando recálculo...');
                         await this.geometry.delay(100);
 
-                        // Recalculate using geometry class with progress
                         const result = await this.geometry.recalculateFromCoordinates(
-                            newCenter, 
-                            movedFeature, 
+                            newCenter,
+                            movedFeature,
                             this.map,
                             (progress, text) => this.updateProgress(progress, text)
                         );
@@ -348,7 +325,6 @@ class AddVisibilityControl extends BaseControl {
                         this.updateProgress(80, 'Atualizando geometria...');
                         await this.geometry.delay(100);
 
-                        // Update main feature
                         movedFeature.geometry = result.geometry;
                         movedFeature.properties.center = result.center;
                         movedFeature.properties.cellData = result.cellData;
@@ -356,19 +332,16 @@ class AddVisibilityControl extends BaseControl {
                         this.updateProgress(85, 'Preparando features processadas...');
                         await this.geometry.delay(100);
 
-                        // Generate new processed features
                         const newProcessedFeatures = this.geometry.generateProcessedFeatures(movedFeature);
 
                         this.updateProgress(90, 'Salvando no banco de dados...');
                         await this.geometry.delay(100);
 
-                        // Save using batch operation (always use batchUpdate)
                         await batchUpdateVisibilityFeatures(movedFeature, newProcessedFeatures);
 
                         this.updateProgress(95, 'Atualizando fontes do mapa...');
                         await this.geometry.delay(100);
 
-                        // Update processed features on map
                         await this.updateProcessedFeaturesAfterMove(movedFeature, newProcessedFeatures);
 
                         this.updateProgress(100, 'Recálculo concluído!');
@@ -385,30 +358,24 @@ class AddVisibilityControl extends BaseControl {
     }
 
     /**
-     * Update processed features after main feature movement (following LOS pattern)
+     * Update processed features after main feature movement
      * @param {Object} mainFeature - Updated main visibility feature
      * @param {Array} newProcessedFeatures - New processed features array
      */
     async updateProcessedFeaturesAfterMove(mainFeature, newProcessedFeatures = null) {
         const processedData = await this.map.getSource('processed-visibility').getData();
 
-        // Remove old processed features (exact pattern from LOS)
         processedData.features = processedData.features.filter(f =>
             !f.properties.id.startsWith(mainFeature.properties.id + '-')
         );
 
-        // Generate new processed features if not provided
         const processedFeatures = newProcessedFeatures || this.geometry.generateProcessedFeatures(mainFeature);
 
-        // Add new processed features to data
         processedFeatures.forEach(processedFeature => {
             processedData.features.push(processedFeature);
         });
 
-        // Update map source
         this.map.getSource('processed-visibility').setData(processedData);
-
-        // Note: Features are already saved via batchUpdateVisibilityFeatures in the calling method
     }
 
     // ===== DRAWING SYSTEM =====
@@ -430,7 +397,6 @@ class AddVisibilityControl extends BaseControl {
         }
     }
 
-    // RAF-based preview system following standard pattern
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
@@ -449,7 +415,6 @@ class AddVisibilityControl extends BaseControl {
             return;
         }
 
-        // Standard 8ms debounce - no terrain calculations in preview
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
             const previewCoordinates = this.geometry.calculateSectorCoordinates(this.lastPreviewCenter, this.lastPreviewPosition);
@@ -487,9 +452,8 @@ class AddVisibilityControl extends BaseControl {
 
     createFeature = async (startPoint, endPoint) => {
         try {
-            // Show progress modal at start
             this.showProgressModal();
-            
+
             const featureId = IDUtils.generateUniqueId();
             const featureName = await IDUtils.generateFeatureName('visibility', this.map);
 
@@ -500,11 +464,10 @@ class AddVisibilityControl extends BaseControl {
                 layerId: getActiveLayerIdSync(),
             };
 
-            // Create complete visibility feature with geometry using geometry class
             const visibilityFeature = await this.geometry.createVisibilityFeature(
-                startPoint, 
-                endPoint, 
-                properties, 
+                startPoint,
+                endPoint,
+                properties,
                 this.map,
                 (progress, text) => this.updateProgress(progress, text)
             );
@@ -512,20 +475,17 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(80, 'Preparando features processadas...');
             await this.geometry.delay(100);
 
-            // Create processed features
             const processedFeatures = this.geometry.generateProcessedFeatures(visibilityFeature);
 
             this.updateProgress(85, 'Salvando no banco de dados...');
             await this.geometry.delay(100);
 
-            // Save main feature and processed features using batch operation
             await addFeature('visibility', visibilityFeature);
             await batchUpdateVisibilityFeatures(visibilityFeature, processedFeatures);
 
             this.updateProgress(90, 'Atualizando mapa...');
             await this.geometry.delay(50);
 
-            // Update main source
             const data = await this.map.getSource('visibility').getData();
             data.features.push(visibilityFeature);
             this.map.getSource('visibility').setData(data);
@@ -533,7 +493,6 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(95, 'Atualizando células processadas...');
             await this.geometry.delay(100);
 
-            // Update processed source
             const processedData = await this.map.getSource('processed-visibility').getData();
             processedFeatures.forEach(processedFeature => {
                 processedData.features.push(processedFeature);
@@ -543,7 +502,6 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(100, 'Concluído!');
             await this.geometry.delay(300);
 
-            // Select new feature
             this.selectionManager.toggleFeatureSelection('visibility', visibilityFeature.properties.id, visibilityFeature);
             this.selectionManager.updateUI();
 
@@ -560,30 +518,28 @@ class AddVisibilityControl extends BaseControl {
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = (features, property, value) => {
-        // Check if observer height is changing (requires debounced recalculation)
         if (property === 'observerHeight') {
-            // Cancel previous debounced recalculation
             if (this.observerHeightDebounceTimer) {
                 clearTimeout(this.observerHeightDebounceTimer);
             }
-            
-            // Update property immediately for UI responsiveness
+
             this.updatePropertyImmediately(features, property, value);
-            
-            // Schedule debounced recalculation
+
             this.observerHeightDebounceTimer = setTimeout(() => {
                 this.recalculateForObserverHeight(features, value);
             }, this.OBSERVER_HEIGHT_DEBOUNCE_DELAY);
-            
+
             return;
         }
-        
-        // For other properties, update immediately without recalculation
+
         this.updatePropertyImmediately(features, property, value);
     }
 
     /**
      * Update property immediately without recalculation (for UI responsiveness)
+     * @param {Array} features - Features to update
+     * @param {string} property - Property name
+     * @param {*} value - New value
      */
     updatePropertyImmediately = async (features, property, value) => {
         const data = await this.map.getSource('visibility').getData();
@@ -595,12 +551,11 @@ class AddVisibilityControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Update processed features properties (but not geometry)
                 const processedFeatures = processedData.features.filter(f =>
                     f.properties.id.startsWith(feature.properties.id + '-')
                 );
                 processedFeatures.forEach(processedFeature => {
-                    if (property !== 'color') { // Don't override specific colors
+                    if (property !== 'color') {
                         processedFeature.properties[property] = value;
                     }
                 });
@@ -610,7 +565,6 @@ class AddVisibilityControl extends BaseControl {
         this.map.getSource('visibility').setData(data);
         this.map.getSource('processed-visibility').setData(processedData);
 
-        // Update SelectionManager with fresh features
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             return sourceFeature || feature;
@@ -621,10 +575,11 @@ class AddVisibilityControl extends BaseControl {
 
     /**
      * Perform debounced recalculation for observer height changes
+     * @param {Array} features - Features to recalculate
+     * @param {number} newObserverHeight - New observer height value
      */
     recalculateForObserverHeight = async (features, newObserverHeight) => {
         try {
-            // Show progress modal
             this.showProgressModal();
             this.updateProgress(5, 'Detectando mudança de altura...');
             await this.geometry.delay(100);
@@ -639,7 +594,6 @@ class AddVisibilityControl extends BaseControl {
                         this.updateProgress(15, `Recalculando visibilidade (altura: ${newObserverHeight}m)...`);
                         await this.geometry.delay(100);
 
-                        // Recalculate viewshed with new observer height
                         const result = await this.geometry.recalculateFromCoordinates(
                             sourceFeature.properties.center,
                             sourceFeature,
@@ -650,7 +604,6 @@ class AddVisibilityControl extends BaseControl {
                         this.updateProgress(75, 'Atualizando geometria...');
                         await this.geometry.delay(100);
 
-                        // Update main feature
                         sourceFeature.geometry = result.geometry;
                         sourceFeature.properties.cellData = result.cellData;
                         feature.geometry = result.geometry;
@@ -659,24 +612,20 @@ class AddVisibilityControl extends BaseControl {
                         this.updateProgress(80, 'Preparando células processadas...');
                         await this.geometry.delay(100);
 
-                        // Generate new processed features
                         const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
 
                         this.updateProgress(85, 'Salvando no banco de dados...');
                         await this.geometry.delay(100);
 
-                        // Save using batch operation (always use batchUpdate)
                         await batchUpdateVisibilityFeatures(sourceFeature, newProcessedFeatures);
 
                         this.updateProgress(90, 'Atualizando células processadas...');
                         await this.geometry.delay(100);
 
-                        // Remove old processed features from data
                         processedData.features = processedData.features.filter(f =>
                             !f.properties.id.startsWith(feature.properties.id + '-')
                         );
 
-                        // Add new processed features to data
                         newProcessedFeatures.forEach(processedFeature => {
                             processedData.features.push(processedFeature);
                         });
@@ -693,7 +642,6 @@ class AddVisibilityControl extends BaseControl {
             this.map.getSource('visibility').setData(data);
             this.map.getSource('processed-visibility').setData(processedData);
 
-            // Update SelectionManager with fresh features
             const freshFeatures = features.map(feature => {
                 const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
                 return sourceFeature || feature;
@@ -729,28 +677,25 @@ class AddVisibilityControl extends BaseControl {
                         }
                     };
 
-                    // Get processed features
                     const processedFeatures = processedData.features.filter(pf =>
                         pf.properties.id.startsWith(selectedFeature.properties.id + '-')
                     );
 
-                    // Update processed features properties
                     const updatedProcessedFeatures = processedFeatures.map(pf => ({
                         ...pf,
                         properties: {
                             ...pf.properties,
                             ...selectedFeature.properties,
-                            id: pf.properties.id,              // Keep specific ID
-                            color: pf.properties.color         // Keep specific color
+                            id: pf.properties.id,
+                            color: pf.properties.color
                         }
                     }));
 
-                    // Always use batch operation
                     try {
                         await batchUpdateVisibilityFeatures(featureToSave, updatedProcessedFeatures);
                     } catch (error) {
                         console.error('Error saving visibility features with batch operation:', error);
-                        throw error; // Re-throw to maintain error handling
+                        throw error;
                     }
                 }
             }
@@ -776,7 +721,6 @@ class AddVisibilityControl extends BaseControl {
             }
         }
 
-        // Reload sources from store (safer approach - following LOS pattern)
         const currentMapFeatures = await getCurrentMapFeatures();
 
         this.map.getSource('visibility').setData({
@@ -829,7 +773,6 @@ class AddVisibilityControl extends BaseControl {
                 if (onlyUpdateProperties) {
                     Object.assign(data.features[featureIndex].properties, feature.properties);
 
-                    // Update processed features
                     const processedFeatures = processedData.features.filter(f =>
                         f.properties.id.startsWith(feature.properties.id + '-')
                     );
@@ -849,7 +792,6 @@ class AddVisibilityControl extends BaseControl {
                         f.properties.id.startsWith(feature.properties.id + '-')
                     );
 
-                    // Always use batch operation
                     await batchUpdateVisibilityFeatures(data.features[featureIndex], processedFeatures);
                 }
             }
@@ -968,25 +910,32 @@ class AddVisibilityControl extends BaseControl {
 
     setupBaseEventListeners = () => {
         this.map.on('terrain', this._onTerrainChange);
-        this._onTerrainChange(); // Initial check
+        this._onTerrainChange();
     }
 
     _onTerrainChange = () => {
         this.updateButtonAppearance();
 
-        // If tool is active but terrain is disabled, deactivate
         if (this.isActive && !this.geometry.isTerrainAvailable(this.map)) {
             this.toolManager.setActiveTool(null);
         }
     }
 
-    // ===== SELECTION MANAGER INTEGRATION (following LOS pattern) =====
+    // ===== SELECTION MANAGER INTEGRATION =====
 
+    /**
+     * Update SelectionManager with current feature data
+     * @param {Object} feature - Feature to update in SelectionManager
+     */
     updateSelectionManagerFeature(feature) {
         const key = `visibility:${feature.properties.id}`;
         this.selectionManager.selectedFeatures.set(key, { type: 'visibility', feature });
     }
 
+    /**
+     * Update SelectionManager with multiple features
+     * @param {Array} features - Features to update in SelectionManager
+     */
     updateSelectionManagerFeatures(features) {
         features.forEach(feature => {
             if (feature.properties.source === 'visibility') {
@@ -1011,7 +960,6 @@ class AddVisibilityControl extends BaseControl {
             this.geometryDebounceTimer = null;
         }
 
-        // Cancel observer height debounce timer
         if (this.observerHeightDebounceTimer) {
             clearTimeout(this.observerHeightDebounceTimer);
             this.observerHeightDebounceTimer = null;

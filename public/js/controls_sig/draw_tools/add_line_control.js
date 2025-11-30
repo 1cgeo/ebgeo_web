@@ -1,4 +1,4 @@
-// Path: js\controls_sig\draw_tools\add_line_control.js
+// Path: js/controls_sig/draw_tools/add_line_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
@@ -11,25 +11,20 @@ class AddLineControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // State management
         this.drawPoints = [];
         this.isDraggingHandle = false;
-        this.activeHandle = null;      // Store complete handle object
-        this.activeHandleType = null;  // Handle type string
+        this.activeHandle = null;
+        this.activeHandleType = null;
 
-        // Geometry handler
         this.geometry = new AddLineGeometry();
 
-        // Performance optimization - RAF system
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.geometryDebounceTimer = null;
-        
-        // Profile calculation state
+
         this.isCalculatingProfile = false;
-        
-        // NOVO: Drag recalculation timeout para debouncing (seguindo padrão LOS)
+
         this.dragRecalculateTimeout = null;
     }
 
@@ -53,6 +48,7 @@ class AddLineControl extends BaseControl {
 
     /**
      * Get currently selected line feature from SelectionManager
+     * @param {void}
      * @returns {Object|null} Selected line feature or null
      */
     getSelectedFeature() {
@@ -62,6 +58,7 @@ class AddLineControl extends BaseControl {
 
     /**
      * Get all selected line features from SelectionManager
+     * @param {void}
      * @returns {Array} Array of selected line features
      */
     getSelectedFeatures() {
@@ -144,7 +141,7 @@ class AddLineControl extends BaseControl {
     }
 
     getSelectionBoxPadding() {
-        return 8; // Slightly larger padding for lines
+        return 8;
     }
 
     getLayerIds() {
@@ -273,15 +270,15 @@ class AddLineControl extends BaseControl {
     }
 
     /**
-     * IMPLEMENTAÇÃO SEGUINDO PADRÃO LOS: Recálculo assíncrono após drag
-     * Garante que o painel de perfil seja atualizado após o recálculo completo
+     * Recalculate line profiles asynchronously after drag operation
+     * Ensures profile panel is updated with fresh data after recalculation
+     * @param {Array} movedFeatures - Features that were moved
+     * @returns {Promise<void>}
      */
     syncEditHandlesAfterDrag = async (movedFeatures) => {
-        // Verificar se há features Line que precisam de recálculo
         const lineFeatures = movedFeatures.filter(f => f.properties.source === 'line');
-        
+
         if (lineFeatures.length === 0) {
-            // Se é selecionado e não é drag, recrear handles normalmente
             const selectedFeature = this.getSelectedFeature();
             if (selectedFeature && !this.isDraggingHandle) {
                 this.createEditHandles(selectedFeature);
@@ -289,103 +286,92 @@ class AddLineControl extends BaseControl {
             return;
         }
 
-        // Debounce para múltiplos drags rápidos (seguindo padrão LOS)
         clearTimeout(this.dragRecalculateTimeout);
         this.dragRecalculateTimeout = setTimeout(async () => {
             this.showRecalculatingState();
-            
+
             try {
                 const updatedFeatures = await this.recalculateMovedLineFeatures(lineFeatures);
-                
-                // Update
+
                 this.updateSelectionManagerFeatures(updatedFeatures);
-                
-                // Forçar atualização do UI/painel com dados frescos (seguindo padrão LOS)
+
                 this.selectionManager.updateUI();
-                
-                // Recrear handles se necessário
+
                 const selectedFeature = this.getSelectedFeature();
                 if (selectedFeature && !this.isDraggingHandle) {
                     this.createEditHandles(selectedFeature);
                 }
-                
+
             } catch (error) {
                 console.error('Error recalculating Line profile after drag:', error);
             } finally {
                 this.hideRecalculatingState();
             }
-        }, 50); // 50ms debounce para responsividade (igual ao LOS)
+        }, 50);
     }
 
     /**
-     * NOVO: Mostrar estado de recálculo (seguindo padrão LOS)
+     * Show recalculation state with visual feedback
      */
     showRecalculatingState() {
         this.map.getCanvas().style.cursor = 'wait';
-        
-        // Temporariamente desabilitar interações durante recálculo
+
         this.map.off('click', this.handleMapClick);
-        
-        // Opcional: mostrar indicador visual
+
         if (this.container) {
             this.container.classList.add('recalculating');
         }
     }
 
     /**
-     * NOVO: Esconder estado de recálculo (seguindo padrão LOS)
+     * Hide recalculation state and restore normal interaction
      */
     hideRecalculatingState() {
         this.map.getCanvas().style.cursor = this.isActive ? 'crosshair' : '';
-        
-        // Re-habilitar interações
+
         if (this.isActive) {
             this.map.on('click', this.handleMapClick);
         }
-        
+
         if (this.container) {
             this.container.classList.remove('recalculating');
         }
     }
 
     /**
-     * NOVO: Recalcular Line features após movimento e retornar features atualizados (seguindo padrão LOS)
-     * @param {Array} movedFeatures - Array of moved Line features
-     * @returns {Array} Array of updated features
+     * Recalculate line profiles after movement
+     * @param {Array} movedFeatures - Array of moved line features
+     * @returns {Promise<Array>} Array of updated features
      */
     async recalculateMovedLineFeatures(movedFeatures) {
         const updatedFeatures = [];
-        
+
         for (const movedFeature of movedFeatures) {
             if (movedFeature.properties.source === 'line') {
                 try {
                     const coordinates = this.geometry.normalizeBaseCoordinates(movedFeature.properties.baseCoordinates);
                     if (coordinates && coordinates.length >= 2) {
-                        
-                        // CRÍTICO: Recalcular perfil se habilitado (seguindo padrão LOS)
+
                         if (movedFeature.properties.profile) {
                             const newProfileData = await this.calculateProfile(coordinates);
                             movedFeature.properties.profileData = JSON.stringify(newProfileData);
                         }
 
-                        // Save
                         await updateFeature('lines', movedFeature);
 
-                        // Update
                         if (movedFeature.properties.measure) {
                             this.updateFeatureMeasurement(movedFeature);
                         }
-                        
+
                         updatedFeatures.push(movedFeature);
                     }
                 } catch (error) {
                     console.error('Error recalculating Line profile after movement:', error);
-                    // Continuar com próxima feature mesmo se uma falhar
                     updatedFeatures.push(movedFeature);
                 }
             }
         }
-        
+
         return updatedFeatures;
     }
 
@@ -401,7 +387,6 @@ class AddLineControl extends BaseControl {
 
         const newPoint = [e.lngLat.lng, e.lngLat.lat];
 
-        // Check if point is too close to last point
         if (this.geometry.isPointTooClose(newPoint, this.drawPoints)) {
             return;
         }
@@ -411,7 +396,6 @@ class AddLineControl extends BaseControl {
         if (this.drawPoints.length === 1) {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length >= 2) {
-            // Update preview to show current line
             this.updateDrawingPreview();
         }
     }
@@ -437,7 +421,6 @@ class AddLineControl extends BaseControl {
             this.drawPoints.push(finalPoint);
         }
 
-        // Finish line if we have at least 2 points
         if (this.drawPoints.length >= 2) {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
@@ -566,7 +549,7 @@ class AddLineControl extends BaseControl {
 
     deselectFeature = () => {
         this.isDraggingHandle = false;
-        this.activeHandle = null;         // Reset handle object
+        this.activeHandle = null;
         this.activeHandleType = null;
         this.clearEditHandles();
         this.removeEditEventListeners();
@@ -580,7 +563,6 @@ class AddLineControl extends BaseControl {
         const handles = this.geometry.createHandles(feature);
         if (!handles || handles.length === 0) return;
 
-        // Show selection feedback
         this.map.getSource('line-feedback').setData({
             type: 'Feature',
             geometry: feature.geometry,
@@ -590,7 +572,6 @@ class AddLineControl extends BaseControl {
             }
         });
 
-        // Show handles
         this.map.getSource('line-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -631,8 +612,8 @@ class AddLineControl extends BaseControl {
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
-            this.activeHandle = handle;                           // Store complete handle object
-            this.activeHandleType = handle.properties.handleId;   // Store handleId (like "vertex-0", "midpoint-1")
+            this.activeHandle = handle;
+            this.activeHandleType = handle.properties.handleId;
             this.map.dragPan.disable();
             this.map.getCanvas().style.cursor = 'grabbing';
             e.preventDefault();
@@ -651,20 +632,19 @@ class AddLineControl extends BaseControl {
         }
     }
 
-    // ===== EDIT COMPLETION COM RECÁLCULO ASYNC (SEGUINDO PADRÃO LOS) =====
+    /**
+     * Complete edit operation and recalculate profile if enabled
+     */
     onEditMouseUp = async () => {
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
             try {
-                // Apply geometry changes directly
                 this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
-                
-                // Get updated coordinates from feature
+
                 const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
                 const result = this.geometry.updateFromHandle(this.activeHandleType, this.lastPreviewPosition, selectedFeature);
 
                 if (result) {
-                    // Create updated feature with new coordinates
                     let updatedFeature = {
                         ...selectedFeature,
                         properties: {
@@ -674,31 +654,26 @@ class AddLineControl extends BaseControl {
                         geometry: result.geometry
                     };
 
-                    // CRÍTICO: Calculate profile ANTES do UI update se profile habilitado
                     if (updatedFeature.properties.profile && !this.isCalculatingProfile) {
                         try {
                             this.isCalculatingProfile = true;
-                            
+
                             const newProfileData = await this.calculateProfile(result.baseCoordinates);
                             updatedFeature.properties.profileData = JSON.stringify(newProfileData);
-                            
+
                         } catch (error) {
                             console.error('Error recalculating profile:', error);
-                            // Continue with update even if profile calculation fails
                         } finally {
                             this.isCalculatingProfile = false;
                         }
                     }
 
-                    // Update everything with complete feature data (including fresh profile)
                     await this.forceUpdateMainSource(updatedFeature);
                     this.updateSelectionManagerFeature(updatedFeature);
                     this.createEditHandles(updatedFeature);
-                    
-                    // UI update now has correct profile data
+
                     this.updateUIAfterEdit();
-                    
-                    // Save changes (no profile recalculation needed here)
+
                     this.saveFeatureChanges(updatedFeature);
                     this.updateFeatureMeasurement(updatedFeature);
                 }
@@ -707,7 +682,6 @@ class AddLineControl extends BaseControl {
             }
         }
 
-        // Reset drag state
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;
@@ -721,15 +695,12 @@ class AddLineControl extends BaseControl {
             return;
         }
 
-        // Update geometry in feature directly (like Arrow Tool)
         this.updateGeometryFromHandle(this.activeHandleType, newPosition);
 
-        // Calculate preview
         const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
         const preview = this.geometry.calculatePreview(this.activeHandleType, newPosition, selectedFeature);
 
         if (preview) {
-            // Show updated selection
             this.map.getSource('line-feedback').setData({
                 type: 'Feature',
                 geometry: preview.geometry,
@@ -739,7 +710,6 @@ class AddLineControl extends BaseControl {
                 }
             });
 
-            // Update handles
             this.map.getSource('line-edit-handles').setData({
                 type: 'FeatureCollection',
                 features: preview.handles
@@ -747,7 +717,6 @@ class AddLineControl extends BaseControl {
         }
     }
 
-    // Handle conversion logic (like Arrow Tool)
     updateGeometryFromHandle = (handleId, newPosition) => {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
@@ -755,32 +724,28 @@ class AddLineControl extends BaseControl {
         let coords = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
         if (!coords || coords.length < 2) return;
 
-        coords = [...coords]; // Create copy
+        coords = [...coords];
 
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
             if (handleId.startsWith('vertex-')) {
-                // Move existing vertex
                 const index = parseInt(handleId.split('-')[1]);
                 if (index >= 0 && index < coords.length) {
                     coords[index] = newPosition;
                     selectedFeature.properties.baseCoordinates = coords;
                 }
             } else if (handleId.startsWith('midpoint-')) {
-                // Add new vertex
                 const insertIndex = parseInt(handleId.split('-')[1]) + 1;
                 coords.splice(insertIndex, 0, newPosition);
                 selectedFeature.properties.baseCoordinates = coords;
 
-                // CRITICAL: Convert handle from midpoint → vertex
                 if (this.activeHandle && this.activeHandle.properties) {
                     this.activeHandle.properties.handleType = 'vertex';
                     this.activeHandle.properties.handleId = `vertex-${insertIndex}`;
-                    this.activeHandleType = `vertex-${insertIndex}`;  // Synchronize
+                    this.activeHandleType = `vertex-${insertIndex}`;
                 }
             }
 
-            // Update geometry
             selectedFeature.geometry = this.geometry.generate(coords);
         }, 8);
     }
@@ -830,6 +795,11 @@ class AddLineControl extends BaseControl {
 
     // ===== PROFILE CALCULATION =====
 
+    /**
+     * Calculate terrain elevation profile for line
+     * @param {Array} coordinates - Line coordinates
+     * @returns {Promise<Array>} Profile data with distance and elevation
+     */
     async calculateProfile(coordinates) {
         const line = turf.lineString(coordinates);
         const length = turf.length(line, { units: 'meters' });
@@ -918,14 +888,12 @@ class AddLineControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // If changing geometry properties, recalculate geometry
                 if (property === 'baseCoordinates') {
                     const newGeometry = this.geometry.generate(sourceFeature.properties.baseCoordinates);
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
                 }
 
-                // CRÍTICO: Recalcular perfil quando property profile é habilitada (seguindo padrão anterior)
                 if (property === 'profile' && value === true) {
                     try {
                         const coordinates = this.geometry.normalizeBaseCoordinates(sourceFeature.properties.baseCoordinates);
@@ -941,7 +909,6 @@ class AddLineControl extends BaseControl {
 
         this.map.getSource('lines').setData(data);
 
-        // Update measurement if property changed
         if (property === 'measure') {
             features.forEach(f => {
                 if (value) {
@@ -952,15 +919,12 @@ class AddLineControl extends BaseControl {
             });
         }
 
-        // CRÍTICO: Update profile panel explicitamente após mudanças na property profile
         if (property === 'profile' && this.selectionManager) {
-            // Force profile panel update com dados frescos (seguindo padrão anterior)
             setTimeout(() => {
                 this.selectionManager.updateProfile();
-            }, 100); // Small delay para garantir que dados foram atualizados
+            }, 100);
         }
 
-        // Update SelectionManager with fresh features
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             return sourceFeature || feature;
@@ -1006,7 +970,6 @@ class AddLineControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
 
-                // Remove measurement label
                 this.removeFeatureMeasurement(featureId);
 
                 await removeFeature('lines', featureId);
@@ -1092,8 +1055,7 @@ class AddLineControl extends BaseControl {
         }
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
-        
-        // CRITICAL FIX: Only reset activeHandle if NOT currently dragging
+
         if (!this.isDraggingHandle) {
             this.activeHandle = null;
             this.activeHandleType = null;
@@ -1104,7 +1066,6 @@ class AddLineControl extends BaseControl {
             this.geometryDebounceTimer = null;
         }
 
-        // NOVO: Cancel drag recalculation timeout (seguindo padrão LOS)
         if (this.dragRecalculateTimeout) {
             clearTimeout(this.dragRecalculateTimeout);
             this.dragRecalculateTimeout = null;
@@ -1134,10 +1095,8 @@ class AddLineControl extends BaseControl {
         this.selectionManager.updateUI();
     }
 
-    // SIMPLIFICADO: saveFeatureChanges sem recálculo de perfil (seguindo padrão LOS)
     saveFeatureChanges = async (feature) => {
         try {
-            // Profile data já deve estar calculado neste ponto
             await updateFeature('lines', feature);
         } catch (error) {
             console.error('Error saving line changes:', error);
@@ -1145,7 +1104,6 @@ class AddLineControl extends BaseControl {
     }
 
     setupBaseEventListeners = () => {
-        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {

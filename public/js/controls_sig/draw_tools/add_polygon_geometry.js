@@ -342,7 +342,7 @@ class AddPolygonGeometry extends BaseGeometry {
                 closedCoordinates.push(coordinates[0]);
             }
 
-            const polygon = turf.polygon([closedCoordinates]); // ✅ Coordenadas "fechadas"
+            const polygon = turf.polygon([closedCoordinates]);
             const centroid = turf.centroid(polygon);
             return centroid.geometry.coordinates;
         } catch (error) {

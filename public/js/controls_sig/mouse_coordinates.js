@@ -1,4 +1,4 @@
-// Path: js\controls_sig\mouse_coordinates.js
+// Path: js/controls_sig/mouse_coordinates.js
 import {
     COORDINATE_FORMATS,
     getPlaceholderForFormat,
@@ -18,7 +18,7 @@ class MouseCoordinatesControl {
         this._innerContainer = null;
         this._formatSelector = null;
         this._coordinatesText = null;
-        this._currentFormat = 'latlong'; // Default format
+        this._currentFormat = 'latlong';
         this._formatOptions = COORDINATE_FORMATS;
         this._modal = null;
         this._currentCoordinates = { lat: 0, lng: 0 };
@@ -26,7 +26,6 @@ class MouseCoordinatesControl {
         this._coordinationMeasureControl = coordinationMeasureControl;
         this._militarySymbolControl = militarySymbolControl;
 
-        // Elevation properties
         this._elevationEnabled = false;
         this._terrainAvailable = false;
         this._elevationButton = null;
@@ -34,7 +33,6 @@ class MouseCoordinatesControl {
         this._debounceTimer = null;
         this._elevationAbortController = null;
 
-        //controls
         this.frameControl = null;
         this.gridControl = null;
     }
@@ -44,7 +42,6 @@ class MouseCoordinatesControl {
         this._container = document.createElement('div');
         this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group coordinates-control';
 
-        // CSS para centralizar na parte inferior
         this._container.style.cssText = `
         position: fixed !important;
         bottom: 10px !important;
@@ -54,30 +51,24 @@ class MouseCoordinatesControl {
             margin: 0 !important;
             `;
 
-            // Create inner container for the coordinates display
             this._innerContainer = document.createElement('div');
             this._innerContainer.className = 'coordinates-display';
 
-        // Create element for coordinates display
         this._coordinatesText = document.createElement('div');
         this._coordinatesText.className = 'coordinates-text';
 
-        // Create controls container
         const controlsContainer = document.createElement('div');
         controlsContainer.className = 'coordinates-controls';
 
-        // Create controls container
         const gridContainer = document.createElement('div');
         gridContainer.className = 'coordinates-controls';
 
-        // Create fly-to button
         const flyToButton = document.createElement('div');
         flyToButton.className = 'coordinates-button coordinates-flyto-button';
         flyToButton.title = "Ir para coordenadas";
         flyToButton.innerHTML = `<img src="./images/fly_to_icon.svg" alt="Fly to" width="16" height="16" />`;
         flyToButton.addEventListener('click', this._openFlyToModal.bind(this));
 
-        // Create elevation toggle button
         this._elevationButton = document.createElement('div');
         this._elevationButton.className = 'coordinates-button coordinates-elevation-button';
         this._elevationButton.title = "Mostrar elevação (terreno necessário)";
@@ -85,14 +76,12 @@ class MouseCoordinatesControl {
         this._elevationButton.style.fontSize = '14px';
         this._elevationButton.addEventListener('click', this._toggleElevation.bind(this));
 
-        // Create gear icon button
         const gearButton = document.createElement('div');
         gearButton.className = 'coordinates-button coordinates-gear-button';
         gearButton.title = "Mudar formato de coordenadas";
         gearButton.innerHTML = `<img src="./images/gear_icon.svg" alt="Settings" width="16" height="16" />`;
         gearButton.addEventListener('click', this._toggleFormatSelector.bind(this));
 
-        // Create grid icon button
         if (config.features.grid) {
             this.gridControl = new GridControl(map, gridContainer);
             const gridButton = document.createElement('div');
@@ -105,7 +94,6 @@ class MouseCoordinatesControl {
         }
 
         if (config.features.frame){
-            // Create frame icon button
             this.frameControl = new FrameControl(map, gridContainer);
             const frameButton = document.createElement('div');
             frameButton.className = 'coordinates-button coordinates-grid-button';
@@ -116,13 +104,9 @@ class MouseCoordinatesControl {
             gridContainer.appendChild(frameButton);
         }
 
-
-
-        // Create format selector dropdown (initially hidden)
         this._formatSelector = document.createElement('div');
         this._formatSelector.className = 'coordinates-format-selector';
 
-        // Add format options to the selector
         this._formatOptions.forEach(format => {
             const option = document.createElement('div');
             option.className = 'coordinates-format-option';
@@ -132,7 +116,6 @@ class MouseCoordinatesControl {
             option.textContent = format.label;
             option.dataset.format = format.id;
 
-            // Event listeners for the option
             option.addEventListener('click', (e) => {
                 this._setFormat(format.id);
                 this._formatSelector.style.display = 'none';
@@ -163,19 +146,14 @@ class MouseCoordinatesControl {
         this._container.appendChild(this._innerContainer);
         this._container.appendChild(this._formatSelector);
 
-        // Create the fly-to modal (hidden initially)
         this._createFlyToModal();
 
-        // Add click listener to close the dropdown when clicking outside
         document.addEventListener('click', this._closeFormatSelector.bind(this));
 
-        // Bind mousemove event to update coordinates
         this._map.on('mousemove', this._onMouseMove.bind(this));
 
-        // Check terrain availability and setup elevation button
         this._checkTerrainAvailability();
 
-        // Initial coordinates display
         this._updateCoordinates(0, 0);
 
         return this._container;
@@ -183,7 +161,7 @@ class MouseCoordinatesControl {
 
     async _checkTerrainAvailability() {
         this._map.on('terrain', this._onTerrainChange);
-        this._onTerrainChange(); // Initial state
+        this._onTerrainChange();
     }
 
     _onTerrainChange = () => {
@@ -192,17 +170,14 @@ class MouseCoordinatesControl {
         this._terrainAvailable = terrainEnabled;
 
         if (terrainEnabled) {
-            // Terrain available - enable elevation button with normal icon
             this._elevationButton.innerHTML = `<img src="./images/elevation_icon.svg" alt="Elevation" width="16" height="16" />`;
             this._elevationButton.title = "Mostrar/ocultar elevação";
             this._elevationButton.disabled = false;
         } else {
-            // Terrain not available - disable button with grayed icon
             this._elevationButton.innerHTML = `<img src="./images/elevation_icon.svg" alt="Elevation" width="16" height="16" style="opacity: 0.3;" />`;
             this._elevationButton.title = "Elevação indisponível (terreno não carregado)";
             this._elevationButton.disabled = true;
 
-            // Reset elevation display if terrain is removed
             if (this._elevationEnabled) {
                 this._elevationEnabled = false;
                 this._currentElevation = null;
@@ -213,7 +188,7 @@ class MouseCoordinatesControl {
 
     _toggleElevation() {
         if (!this._terrainAvailable) {
-            return; // Do nothing if terrain is not available
+            return;
         }
 
         this._elevationEnabled = !this._elevationEnabled;
@@ -227,7 +202,6 @@ class MouseCoordinatesControl {
             this._currentElevation = null;
         }
 
-        // Trigger update
         this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
     }
 
@@ -259,16 +233,13 @@ class MouseCoordinatesControl {
     }
 
     _createFlyToModal() {
-        // Create modal backdrop
         this._modal = document.createElement('div');
         this._modal.className = 'coordinates-modal';
         this._modal.style.display = 'none';
 
-        // Create modal content container
         const modalContent = document.createElement('div');
         modalContent.className = 'coordinates-modal-content';
 
-        // Create modal header
         const modalHeader = document.createElement('div');
         modalHeader.className = 'coordinates-modal-header';
         const modalTitle = document.createElement('h3');
@@ -282,7 +253,6 @@ class MouseCoordinatesControl {
         modalHeader.appendChild(modalTitle);
         modalHeader.appendChild(closeButton);
 
-        // Create format selector
         const formatContainer = document.createElement('div');
         formatContainer.className = 'coordinates-modal-format';
         const formatLabel = document.createElement('label');
@@ -303,7 +273,6 @@ class MouseCoordinatesControl {
         formatContainer.appendChild(formatLabel);
         formatContainer.appendChild(formatSelect);
 
-        // Create input field
         const inputContainer = document.createElement('div');
         inputContainer.className = 'coordinates-modal-input';
         const inputLabel = document.createElement('label');
@@ -313,7 +282,6 @@ class MouseCoordinatesControl {
         input.id = 'coordinates-input';
         input.placeholder = getPlaceholderForFormat(this._currentFormat);
 
-        // Update placeholder when format changes
         formatSelect.addEventListener('change', (e) => {
             input.placeholder = getPlaceholderForFormat(e.target.value);
         });
@@ -321,12 +289,10 @@ class MouseCoordinatesControl {
         inputContainer.appendChild(inputLabel);
         inputContainer.appendChild(input);
 
-        // Create validation message area
         const validationMessage = document.createElement('div');
         validationMessage.className = 'coordinates-validation-message';
         validationMessage.id = 'coordinates-validation';
 
-        // Create buttons container - usando padrão do attribute panel helpers
         const buttonContainer = document.createElement('div');
         buttonContainer.className = 'coordinates-modal-buttons';
 
@@ -350,28 +316,26 @@ class MouseCoordinatesControl {
             }
         });
 
-        // Create type selector for the create button
         const createTypeSelect = document.createElement('select');
         createTypeSelect.id = 'coordinates-create-type';
         createTypeSelect.style.cssText = 'margin-left: 8px; padding: 8px; border-radius: 4px; border: 1px solid #ccc;';
-        
+
         const pointOption = document.createElement('option');
         pointOption.value = 'point';
         pointOption.textContent = 'Ponto';
-        
+
         const militaryOption = document.createElement('option');
         militaryOption.value = 'military';
         militaryOption.textContent = 'Simbologia militar';
-        
+
         const coordinationOption = document.createElement('option');
         coordinationOption.value = 'coordination';
         coordinationOption.textContent = 'Medida de coordenação';
-        
+
         createTypeSelect.appendChild(pointOption);
         createTypeSelect.appendChild(militaryOption);
         createTypeSelect.appendChild(coordinationOption);
 
-        // Create consolidated create button
         const createButton = document.createElement('button');
         createButton.textContent = 'Criar';
         createButton.classList.add('tool-button', 'pure-material-tool-button-contained');
@@ -387,8 +351,7 @@ class MouseCoordinatesControl {
             }
 
             const createType = createTypeSelect.value;
-            
-            // Call appropriate creation method based on selected type
+
             switch (createType) {
                 case 'point':
                     this._createPointAtCoordinates(coordinates.lng, coordinates.lat);
@@ -422,7 +385,6 @@ class MouseCoordinatesControl {
         buttonContainer.appendChild(createTypeSelect);
         buttonContainer.appendChild(cancelButton);
 
-        // Assemble modal
         modalContent.appendChild(modalHeader);
         modalContent.appendChild(formatContainer);
         modalContent.appendChild(inputContainer);
@@ -430,10 +392,8 @@ class MouseCoordinatesControl {
         modalContent.appendChild(buttonContainer);
         this._modal.appendChild(modalContent);
 
-        // Add modal to document body
         document.body.appendChild(this._modal);
 
-        // Close modal when clicking outside
         this._modal.addEventListener('click', (e) => {
             if (e.target === this._modal) {
                 this._modal.style.display = 'none';
@@ -466,24 +426,19 @@ class MouseCoordinatesControl {
 
     _openFlyToModal() {
         if (this._modal) {
-            // Set input to current format
             const formatSelect = document.getElementById('coordinates-format-select');
             formatSelect.value = this._currentFormat;
 
-            // Clear any previous input
             const input = document.getElementById('coordinates-input');
             input.placeholder = getPlaceholderForFormat(this._currentFormat);
             input.value = '';
 
-            // Clear validation message
             const validationMessage = document.getElementById('coordinates-validation');
             validationMessage.textContent = '';
             validationMessage.className = 'coordinates-validation-message';
 
-            // Show the modal
             this._modal.style.display = 'block';
 
-            // Focus the input
             setTimeout(() => {
                 input.focus();
             }, 100);
@@ -491,15 +446,13 @@ class MouseCoordinatesControl {
     }
 
     _flyToCoordinates(lng, lat) {
-        // Configurações do zoom para ponto criado
         const zoomOptions = {
             center: [lng, lat],
             zoom: Math.max(this._map.getZoom(), 14),
-            duration: 1500, // Animação de 1.5 segundos
-            essential: true // Não cancelar por outras interações
+            duration: 1500,
+            essential: true
         };
 
-        // Executar a navegação
         this._map.easeTo(zoomOptions);
     }
 
@@ -510,7 +463,6 @@ class MouseCoordinatesControl {
     }
 
     _closeFormatSelector(e) {
-        // Check if the click is outside the format selector and gear button
         if (this._formatSelector &&
             !this._formatSelector.contains(e.target) &&
             !e.target.closest('.coordinates-gear-button')) {
@@ -523,7 +475,6 @@ class MouseCoordinatesControl {
 
         this._currentFormat = formatId;
 
-        // Update the dropdown to highlight the selected option
         const options = this._formatSelector.querySelectorAll('.coordinates-format-option');
         options.forEach(option => {
             if (option.dataset.format === formatId) {
@@ -537,7 +488,6 @@ class MouseCoordinatesControl {
             }
         });
 
-        // Update the coordinates display with the new format
         if (this._map) {
             this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
         }
@@ -546,7 +496,6 @@ class MouseCoordinatesControl {
     async _onMouseMove(e) {
         this._currentCoordinates = { lat: e.lngLat.lat, lng: e.lngLat.lng };
 
-        // Get elevation if enabled
         if (this._elevationEnabled && this._terrainAvailable) {
             this._currentElevation = await this._getElevationDebounced(e.lngLat.lat, e.lngLat.lng);
         }
@@ -558,7 +507,6 @@ class MouseCoordinatesControl {
         this._coordinatesText.innerHTML = '';
 
         try {
-            // Add zoom level first
             const zoomSpan = document.createElement('span');
             zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
             this._coordinatesText.appendChild(zoomSpan);
@@ -571,7 +519,6 @@ class MouseCoordinatesControl {
                 this._coordinatesText.appendChild(span);
             });
 
-            // Add elevation if enabled and available
             if (this._elevationEnabled && this._currentElevation !== null) {
                 const elevSpan = document.createElement('span');
                 elevSpan.textContent = `Elev: ${Math.round(this._currentElevation)}m`;
@@ -579,7 +526,6 @@ class MouseCoordinatesControl {
             }
         } catch (error) {
             console.error('Error converting coordinates:', error);
-            // Fallback to lat/long if conversion fails
             const zoomSpan = document.createElement('span');
             zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
             this._coordinatesText.appendChild(zoomSpan);
@@ -593,7 +539,6 @@ class MouseCoordinatesControl {
             this._coordinatesText.appendChild(latSpan);
             this._coordinatesText.appendChild(lngSpan);
 
-            // Add elevation in fallback too
             if (this._elevationEnabled && this._currentElevation !== null) {
                 const elevSpan = document.createElement('span');
                 elevSpan.textContent = `Elev: ${Math.round(this._currentElevation)}m`;
@@ -602,7 +547,6 @@ class MouseCoordinatesControl {
         }
     }
 
-    // Public methods for external access
     getCurrentFormat() {
         return this._currentFormat;
     }
@@ -613,7 +557,6 @@ class MouseCoordinatesControl {
     }
 
     onRemove() {
-        // Clean up timers and controllers
         if (this._debounceTimer) {
             clearTimeout(this._debounceTimer);
         }

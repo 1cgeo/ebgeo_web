@@ -1,4 +1,4 @@
-// Path: js\controls_sig\boundary_tool\add_boundary_geometry.js
+// Path: js/controls_sig/boundary_tool/add_boundary_geometry.js
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**
@@ -73,7 +73,6 @@ class AddBoundaryGeometry extends BaseGeometry {
             return null;
         }
 
-        // Already a valid array
         if (Array.isArray(coords)) {
             const isValidArray = coords.every(coord =>
                 Array.isArray(coord) &&
@@ -92,7 +91,6 @@ class AddBoundaryGeometry extends BaseGeometry {
             }
         }
 
-        // Parse string format
         if (typeof coords === 'string') {
             try {
                 const parsed = JSON.parse(coords);
@@ -216,7 +214,6 @@ class AddBoundaryGeometry extends BaseGeometry {
                 return [validCoords];
             }
 
-            // Dynamic gap based on echelon symbols
             const numSymbols = (echelon && echelon.length > 0) ? echelon.length : 3;
             const symbolWidth = numSymbols * symbolSize * AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_WIDTH_MULTIPLIER;
             const gapWidth = symbolWidth * AddBoundaryGeometry.GEOMETRY_CONSTANTS.GAP_WIDTH_MULTIPLIER;
@@ -493,7 +490,6 @@ class AddBoundaryGeometry extends BaseGeometry {
             return [];
         }
 
-        // 1. Vertex handles (red)
         validCoords.forEach((coord, index) => {
             const handleId = `boundary-handle-${id}-vertex-${index}`;
             handles.push({
@@ -517,7 +513,6 @@ class AddBoundaryGeometry extends BaseGeometry {
             });
         });
 
-        // 2. Midpoint handles (orange)
         for (let i = 0; i < validCoords.length - 1; i++) {
             try {
                 const midpoint = turf.midpoint(turf.point(validCoords[i]), turf.point(validCoords[i + 1]));
@@ -543,14 +538,12 @@ class AddBoundaryGeometry extends BaseGeometry {
             }
         }
 
-        // 3. Symbol handles (blue and green)
         try {
             const ratio = feature.properties.symbol_position_ratio || 0.5;
             const line = turf.lineString(validCoords);
             const totalLength = turf.length(line, { units: 'kilometers' });
 
             if (totalLength > AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM) {
-                // Symbol position handle (blue)
                 const symbolPoint = turf.along(line, totalLength * ratio, { units: 'kilometers' });
                 const symbolHandleId = `boundary-handle-${id}-symbol`;
                 handles.push({
@@ -572,7 +565,6 @@ class AddBoundaryGeometry extends BaseGeometry {
                     }
                 });
 
-                // Size handle (green)
                 const size = feature.properties.symbol_size || 2;
                 const distance1 = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio - AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
                 const distance2 = Math.min(totalLength - AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_LENGTH_KM, totalLength * ratio + AddBoundaryGeometry.GEOMETRY_CONSTANTS.SYMBOL_POSITION_EPSILON);
@@ -601,7 +593,6 @@ class AddBoundaryGeometry extends BaseGeometry {
                     }
                 });
 
-                // Text distance handle (purple) - only if has text
                 const hasText = (feature.properties.text_top || feature.properties.text_bottom);
                 if (hasText) {
                     const textDistanceRatio = feature.properties.text_distance_ratio || 0.8;
@@ -645,8 +636,7 @@ class AddBoundaryGeometry extends BaseGeometry {
      * @returns {Object} Updated properties and geometry
      */
     updateFromHandle(handleType, newPosition, feature, handleIndex = null) {
-        // Validate newPosition first to prevent data corruption
-        if (!newPosition || !Array.isArray(newPosition) || newPosition.length < 2 || 
+        if (!newPosition || !Array.isArray(newPosition) || newPosition.length < 2 ||
             typeof newPosition[0] !== 'number' || typeof newPosition[1] !== 'number' ||
             isNaN(newPosition[0]) || isNaN(newPosition[1])) {
             console.warn('Invalid newPosition for handle update:', newPosition);
@@ -669,12 +659,11 @@ class AddBoundaryGeometry extends BaseGeometry {
             return null;
         }
 
-        coordinates = [...coordinates]; // Safe copy after validation
+        coordinates = [...coordinates];
         const updatedProperties = { ...feature.properties };
 
         switch (handleType) {
             case 'size_handle':
-                // Update symbol size
                 const ratio = feature.properties.symbol_position_ratio || 0.5;
                 const line = turf.lineString(coordinates);
                 const totalLength = turf.length(line, { units: 'kilometers' });
@@ -684,7 +673,6 @@ class AddBoundaryGeometry extends BaseGeometry {
                 break;
 
             case 'symbol_handle':
-                // Update symbol position
                 const symbolLine = turf.lineString(coordinates);
                 const pointOnLine = turf.nearestPointOnLine(symbolLine, turf.point(newPosition), { units: 'kilometers' });
                 const distance = pointOnLine.properties.location;
@@ -693,7 +681,6 @@ class AddBoundaryGeometry extends BaseGeometry {
                 break;
 
             case 'text_distance_handle':
-                // Update text distance
                 const textRatio = feature.properties.symbol_position_ratio || 0.5;
                 const textLine = turf.lineString(coordinates);
                 const textTotalLength = turf.length(textLine, { units: 'kilometers' });
@@ -754,10 +741,10 @@ class AddBoundaryGeometry extends BaseGeometry {
         const lats = validCoords.map(coord => coord[1]);
 
         return [
-            Math.min(...lngs), // minLng
-            Math.min(...lats), // minLat
-            Math.max(...lngs), // maxLng
-            Math.max(...lats)  // maxLat
+            Math.min(...lngs),
+            Math.min(...lats),
+            Math.max(...lngs),
+            Math.max(...lats)
         ];
     }
 

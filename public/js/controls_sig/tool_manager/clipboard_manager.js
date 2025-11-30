@@ -1,4 +1,4 @@
-// Path: js\controls_sig\tool_manager\clipboard_manager.js
+// Path: js/controls_sig/tool_manager/clipboard_manager.js
 
 import {
     addFeatures,
@@ -18,7 +18,6 @@ class ClipboardManager {
         this.selectionManager = selectionManager;
         this.map = map;
 
-        // Clipboard em memória
         this.clipboard = {
             features: [],
             copiedAt: null,
@@ -40,7 +39,6 @@ class ClipboardManager {
             return;
         }
 
-        // Filter copyable features using tool-centric approach only
         const copyableFeatures = this.filterCopiableFeatures(allSelectedFeatures);
 
         if (copyableFeatures.length === 0) {
@@ -48,7 +46,6 @@ class ClipboardManager {
             return;
         }
 
-        // Clean and store features using tool-centric approach only
         this.clipboard.features = copyableFeatures.map(feature => ({
             type: feature.properties.source,
             feature: this.cleanFeatureForCopy(feature)
@@ -70,14 +67,12 @@ class ClipboardManager {
         }
 
         try {
-            // Calculate offset only if pasting on same map
             const currentMapName = getCurrentMapNameSync();
             const isSameMap = this.clipboard.sourceMapName === currentMapName;
-            const offset = isSameMap ? 
-                this.calculatePixelToMetersOffset(this.clipboard.pixelOffset) : 
+            const offset = isSameMap ?
+                this.calculatePixelToMetersOffset(this.clipboard.pixelOffset) :
                 { dx: 0, dy: 0 };
 
-            // Phase 1: Collect resource operations
             const idMapping = new Map();
             const resourceDuplicationTasks = [];
 
@@ -95,12 +90,10 @@ class ClipboardManager {
                 }
             }
 
-            // Phase 2: Duplicate resources
             if (resourceDuplicationTasks.length > 0) {
                 await Promise.allSettled(resourceDuplicationTasks);
             }
 
-            // Phase 3: Process features using tool-centric approach only
             const newFeaturesByType = {};
 
             for (const clipboardItem of this.clipboard.features) {
@@ -109,7 +102,6 @@ class ClipboardManager {
                 const newId = idMapping.get(oldId);
                 const newGeoJSONId = IDUtils.generateGeoJSONId();
 
-                // Apply tool-centric paste strategy ONLY
                 let pastedFeature = this.prepareFeatureForPaste(feature, offset, type);
 
                 if (!pastedFeature) {
@@ -117,7 +109,6 @@ class ClipboardManager {
                     continue;
                 }
 
-                // Update IDs and name
                 pastedFeature.id = newGeoJSONId;
                 pastedFeature.properties.id = newId;
                 pastedFeature.properties.nome = await this.generateUniqueFeatureName(
@@ -125,7 +116,6 @@ class ClipboardManager {
                     type
                 );
 
-                // Group by storage type
                 const storageType = this.getFeatureStorageType(type);
                 if (!newFeaturesByType[storageType]) {
                     newFeaturesByType[storageType] = [];
@@ -133,13 +123,10 @@ class ClipboardManager {
                 newFeaturesByType[storageType].push(pastedFeature);
             }
 
-            // Phase 4: Load duplicated images
             await this.loadPastedImages(newFeaturesByType);
 
-            // Add features to map
             await addFeatures(newFeaturesByType);
 
-            // Update map sources and UI
             await this.updateMapSources(newFeaturesByType);
             await this.autoSelectPastedFeatures(newFeaturesByType);
 
@@ -173,7 +160,7 @@ class ClipboardManager {
     // ===== TOOL-CENTRIC FEATURE PROCESSING =====
 
     /**
-     * Filter features that can be copied using tool-centric approach only
+     * Filter features that can be copied using tool-centric approach
      */
     filterCopiableFeatures(features) {
         return features.filter(feature => {
@@ -182,7 +169,6 @@ class ClipboardManager {
                 return false;
             }
 
-            // Check with tool if it supports copy operation
             const control = this.selectionManager.controls.get(featureType);
             if (control && typeof control.canCopy === 'function') {
                 return control.canCopy(feature);
@@ -194,33 +180,29 @@ class ClipboardManager {
     }
 
     /**
-     * Clean feature for copying using tool-centric approach only
+     * Clean feature for copying using tool-centric approach
      */
     cleanFeatureForCopy(feature) {
         const control = this.selectionManager.controls.get(feature.properties.source);
 
-        // Use tool-centric approach only
         if (control && typeof control.prepareForCopy === 'function') {
             return control.prepareForCopy(feature);
         }
 
-        // No fallback - log warning and return null
         console.warn(`Tool ${feature.properties.source} does not implement prepareForCopy interface`);
         return null;
     }
 
     /**
-     * Prepare feature for pasting using tool-centric approach only
+     * Prepare feature for pasting using tool-centric approach
      */
     prepareFeatureForPaste(feature, offset, type) {
         const control = this.selectionManager.controls.get(type);
 
-        // Use tool-centric approach only
         if (control && typeof control.prepareForPaste === 'function') {
             return control.prepareForPaste(feature, offset);
         }
 
-        // No fallback - log warning and return null
         console.warn(`Tool ${type} does not implement prepareForPaste interface`);
         return null;
     }
@@ -360,7 +342,6 @@ class ClipboardManager {
                 data.features.push(...features);
                 mapSource.setData(data);
 
-                // Update special feature dependencies using tool-centric approach
                 const sourceType = this.getSourceTypeFromStorage(storageType);
                 this.updateSpecialFeaturesToolCentric(sourceType, features);
             }
@@ -465,8 +446,6 @@ class ClipboardManager {
         }
         return Array.isArray(coords) ? coords : [];
     }
-
-    // ===== VALIDATION =====
 
     /**
      * Validate if feature can be pasted

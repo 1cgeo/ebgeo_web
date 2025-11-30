@@ -1,4 +1,4 @@
-// Path: js\controls_sig\map_notes_panel.js
+// Path: js/controls_sig/map_notes_panel.js
 import { showSuccess, showError } from './utilities/toast_service.js';
 import {
     getMapNotes,
@@ -23,7 +23,6 @@ export class MapNotesManager {
         this.viewPanel = new MapNotesViewPanel(this);
         this.editPanel = new MapNotesEditPanel(this);
 
-        // Append panels to body
         document.body.appendChild(this.viewPanel.createUI());
         document.body.appendChild(this.editPanel.createUI());
     }
@@ -31,13 +30,10 @@ export class MapNotesManager {
     async showViewPanel(mapName) {
         this.currentMapName = mapName;
 
-        // Collapse map control
         this.mapControl.collapsePanel();
 
-        // Load notes data
         const notesData = await this.loadNotes(mapName);
 
-        // Hide edit panel and show view panel
         this.editPanel.hide();
         this.viewPanel.show(mapName, notesData);
 
@@ -47,10 +43,8 @@ export class MapNotesManager {
     async switchToEditMode() {
         if (!this.currentMapName) return;
 
-        // Load fresh data for editing
         const notesData = await this.loadNotes(this.currentMapName);
 
-        // Switch panels
         this.viewPanel.hide();
         this.editPanel.show(this.currentMapName, notesData);
     }
@@ -58,7 +52,6 @@ export class MapNotesManager {
     async switchToViewMode(savedData = null) {
         if (!this.currentMapName) return;
 
-        // Load data (use saved data if provided, otherwise reload)
         let notesData;
         if (savedData) {
             notesData = savedData;
@@ -66,7 +59,6 @@ export class MapNotesManager {
             notesData = await this.loadNotes(this.currentMapName);
         }
 
-        // Switch panels
         this.editPanel.hide();
         this.viewPanel.show(this.currentMapName, notesData);
     }
@@ -79,7 +71,6 @@ export class MapNotesManager {
         this.currentMapName = null;
         this.isVisible = false;
 
-        // Expand map control
         this.mapControl.expandPanel();
     }
 
@@ -99,7 +90,7 @@ export class MapNotesManager {
                 };
             }
         } catch (error) {
-            console.error('Erro ao carregar notas:', error);
+            console.error('Error loading notes:', error);
             showError('Erro ao carregar notas do mapa');
             return {
                 title: '',
@@ -112,7 +103,6 @@ export class MapNotesManager {
         if (!this.currentMapName) return false;
 
         try {
-            // Clean description - don't save empty Quill content
             const cleanDescription = this.cleanQuillContent(description);
 
             const notes = {
@@ -125,7 +115,7 @@ export class MapNotesManager {
 
             return notes;
         } catch (error) {
-            console.error('Erro ao salvar notas:', error);
+            console.error('Error saving notes:', error);
             showError('Erro ao salvar notas');
             return false;
         }
@@ -133,15 +123,15 @@ export class MapNotesManager {
 
     /**
      * Clean Quill content to avoid empty paragraphs and ensure proper formatting
+     * @param {string} html - HTML content from Quill editor
+     * @returns {string} Cleaned HTML content
      */
     cleanQuillContent(html) {
         if (!html || html.trim() === '') return '';
 
-        // Remove empty paragraphs that Quill creates
         let cleaned = html.replace(/<p><br><\/p>/g, '');
         cleaned = cleaned.replace(/<p>\s*<\/p>/g, '');
 
-        // If only empty content remains, return empty string
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = cleaned;
         const textContent = tempDiv.textContent || tempDiv.innerText || '';
@@ -153,7 +143,6 @@ export class MapNotesManager {
         return cleaned;
     }
 
-    // Methods for map_control.js compatibility
     get isEditMode() {
         return this.editPanel && this.editPanel.isVisible;
     }
@@ -198,7 +187,6 @@ class MapNotesViewPanel {
         this.container.className = 'map-notes-view-panel';
         this.container.style.display = 'none';
 
-        // Header
         const header = document.createElement('div');
         header.className = 'map-notes-header';
 
@@ -230,15 +218,12 @@ class MapNotesViewPanel {
         header.appendChild(title);
         header.appendChild(editButton);
 
-        // Content
         const content = document.createElement('div');
         content.className = 'map-notes-content';
 
-        // Title display
         this.titleDisplay = document.createElement('h2');
         this.titleDisplay.className = 'map-notes-title-display';
 
-        // Description display
         this.descriptionDisplay = document.createElement('div');
         this.descriptionDisplay.className = 'map-notes-description-display';
 
@@ -252,19 +237,17 @@ class MapNotesViewPanel {
     }
 
     show(mapName, notesData) {
-        // Update title
         this.titleDisplay.textContent = notesData.title || 'Título da Nota';
 
-        // Update description with proper content handling
         this.updateDescriptionDisplay(notesData.description);
 
-        // Show panel
         this.container.style.display = 'block';
         this.isVisible = true;
     }
 
     /**
      * Update description display with proper formatting
+     * @param {string} description - HTML description content
      */
     updateDescriptionDisplay(description) {
         if (!description || description.trim() === '') {
@@ -272,20 +255,19 @@ class MapNotesViewPanel {
             return;
         }
 
-        // Clean and format the HTML content
         const cleanedHtml = this.formatQuillContentForDisplay(description);
         this.descriptionDisplay.innerHTML = cleanedHtml;
     }
 
     /**
      * Format Quill content for proper display in view mode
+     * @param {string} html - HTML content from Quill
+     * @returns {string} Formatted HTML
      */
     formatQuillContentForDisplay(html) {
-        // Create a temporary div to manipulate the HTML
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html;
 
-        // Remove empty paragraphs that might cause layout issues
         const emptyParagraphs = tempDiv.querySelectorAll('p:empty, p br:only-child');
         emptyParagraphs.forEach(el => {
             if (el.tagName === 'P' && (el.innerHTML === '' || el.innerHTML === '<br>')) {
@@ -293,10 +275,8 @@ class MapNotesViewPanel {
             }
         });
 
-        // Ensure proper list formatting
         const lists = tempDiv.querySelectorAll('ul, ol');
         lists.forEach(list => {
-            // Add proper classes if needed
             if (!list.className) {
                 list.className = 'ql-list';
             }
@@ -340,7 +320,6 @@ class MapNotesEditPanel {
         this.container.className = 'map-notes-edit-panel';
         this.container.style.display = 'none';
 
-        // Header
         const header = document.createElement('div');
         header.className = 'map-notes-header';
 
@@ -372,11 +351,9 @@ class MapNotesEditPanel {
         header.appendChild(title);
         header.appendChild(saveButton);
 
-        // Content
         const content = document.createElement('div');
         content.className = 'map-notes-content';
 
-        // Title input
         const titleSection = document.createElement('div');
         titleSection.className = 'map-notes-title-section';
 
@@ -388,7 +365,6 @@ class MapNotesEditPanel {
 
         titleSection.appendChild(this.titleInput);
 
-        // Description editor
         const descriptionSection = document.createElement('div');
         descriptionSection.className = 'map-notes-description-section';
 
@@ -397,7 +373,6 @@ class MapNotesEditPanel {
 
         descriptionSection.appendChild(this.descriptionEditor);
 
-        // Action buttons
         const actionsContainer = document.createElement('div');
         actionsContainer.className = 'map-notes-actions';
 
@@ -437,19 +412,18 @@ class MapNotesEditPanel {
             placeholder: 'Digite a descrição a nota...',
             modules: {
                 toolbar: [
-                    [{ 'header': [1, 2, 3, false] }], // Cabeçalhos
+                    [{ 'header': [1, 2, 3, false] }],
                     ['bold', 'italic', 'underline', 'strike'],
-                    [{ 'color': [] }, { 'background': [] }], // Cores
+                    [{ 'color': [] }, { 'background': [] }],
                     [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-                    [{ 'indent': '-1' }, { 'indent': '+1' }], // Indentação
+                    [{ 'indent': '-1' }, { 'indent': '+1' }],
                     ['link', 'image'],
-                    [{ 'align': [] }], // Alinhamento
+                    [{ 'align': [] }],
                     ['clean']
                 ]
             }
         });
 
-        // Configurar handler de imagem
         this.setupImageHandler();
     }
 
@@ -473,84 +447,79 @@ class MapNotesEditPanel {
                     this.quillInstance.insertEmbed(range.index, 'image', compressedBase64);
                     this.quillInstance.setSelection(range.index + 1);
                 } catch (error) {
-                    console.error('Erro ao processar imagem:', error);
+                    console.error('Error processing image:', error);
                     showError('Erro ao adicionar imagem');
                 }
             }
         };
     }
 
+    /**
+     * Compress image before embedding
+     * @param {File} file - Image file to compress
+     * @returns {Promise<string>} Base64 encoded compressed image
+     */
     async compressImage(file) {
         return new Promise((resolve, reject) => {
-            // Validar tamanho máximo (5MB)
             if (file.size > 5 * 1024 * 1024) {
-                reject(new Error('Imagem muito grande (máximo 5MB)'));
+                reject(new Error('Image too large (max 5MB)'));
                 return;
             }
 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             const img = new Image();
-            
+
             img.onload = () => {
-                // Calcular novas dimensões (máximo 800px de largura)
                 const MAX_WIDTH = 800;
                 const MAX_HEIGHT = 600;
-                
+
                 let { width, height } = img;
-                
+
                 if (width > MAX_WIDTH) {
                     height = (height * MAX_WIDTH) / width;
                     width = MAX_WIDTH;
                 }
-                
+
                 if (height > MAX_HEIGHT) {
                     width = (width * MAX_HEIGHT) / height;
                     height = MAX_HEIGHT;
                 }
-                
-                // Redimensionar
+
                 canvas.width = width;
                 canvas.height = height;
                 ctx.drawImage(img, 0, 0, width, height);
-                
-                // Converter para base64 com compressão
-                const quality = 0.8; // 80% de qualidade
+
+                const quality = 0.8;
                 const base64 = canvas.toDataURL('image/jpeg', quality);
                 resolve(base64);
             };
-            
-            img.onerror = () => reject(new Error('Erro ao carregar imagem'));
+
+            img.onerror = () => reject(new Error('Error loading image'));
             img.src = URL.createObjectURL(file);
         });
     }
 
     show(mapName, notesData) {
-        // Store original data for cancel functionality
         this.originalData = { ...notesData };
 
-        // Setup Quill editor
         if (!this.quillInstance) {
             this.setupQuillEditor();
         }
 
-        // Populate form
         this.titleInput.value = notesData.title || '';
 
         if (this.quillInstance) {
-            // Use setContents for better control over content
             if (notesData.description) {
                 this.quillInstance.root.innerHTML = notesData.description;
             } else {
-                this.quillInstance.setText(''); // Clear editor
+                this.quillInstance.setText('');
             }
         }
 
-        // Show panel and focus title
         this.container.style.display = 'block';
         this.isVisible = true;
 
-        // Focus title input after a brief delay to ensure visibility
         setTimeout(() => {
             this.titleInput.focus();
         }, 100);
@@ -568,19 +537,16 @@ class MapNotesEditPanel {
         const savedData = await this.manager.saveNotes(title, description);
 
         if (savedData) {
-            // Switch back to view panel with saved data
             await this.manager.switchToViewMode(savedData);
         }
     }
 
     cancelEdit() {
-        // Switch back to view panel with original data
         this.manager.switchToViewMode(this.originalData);
     }
 
     destroy() {
         if (this.quillInstance) {
-            // Clean up Quill instance
             this.quillInstance = null;
         }
 
@@ -593,5 +559,4 @@ class MapNotesEditPanel {
     }
 }
 
-// Default export for backward compatibility
 export default MapNotesManager;

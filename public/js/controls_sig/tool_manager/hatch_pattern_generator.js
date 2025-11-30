@@ -1,4 +1,4 @@
-// Path: js\controls_sig\tool_manager\hatch_pattern_generator.js
+// Path: js/controls_sig/tool_manager/hatch_pattern_generator.js
 
 export class HatchPatternGenerator {
     constructor() {
@@ -7,7 +7,7 @@ export class HatchPatternGenerator {
 
     generatePattern(config) {
         const cacheKey = this.getCacheKey(config);
-        
+
         if (this.patternCache.has(cacheKey)) {
             return this.patternCache.get(cacheKey);
         }
@@ -20,7 +20,7 @@ export class HatchPatternGenerator {
     createPatternImageData(config) {
         const { type, spacing, lineWidth, color } = config;
         const size = spacing * 2;
-        
+
         const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
@@ -62,57 +62,42 @@ export class HatchPatternGenerator {
     }
 
     /**
-     * Desenha padrão diagonal "/" - Linha da esquerda-baixo para direita-cima
-     * 
-     * Para um padrão tileable (repetível), desenhamos linhas paralelas espaçadas
-     * pelo valor de spacing. Adicionamos uma pequena sobreposição nas bordas
-     * para garantir continuidade perfeita entre tiles.
+     * Draw diagonal "/" pattern - line from bottom-left to top-right
+     *
+     * For tileable pattern, draw parallel lines spaced by the spacing value.
+     * Add small overlap at edges to ensure perfect continuity between tiles.
      */
     drawDiagonalRight(ctx, size, lineWidth) {
         ctx.beginPath();
-        
-        // spacing real é size/2
+
         const spacing = size / 2;
-        
-        // Sobreposição pequena para evitar gaps entre tiles (1-2 pixels)
         const overlap = 2;
-        
-        // Desenha linhas diagonais "/" que atravessam o tile
-        // Estendemos ligeiramente as linhas além dos limites para garantir sobreposição
+
         for (let offset = -size; offset <= size * 2; offset += spacing) {
-            // Cada linha vai de baixo-esquerda para cima-direita com inclinação de 45°
-            // Estendemos a linha um pouco além dos limites do tile
             ctx.moveTo(offset - overlap, size + overlap);
             ctx.lineTo(offset + size + overlap, -overlap);
         }
-        
+
         ctx.stroke();
     }
 
     /**
-     * Desenha padrão diagonal "\" - Linha da esquerda-cima para direita-baixo
-     * 
-     * Similar ao diagonal-right, desenhamos múltiplas linhas paralelas espaçadas
-     * uniformemente. Adicionamos sobreposição nas bordas para garantir continuidade.
+     * Draw diagonal "\" pattern - line from top-left to bottom-right
+     *
+     * Similar to diagonal-right, draw multiple parallel lines spaced uniformly.
+     * Add overlap at edges to ensure continuity.
      */
     drawDiagonalLeft(ctx, size, lineWidth) {
         ctx.beginPath();
-        
-        // spacing real é size/2
+
         const spacing = size / 2;
-        
-        // Sobreposição pequena para evitar gaps entre tiles (1-2 pixels)
         const overlap = 2;
-        
-        // Desenha linhas diagonais "\" que atravessam o tile  
-        // Estendemos ligeiramente as linhas além dos limites para garantir sobreposição
+
         for (let offset = -size; offset <= size * 2; offset += spacing) {
-            // Cada linha vai de cima-esquerda para baixo-direita com inclinação de 45°
-            // Estendemos a linha um pouco além dos limites do tile
             ctx.moveTo(offset - overlap, -overlap);
             ctx.lineTo(offset + size + overlap, size + overlap);
         }
-        
+
         ctx.stroke();
     }
 
@@ -170,7 +155,7 @@ export class HatchPatternGenerator {
 
         const uniquePatterns = new Map();
         const currentPatternIds = new Set();
-        
+
         features.forEach(feature => {
             if (feature.properties.hatchEnabled) {
                 const config = {
@@ -179,11 +164,11 @@ export class HatchPatternGenerator {
                     lineWidth: feature.properties.hatchLineWidth || 2,
                     color: feature.properties.hatchColor || '#000000'
                 };
-                
+
                 const patternId = this.getCacheKey(config);
                 feature.properties.hatchPatternId = patternId;
                 currentPatternIds.add(patternId);
-                
+
                 if (!uniquePatterns.has(patternId)) {
                     uniquePatterns.set(patternId, config);
                 }
@@ -193,7 +178,7 @@ export class HatchPatternGenerator {
         uniquePatterns.forEach((config, patternId) => {
             try {
                 const imageData = this.generatePattern(config);
-                
+
                 if (!imageData || !imageData.data || imageData.width === 0 || imageData.height === 0) {
                     console.warn(`Invalid image data for pattern ${patternId}`);
                     return;

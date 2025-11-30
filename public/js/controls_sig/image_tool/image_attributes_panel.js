@@ -1,4 +1,4 @@
-// Path: js\controls_sig\image_tool\image_attributes_panel.js
+// Path: js/controls_sig/image_tool/image_attributes_panel.js
 
 import {
     createSliderWithInput,
@@ -15,10 +15,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
 
     const feature = selectedFeatures[0];
 
-    // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-
-    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
     if (selectedFeatures.length === 1) {
         const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
@@ -63,8 +60,6 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     }));
 
     $(panel).append(createAttributeRow('Tamanho:', sizeControl));
-
-    // Zoom de referência
     const createdAtZoomControl = createSliderWithInput({
         min: 1,
         max: 21,
@@ -78,8 +73,6 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     });
 
     $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
-
-    // Rotação
     const rotationControl = createSliderWithInput(getCommonConfig('rotation',
         feature.properties.rotation || 0, {
         onChange: (value) => {
@@ -90,11 +83,9 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
 
     $(panel).append(createAttributeRow('Rotação:', rotationControl));
 
-    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round(feature.properties.opacity * 100), {
         onChange: (value) => {
-            // Convert from 0-100 range to 0-1 range for internal storage
             imageControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
             uiManager.updateSelectionHighlight();
         }
@@ -102,15 +93,12 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
 
     $(panel).append(createAttributeRow('Opacidade:', opacityControl));
 
-    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
-    // ✅ FIXED: Pass initialPropertiesMap captured at panel opening
-    // ⚠️ NOTE: Image tool doesn't have "Set Default" button (hasSetDefault: false)
     const buttons = createStandardButtons({
         selectedFeatures,
         control: imageControl,
         selectionManager,
-        initialPropertiesMap, // ✅ PASS THE ORIGINAL STATE
-        hasSetDefault: false, // ✅ Image tool doesn't have "Set Default" functionality
+        initialPropertiesMap,
+        hasSetDefault: false,
         onSetDefault: null
     });
 

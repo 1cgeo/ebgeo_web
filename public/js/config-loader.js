@@ -1,25 +1,20 @@
-// Path: js\config-loader.js
+// Path: js/config-loader.js
 
 import config from './config.js';
 
 /**
- * Aplica as configurações de app (título e subtítulo) no HTML
+ * Apply application configuration (title and subtitle) to HTML
  */
 export function applyAppConfig() {
-    // Aplicar título da página
     if (config.app.title) {
         document.title = config.app.title;
     }
-    
-    // Aplicar subtítulo na topbar
+
     applySubtitleToTopbar();
-    
-    // Criar botões dos tilesets
-    // createTilesetButtons(); // DESABILITADO: Modelos 3D agora são acessados por ferramenta
 }
 
 /**
- * Aplica o subtítulo na topbar
+ * Apply subtitle to topbar element
  */
 function applySubtitleToTopbar() {
     const subtitleElement = document.querySelector('.topbar-subtitle');
@@ -29,16 +24,14 @@ function applySubtitleToTopbar() {
 }
 
 /**
- * Cria os botões dos tilesets no locate-3d-container
+ * Create tileset buttons in locate-3d-container
  */
 function createTilesetButtons() {
     const container = document.getElementById('locate-3d-container');
     if (!container) return;
-    
-    // Limpar container
+
     container.innerHTML = '';
-    
-    // Se não há tilesets configurados, mostrar mensagem
+
     if (!config.hasTilesets()) {
         const noModelsMessage = document.createElement('p');
         noModelsMessage.textContent = 'Nenhum modelo 3D configurado';
@@ -46,8 +39,7 @@ function createTilesetButtons() {
         container.appendChild(noModelsMessage);
         return;
     }
-    
-    // Criar botões para cada tileset configurado
+
     config.tilesets.forEach(tileset => {
         const button = document.createElement('button');
         button.id = tileset.id.toLowerCase();
@@ -58,10 +50,9 @@ function createTilesetButtons() {
 }
 
 /**
- * Função principal para inicializar configurações
+ * Initialize application configuration on DOM ready
  */
 export function initializeAppConfig() {
-    // Aplicar configurações assim que o DOM estiver pronto
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             applyAppConfig();
@@ -71,5 +62,4 @@ export function initializeAppConfig() {
     }
 }
 
-// Auto-inicializar quando o módulo for carregado
 initializeAppConfig();

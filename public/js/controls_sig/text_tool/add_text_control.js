@@ -1,4 +1,4 @@
-// Path: js\controls_sig\text_tool\add_text_control.js
+// Path: js/controls_sig/text_tool/add_text_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
@@ -10,10 +10,8 @@ class AddTextControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // Geometry handler
         this.geometry = new AddTextGeometry();
 
-        // Zoom handling for zoom-invariant behavior
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
     }
@@ -28,18 +26,16 @@ class AddTextControl extends BaseControl {
         justify: 'center',
         source: 'text',
 
-        // Propriedades da caixa de fundo
         showBackground: false,
         backgroundFillColor: '#315730',
-        backgroundFillOpacity: 0.8,          // 80%
+        backgroundFillOpacity: 0.8,
         backgroundBorderColor: '#000000ff',
-        backgroundBorderOpacity: 1.0,        // 100%
-        backgroundBorderWidth: 1,            // 1px
+        backgroundBorderOpacity: 1.0,
+        backgroundBorderWidth: 1,
 
-        // Zoom-invariant properties
         createdAtZoom: 0,
         calculatedSize: 16,
-        selectionBox: null,  // Pre-calculated GeoJSON Polygon geometry
+        selectionBox: null,
 
         nome: '',
         descricao: '',
@@ -47,7 +43,7 @@ class AddTextControl extends BaseControl {
         bloqueado: false
     };
 
-    // ===== FONTE ÚNICA DA VERDADE =====
+    // ===== SINGLE SOURCE OF TRUTH =====
 
     /**
      * Get currently selected text feature from SelectionManager
@@ -131,16 +127,14 @@ class AddTextControl extends BaseControl {
     }
 
     getEditHandleSources() {
-        return []; // Text features don't have edit handles
+        return [];
     }
 
     createSelectionBox(feature) {
-        // Text features use pre-calculated selection boxes stored as properties
         if (feature.properties.selectionBox) {
             return { geometry: feature.properties.selectionBox };
         }
 
-        // Fallback: calculate on demand if missing
         const selectionBox = this.geometry.calculateSelectionBoxGeometry(
             feature.geometry.coordinates,
             feature.properties.text,
@@ -156,7 +150,7 @@ class AddTextControl extends BaseControl {
     }
 
     getSelectionBoxStrategy() {
-        return 'preCalculated'; // Text features use stored selection boxes
+        return 'preCalculated';
     }
 
     getSelectionBoxPadding() {
@@ -172,7 +166,7 @@ class AddTextControl extends BaseControl {
     }
 
     getEditHandleSource() {
-        return null; // Text features don't have edit handles
+        return null;
     }
 
     canCopy(feature) {
@@ -187,7 +181,6 @@ class AddTextControl extends BaseControl {
         const oldCoordinates = feature.geometry.coordinates;
         const newCoordinates = [oldCoordinates[0] + offset.dx, oldCoordinates[1] + offset.dy];
 
-        // Recalculate selection box for new position
         const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
             newCoordinates,
             feature.properties.text,
@@ -220,7 +213,6 @@ class AddTextControl extends BaseControl {
     updateFeatureForMove(feature, dx, dy, newCoords) {
         const newCoordinates = [newCoords.lng, newCoords.lat];
 
-        // Recalculate selection box for new position
         const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
             newCoordinates,
             feature.properties.text,
@@ -292,44 +284,38 @@ class AddTextControl extends BaseControl {
     }
 
     isEditingMode = () => {
-        return false; // Text features don't have edit handles
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return false; // Text features don't have edit handles
+        return false;
     }
 
     syncEditHandlesAfterDrag = (movedFeatures) => {
-        // Text features don't have edit handles, but we need to update selection boxes
-        // Update selection boxes for moved features
         this.updateSelectionBoxesForFeatures(movedFeatures);
-        
-        // 🆕 SYNC BACKGROUNDS: Update text-backgrounds source after drag operations
         this.updateTextBackgroundsSource();
     }
 
     /**
      * Update selection boxes for specific features (used after drag or attribute changes)
      * Always uses fresh data from map source to ensure accuracy
+     * @param {Array} features - Features to update selection boxes for
      */
     updateSelectionBoxesForFeatures = async (features) => {
         if (!features || features.length === 0) return;
 
-        // CRITICAL: Always get fresh data from map source
         const data = await this.map.getSource('texts').getData();
         let hasChanges = false;
 
         features.forEach(inputFeature => {
             if (inputFeature.properties.source === 'text') {
-                // Find the current feature in the map source (this has the latest coordinates)
-                const currentSourceFeature = data.features.find(f => 
+                const currentSourceFeature = data.features.find(f =>
                     f.properties.id === inputFeature.properties.id
                 );
 
                 if (currentSourceFeature) {
-                    // Recalculate selection box using CURRENT coordinates from map source
                     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
-                        currentSourceFeature.geometry.coordinates, // Use fresh coordinates from map
+                        currentSourceFeature.geometry.coordinates,
                         currentSourceFeature.properties.text,
                         currentSourceFeature.properties.size,
                         currentSourceFeature.properties.rotation,
@@ -339,7 +325,6 @@ class AddTextControl extends BaseControl {
                         currentSourceFeature.properties.backgroundBorderWidth
                     );
 
-                    // Update selection box in source feature
                     currentSourceFeature.properties.selectionBox = newSelectionBox;
                     hasChanges = true;
                 }
@@ -347,19 +332,15 @@ class AddTextControl extends BaseControl {
         });
 
         if (hasChanges) {
-            // Update map source with new selection boxes
             this.map.getSource('texts').setData(data);
-            
-            // Get fresh features from updated source for SelectionManager
+
             const freshFeatures = features.map(inputFeature => {
                 const sourceFeature = data.features.find(f => f.properties.id === inputFeature.properties.id);
-                return sourceFeature || inputFeature; // Fallback to input if not found
+                return sourceFeature || inputFeature;
             });
-            
-            // Update SelectionManager with fresh features
+
             this.updateSelectionManagerFeatures(freshFeatures);
-            
-            // Force selection highlight update
+
             requestAnimationFrame(() => {
                 if (this.selectionManager.uiManager.updateSelectionHighlight) {
                     this.selectionManager.uiManager.updateSelectionHighlight();
@@ -369,7 +350,6 @@ class AddTextControl extends BaseControl {
     }
 
     selectFeature = (feature) => {
-        // Text features don't have edit handles, just selection feedback
         this.setupHoverListeners();
     }
 
@@ -399,7 +379,6 @@ class AddTextControl extends BaseControl {
         const currentZoom = this.map.getZoom();
         const coordinates = [lngLat.lng, lngLat.lat];
 
-        // Calculate initial selection box
         const selectionBox = this.geometry.calculateSelectionBoxGeometry(
             coordinates,
             AddTextControl.DEFAULT_PROPERTIES.text,
@@ -433,7 +412,6 @@ class AddTextControl extends BaseControl {
             data.features.push(feature);
             this.map.getSource('texts').setData(data);
 
-            // Select the new feature
             this.selectionManager.toggleFeatureSelection('text', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
@@ -524,35 +502,31 @@ class AddTextControl extends BaseControl {
     // ===== BACKGROUND SYNCHRONIZATION SYSTEM =====
 
     /**
-     * 🆕 Synchronize text-backgrounds source with current texts data
+     * Synchronize text-backgrounds source with current texts data
      * This method handles the critical synchronization between the main 'texts' source
      * and the separate 'text-backgrounds' source used for background rendering
      */
     updateTextBackgroundsSource = async () => {
-        // Check if text-backgrounds source exists
         if (!this.map.getSource('text-backgrounds')) {
             console.warn('text-backgrounds source not found - skipping background sync');
             return;
         }
 
         try {
-            // Get current texts data
             const currentTextsData = await this.map.getSource('texts').getData();
             const currentTexts = currentTextsData.features;
-            
-            // Generate background features from current texts
+
             const backgroundFeatures = currentTexts
                 .filter(feature => feature.properties.showBackground && feature.properties.selectionBox)
                 .map(feature => ({
                     type: 'Feature',
                     properties: {
                         ...feature.properties,
-                        id: feature.properties.id + '_bg' // Unique ID for background
+                        id: feature.properties.id + '_bg'
                     },
-                    geometry: feature.properties.selectionBox // Use selectionBox as geometry
+                    geometry: feature.properties.selectionBox
                 }));
 
-            // Update text-backgrounds source
             this.map.getSource('text-backgrounds').setData({
                 type: 'FeatureCollection',
                 features: backgroundFeatures
@@ -570,13 +544,13 @@ class AddTextControl extends BaseControl {
      */
     isBackgroundAffectingProperty = (property) => {
         const backgroundAffectingProperties = [
-            'text', 'size', 'rotation',                                    // Dimension affecting
-            'showBackground',                                               // Background toggle
-            'backgroundBorderWidth',                                        // Dimension affecting
-            'backgroundFillColor', 'backgroundFillOpacity',                // Visual properties
-            'backgroundBorderColor', 'backgroundBorderOpacity',            // Visual properties
-            'visivel',                                                     // Visibility
-            'createdAtZoom'                                                // Zoom affecting dimensions
+            'text', 'size', 'rotation',
+            'showBackground',
+            'backgroundBorderWidth',
+            'backgroundFillColor', 'backgroundFillOpacity',
+            'backgroundBorderColor', 'backgroundBorderOpacity',
+            'visivel',
+            'createdAtZoom'
         ];
         return backgroundAffectingProperties.includes(property);
     }
@@ -592,7 +566,6 @@ class AddTextControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Special handling for createdAtZoom
                 if (property === 'createdAtZoom') {
                     const roundedValue = Math.round(value * 10) / 10;
                     sourceFeature.properties[property] = roundedValue;
@@ -606,7 +579,6 @@ class AddTextControl extends BaseControl {
                     sourceFeature.properties.calculatedSize = newCalculatedSize;
                     feature.properties.calculatedSize = newCalculatedSize;
                 } else {
-                    // Update calculatedSize for consistency
                     const currentZoom = this.map.getZoom();
                     const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
                     const scaleFactor = Math.pow(2, zoomDifference);
@@ -614,13 +586,11 @@ class AddTextControl extends BaseControl {
                     feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
                 }
 
-                // For visual properties, recalculate selection box using CURRENT geometry
-                // Include background properties that affect visual dimensions
                 const visualProperties = ['text', 'size', 'rotation', 'showBackground', 'backgroundBorderWidth'];
                 if (visualProperties.includes(property) || property === 'createdAtZoom') {
                     const currentCoordinates = sourceFeature.geometry.coordinates;
                     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
-                        currentCoordinates, // Use current coordinates from map source
+                        currentCoordinates,
                         sourceFeature.properties.text,
                         sourceFeature.properties.size,
                         sourceFeature.properties.rotation,
@@ -629,31 +599,26 @@ class AddTextControl extends BaseControl {
                         sourceFeature.properties.showBackground,
                         sourceFeature.properties.backgroundBorderWidth
                     );
-                    
+
                     sourceFeature.properties.selectionBox = newSelectionBox;
                     feature.properties.selectionBox = newSelectionBox;
                 }
             }
         }
 
-        // Update map source first
         await this.forceUpdateMainSource(data);
 
-        // 🆕 SYNC BACKGROUNDS: Update text-backgrounds source if properties affect background
         if (this.isBackgroundAffectingProperty(property)) {
             await this.updateTextBackgroundsSource();
         }
 
-        // CRITICAL FIX: Get fresh features from map source before updating SelectionManager  
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-            return sourceFeature || feature; // Fallback to original if not found
+            return sourceFeature || feature;
         });
 
-        // Update SelectionManager with fresh features
         this.updateSelectionManagerFeatures(freshFeatures);
 
-        // Force selection highlight update for visual changes
         const visualProperties = ['text', 'size', 'rotation', 'showBackground', 'backgroundBorderWidth'];
         if (visualProperties.includes(property) || property === 'createdAtZoom') {
             requestAnimationFrame(() => {
@@ -665,10 +630,10 @@ class AddTextControl extends BaseControl {
     }
 
     /**
-     * Force update main source with drag protection (same pattern as circle control)
+     * Force update main source with drag protection
+     * @param {Object} data - Feature collection data
      */
     forceUpdateMainSource = async (data) => {
-        // PERFORMANCE FIX: Don't update source during drag operations to prevent conflicts
         if (this.selectionManager.uiManager && this.selectionManager.uiManager.isDragging) {
             return;
         }
@@ -678,6 +643,7 @@ class AddTextControl extends BaseControl {
 
     /**
      * Check if source updates should be blocked (during drag)
+     * @returns {boolean} True if updates should be blocked
      */
     isSourceUpdateBlocked = () => {
         return this.selectionManager.uiManager && this.selectionManager.uiManager.isDragging;
@@ -686,19 +652,17 @@ class AddTextControl extends BaseControl {
     ensureFeatureConsistency = (feature, currentZoom = null, forceRecalculateSelectionBox = false) => {
         const zoom = currentZoom || this.map.getZoom();
 
-        // Always recalculate calculatedSize based on current zoom
         const zoomDifference = zoom - feature.properties.createdAtZoom;
         const scaleFactor = Math.pow(2, zoomDifference);
         feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
 
-        // Only recalculate selection box if explicitly requested and not during drag
         if (forceRecalculateSelectionBox && !this.isSourceUpdateBlocked()) {
             feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
                 feature.geometry.coordinates,
                 feature.properties.text,
-                feature.properties.size, // Use original size, not calculatedSize
+                feature.properties.size,
                 feature.properties.rotation,
-                feature.properties.createdAtZoom, // CRUCIAL: creation zoom
+                feature.properties.createdAtZoom,
                 this.selectionManager.uiManager,
                 feature.properties.showBackground,
                 feature.properties.backgroundBorderWidth
@@ -709,7 +673,6 @@ class AddTextControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        // Always get fresh feature data from map source before saving
         const currentData = await this.map.getSource('texts').getData();
         let hasChanges = false;
 
@@ -718,7 +681,6 @@ class AddTextControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    // Use complete current feature (with updated geometry + properties)
                     await updateFeature('texts', currentFeature);
                     hasChanges = true;
                 }
@@ -744,7 +706,6 @@ class AddTextControl extends BaseControl {
                 const featureId = feature.properties.id;
                 await removeFeature('texts', featureId);
 
-                // Update map source
                 const data = await this.map.getSource('texts').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));
                 data.features = data.features.filter(f => !idsToDelete.has(String(f.properties.id)));
@@ -753,8 +714,7 @@ class AddTextControl extends BaseControl {
                 console.error(`Error removing text ${feature.properties.id}:`, error);
             }
         }
-        
-        // 🆕 SYNC BACKGROUNDS: Update backgrounds after deletion
+
         await this.updateTextBackgroundsSource();
     }
 
@@ -803,10 +763,8 @@ class AddTextControl extends BaseControl {
                         data.features[featureIndex] = feature;
                     }
 
-                    // Ensure consistency for updated feature
                     this.ensureFeatureConsistency(data.features[featureIndex], currentZoom, !onlyUpdateProperties);
 
-                    // Check if background update is needed
                     if (data.features[featureIndex].properties.showBackground) {
                         backgroundNeedsUpdate = true;
                     }
@@ -819,15 +777,12 @@ class AddTextControl extends BaseControl {
                 }
             }
 
-            // CRITICAL FIX: Use protected method for source updates
             await this.forceUpdateMainSource(data);
 
-            // 🆕 SYNC BACKGROUNDS: Update backgrounds if any feature has background enabled
             if (backgroundNeedsUpdate) {
                 await this.updateTextBackgroundsSource();
             }
 
-            // Update SelectionManager with updated features
             this.updateSelectionManagerFeatures(features);
         }
     }
@@ -836,6 +791,7 @@ class AddTextControl extends BaseControl {
 
     /**
      * Update SelectionManager with current feature data
+     * @param {Object} feature - Feature to update in SelectionManager
      */
     updateSelectionManagerFeature(feature) {
         const key = `text:${feature.properties.id}`;
@@ -844,6 +800,7 @@ class AddTextControl extends BaseControl {
 
     /**
      * Update SelectionManager with multiple features
+     * @param {Array} features - Features to update in SelectionManager
      */
     updateSelectionManagerFeatures(features) {
         features.forEach(feature => {
@@ -856,7 +813,6 @@ class AddTextControl extends BaseControl {
     // ===== UTILITY METHODS =====
 
     setupBaseEventListeners = () => {
-        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {

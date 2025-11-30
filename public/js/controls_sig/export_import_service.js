@@ -29,8 +29,10 @@ import { showToast, showSuccess } from './utilities/toast_service.js';
 import groupManager from './tool_manager/group_manager.js';
 
 /**
- * Normaliza estrutura de mapData para a versão atual
- * Garante que coordination_measures existe (adicionado em v1.4)
+ * Normalizes mapData structure to current version
+ * Ensures coordination_measures exists (added in v1.4)
+ * @param {Object} mapData - Map data to normalize
+ * @returns {Object} Normalized map data
  */
 const normalizeMapDataForCurrentVersion = (mapData) => {
     if (!mapData.features.coordination_measures) {
@@ -46,7 +48,11 @@ export class ExportImportService {
         this.mapManager = mapManager;
     }
 
-    // Arredondar coordenadas para precisão de 1 metro (6 casas decimais)
+    /**
+     * Rounds coordinates to 1 meter precision (6 decimal places)
+     * @param {Array} coords - Coordinate array to round
+     * @returns {Array} Rounded coordinates
+     */
     roundCoordinates(coords) {
         const precision = 6;
         const factor = Math.pow(10, precision);
@@ -58,11 +64,14 @@ export class ExportImportService {
         }
     }
 
-    // Otimizar feature individual
+    /**
+     * Optimizes individual feature by rounding coordinates
+     * @param {Object} feature - Feature to optimize
+     * @returns {Object} Optimized feature
+     */
     optimizeFeature(feature) {
         const optimized = { ...feature };
 
-        // Arredondar coordenadas
         if (optimized.geometry && optimized.geometry.coordinates) {
             optimized.geometry.coordinates = this.roundCoordinates(optimized.geometry.coordinates);
         }
@@ -70,7 +79,11 @@ export class ExportImportService {
         return optimized;
     }
 
-    // Otimizar dados do mapa
+    /**
+     * Optimizes map data by processing all features
+     * @param {Object} mapData - Map data to optimize
+     * @returns {Object} Optimized map data
+     */
     optimizeMapData(mapData) {
         const optimized = { ...mapData };
 
@@ -87,7 +100,11 @@ export class ExportImportService {
         return optimized;
     }
 
-    // Detectar extensão correta do blob baseado no tipo MIME
+    /**
+     * Detects correct file extension based on blob MIME type
+     * @param {Blob} blob - Blob to analyze
+     * @returns {string} File extension
+     */
     getBlobExtension(blob) {
         const mimeType = blob.type || 'image/png';
         switch (mimeType) {
@@ -99,7 +116,12 @@ export class ExportImportService {
         }
     }
 
-    // XOR simples para mascarar dados
+    /**
+     * Simple XOR operation to mask data
+     * @param {Uint8Array} data - Data to mask
+     * @param {number} key - XOR key (default 0xAA)
+     * @returns {Uint8Array} Masked data
+     */
     xorData(data, key = 0xAA) {
         const result = new Uint8Array(data.length);
         for (let i = 0; i < data.length; i++) {
@@ -108,7 +130,10 @@ export class ExportImportService {
         return result;
     }
 
-    // Criar botão de salvar
+    /**
+     * Creates save/export button
+     * @returns {HTMLElement} Save button element
+     */
     createSaveButton() {
         const saveButton = document.createElement('button');
         saveButton.className = 'map-action-button save-action';
@@ -122,7 +147,10 @@ export class ExportImportService {
         return saveButton;
     }
 
-    // Criar botão de carregar
+    /**
+     * Creates load/import button (replaces current)
+     * @returns {HTMLElement} Load button element
+     */
     createLoadButton() {
         const loadButton = document.createElement('button');
         loadButton.className = 'map-action-button load-action';
@@ -145,7 +173,10 @@ export class ExportImportService {
         return loadButton;
     }
 
-    // Criar botão de carregar aditivo
+    /**
+     * Creates additive load button (adds to current project)
+     * @returns {HTMLElement} Additive load button element
+     */
     createLoadAdditiveButton() {
         const loadAdditiveButton = document.createElement('button');
         loadAdditiveButton.className = 'map-action-button load-action';
@@ -168,7 +199,9 @@ export class ExportImportService {
         return loadAdditiveButton;
     }
 
-    // Manipular exportação
+    /**
+     * Handles project export to .ebgeo file
+     */
     async handleExport() {
         try {
             this.mapControl.deactivateActiveTools();
@@ -192,11 +225,11 @@ export class ExportImportService {
                 layers: {}, // NEW: Add layers to export data
             };
 
-            // Exportar dados dos mapas com otimização
+            // Export map data with optimization
             for (const mapName of mapsToExport) {
                 const mapData = await getCurrentMapFeatures(mapName);
                 if (mapData) {
-                    // Reconstruir estrutura completa do mapa
+                    // Rebuild complete map structure
                     const fullMapData = {
                         baseLayer: await getCurrentBaseLayer(mapName),
                         hillshadeEnabled: true, // Valor padrão, poderia ser obtido via nova função
@@ -210,56 +243,55 @@ export class ExportImportService {
                     data.maps[mapName] = this.optimizeMapData(fullMapData);
                 }
 
-                // Exportar dados de cores
+                // Export color usage data
                 try {
                     const colorData = await getColorUsage(mapName);
                     if (colorData && Object.keys(colorData).length > 0) {
                         data.colorUsage[mapName] = colorData;
                     }
                 } catch (error) {
-                    console.warn(`Não foi possível exportar cores do mapa ${mapName}:`, error);
+                    console.warn(`Could not export colors from map ${mapName}:`, error);
                 }
 
-                // Exportar notas do mapa
+                // Export map notes
                 try {
                     const notesData = await getMapNotes(mapName);
                     if (notesData && (notesData.title || notesData.description)) {
                         data.mapNotes[mapName] = notesData;
                     }
                 } catch (error) {
-                    console.warn(`Não foi possível exportar notas do mapa ${mapName}:`, error);
+                    console.warn(`Could not export notes from map ${mapName}:`, error);
                 }
 
-                // Exportar grupos do mapa
+                // Export map groups
                 try {
                     const groupsMap = getMapGroups(mapName);
                     if (groupsMap && groupsMap.size > 0) {
-                        // Converter Map para Object para serialização JSON
                         data.groups[mapName] = Object.fromEntries(groupsMap);
                     }
                 } catch (error) {
-                    console.warn(`Não foi possível exportar grupos do mapa ${mapName}:`, error);
+                    console.warn(`Could not export groups from map ${mapName}:`, error);
                 }
 
-                // NEW: Exportar layers do mapa
+                // Export map layers
                 try {
                     const layersData = await getLayers(mapName);
                     if (layersData && layersData.length > 0) {
                         data.layers[mapName] = layersData;
                     }
                 } catch (error) {
-                    console.warn(`Não foi possível exportar layers do mapa ${mapName}:`, error);
+                    console.warn(`Could not export layers from map ${mapName}:`, error);
                 }
             }
 
-            // Adicionar data.json ao ZIP sem indentação e com compressão máxima
+            // Add data.json to ZIP without indentation and with maximum compression
             const jsonString = JSON.stringify(data);
             zip.file('data.json', jsonString, {
                 compression: 'DEFLATE',
                 compressionOptions: { level: 9 }
             });
 
-            // Coletar e exportar imagens usadas
+            // Collect and export used images
             const usedImages = new Set();
             for (const mapName of mapsToExport) {
                 const mapData = await getCurrentMapFeatures(mapName);
@@ -276,7 +308,7 @@ export class ExportImportService {
                 }
             }
 
-            // Adicionar imagens ao ZIP com extensão correta baseada no tipo MIME
+            // Add images to ZIP with correct extension based on MIME type
             for (const imageId of usedImages) {
                 try {
                     const blob = await getImage(imageId);
@@ -288,11 +320,11 @@ export class ExportImportService {
                         });
                     }
                 } catch (error) {
-                    console.warn('Imagem não encontrada:', imageId);
+                    console.warn('Image not found:', imageId);
                 }
             }
 
-            // Gerar arquivo ZIP
+            // Generate ZIP file
             const zipBlob = await zip.generateAsync({
                 type: 'blob',
                 compression: 'DEFLATE',
@@ -300,17 +332,17 @@ export class ExportImportService {
                 streamFiles: true
             });
 
-            // Aplicar XOR nos dados ZIP para mascarar
+            // Apply XOR to ZIP data for masking
             const zipArray = new Uint8Array(await zipBlob.arrayBuffer());
             const maskedData = this.xorData(zipArray);
 
-            // Adicionar identificador no início para detectar arquivo XOR
+            // Add identifier at the beginning to detect XOR file
             const identifier = new TextEncoder().encode('EBGXOR');
             const finalArray = new Uint8Array(identifier.length + maskedData.length);
             finalArray.set(identifier, 0);
             finalArray.set(maskedData, identifier.length);
 
-            // Criar blob final
+            // Create final blob
             const finalBlob = new Blob([finalArray], {
                 type: 'application/vnd.ebgeo'
             });
@@ -332,7 +364,11 @@ export class ExportImportService {
         }
     }
 
-    // Manipular importação
+    /**
+     * Handles project import from .ebgeo file
+     * @param {Event} event - File input change event
+     * @param {boolean} isAdditiveImport - Whether to add to current project or replace
+     */
     async handleImport(event, isAdditiveImport) {
         this.mapControl.deactivateActiveTools();
 
@@ -395,7 +431,7 @@ export class ExportImportService {
                 const mapNameMapping = new Map();
 
                 for (const [originalMapName, mapData] of Object.entries(data.maps)) {
-                    // Encontrar nome único
+                    // Find unique name
                     let finalMapName = originalMapName;
                     let counter = 1;
                     while (existingMapNames.includes(finalMapName)) {
@@ -405,26 +441,26 @@ export class ExportImportService {
 
                     mapNameMapping.set(originalMapName, finalMapName);
 
-                    // Regenerar IDs das features
+                    // Regenerate feature IDs
                     const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
 
                     // Normalizar estrutura para versão atual
                     normalizeMapDataForCurrentVersion(newMapData);
 
-                    // Buscar dados originais do arquivo para preservar cores e notas
+                    // Get original data from file to preserve colors and notes
                     const originalColorUsage = data.colorUsage?.[originalMapName] || null;
                     const originalNotes = data.mapNotes?.[originalMapName] || null;
 
-                    // Passar cores e notas para preservar dados originais
+                    // Pass colors and notes to preserve original data
                     await addMap(finalMapName, newMapData, originalColorUsage, originalNotes);
                     existingMapNames.push(finalMapName);
                     importedMapsCount++;
                 }
 
-                // Importar grupos com nomes de mapas atualizados
+                // Import groups with updated map names
                 await this.importGroupsAdditively(data.groups, mapNameMapping);
 
-                // NEW: Importar layers com nomes de mapas atualizados
+                // Import layers with updated map names
                 await this.importLayersAdditively(data.layers, mapNameMapping);
 
             } else {
@@ -440,13 +476,13 @@ export class ExportImportService {
 
                 setCurrentMap(data.currentMap);
 
-                // Importar grupos diretamente (import normal)
+                // Import groups directly (normal import)
                 await this.importGroupsDirectly(data.groups);
 
-                // NEW: Importar layers diretamente (import normal)
+                // Import layers directly (normal import)
                 await this.importLayersDirectly(data.layers);
 
-                // Carregar imagens após processamento dos mapas (import normal)
+                // Load images after processing maps (normal import)
                 await this.loadImagesFromZip(zip);
             }
 
@@ -473,51 +509,48 @@ export class ExportImportService {
     }
 
     /**
-     * Importa grupos diretamente (import normal - substitui tudo)
+     * Imports groups directly (normal import - replaces everything)
+     * @param {Object} groupsData - Groups data to import
      */
     async importGroupsDirectly(groupsData) {
         if (!groupsData || Object.keys(groupsData).length === 0) {
-            return; // Não há grupos para importar
+            return;
         }
 
         try {
-            // Para cada mapa, importar seus grupos
             for (const [mapName, mapGroups] of Object.entries(groupsData)) {
                 if (mapGroups && Object.keys(mapGroups).length > 0) {
-                    // Limpar grupos existentes do mapa
                     await groupManager.clearMapGroups(mapName);
-                    
-                    // Carregar grupos para memória se for o mapa atual
+
                     const currentMapName = await getCurrentMapName();
                     if (mapName === currentMapName) {
-                        // Carregar grupos importados diretamente na memória
                         const groupsMap = new Map();
                         Object.entries(mapGroups).forEach(([groupId, groupData]) => {
                             groupsMap.set(groupId, groupData);
                         });
                         groupManager.memoryStore.groups[mapName] = groupsMap;
                     }
-                    
-                    // Persistir no IndexedDB
+
                     await groupManager._saveGroupsToDBAsync(mapName);
                 }
             }
 
         } catch (error) {
-            console.error('Erro ao importar grupos diretamente:', error);
+            console.error('Error importing groups directly:', error);
         }
     }
 
     /**
-     * Importa grupos aditivamente (import aditivo - com resolução de conflitos)
+     * Imports groups additively (additive import - with conflict resolution)
+     * @param {Object} groupsData - Groups data to import
+     * @param {Map} mapNameMapping - Mapping of original to final map names
      */
     async importGroupsAdditively(groupsData, mapNameMapping) {
         if (!groupsData || Object.keys(groupsData).length === 0) {
-            return; // Não há grupos para importar
+            return;
         }
 
         try {
-            // Para cada mapa original, importar seus grupos com nome atualizado
             for (const [originalMapName, mapGroups] of Object.entries(groupsData)) {
                 const finalMapName = mapNameMapping.get(originalMapName);
                 
@@ -525,52 +558,46 @@ export class ExportImportService {
                     continue;
                 }
 
-                // Gerar novos IDs para os grupos e resolver conflitos de nomes
                 const processedGroups = await this.processGroupsForAdditiveImport(mapGroups, finalMapName);
 
-                // Carregar grupos para memória se for o mapa atual
                 const currentMapName = await getCurrentMapName();
                 if (finalMapName === currentMapName) {
-                    // Garantir que cache de grupos existe
                     if (!groupManager.memoryStore.groups[finalMapName]) {
                         groupManager.memoryStore.groups[finalMapName] = new Map();
                     }
-                    
-                    // Adicionar grupos processados ao cache
+
                     const groupsCache = groupManager.memoryStore.groups[finalMapName];
                     Object.entries(processedGroups).forEach(([groupId, groupData]) => {
                         groupsCache.set(groupId, groupData);
                     });
                 }
 
-                // Persistir no IndexedDB
                 await groupManager._saveGroupsToDBAsync(finalMapName);
             }
 
         } catch (error) {
-            console.error('Erro ao importar grupos aditivamente:', error);
+            console.error('Error importing groups additively:', error);
         }
     }
 
     /**
-     * Processa grupos para import aditivo (novos IDs e nomes únicos)
+     * Processes groups for additive import (new IDs and unique names)
+     * @param {Object} mapGroups - Groups to process
+     * @param {string} mapName - Target map name
+     * @returns {Object} Processed groups
      */
     async processGroupsForAdditiveImport(mapGroups, mapName) {
         const processedGroups = {};
         const existingGroups = getMapGroups(mapName);
         const existingNames = new Set();
 
-        // Coletar nomes existentes
         for (const group of existingGroups.values()) {
             existingNames.add(group.name);
         }
 
-        // Processar cada grupo
         Object.values(mapGroups).forEach(group => {
-            // Gerar novo ID único
             const newGroupId = IDUtils.generateUniqueId();
-            
-            // Resolver conflito de nomes
+
             let finalName = group.name;
             let counter = 1;
             while (existingNames.has(finalName)) {
@@ -579,12 +606,10 @@ export class ExportImportService {
             }
             existingNames.add(finalName);
 
-            // Criar grupo processado
             processedGroups[newGroupId] = {
                 ...group,
                 id: newGroupId,
                 name: finalName
-                // features mantêm os mesmos IDs (assumindo que features já foram importadas)
             };
         });
 
@@ -592,11 +617,12 @@ export class ExportImportService {
     }
 
     /**
-     * NEW: Importa layers diretamente (import normal - substitui tudo)
+     * Imports layers directly (normal import - replaces everything)
+     * @param {Object} layersData - Layers data to import
      */
     async importLayersDirectly(layersData) {
         if (!layersData || Object.keys(layersData).length === 0) {
-            return; // Não há layers para importar
+            return;
         }
 
         try {
@@ -606,40 +632,38 @@ export class ExportImportService {
                 }
             }
         } catch (error) {
-            console.error('Erro ao importar layers diretamente:', error);
+            console.error('Error importing layers directly:', error);
         }
     }
 
     /**
-     * NEW: Importa layers aditivamente (import aditivo - com resolução de conflitos)
+     * Imports layers additively (additive import - with conflict resolution)
+     * @param {Object} layersData - Layers data to import
+     * @param {Map} mapNameMapping - Mapping of original to final map names
      */
     async importLayersAdditively(layersData, mapNameMapping) {
         if (!layersData || Object.keys(layersData).length === 0) {
-            return; // Não há layers para importar
+            return;
         }
 
         try {
             for (const [originalMapName, layers] of Object.entries(layersData)) {
                 const finalMapName = mapNameMapping.get(originalMapName);
-                
+
                 if (!finalMapName || !layers || !Array.isArray(layers) || layers.length === 0) {
                     continue;
                 }
 
-                // Obter layers existentes do mapa de destino
                 const existingLayers = await getLayers(finalMapName) || [];
                 const existingNames = new Set(existingLayers.map(l => l.name));
                 const existingIds = new Set(existingLayers.map(l => l.id));
 
-                // Processar layers importadas
                 const processedLayers = layers.map(layer => {
-                    // Gerar novo ID se já existe
                     let newId = layer.id;
                     if (existingIds.has(newId) || newId === 'default') {
                         newId = IDUtils.generateUniqueId();
                     }
 
-                    // Resolver conflito de nomes
                     let finalName = layer.name;
                     let counter = 1;
                     while (existingNames.has(finalName)) {
@@ -656,10 +680,8 @@ export class ExportImportService {
                     };
                 });
 
-                // Mesclar com layers existentes (exceto 'default' duplicada)
                 const mergedLayers = [...existingLayers];
                 processedLayers.forEach(layer => {
-                    // Não adicionar se for a layer 'default' e já existe uma
                     if (layer.id !== 'default' || !mergedLayers.some(l => l.id === 'default')) {
                         mergedLayers.push(layer);
                     }
@@ -668,10 +690,14 @@ export class ExportImportService {
                 await setMapLayers(finalMapName, { layers: mergedLayers });
             }
         } catch (error) {
-            console.error('Erro ao importar layers aditivamente:', error);
+            console.error('Error importing layers additively:', error);
         }
     }
 
+    /**
+     * Loads images from ZIP file into IndexedDB
+     * @param {JSZip} zip - ZIP file object
+     */
     async loadImagesFromZip(zip) {
         const imageFiles = Object.keys(zip.files).filter(name =>
             name.startsWith('images/') &&
@@ -684,12 +710,15 @@ export class ExportImportService {
                 const blob = await zip.file(fileName).async('blob');
                 await storeImage(imageId, blob);
             } catch (imgError) {
-                console.warn('Erro ao carregar imagem:', fileName, imgError);
+                console.warn('Error loading image:', fileName, imgError);
             }
         }
     }
 
-    // Mostrar sucesso no salvamento
+    /**
+     * Shows save success feedback
+     * @param {number} mapCount - Number of maps saved
+     */
     showSaveSuccess(mapCount) {
         const saveBtn = document.querySelector('.save-action');
         if (saveBtn) {
@@ -708,7 +737,11 @@ export class ExportImportService {
         showSuccess(message);
     }
 
-    // Mostrar sucesso no carregamento
+    /**
+     * Shows load success feedback
+     * @param {number} mapCount - Number of maps loaded
+     * @param {string} importType - Type of import ('adicionados' or 'carregados')
+     */
     showLoadSuccess(mapCount, importType) {
         const loadBtn = document.querySelector('.load-action');
         if (loadBtn) {
@@ -728,14 +761,15 @@ export class ExportImportService {
     }
 
     /**
-     * Processa arquivo .ebgeo diretamente (para drag & drop)
+     * Processes .ebgeo file directly (for drag & drop)
+     * @param {File} file - .ebgeo file to process
+     * @param {boolean} isAdditiveImport - Whether to add to current project
      */
     async processFileDirectly(file, isAdditiveImport = false) {
-        // Simular evento fake para reutilizar lógica existente
         const fakeEvent = {
             target: {
                 files: [file],
-                value: '' // Para resetar após processamento
+                value: ''
             }
         };
 

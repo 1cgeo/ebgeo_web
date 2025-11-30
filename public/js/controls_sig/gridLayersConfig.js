@@ -1,4 +1,4 @@
-// Path: js\controls_sig\gridLayersConfig.js
+// Path: js/controls_sig/gridLayersConfig.js
 export const GRID_LAYERS = {
   latlong: [
     'grid_vertical_4326_25k',
@@ -38,7 +38,10 @@ export const GRID_LAYERS = {
   ]
 };
 
-// Função para adicionar todas as camadas e fontes ao mapa
+/**
+ * Initializes all grid layers and sources on the map
+ * @param {Object} map - MapLibre map instance
+ */
 export function initGridLayers(map) {
 
     if(!map.getSource('grid_4326_25k')){

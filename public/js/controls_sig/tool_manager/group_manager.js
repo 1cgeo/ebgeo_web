@@ -1,32 +1,32 @@
-// Path: js\controls_sig\tool_manager\group_manager.js
+// Path: js/controls_sig/tool_manager/group_manager.js
+
 import { memoryStore, setMapGroups, getMapGroups } from '../store/repository.js';
 import { IDUtils } from '../id_utils.js';
 
 /**
- * Gerenciador central de grupos de features
- * Mantém cache em memória para consultas síncronas e persiste no IndexedDB
+ * Central manager for feature groups
+ * Maintains memory cache for synchronous queries and persists to IndexedDB
  */
 export class GroupManager {
     constructor() {
         this.memoryStore = memoryStore;
     }
 
-    // ===== OPERAÇÕES PRINCIPAIS =====
+    // ===== MAIN OPERATIONS =====
 
     /**
-     * Cria um novo grupo com as features especificadas
-     * @param {Array} features - Array de features a serem agrupadas
-     * @param {string} mapName - Nome do mapa (null = mapa atual)
-     * @returns {Object} Grupo criado
+     * Create a new group with specified features
+     * @param {Array} features - Array of features to be grouped
+     * @param {string} mapName - Map name (null = current map)
+     * @returns {Object} Created group
      */
     createGroup(features, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
-        
-        // Validar se nenhuma feature já está agrupada
-        const groupedFeatures = features.filter(feature => 
+
+        const groupedFeatures = features.filter(feature =>
             this.isFeatureGrouped(feature.properties.source, feature.properties.id, targetMap)
         );
-        
+
         if (groupedFeatures.length > 0) {
             throw new Error('Algumas features já estão agrupadas. Use "combinar grupos" em vez disso.');
         }
@@ -35,10 +35,9 @@ export class GroupManager {
             throw new Error('É necessário pelo menos 2 features para criar um grupo.');
         }
 
-        // Create
         const groupId = IDUtils.generateUniqueId();
         const groupName = this.generateGroupName(targetMap);
-        
+
         const newGroup = {
             id: groupId,
             name: groupName,
@@ -50,11 +49,9 @@ export class GroupManager {
             locked: false
         };
 
-        // Add
         this._ensureMapGroupsExist(targetMap);
         this.memoryStore.groups[targetMap].set(groupId, newGroup);
 
-        // Persistir em background
         this._saveGroupsToDBAsync(targetMap);
 
         this._notifyGroupsChanged();
@@ -63,41 +60,38 @@ export class GroupManager {
     }
 
     /**
-     * Combina grupos existentes e/ou features soltas em um novo grupo
-     * @param {Array} groupIds - IDs dos grupos a combinar
-     * @param {Array} selectedFeatures - Features adicionais a incluir
-     * @param {string} mapName - Nome do mapa
-     * @returns {Object} Grupo combinado
+     * Combine existing groups and/or loose features into a new group
+     * @param {Array} groupIds - IDs of groups to combine
+     * @param {Array} selectedFeatures - Additional features to include
+     * @param {string} mapName - Map name
+     * @returns {Object} Combined group
      */
     combineGroups(groupIds, selectedFeatures = [], mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         this._ensureMapGroupsExist(targetMap);
 
         const groupsCache = this.memoryStore.groups[targetMap];
-        
-        // Coletar todas as features dos grupos
+
         const allFeatures = [];
         let combinedGroupName = '';
 
-        // Add
         groupIds.forEach((groupId, index) => {
             const group = groupsCache.get(groupId);
             if (group) {
                 allFeatures.push(...group.features);
                 if (index === 0) {
-                    combinedGroupName = group.name; // Manter nome do primeiro grupo
+                    combinedGroupName = group.name;
                 }
             }
         });
 
-        // Add
         selectedFeatures.forEach(feature => {
             const isGrouped = this.isFeatureGrouped(
-                feature.properties.source, 
-                feature.properties.id, 
+                feature.properties.source,
+                feature.properties.id,
                 targetMap
             );
-            
+
             if (!isGrouped) {
                 allFeatures.push({
                     type: feature.properties.source,
@@ -110,10 +104,9 @@ export class GroupManager {
             throw new Error('É necessário pelo menos 2 features para formar um grupo.');
         }
 
-        // Create
         const newGroupId = IDUtils.generateUniqueId();
         const finalGroupName = combinedGroupName || this.generateGroupName(targetMap);
-        
+
         const combinedGroup = {
             id: newGroupId,
             name: finalGroupName,
@@ -122,15 +115,12 @@ export class GroupManager {
             locked: false
         };
 
-        // Remove
         groupIds.forEach(groupId => {
             groupsCache.delete(groupId);
         });
 
-        // Add
         groupsCache.set(newGroupId, combinedGroup);
 
-        // Persistir
         this._saveGroupsToDBAsync(targetMap);
 
         this._notifyGroupsChanged();
@@ -139,10 +129,10 @@ export class GroupManager {
     }
 
     /**
-     * Desfaz um grupo, deixando as features soltas
-     * @param {string} groupId - ID do grupo a desfazer
-     * @param {string} mapName - Nome do mapa
-     * @returns {Array} Features que estavam no grupo
+     * Ungroup features, leaving them loose
+     * @param {string} groupId - ID of group to ungroup
+     * @param {string} mapName - Map name
+     * @returns {Array} Features that were in the group
      */
     ungroupFeatures(groupId, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -156,11 +146,9 @@ export class GroupManager {
         }
 
         const features = [...group.features];
-        
-        // Remove
+
         groupsCache.delete(groupId);
 
-        // Persistir
         this._saveGroupsToDBAsync(targetMap);
 
         this._notifyGroupsChanged();
@@ -169,7 +157,7 @@ export class GroupManager {
     }
 
     /**
-     * Atualiza propriedade de um grupo (visibilidade, bloqueio, etc.)
+     * Update group property (visibility, lock, etc.)
      */
     updateGroupProperty(groupId, property, value, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -182,23 +170,21 @@ export class GroupManager {
             throw new Error(`Grupo ${groupId} não encontrado.`);
         }
 
-        // Update
         group[property] = value;
 
-        // Persistir
         this._saveGroupsToDBAsync(targetMap);
 
         return group;
     }
 
-    // ===== CONSULTAS SÍNCRONAS =====
+    // ===== SYNCHRONOUS QUERIES =====
 
     /**
-     * Busca o grupo que contém uma feature específica
-     * @param {string} type - Tipo da feature (source)
-     * @param {string} featureId - ID da feature
-     * @param {string} mapName - Nome do mapa
-     * @returns {Object|null} Grupo encontrado ou null
+     * Find the group containing a specific feature
+     * @param {string} type - Feature type (source)
+     * @param {string} featureId - Feature ID
+     * @param {string} mapName - Map name
+     * @returns {Object|null} Found group or null
      */
     getFeatureGroup(type, featureId, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -207,10 +193,10 @@ export class GroupManager {
         const groupsCache = this.memoryStore.groups[targetMap];
 
         for (const group of groupsCache.values()) {
-            const hasFeature = group.features.some(f => 
+            const hasFeature = group.features.some(f =>
                 f.type === type && f.id === featureId
             );
-            
+
             if (hasFeature) {
                 return group;
             }
@@ -220,49 +206,49 @@ export class GroupManager {
     }
 
     /**
-     * Verifica se uma feature está em algum grupo
+     * Check if a feature is in any group
      */
     isFeatureGrouped(type, featureId, mapName = null) {
         return this.getFeatureGroup(type, featureId, mapName) !== null;
     }
 
     /**
-     * Retorna todos os grupos de um mapa
+     * Return all groups of a map
      */
     getMapGroups(mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         this._ensureMapGroupsExist(targetMap);
-        
+
         return this.memoryStore.groups[targetMap];
     }
 
     /**
-     * Retorna um grupo específico por ID
+     * Return a specific group by ID
      */
     getGroupById(groupId, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         this._ensureMapGroupsExist(targetMap);
-        
+
         return this.memoryStore.groups[targetMap].get(groupId);
     }
 
     /**
-     * Retorna todas as features de um grupo
+     * Return all features of a group
      */
     getGroupFeatures(groupId, mapName = null) {
         const group = this.getGroupById(groupId, mapName);
         return group ? group.features : [];
     }
 
-    // ===== UTILITÁRIOS =====
+    // ===== UTILITIES =====
 
     /**
-     * Gera nome único para um grupo ("Grupo 1", "Grupo 2", etc.)
+     * Generate unique name for a group ("Grupo 1", "Grupo 2", etc.)
      */
     generateGroupName(mapName) {
         this._ensureMapGroupsExist(mapName);
         const groupsCache = this.memoryStore.groups[mapName];
-        
+
         const existingNames = new Set();
         for (const group of groupsCache.values()) {
             existingNames.add(group.name);
@@ -270,7 +256,7 @@ export class GroupManager {
 
         let counter = 1;
         let groupName;
-        
+
         do {
             groupName = `Grupo ${counter}`;
             counter++;
@@ -280,20 +266,19 @@ export class GroupManager {
     }
 
     /**
-     * Carrega grupos do IndexedDB para o cache em memória
+     * Load groups from IndexedDB to memory cache
      */
     async loadGroupsToMemory(mapName) {
         try {
             const groupsData = await getMapGroups(mapName);
-            
-            // Converter objeto para Map
+
             const groupsMap = new Map();
             Object.entries(groupsData).forEach(([groupId, groupData]) => {
                 groupsMap.set(groupId, groupData);
             });
 
             this.memoryStore.groups[mapName] = groupsMap;
-            
+
         } catch (error) {
             console.warn(`Erro ao carregar grupos do mapa ${mapName}:`, error);
             this.memoryStore.groups[mapName] = new Map();
@@ -301,32 +286,28 @@ export class GroupManager {
     }
 
     /**
-     * Duplica grupos de um mapa para outro (para cópia de mapa)
+     * Duplicate groups from one map to another (for map copy)
      */
     async duplicateMapGroups(sourceMapName, targetMapName) {
         try {
             const sourceGroupsData = await getMapGroups(sourceMapName);
-            
+
             if (Object.keys(sourceGroupsData).length === 0) {
-                return; // Não há grupos para duplicar
+                return;
             }
 
-            // Create
             const duplicatedGroups = {};
-            
+
             Object.values(sourceGroupsData).forEach(group => {
                 const newGroupId = IDUtils.generateUniqueId();
                 duplicatedGroups[newGroupId] = {
                     ...group,
                     id: newGroupId,
-                    // Features mantêm os mesmos IDs (assumindo que as features já foram duplicadas)
                 };
             });
 
-            // Save
             await setMapGroups(targetMapName, duplicatedGroups);
 
-            // Update
             if (targetMapName === this.memoryStore.currentMap) {
                 const groupsMap = new Map();
                 Object.entries(duplicatedGroups).forEach(([groupId, groupData]) => {
@@ -341,10 +322,10 @@ export class GroupManager {
     }
 
     /**
-     * Combina grupos de múltiplos mapas em um mapa de destino
-     * @param {Array} sourceMapNames - Nomes dos mapas fonte
-     * @param {string} targetMapName - Nome do mapa destino
-     * @param {Object} idMappings - Mapeamentos de IDs antigos → novos por mapa
+     * Combine groups from multiple maps into a target map
+     * @param {Array} sourceMapNames - Source map names
+     * @param {string} targetMapName - Target map name
+     * @param {Object} idMappings - ID mappings old -> new by map
      */
     async combineMapGroups(sourceMapNames, targetMapName, idMappings = {}) {
         try {
@@ -353,20 +334,16 @@ export class GroupManager {
                 Object.values(targetGroups).map(group => group.name)
             );
 
-            // Coletar grupos de todos os mapas fonte
             for (const sourceMapName of sourceMapNames) {
                 const sourceGroups = await getMapGroups(sourceMapName);
-                
-                // Obter mapeamento de IDs para este mapa (se fornecido)
+
                 const mapIdMapping = idMappings[sourceMapName] || new Map();
-                
-                // Update
+
                 const updatedGroups = this._updateGroupFeatureIds(sourceGroups, mapIdMapping);
-                
+
                 Object.values(updatedGroups).forEach(group => {
                     const newGroupId = IDUtils.generateUniqueId();
-                    
-                    // Resolver conflito de nomes
+
                     let finalName = group.name;
                     let counter = 1;
                     while (existingNames.has(finalName)) {
@@ -375,7 +352,6 @@ export class GroupManager {
                     }
                     existingNames.add(finalName);
 
-                    // Add
                     targetGroups[newGroupId] = {
                         ...group,
                         id: newGroupId,
@@ -384,10 +360,8 @@ export class GroupManager {
                 });
             }
 
-            // Save
             await setMapGroups(targetMapName, targetGroups);
 
-            // Update
             if (targetMapName === this.memoryStore.currentMap) {
                 await this.loadGroupsToMemory(targetMapName);
             }
@@ -398,14 +372,12 @@ export class GroupManager {
     }
 
     /**
-     * Remove todos os grupos de um mapa
+     * Remove all groups from a map
      */
     async clearMapGroups(mapName) {
         try {
-            // Limpar do IndexedDB
             await setMapGroups(mapName, {});
 
-            // Limpar do cache
             if (this.memoryStore.groups[mapName]) {
                 this.memoryStore.groups[mapName].clear();
             }
@@ -416,7 +388,7 @@ export class GroupManager {
     }
 
     /**
-     * Remove feature de todos os grupos (quando feature é deletada)
+     * Remove feature from all groups (when feature is deleted)
      */
     removeFeatureFromAllGroups(type, featureId, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -425,14 +397,12 @@ export class GroupManager {
         const groupsCache = this.memoryStore.groups[targetMap];
         let modified = false;
 
-        // Percorrer todos os grupos e remover a feature
         for (const [groupId, group] of groupsCache) {
             const initialLength = group.features.length;
-            group.features = group.features.filter(f => 
+            group.features = group.features.filter(f =>
                 !(f.type === type && f.id === featureId)
             );
 
-            // Se grupo ficou vazio ou com apenas 1 feature, remover
             if (group.features.length <= 1) {
                 groupsCache.delete(groupId);
                 modified = true;
@@ -441,20 +411,19 @@ export class GroupManager {
             }
         }
 
-        // Persistir se houve modificação
         if (modified) {
             this._saveGroupsToDBAsync(targetMap);
         }
     }
 
-    // ===== MÉTODOS PRIVADOS =====
+    // ===== PRIVATE METHODS =====
 
     _notifyGroupsChanged() {
         document.dispatchEvent(new CustomEvent('groups-changed'));
     }
 
     /**
-     * Garante que existe cache de grupos para um mapa
+     * Ensure group cache exists for a map
      */
     _ensureMapGroupsExist(mapName) {
         if (!this.memoryStore.groups[mapName]) {
@@ -463,10 +432,9 @@ export class GroupManager {
     }
 
     /**
-     * Salva grupos no IndexedDB em background
+     * Save groups to IndexedDB in background
      */
     _saveGroupsToDBAsync(mapName) {
-        // Executar em próximo tick para não bloquear UI
         setTimeout(async () => {
             try {
                 const groupsCache = this.memoryStore.groups[mapName];
@@ -479,14 +447,14 @@ export class GroupManager {
     }
 
     /**
-     * Atualizar IDs das features dentro dos grupos após regeneração
-     * @param {Object} groups - Grupos com IDs antigos
-     * @param {Map} idMapping - Mapeamento oldId → newId
-     * @returns {Object} Grupos com IDs atualizados
+     * Update feature IDs within groups after regeneration
+     * @param {Object} groups - Groups with old IDs
+     * @param {Map} idMapping - Mapping oldId -> newId
+     * @returns {Object} Groups with updated IDs
      */
     _updateGroupFeatureIds(groups, idMapping) {
         const updatedGroups = {};
-        
+
         Object.entries(groups).forEach(([groupId, group]) => {
             updatedGroups[groupId] = {
                 ...group,
@@ -494,17 +462,16 @@ export class GroupManager {
                     const newId = idMapping.get(featureRef.id);
                     return {
                         type: featureRef.type,
-                        id: newId || featureRef.id  // Fallback para ID original se não mapeado
+                        id: newId || featureRef.id
                     };
                 })
             };
         });
-        
+
         return updatedGroups;
     }
 }
 
-// Singleton instance
 const groupManagerInstance = new GroupManager();
 
 export default groupManagerInstance;

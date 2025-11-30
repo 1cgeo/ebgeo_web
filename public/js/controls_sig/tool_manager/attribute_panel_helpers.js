@@ -1,6 +1,5 @@
-// Path: js\controls_sig\tool_manager\attribute_panel_helpers.js
+// Path: js/controls_sig/tool_manager/attribute_panel_helpers.js
 
-// Import para acessar cores frequentes e layers
 import { getFrequentColors, getLayers, getActiveLayerIdSync, isFeatureEffectivelyLocked } from '../store/store.js';
 import { COORDINATE_FORMATS, getPlaceholderForFormat, parseCoordinates, formatCoordinates } from '../utilities/coordinate_converter.js';
 
@@ -12,19 +11,19 @@ import { COORDINATE_FORMATS, getPlaceholderForFormat, parseCoordinates, formatCo
 // ===== DEFAULT CONFIGURATIONS =====
 
 export const DEFAULT_SLIDER_CONFIG = {
-    width: 70,      // Reduced from 60-80px
-    fontSize: 11,   // Reduced from 12px
-    padding: '6px 4px',  // Increased vertical padding
-    gap: 6,         // Reduced from 8px
+    width: 70,
+    fontSize: 11,
+    padding: '6px 4px',
+    gap: 6,
     debounceMs: 300,
-    minHeight: 28   // Minimum height for inputs
+    minHeight: 28
 };
 
 export const COMPACT_STYLES = {
-    containerGap: '6px',     // Reduced from 8px
-    marginBottom: '10px',    // Reduced from 12px
-    fontSize: '13px',        // Reduced from 14px
-    minHeight: '28px'        // Reduced from 32px
+    containerGap: '6px',
+    marginBottom: '10px',
+    fontSize: '13px',
+    minHeight: '28px'
 };
 
 // ===== NUMERIC INPUT =====
@@ -60,7 +59,6 @@ export function createNumericInput(config) {
         box-sizing: border-box;
     `;
 
-    // Suffix label if provided
     if (config.suffix) {
         const suffix = document.createElement('span');
         suffix.textContent = config.suffix;
@@ -76,34 +74,32 @@ export function createNumericInput(config) {
 
     let debounceTimer = null;
 
-    // Debounced input handler
     input.oninput = (e) => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
             let value = parseInt(e.target.value, 10);
-            
+
             if (isNaN(value)) {
                 value = config.value;
             } else {
                 value = roundToStep(clampValue(value), config.step || 1);
             }
-            
+
             input.value = value;
             config.onChange(value);
         }, config.debounceMs || DEFAULT_SLIDER_CONFIG.debounceMs);
     };
 
-    // Immediate validation on blur
     input.onblur = (e) => {
         clearTimeout(debounceTimer);
         let value = parseInt(e.target.value, 10);
-        
+
         if (isNaN(value)) {
             value = config.value;
         } else {
             value = roundToStep(clampValue(value), config.step || 1);
         }
-        
+
         input.value = value;
         config.onChange(value);
     };
@@ -114,8 +110,9 @@ export function createNumericInput(config) {
 // ===== ENHANCED SLIDER WITH NUMERIC INPUT =====
 
 /**
- * Creates a robust slider with numeric input (based on arrow_attributes_panel.js implementation)
- * Features: debounce, validation, auto-clamping, step rounding
+ * Creates a robust slider with numeric input
+ * @param {Object} config - Configuration object with min, max, step, value, onChange
+ * @returns {HTMLElement} Container with slider and numeric input
  */
 export function createSliderWithInput(config) {
     const container = document.createElement('div');
@@ -145,23 +142,20 @@ export function createSliderWithInput(config) {
         padding: ${DEFAULT_SLIDER_CONFIG.padding};
         min-height: ${DEFAULT_SLIDER_CONFIG.minHeight}px;
         box-sizing: border-box;
-        border: 1px solid #ccc; 
-        border-radius: 3px; 
-        font-size: ${DEFAULT_SLIDER_CONFIG.fontSize}px; 
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        font-size: ${DEFAULT_SLIDER_CONFIG.fontSize}px;
         text-align: center;
     `;
 
-    // Enhanced functions from arrow implementation
     const roundToStep = (value, step) => {
         return Math.round(value / step) * step;
     };
 
     const clampValue = (value) => Math.max(config.min, Math.min(config.max, value));
 
-    // Debounce timer for manual input
     let debounceTimer = null;
 
-    // Sync slider -> input (with rounding)
     slider.oninput = (e) => {
         const rawValue = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
         const value = roundToStep(rawValue, config.step || 1);
@@ -169,7 +163,6 @@ export function createSliderWithInput(config) {
         config.onChange(value);
     };
 
-    // Sync input -> slider (with debounce)
     numericInput.oninput = (e) => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
@@ -187,7 +180,6 @@ export function createSliderWithInput(config) {
         }, config.debounceMs || DEFAULT_SLIDER_CONFIG.debounceMs);
     };
 
-    // Robust validation on blur
     numericInput.onblur = (e) => {
         clearTimeout(debounceTimer);
         let value = config.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
@@ -213,38 +205,43 @@ export function createSliderWithInput(config) {
 
 /**
  * Creates a color picker that opens enhanced modal on click
+ * @param {string} value - Initial color value
+ * @param {function} onChange - Callback when color changes
+ * @param {string} title - Tooltip title
+ * @param {string} scope - Color scope ('current' or 'project')
+ * @returns {HTMLElement} Color input element
  */
 export function createColorPicker(value, onChange, title, scope = 'current') {
     const colorInput = document.createElement('input');
     colorInput.classList.add("picker-color");
     colorInput.type = 'color';
-    
+
     const realValue = value;
     colorInput.dataset.realValue = realValue || '';
-    
+
     colorInput.value = realValue || '#000000';
-    
+
     colorInput.title = title || 'Clique para escolher cor';
     colorInput.style.cssText = 'width: 40px; height: 30px; border: none; border-radius: 4px; cursor: pointer;';
-    
-    // Substituir comportamento padrão do click
+
     colorInput.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         openColorPickerModal(colorInput, onChange, scope);
     });
 
-    // Manter funcionalidade de change para compatibilidade
     colorInput.oninput = onChange;
 
     return colorInput;
 }
 
 /**
- * Abre modal do color picker avançado
+ * Opens advanced color picker modal
+ * @param {HTMLElement} triggerElement - Element that triggered the modal
+ * @param {function} onChange - Callback when color changes
+ * @param {string} scope - Color scope
  */
 function openColorPickerModal(triggerElement, onChange, scope) {
-    // Fechar modal existente se houver
     closeExistingColorModal();
 
     const realValue = triggerElement.dataset.realValue || triggerElement.value;
@@ -253,11 +250,9 @@ function openColorPickerModal(triggerElement, onChange, scope) {
     modal.className = 'color-picker-modal';
     modal.id = 'color-picker-modal';
 
-    // Container do conteúdo
     const content = document.createElement('div');
     content.className = 'color-picker-modal-content';
 
-    // Header
     const header = document.createElement('div');
     header.className = 'color-picker-header';
     header.innerHTML = `
@@ -265,7 +260,6 @@ function openColorPickerModal(triggerElement, onChange, scope) {
         <button class="color-picker-close" aria-label="Fechar">&times;</button>
     `;
 
-    // Color picker nativo
     const nativePickerContainer = document.createElement('div');
     nativePickerContainer.className = 'color-picker-native-container';
 
@@ -278,36 +272,30 @@ function openColorPickerModal(triggerElement, onChange, scope) {
 
     const paletteContainer = createColorPaletteModal(realValue, onChange, scope, triggerElement);
 
-    // Montar conteúdo
     content.appendChild(header);
     content.appendChild(nativePickerContainer);
     content.appendChild(paletteContainer);
     modal.appendChild(content);
 
-    // Event listeners
     nativeColorPicker.oninput = (e) => {
         const color = e.target.value;
         triggerElement.value = color;
         triggerElement.dataset.realValue = color;
         updateActivePaletteButton(paletteContainer, color);
-        
-        // Disparar onChange original
+
         const fakeEvent = { target: { value: color } };
         onChange(fakeEvent);
     };
 
-    // Fechar modal
     const closeButton = header.querySelector('.color-picker-close');
     closeButton.onclick = () => closeColorModal(modal);
 
-    // Fechar ao clicar fora
     modal.onclick = (e) => {
         if (e.target === modal) {
             closeColorModal(modal);
         }
     };
 
-    // Fechar com ESC
     const escListener = (e) => {
         if (e.key === 'Escape') {
             closeColorModal(modal);
@@ -316,31 +304,31 @@ function openColorPickerModal(triggerElement, onChange, scope) {
     };
     document.addEventListener('keydown', escListener);
 
-    // Add
     document.body.appendChild(modal);
 
-    // Posicionar próximo ao trigger
     positionModal(modal, triggerElement);
 }
 
 /**
- * Cria palette de cores para o modal
+ * Creates color palette for modal
+ * @param {string} currentValue - Currently selected color
+ * @param {function} onChange - Callback when color changes
+ * @param {string} scope - Color scope
+ * @param {HTMLElement} triggerElement - Element that triggered modal
+ * @returns {HTMLElement} Palette container
  */
 function createColorPaletteModal(currentValue, onChange, scope, triggerElement) {
     const paletteContainer = document.createElement('div');
     paletteContainer.className = 'color-palette-modal-container';
 
-    // Label da palette
     const paletteLabel = document.createElement('div');
     paletteLabel.className = 'color-palette-label';
     paletteLabel.textContent = scope === 'project' ? 'Cores do projeto:' : 'Cores frequentes:';
     paletteContainer.appendChild(paletteLabel);
 
-    // Grid de cores
     const paletteGrid = document.createElement('div');
     paletteGrid.className = 'color-palette-modal-grid';
 
-    // Buscar cores frequentes
     const frequentColors = getFrequentColors(10, scope);
 
     if (frequentColors.length > 0) {
@@ -349,7 +337,6 @@ function createColorPaletteModal(currentValue, onChange, scope, triggerElement) 
             paletteGrid.appendChild(colorButton);
         });
     } else {
-        // Mensagem quando não há cores
         const noColorsMessage = document.createElement('div');
         noColorsMessage.className = 'color-palette-empty';
         noColorsMessage.textContent = 'Nenhuma cor usada ainda';
@@ -361,8 +348,13 @@ function createColorPaletteModal(currentValue, onChange, scope, triggerElement) 
 }
 
 /**
- * Cria botão individual de cor para o modal
- * CORRIGIDO: Recebe triggerElement e onChange como parâmetros
+ * Creates individual color button for modal
+ * @param {string} color - Button color
+ * @param {number} count - Usage count
+ * @param {string} currentValue - Currently selected color
+ * @param {function} onChange - Callback when clicked
+ * @param {HTMLElement} triggerElement - Element that triggered modal
+ * @returns {HTMLElement} Color button
  */
 function createModalColorButton(color, count, currentValue, onChange, triggerElement) {
     const button = document.createElement('button');
@@ -371,36 +363,29 @@ function createModalColorButton(color, count, currentValue, onChange, triggerEle
     button.title = `${color} (usado ${count}x)`;
     button.dataset.color = color;
 
-    // Estado ativo
     if (currentValue === color) {
         button.classList.add('active');
     }
 
-    // CORRIGIDO: Click handler usa referência direta
     button.onclick = (e) => {
         e.preventDefault();
-        
-        // Update
+
         triggerElement.value = color;
         triggerElement.dataset.realValue = color;
 
-        // Update
         const nativePicker = document.querySelector('.color-picker-native');
         if (nativePicker) {
             nativePicker.value = color;
         }
 
-        // Update
         const paletteContainer = button.closest('.color-palette-modal-container');
         if (paletteContainer) {
             updateActivePaletteButton(paletteContainer, color);
         }
 
-        // Disparar onChange original
         const fakeEvent = { target: { value: color } };
         onChange(fakeEvent);
 
-        // Fechar modal
         closeExistingColorModal();
     };
 
@@ -408,7 +393,9 @@ function createModalColorButton(color, count, currentValue, onChange, triggerEle
 }
 
 /**
- * Atualiza botão ativo na palette
+ * Updates active button in palette
+ * @param {HTMLElement} container - Palette container
+ * @param {string} selectedColor - Selected color
  */
 function updateActivePaletteButton(container, selectedColor) {
     const buttons = container.querySelectorAll('.color-button-modal');
@@ -419,20 +406,19 @@ function updateActivePaletteButton(container, selectedColor) {
 }
 
 /**
- * Posiciona modal próximo ao elemento trigger
+ * Positions modal near trigger element
+ * @param {HTMLElement} modal - Modal element
+ * @param {HTMLElement} triggerElement - Element that triggered modal
  */
 function positionModal(modal, triggerElement) {
     const rect = triggerElement.getBoundingClientRect();
     const modalContent = modal.querySelector('.color-picker-modal-content');
-    
-    // PosiÃ§Ã£o inicial: abaixo do trigger, centralizado
+
     let top = rect.bottom + window.scrollY + 8;
     let left = rect.left + window.scrollX + (rect.width / 2);
 
-    // Ajustar se sair da tela
     const modalRect = modalContent.getBoundingClientRect();
-    
-    // Ajustar horizontalmente
+
     if (left + modalRect.width > window.innerWidth) {
         left = window.innerWidth - modalRect.width - 20;
     }
@@ -440,7 +426,6 @@ function positionModal(modal, triggerElement) {
         left = 20;
     }
 
-    // Ajustar verticalmente (mostrar acima se não couber embaixo)
     if (top + modalRect.height > window.innerHeight + window.scrollY) {
         top = rect.top + window.scrollY - modalRect.height - 8;
     }
@@ -450,7 +435,7 @@ function positionModal(modal, triggerElement) {
 }
 
 /**
- * Fecha modal de cor existente
+ * Closes existing color modal
  */
 function closeExistingColorModal() {
     const existingModal = document.getElementById('color-picker-modal');
@@ -460,7 +445,8 @@ function closeExistingColorModal() {
 }
 
 /**
- * Fecha modal de cor específico
+ * Closes specific color modal
+ * @param {HTMLElement} modal - Modal to close
  */
 function closeColorModal(modal) {
     modal.classList.add('closing');
@@ -474,7 +460,10 @@ function closeColorModal(modal) {
 // ===== STANDARDIZED CHECKBOX =====
 
 /**
- * Creates a standardized toggle checkbox (following existing pattern)
+ * Creates a standardized toggle checkbox
+ * @param {boolean} checked - Initial checked state
+ * @param {function} onChange - Callback when checkbox changes
+ * @returns {HTMLElement} Checkbox label element
  */
 export function createCheckbox(checked, onChange) {
     const label = $("<label>", { class: "switch" });
@@ -492,17 +481,20 @@ export function createCheckbox(checked, onChange) {
 
 /**
  * Creates a line style select with visual preview patterns
+ * @param {string} currentValue - Currently selected line style
+ * @param {function} onChange - Callback when selection changes
+ * @returns {HTMLElement} Container with select element
  */
 export function createLineStyleSelect(currentValue, onChange) {
     const container = document.createElement('div');
     container.style.cssText = 'position: relative; width: 100%;';
-    
+
     const select = document.createElement('select');
     select.className = 'form-select line-style-select';
     select.style.cssText = `
-        width: 100%; 
-        padding: 8px 12px; 
-        border-radius: 4px; 
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 4px;
         border: 1px solid #ccc;
         background: white;
         font-size: 18px;
@@ -514,14 +506,14 @@ export function createLineStyleSelect(currentValue, onChange) {
         font-family: 'Courier New', monospace;
         text-align: center
     `;
-    
+
     const options = [
         { value: 'solid', label: 'Contínuo', pattern: '────────────' },
         { value: 'dashed', label: 'Tracejado', pattern: '── ── ── ──' },
         { value: 'dotted', label: 'Pontilhado', pattern: ' - - - - - -' },
         { value: 'dash-dot', label: 'Traço-Ponto', pattern: '── - ── - ──' },
     ];
-    
+
     options.forEach(opt => {
         const option = document.createElement('option');
         option.value = opt.value;
@@ -529,10 +521,10 @@ export function createLineStyleSelect(currentValue, onChange) {
         option.selected = opt.value === currentValue;
         select.appendChild(option);
     });
-    
+
     select.onchange = (e) => onChange(e.target.value);
     container.appendChild(select);
-    
+
     return container;
 }
 
@@ -540,6 +532,9 @@ export function createLineStyleSelect(currentValue, onChange) {
 
 /**
  * Creates a standardized attribute row with label and input
+ * @param {string} labelText - Label text
+ * @param {HTMLElement} inputElement - Input element
+ * @returns {HTMLElement} Attribute row container
  */
 export function createAttributeRow(labelText, inputElement) {
     const container = $("<div>", { class: "attr-container-row" });
@@ -556,7 +551,9 @@ export function createAttributeRow(labelText, inputElement) {
 
 /**
  * Creates an editable feature name component
- * Shows feature name in bold, larger text, becomes editable on click
+ * @param {string} initialName - Initial feature name
+ * @param {function} onNameChange - Callback when name changes
+ * @returns {HTMLElement} Editable name container
  */
 export function createEditableFeatureName(initialName, onNameChange) {
     const container = document.createElement('div');
@@ -573,7 +570,6 @@ export function createEditableFeatureName(initialName, onNameChange) {
     nameInput.value = initialName || '';
     nameInput.style.cssText = 'display: none; width: 100%; font-size: 16px; font-weight: bold; padding: 6px; border: 1px solid #007bff; border-radius: 4px;';
 
-    // Switch to edit mode
     nameDisplay.onclick = () => {
         nameDisplay.style.display = 'none';
         nameInput.style.display = 'block';
@@ -581,7 +577,6 @@ export function createEditableFeatureName(initialName, onNameChange) {
         nameInput.select();
     };
 
-    // Save on Enter or blur
     const saveEdit = () => {
         const newName = nameInput.value.trim();
         if (newName === '') {
@@ -598,7 +593,6 @@ export function createEditableFeatureName(initialName, onNameChange) {
         }
     };
 
-    // Cancel on Escape
     const cancelEdit = () => {
         nameInput.value = initialName || '';
         nameDisplay.style.display = 'block';
@@ -626,13 +620,15 @@ export function createEditableFeatureName(initialName, onNameChange) {
 
 /**
  * Creates standardized Save/Discard/Set Default buttons
+ * @param {Object} config - Button configuration
+ * @returns {HTMLElement} Button container
  */
 export function createStandardButtons(config) {
     const {
         selectedFeatures,
         control,
         selectionManager,
-        initialPropertiesMap, // REQUIRED PARAMETER - captured at panel opening
+        initialPropertiesMap,
         hasSetDefault = false,
         onSetDefault = null
     } = config;
@@ -649,7 +645,6 @@ export function createStandardButtons(config) {
     };
     buttonContainer.append(saveButton)
 
-    // Set Default Button (conditional)
     if (hasSetDefault && onSetDefault) {
         const setDefaultButton = document.createElement('button');
         setDefaultButton.textContent = 'Definir padrão';
@@ -708,6 +703,10 @@ export const COMMON_CONFIGS = {
 
 /**
  * Helper to get common config with default value
+ * @param {string} type - Config type
+ * @param {*} defaultValue - Default value
+ * @param {Object} overrides - Override values
+ * @returns {Object} Merged configuration
  */
 export function getCommonConfig(type, defaultValue, overrides = {}) {
     const baseConfig = COMMON_CONFIGS[type] || {};
@@ -721,17 +720,16 @@ export function getCommonConfig(type, defaultValue, overrides = {}) {
 // ===== CSS INJECTION =====
 
 /**
- * Injeta CSS necessário para o color picker modal
+ * Injects required CSS for color picker modal
  */
 function injectColorPickerModalStyles() {
     if (document.getElementById('color-picker-modal-styles')) {
-        return; // Já injetado
+        return;
     }
 
     const style = document.createElement('style');
     style.id = 'color-picker-modal-styles';
     style.textContent = `
-        /* Modal overlay */
         .color-picker-modal {
             position: fixed;
             top: 0;
@@ -761,7 +759,6 @@ function injectColorPickerModalStyles() {
             to { opacity: 0; }
         }
 
-        /* Modal content */
         .color-picker-modal-content {
             position: absolute;
             background: white;
@@ -779,28 +776,27 @@ function injectColorPickerModalStyles() {
         }
 
         @keyframes colorModalSlideIn {
-            from { 
+            from {
                 opacity: 0;
                 transform: translateY(-20px) scale(0.95);
             }
-            to { 
+            to {
                 opacity: 1;
                 transform: translateY(0) scale(1);
             }
         }
 
         @keyframes colorModalSlideOut {
-            from { 
+            from {
                 opacity: 1;
                 transform: translateY(0) scale(1);
             }
-            to { 
+            to {
                 opacity: 0;
                 transform: translateY(-10px) scale(0.95);
             }
         }
 
-        /* Header */
         .color-picker-header {
             display: flex;
             justify-content: space-between;
@@ -833,7 +829,6 @@ function injectColorPickerModalStyles() {
             color: #666;
         }
 
-        /* Native color picker */
         .color-picker-native-container {
             padding: 20px;
             text-align: center;
@@ -854,7 +849,6 @@ function injectColorPickerModalStyles() {
             transform: scale(1.05);
         }
 
-        /* Palette container */
         .color-palette-modal-container {
             padding: 20px;
         }
@@ -924,19 +918,20 @@ function injectColorPickerModalStyles() {
 }
 
 injectColorPickerModalStyles();
+
 // ===== COORDINATE EDITOR =====
 
 /**
  * Creates coordinate editor for Point geometries
- * Shows coordinates in current mouse coordinates format with edit button and modal
- * @param {Object} feature - Feature with geometry.type === 'Point'
- * @param {Object} uiManager - UIManager instance containing mouseCoordinatesControl
+ * @param {Object} feature - Feature with Point geometry
+ * @param {Object} uiManager - UIManager instance
  * @param {Function} onCoordinateChange - Callback(lat, lng)
- * @param {boolean} disabled - Disable editing (multiple selections)
+ * @param {boolean} disabled - Disable editing for multiple selections
+ * @returns {HTMLElement} Coordinate editor container
  */
 export function createCoordinateEditor(feature, uiManager, onCoordinateChange, disabled = false) {
     if (!feature || feature.geometry.type !== 'Point') {
-        return document.createElement('div'); // Empty element
+        return document.createElement('div');
     }
 
     const mouseCoordinatesControl = uiManager?.mouseCoordinatesControl;
@@ -952,13 +947,11 @@ export function createCoordinateEditor(feature, uiManager, onCoordinateChange, d
     container.className = 'coordinate-editor-container';
     container.style.cssText = 'margin-bottom: 10px;';
 
-    // Label
     const label = document.createElement('label');
     label.textContent = 'Coordenadas:';
     label.style.cssText = 'display: block; font-weight: 500; color: #333; font-size: 13px; margin-bottom: 4px;';
     container.appendChild(label);
 
-    // Coordinates display with edit button
     const displayRow = document.createElement('div');
     displayRow.style.cssText = 'display: flex; align-items: center; gap: 8px;';
 
@@ -988,13 +981,11 @@ export function createCoordinateEditor(feature, uiManager, onCoordinateChange, d
     displayRow.appendChild(editButton);
     container.appendChild(displayRow);
 
-    // Edit button click handler
     editButton.onclick = () => {
         openCoordinateEditModal(lat, lng, currentFormat, (newLat, newLng) => {
             onCoordinateChange(newLat, newLng);
         });
     };
-
 
     container.updateCoordinates = (newLat, newLng) => {
         coordsText.value = formatCoordinates(newLat, newLng, currentFormat);
@@ -1003,10 +994,13 @@ export function createCoordinateEditor(feature, uiManager, onCoordinateChange, d
 }
 
 /**
- * Opens coordinate edit modal (similar to "Go to coordinates")
+ * Opens coordinate edit modal
+ * @param {number} currentLat - Current latitude
+ * @param {number} currentLng - Current longitude
+ * @param {string} currentFormat - Current coordinate format
+ * @param {Function} onConfirm - Callback when confirmed
  */
 function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfirm) {
-    // Create modal overlay
     const modal = document.createElement('div');
     modal.className = 'coordinate-edit-modal';
     modal.style.cssText = `
@@ -1022,7 +1016,6 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
         justify-content: center;
     `;
 
-    // Create modal content
     const content = document.createElement('div');
     content.className = 'coordinate-edit-modal-content';
     content.style.cssText = `
@@ -1034,13 +1027,11 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
         max-width: 400px;
     `;
 
-    // Header
     const header = document.createElement('div');
     header.style.cssText = 'margin-bottom: 20px; font-weight: 600; font-size: 16px; color: #333;';
     header.textContent = 'Editar Coordenadas';
     content.appendChild(header);
 
-    // Format selector
     const formatContainer = document.createElement('div');
     formatContainer.style.cssText = 'margin-bottom: 15px;';
 
@@ -1071,7 +1062,6 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
     formatContainer.appendChild(formatSelect);
     content.appendChild(formatContainer);
 
-    // Coordinates input
     const inputContainer = document.createElement('div');
     inputContainer.style.cssText = 'margin-bottom: 15px;';
 
@@ -1094,14 +1084,12 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
     `;
     inputContainer.appendChild(input);
 
-    // Validation message
     const validationMsg = document.createElement('div');
     validationMsg.style.cssText = 'color: #dc3545; font-size: 12px; margin-top: 5px; min-height: 18px;';
     inputContainer.appendChild(validationMsg);
 
     content.appendChild(inputContainer);
 
-    // Update placeholder and value when format changes
     formatSelect.onchange = () => {
         const newFormat = formatSelect.value;
         input.placeholder = getPlaceholderForFormat(newFormat);
@@ -1116,7 +1104,6 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
         }
     };
 
-    // Buttons
     const buttonContainer = document.createElement('div');
     buttonContainer.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end;';
 
@@ -1156,14 +1143,12 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
     buttonContainer.appendChild(confirmButton);
     content.appendChild(buttonContainer);
 
-    // Close on overlay click
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {
             closeModal();
         }
     });
 
-    // Close on Escape key
     const escapeHandler = (e) => {
         if (e.key === 'Escape') {
             closeModal();
@@ -1174,19 +1159,19 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
     modal.appendChild(content);
     document.body.appendChild(modal);
 
-    // Focus input
     setTimeout(() => input.focus(), 100);
 }
-// ===== FEATURE HEADER WITH OPTIONS (NOVO) =====
+
+// ===== FEATURE HEADER WITH OPTIONS =====
 
 /**
- * Cria header da feature com nome editável + botão de opções
- * @param {string} initialName - Nome inicial da feature
- * @param {Function} onNameChange - Callback quando nome muda
- * @param {Array} selectedFeatures - Features selecionadas
- * @param {Object} selectionManager - Instância do SelectionManager
- * @param {Object} uiManager - Instância do UIManager
- * @returns {HTMLElement} Container com nome + botão
+ * Creates feature header with editable name and options button
+ * @param {string} initialName - Initial feature name
+ * @param {Function} onNameChange - Callback when name changes
+ * @param {Array} selectedFeatures - Selected features
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ * @returns {HTMLElement} Header container
  */
 export function createFeatureHeaderWithOptions(
     initialName,
@@ -1198,15 +1183,12 @@ export function createFeatureHeaderWithOptions(
     const container = document.createElement('div');
     container.className = 'feature-header-with-options';
 
-    // Wrapper para o nome editável
     const nameWrapper = document.createElement('div');
     nameWrapper.className = 'feature-name-wrapper';
-    
-    // Nome editável (usa a função existente, sem modificações)
+
     const nameComponent = createEditableFeatureName(initialName, onNameChange);
     nameWrapper.appendChild(nameComponent);
 
-    // Botão de opções (3 pontos)
     const optionsButton = createFeatureOptionsButton(
         selectedFeatures,
         selectionManager,
@@ -1220,17 +1202,19 @@ export function createFeatureHeaderWithOptions(
 }
 
 /**
- * Cria o botão de opções (3 pontos verticais)
+ * Creates feature options button (three vertical dots)
+ * @param {Array} selectedFeatures - Selected features
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ * @returns {HTMLElement} Options button
  */
 export function createFeatureOptionsButton(selectedFeatures, selectionManager, uiManager) {
     const button = document.createElement('button');
     button.className = 'feature-options-button';
     button.title = 'Opções';
-    
-    // SVG com 3 pontos verticais
+
     button.innerHTML = `<img src="./images/icon_more_info.svg" alt="Opções" />`;
 
-    // Verificar se deve desabilitar o botão
     const shouldDisable = shouldDisableOptionsButton(selectedFeatures);
     button.disabled = shouldDisable;
 
@@ -1238,13 +1222,12 @@ export function createFeatureOptionsButton(selectedFeatures, selectionManager, u
         button.title = 'Disponível apenas para seleção de features do mesmo tipo';
     }
 
-    // Event listener para abrir/fechar dropdown
     button.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         const isOpen = button.dataset.dropdownOpen === 'true';
-        
+
         if (isOpen) {
             closeAllFeatureDropdowns(true);
         } else {
@@ -1253,70 +1236,69 @@ export function createFeatureOptionsButton(selectedFeatures, selectionManager, u
         }
     });
 
-    // Inicializar event listeners globais (apenas uma vez)
     initializeFeatureDropdownListeners();
 
     return button;
 }
 
 /**
- * Verifica se o botão de opções deve ser desabilitado
- * Desabilita se houver mais de uma feature de TIPOS DIFERENTES
+ * Checks if options button should be disabled
+ * @param {Array} selectedFeatures - Selected features
+ * @returns {boolean} True if should disable
  */
 function shouldDisableOptionsButton(selectedFeatures) {
     if (selectedFeatures.length <= 1) {
-        return false; // Sempre habilitado para 0 ou 1 feature
+        return false;
     }
 
-    // Verificar se todas as features têm o mesmo tipo
     const firstType = selectedFeatures[0].properties.source;
-    const allSameType = selectedFeatures.every(f => 
+    const allSameType = selectedFeatures.every(f =>
         f.properties.source === firstType
     );
 
-    return !allSameType; // Desabilita se NÃO forem todos do mesmo tipo
+    return !allSameType;
 }
 
 /**
- * Abre o dropdown de opções
+ * Opens feature options dropdown
+ * @param {HTMLElement} button - Button that triggered dropdown
+ * @param {Array} selectedFeatures - Selected features
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
  */
 async function openFeatureDropdown(button, selectedFeatures, selectionManager, uiManager) {
     const dropdown = document.createElement('div');
     dropdown.className = 'feature-dropdown-content';
     dropdown.dataset.buttonId = `feature-options-${Date.now()}`;
 
-    // Create
     const selectAllButton = document.createElement('button');
     selectAllButton.className = 'feature-menu-button';
     selectAllButton.textContent = 'Selecionar todos com mesmo tipo';
-    
+
     selectAllButton.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         await selectAllFeaturesOfSameType(selectedFeatures, selectionManager, uiManager);
         closeAllFeatureDropdowns(true);
     });
 
     dropdown.appendChild(selectAllButton);
 
-    // Obter camada da feature selecionada
     const currentFeature = selectedFeatures[0];
     const currentLayerId = currentFeature?.properties?.layerId || 'default';
     const layers = await getLayers();
     const currentLayer = layers.find(l => l.id === currentLayerId);
 
     if (currentLayer) {
-        // Separador
         const separator1 = document.createElement('div');
         separator1.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
         dropdown.appendChild(separator1);
 
-        // Item: "Selecionar todos da camada X"
         const selectAllLayerButton = document.createElement('button');
         selectAllLayerButton.className = 'feature-menu-button';
         selectAllLayerButton.textContent = `Selecionar todos da camada "${currentLayer.name}"`;
-        
+
         selectAllLayerButton.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -1325,14 +1307,13 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         });
         dropdown.appendChild(selectAllLayerButton);
 
-        // Item: "Selecionar todos do tipo na camada"
         const featureType = currentFeature?.properties?.source;
         if (featureType) {
             const selectTypeInLayerButton = document.createElement('button');
             selectTypeInLayerButton.className = 'feature-menu-button';
             const typeName = getFeatureTypeName(featureType);
             selectTypeInLayerButton.textContent = `Selecionar todos "${typeName}" da camada`;
-            
+
             selectTypeInLayerButton.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1343,19 +1324,18 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
         }
     }
 
-    // Anexar ao body
     document.body.appendChild(dropdown);
 
-    // Posicionar dropdown
     positionFeatureDropdown(dropdown, button);
 
-    // Marcar botão como ativo
     button.classList.add('dropdown-active');
     button.dataset.dropdownOpen = 'true';
 }
 
 /**
- * Retorna nome legivel do tipo de feature
+ * Returns readable feature type name
+ * @param {string} featureType - Feature type code
+ * @returns {string} Readable name
  */
 function getFeatureTypeName(featureType) {
     const names = {
@@ -1378,26 +1358,26 @@ function getFeatureTypeName(featureType) {
 }
 
 /**
- * Seleciona todas as features de uma camada (nao bloqueadas)
+ * Selects all features in a layer
+ * @param {string} layerId - Layer ID
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
  */
 async function selectAllInLayer(layerId, selectionManager, uiManager) {
     try {
-        // Coletar todas as features de todos os sources do mapa filtrando por layerId
         const allFeatures = [];
-        
-        // Iterar sobre todos os controls registrados no selectionManager
+
         for (const [featureType, control] of selectionManager.controls) {
             const sourceNames = control.getSourceNames();
             if (!sourceNames || sourceNames.length === 0) continue;
-            
+
             for (const sourceName of sourceNames) {
                 const source = selectionManager.map.getSource(sourceName);
                 if (!source) continue;
-                
+
                 try {
                     const data = await source.getData();
                     if (data && data.features) {
-                        // Filtrar features da camada especificada
                         const layerFeatures = data.features.filter(f => {
                             const featureLayerId = f.properties?.layerId || 'default';
                             return featureLayerId === layerId;
@@ -1405,14 +1385,13 @@ async function selectAllInLayer(layerId, selectionManager, uiManager) {
                         allFeatures.push(...layerFeatures);
                     }
                 } catch (e) {
-                    console.debug(`Erro ao obter dados do source ${sourceName}:`, e);
+                    console.debug(`Error getting data from source ${sourceName}:`, e);
                 }
             }
         }
-        
-        // Filtrar features bloqueadas
+
         const selectableFeatures = allFeatures.filter(f => !isFeatureEffectivelyLocked(f));
-        
+
         if (selectableFeatures.length === 0) {
             return;
         }
@@ -1429,44 +1408,43 @@ async function selectAllInLayer(layerId, selectionManager, uiManager) {
             }
         }
 
-        // Update
         uiManager.updateSelectionHighlight();
         uiManager.updatePanels();
     } catch (error) {
-        console.error('Erro ao selecionar todas features da camada:', error);
+        console.error('Error selecting all features in layer:', error);
     }
 }
 
 /**
- * Seleciona todas as features de um tipo em uma camada especifica
+ * Selects all features of a type in a specific layer
+ * @param {string} featureType - Feature type
+ * @param {string} layerId - Layer ID
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
  */
 async function selectAllOfTypeInLayer(featureType, layerId, selectionManager, uiManager) {
     try {
-        // Obter control correspondente ao tipo
         const control = selectionManager.controls.get(featureType);
         if (!control) {
-            console.warn(`Control não encontrado para tipo: ${featureType}`);
+            console.warn(`Control not found for type: ${featureType}`);
             return;
         }
 
-        // Obter source names do control
         const sourceNames = control.getSourceNames();
         if (!sourceNames || sourceNames.length === 0) {
-            console.warn(`Source names não encontrados para tipo: ${featureType}`);
+            console.warn(`Source names not found for type: ${featureType}`);
             return;
         }
 
-        // Coletar features do tipo na camada especificada
         const filteredFeatures = [];
-        
+
         for (const sourceName of sourceNames) {
             const source = selectionManager.map.getSource(sourceName);
             if (!source) continue;
-            
+
             try {
                 const data = await source.getData();
                 if (data && data.features) {
-                    // Filtrar features da camada especificada e não bloqueadas
                     const layerFeatures = data.features.filter(f => {
                         const featureLayerId = f.properties?.layerId || 'default';
                         return featureLayerId === layerId && !isFeatureEffectivelyLocked(f);
@@ -1474,10 +1452,10 @@ async function selectAllOfTypeInLayer(featureType, layerId, selectionManager, ui
                     filteredFeatures.push(...layerFeatures);
                 }
             } catch (e) {
-                console.debug(`Erro ao obter dados do source ${sourceName}:`, e);
+                console.debug(`Error getting data from source ${sourceName}:`, e);
             }
         }
-        
+
         if (filteredFeatures.length === 0) {
             return;
         }
@@ -1493,16 +1471,17 @@ async function selectAllOfTypeInLayer(featureType, layerId, selectionManager, ui
             }
         }
 
-        // Update
         uiManager.updateSelectionHighlight();
         uiManager.updatePanels();
     } catch (error) {
-        console.error('Erro ao selecionar features do tipo na camada:', error);
+        console.error('Error selecting features of type in layer:', error);
     }
 }
 
 /**
- * Posiciona o dropdown próximo ao botão
+ * Positions dropdown near button
+ * @param {HTMLElement} dropdown - Dropdown element
+ * @param {HTMLElement} button - Button element
  */
 function positionFeatureDropdown(dropdown, button) {
     requestAnimationFrame(() => {
@@ -1521,7 +1500,6 @@ function positionFeatureDropdown(dropdown, button) {
 
         const padding = 10;
 
-        // Ajustar horizontalmente
         if (left < padding) {
             left = rect.left;
         }
@@ -1529,7 +1507,6 @@ function positionFeatureDropdown(dropdown, button) {
             left = Math.max(padding, viewport.width - dropdownWidth - padding);
         }
 
-        // Ajustar verticalmente
         if (top + dropdownHeight > viewport.height - padding) {
             const topAbove = rect.top - dropdownHeight - 4;
             if (topAbove >= padding) {
@@ -1545,7 +1522,8 @@ function positionFeatureDropdown(dropdown, button) {
 }
 
 /**
- * Fecha todos os dropdowns de features
+ * Closes all feature dropdowns
+ * @param {boolean} animated - Whether to use animation
  */
 function closeAllFeatureDropdowns(animated = false) {
     const dropdowns = document.querySelectorAll('.feature-dropdown-content');
@@ -1569,7 +1547,6 @@ function closeAllFeatureDropdowns(animated = false) {
         });
     }
 
-    // Limpar estado dos botões ativos
     const activeButtons = document.querySelectorAll('.feature-options-button.dropdown-active');
     activeButtons.forEach(button => {
         button.classList.remove('dropdown-active');
@@ -1578,32 +1555,31 @@ function closeAllFeatureDropdowns(animated = false) {
 }
 
 /**
- * Seleciona todas as features do mesmo tipo da seleção atual
+ * Selects all features of same type as current selection
+ * @param {Array} selectedFeatures - Currently selected features
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
  */
 async function selectAllFeaturesOfSameType(selectedFeatures, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;
 
-    // Obter tipo da primeira feature
     const firstFeature = selectedFeatures[0];
     const targetType = firstFeature.properties.source;
 
-    // Obter control correspondente ao tipo
     const control = selectionManager.controls.get(targetType);
     if (!control) {
-        console.warn(`Control não encontrado para tipo: ${targetType}`);
+        console.warn(`Control not found for type: ${targetType}`);
         return;
     }
 
-    // Obter source names do control
     const sourceNames = control.getSourceNames();
     if (!sourceNames || sourceNames.length === 0) {
-        console.warn(`Source names não encontrados para tipo: ${targetType}`);
+        console.warn(`Source names not found for type: ${targetType}`);
         return;
     }
 
-    // Coletar todas as features do tipo
     const allFeaturesOfType = [];
-    
+
     for (const sourceName of sourceNames) {
         const source = selectionManager.map.getSource(sourceName);
         if (source) {
@@ -1615,14 +1591,12 @@ async function selectAllFeaturesOfSameType(selectedFeatures, selectionManager, u
     }
 
     if (allFeaturesOfType.length === 0) {
-        console.warn(`Nenhuma feature encontrada para tipo: ${targetType}`);
+        console.warn(`No features found for type: ${targetType}`);
         return;
     }
 
-    // Limpar seleção atual
     selectionManager.deselectAllFeatures();
 
-    // Selecionar todas as features do tipo
     for (const feature of allFeaturesOfType) {
         const featureId = feature.properties.id;
         if (!selectionManager.isFeatureSelected(targetType, featureId)) {
@@ -1630,18 +1604,15 @@ async function selectAllFeaturesOfSameType(selectedFeatures, selectionManager, u
         }
     }
 
-    // Update
     uiManager.updateSelectionHighlight();
     uiManager.updatePanels();
 }
 
 /**
- * Inicializa event listeners globais para dropdowns de features
- * (executado apenas uma vez)
+ * Initializes global event listeners for feature dropdowns
  */
 let featureDropdownListenersInitialized = false;
 
-// ✅ FIX MEMORY LEAK: Armazenar referências dos handlers para cleanup
 let dropdownClickHandler = null;
 let dropdownKeydownHandler = null;
 let dropdownScrollHandler = null;
@@ -1650,9 +1621,8 @@ let dropdownResizeHandler = null;
 function initializeFeatureDropdownListeners() {
     if (featureDropdownListenersInitialized) return;
 
-    // Create
     dropdownClickHandler = (e) => {
-        if (!e.target.closest('.feature-dropdown-content') && 
+        if (!e.target.closest('.feature-dropdown-content') &&
             !e.target.closest('.feature-options-button')) {
             closeAllFeatureDropdowns(false);
         }
@@ -1672,7 +1642,6 @@ function initializeFeatureDropdownListeners() {
         closeAllFeatureDropdowns(false);
     };
 
-    // Add
     document.addEventListener('click', dropdownClickHandler);
     document.addEventListener('keydown', dropdownKeydownHandler);
     document.addEventListener('scroll', dropdownScrollHandler, true);
@@ -1682,13 +1651,11 @@ function initializeFeatureDropdownListeners() {
 }
 
 /**
- * Remove event listeners globais (previne memory leaks)
- * IMPORTANTE: Chame ao destruir o painel de atributos
+ * Removes global event listeners to prevent memory leaks
  */
 export function cleanupFeatureDropdownListeners() {
     if (!featureDropdownListenersInitialized) return;
 
-    // Remove
     if (dropdownClickHandler) {
         document.removeEventListener('click', dropdownClickHandler);
     }
@@ -1702,10 +1669,8 @@ export function cleanupFeatureDropdownListeners() {
         window.removeEventListener('resize', dropdownResizeHandler);
     }
 
-    // Fechar dropdowns abertos
     closeAllFeatureDropdowns(false);
 
-    // Resetar estado
     dropdownClickHandler = null;
     dropdownKeydownHandler = null;
     dropdownScrollHandler = null;

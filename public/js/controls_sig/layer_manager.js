@@ -1,26 +1,26 @@
-// Path: js\controls_sig\layer_manager.js
+// Path: js/controls_sig/layer_manager.js
 import { memoryStore, setMapLayers, getMapLayers } from './store/repository.js';
 import { IDUtils } from './id_utils.js';
 
 /**
- * Gerenciador central de camadas (layers)
- * Segue o mesmo padrão do GroupManager:
- * - Cache em memória para consultas síncronas
- * - Persistência assíncrona no IndexedDB
- * - Eventos para notificar mudanças
+ * Central layer manager
+ * Follows the same pattern as GroupManager:
+ * - In-memory cache for synchronous queries
+ * - Asynchronous persistence to IndexedDB
+ * - Events to notify changes
  */
 export class LayerManager {
     constructor() {
         this.memoryStore = memoryStore;
     }
 
-    // ===== OPERAÇÕES PRINCIPAIS =====
+    // ===== MAIN OPERATIONS =====
 
     /**
-     * Cria uma nova camada
-     * @param {string} name - Nome da camada
-     * @param {string} mapName - Nome do mapa (null = mapa atual)
-     * @returns {Object} Camada criada
+     * Create a new layer
+     * @param {string} name - Layer name
+     * @param {string} mapName - Map name (null = current map)
+     * @returns {Object} Created layer
      */
     createLayer(name, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -28,7 +28,7 @@ export class LayerManager {
 
         const layerId = IDUtils.generateUniqueId();
         const order = this._getNextLayerOrder(targetMap);
-        
+
         const newLayer = {
             id: layerId,
             name: name || 'Nova Camada',
@@ -46,26 +46,26 @@ export class LayerManager {
     }
 
     /**
-     * Deleta uma camada em cascata
-     * - Deleta todas as features da camada
-     * - Remove features dos grupos (grupos com <2 features são deletados)
-     * @param {string} layerId - ID da camada a deletar
-     * @param {string} mapName - Nome do mapa
-     * @returns {Object} Informações sobre a deleção
+     * Delete a layer in cascade
+     * - Deletes all features from the layer
+     * - Removes features from groups (groups with <2 features are deleted)
+     * @param {string} layerId - Layer ID to delete
+     * @param {string} mapName - Map name
+     * @returns {Object} Information about the deletion
      */
     deleteLayer(layerId, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         this._ensureMapLayersExist(targetMap);
 
         const layers = this.memoryStore.layers[targetMap];
-        
+
         if (!layers[layerId]) {
-            throw new Error(`Camada ${layerId} não encontrada.`);
+            throw new Error(`Layer ${layerId} not found.`);
         }
 
         const layerCount = Object.keys(layers).length;
         if (layerCount <= 1) {
-            throw new Error('Não é possível deletar a última camada.');
+            throw new Error('Cannot delete the last layer.');
         }
 
         if (this.memoryStore.activeLayerId === layerId) {
@@ -89,10 +89,11 @@ export class LayerManager {
     }
 
     /**
-     * Renomeia uma camada
-     * @param {string} layerId - ID da camada
-     * @param {string} newName - Novo nome
-     * @param {string} mapName - Nome do mapa
+     * Rename a layer
+     * @param {string} layerId - Layer ID
+     * @param {string} newName - New name
+     * @param {string} mapName - Map name
+     * @returns {Object} Renamed layer
      */
     renameLayer(layerId, newName, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -100,7 +101,7 @@ export class LayerManager {
 
         const layer = this.memoryStore.layers[targetMap][layerId];
         if (!layer) {
-            throw new Error(`Camada ${layerId} não encontrada.`);
+            throw new Error(`Layer ${layerId} not found.`);
         }
 
         layer.name = newName;
@@ -110,10 +111,14 @@ export class LayerManager {
         return layer;
     }
 
-    // ===== VISIBILIDADE E LOCK =====
+    // ===== VISIBILITY AND LOCK =====
 
     /**
-     * Define visibilidade da camada
+     * Set layer visibility
+     * @param {string} layerId - Layer ID
+     * @param {boolean} visible - Visibility state
+     * @param {string} mapName - Map name
+     * @returns {Object} Updated layer
      */
     setLayerVisibility(layerId, visible, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -121,7 +126,7 @@ export class LayerManager {
 
         const layer = this.memoryStore.layers[targetMap][layerId];
         if (!layer) {
-            throw new Error(`Camada ${layerId} não encontrada.`);
+            throw new Error(`Layer ${layerId} not found.`);
         }
 
         layer.visible = visible;
@@ -132,20 +137,24 @@ export class LayerManager {
     }
 
     /**
-     * Define bloqueio da camada
-     * @throws {Error} Se tentar bloquear a camada ativa
+     * Set layer lock state
+     * @param {string} layerId - Layer ID
+     * @param {boolean} locked - Lock state
+     * @param {string} mapName - Map name
+     * @returns {Object} Updated layer
+     * @throws {Error} If trying to lock the active layer
      */
     setLayerLocked(layerId, locked, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         this._ensureMapLayersExist(targetMap);
 
         if (locked && this.memoryStore.activeLayerId === layerId) {
-            throw new Error('Não é possível bloquear a camada ativa.');
+            throw new Error('Cannot lock the active layer.');
         }
 
         const layer = this.memoryStore.layers[targetMap][layerId];
         if (!layer) {
-            throw new Error(`Camada ${layerId} não encontrada.`);
+            throw new Error(`Layer ${layerId} not found.`);
         }
 
         layer.locked = locked;
@@ -155,11 +164,14 @@ export class LayerManager {
         return layer;
     }
 
-    // ===== CAMADA ATIVA =====
+    // ===== ACTIVE LAYER =====
 
     /**
-     * Define a camada ativa
-     * @throws {Error} Se a camada está bloqueada
+     * Set the active layer
+     * @param {string} layerId - Layer ID to activate
+     * @param {string} mapName - Map name
+     * @returns {Object} Activated layer
+     * @throws {Error} If the layer is locked
      */
     setActiveLayer(layerId, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -167,11 +179,11 @@ export class LayerManager {
 
         const layer = this.memoryStore.layers[targetMap][layerId];
         if (!layer) {
-            throw new Error(`Camada ${layerId} não encontrada.`);
+            throw new Error(`Layer ${layerId} not found.`);
         }
 
         if (layer.locked) {
-            throw new Error('Não é possível ativar uma camada bloqueada.');
+            throw new Error('Cannot activate a locked layer.');
         }
 
         this.memoryStore.activeLayerId = layerId;
@@ -182,14 +194,17 @@ export class LayerManager {
     }
 
     /**
-     * Retorna ID da camada ativa (síncrono)
+     * Get active layer ID (synchronous)
+     * @returns {string} Active layer ID
      */
     getActiveLayerIdSync() {
         return this.memoryStore.activeLayerId || 'default';
     }
 
     /**
-     * Retorna a camada ativa
+     * Get active layer object
+     * @param {string} mapName - Map name
+     * @returns {Object|null} Active layer or null
      */
     getActiveLayer(mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -199,21 +214,25 @@ export class LayerManager {
         return this.memoryStore.layers[targetMap][activeId] || null;
     }
 
-    // ===== CONSULTAS SÍNCRONAS =====
+    // ===== SYNCHRONOUS QUERIES =====
 
     /**
-     * Retorna todas as camadas de um mapa (ordenadas)
+     * Get all layers from a map (sorted by order)
+     * @param {string} mapName - Map name
+     * @returns {Array} Sorted array of layers
      */
     getLayers(mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         this._ensureMapLayersExist(targetMap);
-        
+
         const layers = this.memoryStore.layers[targetMap];
         return Object.values(layers).sort((a, b) => (a.order || 0) - (b.order || 0));
     }
 
     /**
-     * Retorna camadas como objeto (para acesso por ID)
+     * Get layers as object (for access by ID)
+     * @param {string} mapName - Map name
+     * @returns {Object} Layers object indexed by ID
      */
     getLayersObject(mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -222,7 +241,10 @@ export class LayerManager {
     }
 
     /**
-     * Retorna camada por ID
+     * Get layer by ID
+     * @param {string} layerId - Layer ID
+     * @param {string} mapName - Map name
+     * @returns {Object|null} Layer or null
      */
     getLayerById(layerId, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
@@ -231,7 +253,9 @@ export class LayerManager {
     }
 
     /**
-     * Retorna IDs das camadas visíveis
+     * Get visible layer IDs
+     * @param {string} mapName - Map name
+     * @returns {Array} Array of visible layer IDs
      */
     getVisibleLayerIds(mapName = null) {
         const layers = this.getLayers(mapName);
@@ -239,17 +263,22 @@ export class LayerManager {
     }
 
     /**
-     * Retorna IDs das camadas desbloqueadas
+     * Get unlocked layer IDs
+     * @param {string} mapName - Map name
+     * @returns {Array} Array of unlocked layer IDs
      */
     getUnlockedLayerIds(mapName = null) {
         const layers = this.getLayers(mapName);
         return layers.filter(l => !l.locked).map(l => l.id);
     }
 
-    // ===== VERIFICAÇÕES DE ESTADO =====
+    // ===== STATE CHECKS =====
 
     /**
-     * Verifica se uma feature é efetivamente visível (considerando layer)
+     * Check if a feature is effectively visible (considering layer)
+     * @param {Object} feature - Feature to check
+     * @param {string} mapName - Map name
+     * @returns {boolean} True if feature is visible
      */
     isFeatureEffectivelyVisible(feature, mapName = null) {
         const layerId = feature.properties?.layerId || 'default';
@@ -258,7 +287,10 @@ export class LayerManager {
     }
 
     /**
-     * Verifica se uma feature é efetivamente bloqueada (layer OR feature)
+     * Check if a feature is effectively locked (layer OR feature)
+     * @param {Object} feature - Feature to check
+     * @param {string} mapName - Map name
+     * @returns {boolean} True if feature is locked
      */
     isFeatureEffectivelyLocked(feature, mapName = null) {
         const layerId = feature.properties?.layerId || 'default';
@@ -268,15 +300,16 @@ export class LayerManager {
         return layerLocked || featureLocked;
     }
 
-    // ===== PERSISTÊNCIA =====
+    // ===== PERSISTENCE =====
 
     /**
-     * Carrega layers do IndexedDB para o cache em memória
+     * Load layers from IndexedDB to in-memory cache
+     * @param {string} mapName - Map name
      */
     async loadLayersToMemory(mapName) {
         try {
             const layersData = await getMapLayers(mapName);
-            
+
             if (!layersData || Object.keys(layersData).length === 0) {
                 this.memoryStore.layers[mapName] = {
                     'default': {
@@ -293,20 +326,24 @@ export class LayerManager {
                 this.memoryStore.layers[mapName] = layersData.layers || layersData;
                 this.memoryStore.activeLayerId = layersData.activeLayerId || 'default';
             }
-            
+
         } catch (error) {
-            console.warn(`Erro ao carregar layers do mapa ${mapName}:`, error);
+            console.warn(`Error loading layers from map ${mapName}:`, error);
             this._ensureMapLayersExist(mapName);
         }
     }
 
     /**
-     * Duplica layers de um mapa para outro
+     * Duplicate layers from one map to another
+     * @param {string} sourceMapName - Source map name
+     * @param {string} targetMapName - Target map name
+     * @param {Map} idMapping - ID mapping for updating layer references
+     * @returns {Map} ID mapping with layer ID translations
      */
     async duplicateMapLayers(sourceMapName, targetMapName, idMapping = new Map()) {
         try {
             const sourceLayers = await getMapLayers(sourceMapName);
-            
+
             if (!sourceLayers || Object.keys(sourceLayers).length === 0) {
                 return;
             }
@@ -322,7 +359,7 @@ export class LayerManager {
                     createdAt: Date.now()
                 };
                 idMapping.set(layer.id, newLayerId);
-                
+
                 if ((sourceLayers.activeLayerId || 'default') === layer.id) {
                     activeLayerId = newLayerId;
                 }
@@ -340,12 +377,13 @@ export class LayerManager {
 
             return idMapping;
         } catch (error) {
-            console.error(`Erro ao duplicar layers de ${sourceMapName} para ${targetMapName}:`, error);
+            console.error(`Error duplicating layers from ${sourceMapName} to ${targetMapName}:`, error);
         }
     }
 
     /**
-     * Remove todos os layers de um mapa
+     * Remove all layers from a map
+     * @param {string} mapName - Map name
      */
     async clearMapLayers(mapName) {
         try {
@@ -354,11 +392,11 @@ export class LayerManager {
                 delete this.memoryStore.layers[mapName];
             }
         } catch (error) {
-            console.error(`Erro ao limpar layers do mapa ${mapName}:`, error);
+            console.error(`Error clearing layers from map ${mapName}:`, error);
         }
     }
 
-    // ===== MÉTODOS PRIVADOS =====
+    // ===== PRIVATE METHODS =====
 
     _notifyLayersChanged() {
         document.dispatchEvent(new CustomEvent('layers-changed'));
@@ -400,7 +438,7 @@ export class LayerManager {
                     activeLayerId: this.memoryStore.activeLayerId
                 });
             } catch (error) {
-                console.error(`Erro ao salvar layers do mapa ${mapName}:`, error);
+                console.error(`Error saving layers from map ${mapName}:`, error);
             }
         }, 0);
     }
@@ -410,7 +448,6 @@ export class LayerManager {
     }
 }
 
-// Singleton instance
 const layerManagerInstance = new LayerManager();
 
 export default layerManagerInstance;

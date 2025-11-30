@@ -1,9 +1,10 @@
-// Path: js\controls_sig\tool_manager\tool_manager.js
+// Path: js/controls_sig/tool_manager/tool_manager.js
+
 class ToolManager {
     constructor() {
         this.activeTool = null;
         this.selectionManager = null;
-        this.uiManager = null
+        this.uiManager = null;
     }
 
     setSelectionManager(selectionManager) {
@@ -15,13 +16,13 @@ class ToolManager {
     }
 
     setActiveTool(tool) {
-        if(!tool) {
-            return
+        if (!tool) {
+            return;
         }
-        
+
         if (this.activeTool && this.activeTool === tool) {
             this.deactivateCurrentTool();
-            return
+            return;
         }
 
         if (this.activeTool) {
@@ -32,7 +33,6 @@ class ToolManager {
         tool.activate();
 
         this.selectionManager.deselectAllFeatures();
-
     }
 
     deactivateCurrentTool() {

@@ -1,4 +1,4 @@
-// Path: js\controls_sig\text_tool\text_attributes_panel.js
+// Path: js/controls_sig/text_tool/text_attributes_panel.js
 
 import {
     createSliderWithInput,
@@ -12,6 +12,14 @@ import {
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
+/**
+ * Create text attributes panel for selected text features
+ * @param {HTMLElement} panel - Container element for attributes
+ * @param {Array} selectedFeatures - Array of selected text features
+ * @param {Object} textControl - Text control instance
+ * @param {Object} selectionManager - Selection manager instance
+ * @param {Object} uiManager - UI manager instance
+ */
 export function addTextAttributesToPanel(panel, selectedFeatures, textControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;
 
@@ -34,18 +42,18 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
-        
+
         const infoText = document.createElement('div');
         infoText.className = 'feature-name-wrapper';
         infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
         infoText.textContent = `${selectedFeatures.length} textos selecionados`;
-        
+
         const optionsButton = createFeatureOptionsButton(
             selectedFeatures,
             selectionManager,
             uiManager
         );
-        
+
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
         $(panel).append(multiSelectHeader);
@@ -175,7 +183,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     }));
 
-    $(textTabContent).append(createAttributeRow('RotaÃ§Ã£o:', rotateControl));
+    $(textTabContent).append(createAttributeRow('Rotação:', rotateControl));
 
     const justifyLabel = document.createElement('label');
     justifyLabel.textContent = 'Justificativa:';

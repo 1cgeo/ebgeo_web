@@ -1,15 +1,15 @@
-// Path: js\controls_sig\text_tool\add_text_geometry.js
+// Path: js/controls_sig/text_tool/add_text_geometry.js
+
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**
  * Text Geometry Operations
- * Handles geometric calculations for text features (Point-based with measured selection boxes)
+ * Handles geometric calculations for text features including point-based positioning and measured selection boxes
  */
 class AddTextGeometry extends BaseGeometry {
     constructor(properties = {}) {
         super(properties);
-        
-        // Canvas for text measurement
+
         this.measurementCanvas = null;
         this.measurementContext = null;
     }
@@ -29,12 +29,12 @@ class AddTextGeometry extends BaseGeometry {
      * @returns {boolean} True if valid
      */
     validate(coordinates) {
-        return coordinates && 
-               Array.isArray(coordinates) && 
+        return coordinates &&
+               Array.isArray(coordinates) &&
                coordinates.length >= 2 &&
-               typeof coordinates[0] === 'number' && 
+               typeof coordinates[0] === 'number' &&
                typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) && 
+               !isNaN(coordinates[0]) &&
                !isNaN(coordinates[1]);
     }
 
@@ -79,7 +79,7 @@ class AddTextGeometry extends BaseGeometry {
      * @returns {Array} Empty array (no handles)
      */
     createHandles(feature) {
-        return []; // Text features don't have edit handles
+        return [];
     }
 
     /**
@@ -90,7 +90,7 @@ class AddTextGeometry extends BaseGeometry {
      * @returns {null} Always null (not supported)
      */
     updateFromHandle(handleType, newPosition, feature) {
-        return null; // Text features don't have edit handles
+        return null;
     }
 
     /**
@@ -101,7 +101,6 @@ class AddTextGeometry extends BaseGeometry {
      * @returns {Object} {width, height} dimensions in pixels
      */
     measureTextSize(text, fontSize, fontFamily = 'Arial') {
-        // Lazy initialization of canvas
         if (!this.measurementCanvas) {
             this.measurementCanvas = document.createElement('canvas');
             this.measurementContext = this.measurementCanvas.getContext('2d');
@@ -110,8 +109,8 @@ class AddTextGeometry extends BaseGeometry {
         this.measurementContext.font = `${fontSize}px ${fontFamily}`;
         const lines = text.split('\n');
         const width = Math.max(...lines.map(line => this.measurementContext.measureText(line).width));
-        const height = (fontSize - 8) * lines.length; // Line height calculation
-        
+        const height = (fontSize - 8) * lines.length;
+
         return { width, height };
     }
 
@@ -129,30 +128,27 @@ class AddTextGeometry extends BaseGeometry {
      */
     calculateSelectionBoxGeometry(coordinates, text, size, rotation, createdAtZoom, uiManager, showBackground = false, backgroundBorderWidth = 1) {
         const { width, height } = this.measureTextSize(text, size, 'Arial');
-        
-        // Base padding
+
         let padding = 5;
-        
-        // Add border width to padding if background is shown
+
         if (showBackground && backgroundBorderWidth > 0) {
             padding += backgroundBorderWidth;
         }
-        
+
         const expandedDimensions = uiManager.calculateExpandedDimensions(width, height, rotation);
-        
-        // Use creation zoom level for degree conversion (zoom-invariant)
+
         const centerLat = coordinates[1];
         const widthDegrees = uiManager.pixelsToDegrees(
-            expandedDimensions.width + (padding * 2), 
-            centerLat, 
+            expandedDimensions.width + (padding * 2),
+            centerLat,
             createdAtZoom
         );
         const heightDegrees = uiManager.pixelsToDegrees(
-            expandedDimensions.height + (padding * 2), 
-            centerLat, 
+            expandedDimensions.height + (padding * 2),
+            centerLat,
             createdAtZoom
         );
-        
+
         return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
     }
 
@@ -167,15 +163,15 @@ class AddTextGeometry extends BaseGeometry {
         const [lng, lat] = coordinates;
         const halfWidth = widthDegrees / 2;
         const halfHeight = heightDegrees / 2;
-        
+
         return {
             type: 'Polygon',
             coordinates: [[
-                [lng - halfWidth, lat - halfHeight], // bottom-left
-                [lng + halfWidth, lat - halfHeight], // bottom-right
-                [lng + halfWidth, lat + halfHeight], // top-right
-                [lng - halfWidth, lat + halfHeight], // top-left
-                [lng - halfWidth, lat - halfHeight]  // close polygon
+                [lng - halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat - halfHeight]
             ]]
         };
     }
@@ -223,7 +219,7 @@ class AddTextGeometry extends BaseGeometry {
     calculateZoomAdjustedSize(baseSize, createdAtZoom, currentZoom) {
         const zoomDifference = currentZoom - createdAtZoom;
         const scaleFactor = Math.pow(2, zoomDifference);
-        return Math.min(baseSize * scaleFactor, 255); // Maximum 255px font size
+        return Math.min(baseSize * scaleFactor, 255);
     }
 
     /**
@@ -232,12 +228,12 @@ class AddTextGeometry extends BaseGeometry {
      * @returns {boolean} True if valid position
      */
     isValidPosition(coordinates) {
-        return coordinates && 
-               Array.isArray(coordinates) && 
-               coordinates.length >= 2 && 
-               typeof coordinates[0] === 'number' && 
+        return coordinates &&
+               Array.isArray(coordinates) &&
+               coordinates.length >= 2 &&
+               typeof coordinates[0] === 'number' &&
                typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) && 
+               !isNaN(coordinates[0]) &&
                !isNaN(coordinates[1]);
     }
 
@@ -262,26 +258,23 @@ class AddTextGeometry extends BaseGeometry {
      */
     getBoundingBox(coordinates, text, size, rotation = 0, showBackground = false, backgroundBorderWidth = 1) {
         const { width, height } = this.measureTextSize(text, size, 'Arial');
-        
-        // Account for rotation by using the larger dimension
-        let maxDimension = rotation === 0 ? 
-            Math.max(width, height) : 
+
+        let maxDimension = rotation === 0 ?
+            Math.max(width, height) :
             Math.sqrt(width * width + height * height);
-        
-        // Add border consideration if background is shown
+
         if (showBackground && backgroundBorderWidth > 0) {
             maxDimension += (backgroundBorderWidth * 2);
         }
-        
-        // Convert pixels to rough degree approximation
-        const dimensionDegrees = maxDimension / 111320; // Rough conversion
+
+        const dimensionDegrees = maxDimension / 111320;
         const halfDimension = dimensionDegrees / 2;
 
         return [
-            coordinates[0] - halfDimension, // minLng
-            coordinates[1] - halfDimension, // minLat
-            coordinates[0] + halfDimension, // maxLng
-            coordinates[1] + halfDimension  // maxLat
+            coordinates[0] - halfDimension,
+            coordinates[1] - halfDimension,
+            coordinates[0] + halfDimension,
+            coordinates[1] + halfDimension
         ];
     }
 

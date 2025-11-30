@@ -1,4 +1,5 @@
-// Path: js\controls_sig\draw_tools\add_line_geometry.js
+// Path: js/controls_sig/draw_tools/add_line_geometry.js
+
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**
@@ -8,7 +9,7 @@ import BaseGeometry from '../tool_manager/base_geometry.js';
 class AddLineGeometry extends BaseGeometry {
     constructor(properties = {}) {
         super(properties);
-        this.MIN_DISTANCE_METERS = 5; // Minimum distance between points
+        this.MIN_DISTANCE_METERS = 5;
     }
 
     /**
@@ -30,13 +31,12 @@ class AddLineGeometry extends BaseGeometry {
             return false;
         }
 
-        // Check that all points are valid coordinates
-        return coordinates.every(point => 
-            Array.isArray(point) && 
+        return coordinates.every(point =>
+            Array.isArray(point) &&
             point.length >= 2 &&
-            typeof point[0] === 'number' && 
+            typeof point[0] === 'number' &&
             typeof point[1] === 'number' &&
-            !isNaN(point[0]) && 
+            !isNaN(point[0]) &&
             !isNaN(point[1])
         );
     }
@@ -53,7 +53,7 @@ class AddLineGeometry extends BaseGeometry {
 
         return {
             type: 'LineString',
-            coordinates: [...coordinates] // Create copy to avoid mutation
+            coordinates: [...coordinates]
         };
     }
 
@@ -71,7 +71,6 @@ class AddLineGeometry extends BaseGeometry {
 
         const handles = [];
 
-        // Create vertex handles
         coordinates.forEach((coord, index) => {
             handles.push({
                 type: 'Feature',
@@ -93,7 +92,6 @@ class AddLineGeometry extends BaseGeometry {
             });
         });
 
-        // Create midpoint handles
         for (let i = 0; i < coordinates.length - 1; i++) {
             const midpoint = this.calculateMidpoint(coordinates[i], coordinates[i + 1]);
             handles.push({
@@ -124,7 +122,7 @@ class AddLineGeometry extends BaseGeometry {
      * @param {string} handleType - Type of handle ('vertex-X' or 'midpoint-X')
      * @param {Array} newPosition - New handle position [lng, lat]
      * @param {Object} feature - Line feature being edited
-     * @returns {Object} Updated geometry and base coordinates
+     * @returns {Object|null} Updated geometry and base coordinates or null if invalid
      */
     updateFromHandle(handleType, newPosition, feature) {
         const coordinates = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
@@ -133,7 +131,6 @@ class AddLineGeometry extends BaseGeometry {
             return null;
         }
 
-        // Safety check for handleType
         if (!handleType || typeof handleType !== 'string') {
             console.error('Invalid handleType:', handleType);
             return null;
@@ -142,13 +139,11 @@ class AddLineGeometry extends BaseGeometry {
         const newCoordinates = [...coordinates];
 
         if (handleType.startsWith('vertex-')) {
-            // Move existing vertex
             const index = parseInt(handleType.split('-')[1]);
             if (index >= 0 && index < newCoordinates.length) {
                 newCoordinates[index] = newPosition;
             }
         } else if (handleType.startsWith('midpoint-')) {
-            // Insert new vertex at midpoint position
             const segmentIndex = parseInt(handleType.split('-')[1]);
             if (segmentIndex >= 0 && segmentIndex < newCoordinates.length - 1) {
                 const insertIndex = segmentIndex + 1;
@@ -156,7 +151,6 @@ class AddLineGeometry extends BaseGeometry {
             }
         }
 
-        // Validate minimum distance between consecutive points
         if (!this.validateMinimumDistances(newCoordinates)) {
             console.warn('Line segments too short');
             return null;
@@ -175,7 +169,7 @@ class AddLineGeometry extends BaseGeometry {
      * @param {string} handleType - Type of handle being moved
      * @param {Array} newPosition - New handle position
      * @param {Object} feature - Line feature
-     * @returns {Object} Preview geometry and handle positions
+     * @returns {Object|null} Preview geometry and handle positions or null if invalid
      */
     calculatePreview(handleType, newPosition, feature) {
         const result = this.updateFromHandle(handleType, newPosition, feature);
@@ -277,14 +271,13 @@ class AddLineGeometry extends BaseGeometry {
     /**
      * Get center point of line (for move operations)
      * @param {Array} coordinates - Array of coordinate points
-     * @returns {Array} Center point [lng, lat]
+     * @returns {Array|null} Center point [lng, lat] or null if invalid
      */
     getCenter(coordinates) {
         if (!this.validate(coordinates)) {
             return null;
         }
 
-        // Use first point as reference for movement operations
         return coordinates[0];
     }
 
@@ -309,7 +302,7 @@ class AddLineGeometry extends BaseGeometry {
     /**
      * Get bounding box for line
      * @param {Array} coordinates - Array of coordinate points
-     * @returns {Array} Bounding box [minLng, minLat, maxLng, maxLat]
+     * @returns {Array|null} Bounding box [minLng, minLat, maxLng, maxLat] or null if invalid
      */
     getBoundingBox(coordinates) {
         if (!this.validate(coordinates)) {
@@ -320,10 +313,10 @@ class AddLineGeometry extends BaseGeometry {
         const lats = coordinates.map(p => p[1]);
 
         return [
-            Math.min(...lngs), // minLng
-            Math.min(...lats), // minLat
-            Math.max(...lngs), // maxLng
-            Math.max(...lats)  // maxLat
+            Math.min(...lngs),
+            Math.min(...lats),
+            Math.max(...lngs),
+            Math.max(...lats)
         ];
     }
 
@@ -350,7 +343,6 @@ class AddLineGeometry extends BaseGeometry {
         const newCoordinates = [...coordinates];
         newCoordinates.splice(index, 1);
 
-        // Must have at least 2 points for a line
         if (newCoordinates.length < 2) {
             return null;
         }

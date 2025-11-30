@@ -1,16 +1,16 @@
-// Path: js\controls_sig\store\map-manager.js
+// Path: js/controls_sig/store/map-manager.js
+
 import { memoryStore, setAppSetting, setColorUsage, getColorUsage, removeColorUsage, getAllMapNames, getMapData } from './repository.js';
-import groupManager from '../tool_manager/group_manager.js'; // NOVO: Importar GroupManager
+import groupManager from '../tool_manager/group_manager.js';
 
 /**
- * Gerenciador de estado em memória e sistema undo/redo
- * EXTENSÃO: Color Tracking System + Group Management Integration
+ * In-memory state manager with undo/redo system and color tracking
+ * Manages map state, history, and integrates with group management
  */
 class MapManager {
     constructor() {
         this.memoryStore = memoryStore;
-        // Cache global de cores do projeto (soma de todos os mapas)
-        this.projectColorCache = new Map(); // Map<color, count>
+        this.projectColorCache = new Map();
     }
 
     // ===== MEMORY STORE MANAGEMENT =====
@@ -21,8 +21,7 @@ class MapManager {
 
     setCurrentMapName(mapName) {
         this.memoryStore.currentMap = mapName;
-        
-        // Create
+
         if (!this.memoryStore.maps[mapName]) {
             this.memoryStore.maps[mapName] = {
                 undoStack: [],
@@ -32,78 +31,72 @@ class MapManager {
     }
 
     async setCurrentMap(mapName) {
-        // Save
         if (this.memoryStore.currentMap && this.memoryStore.currentMap !== mapName) {
             await this.saveColorUsageToDB(this.memoryStore.currentMap);
         }
-        
+
         this.setCurrentMapName(mapName);
-        
-        // Carregar cache do novo mapa
+
         await this.loadColorUsageFromDB(mapName);
-        
-        // NOVO: Carregar grupos do novo mapa
         await groupManager.loadGroupsToMemory(mapName);
-        
-        // Persistir último mapa ativo
         await setAppSetting('lastActiveMap', mapName);
     }
 
     // ===== COLOR TRACKING SYSTEM =====
 
     /**
-     * Extrai cor de uma feature baseado nas propriedades do layer_setup.js
+     * Extracts color from a feature based on layer_setup.js properties
+     * @param {Object} feature - GeoJSON feature
+     * @returns {string|null} Color value or null
      */
     getFeatureColor(feature) {
         const props = feature.properties;
         if (!props) return null;
-        
-        // Prioridade baseada no layer_setup.js:
-        return props.color ||           // Points, Lines, Polygons (fill), Occupied fronts, Boundaries, Texts, LOS/Visibility processed
-               props.fillColor ||       // Circles, Rectangles, Arrows, Ellipses  
-               props.lineColor ||       // Circles, Rectangles, Arrows, Ellipses, Brushes
-               props.outlinecolor ||    // Polygons (border)
-               props.backgroundColor;   // Texts (background)
+
+        return props.color ||
+               props.fillColor ||
+               props.lineColor ||
+               props.outlinecolor ||
+               props.backgroundColor;
     }
 
     /**
-     * Processa cores de um mapa (usado no addMap)
+     * Processes colors for a map (used in addMap)
+     * @param {string} mapName - Map name
+     * @param {Object} mapData - Map data
+     * @param {Object} colorUsageData - Optional pre-calculated color usage
      */
     async processMapColors(mapName, mapData, colorUsageData = null) {
         let mapColorCounts;
-        
+
         if (colorUsageData) {
-            // Dados de cor já fornecidos (ex: vem de arquivo .ebgeo)
             mapColorCounts = new Map();
             for (const [color, count] of Object.entries(colorUsageData)) {
                 mapColorCounts.set(color, Number(count) || 0);
             }
         } else {
-            // Calcular cores do zero
             mapColorCounts = await this.calculateMapColors(mapData);
         }
-        
-        // Save
+
         await setColorUsage(mapName, Object.fromEntries(mapColorCounts));
-        
-        // Update
         this.updateProjectColorCache(mapColorCounts, 'add');
-        
-        // Se é o mapa atual, também atualizar cache de memória
+
         if (mapName === this.memoryStore.currentMap) {
             this.memoryStore.colorUsageCache = mapColorCounts;
         }
     }
 
     /**
-     * Calcula cores de um mapa do zero
+     * Calculates colors for a map from scratch
+     * @param {Object} mapData - Map data
+     * @returns {Map} Map of color counts
      */
     async calculateMapColors(mapData) {
         const colorCounts = new Map();
-        
+
         Object.entries(mapData.features || {}).forEach(([featureType, features]) => {
             if (!Array.isArray(features)) return;
-            
+
             features.forEach(feature => {
                 const color = this.getFeatureColor(feature);
                 if (color) {
@@ -111,21 +104,22 @@ class MapManager {
                 }
             });
         });
-        
+
         return colorCounts;
     }
 
     /**
-     * Atualiza cache do projeto (soma de todos os mapas)
+     * Updates project color cache (sum of all maps)
+     * @param {Map} mapColors - Map colors to add or remove
+     * @param {string} operation - 'add' or 'remove'
      */
     updateProjectColorCache(mapColors, operation) {
-        // operation: 'add' ou 'remove'
         const multiplier = operation === 'add' ? 1 : -1;
-        
+
         for (const [color, count] of mapColors) {
             const currentCount = this.projectColorCache.get(color) || 0;
             const newCount = currentCount + (count * multiplier);
-            
+
             if (newCount <= 0) {
                 this.projectColorCache.delete(color);
             } else {
@@ -135,55 +129,55 @@ class MapManager {
     }
 
     /**
-     * Carrega cores do IndexDB para o cache
+     * Loads color usage from IndexedDB to cache
+     * @param {string} mapName - Map name
      */
     async loadColorUsageFromDB(mapName) {
         try {
             const colorData = await getColorUsage(mapName);
             const colorMap = new Map();
-            
-            // Converter para Map e garantir números
+
             for (const [color, count] of Object.entries(colorData)) {
                 colorMap.set(color, Number(count) || 0);
             }
-            
+
             this.memoryStore.colorUsageCache = colorMap;
-            
-            // Se cache vazio, fazer análise inicial em background
+
             if (colorMap.size === 0) {
                 setTimeout(() => this.performInitialColorAnalysis(mapName), 100);
             }
-            
+
         } catch (error) {
-            console.warn(`Erro ao carregar cores do mapa ${mapName}:`, error);
+            console.warn(`Error loading colors for map ${mapName}:`, error);
             this.memoryStore.colorUsageCache = new Map();
         }
     }
 
     /**
-     * Salva cache de cores no IndexDB (background)
+     * Saves color cache to IndexedDB (background)
+     * @param {string} mapName - Map name
      */
     async saveColorUsageToDB(mapName) {
         try {
             const colorData = Object.fromEntries(this.memoryStore.colorUsageCache);
             await setColorUsage(mapName, colorData);
         } catch (error) {
-            console.warn(`Erro ao salvar cores do mapa ${mapName}:`, error);
+            console.warn(`Error saving colors for map ${mapName}:`, error);
         }
     }
 
     /**
-     * Realiza análise inicial de cores de um mapa existente
+     * Performs initial color analysis for an existing map
+     * @param {string} mapName - Map name
      */
     async performInitialColorAnalysis(mapName) {
         try {
             const mapData = await getMapData(mapName);
             const colorCounts = new Map();
-            
-            // Analisar todas as features de todos os tipos
+
             Object.entries(mapData.features || {}).forEach(([featureType, features]) => {
                 if (!Array.isArray(features)) return;
-                
+
                 features.forEach(feature => {
                     const color = this.getFeatureColor(feature);
                     if (color) {
@@ -191,35 +185,33 @@ class MapManager {
                     }
                 });
             });
-            
-            // Se é o mapa atual, atualizar cache
+
             if (mapName === this.memoryStore.currentMap) {
                 this.memoryStore.colorUsageCache = colorCounts;
             }
-            
-            // Sempre persistir no IndexDB
+
             await setColorUsage(mapName, Object.fromEntries(colorCounts));
-            
-            // Update
             this.updateProjectColorCache(colorCounts, 'add');
-            
+
         } catch (error) {
-            console.warn(`Erro na análise inicial de cores do mapa ${mapName}:`, error);
+            console.warn(`Error in initial color analysis for map ${mapName}:`, error);
         }
     }
 
     /**
-     * Atualiza tracking de cores quando features mudam
+     * Updates color tracking when features change
+     * @param {string} oldColor - Previous color
+     * @param {string} newColor - New color
+     * @param {string} mapName - Map name
      */
     updateColorUsage(oldColor, newColor, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         const isCurrentMap = targetMap === this.memoryStore.currentMap;
-        
+
         if (oldColor === 'none') oldColor = null;
         if (newColor === 'none') newColor = null;
-        
+
         if (isCurrentMap) {
-            // Update
             if (oldColor) {
                 const oldCount = this.memoryStore.colorUsageCache.get(oldColor) || 0;
                 if (oldCount <= 1) {
@@ -228,17 +220,15 @@ class MapManager {
                     this.memoryStore.colorUsageCache.set(oldColor, oldCount - 1);
                 }
             }
-            
+
             if (newColor) {
                 const newCount = this.memoryStore.colorUsageCache.get(newColor) || 0;
                 this.memoryStore.colorUsageCache.set(newColor, newCount + 1);
             }
-            
-            // Background save
+
             setTimeout(() => this.saveColorUsageToDB(targetMap), 100);
         }
-        
-        // Sempre atualizar cache do projeto
+
         if (oldColor) {
             const oldProjectCount = this.projectColorCache.get(oldColor) || 0;
             if (oldProjectCount <= 1) {
@@ -247,7 +237,7 @@ class MapManager {
                 this.projectColorCache.set(oldColor, oldProjectCount - 1);
             }
         }
-        
+
         if (newColor) {
             const newProjectCount = this.projectColorCache.get(newColor) || 0;
             this.projectColorCache.set(newColor, newProjectCount + 1);
@@ -255,13 +245,16 @@ class MapManager {
     }
 
     /**
-     * API pública para obter cores frequentes
+     * Gets frequently used colors
+     * @param {number} limit - Maximum number of colors to return
+     * @param {string} scope - 'current' or 'project'
+     * @returns {Array} Array of {color, count} objects
      */
     getFrequentColors(limit = 10, scope = 'current') {
-        const sourceCache = scope === 'project' ? 
-            this.projectColorCache : 
+        const sourceCache = scope === 'project' ?
+            this.projectColorCache :
             this.memoryStore.colorUsageCache;
-            
+
         return Array.from(sourceCache.entries())
             .sort((a, b) => b[1] - a[1])
             .slice(0, limit)
@@ -269,39 +262,37 @@ class MapManager {
     }
 
     /**
-     * Limpa todos os caches de cor
+     * Clears all color caches
      */
     async clearAllColorCaches() {
-        // Limpar cache de memória
         this.memoryStore.colorUsageCache = new Map();
         this.projectColorCache.clear();
-        
-        // Limpar IndexDB - buscar todas as chaves de cor
+
         try {
             const allMaps = await getAllMapNames();
             for (const mapName of allMaps) {
                 await removeColorUsage(mapName);
             }
         } catch (error) {
-            console.warn('Erro ao limpar caches de cor:', error);
+            console.warn('Error clearing color caches:', error);
         }
     }
 
     /**
-     * Inicializa cache do projeto carregando cores de todos os mapas
+     * Initializes project color cache by loading colors from all maps
      */
     async initializeProjectColorCache() {
         try {
             this.projectColorCache.clear();
             const allMaps = await getAllMapNames();
-            
+
             for (const mapName of allMaps) {
                 const colorData = await getColorUsage(mapName);
                 const mapColors = new Map(Object.entries(colorData));
                 this.updateProjectColorCache(mapColors, 'add');
             }
         } catch (error) {
-            console.warn('Erro ao inicializar cache de cores do projeto:', error);
+            console.warn('Error initializing project color cache:', error);
         }
     }
 
@@ -325,7 +316,7 @@ class MapManager {
 
         this.memoryStore.isUndoing = true;
         currentMap.redoStack.push(lastAction);
-        
+
         try {
             await this._executeUndoAction(lastAction, executeFunction);
         } finally {
@@ -364,9 +355,7 @@ class MapManager {
                 await executeFunction.addFeature(action.featureType, action.feature);
                 break;
             case 'removeWithProcessed':
-                // Restaurar feature principal
                 await executeFunction.addFeature(action.mainFeatureType, action.mainFeature);
-                // Restaurar features processadas se houver
                 if (action.processedFeatures) {
                     for (const pf of action.processedFeatures.features) {
                         await executeFunction.addFeature(action.processedFeatures.type, pf);
@@ -381,16 +370,11 @@ class MapManager {
                 }
                 break;
             case 'moveBetweenMaps':
-                // UNDO: Mover features de volta (destino → origem)
                 for (const [type, typeOps] of Object.entries(action.movedFeatures)) {
                     for (const featureOp of typeOps.mainFeatures) {
-                        // Remove
                         await executeFunction.removeFeatureFromMap(type, featureOp.feature.properties.id, action.targetMapName);
-                        
-                        // Restaurar na origem
                         await executeFunction.addFeatureToMap(type, featureOp.removedData.mainFeature, action.sourceMapName);
 
-                        // Restaurar processadas se houver
                         if (featureOp.removedData.processedFeatures) {
                             for (const pf of featureOp.removedData.processedFeatures.features) {
                                 await executeFunction.addFeatureToMap(featureOp.removedData.processedFeatures.type, pf, action.sourceMapName);
@@ -414,7 +398,6 @@ class MapManager {
                 await executeFunction.removeFeature(action.featureType, action.feature.properties.id);
                 break;
             case 'removeWithProcessed':
-                // Remove
                 await executeFunction.removeFeature(action.mainFeatureType, action.mainFeature.properties.id);
                 break;
             case 'addMultiple':
@@ -425,16 +408,11 @@ class MapManager {
                 }
                 break;
             case 'moveBetweenMaps':
-                // REDO: Refazer o movimento (origem → destino)
                 for (const [type, typeOps] of Object.entries(action.movedFeatures)) {
                     for (const featureOp of typeOps.mainFeatures) {
-                        // Remove
                         await executeFunction.removeFeatureFromMap(type, featureOp.removedData.mainFeature.properties.id, action.sourceMapName);
-                        
-                        // Add
                         await executeFunction.addFeatureToMap(type, featureOp.feature, action.targetMapName);
 
-                        // Add
                         if (featureOp.removedData.processedFeatures) {
                             for (const pf of featureOp.removedData.processedFeatures.features) {
                                 await executeFunction.addFeatureToMap(featureOp.removedData.processedFeatures.type, pf, action.targetMapName);
@@ -484,10 +462,8 @@ class MapManager {
     }
 
     async removeMapFromMemory(mapName) {
-        // Código existente
         delete this.memoryStore.maps[mapName];
-        
-        // Remove
+
         try {
             const mapColors = await getColorUsage(mapName);
             if (mapColors && Object.keys(mapColors).length > 0) {
@@ -496,14 +472,13 @@ class MapManager {
             }
             await removeColorUsage(mapName);
         } catch (error) {
-            console.warn(`Erro ao remover cores do mapa ${mapName}:`, error);
+            console.warn(`Error removing colors for map ${mapName}:`, error);
         }
 
-        // NOVO: Limpar grupos do cache e IndexedDB
         try {
             await groupManager.clearMapGroups(mapName);
         } catch (error) {
-            console.warn(`Erro ao remover grupos do mapa ${mapName}:`, error);
+            console.warn(`Error removing groups for map ${mapName}:`, error);
         }
     }
 
@@ -517,7 +492,6 @@ class MapManager {
             }
         }
 
-        // NOVO: Atualizar cache de grupos se necessário
         if (this.memoryStore.groups[oldName]) {
             this.memoryStore.groups[newName] = this.memoryStore.groups[oldName];
             delete this.memoryStore.groups[oldName];
@@ -532,7 +506,6 @@ class MapManager {
         if (operations.length === 1) {
             this.recordAction(operations[0]);
         } else {
-            // Para múltiplas operações, criar uma ação composta
             this.recordAction({
                 type: 'batch',
                 operations: operations
@@ -541,17 +514,14 @@ class MapManager {
     }
 }
 
-// Inicializar memoryStore com cache de cores
 if (!memoryStore.colorUsageCache) {
     memoryStore.colorUsageCache = new Map();
 }
 
-// NOVO: Inicializar cache de grupos se não existir
 if (!memoryStore.groups) {
     memoryStore.groups = {};
 }
 
-// Singleton instance
 const mapManagerInstance = new MapManager();
 
 export default mapManagerInstance;

@@ -1,4 +1,5 @@
-// Path: js\controls_sig\los_tool\add_los_control.js
+// Path: js/controls_sig/los_tool/add_los_control.js
+
 import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addLOSAttributesToPanel } from './los_attributes_panel.js';
@@ -9,24 +10,15 @@ class AddLOSControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // State management
         this.startPoint = null;
         this.endPoint = null;
-
-        // Geometry handler
         this.geometry = new AddLOSGeometry();
-
-        // Performance optimization - RAF system with async support
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
-
-        // Drag recalculation timeout for debouncing
         this.dragRecalculateTimeout = null;
-
-        // Store reference in toolManager for terrain integration
         this.toolManager.losControl = this;
     }
 
@@ -118,7 +110,7 @@ class AddLOSControl extends BaseControl {
     }
 
     getEditHandleSources() {
-        return []; // LOS doesn't have edit handles
+        return [];
     }
 
     createSelectionBox(feature) {
@@ -153,7 +145,7 @@ class AddLOSControl extends BaseControl {
     }
 
     getEditHandleSource() {
-        return null; // LOS doesn't have edit handles
+        return null;
     }
 
     canCopy(feature) {
@@ -246,7 +238,7 @@ class AddLOSControl extends BaseControl {
 
     activate = () => {
         if (!this.geometry.isTerrainAvailable(this.map)) {
-            return false; // Block activation
+            return false;
         }
         this.isActive = true;
         this.startPoint = null;
@@ -268,12 +260,10 @@ class AddLOSControl extends BaseControl {
         const terrainEnabled = this.geometry.isTerrainAvailable(this.map);
 
         if (!terrainEnabled) {
-            // Disabled state
             this.container.classList.add('disabled');
             this.container.querySelector('button').disabled = true;
             $("#los-tool").html('<img class="icon-sig-tool" src="./images/icon_los_disabled.svg" alt="LOS DISABLED" />');
         } else {
-            // Normal state
             this.container.classList.remove('disabled');
             this.container.querySelector('button').disabled = false;
 
@@ -287,118 +277,101 @@ class AddLOSControl extends BaseControl {
     // ===== SELECTION SYSTEM INTEGRATION =====
 
     onFeatureSelected = (feature) => {
-        // LOS features always have profile data - will be shown by UIManager
     }
 
     onFeatureDeselected = (feature) => {
-        // No special cleanup needed
     }
 
     onGlobalDeselect = () => {
-        // No special cleanup needed
     }
 
     isEditingMode = () => {
-        return false; // LOS doesn't have edit handles
+        return false;
     }
 
     hasEditHandle = (featureId) => {
-        return false; // LOS doesn't have edit handles
+        return false;
     }
 
     /**
-     * NOVA IMPLEMENTAÇÃO: Recálculo síncrono após drag
-     * Garante que o painel de perfil seja atualizado após o recálculo completo
+     * Synchronize edit handles after drag operation
+     * Ensures profile panel is updated after complete recalculation
+     * @param {Array} movedFeatures - Array of moved features
      */
     syncEditHandlesAfterDrag = async (movedFeatures) => {
-        // Verificar se há features LOS que precisam de recálculo
         const losFeatures = movedFeatures.filter(f => f.properties.source === 'los');
-        
+
         if (losFeatures.length === 0) return;
 
-        // Debounce para múltiplos drags rápidos
         clearTimeout(this.dragRecalculateTimeout);
         this.dragRecalculateTimeout = setTimeout(async () => {
             this.showRecalculatingState();
-            
+
             try {
                 const updatedFeatures = await this.recalculateMovedLOSFeatures(losFeatures);
-                
-                // Update
                 this.updateSelectionManagerFeatures(updatedFeatures);
-                
-                // Forçar atualização do UI/painel com dados frescos
                 this.selectionManager.updateUI();
-                
             } catch (error) {
                 console.error('Error recalculating LOS after drag:', error);
             } finally {
                 this.hideRecalculatingState();
             }
-        }, 50); // 50ms debounce para responsividade
+        }, 50);
     }
 
     /**
-     * Mostrar estado de recálculo
+     * Show recalculating state visual feedback
      */
     showRecalculatingState() {
         this.map.getCanvas().style.cursor = 'wait';
-        // Temporariamente desabilitar interações durante recálculo
         this.map.off('click', this.handleMapClick);
-        
-        // Opcional: mostrar indicador visual
+
         if (this.container) {
             this.container.classList.add('recalculating');
         }
     }
 
     /**
-     * Esconder estado de recálculo
+     * Hide recalculating state visual feedback
      */
     hideRecalculatingState() {
         this.map.getCanvas().style.cursor = this.isActive ? 'crosshair' : '';
-        
-        // Re-habilitar interações
+
         if (this.isActive) {
             this.map.on('click', this.handleMapClick);
         }
-        
+
         if (this.container) {
             this.container.classList.remove('recalculating');
         }
     }
 
     /**
-     * MODIFICADO: Recalcular LOS features após movimento e retornar features atualizados
+     * Recalculate LOS features after movement
      * @param {Array} movedFeatures - Array of moved LOS features
      * @returns {Array} Array of updated features
      */
     async recalculateMovedLOSFeatures(movedFeatures) {
         const updatedFeatures = [];
-        
+
         for (const movedFeature of movedFeatures) {
             if (movedFeature.properties.source === 'los') {
                 try {
                     const coordinates = this.geometry.extractCoordinatesFromGeometry(movedFeature.geometry);
                     if (coordinates) {
-                        // Recalcular LOS com nova posição
                         const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map);
 
-                        // Update
                         movedFeature.geometry = result.geometry;
                         movedFeature.properties.profileData = JSON.stringify(result.profileData);
 
-                        // Save
                         await updateFeature('los', movedFeature);
 
-                        // Update
                         if (movedFeature.properties.measure) {
                             this.updateFeatureMeasurement(movedFeature);
                         }
 
-                        // Update
                         await this.updateProcessedFeaturesAfterMove(movedFeature);
-                        
+
                         updatedFeatures.push(movedFeature);
                     }
                 } catch (error) {
@@ -406,7 +379,7 @@ class AddLOSControl extends BaseControl {
                 }
             }
         }
-        
+
         return updatedFeatures;
     }
 
@@ -453,7 +426,6 @@ class AddLOSControl extends BaseControl {
         }
     }
 
-    // RAF-based preview system following standard pattern
     handleMouseMove = (e) => {
         if (!this.isActive || !this.startPoint) return;
 
@@ -472,7 +444,6 @@ class AddLOSControl extends BaseControl {
             return;
         }
 
-        // Standard 8ms debounce - no terrain calculations in preview
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
             const previewGeometry = this.geometry.generate([this.lastPreviewCenter, this.lastPreviewPosition]);
@@ -562,18 +533,16 @@ class AddLOSControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Update measurement if measure property changed
                 if (property === 'measure') {
                     this.updateFeatureMeasurement(feature);
                 }
 
-                // Update processed features with exact ID matching
                 const processedFeatures = processedData.features.filter(f =>
                     f.properties.id === feature.properties.id + '-visible' ||
                     f.properties.id === feature.properties.id + '-obstructed'
                 );
                 processedFeatures.forEach(processedFeature => {
-                    if (property !== 'color') { // Don't override specific colors
+                    if (property !== 'color') {
                         processedFeature.properties[property] = value;
                     }
                 });
@@ -583,7 +552,6 @@ class AddLOSControl extends BaseControl {
         this.map.getSource('los').setData(data);
         this.map.getSource('processed-los').setData(processedData);
 
-        // Update SelectionManager with fresh features
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             return sourceFeature || feature;
@@ -615,23 +583,20 @@ class AddLOSControl extends BaseControl {
                         pf.properties.id === selectedFeature.properties.id + '-obstructed'
                     );
 
-                    // Update processed features properties
                     const updatedProcessedFeatures = processedFeatures.map(pf => ({
                         ...pf,
                         properties: {
                             ...pf.properties,
                             ...selectedFeature.properties,
-                            id: pf.properties.id,              // Keep specific ID
-                            color: pf.properties.color         // Keep specific color
+                            id: pf.properties.id,
+                            color: pf.properties.color
                         }
                     }));
 
-                    // Use batch operation if available
                     try {
                         if (typeof batchUpdateLOSFeatures === 'function') {
                             await batchUpdateLOSFeatures(featureToSave, updatedProcessedFeatures);
                         } else {
-                            // Fallback: individual updates
                             await updateFeature('los', featureToSave);
                             for (const processedFeature of updatedProcessedFeatures) {
                                 await updateFeature('processed_los', processedFeature);
@@ -639,7 +604,6 @@ class AddLOSControl extends BaseControl {
                         }
                     } catch (error) {
                         console.error('Error saving LOS features:', error);
-                        // Fallback on error
                         await updateFeature('los', featureToSave);
                         for (const processedFeature of updatedProcessedFeatures) {
                             await updateFeature('processed_los', processedFeature);
@@ -664,10 +628,7 @@ class AddLOSControl extends BaseControl {
             try {
                 const featureId = feature.properties.id;
 
-                // Remove measurement
                 this.removeFeatureMeasurement(featureId);
-
-                // Remove from store (removes both main and processed features)
                 await removeFeature('los', featureId);
 
             } catch (error) {
@@ -675,7 +636,6 @@ class AddLOSControl extends BaseControl {
             }
         }
 
-        // Reload sources from store (safer approach)
         const currentMapFeatures = await getCurrentMapFeatures();
 
         this.map.getSource('los').setData({
@@ -727,7 +687,6 @@ class AddLOSControl extends BaseControl {
                 if (onlyUpdateProperties) {
                     Object.assign(data.features[featureIndex].properties, feature.properties);
 
-                    // Update processed features
                     const processedFeatures = processedData.features.filter(f =>
                         f.properties.id === feature.properties.id + '-visible' ||
                         f.properties.id === feature.properties.id + '-obstructed'
@@ -836,7 +795,6 @@ class AddLOSControl extends BaseControl {
     _onTerrainChange = () => {
         this.updateButtonAppearance();
 
-        // If tool is active but terrain is disabled, deactivate
         if (this.isActive && !this.geometry.isTerrainAvailable(this.map)) {
             this.toolManager.setActiveTool(null);
         }

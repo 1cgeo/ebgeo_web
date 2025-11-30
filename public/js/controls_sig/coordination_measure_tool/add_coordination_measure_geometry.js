@@ -1,9 +1,10 @@
-// Path: js\controls_sig\coordination_measure_tool\add_coordination_measure_geometry.js
+// Path: js/controls_sig/coordination_measure_tool/add_coordination_measure_geometry.js
+
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**
  * Coordination Measure Geometry Operations
- * Handles geometric calculations for coordination measure features (Point-based with generated symbols)
+ * Handles geometric calculations for coordination measure features
  */
 class AddCoordinationMeasureGeometry extends BaseGeometry {
     constructor(properties = {}) {
@@ -32,23 +33,23 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
     }
 
     /**
-     * Coordination measures don't have edit handles - they're edited through attribute panel
+     * Create edit handles (not supported for coordination measures)
      * @param {Object} feature - Coordination measure feature
-     * @returns {Array} Empty array (no handles)
+     * @returns {Array} Empty array
      */
     createHandles(feature) {
-        return []; // Coordination measures don't have edit handles
+        return [];
     }
 
     /**
-     * Coordination measures don't support handle-based editing
+     * Update feature from handle (not supported for coordination measures)
      * @param {string} handleType - Type of handle
      * @param {Array} newPosition - New position
      * @param {Object} feature - Feature being edited
-     * @returns {null} Always null (not supported)
+     * @returns {null} Always null
      */
     updateFromHandle(handleType, newPosition, feature) {
-        return null; // Coordination measures don't have edit handles
+        return null;
     }
 
     /**
@@ -64,47 +65,40 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
      * @returns {Object} GeoJSON Polygon geometry for selection box
      */
     calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager, anchor = 'center') {
-        // Apply size scaling with 62.5% correction factor (same as image tool)
         const scaledWidth = width * size * 0.5;
         const scaledHeight = height * size * 0.5;
-        
-        // Calculate expanded dimensions accounting for rotation
+
         const expandedDimensions = uiManager.calculateExpandedDimensions(scaledWidth, scaledHeight, rotation);
         const padding = 5;
-        
-        // Use creation zoom level for degree conversion (zoom-invariant)
+
         const centerLat = coordinates[1];
         const widthDegrees = uiManager.pixelsToDegrees(
-            expandedDimensions.width + (padding * 2), 
-            centerLat, 
+            expandedDimensions.width + (padding * 2),
+            centerLat,
             createdAtZoom
         );
         const heightDegrees = uiManager.pixelsToDegrees(
-            expandedDimensions.height + (padding * 2), 
-            centerLat, 
+            expandedDimensions.height + (padding * 2),
+            centerLat,
             createdAtZoom
         );
-        
-        // Ajustar coordenadas baseado na âncora
+
         let adjustedCoordinates = [...coordinates];
-        
-        // Calcular offset em graus baseado na âncora
+
         if (anchor && anchor !== 'center') {
             const heightOffsetDegrees = uiManager.pixelsToDegrees(
                 scaledHeight / 2,
                 centerLat,
                 createdAtZoom
             );
-            
+
             if (anchor.includes('bottom')) {
-                // Âncora embaixo: mover selection box para cima
                 adjustedCoordinates[1] += heightOffsetDegrees;
             } else if (anchor.includes('top')) {
-                // Âncora em cima: mover selection box para baixo
                 adjustedCoordinates[1] -= heightOffsetDegrees;
             }
         }
-        
+
         return this.createSelectionBoxFromDegrees(adjustedCoordinates, widthDegrees, heightDegrees);
     }
 
@@ -119,15 +113,15 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
         const [lng, lat] = coordinates;
         const halfWidth = widthDegrees / 2;
         const halfHeight = heightDegrees / 2;
-        
+
         return {
             type: 'Polygon',
             coordinates: [[
-                [lng - halfWidth, lat - halfHeight], // bottom-left
-                [lng + halfWidth, lat - halfHeight], // bottom-right
-                [lng + halfWidth, lat + halfHeight], // top-right
-                [lng - halfWidth, lat + halfHeight], // top-left
-                [lng - halfWidth, lat - halfHeight]  // close polygon
+                [lng - halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat - halfHeight]
             ]]
         };
     }
@@ -174,11 +168,11 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
     calculateZoomAdjustedSize(baseSize, createdAtZoom, currentZoom) {
         const zoomDifference = currentZoom - createdAtZoom;
         const scaleFactor = Math.pow(2, zoomDifference);
-        return Math.min(baseSize * scaleFactor, 10); // Maximum 10x scaling
+        return Math.min(baseSize * scaleFactor, 10);
     }
 
     /**
-     * Get bounding box for coordination measure (for spatial queries)
+     * Get bounding box for coordination measure
      * @param {Array} coordinates - Symbol position
      * @param {number} width - Symbol width
      * @param {number} height - Symbol height
@@ -186,22 +180,20 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
      * @returns {Array} Bounding box [minLng, minLat, maxLng, maxLat]
      */
     getBoundingBox(coordinates, width, height, size) {
-        // Approximate bounding box using scaled dimensions
         const scaledWidth = width * size * 0.5;
         const scaledHeight = height * size * 0.5;
-        
-        // Convert pixels to rough degree approximation
-        const widthDegrees = scaledWidth / 111320; // Rough conversion
+
+        const widthDegrees = scaledWidth / 111320;
         const heightDegrees = scaledHeight / 111320;
-        
+
         const halfWidth = widthDegrees / 2;
         const halfHeight = heightDegrees / 2;
 
         return [
-            coordinates[0] - halfWidth, // minLng
-            coordinates[1] - halfHeight, // minLat
-            coordinates[0] + halfWidth,  // maxLng
-            coordinates[1] + halfHeight  // maxLat
+            coordinates[0] - halfWidth,
+            coordinates[1] - halfHeight,
+            coordinates[0] + halfWidth,
+            coordinates[1] + halfHeight
         ];
     }
 
@@ -215,13 +207,12 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
             'pointCode',
             'echelonCode'
         ];
-        
+
         return sidcProperties.includes(property);
     }
 
     /**
      * Check if property is a text modifier (requires symbol regeneration)
-     * Text modifiers don't affect SIDC but require regeneration to show text
      * @param {string} property - Property name being changed
      * @returns {boolean} True if property is a text modifier
      */
@@ -238,12 +229,12 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
             'altitude',             // X - Altitude
             'fillColor'             // Cor personalizada
         ];
-        
+
         return textModifierProperties.includes(property);
     }
 
     /**
-     * Check if property affects visual rendering (selection box recalculation needed)
+     * Check if property affects visual rendering
      * @param {string} property - Property name being changed
      * @returns {boolean} True if property affects visual rendering
      */

@@ -627,7 +627,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                         gallery.appendChild(item);
                     }
                 } catch (error) {
-                    console.warn(`Erro ao gerar símbolo ${feature.properties.id}:`, error);
+                    console.warn(`Error generating symbol ${feature.properties.id}:`, error);
                     // Skip symbol with error
                 }
             }
@@ -2125,11 +2125,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     previewImage.style.display = 'block';
                 } else {
                     previewImage.style.display = 'none';
-                    console.warn('Falha ao gerar preview para SIDC:', sidc);
+                    console.warn('Failed to generate preview for SIDC:', sidc);
                 }
 
             } catch (error) {
-                console.error('Erro ao gerar preview:', error);
+                console.error('Error generating preview:', error);
                 previewImage.style.display = 'none';
             }
         }
@@ -2330,7 +2330,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 updatePreview();
 
             } catch (error) {
-                console.error('Erro ao inicializar modal:', error);
+                console.error('Error initializing modal:', error);
 
                 modalContent.appendChild(controlsColumn);
                 modalContent.appendChild(previewColumn);

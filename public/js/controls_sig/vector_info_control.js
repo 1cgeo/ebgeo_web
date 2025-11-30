@@ -14,7 +14,6 @@ class VectorTileInfoControl {
     }
 
     setupEventListeners() {
-        // Close menu with ESC
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.contextMenu) {
                 this._hideVectorTileSelectionMenu();
@@ -51,7 +50,6 @@ class VectorTileInfoControl {
         const isEnabled = config.features?.vector_info ?? true;
 
         if (!isEnabled) {
-            // Use setTimeout para garantir que DOM está pronto
             setTimeout(() => {
                 $("#vector-tile-info-tool").html('<img class="icon-sig-tool" src="./images/icon_info_gray.svg" alt="INFO" />');
             }, 10);
@@ -64,10 +62,8 @@ class VectorTileInfoControl {
     }
 
     onRemove() {
-        // Remover menu se estiver aberto
         this._hideVectorTileSelectionMenu();
-        
-        // Remove event listener if still active
+
         if (this.isActive && this.map) {
             this.map.off('click', this.handleMapClickBound);
         }
@@ -85,10 +81,8 @@ class VectorTileInfoControl {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'help';
 
-        // Add click event listener to map
         this.map.on('click', this.handleMapClickBound);
 
-        // Fechar menu ao mover/dar zoom no mapa
         this.map.on('movestart', () => {
             if (this.contextMenu) {
                 this._hideVectorTileSelectionMenu();
@@ -107,7 +101,6 @@ class VectorTileInfoControl {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
 
-        // Remove click event listener from map
         this.map.off('click', this.handleMapClickBound);
 
         this.changeButtonColor()
@@ -117,7 +110,6 @@ class VectorTileInfoControl {
     handleMapClick(e) {
         if (this.isActive) {
             const features = this.map.queryRenderedFeatures(e.point);
-            // Filter to get only vector tiles, not drawings, grid, streetview, or product labels
             const vectorTileFeatures = features.filter(f => f.sourceLayer && !f.properties.source && !f.sourceLayer.startsWith('grid') && !f.sourceLayer.startsWith('situacao_ponto') && !f.sourceLayer.startsWith('fotos'));
             if (vectorTileFeatures.length > 0) {
                 const preferenceOrder = ['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'];
@@ -130,11 +122,9 @@ class VectorTileInfoControl {
                 });
 
                 if (vectorTileFeatures.length === 1) {
-                    // Single feature: display directly
                     this._hideVectorTileSelectionMenu();
                     this.uiManager.showVectorTileInfoPanel(vectorTileFeatures[0]);
                 } else {
-                    // Multiple features: show menu
                     this._showVectorTileSelectionMenu(vectorTileFeatures, e);
                 }
             } else {
@@ -145,30 +135,31 @@ class VectorTileInfoControl {
     }
 
     /**
-     * Shows vector tiles selection menu
+     * Shows selection menu when multiple vector tile features are clicked
+     * @param {Array} features - Array of vector tile features
+     * @param {Object} e - Click event
      */
     _showVectorTileSelectionMenu(features, e) {
-        // Close previous menu if exists
         this._hideVectorTileSelectionMenu();
 
         if (features.length === 0) return;
 
-        // Store pending features
         this.pendingVectorTileFeatures = features;
 
-        // Create and display menu
         this.contextMenu = this._createContextMenuElement(features, e);
         document.body.appendChild(this.contextMenu);
     }
 
     /**
-     * Create context menu HTML element
+     * Creates context menu HTML element
+     * @param {Array} features - Array of vector tile features
+     * @param {Object} e - Click event
+     * @returns {HTMLElement} Menu element
      */
     _createContextMenuElement(features, e) {
         const menu = document.createElement('div');
         menu.className = 'vector-tile-selection-menu';
 
-        // Styles (identical to SelectionManager)
         menu.style.cssText = `
             position: fixed !important;
             background: white !important;
@@ -187,14 +178,12 @@ class VectorTileInfoControl {
             opacity: 1 !important;
             pointer-events: auto !important;
         `;
-        
-        // Position near click
+
         const x = Math.min(e.originalEvent.clientX, window.innerWidth - 220);
         const y = Math.min(e.originalEvent.clientY, window.innerHeight - 50);
         menu.style.left = `${x}px`;
         menu.style.top = `${y}px`;
 
-        // Header
         const header = document.createElement('div');
         header.textContent = `Selecionar camada (${features.length})`;
         header.style.cssText = `
@@ -207,13 +196,12 @@ class VectorTileInfoControl {
             margin: 0 !important;
         `;
         menu.appendChild(header);
-        
-        // Item for each feature
+
         features.forEach((feature, index) => {
             const item = document.createElement('div');
             const featureName = this._getVectorTileFeatureName(feature);
             item.textContent = featureName;
-            
+
             item.style.cssText = `
                 padding: 10px 12px !important;
                 cursor: pointer !important;
@@ -224,37 +212,37 @@ class VectorTileInfoControl {
                 font-size: 14px !important;
                 margin: 0 !important;
             `;
-            
-            // Hover effects
+
             item.addEventListener('mouseenter', () => {
                 item.style.backgroundColor = '#f0f8ff !important';
             });
             item.addEventListener('mouseleave', () => {
                 item.style.backgroundColor = 'white !important';
             });
-            
-            // Click handler
+
             item.addEventListener('click', (evt) => {
                 evt.stopPropagation();
                 this.uiManager.showVectorTileInfoPanel(feature);
                 this._hideVectorTileSelectionMenu();
             });
-            
+
             menu.appendChild(item);
         });
-        
+
         return menu;
     }
 
     /**
-     * Get display name of vector tile (sourceLayer)
+     * Gets display name for a vector tile feature
+     * @param {Object} feature - Vector tile feature
+     * @returns {string} Feature display name
      */
     _getVectorTileFeatureName(feature) {
         return feature.sourceLayer || 'Camada desconhecida';
     }
 
     /**
-     * Hide selection menu
+     * Hides and removes the selection menu
      */
     _hideVectorTileSelectionMenu() {
         if (this.contextMenu) {

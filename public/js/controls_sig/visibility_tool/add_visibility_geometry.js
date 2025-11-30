@@ -1,30 +1,26 @@
-// Path: js\controls_sig\visibility_tool\add_visibility_geometry.js
+// Path: js/controls_sig/visibility_tool/add_visibility_geometry.js
+
 import BaseGeometry from '../tool_manager/base_geometry.js';
 import { getTerrainElevation } from '../terrain_control.js';
 
 /**
  * Visibility Geometry Operations
- * Handles all geometric calculations for visibility/viewshed features including:
- * - Viewshed calculation with adaptive polar grid
- * - Cell dissolution and optimization
- * - Processed features generation (visible/obstructed cells)
- * - Async movement recalculations
- * - Immediate geometry translation for drag operations
+ * Handles all geometric calculations for visibility/viewshed features including viewshed calculation
+ * with adaptive polar grid, cell dissolution and optimization, processed features generation,
+ * async movement recalculations, and immediate geometry translation for drag operations
  */
 class AddVisibilityGeometry extends BaseGeometry {
     constructor(properties = {}) {
         super(properties);
-        
-        // Visibility specific constants
+
         this.VISIBLE_COLOR = '#00FF00';
         this.OBSTRUCTED_COLOR = '#FF0000';
-        this.OBSERVER_HEIGHT = 2; // meters above ground
-        
-        // Adaptive polar grid configuration
+        this.OBSERVER_HEIGHT = 2;
+
         this.VIEWSHED_CONFIG = {
-            RINGS: 20,                    // Concentric rings
-            MIN_RAYS_PER_RING: 4,        // Minimum angular subdivisions
-            MAX_RAYS_PER_RING: 20        // Maximum angular subdivisions
+            RINGS: 20,
+            MIN_RAYS_PER_RING: 4,
+            MAX_RAYS_PER_RING: 20
         };
     }
 
@@ -88,16 +84,15 @@ class AddVisibilityGeometry extends BaseGeometry {
     }
 
     /**
-     * Extract center from moved geometry (following LOS tool pattern)
+     * Extract center from moved geometry
      * @param {Object} geometry - Moved MultiPolygon geometry
      * @returns {Array|null} Center coordinates or null
      */
     extractCenterFromGeometry(geometry) {
         try {
             if (geometry.type === 'MultiPolygon') {
-                // Calculate centroid of all polygons combined (approximation of original center)
                 const allCoordinates = [];
-                
+
                 geometry.coordinates.forEach(polygonCoords => {
                     polygonCoords.forEach(ring => {
                         ring.forEach(coord => {
@@ -110,10 +105,9 @@ class AddVisibilityGeometry extends BaseGeometry {
 
                 if (allCoordinates.length === 0) return null;
 
-                // Calculate centroid from all coordinates
                 const sumLng = allCoordinates.reduce((sum, coord) => sum + coord[0], 0);
                 const sumLat = allCoordinates.reduce((sum, coord) => sum + coord[1], 0);
-                
+
                 return [sumLng / allCoordinates.length, sumLat / allCoordinates.length];
             } else if (geometry.type === 'Polygon') {
                 const polygon = turf.polygon(geometry.coordinates);
@@ -128,8 +122,7 @@ class AddVisibilityGeometry extends BaseGeometry {
     }
 
     /**
-     * Translate visibility geometry by offset (immediate translation for drag preview)
-     * Following LOS tool pattern for immediate geometry updates
+     * Translate visibility geometry by offset for immediate drag preview
      * @param {Object} geometry - MultiPolygon geometry to translate
      * @param {number} dx - Longitude offset
      * @param {number} dy - Latitude offset
@@ -236,7 +229,7 @@ class AddVisibilityGeometry extends BaseGeometry {
      */
     async calculateViewshed(center, radius, angle, map, progressCallback = null) {
         try {
-            const sectorStart = angle - 22.5; // 45-degree sector
+            const sectorStart = angle - 22.5;
             const sectorEnd = angle + 22.5;
 
             if (progressCallback) {
@@ -315,7 +308,7 @@ class AddVisibilityGeometry extends BaseGeometry {
 
         const line = turf.lineString([observer.coord, testPoint.geometry.coordinates]);
         const length = turf.length(line, { units: 'meters' });
-        const steps = Math.ceil(length / 60); // 60m per step
+        const steps = Math.ceil(length / 60);
         const stepLength = length / steps;
 
         const testElevation = await getTerrainElevation(map, testPoint.geometry.coordinates);
@@ -454,7 +447,7 @@ class AddVisibilityGeometry extends BaseGeometry {
     }
 
     /**
-     * Recalculate viewshed from moved coordinates (following LOS pattern)
+     * Recalculate viewshed from moved coordinates
      * @param {Array} newCenter - New center coordinates
      * @param {Object} feature - Original feature with properties
      * @param {Object} map - MapLibre map instance
@@ -467,14 +460,12 @@ class AddVisibilityGeometry extends BaseGeometry {
         }
 
         try {
-            // Create center point with observer height
             const center = turf.point(newCenter);
             center.properties = { observerHeight: feature.properties.observerHeight };
 
-            // Recalculate viewshed
             const viewshedResult = await this.calculateViewshed(
-                center, 
-                feature.properties.radius, 
+                center,
+                feature.properties.radius,
                 feature.properties.angle,
                 map,
                 progressCallback
@@ -485,7 +476,6 @@ class AddVisibilityGeometry extends BaseGeometry {
                 await this.delay(100);
             }
 
-            // Optimize cells
             const optimizedCells = this.dissolveVisibilityCells(viewshedResult);
 
             if (progressCallback) {
@@ -493,7 +483,6 @@ class AddVisibilityGeometry extends BaseGeometry {
                 await this.delay(100);
             }
 
-            // Create new geometry
             const newGeometry = {
                 type: 'MultiPolygon',
                 coordinates: optimizedCells.map(cell => [cell.coordinates])
@@ -579,20 +568,20 @@ class AddVisibilityGeometry extends BaseGeometry {
     }
 
     /**
-     * No edit handles for visibility (implements BaseGeometry interface)
+     * No edit handles for visibility
      * @param {Object} feature - Visibility feature
-     * @returns {Array} Empty array (no handles)
+     * @returns {Array} Empty array
      */
     createHandles(feature) {
-        return []; // Visibility doesn't have interactive handles
+        return [];
     }
 
     /**
-     * No handle updates for visibility (implements BaseGeometry interface)
-     * @param {string} handleType - Handle type (not applicable)
-     * @param {Array} newPosition - New position (not applicable)
-     * @param {Object} feature - Feature (not applicable)
-     * @returns {null} Not applicable for visibility
+     * No handle updates for visibility
+     * @param {string} handleType - Handle type
+     * @param {Array} newPosition - New position
+     * @param {Object} feature - Feature
+     * @returns {null} Always null
      */
     updateFromHandle(handleType, newPosition, feature) {
         console.warn('Visibility features do not support handle-based editing');

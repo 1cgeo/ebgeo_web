@@ -1,4 +1,5 @@
 // Path: js/controls_sig/military_symbol_tool/add_military_symbol_geometry.js
+
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**
@@ -37,7 +38,7 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      * @returns {Array} Empty array (no handles)
      */
     createHandles(feature) {
-        return []; // Military symbols don't have edit handles
+        return [];
     }
 
     /**
@@ -48,7 +49,7 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      * @returns {null} Always null (not supported)
      */
     updateFromHandle(handleType, newPosition, feature) {
-        return null; // Military symbols don't have edit handles
+        return null;
     }
 
     /**
@@ -63,27 +64,24 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      * @returns {Object} GeoJSON Polygon geometry for selection box
      */
     calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager) {
-        // Apply size scaling with 62.5% correction factor (same as image tool)
         const scaledWidth = width * size * 0.5;
         const scaledHeight = height * size * 0.5;
-        
-        // Calculate expanded dimensions accounting for rotation
+
         const expandedDimensions = uiManager.calculateExpandedDimensions(scaledWidth, scaledHeight, rotation);
         const padding = 5;
-        
-        // Use creation zoom level for degree conversion (zoom-invariant)
+
         const centerLat = coordinates[1];
         const widthDegrees = uiManager.pixelsToDegrees(
-            expandedDimensions.width + (padding * 2), 
-            centerLat, 
+            expandedDimensions.width + (padding * 2),
+            centerLat,
             createdAtZoom
         );
         const heightDegrees = uiManager.pixelsToDegrees(
-            expandedDimensions.height + (padding * 2), 
-            centerLat, 
+            expandedDimensions.height + (padding * 2),
+            centerLat,
             createdAtZoom
         );
-        
+
         return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
     }
 
@@ -98,15 +96,15 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
         const [lng, lat] = coordinates;
         const halfWidth = widthDegrees / 2;
         const halfHeight = heightDegrees / 2;
-        
+
         return {
             type: 'Polygon',
             coordinates: [[
-                [lng - halfWidth, lat - halfHeight], // bottom-left
-                [lng + halfWidth, lat - halfHeight], // bottom-right
-                [lng + halfWidth, lat + halfHeight], // top-right
-                [lng - halfWidth, lat + halfHeight], // top-left
-                [lng - halfWidth, lat - halfHeight]  // close polygon
+                [lng - halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat - halfHeight],
+                [lng + halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat + halfHeight],
+                [lng - halfWidth, lat - halfHeight]
             ]]
         };
     }
@@ -153,7 +151,7 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
     calculateZoomAdjustedSize(baseSize, createdAtZoom, currentZoom) {
         const zoomDifference = currentZoom - createdAtZoom;
         const scaleFactor = Math.pow(2, zoomDifference);
-        return Math.min(baseSize * scaleFactor, 10); // Maximum 10x scaling
+        return Math.min(baseSize * scaleFactor, 10);
     }
 
     /**
@@ -165,22 +163,20 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      * @returns {Array} Bounding box [minLng, minLat, maxLng, maxLat]
      */
     getBoundingBox(coordinates, width, height, size) {
-        // Approximate bounding box using scaled dimensions
         const scaledWidth = width * size * 0.625;
         const scaledHeight = height * size * 0.625;
-        
-        // Convert pixels to rough degree approximation
-        const widthDegrees = scaledWidth / 111320; // Rough conversion
+
+        const widthDegrees = scaledWidth / 111320;
         const heightDegrees = scaledHeight / 111320;
-        
+
         const halfWidth = widthDegrees / 2;
         const halfHeight = heightDegrees / 2;
 
         return [
-            coordinates[0] - halfWidth, // minLng
-            coordinates[1] - halfHeight, // minLat
-            coordinates[0] + halfWidth,  // maxLng
-            coordinates[1] + halfHeight  // maxLat
+            coordinates[0] - halfWidth,
+            coordinates[1] - halfHeight,
+            coordinates[0] + halfWidth,
+            coordinates[1] + halfHeight
         ];
     }
 
@@ -196,7 +192,7 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
             'mainIconExtension', 'modifier1Extension', 'modifier2Extension',
             'specialModifier', 'isCommand', 'symbolSet'
         ];
-        
+
         return sidcProperties.includes(property);
     }
 
@@ -225,7 +221,7 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
             'direction',              // Q - Direction/Azimuth
             'engagementBar'
         ];
-        
+
         return textModifierProperties.includes(property);
     }
 

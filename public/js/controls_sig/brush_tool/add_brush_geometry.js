@@ -1,4 +1,4 @@
-// Path: js\controls_sig\brush_tool\add_brush_geometry.js
+// Path: js/controls_sig/brush_tool/add_brush_geometry.js
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**
@@ -30,13 +30,12 @@ class AddBrushGeometry extends BaseGeometry {
             return false;
         }
 
-        // Check that all points are valid coordinates
-        return points.every(point => 
-            Array.isArray(point) && 
+        return points.every(point =>
+            Array.isArray(point) &&
             point.length >= 2 &&
-            typeof point[0] === 'number' && 
+            typeof point[0] === 'number' &&
             typeof point[1] === 'number' &&
-            !isNaN(point[0]) && 
+            !isNaN(point[0]) &&
             !isNaN(point[1])
         );
     }
@@ -53,28 +52,28 @@ class AddBrushGeometry extends BaseGeometry {
 
         return {
             type: 'LineString',
-            coordinates: [...points] // Create copy to avoid mutation
+            coordinates: [...points]
         };
     }
 
     /**
-     * Create edit handles for brush (none - brush features don't have handles)
+     * Create edit handles for brush
      * @param {Object} feature - Brush feature
-     * @returns {Array} Empty array (brush features don't have edit handles)
+     * @returns {Array} Empty array
      */
     createHandles(feature) {
-        return []; // Brush features don't have edit handles
+        return [];
     }
 
     /**
-     * Update geometry based on handle movement (not applicable for brush)
+     * Update geometry based on handle movement
      * @param {string} handleType - Type of handle
      * @param {Array} newPosition - New handle position
      * @param {Object} feature - Feature being edited
-     * @returns {null} Always null (brush doesn't support handle editing)
+     * @returns {null} Always null
      */
     updateFromHandle(handleType, newPosition, feature) {
-        return null; // Brush features don't support handle editing
+        return null;
     }
 
     /**
@@ -226,7 +225,7 @@ class AddBrushGeometry extends BaseGeometry {
     }
 
     /**
-     * Get center point of brush line (for move operations)
+     * Get center point of brush line
      * @param {Array} points - Array of coordinate points
      * @returns {Array} Center point [lng, lat]
      */
@@ -235,7 +234,6 @@ class AddBrushGeometry extends BaseGeometry {
             return null;
         }
 
-        // Use first point as reference for movement operations
         return points[0];
     }
 

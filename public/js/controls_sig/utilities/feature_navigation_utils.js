@@ -1,33 +1,32 @@
-// Path: js\controls_sig\utilities\feature_navigation_utils.js
+// Path: js/controls_sig/utilities/feature_navigation_utils.js
 
 /**
- * Utilitário para navegação e zoom em features do mapa
- * Centraliza lógica de zoom, seleção e navegação entre features
+ * Utility for map feature navigation and zoom operations
+ * Centralizes zoom, selection, and navigation logic
  */
 import { getSourceTypeFromStorage } from '../store/store.js';
 
 export class FeatureNavigationUtils {
     /**
-     * Faz zoom para uma feature com padding contextual
-     * @param {Object} feature - Feature GeoJSON
-     * @param {Object} mapInstance - Instância do mapa
-     * @param {Object} options - Opções de zoom
+     * Zooms to a feature with contextual padding
+     * @param {Object} feature - GeoJSON feature
+     * @param {Object} mapInstance - Map instance
+     * @param {Object} options - Zoom options
      */
     static async zoomToFeature(feature, mapInstance, options = {}) {
         if (!feature?.geometry) {
-            console.warn('Feature inválida para zoom');
+            console.warn('Invalid feature for zoom');
             return;
         }
 
         const {
-            paddingPercent = 0.2, // 20% de padding da bbox
+            paddingPercent = 0.2,
             minZoom = 10,
             maxZoom = 18,
             duration = 800
         } = options;
 
         try {
-            // Detectar se deve usar selectionBox
             const useSelectionBox = this._shouldUseSelectionBox(feature);
             const geometryToUse = useSelectionBox ? feature.properties.selectionBox : feature.geometry;
 
@@ -52,20 +51,19 @@ export class FeatureNavigationUtils {
                     break;
 
                 default:
-                    console.warn('Tipo de geometria não suportado:', geometryToUse.type);
+                    console.warn('Unsupported geometry type:', geometryToUse.type);
             }
         } catch (error) {
-            console.error('Erro ao fazer zoom para feature:', error);
+            console.error('Error zooming to feature:', error);
         }
     }
 
     /**
-     * Determina se deve usar selectionBox em vez da geometria principal
-     * @param {Object} feature - Feature GeoJSON
-     * @returns {boolean} True se deve usar selectionBox
+     * Determines if selectionBox should be used instead of main geometry
+     * @param {Object} feature - GeoJSON feature
+     * @returns {boolean} True if should use selectionBox
      */
     static _shouldUseSelectionBox(feature) {
-        // Tipos que têm selectionBox pré-calculado
         const selectionBoxTypes = ['text', 'image', 'military_symbol'];
         const featureType = feature.properties?.source;
         const hasSelectionBox = feature.properties?.selectionBox?.type === 'Polygon';
@@ -73,7 +71,7 @@ export class FeatureNavigationUtils {
     }
 
     /**
-     * Faz zoom para um ponto específico
+     * Zooms to a specific point
      */
     static async _zoomToPoint(coordinates, mapInstance, options) {
         return new Promise((resolve) => {
@@ -83,19 +81,18 @@ export class FeatureNavigationUtils {
                 duration: options.duration
             });
 
-            // Resolve quando a animação terminar
             setTimeout(resolve, options.duration);
         });
     }
 
     /**
-     * Faz zoom para bounds de uma geometria
+     * Zooms to bounds of a geometry
      */
     static async _zoomToBounds(geometry, mapInstance, options) {
         const coordinates = this.extractAllCoordinates(geometry);
 
         if (coordinates.length === 0) {
-            console.warn('Nenhuma coordenada encontrada na geometria');
+            console.warn('No coordinates found in geometry');
             return;
         }
 
@@ -103,17 +100,15 @@ export class FeatureNavigationUtils {
         coordinates.forEach(coord => bounds.extend(coord));
 
         if (bounds.isEmpty()) {
-            console.warn('Bounds vazio para feature');
+            console.warn('Empty bounds for feature');
             return;
         }
 
-        // Calcular padding baseado no tamanho da bbox
         const ne = bounds.getNorthEast();
         const sw = bounds.getSouthWest();
         const width = Math.abs(ne.lng - sw.lng);
         const height = Math.abs(ne.lat - sw.lat);
 
-        // Padding baseado no maior lado da bbox
         const bboxSize = Math.max(width, height);
         const paddingMeters = this._calculatePaddingFromBbox(bboxSize, options.paddingPercent);
 
@@ -124,25 +119,23 @@ export class FeatureNavigationUtils {
                 maxZoom: options.maxZoom
             });
 
-            // Resolve quando a animação terminar
             setTimeout(resolve, options.duration);
         });
     }
 
     /**
-     * Calcula padding em pixels baseado no tamanho da bbox
+     * Calculates padding in pixels based on bbox size
      */
     static _calculatePaddingFromBbox(bboxSize, paddingPercent) {
-        // Conversão aproximada: graus para pixels (depende do zoom, mas é uma aproximação)
-        const basePixelSize = bboxSize * 100000; // Aproximação grosseira
+        const basePixelSize = bboxSize * 100000;
         const padding = Math.max(50, Math.min(200, basePixelSize * paddingPercent));
         return Math.round(padding);
     }
 
     /**
-     * Extrai todas as coordenadas de uma geometria
-     * @param {Object} geometry - Geometria GeoJSON
-     * @returns {Array} Array de coordenadas [lng, lat]
+     * Extracts all coordinates from a geometry
+     * @param {Object} geometry - GeoJSON geometry
+     * @returns {Array} Array of [lng, lat] coordinates
      */
     static extractAllCoordinates(geometry) {
         const coords = [];
@@ -150,10 +143,8 @@ export class FeatureNavigationUtils {
         function extract(coordArray) {
             if (Array.isArray(coordArray)) {
                 if (typeof coordArray[0] === 'number' && coordArray.length >= 2) {
-                    // É uma coordenada [lng, lat]
                     coords.push(coordArray);
                 } else {
-                    // É um array de coordenadas ou sub-arrays
                     coordArray.forEach(extract);
                 }
             }
@@ -164,9 +155,9 @@ export class FeatureNavigationUtils {
     }
 
     /**
-     * Obtém o ponto central de uma feature
-     * @param {Object} feature - Feature GeoJSON
-     * @returns {Array|null} Coordenadas [lng, lat] do centro ou null
+     * Gets center point of a feature
+     * @param {Object} feature - GeoJSON feature
+     * @returns {Array|null} [lng, lat] coordinates or null
      */
     static getFeatureCenterPoint(feature) {
         if (!feature?.geometry) return null;
@@ -184,7 +175,6 @@ export class FeatureNavigationUtils {
                 const coordinates = this.extractAllCoordinates(geometry);
                 if (coordinates.length === 0) return null;
 
-                // Calcular centróide simples
                 const sumLng = coordinates.reduce((sum, coord) => sum + coord[0], 0);
                 const sumLat = coordinates.reduce((sum, coord) => sum + coord[1], 0);
 
@@ -196,25 +186,24 @@ export class FeatureNavigationUtils {
     }
 
     /**
-     * Converte tipo de feature do store para tipo do SelectionManager
+     * Converts feature type from store format to SelectionManager format
      */
     static mapFeatureType(storeType) {
         return getSourceTypeFromStorage(storeType);
     }
 
     /**
-     * Integra zoom com seleção de feature
-     * @param {Object} feature - Feature para zoom e seleção
-     * @param {Object} mapInstance - Instância do mapa
-     * @param {Object} selectionManager - Manager de seleção
-     * @param {string} featureType - Tipo da feature (formato do store)
-     * @param {string} featureId - ID da feature
+     * Integrates zoom with feature selection
+     * @param {Object} feature - Feature for zoom and selection
+     * @param {Object} mapInstance - Map instance
+     * @param {Object} selectionManager - Selection manager
+     * @param {string} featureType - Feature type (store format)
+     * @param {string} featureId - Feature ID
      */
     static async zoomAndSelectFeature(feature, mapInstance, selectionManager, featureType, featureId) {
         try {
             selectionManager.deselectAllFeatures();
 
-            // Usar função centralizada para conversão
             const selectionManagerType = getSourceTypeFromStorage(featureType);
             selectionManager.selectFeature(selectionManagerType, featureId, feature);
 
@@ -225,7 +214,7 @@ export class FeatureNavigationUtils {
             });
 
         } catch (error) {
-            console.error('Erro ao fazer zoom e selecionar feature:', error);
+            console.error('Error zooming and selecting feature:', error);
         }
     }
 }

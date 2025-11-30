@@ -1,8 +1,6 @@
-// Path: js\controls_sig\tool_manager\ui_manager.js
+// Path: js/controls_sig/tool_manager/ui_manager.js
 
 import { cleanupFeatureDropdownListeners } from './attribute_panel_helpers.js';
-
-// No more import dependencies on individual panel functions - tools handle their own panels
 
 class UIManager {
     constructor(map, selectionManager, toolManager) {
@@ -11,11 +9,9 @@ class UIManager {
         this.toolManager = toolManager;
         this.featureSearchControl = null;
 
-        // UI state
         this.selectionBoxes = [];
         this.isDragging = false;
 
-        // ===== CACHE SYSTEM =====
         this.selectionBoxCache = new Map();
         this.geometryHashes = new Map();
         this.rafId = null;
@@ -70,7 +66,6 @@ class UIManager {
             width: feature.properties.width,
             height: feature.properties.height,
             anchor: feature.properties.anchor,
-            // Include selectionBox hash for pre-calculated boxes (coordination measures, military symbols)
             selectionBox: feature.properties.selectionBox ? JSON.stringify(feature.properties.selectionBox) : null
         });
 
@@ -109,7 +104,7 @@ class UIManager {
     // ===== TOOL-CENTRIC SELECTION HIGHLIGHTING =====
 
     /**
-     * Main selection highlight update - TOOL-CENTRIC ONLY
+     * Main selection highlight update using tool-centric approach
      */
     updateSelectionHighlight = () => {
         if (this.isDragging) return;
@@ -117,11 +112,9 @@ class UIManager {
         const selectionBoxesSource = this.map.getSource('selection-boxes');
         if (!selectionBoxesSource) return;
 
-        // Get all selected features grouped by type
         const featuresByType = this.groupSelectedFeaturesByType();
         const allSelectionBoxes = [];
 
-        // Process each type using tool-centric approach ONLY
         for (const [type, features] of featuresByType.entries()) {
             const selectionBoxes = this.createSelectionBoxesForTypeToolCentric(type, features);
             allSelectionBoxes.push(...selectionBoxes);
@@ -152,14 +145,13 @@ class UIManager {
     }
 
     /**
-     * Create selection boxes for features of a specific type - TOOL-CENTRIC ONLY
+     * Create selection boxes for features of a specific type using tool-centric approach
      */
     createSelectionBoxesForTypeToolCentric(type, features) {
         if (features.length === 0) return [];
 
         const control = this.selectionManager.controls.get(type);
 
-        // Only use tool-centric approach - no fallback
         if (!this.supportsToolCentricSelectionBoxes(control)) {
             console.warn(`Tool ${type} does not implement tool-centric selection box interface`);
             return [];
@@ -178,14 +170,13 @@ class UIManager {
     }
 
     /**
-     * Create selection boxes using tool-centric approach ONLY
+     * Create selection boxes using tool-centric approach
      */
     createSelectionBoxesToolCentric(features, control) {
         const selectionBoxes = [];
 
         for (const feature of features) {
             try {
-                // Check cache first
                 const featureId = feature.properties.id;
                 const currentHash = this.calculateGeometryHash(feature);
                 const cacheKey = this.getCacheKey(featureId);
@@ -194,10 +185,8 @@ class UIManager {
                 let selectionBox;
 
                 if (cached && cached.geometryHash === currentHash) {
-                    // Cache hit
                     selectionBox = cached.selectionBox;
                 } else {
-                    // Cache miss - create new selection box
                     const boxGeometry = control.createSelectionBox(feature);
 
                     if (boxGeometry) {
@@ -211,7 +200,6 @@ class UIManager {
                             }
                         };
 
-                        // Cache the result
                         this.selectionBoxCache.set(cacheKey, {
                             geometryHash: currentHash,
                             selectionBox: selectionBox
@@ -250,7 +238,7 @@ class UIManager {
         ];
     }
 
-    // ===== ATTRIBUTE PANEL MANAGEMENT - TOOL-CENTRIC =====
+    // ===== ATTRIBUTE PANEL MANAGEMENT =====
 
     updatePanels = () => {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
@@ -291,11 +279,11 @@ class UIManager {
         this.addDeleteButton(panel);
         document.body.appendChild(panel);
 
-        panel.style.display = 'flex'
+        panel.style.display = 'flex';
     }
 
     /**
-     * Add attributes for type - tool-centric approach ONLY
+     * Add attributes for type using tool-centric approach
      */
     addAttributesForType(panel, features, type) {
         const control = this.selectionManager.controls.get(type);
@@ -304,7 +292,6 @@ class UIManager {
             return;
         }
 
-        // Use tool-centric approach ONLY
         if (control.hasAttributePanel && control.hasAttributePanel()) {
             try {
                 control.createAttributePanel(panel, features, this.selectionManager, this);
@@ -324,7 +311,7 @@ class UIManager {
         panel.appendChild(deleteButton);
     }
 
-    // ===== DRAG OPERATIONS (Unchanged) =====
+    // ===== DRAG OPERATIONS =====
 
     shiftSelectionBoxes(dx, dy, save = false) {
         const shiftedFeatures = this.selectionBoxes.map(feature => {
@@ -379,7 +366,7 @@ class UIManager {
         return translatedFeature;
     }
 
-    // ===== UTILITY METHODS (Unchanged) =====
+    // ===== UTILITY METHODS =====
 
     calculateExpandedDimensions(originalWidth, originalHeight, rotationDegrees) {
         if (rotationDegrees === 0) {
@@ -447,7 +434,7 @@ class UIManager {
         };
     }
 
-    // ===== OTHER METHODS (Profile, Search, etc. - Unchanged) =====
+    // ===== PROFILE PANEL =====
 
     showProfilePanel(selectedFeatures) {
         if (selectedFeatures.length !== 1) {
@@ -638,18 +625,12 @@ class UIManager {
         let sourceName;
         const originalLayerName = feature.sourceLayer;
 
-        // Verifica se a string começa com 'situacao' para o caso de produtos
         if (originalLayerName.startsWith('situacao')) {
-            // CASO 1: Começa com 'situacao'
-            // 1. Troca 'situacao' por 'produtos'
-            // 2. Usa uma expressão regular para capturar o número da escala e formatá-lo
             sourceName = originalLayerName
                 .replace('situacao', 'produtos')
                 .replace(/_(10|25|50|100|250)k/, ' (1:$1.000)');
 
         } else {
-            // CASO 2: Camadas em geral
-            // Remove a escala e o prefixo 'edgv_'
             sourceName = originalLayerName
                 .replace(/_10k|_25k|_50k|_100k|_250k/g, '')
                 .replace('edgv_', '');
@@ -666,33 +647,24 @@ class UIManager {
                 continue;
             }
 
-            // 1. FORMATAÇÃO DA CHAVE (KEY)
-            // Remove o sufixo '_value' como antes
             let displayKey = key.endsWith('_value') ? key.slice(0, -6) : key;
             displayKey = displayKey.replace(/_/g, ' ');
-            // Se a chave começar com "identificador", remove o prefixo
             if (displayKey.startsWith('identificador')) {
-                displayKey = displayKey.substring('identificador'.length); // ex: 'identificadorMI' vira 'MI'
+                displayKey = displayKey.substring('identificador'.length);
             }
 
-            // 2. FORMATAÇÃO DO VALOR (VALUE)
             let displayValue;
-            // Verifica se o valor é um array
             if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
-                // Remove os colchetes, as aspas e ajusta o espaçamento da vírgula
                 const formattedString = value
-                    .slice(1, -1) // Remove o '[' e ']'
-                    .replace(/"/g, '') // Remove todas as aspas
-                    .replace(/,/g, ', '); // Substitui ',' por ', '
+                    .slice(1, -1)
+                    .replace(/"/g, '')
+                    .replace(/,/g, ', ');
 
-                // Se a string resultante for vazia (caso de '[]'), usa '-', senão usa o resultado
                 displayValue = formattedString || '-';
             } else {
-                // Se não for um array-string, usa o valor original
                 displayValue = value;
             }
-            // 3. ATUALIZAÇÃO DA EXIBIÇÃO
-            // Cria o item da lista usando a chave e o valor formatados
+
             const listItem = document.createElement('li');
             listItem.innerHTML = `<strong>${displayKey}:</strong> ${displayValue}`;
             propertiesList.appendChild(listItem);
@@ -726,7 +698,7 @@ class UIManager {
                 saveButton.click();
             }
             panel.remove();
-            
+
             cleanupFeatureDropdownListeners();
         }
     }

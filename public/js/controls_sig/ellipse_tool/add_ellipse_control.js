@@ -1,4 +1,4 @@
-// Path: js\controls_sig\ellipse_tool\add_ellipse_control.js
+// Path: js/controls_sig/ellipse_tool/add_ellipse_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
@@ -11,15 +11,10 @@ class AddEllipseControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // State management
         this.drawPoints = [];
         this.isDraggingHandle = false;
         this.activeHandleType = null;
-
-        // Geometry handler
         this.geometry = new AddEllipseGeometry();
-
-        // Performance optimization - RAF system
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
@@ -46,7 +41,7 @@ class AddEllipseControl extends BaseControl {
         hatchLineWidth: 2
     };
 
-    // ===== FONTE ÚNICA DA VERDADE =====
+    // ===== SINGLE SOURCE OF TRUTH =====
 
     /**
      * Get currently selected ellipse feature from SelectionManager
@@ -175,7 +170,7 @@ class AddEllipseControl extends BaseControl {
                 center: newCenter
             },
             geometry: this.geometry.generate(
-                newCenter, 
+                newCenter,
                 feature.properties.majorRadius,
                 feature.properties.minorRadius,
                 feature.properties.bearing
@@ -201,7 +196,7 @@ class AddEllipseControl extends BaseControl {
                 center: newCenter
             },
             geometry: this.geometry.generate(
-                newCenter, 
+                newCenter,
                 feature.properties.majorRadius,
                 feature.properties.minorRadius,
                 feature.properties.bearing
@@ -273,14 +268,12 @@ class AddEllipseControl extends BaseControl {
     syncEditHandlesAfterDrag = (movedFeatures) => {
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
-            // Find the moved feature that matches our selected feature
-            const movedFeature = movedFeatures.find(f => 
-                f.properties.source === 'ellipse' && 
+            const movedFeature = movedFeatures.find(f =>
+                f.properties.source === 'ellipse' &&
                 f.properties.id === selectedFeature.properties.id
             );
-            
+
             if (movedFeature) {
-                // Update our reference and recreate handles with current data
                 this.updateSelectionManagerFeature(movedFeature);
                 this.createEditHandles(movedFeature);
             }
@@ -333,14 +326,14 @@ class AddEllipseControl extends BaseControl {
             const center = this.lastPreviewCenter;
             const { majorRadius, bearing } = this.geometry.calculateInitialDimensions(center, this.lastPreviewPosition);
 
-            if (majorRadius >= 0.01) { // Minimum 10 meters
+            if (majorRadius >= 0.01) {
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
                     const previewGeometry = this.geometry.generate(
                         center,
                         majorRadius,
-                        majorRadius * 0.6, // Initial minor radius ratio
-                        bearing // ✅ Agora será sempre 0 (horizontal)
+                        majorRadius * 0.6,
+                        bearing
                     );
                     this.showPreview(previewGeometry);
                 }, 8);
@@ -375,8 +368,7 @@ class AddEllipseControl extends BaseControl {
     createFeature = async () => {
         const center = this.drawPoints[0];
         const endPoint = this.drawPoints[1];
-        
-        // ✅ MUDANÇA: Agora sempre cria horizontal (bearing = 0)
+
         const { majorRadius, bearing, minorRadius } = this.geometry.calculateInitialDimensions(center, endPoint);
 
         if (!this.geometry.validate(center, majorRadius, minorRadius, bearing)) {
@@ -397,7 +389,7 @@ class AddEllipseControl extends BaseControl {
                 center: center,
                 majorRadius: majorRadius,
                 minorRadius: minorRadius,
-                bearing: bearing, // ✅ Sempre será 0 agora
+                bearing: bearing,
                 id: featureId,
                 nome: featureName
             },
@@ -447,7 +439,6 @@ class AddEllipseControl extends BaseControl {
         const handles = this.geometry.createHandles(feature);
         if (!handles || handles.length === 0) return;
 
-        // Show selection feedback
         this.map.getSource('ellipse-feedback').setData({
             type: 'Feature',
             geometry: feature.geometry,
@@ -457,7 +448,6 @@ class AddEllipseControl extends BaseControl {
             }
         });
 
-        // ✅ MUDANÇA: Agora temos 3 handles em vez de 2
         this.map.getSource('ellipse-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -498,11 +488,9 @@ class AddEllipseControl extends BaseControl {
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
-            // ✅ MUDANÇA: Suportar novos handleIds
-            this.activeHandleType = handle.properties.handleId; // 'horizontal-resize', 'vertical-resize', 'rotation'
+            this.activeHandleType = handle.properties.handleId;
             this.map.dragPan.disable();
-            
-            // ✅ MUDANÇA: Cursor específico para tipo de handle
+
             const cursor = this.getCursorForHandleType(this.activeHandleType);
             this.map.getCanvas().style.cursor = cursor;
             e.preventDefault();
@@ -510,18 +498,18 @@ class AddEllipseControl extends BaseControl {
     }
 
     /**
-     * ✅ NOVO: Get appropriate cursor for handle type
+     * Get appropriate cursor for handle type
      * @param {string} handleType - Type of handle
      * @returns {string} CSS cursor value
      */
     getCursorForHandleType(handleType) {
         switch (handleType) {
             case 'horizontal-resize':
-                return 'ew-resize'; // East-west resize cursor
+                return 'ew-resize';
             case 'vertical-resize':
-                return 'ns-resize'; // North-south resize cursor
+                return 'ns-resize';
             case 'rotation':
-                return 'grabbing'; // Rotation cursor
+                return 'grabbing';
             default:
                 return 'grabbing';
         }
@@ -545,7 +533,6 @@ class AddEllipseControl extends BaseControl {
             const result = this.geometry.updateFromHandle(this.activeHandleType, this.lastPreviewPosition, selectedFeature);
 
             if (result && result.majorRadius > 0.01 && result.minorRadius > 0.01) {
-                // Create updated feature
                 const updatedFeature = {
                     ...selectedFeature,
                     properties: {
@@ -580,7 +567,6 @@ class AddEllipseControl extends BaseControl {
             const preview = this.geometry.calculatePreview(this.activeHandleType, newPosition, selectedFeature);
             if (!preview) return;
 
-            // Show updated selection
             this.map.getSource('ellipse-feedback').setData({
                 type: 'Feature',
                 geometry: preview.geometry,
@@ -590,14 +576,13 @@ class AddEllipseControl extends BaseControl {
                 }
             });
 
-            // ✅ MUDANÇA: Update handles - agora temos 3 handles
             const handles = [
                 {
                     type: 'Feature',
                     geometry: { type: 'Point', coordinates: preview.handlePositions.horizontal },
                     properties: {
                         role: 'handle',
-                        handleType: 'vertex', // RED
+                        handleType: 'vertex',
                         handleId: 'horizontal-resize',
                         user_isEditingHandle: true
                     }
@@ -607,7 +592,7 @@ class AddEllipseControl extends BaseControl {
                     geometry: { type: 'Point', coordinates: preview.handlePositions.vertical },
                     properties: {
                         role: 'handle',
-                        handleType: 'vertex', // RED
+                        handleType: 'vertex',
                         handleId: 'vertical-resize',
                         user_isEditingHandle: true
                     }
@@ -617,7 +602,7 @@ class AddEllipseControl extends BaseControl {
                     geometry: { type: 'Point', coordinates: preview.handlePositions.rotation },
                     properties: {
                         role: 'handle',
-                        handleType: 'eccentricity', // BLUE
+                        handleType: 'eccentricity',
                         handleId: 'rotation',
                         user_isEditingHandle: true
                     }
@@ -650,12 +635,11 @@ class AddEllipseControl extends BaseControl {
         const hasFeature = this.hasSelectedFeatureAtPoint(features);
 
         if (hasHandle) {
-            // ✅ MUDANÇA: Cursor específico para tipo de handle quando hover
-            const handleFeature = features.find(f => 
-                f.source === 'ellipse-edit-handles' && 
+            const handleFeature = features.find(f =>
+                f.source === 'ellipse-edit-handles' &&
                 f.properties.user_isEditingHandle
             );
-            
+
             if (handleFeature) {
                 const cursor = this.getCursorForHandleType(handleFeature.properties.handleId);
                 this.map.getCanvas().style.cursor = cursor;
@@ -694,11 +678,10 @@ class AddEllipseControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Recalculate geometry if ellipse parameters change
                 if (['majorRadius', 'minorRadius', 'bearing', 'center'].includes(property)) {
                     const center = this.geometry.normalizeCenter(sourceFeature.properties.center);
                     const newGeometry = this.geometry.generate(
-                        center, 
+                        center,
                         sourceFeature.properties.majorRadius,
                         sourceFeature.properties.minorRadius,
                         sourceFeature.properties.bearing
@@ -715,13 +698,11 @@ class AddEllipseControl extends BaseControl {
 
         this.map.getSource('ellipses').setData(data);
 
-        // Get fresh features from map source before updating SelectionManager
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             return sourceFeature || feature;
         });
 
-        // Update SelectionManager with fresh features
         this.updateSelectionManagerFeatures(freshFeatures);
 
         const selectedFeature = this.getSelectedFeature();
@@ -731,7 +712,6 @@ class AddEllipseControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        // Always get fresh feature data from map source before saving
         const currentData = await this.map.getSource('ellipses').getData();
         let hasChanges = false;
 
@@ -740,7 +720,6 @@ class AddEllipseControl extends BaseControl {
                 const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
 
                 if (currentFeature) {
-                    // Use complete current feature (with updated geometry + properties)
                     await updateFeature('ellipses', currentFeature);
                     hasChanges = true;
                 }
@@ -775,6 +754,7 @@ class AddEllipseControl extends BaseControl {
             }
         }
     }
+
     updateHatchPatterns = (data) => {
         if (!data || !data.features) {
             return;
@@ -782,8 +762,6 @@ class AddEllipseControl extends BaseControl {
         const features = data.features.filter(f => f.properties.hatchEnabled);
         this.hatchGenerator.loadPatternsToMap(this.map, features);
     }
-
-
 
     setDefaultProperties = (properties) => {
         Object.assign(AddEllipseControl.DEFAULT_PROPERTIES, properties);
@@ -834,8 +812,6 @@ class AddEllipseControl extends BaseControl {
             }
 
             this.map.getSource('ellipses').setData(data);
-
-            // Update SelectionManager with updated features
             this.updateSelectionManagerFeatures(features);
         }
     }
@@ -844,6 +820,7 @@ class AddEllipseControl extends BaseControl {
 
     /**
      * Update SelectionManager with current feature data
+     * @param {Object} feature - Feature to update in SelectionManager
      */
     updateSelectionManagerFeature(feature) {
         const key = `ellipse:${feature.properties.id}`;
@@ -852,6 +829,7 @@ class AddEllipseControl extends BaseControl {
 
     /**
      * Update SelectionManager with multiple features
+     * @param {Array} features - Features to update in SelectionManager
      */
     updateSelectionManagerFeatures(features) {
         features.forEach(feature => {
@@ -879,7 +857,6 @@ class AddEllipseControl extends BaseControl {
     }
 
     forceUpdateMainSource = async (feature) => {
-        // Don't update source during drag operations to prevent conflicts
         if (this.uiManager && this.uiManager.isDragging) {
             return;
         }
@@ -911,7 +888,6 @@ class AddEllipseControl extends BaseControl {
     }
 
     setupBaseEventListeners = () => {
-        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {

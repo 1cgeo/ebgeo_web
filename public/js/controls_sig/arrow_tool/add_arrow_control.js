@@ -10,16 +10,13 @@ class AddArrowControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // State management
         this.drawPoints = [];
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;
 
-        // Geometry handler
         this.geometry = new AddArrowGeometry();
 
-        // Performance optimization - RAF system  
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
@@ -49,17 +46,15 @@ class AddArrowControl extends BaseControl {
 
     // ===== ZOOM-ADAPTIVE WIDTH CONSTANTS =====
     static WIDTH_SIZE_CONSTANTS = {
-        MIN_WIDTH_M: 50,           // Minimum width: 50 meters
-        DEFAULT_WIDTH_M: 500,      // Fallback if calculation fails
-        ZOOM_BASE_MULTIPLIER: 40,  // Base multiplier
-        ZOOM_EXPONENT_BASE: 2      // Exponential base
+        MIN_WIDTH_M: 50,
+        DEFAULT_WIDTH_M: 500,
+        ZOOM_BASE_MULTIPLIER: 40,
+        ZOOM_EXPONENT_BASE: 2
     };
-
-    // ===== SINGLE SOURCE OF TRUTH =====
-
 
     /**
      * Calculate arrow width based on current zoom level
+     * Exponential decay: higher zoom = smaller arrows (Zoom 5 → ~8000m, Zoom 10 → ~500m, Zoom 15 → ~50m)
      * @param {number} zoom - Map zoom level
      * @returns {number} Width in meters
      */
@@ -68,8 +63,6 @@ class AddArrowControl extends BaseControl {
             AddArrowControl.WIDTH_SIZE_CONSTANTS;
 
         try {
-            // Exponential decay: higher zoom = smaller arrows
-            // Zoom 5 → ~8000m, Zoom 10 → ~500m, Zoom 15 → ~50m
             const calculatedWidth = Math.pow(ZOOM_EXPONENT_BASE, 16 - zoom) * ZOOM_BASE_MULTIPLIER;
             return Math.max(MIN_WIDTH_M, calculatedWidth);
         } catch (error) {
@@ -77,6 +70,7 @@ class AddArrowControl extends BaseControl {
             return DEFAULT_WIDTH_M;
         }
     }
+
     /**
      * Get currently selected arrow feature from SelectionManager
      * @returns {Object|null} Selected arrow feature or null
@@ -214,7 +208,6 @@ class AddArrowControl extends BaseControl {
         const baseCoordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         if (baseCoordinates.length === 0) return [0, 0];
 
-        // Use first point as reference
         const firstPoint = baseCoordinates[0];
         return [
             firstPoint[0] - referencePoint.lng,
@@ -379,23 +372,20 @@ class AddArrowControl extends BaseControl {
 
         const selectedFeature = this.getSelectedFeature();
 
-        // Edit mode - updating arrow geometry via handle drag
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
             this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
         }
-        // Drawing mode - showing arrow preview
         else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 2) {
             const isAirmobile = AddArrowControl.DEFAULT_PROPERTIES.airmobile;
             const debounceTime = isAirmobile ? 12 : 8;
 
             clearTimeout(this.geometryDebounceTimer);
             this.geometryDebounceTimer = setTimeout(() => {
-                // Calculate adaptive width for preview
                 const currentZoom = this.map.getZoom();
                 const previewWidth = this.calculateWidthForZoom(currentZoom);
-                
+
                 const previewGeometry = this.geometry.generate(
-                    this.lastPreviewPoints, 
+                    this.lastPreviewPoints,
                     {
                         ...AddArrowControl.DEFAULT_PROPERTIES,
                         width: previewWidth
@@ -455,7 +445,6 @@ class AddArrowControl extends BaseControl {
         const featureId = IDUtils.generateUniqueId();
         const featureName = await IDUtils.generateFeatureName('arrow', this.map);
 
-        // Calculate adaptive width based on zoom
         const currentZoom = this.map.getZoom();
         const adaptiveWidth = this.calculateWidthForZoom(currentZoom);
 
@@ -513,7 +502,6 @@ class AddArrowControl extends BaseControl {
     }
 
     createEditHandles = (feature) => {
-        // Show selection feedback
         this.map.getSource('arrow-feedback').setData({
             type: 'Feature',
             geometry: feature.geometry,
@@ -523,9 +511,8 @@ class AddArrowControl extends BaseControl {
             }
         });
 
-        // Create handles using geometry class
         const handles = this.geometry.createHandles(feature);
-        
+
         this.map.getSource('arrow-edit-handles').setData({
             type: 'FeatureCollection',
             features: handles
@@ -590,10 +577,10 @@ class AddArrowControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
             const result = this.geometry.updateFromHandle(
-                this.activeHandleType, 
-                this.lastPreviewPosition, 
+                this.activeHandleType,
+                this.lastPreviewPosition,
                 selectedFeature,
-                this.activeHandle // Pass activeHandle for conversion
+                this.activeHandle
             );
 
             if (result) {
@@ -603,7 +590,6 @@ class AddArrowControl extends BaseControl {
                     geometry: result.geometry
                 };
 
-                // CRITICAL: Update activeHandleType if handle was converted (midpoint → vertex)
                 if (result.convertedHandleType && result.convertedHandleType !== this.activeHandleType) {
                     this.activeHandleType = result.convertedHandleType;
                 }
@@ -633,22 +619,19 @@ class AddArrowControl extends BaseControl {
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
             const result = this.geometry.updateFromHandle(
-                handleType, 
-                newPosition, 
+                handleType,
+                newPosition,
                 selectedFeature,
-                this.activeHandle // Pass activeHandle for conversion
+                this.activeHandle
             );
-            
+
             if (result) {
-                // Update selectedFeature temporarily for preview
                 Object.assign(selectedFeature.properties, result.properties);
-                
-                // CRITICAL: Update activeHandleType if handle was converted (midpoint → vertex)
+
                 if (result.convertedHandleType && result.convertedHandleType !== this.activeHandleType) {
                     this.activeHandleType = result.convertedHandleType;
                 }
-                
-                // Show preview
+
                 this.showEditPreview(result.geometry);
                 this.createEditHandlesOnly(selectedFeature);
             }
@@ -727,7 +710,6 @@ class AddArrowControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                // Regenerate geometry if geometric properties changed
                 if (['width', 'headLengthRatio', 'showArrowHead', 'airmobile', 'airmobilePosition', 'baseCoordinates'].includes(property)) {
                     const newGeometry = this.geometry.generate(
                         sourceFeature.properties.baseCoordinates,
@@ -741,7 +723,6 @@ class AddArrowControl extends BaseControl {
 
         this.map.getSource('arrows').setData(data);
 
-        // Update SelectionManager with fresh features
         const freshFeatures = features.map(feature => {
             const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
             return sourceFeature || feature;
@@ -910,7 +891,6 @@ class AddArrowControl extends BaseControl {
     }
 
     setupBaseEventListeners = () => {
-        // Base listeners setup if needed
     }
 
     removeAllEventListeners = () => {

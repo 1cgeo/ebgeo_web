@@ -1,4 +1,4 @@
-// Path: js\controls_sig\tool_manager\base_geometry.js
+// Path: js/controls_sig/tool_manager/base_geometry.js
 
 /**
  * Base class for all geometry operations
@@ -11,7 +11,6 @@ class BaseGeometry {
 
     /**
      * Generate the main geometry for the feature
-     * Must be implemented by subclasses
      * @param {*} coordinates - Input coordinates
      * @returns {Object} GeoJSON geometry
      */
@@ -21,7 +20,6 @@ class BaseGeometry {
 
     /**
      * Create edit handles for the feature
-     * Must be implemented by subclasses
      * @param {Object} feature - The feature to create handles for
      * @returns {Array} Array of handle features
      */
@@ -31,7 +29,6 @@ class BaseGeometry {
 
     /**
      * Update geometry based on handle interaction
-     * Must be implemented by subclasses
      * @param {string} handleType - Type of handle being moved
      * @param {Array} newPosition - New position [lng, lat]
      * @param {Object} feature - Feature being edited
@@ -43,7 +40,6 @@ class BaseGeometry {
 
     /**
      * Validate input data
-     * Can be overridden by subclasses for specific validation
      * @param {*} data - Data to validate
      * @returns {boolean} True if valid
      */
@@ -52,7 +48,7 @@ class BaseGeometry {
     }
 
     /**
-     * Normalize coordinates from various formats (string, array)
+     * Normalize coordinates from various formats
      * @param {string|Array} coordinates - Coordinates to normalize
      * @returns {Array|null} Normalized coordinates or null if invalid
      */

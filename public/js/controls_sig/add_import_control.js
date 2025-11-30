@@ -1,4 +1,4 @@
-// Path: js\controls_sig\add_import_control.js
+// Path: js/controls_sig/add_import_control.js
 import { addFeatures, createLayerForImport, getLayers } from './store/store.js';
 import { IDUtils } from './id_utils.js';
 import { getTerrainElevation } from './terrain_control.js';
@@ -74,7 +74,6 @@ class AddImportControl {
     }
 
     handleMapClick() {
-        // Import tool não precisa de interação com o mapa
     }
 
     async handleFileSelect(event) {
@@ -87,7 +86,6 @@ class AddImportControl {
         try {
             const geoJSON = await this.processFile(file);
             if (geoJSON) {
-                // Extrair nome do arquivo sem extensão
                 const fileName = file.name.replace(/\.[^/.]+$/, '');
                 const importedCount = await this.importGeoJSON(geoJSON, fileName);
                 const message = importedCount === 1
@@ -96,7 +94,7 @@ class AddImportControl {
                 showSuccess(message);
             }
         } catch (error) {
-            console.error('Erro ao importar arquivo:', error);
+            console.error('Error importing file:', error);
             alert(`Erro ao importar arquivo: ${error.message}`);
         }
 
@@ -284,19 +282,15 @@ class AddImportControl {
 
                 const result = await shp.parseShp(shpBuffer, dbfBuffer);
 
-                // parseShp retorna array de geometrias, não features
                 if (!Array.isArray(result)) {
                     throw new Error('Formato de shapefile inválido');
                 }
 
-                // Converter geometrias em features
                 const features = result.map((geometry, index) => {
-                    // Verificar se já é uma feature
                     if (geometry.type === 'Feature') {
                         return geometry;
                     }
 
-                    // Converter geometria em feature
                     return {
                         type: 'Feature',
                         properties: {
@@ -362,7 +356,6 @@ class AddImportControl {
         );
     }
 
-    // Decompor multi-geometrias em geometrias simples
     decomposeMultiGeometry(feature) {
         const geometry = feature.geometry;
         const properties = feature.properties;
@@ -415,7 +408,6 @@ class AddImportControl {
                         properties: { ...properties },
                         geometry: geom
                     };
-                    // Recursivamente decompor se necessário
                     if (geom.type.startsWith('Multi') || geom.type === 'GeometryCollection') {
                         features.push(...this.decomposeMultiGeometry(subFeature));
                     } else {
@@ -425,14 +417,12 @@ class AddImportControl {
                 break;
 
             default:
-                // Geometria simples, retornar como está
                 features.push(feature);
         }
 
         return features;
     }
 
-    // Mapear tipo de geometria para categoria do sistema
     getTargetType(geometryType) {
         const type = geometryType.toLowerCase();
 
@@ -444,11 +434,12 @@ class AddImportControl {
             return 'polygons';
         }
 
-        return null; // Tipo não suportado
+        return null;
     }
 
     /**
-     * Analisa o contexto atual do mapa para determinar próximos números disponíveis
+     * Analyzes the current map context to determine next available numbers for imported features
+     * @returns {Object} Object with counters for points, lines, and polygons
      */
     async getTypeCountersFromMapContext() {
         const typeCounters = {
@@ -463,7 +454,6 @@ class AddImportControl {
             'polygons': 'Polígono'
         };
 
-        // Analisar cada source do mapa
         for (const sourceType of Object.keys(typeCounters)) {
             try {
                 const source = this.map.getSource(sourceType);
@@ -473,11 +463,9 @@ class AddImportControl {
                         const existingNumbers = [];
                         const expectedPrefix = typeMap[sourceType];
 
-                        // Extrair números dos nomes existentes
                         data.features.forEach(feature => {
                             if (feature.properties && feature.properties.nome) {
                                 const name = feature.properties.nome;
-                                // Regex para capturar número após "Tipo #"
                                 const match = name.match(new RegExp(`^${expectedPrefix}\\s*#(\\d+)$`));
                                 if (match) {
                                     existingNumbers.push(parseInt(match[1]));
@@ -485,7 +473,6 @@ class AddImportControl {
                             }
                         });
 
-                        // Encontrar próximo número disponível
                         if (existingNumbers.length > 0) {
                             const maxNumber = Math.max(...existingNumbers);
                             typeCounters[sourceType] = maxNumber + 1;
@@ -493,8 +480,7 @@ class AddImportControl {
                     }
                 }
             } catch (error) {
-                console.warn(`Erro ao analisar contexto do source ${sourceType}:`, error);
-                // Manter valor padrão se houver erro
+                console.warn(`Error analyzing source context ${sourceType}:`, error);
             }
         }
 
@@ -502,7 +488,10 @@ class AddImportControl {
     }
 
     /**
-     * Gera nome único baseado no tipo e contador
+     * Generates unique name based on type and counter
+     * @param {string} targetType - Type of feature (points, lines, polygons)
+     * @param {Object} counters - Counter object to track naming sequence
+     * @returns {string} Generated unique name
      */
     generateImportName(targetType, counters) {
         const typeMap = {
@@ -517,7 +506,9 @@ class AddImportControl {
     }
 
     /**
-     * Calcular perfil de elevação para linhas (mesmo algoritmo dos controles nativos)
+     * Calculates elevation profile for line features
+     * @param {Array} coordinates - Line coordinates
+     * @returns {Array} Profile data with distance and elevation points
      */
     async calculateProfile(coordinates) {
         try {
@@ -539,17 +530,18 @@ class AddImportControl {
 
             return profileData;
         } catch (error) {
-            console.warn('Erro ao calcular perfil de elevação:', error);
-            return []; // Retornar array vazio em caso de erro
+            console.warn('Error calculating elevation profile:', error);
+            return [];
         }
     }
 
     /**
-     * Prepara feature para importação com TODOS os atributos necessários
-     * @param {Object} feature - Feature GeoJSON
-     * @param {string} targetType - Tipo de destino (points, lines, polygons)
-     * @param {Object} typeCounters - Contadores por tipo
-     * @param {string} layerId - ID da camada de destino
+     * Prepares feature for import with all necessary attributes
+     * @param {Object} feature - GeoJSON feature
+     * @param {string} targetType - Target type (points, lines, polygons)
+     * @param {Object} typeCounters - Counters by type
+     * @param {string} layerId - Target layer ID
+     * @returns {Object} Prepared feature with complete properties
      */
     async prepareFeatureForImportAsync(feature, targetType, typeCounters, layerId) {
         const featureId = IDUtils.generateUniqueId();
@@ -560,14 +552,12 @@ class AddImportControl {
             ...feature.properties,
             id: featureId,
             nome: featureName,
-            source: targetType.slice(0, -1), // Remove 's' final
-            layerId: layerId, // Usar layerId fornecido
+            source: targetType.slice(0, -1),
+            layerId: layerId,
         };
 
-        // Atributos específicos por tipo de geometria
         switch (targetType) {
             case 'lines':
-                // Linhas precisam de baseCoordinates e profileData
                 baseProperties.baseCoordinates = feature.geometry.coordinates;
                 baseProperties.profileData = JSON.stringify(
                     await this.calculateProfile(feature.geometry.coordinates)
@@ -575,10 +565,8 @@ class AddImportControl {
                 break;
 
             case 'polygons':
-                // Polígonos precisam de baseCoordinates sem o ponto de fechamento
                 const coords = feature.geometry.coordinates[0];
                 if (coords && coords.length > 0) {
-                    // Remover último ponto se for igual ao primeiro (ponto de fechamento)
                     const lastPoint = coords[coords.length - 1];
                     const firstPoint = coords[0];
                     const isClosedPolygon = (
@@ -587,13 +575,12 @@ class AddImportControl {
                     );
 
                     baseProperties.baseCoordinates = isClosedPolygon
-                        ? coords.slice(0, -1)  // Remove ponto de fechamento
-                        : coords;              // Manter como está
+                        ? coords.slice(0, -1)
+                        : coords;
                 }
                 break;
 
             case 'points':
-                // Pontos não precisam de atributos especiais além dos padrão
                 break;
         }
 
@@ -616,10 +603,8 @@ class AddImportControl {
             polygons: []
         };
 
-        // 1️⃣ OBTER CONTADORES BASEADOS NO CONTEXTO ATUAL DO MAPA
         const typeCounters = await this.getTypeCountersFromMapContext();
 
-        // 2️⃣ DECOMPOSIÇÃO E CONTAGEM (loop síncrono rápido)
         let totalFeaturesToImport = 0;
         const decomposedFeatures = [];
 
@@ -636,7 +621,6 @@ class AddImportControl {
             }
         }
 
-        // 3️⃣ VALIDAÇÃO DE LIMITE
         if (totalFeaturesToImport > 100) {
             throw new Error(`Muitas geometrias para importar: ${totalFeaturesToImport}. Limite máximo: 100 geometrias.`);
         }
@@ -645,12 +629,10 @@ class AddImportControl {
             throw new Error('Nenhuma geometria válida encontrada para importar');
         }
 
-        // 4️⃣ CRIAR NOVA CAMADA COM NOME DO ARQUIVO (com sufixo único se necessário)
         const uniqueLayerName = await this._getUniqueLayerName(fileName);
         const importLayer = await createLayerForImport(uniqueLayerName);
         const importLayerId = importLayer.id;
 
-        // 5️⃣ PREPARAR FEATURES (loop assíncrono pesado - só se passou na validação)
         for (const { feature, targetType } of decomposedFeatures) {
             const preparedFeature = await this.prepareFeatureForImportAsync(
                 feature,
@@ -661,13 +643,10 @@ class AddImportControl {
             featuresByType[targetType].push(preparedFeature);
         }
 
-        // 6️⃣ SALVAR EM BATCH E ATUALIZAR MAPA
         const totalCount = await this.saveAndUpdateMap(featuresByType);
 
-        // 7️⃣ EMITIR EVENTO DE LAYERS CHANGED APÓS IMPORTAÇÃO
         document.dispatchEvent(new CustomEvent('layers-changed'));
 
-        // 8️⃣ ZOOM PARA FEATURES IMPORTADAS
         if (totalCount > 0) {
             this.zoomToAllImportedFeatures(featuresByType);
         }
@@ -676,26 +655,25 @@ class AddImportControl {
     }
 
     /**
-     * Gera nome único para camada de importação
-     * Se já existir camada com o nome, adiciona sufixo _2, _3, etc.
+     * Generates unique layer name for import
+     * @param {string} baseName - Base name for the layer
+     * @returns {string} Unique layer name (adds suffix _2, _3, etc. if name exists)
      */
     async _getUniqueLayerName(baseName) {
         const layers = await getLayers();
         const existingNames = layers.map(l => l.name);
-        
-        // Se o nome não existe, usar diretamente
+
         if (!existingNames.includes(baseName)) {
             return baseName;
         }
-        
-        // Encontrar sufixo único
+
         let suffix = 2;
         let candidateName = `${baseName}_${suffix}`;
         while (existingNames.includes(candidateName)) {
             suffix++;
             candidateName = `${baseName}_${suffix}`;
         }
-        
+
         return candidateName;
     }
 
@@ -704,18 +682,15 @@ class AddImportControl {
         let totalCount = 0;
 
         try {
-            // Salvar no IndexedDB
             await addFeatures(featuresByType);
 
-            // Atualizar sources do mapa
             await this.updateMapSources(featuresByType);
 
-            // Contar total
             totalCount = Object.values(featuresByType)
                 .reduce((sum, features) => sum + features.length, 0);
 
         } catch (error) {
-            console.error('Erro ao salvar features importadas:', error);
+            console.error('Error saving imported features:', error);
             throw error;
         }
 
@@ -723,11 +698,10 @@ class AddImportControl {
     }
 
     async updateMapSources(featuresByType) {
-        // Atualizar cada source do mapa com as novas features
         for (const [type, features] of Object.entries(featuresByType)) {
             if (features.length === 0) continue;
 
-            const sourceName = type; // points, lines, polygons
+            const sourceName = type;
             const source = this.map.getSource(sourceName);
 
             if (source) {
@@ -770,19 +744,19 @@ class AddImportControl {
                 maxZoom: 16
             });
         } catch (error) {
-            console.warn('Erro ao calcular zoom:', error);
+            console.warn('Error calculating zoom:', error);
         }
     }
 
     /**
-     * Processa arquivo diretamente sem interface (para drag & drop)
+     * Processes file directly without UI (for drag & drop)
+     * @param {File} file - File to process
      */
     async processFileDirectly(file) {
-        // Simular evento fake para reutilizar lógica existente
         const fakeEvent = {
             target: {
                 files: [file],
-                value: '' // Para resetar após processamento
+                value: ''
             }
         };
 

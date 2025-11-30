@@ -1,4 +1,4 @@
-// Path: js\controls_sig\circle_tool\add_circle_geometry.js
+// Path: js/controls_sig/circle_tool/add_circle_geometry.js
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**

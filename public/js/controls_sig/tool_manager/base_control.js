@@ -1,4 +1,4 @@
-// Path: js\controls_sig\tool_manager\base_control.js
+// Path: js/controls_sig/tool_manager/base_control.js
 
 /**
  * Base Control class with expanded tool-centric interface
@@ -11,7 +11,7 @@ class BaseControl {
         this.isActive = false;
     }
 
-    // ===== CORE INTERFACE (Required) =====
+    // ===== CORE INTERFACE =====
 
     /**
      * Activate the tool
@@ -32,17 +32,15 @@ class BaseControl {
      * @param {Object} e - MapLibre click event
      */
     handleMapClick(e) {
-        // Override in subclass
     }
 
-    // ===== SELECTION INTERFACE (Optional) =====
+    // ===== SELECTION INTERFACE =====
 
     /**
      * Called when a feature of this type is selected
      * @param {Object} feature - Selected feature
      */
     onFeatureSelected(feature) {
-        // Override in subclass
     }
 
     /**
@@ -50,14 +48,12 @@ class BaseControl {
      * @param {Object} feature - Deselected feature
      */
     onFeatureDeselected(feature) {
-        // Override in subclass
     }
 
     /**
      * Called when all features are deselected
      */
     onGlobalDeselect() {
-        // Override in subclass
     }
 
     /**
@@ -82,7 +78,6 @@ class BaseControl {
      * @param {Array} movedFeatures - Array of moved features
      */
     syncEditHandlesAfterDrag(movedFeatures) {
-        // Override in subclass
     }
 
     // ===== MOVEMENT INTERFACE =====
@@ -103,7 +98,6 @@ class BaseControl {
      * @returns {Array} [offsetX, offsetY]
      */
     calculateMoveOffset(feature, referencePoint) {
-        // Default implementation for Point geometries
         const coords = feature.geometry.coordinates;
         if (feature.geometry.type === 'Point') {
             return [
@@ -123,7 +117,6 @@ class BaseControl {
      * @returns {Object} Updated feature
      */
     updateFeatureForMove(feature, dx, dy, newCoords) {
-        // Default implementation for Point geometries
         if (feature.geometry.type === 'Point') {
             return {
                 ...feature,
@@ -143,7 +136,7 @@ class BaseControl {
      * @returns {boolean}
      */
     validateMove(feature, newPosition) {
-        return true; // Default: allow all moves
+        return true;
     }
 
     // ===== SELECTION BOX INTERFACE =====
@@ -154,7 +147,6 @@ class BaseControl {
      * @returns {Object} GeoJSON Polygon feature or null
      */
     createSelectionBox(feature) {
-        // Default bbox implementation
         try {
             const bbox = turf.bbox(feature);
             const expandedBbox = this.expandBboxWithPadding(bbox, this.getSelectionBoxPadding());
@@ -182,9 +174,10 @@ class BaseControl {
     }
 
     /**
-     * Expand bbox with padding (helper method)
+     * Expand bbox with padding
      * @param {Array} bbox - Bounding box [minX, minY, maxX, maxY]
      * @param {number} paddingPixels - Padding in pixels
+     * @param {Object} map - Map instance
      * @returns {Array} Expanded bbox
      */
     expandBboxWithPadding(bbox, paddingPixels, map) {
@@ -193,10 +186,10 @@ class BaseControl {
         const paddingDegrees = this.pixelsToDegrees(paddingPixels, centerLat, zoom);
 
         return [
-            bbox[0] - paddingDegrees, // minX
-            bbox[1] - paddingDegrees, // minY  
-            bbox[2] + paddingDegrees, // maxX
-            bbox[3] + paddingDegrees  // maxY
+            bbox[0] - paddingDegrees,
+            bbox[1] - paddingDegrees,
+            bbox[2] + paddingDegrees,
+            bbox[3] + paddingDegrees
         ];
     }
 
@@ -208,7 +201,7 @@ class BaseControl {
      * @returns {boolean}
      */
     canCopy(feature) {
-        return true; // Default: allow copying
+        return true;
     }
 
     /**
@@ -217,18 +210,17 @@ class BaseControl {
      * @returns {boolean}
      */
     canPaste(feature) {
-        return true; // Default: allow pasting
+        return true;
     }
 
     /**
-     * Prepare feature for copying (clean up)
+     * Prepare feature for copying
      * @param {Object} feature - Feature to prepare
      * @returns {Object} Cleaned feature
      */
     prepareForCopy(feature) {
         const cleaned = JSON.parse(JSON.stringify(feature));
 
-        // Remove UI metadata
         delete cleaned.properties.isSelected;
         delete cleaned.properties.isPreview;
         delete cleaned.properties.user_isEditingHandle;
@@ -237,13 +229,12 @@ class BaseControl {
     }
 
     /**
-     * Prepare feature for pasting (apply offset)
+     * Prepare feature for pasting
      * @param {Object} feature - Feature to paste
      * @param {Object} offset - Offset {dx, dy} in geographic coordinates
      * @returns {Object} Updated feature with offset applied
      */
     prepareForPaste(feature, offset) {
-        // Default implementation for Point geometries
         if (feature.geometry.type === 'Point') {
             return {
                 ...feature,
@@ -266,7 +257,7 @@ class BaseControl {
      * @returns {boolean}
      */
     hasAttributePanel() {
-        return false; // Override in subclass
+        return false;
     }
 
     /**
@@ -277,7 +268,6 @@ class BaseControl {
      * @param {Object} uiManager - UI manager instance
      */
     createAttributePanel(container, features, selectionManager, uiManager) {
-        // Override in subclass
     }
 
     // ===== DRAG AND HANDLE SOURCES INTERFACE =====
@@ -287,7 +277,7 @@ class BaseControl {
      * @returns {Array} Array of source names for drag operations
      */
     getDragSources() {
-        return []; // Override in subclass
+        return [];
     }
 
     /**
@@ -295,7 +285,7 @@ class BaseControl {
      * @returns {Array} Array of edit handle source names
      */
     getEditHandleSources() {
-        return []; // Override in subclass
+        return [];
     }
 
     // ===== FEATURE MANAGEMENT INTERFACE =====
@@ -307,7 +297,6 @@ class BaseControl {
      * @param {*} value - Property value
      */
     updateFeaturesProperty(features, property, value) {
-        // Override in subclass
     }
 
     /**
@@ -316,7 +305,6 @@ class BaseControl {
      * @param {Map} initialPropertiesMap - Initial properties for comparison
      */
     async saveFeatures(features, initialPropertiesMap) {
-        // Override in subclass
     }
 
     /**
@@ -326,7 +314,6 @@ class BaseControl {
      * @param {boolean} onlyUpdateProperties - Only update properties, not geometry
      */
     async updateFeatures(features, save = false, onlyUpdateProperties = false) {
-        // Override in subclass
     }
 
     /**
@@ -334,7 +321,6 @@ class BaseControl {
      * @param {Array} features - Features to delete
      */
     async deleteFeatures(features) {
-        // Override in subclass
     }
 
     /**
@@ -343,7 +329,6 @@ class BaseControl {
      * @param {Map} initialPropertiesMap - Initial properties
      */
     async discardChangeFeatures(features, initialPropertiesMap) {
-        // Override in subclass
     }
 
     /**
@@ -351,7 +336,6 @@ class BaseControl {
      * @param {Object} properties - Default properties
      */
     setDefaultProperties(properties) {
-        // Override in subclass
     }
 
     /**
@@ -361,7 +345,7 @@ class BaseControl {
      * @returns {boolean}
      */
     hasFeatureChanged(feature, initialProperties) {
-        return true; // Override in subclass for specific comparison
+        return true;
     }
 
     // ===== UTILITY METHODS =====
@@ -385,7 +369,7 @@ class BaseControl {
      * @returns {Array} Array of layer IDs
      */
     getLayerIds() {
-        return []; // Override in subclass
+        return [];
     }
 
     /**
@@ -393,7 +377,7 @@ class BaseControl {
      * @returns {Array} Array of source names
      */
     getSourceNames() {
-        return []; // Override in subclass
+        return [];
     }
 
     /**
@@ -401,7 +385,7 @@ class BaseControl {
      * @returns {string|null} Edit handle source name or null
      */
     getEditHandleSource() {
-        return null; // Override in subclass
+        return null;
     }
 
     /**

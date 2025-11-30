@@ -1,4 +1,4 @@
-// Path: js\controls_sig\brush_tool\brush_attributes_panel.js
+// Path: js/controls_sig/brush_tool/brush_attributes_panel.js
 
 import {
     createSliderWithInput,
@@ -18,7 +18,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
+    // ===== EDITABLE FEATURE NAME (SINGLE SELECTION ONLY) =====
     if (selectedFeatures.length === 1) {
         const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
@@ -51,17 +51,12 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
         $(panel).append(multiSelectHeader);
     }
 
-    // ===== PROPRIEDADES ESPECÍFICAS DO PINCEL =====
-
-    // Line color
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
         brushControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
         uiManager.updateSelectionHighlight();
     }, 'Cor do pincel');
 
     $(panel).append(createAttributeRow('Cor:', lineColorInput));
-
-    // Line width (pixels)
     const lineWidthControl = createSliderWithInput({
         min: 1,
         max: 50,
@@ -88,8 +83,6 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
     });
 
     $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
-
-    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     const buttons = createStandardButtons({
         selectedFeatures,
         control: brushControl,

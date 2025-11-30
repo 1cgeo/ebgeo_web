@@ -1,4 +1,5 @@
-// Path: js\controls_sig\draw_tools\add_point_geometry.js
+// Path: js/controls_sig/draw_tools/add_point_geometry.js
+
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**
@@ -52,7 +53,7 @@ class AddPointGeometry extends BaseGeometry {
 
         return {
             type: 'Point',
-            coordinates: [...coordinates] // Create copy to avoid mutation
+            coordinates: [...coordinates]
         };
     }
 
@@ -62,7 +63,7 @@ class AddPointGeometry extends BaseGeometry {
      * @returns {Array} Empty array (point features don't have edit handles)
      */
     createHandles(feature) {
-        return []; // Point features don't have edit handles
+        return [];
     }
 
     /**
@@ -73,7 +74,7 @@ class AddPointGeometry extends BaseGeometry {
      * @returns {null} Always null (point doesn't support handle editing)
      */
     updateFromHandle(handleType, newPosition, feature) {
-        return null; // Point features don't support handle editing
+        return null;
     }
 
     /**
@@ -111,7 +112,7 @@ class AddPointGeometry extends BaseGeometry {
     /**
      * Get center point (same as coordinates for point features)
      * @param {Array} coordinates - Point coordinates
-     * @returns {Array} Center point [lng, lat]
+     * @returns {Array|null} Center point [lng, lat] or null if invalid
      */
     getCenter(coordinates) {
         if (!this.validate(coordinates)) {
@@ -141,7 +142,7 @@ class AddPointGeometry extends BaseGeometry {
     /**
      * Get bounding box for point (single point, so min=max)
      * @param {Array} coordinates - Point coordinates
-     * @returns {Array} Bounding box [lng, lat, lng, lat]
+     * @returns {Array|null} Bounding box [lng, lat, lng, lat] or null if invalid
      */
     getBoundingBox(coordinates) {
         if (!this.validate(coordinates)) {
@@ -149,10 +150,10 @@ class AddPointGeometry extends BaseGeometry {
         }
 
         return [
-            coordinates[0], // minLng
-            coordinates[1], // minLat
-            coordinates[0], // maxLng
-            coordinates[1]  // maxLat
+            coordinates[0],
+            coordinates[1],
+            coordinates[0],
+            coordinates[1]
         ];
     }
 
@@ -161,7 +162,7 @@ class AddPointGeometry extends BaseGeometry {
      * @param {Array} coordinates - Point coordinates
      * @param {number} paddingPixels - Padding in pixels
      * @param {number} zoom - Current zoom level
-     * @returns {Object} GeoJSON Polygon geometry for selection box
+     * @returns {Object|null} GeoJSON Polygon geometry for selection box or null if invalid
      */
     createSelectionBoxGeometry(coordinates, paddingPixels, zoom) {
         if (!this.validate(coordinates)) {
