@@ -37,20 +37,24 @@ class FeaturesTab {
 
     this._sourceDataHandler = null;
     this._groupsChangedHandler = null;
-    this._layersChangedHandler = null; // NEW: Layer system handler
+    this._layersChangedHandler = null; // Layer system event handler
     this._debounceTimer = null;
     this._isVisible = false;
     
-    // Flag para suprimir refresh durante atualizações internas
+    // Flag to suppress refresh during internal updates
     this._suppressRefresh = false;
-    // Flag para suprimir eventos layers-changed emitidos internamente
+    // Flag to suppress internally-emitted layers-changed events
     this._suppressLayersChangedRefresh = false;
-    // Cache do último estado para detectar mudanças estruturais
+    // Cache of last state for detecting structural changes
     this._lastFeatureCount = null;
     this._lastLayerIds = null;
     
-    // Instância do Sortable para reordenação de camadas
+    // Sortable instance for layer reordering
     this._sortableInstance = null;
+    
+    // Expansion state cache to preserve during re-renders
+    this._collapsedLayers = new Set();
+    this._collapsedGroups = new Set();
 
     this.INLINE_ICONS = {
       EYE_VISIBLE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -87,7 +91,7 @@ class FeaturesTab {
       COLLAPSE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="18 15 12 9 6 15"/>
             </svg>`,
-      // NEW: Layer system icons
+      // Layer system icons
       LAYER: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="12 2 2 7 12 12 22 7 12 2"/>
                 <polyline points="2 17 12 22 22 17"/>
@@ -113,17 +117,17 @@ class FeaturesTab {
     this.container.className = "features-tab-content";
     this.container.style.display = "none";
 
-    // Criar hillshade control apenas se habilitado no config
+    // Create hillshade control only if enabled in config
     const hillshadeContainer = this.createHillshadeControl();
     if (hillshadeContainer) {
       this.container.appendChild(hillshadeContainer);
     }
 
-    // Analysis Layers Control
+    // Analysis layers control
     const analysisLayersContainer = this.createAnalysisLayersControl();
     this.container.appendChild(analysisLayersContainer);
 
-    // Header com botão de adicionar camada
+    // Header with add layer button
     const header = this.createHeader();
     this.container.appendChild(header);
 
@@ -131,24 +135,22 @@ class FeaturesTab {
     featuresList.className = "features-list";
     this.container.appendChild(featuresList);
 
-    // Adicionar estilos CSS para analysis layers
+    // Add CSS styles for analysis layers
     this.addAnalysisLayersStyles();
 
-    // Adicionar estilos CSS para grupos
+    // Add CSS styles for groups
     this.addGroupStyles();
 
-    // Adicionar estilos CSS para layers integrados
+    // Add CSS styles for integrated layers
     this.addLayerStyles();
 
     return this.container;
   }
 
-  // ============================================================
-  // NEW: LAYER SYSTEM METHODS
-  // ============================================================
+  // ===== LAYER SYSTEM METHODS =====
 
   /**
-   * Adiciona nova camada
+   * Add new layer
    */
   async handleAddLayer() {
     const name = prompt('Nome da nova camada:', 'Nova Camada');
@@ -160,13 +162,13 @@ class FeaturesTab {
       await this.loadFeatures();
       this.emitLayersChanged();
     } catch (error) {
-      console.error('Erro ao criar camada:', error);
+      console.error('Error creating layer:', error);
       alert('Erro ao criar camada: ' + error.message);
     }
   }
 
   /**
-   * Define camada ativa - atualiza apenas indicadores visuais sem reconstruir a lista
+   * Set active layer - updates only visual indicators without rebuilding the list
    */
   async handleSetActiveLayer(layerId) {
     try {
@@ -174,22 +176,22 @@ class FeaturesTab {
       const layer = layers.find(l => l.id === layerId);
       
       if (layer && layer.locked) {
-        console.warn('Nao e possivel ativar uma camada bloqueada');
+        console.warn('Cannot activate a locked layer');
         return;
       }
       
       const previousActiveId = getActiveLayerIdSync();
       await setActiveLayer(layerId);
       
-      // Atualização incremental: apenas atualizar indicadores visuais
+      // Incremental update: only update visual indicators
       this._updateActiveLayerIndicators(previousActiveId, layerId);
     } catch (error) {
-      console.error('Erro ao definir camada ativa:', error);
+      console.error('Error setting active layer:', error);
     }
   }
 
   /**
-   * Toggle visibilidade da camada
+   * Toggle layer visibility
    */
   async handleToggleLayerVisibility(layerId) {
     try {
@@ -200,20 +202,20 @@ class FeaturesTab {
       const newVisibility = !layer.visible;
       await setLayerVisibility(layerId, newVisibility);
       
-      // Atualização incremental: apenas atualizar indicadores visuais da layer
+      // Incremental update: only update layer visual indicators
       this._updateLayerVisibilityIndicator(layerId, newVisibility);
       
-      // Emitir evento mas suprimir nosso próprio refresh
+      // Emit event but suppress our own refresh
       this._suppressLayersChangedRefresh = true;
       this.emitLayersChanged();
       setTimeout(() => { this._suppressLayersChangedRefresh = false; }, 50);
     } catch (error) {
-      console.error('Erro ao alterar visibilidade:', error);
+      console.error('Error changing visibility:', error);
     }
   }
 
   /**
-   * Toggle bloqueio da camada
+   * Toggle layer lock state
    */
   async handleToggleLayerLock(layerId) {
     try {
@@ -224,51 +226,76 @@ class FeaturesTab {
       const newLockState = !layer.locked;
       await setLayerLocked(layerId, newLockState);
       
-      // Atualização incremental: apenas atualizar indicadores visuais da layer
+      // Incremental update: only update layer visual indicators
       this._updateLayerLockIndicator(layerId, newLockState);
       
-      // Emitir evento mas suprimir nosso próprio refresh
+      // Emit event but suppress our own refresh
       this._suppressLayersChangedRefresh = true;
       this.emitLayersChanged();
       setTimeout(() => { this._suppressLayersChangedRefresh = false; }, 50);
     } catch (error) {
-      console.error('Erro ao alterar bloqueio:', error);
+      console.error('Error changing lock state:', error);
     }
   }
 
   /**
-   * Deleta camada e todas as suas features
+   * Delete layer and all its features.
+   * If it is the last layer, automatically creates an empty "Padrão" layer.
    */
   async handleDeleteLayer(layerId) {
     const layers = await getLayers();
-    
-    // Regra: deve existir sempre pelo menos uma camada
-    if (layers.length <= 1) {
-      alert('Não é possível excluir a única camada existente.');
-      return;
-    }
-
     const layer = layers.find(l => l.id === layerId);
     if (!layer) return;
 
-    const confirmed = confirm(`Excluir a camada "${layer.name}"?\n\n⚠️ ATENÇÃO: Todas as feições desta camada serão PERMANENTEMENTE excluídas!`);
+    const isLastLayer = layers.length <= 1;
+    const warningMessage = isLastLayer
+      ? `Excluir a camada "${layer.name}"?\n\n⚠️ ATENÇÃO: Todas as feições desta camada serão PERMANENTEMENTE excluídas!\n\nUma nova camada "Padrão" vazia será criada automaticamente.`
+      : `Excluir a camada "${layer.name}"?\n\n⚠️ ATENÇÃO: Todas as feições desta camada serão PERMANENTEMENTE excluídas!`;
+
+    const confirmed = confirm(warningMessage);
     if (!confirmed) return;
 
     try {
-      await deleteLayer(layerId);
-      // Sincronizar sources do MapLibre com o IndexedDB
+      // Suppress automatic refreshes during this operation
+      this._suppressLayersChangedRefresh = true;
+      
+      // Sync MapLibre sources first (removes features from map)
       await this._syncMapSourcesAfterDelete(layerId);
+      
+      // Delete the layer
+      const deleteResult = await deleteLayer(layerId);
+      
+      if (!deleteResult) {
+        this._suppressLayersChangedRefresh = false;
+        return;
+      }
+      
+      // Verify deletion - force fresh fetch
+      const layersAfterDelete = await getLayers();
+      
+      // If it was the last layer (and now we have no layers or just the auto-created one),
+      // we don't need to create another one since getLayers auto-creates
+      // But if the auto-created one has a different name, rename it
+      if (isLastLayer && layersAfterDelete.length === 1 && layersAfterDelete[0].name !== 'Padrão') {
+        await renameLayer(layersAfterDelete[0].id, 'Padrão');
+      }
+      
+      // Re-enable refresh and update UI
+      this._suppressLayersChangedRefresh = false;
+      
       await this.loadFeatures();
       this.emitLayersChanged();
+      
     } catch (error) {
-      console.error('Erro ao excluir camada:', error);
+      this._suppressLayersChangedRefresh = false;
+      console.error('Error deleting layer:', error);
       alert('Erro ao excluir camada: ' + error.message);
     }
   }
 
   /**
-   * Sincroniza as sources do MapLibre após deletar features de uma camada
-   * Remove features que pertencem à camada deletada de todas as sources
+   * Sync MapLibre sources after deleting features from a layer
+   * Remove features que pertencem Ã  camada deletada de todas as sources
    */
   async _syncMapSourcesAfterDelete(deletedLayerId) {
     for (const sourceId of this.FEATURE_SOURCES) {
@@ -279,29 +306,29 @@ class FeaturesTab {
         const data = await source.getData();
         if (data && data.features && data.features.length > 0) {
           const initialCount = data.features.length;
-          // Filtrar removendo features da camada deletada
+          // Filter out features from deleted layer
           data.features = data.features.filter(f => {
             const featureLayerId = f.properties?.layerId || 'default';
             return featureLayerId !== deletedLayerId;
           });
           
-          // Só atualizar se houve mudança
+          // Only update if there was a change
           if (data.features.length !== initialCount) {
             source.setData(data);
           }
         }
       } catch (error) {
-        console.debug(`Erro ao sincronizar source ${sourceId}:`, error.message);
+        console.debug(`Error syncing source ${sourceId}:`, error.message);
       }
     }
   }
 
   /**
-   * Renomeia uma camada
+   * Rename a layer
    */
   async handleRenameLayer(layerId, newName) {
     if (!newName || !newName.trim()) {
-      throw new Error('Nome da camada não pode ser vazio');
+      throw new Error('Layer name cannot be empty');
     }
 
     await renameLayer(layerId, newName.trim());
@@ -309,14 +336,14 @@ class FeaturesTab {
   }
 
   /**
-   * Emite evento de mudanÃ§a nas layers
+   * Emit layers change event
    */
   emitLayersChanged() {
     document.dispatchEvent(new CustomEvent('layers-changed'));
   }
 
   /**
-   * Adiciona estilos CSS para o sistema de layers integrado
+   * Add CSS styles for integrated layer system
    */
   addLayerStyles() {
     if (document.getElementById('layer-styles')) return;
@@ -324,7 +351,7 @@ class FeaturesTab {
     const style = document.createElement('style');
     style.id = 'layer-styles';
     style.textContent = `
-      /* Botão adicionar camada no header */
+      /* Add layer button in header */
       .layer-add-btn {
         background: none;
         border: 1px solid #ccc;
@@ -459,7 +486,7 @@ class FeaturesTab {
         color: #dc3545 !important;
       }
       
-      /* Conteúdo da layer (features e grupos) */
+      /* Layer content (features and groups) */
       .layer-content {
         padding: 4px 4px 4px 16px;
         background-color: #fff;
@@ -475,7 +502,7 @@ class FeaturesTab {
         font-style: italic;
       }
       
-      /* Drag handle para reordenação de camadas */
+      /* Drag handle for layer reordering */
       .layer-drag-handle {
         display: flex;
         align-items: center;
@@ -517,12 +544,10 @@ class FeaturesTab {
     document.head.appendChild(style);
   }
 
-  // ============================================================
-  // END OF LAYER SYSTEM METHODS
-  // ============================================================
+  // ===== GROUP MANAGEMENT METHODS =====
 
   /**
-   * Adiciona estilos CSS específicos para grupos
+   * Add CSS-specific styles for groups
    */
   addGroupStyles() {
     if (!document.getElementById("group-styles")) {
@@ -744,7 +769,7 @@ class FeaturesTab {
   }
 
   /**
-   * Adiciona estilos CSS para analysis layers com botões de zoom
+   * Add CSS styles for analysis layers with zoom buttons
    */
   addAnalysisLayersStyles() {
     if (!document.getElementById("analysis-layers-styles")) {
@@ -809,7 +834,7 @@ class FeaturesTab {
   }
 
   createHillshadeControl() {
-    // Verificar se hillshade está habilitado no config via análise do terrain control
+    // Check if hillshade is enabled in config via terrain control analysis
     const terrainControl = this.map._controls?.find(
       (control) => control.constructor.name === "TerrainControl"
     );
@@ -879,30 +904,30 @@ class FeaturesTab {
   }
 
   /**
-   * Renderiza o controle de analysis layers usando o manager
+   * Render analysis layers control using manager
    */
   async renderAnalysisLayersControl() {
     const container = this.container.querySelector(".analysis-layers-control");
     if (!container) return;
 
-    // Verificar se o sistema está habilitado
+    // Check if system is enabled
     if (!this.analysisLayersManager.isEnabled()) {
       container.style.display = "none";
       return;
     }
 
-    // Construir HTML
+    // Build HTML
     container.innerHTML = this.buildAnalysisLayersHTML();
 
-    // Configurar eventos
+    // Configure events
     await this.attachAnalysisLayersEvents(container);
 
-    // Mostrar container
+    // Show container
     container.style.display = "block";
   }
 
   /**
-   * Constrói HTML do controle de analysis layers com botões de zoom
+   * Build analysis layers control HTML with zoom buttons
    * @returns {string} HTML do controle
    */
   buildAnalysisLayersHTML() {
@@ -910,7 +935,7 @@ class FeaturesTab {
 
     let html = `<div class="analysis-layers-header">Camadas de Análise</div>`;
 
-    // Criar checkbox e botão de zoom para cada layer configurada
+    // Create checkbox and zoom button for each configured layer
     layersConfig.forEach((layerConfig) => {
       html += `
                 <div class="analysis-layer-item">
@@ -931,38 +956,38 @@ class FeaturesTab {
             `;
     });
 
-    // Padding inferior
+    // Bottom padding
     html += '<div style="height: 4px;"></div>';
 
     return html;
   }
 
   /**
-   * Configura eventos dos checkboxes e botões de zoom das analysis layers
+   * Configure checkbox and zoom button events for analysis layers
    * @param {HTMLElement} container - Container das analysis layers
    */
   async attachAnalysisLayersEvents(container) {
-    // Carregar estados salvos
+    // Load saved states
     const layersStates = await getMapAnalysisLayersStates();
 
-    // Configurar checkboxes
+    // Configure checkboxes
     container.querySelectorAll("input[data-layer-id]").forEach((checkbox) => {
       const layerId = checkbox.dataset.layerId;
       const layerConfig = this.analysisLayersManager
         .getLayersConfig()
         .find((l) => l.id === layerId);
 
-      // Definir estado inicial baseado no estado salvo ou defaultVisibility
+      // Set initial state based on saved state or defaultVisibility
       checkbox.checked =
         layersStates[layerId] ?? layerConfig?.defaultVisibility ?? false;
 
-      // Event listener para mudanças
+      // Event listener for changes
       checkbox.onchange = async (e) => {
         await this.analysisLayersManager.toggleLayer(layerId, e.target.checked);
       };
     });
 
-    // Configurar botões de zoom
+    // Configure zoom buttons
     container.querySelectorAll(".analysis-layer-zoom").forEach((button) => {
       button.onclick = (e) => {
         e.stopPropagation();
@@ -981,7 +1006,7 @@ class FeaturesTab {
         </div>
     `;
 
-    // Adicionar CSS do spinner dinamicamente se não existir
+    // Add spinner CSS dynamically if not exists
     if (!document.querySelector("#features-spinner-styles")) {
       const style = document.createElement("style");
       style.id = "features-spinner-styles";
@@ -1034,17 +1059,17 @@ class FeaturesTab {
     }
 
     try {
-      // Obter features diretamente dos sources do mapa
-      // Isso garante que mudanças não salvas (ex: nome editado) sejam refletidas
+      // Get features directly from map sources
+      // This ensures unsaved changes (e.g., edited name) are reflected
       const features = await this._getFeaturesFromMapSources();
 
-      // Organizar features por grupos
+      // Organize features by groups
       const organizedData = await this.organizeFeaturesByGroups(features);
       this.renderOrganizedFeatures(organizedData);
     } catch (error) {
-      console.error("Erro ao carregar features:", error);
+      console.error("Error loading features:", error);
 
-      // Em caso de erro, mostrar mensagem
+      // On error, show message
       const featuresList = this.container.querySelector(".features-list");
       featuresList.innerHTML = `
             <div class="features-error" style="
@@ -1062,9 +1087,9 @@ class FeaturesTab {
   }
 
   /**
-   * Organiza features por LAYERS, depois por grupos e features soltas
-   * Implementa a hierarquia: Layer -> Group -> Feature
-   * Grupos cross-layer aparecem em cada layer com indicador "N de M"
+   * Organize features by LAYERS, then by groups and ungrouped features
+   * Implements hierarchy: Layer -> Group -> Feature
+   * Cross-layer groups appear in each layer with "N of M" indicator
    */
   async organizeFeaturesByGroups(features) {
     const currentMapName = getCurrentMapNameSync();
@@ -1076,6 +1101,7 @@ class FeaturesTab {
 
     const layerData = {};
 
+    // Build layer data structure from actual layers in repository
     layers.forEach(layer => {
       layerData[layer.id] = {
         layer: layer,
@@ -1085,16 +1111,6 @@ class FeaturesTab {
         featureCount: 0
       };
     });
-
-    if (!layerData['default']) {
-      layerData['default'] = {
-        layer: { id: 'default', name: 'Padrão', visible: true, locked: false },
-        isActive: activeLayerId === 'default',
-        groups: new Map(),
-        ungrouped: [],
-        featureCount: 0
-      };
-    }
 
     const groupTotals = new Map();
     if (groups instanceof Map) {
@@ -1110,39 +1126,54 @@ class FeaturesTab {
         : feature.storageType;
       const group = getFeatureGroup(sourceType, feature.id, currentMapName);
 
+      // If layer doesn't exist, assign to first available layer or create placeholder
       if (!layerData[layerId]) {
-        layerData[layerId] = {
-          layer: { id: layerId, name: 'Desconhecida', visible: true, locked: false },
-          isActive: false,
-          groups: new Map(),
-          ungrouped: [],
-          featureCount: 0
-        };
+        // Find the first layer to assign orphan features
+        const firstLayerId = layers.length > 0 ? layers[0].id : null;
+        if (firstLayerId && layerData[firstLayerId]) {
+          // Assign to first layer
+          layerData[firstLayerId].featureCount++;
+          if (group) {
+            if (!layerData[firstLayerId].groups.has(group.id)) {
+              layerData[firstLayerId].groups.set(group.id, {
+                groupData: group,
+                features: [],
+                totalInGroup: groupTotals.get(group.id) || group.features?.length || 0
+              });
+            }
+            layerData[firstLayerId].groups.get(group.id).features.push(feature);
+          } else {
+            layerData[firstLayerId].ungrouped.push(feature);
+          }
+          return; // Skip normal processing
+        }
       }
 
-      layerData[layerId].featureCount++;
+      if (layerData[layerId]) {
+        layerData[layerId].featureCount++;
 
-      if (group) {
-        if (!layerData[layerId].groups.has(group.id)) {
-          layerData[layerId].groups.set(group.id, {
-            groupData: group,
-            features: [],
-            totalInGroup: groupTotals.get(group.id) || group.features?.length || 0
-          });
+        if (group) {
+          if (!layerData[layerId].groups.has(group.id)) {
+            layerData[layerId].groups.set(group.id, {
+              groupData: group,
+              features: [],
+              totalInGroup: groupTotals.get(group.id) || group.features?.length || 0
+            });
+          }
+          layerData[layerId].groups.get(group.id).features.push(feature);
+        } else {
+          layerData[layerId].ungrouped.push(feature);
         }
-        layerData[layerId].groups.get(group.id).features.push(feature);
-      } else {
-        layerData[layerId].ungrouped.push(feature);
       }
     });
 
     const sortedLayers = Object.values(layerData)
       .sort((a, b) => {
-        // Ordenar por order (não reordena por camada ativa)
+        // Sort by order (does not reorder by active layer)
         const orderA = a.layer.order ?? 999;
         const orderB = b.layer.order ?? 999;
         if (orderA !== orderB) return orderA - orderB;
-        // Por fim por nome
+        // Finally by name
         return (a.layer.name || '').localeCompare(b.layer.name || '', 'pt-BR');
       });
 
@@ -1150,20 +1181,20 @@ class FeaturesTab {
   }
 
   /**
-   * Renderiza features organizadas hierarquicamente por Layer -> Group -> Feature
+   * Render features organized hierarchically by Layer -> Group -> Feature
    */
   renderOrganizedFeatures(organizedLayers) {
     const featuresList = this.container.querySelector(".features-list");
     featuresList.innerHTML = "";
 
-    // Se recebeu formato antigo (objeto com groups e ungrouped), converter
+    // If received old format (object with groups and ungrouped), convert
     if (organizedLayers && organizedLayers.groups !== undefined && !Array.isArray(organizedLayers)) {
       const { groups, ungrouped } = organizedLayers;
       if (groups.size === 0 && ungrouped.length === 0) {
         this._renderEmptyMessage(featuresList);
         return;
       }
-      // Renderizar no formato antigo para compatibilidade
+      // Render in old format for compatibility
       const sortedGroups = Array.from(groups.entries()).sort((a, b) =>
         a[1].groupData.name.localeCompare(b[1].groupData.name, "pt-BR")
       );
@@ -1178,19 +1209,43 @@ class FeaturesTab {
       return;
     }
 
-    // Novo formato: array de layers
+    // New format: array of layers
     if (!Array.isArray(organizedLayers) || organizedLayers.length === 0) {
       this._renderEmptyMessage(featuresList);
       return;
     }
 
-    // Renderizar cada layer como container colapsável
+    // Render each layer as collapsible container
     organizedLayers.forEach((layerInfo) => {
       const layerContainer = this.createLayerContainer(layerInfo);
       featuresList.appendChild(layerContainer);
+      
+      // Restore layer collapse state
+      if (this._collapsedLayers.has(layerInfo.layer.id)) {
+        const content = layerContainer.querySelector(".layer-content");
+        const expandIcon = layerContainer.querySelector(".layer-expand-icon");
+        if (content) content.classList.add("collapsed");
+        if (expandIcon) expandIcon.classList.add("collapsed");
+      }
     });
     
-    // Inicializar Sortable para reordenação de camadas
+    // Restore group collapse states
+    this._collapsedGroups.forEach(groupId => {
+      const groupContainer = featuresList.querySelector(`[data-group-id="${groupId}"]`);
+      if (groupContainer) {
+        const featureList = groupContainer.querySelector(".group-features-list");
+        const expandIcon = groupContainer.querySelector(".group-expand-icon");
+        if (featureList) {
+          featureList.classList.remove("expanded");
+        }
+        if (expandIcon) {
+          expandIcon.classList.remove("expanded");
+          expandIcon.classList.add("collapsed");
+        }
+      }
+    });
+    
+    // Initialize Sortable for layer reordering
     this._initLayerSortable(featuresList);
   }
 
@@ -1211,18 +1266,18 @@ class FeaturesTab {
   }
 
   /**
-   * Inicializa Sortable.js para reordenação de camadas via drag and drop
+   * Initialize Sortable.js for layer reordering via drag and drop
    */
   _initLayerSortable(featuresList) {
-    // Destruir instância anterior se existir
+    // Destroy previous instance if exists
     if (this._sortableInstance) {
       this._sortableInstance.destroy();
       this._sortableInstance = null;
     }
 
-    // Verificar se Sortable.js está disponível
+    // Check if Sortable.js is available
     if (typeof Sortable === 'undefined') {
-      console.warn('Sortable.js não carregado - reordenação de camadas desabilitada');
+      console.warn('Sortable.js not loaded - layer reordering disabled');
       return;
     }
 
@@ -1233,19 +1288,19 @@ class FeaturesTab {
       chosenClass: 'layer-sortable-chosen',
       dragClass: 'layer-sortable-drag',
       onEnd: async (evt) => {
-        // Extrair nova ordem dos data-layer-id
+        // Extract new order from data-layer-id
         const newOrder = Array.from(featuresList.querySelectorAll('.layer-container'))
           .map(el => el.dataset.layerId)
           .filter(Boolean);
         
-        // Persistir nova ordem no store
+        // Persist new order to store
         await reorderLayers(newOrder);
       }
     });
   }
 
   /**
-   * Cria container visual de uma layer com seus grupos e features
+   * Create visual container for a layer with its groups and features
    */
   createLayerContainer(layerInfo) {
     const { layer, isActive, groups, ungrouped, featureCount } = layerInfo;
@@ -1262,11 +1317,11 @@ class FeaturesTab {
     const header = this.createLayerHeaderForList(layer, isActive, featureCount);
     container.appendChild(header);
 
-    // Conteúdo (grupos + features soltas)
+    // Content (groups + ungrouped features)
     const content = document.createElement("div");
     content.className = "layer-content";
 
-    // Renderizar grupos desta layer (ordenados por nome)
+    // Render groups in this layer (sorted by name)
     const sortedGroups = Array.from(groups.entries()).sort((a, b) =>
       a[1].groupData.name.localeCompare(b[1].groupData.name, "pt-BR")
     );
@@ -1276,7 +1331,7 @@ class FeaturesTab {
       content.appendChild(groupItem);
     });
 
-    // Renderizar features soltas
+    // Render ungrouped features
     ungrouped.forEach((feature) => {
       const item = this.createFeatureItem(feature);
       content.appendChild(item);
@@ -1287,15 +1342,15 @@ class FeaturesTab {
   }
 
   /**
-   * Cria header de layer para a lista de features
-   * Inclui: radio para ativar, nome editável, controles de visibilidade/lock/delete
+   * Create layer header for features list
+   * Includes: radio to activate, editable name, visibility/lock/delete controls
    */
   createLayerHeaderForList(layer, isActive, featureCount) {
     const header = document.createElement("div");
     header.className = "layer-header" + (isActive ? " active" : "");
     header.dataset.layerId = layer.id;
 
-    // Radio para selecionar camada ativa
+    // Radio button to select active layer
     const radio = document.createElement("input");
     radio.type = "radio";
     radio.name = "active-layer";
@@ -1304,38 +1359,38 @@ class FeaturesTab {
     radio.title = "Definir como camada ativa";
     radio.onclick = (e) => {
       e.stopPropagation();
-      // Sempre chama handleSetActiveLayer - ele verifica internamente se já é ativa
+      // Always call handleSetActiveLayer - it internally checks if already active
       this.handleSetActiveLayer(layer.id);
     };
 
-    // Ícone de expansão
+    // Expansion icon
     const expandIcon = document.createElement("div");
     expandIcon.className = "layer-expand-icon";
     expandIcon.innerHTML = this.INLINE_ICONS.EXPAND;
 
 
-    // Nome da layer (editável por duplo-clique)
+    // Layer name (editable via double-click)
     const layerName = document.createElement("div");
     layerName.className = "layer-name";
     layerName.textContent = layer.name;
     layerName.title = "Duplo-clique para renomear";
     
-    // Duplo-clique para editar nome
+    // Double-click to edit name
     layerName.ondblclick = (e) => {
       e.stopPropagation();
       this.startLayerRenameInline(layer.id, layerName);
     };
 
-    // Contador
+    // Counter
     const count = document.createElement("div");
     count.className = "layer-count";
     count.textContent = `(${featureCount})`;
 
-    // Controles
+    // Controls
     const controls = document.createElement("div");
     controls.className = "layer-controls";
 
-    // Botão visibilidade
+    // Visibility button
     const visBtn = document.createElement("button");
     visBtn.className = "visibility-toggle";
     visBtn.innerHTML = layer.visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
@@ -1345,7 +1400,7 @@ class FeaturesTab {
       this.handleToggleLayerVisibility(layer.id);
     };
 
-    // Botão lock
+    // Lock button
     const lockBtn = document.createElement("button");
     lockBtn.className = "lock-toggle";
     lockBtn.innerHTML = layer.locked ? this.INLINE_ICONS.LOCK_LOCKED : this.INLINE_ICONS.LOCK_UNLOCKED;
@@ -1355,7 +1410,7 @@ class FeaturesTab {
       this.handleToggleLayerLock(layer.id);
     };
 
-    // Botão delete
+    // Delete button
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "layer-delete-btn";
     deleteBtn.innerHTML = this.INLINE_ICONS.DELETE;
@@ -1369,7 +1424,7 @@ class FeaturesTab {
     controls.appendChild(lockBtn);
     controls.appendChild(deleteBtn);
 
-    // Drag handle para reordenação
+    // Drag handle for reordering
     const dragHandle = document.createElement("div");
     dragHandle.className = "layer-drag-handle";
     dragHandle.innerHTML = this.INLINE_ICONS.DRAG;
@@ -1382,7 +1437,7 @@ class FeaturesTab {
     header.appendChild(count);
     header.appendChild(controls);
 
-    // Click no ícone de expansão para expandir/colapsar
+    // Click expansion icon to expand/collapse
     expandIcon.onclick = (e) => {
       e.stopPropagation();
       this.toggleLayerExpansion(layer.id);
@@ -1393,12 +1448,12 @@ class FeaturesTab {
   }
 
   /**
-   * Inicia edição inline do nome da camada
+   * Start inline editing of layer name
    */
   startLayerRenameInline(layerId, nameElement) {
-    const currentName = nameElement.textContent.replace(" ★", "").trim();
+    const currentName = nameElement.textContent.replace(" â˜…", "").trim();
     
-    // Criar input
+    // Create input element
     const input = document.createElement("input");
     input.type = "text";
     input.className = "layer-rename-input";
@@ -1412,10 +1467,10 @@ class FeaturesTab {
       width: 120px;
     `;
 
-    // Salvar referência ao texto original
+    // Save reference to original text
     const originalHTML = nameElement.innerHTML;
     
-    // Substituir conteúdo pelo input
+    // Replace content with input
     nameElement.innerHTML = "";
     nameElement.appendChild(input);
     input.focus();
@@ -1428,7 +1483,7 @@ class FeaturesTab {
         try {
           await this.handleRenameLayer(layerId, newName);
         } catch (error) {
-          console.error("Erro ao renomear camada:", error);
+          console.error("Error renaming layer:", error);
           nameElement.innerHTML = originalHTML;
         }
       } else {
@@ -1449,7 +1504,7 @@ class FeaturesTab {
   }
 
   /**
-   * Toggle expansão da layer
+   * Toggle layer expansion e persiste o estado no cache
    */
   toggleLayerExpansion(layerId) {
     const container = this.container.querySelector(`.layer-container[data-layer-id="${layerId}"]`);
@@ -1461,14 +1516,16 @@ class FeaturesTab {
     if (content.classList.contains("collapsed")) {
       content.classList.remove("collapsed");
       expandIcon.classList.remove("collapsed");
+      this._collapsedLayers.delete(layerId);
     } else {
       content.classList.add("collapsed");
       expandIcon.classList.add("collapsed");
+      this._collapsedLayers.add(layerId);
     }
   }
 
   /**
-   * Cria grupo dentro de uma layer (com indicador de split se cross-layer)
+   * Create group inside a layer (with split indicator if cross-layer)
    */
   createGroupItemInLayer(groupInfo, layer) {
     const { groupData, features, totalInGroup } = groupInfo;
@@ -1478,11 +1535,11 @@ class FeaturesTab {
     groupContainer.className = "group-container";
     groupContainer.dataset.groupId = groupData.id;
 
-    // Header do grupo
+    // Group header
     const groupHeader = this.createGroupHeader(groupData, features.length, isSplit, totalInGroup);
     groupContainer.appendChild(groupHeader);
 
-    // Lista de features do grupo
+    // Group features list
     const featuresList = this.createGroupFeaturesList(groupData, features);
     groupContainer.appendChild(featuresList);
 
@@ -1490,18 +1547,18 @@ class FeaturesTab {
   }
 
   /**
-   * Cria item de grupo com suas features
+   * Create group item with its features
    */
   createGroupItem(groupData, features) {
     const groupContainer = document.createElement("div");
     groupContainer.className = "group-container";
     groupContainer.dataset.groupId = groupData.id;
 
-    // Header do grupo
+    // Group header
     const groupHeader = this.createGroupHeader(groupData, features.length);
     groupContainer.appendChild(groupHeader);
 
-    // Lista de features do grupo
+    // Group features list
     const featuresList = this.createGroupFeaturesList(groupData, features);
     groupContainer.appendChild(featuresList);
 
@@ -1509,11 +1566,11 @@ class FeaturesTab {
   }
 
   /**
-   * Cria header do grupo com controles
+   * Create group header with controls
    * @param {Object} groupData - Dados do grupo
-   * @param {number} featureCount - Numero de features nesta layer
-   * @param {boolean} isSplit - Se o grupo esta dividido entre layers
-   * @param {number} totalInGroup - Total de features no grupo (para cross-layer)
+   * @param {number} featureCount - Number of features in this layer
+   * @param {boolean} isSplit - Whether group is split across layers
+   * @param {number} totalInGroup - Total features in group (for cross-layer)
    */
   createGroupHeader(groupData, featureCount, isSplit = false, totalInGroup = featureCount) {
     const header = document.createElement("div");
@@ -1565,13 +1622,13 @@ class FeaturesTab {
   }
 
   /**
-   * Cria controles especificos do grupo
+   * Create group-specific controls
    */
   createGroupControls(groupData) {
     const controls = document.createElement("div");
     controls.className = "group-controls";
 
-    // BotÃ£o de visibilidade
+    // Visibility button
     const visibilityBtn = document.createElement("button");
     visibilityBtn.className = "visibility-toggle";
     visibilityBtn.title = groupData.visible ? "Ocultar grupo" : "Mostrar grupo";
@@ -1584,7 +1641,7 @@ class FeaturesTab {
       this.toggleGroupVisibility(groupData.id, groupData.visible);
     });
 
-    // BotÃ£o de bloqueio
+    // Lock button
     const lockBtn = document.createElement("button");
     lockBtn.className = "lock-toggle";
     lockBtn.title = groupData.locked ? "Desbloquear grupo" : "Bloquear grupo";
@@ -1604,7 +1661,7 @@ class FeaturesTab {
   }
 
   /**
-   * Cria lista de features do grupo
+   * Create group features list
    */
   createGroupFeaturesList(groupData, features) {
     const featuresList = document.createElement("div");
@@ -1619,7 +1676,7 @@ class FeaturesTab {
   }
 
   /**
-   * Cria item de feature dentro do grupo (sem controles individuais)
+   * Create feature item inside group (without individual controls)
    */
   createGroupFeatureItem(feature, groupData) {
     const item = document.createElement("div");
@@ -1627,7 +1684,7 @@ class FeaturesTab {
     item.dataset.featureId = feature.id;
     item.dataset.featureType = feature.storageType;
 
-    // Aplicar estado visual baseado no grupo
+    // Apply visual state based on group
     if (!groupData.visible) {
       item.classList.add("feature-hidden");
     }
@@ -1648,7 +1705,7 @@ class FeaturesTab {
     main.appendChild(typeIcon);
     main.appendChild(featureName);
 
-    // Event listener para clique na feature
+    // Event listener for feature click
     main.addEventListener("click", () =>
       this.handleGroupFeatureClick(feature, groupData)
     );
@@ -1659,13 +1716,13 @@ class FeaturesTab {
   }
 
   /**
-   * Manipula clique em feature dentro de grupo
+   * Handle click on feature inside group
    */
   async handleGroupFeatureClick(feature, groupData) {
     try {
-      // Verificar se grupo está bloqueado
+      // Check if group is locked
       if (groupData.locked) {
-        // Se bloqueado, apenas fazer zoom
+        // If locked, just zoom
         await FeatureNavigationUtils.zoomToFeature(
           feature.rawFeature,
           this.map
@@ -1673,16 +1730,16 @@ class FeaturesTab {
         return;
       }
 
-      // Se não bloqueado: zoom + seleção do grupo inteiro
+      // If not locked: zoom + select entire group
       await FeatureNavigationUtils.zoomToFeature(feature.rawFeature, this.map);
 
-      // Selecionar todo o grupo
+      // Select entire group
       if (this.selectionManager) {
         this.selectionManager.deselectAllFeatures();
 
-        // Iterar pelas features do grupo corretamente
+        // Iterate through group features correctly
         for (const featureRef of groupData.features) {
-          // featureRef tem { type: sourceType, id: featureId }
+          // featureRef has { type: sourceType, id: featureId }
           const completeFeature = await this.selectionManager.getCompleteFeatureFromSource(
             featureRef.type,
             featureRef.id
@@ -1700,22 +1757,22 @@ class FeaturesTab {
         this.selectionManager.updateUI();
       }
     } catch (error) {
-      console.error("Erro ao navegar para feature do grupo:", error);
+      console.error("Error navigating to group feature:", error);
 
-      // Fallback: apenas fazer zoom
+      // Fallback: just zoom
       try {
         await FeatureNavigationUtils.zoomToFeature(
           feature.rawFeature,
           this.map
         );
       } catch (fallbackError) {
-        console.error("Erro no fallback de zoom:", fallbackError);
+        console.error("Error in zoom fallback:", fallbackError);
       }
     }
   }
 
   /**
-   * Toggle expansão do grupo
+   * Toggle group expansion
    */
   toggleGroupExpansion(groupId) {
     const groupContainer = this.container.querySelector(
@@ -1727,38 +1784,41 @@ class FeaturesTab {
     const featuresList = groupContainer.querySelector(".group-features-list");
 
     if (featuresList.classList.contains("expanded")) {
+      // Collapse: remove expanded, add collapsed
       featuresList.classList.remove("expanded");
       expandIcon.classList.remove("expanded");
       expandIcon.classList.add("collapsed");
-      expandIcon.innerHTML = this.INLINE_ICONS.COLLAPSE;
+      // Keep same EXPAND icon - rotation is done via CSS
+      this._collapsedGroups.add(groupId);
     } else {
+      // Expand: add expanded, remove collapsed
       featuresList.classList.add("expanded");
       expandIcon.classList.remove("collapsed");
       expandIcon.classList.add("expanded");
-      expandIcon.innerHTML = this.INLINE_ICONS.EXPAND;
+      this._collapsedGroups.delete(groupId);
     }
   }
 
   /**
-   * Toggle visibilidade do grupo
+   * Toggle group visibility
    */
   async toggleGroupVisibility(groupId, currentVisibility) {
     try {
       const newVisibility = !currentVisibility;
 
-      // Atualizar propriedade do grupo
+      // Update group property
       updateGroupProperty(groupId, "visible", newVisibility);
 
-      // Atualizar todas as features do grupo nos sources do mapa
+      // Update all group features in map sources
       const currentMapName = getCurrentMapNameSync();
       const group = getMapGroups(currentMapName).get(groupId);
       if (group) {
         for (const featureRef of group.features) {
-          // Usar função correta para conversão de tipos
+          // Use correct function for type conversion
           const storageType = getStorageTypeFromSource(featureRef.type);
           if (!storageType) {
             console.error(
-              `Não foi possível converter tipo ${featureRef.type} para storage type`
+              `Could not convert type ${featureRef.type} to storage type`
             );
             continue;
           }
@@ -1771,33 +1831,33 @@ class FeaturesTab {
         }
       }
 
-      // Atualizar interface visual
+      // Update visual interface
       this.updateGroupVisualState(groupId, newVisibility, currentVisibility);
     } catch (error) {
-      console.error("Erro ao alterar visibilidade do grupo:", error);
+      console.error("Error changing group visibility:", error);
     }
   }
 
   /**
-   * Toggle bloqueio do grupo
+   * Toggle group lock
    */
   async toggleGroupLock(groupId, currentLockState) {
     try {
       const newLockState = !currentLockState;
 
-      // Atualizar propriedade do grupo
+      // Update group property
       updateGroupProperty(groupId, "locked", newLockState);
 
-      // Atualizar todas as features do grupo nos sources do mapa
+      // Update all group features in map sources
       const currentMapName = getCurrentMapNameSync();
       const group = getMapGroups(currentMapName).get(groupId);
       if (group) {
         for (const featureRef of group.features) {
-          // Usar função correta para conversão de tipos
+          // Use correct function for type conversion
           const storageType = getStorageTypeFromSource(featureRef.type);
           if (!storageType) {
             console.error(
-              `Não foi possível converter tipo ${featureRef.type} para storage type`
+              `Could not convert type ${featureRef.type} to storage type`
             );
             continue;
           }
@@ -1810,7 +1870,7 @@ class FeaturesTab {
         }
       }
 
-      // Atualizar interface visual
+      // Update visual interface
       this.updateGroupLockState(groupId, newLockState);
 
       // Desselecionar grupo se foi bloqueado
@@ -1833,7 +1893,7 @@ class FeaturesTab {
         this.selectionManager.updateUI();
       }
     } catch (error) {
-      console.error("Erro ao alterar bloqueio do grupo:", error);
+      console.error("Error toggling group lock:", error);
     }
   }
 
@@ -1857,7 +1917,7 @@ class FeaturesTab {
       header.classList.add("group-hidden");
     }
 
-    // Atualizar botão
+    // Update button
     visibilityBtn.innerHTML = visible
       ? this.INLINE_ICONS.EYE_VISIBLE
       : this.INLINE_ICONS.EYE_HIDDEN;
@@ -1892,7 +1952,7 @@ class FeaturesTab {
       header.classList.remove("group-locked");
     }
 
-    // Atualizar botão
+    // Update button
     lockBtn.innerHTML = locked
       ? this.INLINE_ICONS.LOCK_LOCKED
       : this.INLINE_ICONS.LOCK_UNLOCKED;
@@ -1934,7 +1994,7 @@ class FeaturesTab {
       }
     });
 
-    // Ordenar por tipo alfabético, depois por nome
+    // Sort by type alphabetically, then by name
     flatFeatures.sort((a, b) => {
       // Primeiro por tipo
       const typeCompare = a.typeLabel.localeCompare(b.typeLabel, "pt-BR");
@@ -1979,7 +2039,7 @@ class FeaturesTab {
             </div>
         `;
 
-    // Event listeners após innerHTML
+    // Event listeners after innerHTML
     const nameDiv = item.querySelector(".feature-name");
     nameDiv.addEventListener("click", () => this.handleFeatureClick(feature));
 
@@ -2005,11 +2065,11 @@ class FeaturesTab {
   }
 
   /**
-   * Manipula o clique na feature: zoom + seleção (verifica bloqueio atual)
+   * Handle feature click: zoom + selection (checks current lock state)
    */
   async handleFeatureClick(feature) {
     try {
-      // Verificar estado atual da feature via IndexedDB (não rawFeature)
+      // Check current feature state via IndexedDB (not rawFeature)
       const currentFeature = await getFeatureById(
         feature.storageType,
         feature.id
@@ -2024,7 +2084,7 @@ class FeaturesTab {
         return;
       }
 
-      // Se não bloqueada: zoom + seleção normal
+      // If not locked: zoom + normal selection
       await FeatureNavigationUtils.zoomAndSelectFeature(
         feature.rawFeature,
         this.map,
@@ -2033,16 +2093,16 @@ class FeaturesTab {
         feature.id
       );
     } catch (error) {
-      console.error("Erro ao navegar para feature:", error);
+      console.error("Error navigating to feature:", error);
 
-      // Fallback: apenas fazer zoom sem seleção
+      // Fallback: just zoom without selection
       try {
         await FeatureNavigationUtils.zoomToFeature(
           feature.rawFeature,
           this.map
         );
       } catch (fallbackError) {
-        console.error("Erro no fallback de zoom:", fallbackError);
+        console.error("Error in zoom fallback:", fallbackError);
       }
     }
   }
@@ -2072,7 +2132,7 @@ class FeaturesTab {
       newVisibility
     );
 
-    // 3. Atualizar botão visual (ícone de olho)
+    // 3. Update visual button (eye icon)
     this.updateVisibilityButton(featureId, newVisibility);
 
     // 4. Atualizar estado visual do item (classe CSS)
@@ -2082,7 +2142,7 @@ class FeaturesTab {
       feature.properties.bloqueado ?? false
     );
 
-    // 5. Desselecionar feature se ficou invisível e está selecionada
+    // 5. Deselect feature if it became invisible and is selected
     if (!newVisibility && this.selectionManager?.isFeatureSelected) {
       const selectionManagerType =
         FeatureNavigationUtils.mapFeatureType(featureType);
@@ -2098,7 +2158,7 @@ class FeaturesTab {
   }
 
   /**
-   * Toggle de bloqueio com propagação para o source do mapa
+   * Toggle lock with propagation to map source
    */
   async toggleLock(featureId, featureType) {
     const feature = await getFeatureById(featureType, featureId);
@@ -2122,7 +2182,7 @@ class FeaturesTab {
       newLockState
     );
 
-    // 3. Atualizar botão visual (ícone de cadeado)
+    // 3. Update visual button (lock icon)
     this.updateLockButton(featureId, newLockState);
 
     // 4. Atualizar estado visual do item (classe CSS)
@@ -2132,7 +2192,7 @@ class FeaturesTab {
       newLockState
     );
 
-    // 5. Desselecionar feature se foi bloqueada e está selecionada
+    // 5. Deselect feature if it was locked and is selected
     if (newLockState && this.selectionManager?.isFeatureSelected) {
       const selectionManagerType =
         FeatureNavigationUtils.mapFeatureType(featureType);
@@ -2148,19 +2208,19 @@ class FeaturesTab {
   }
 
   /**
-   * Propaga alteração de propriedade para o source do Mapbox
-   * Pega todas as features do source, atualiza a específica e faz setData
-   * Suprime refresh automático para evitar reconstrução desnecessária
+   * Propagate property change to Mapbox source
+   * Gets all features from source, updates the specific one and calls setData
+   * Suppresses automatic refresh to avoid unnecessary reconstruction
    */
   async propagateFeaturePropertyToSource(featureType, featureId, property, value) {
     const source = this.map.getSource(featureType);
     if (!source) {
-      console.warn(`Source ${featureType} não encontrado`);
+      console.warn(`Source ${featureType} not found`);
       return;
     }
 
     try {
-      // Suprimir refresh durante atualização interna
+      // Suppress refresh during internal update
       this._suppressRefresh = true;
       
       // Pegar TODAS as features do source
@@ -2178,16 +2238,16 @@ class FeaturesTab {
         source.setData(data);
       } else {
         console.warn(
-          `Feature ${featureId} não encontrada no source ${featureType}`
+          `Feature ${featureId} not found in source ${featureType}`
         );
       }
     } catch (error) {
       console.error(
-        `Erro ao propagar propriedade para source ${featureType}:`,
+        `Error propagating property to source ${featureType}:`,
         error
       );
     } finally {
-      // Restaurar após pequeno delay para garantir que sourcedata já foi processado
+      // Restore after small delay to ensure sourcedata has been processed
       setTimeout(() => {
         this._suppressRefresh = false;
       }, 50);
@@ -2248,7 +2308,7 @@ class FeaturesTab {
         item.classList.add("feature-locked");
       }
     } else {
-      console.warn(`Item não encontrado para feature: ${featureId}`);
+      console.warn(`Item not found for feature: ${featureId}`);
     }
   }
 
@@ -2277,7 +2337,7 @@ class FeaturesTab {
       }
     }
 
-    // Adicionar indicadores à nova camada ativa
+    // Add indicators to new active layer
     if (newActiveId) {
       const newContainer = this.container.querySelector(
         `.layer-container[data-layer-id="${newActiveId}"]`
@@ -2288,7 +2348,7 @@ class FeaturesTab {
         if (newHeader) {
           newHeader.classList.add("active");
         }
-        // Marcar radio
+        // Check radio button
         const newRadio = newContainer.querySelector(".layer-radio");
         if (newRadio) newRadio.checked = true;
       }
@@ -2296,7 +2356,7 @@ class FeaturesTab {
   }
 
   /**
-   * Atualiza indicador visual de visibilidade de uma camada
+   * Update layer visibility visual indicator
    * @param {string} layerId - ID da camada
    * @param {boolean} visible - Novo estado de visibilidade
    */
@@ -2308,14 +2368,14 @@ class FeaturesTab {
     );
     if (!layerContainer) return;
 
-    // Atualizar classe do container
+    // Update container class
     if (visible) {
       layerContainer.classList.remove("layer-hidden");
     } else {
       layerContainer.classList.add("layer-hidden");
     }
 
-    // Atualizar botão e ícone
+    // Update button and icon
     const visBtn = layerContainer.querySelector(".layer-header .visibility-toggle");
     if (visBtn) {
       visBtn.innerHTML = visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
@@ -2324,7 +2384,7 @@ class FeaturesTab {
   }
 
   /**
-   * Atualiza indicador visual de bloqueio de uma camada
+   * Update layer lock visual indicator
    * @param {string} layerId - ID da camada
    * @param {boolean} locked - Novo estado de bloqueio
    */
@@ -2336,20 +2396,20 @@ class FeaturesTab {
     );
     if (!layerContainer) return;
 
-    // Atualizar classe do container
+    // Update container class
     if (locked) {
       layerContainer.classList.add("layer-locked");
     } else {
       layerContainer.classList.remove("layer-locked");
     }
 
-    // Atualizar botão e ícone
+    // Update button and icon
     const lockBtn = layerContainer.querySelector(".layer-header .lock-toggle");
     if (lockBtn) {
       lockBtn.innerHTML = locked ? this.INLINE_ICONS.LOCK_LOCKED : this.INLINE_ICONS.LOCK_UNLOCKED;
       lockBtn.title = locked ? "Desbloquear camada" : "Bloquear camada";
       
-      // Atualizar cor do SVG
+      // Update SVG color
       const svg = lockBtn.querySelector("svg");
       if (svg) {
         svg.style.color = locked ? "#dc3545" : "";
@@ -2380,7 +2440,7 @@ class FeaturesTab {
       document.removeEventListener('groups-changed', this._groupsChangedHandler);
       this._groupsChangedHandler = null;
     }
-    // NEW: Remove layer listener
+    // Remove layer listener
     if (this._layersChangedHandler) {
       document.removeEventListener('layers-changed', this._layersChangedHandler);
       this._layersChangedHandler = null;
@@ -2389,7 +2449,7 @@ class FeaturesTab {
 
   _handleSourceData(e) {
     if (!this._isVisible) return;
-    if (this._suppressRefresh) return; // Ignora se estamos em atualização interna
+    if (this._suppressRefresh) return; // Ignore if we are in internal update
     if (!this._isRelevantSource(e.sourceId)) return;
     this._scheduleRefresh();
   }
@@ -2399,7 +2459,7 @@ class FeaturesTab {
   }
 
   /**
-   * Lista de sources de features do mapa
+   * List of map feature sources
    */
   FEATURE_SOURCES = [
     'points', 'lines', 'polygons', 'texts', 'images',
@@ -2409,8 +2469,8 @@ class FeaturesTab {
   ];
 
   /**
-   * Obtém features diretamente dos sources do mapa (não do IndexedDB)
-   * Isso garante que mudanças não salvas sejam refletidas no painel
+   * Get features directly from map sources (not from IndexedDB)
+   * This ensures unsaved changes are reflected in the panel
    */
   async _getFeaturesFromMapSources() {
     const features = {};
@@ -2427,27 +2487,30 @@ class FeaturesTab {
           features[sourceId] = data.features;
         }
       } catch (error) {
-        // Source pode não ter getData() ou estar vazio
-        console.debug(`Não foi possível obter dados do source ${sourceId}:`, error.message);
+        // Source may not have getData() or may be empty
+        console.debug(`Could not get data from source ${sourceId}:`, error.message);
       }
     }
     
     return features;
   }
 
+  // Debounce delay in milliseconds - balance between responsiveness and performance
+  static REFRESH_DEBOUNCE_MS = 150;
+
   _scheduleRefresh() {
     if (!this._isVisible) return;
     clearTimeout(this._debounceTimer);
     this._debounceTimer = setTimeout(() => {
       this.loadFeatures();
-    }, 300);
+    }, FeaturesTab.REFRESH_DEBOUNCE_MS);
   }
 
   destroy() {
     this._removeEventListeners();
     clearTimeout(this._debounceTimer);
     
-    // Destruir instância do Sortable
+    // Destroy Sortable instance
     if (this._sortableInstance) {
       this._sortableInstance.destroy();
       this._sortableInstance = null;
@@ -2463,14 +2526,14 @@ class FeaturesTab {
         this._setupEventListeners();
       }
 
-      // Carregar estado do hillshade se o control existe
+      // Load hillshade state if control exists
       const hillshadeContainer =
         this.container.querySelector(".hillshade-control");
       if (hillshadeContainer) {
         await this.loadHillshadeState();
       }
 
-      // Renderizar analysis layers usando o manager
+      // Render analysis layers using manager
       await this.renderAnalysisLayersControl();
 
       await this.loadFeatures();
@@ -2490,10 +2553,10 @@ class FeaturesTab {
   async handleHillshadeToggle(event) {
     const enabled = event.target.checked;
 
-    // 1. Salvar no store
+    // 1. Save to store
     await setMapHillshadeState(enabled);
 
-    // 2. Aplicar mudança via terrain control
+    // 2. Apply change via terrain control
     this.applyHillshadeState(enabled);
   }
 
