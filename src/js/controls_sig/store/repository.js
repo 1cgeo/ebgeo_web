@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/store/repository.js
+// Path: js/controls_sig/store/repository.js
 
 import config from '../../config.js';
 
@@ -22,7 +22,10 @@ const memoryStore = {
     currentMap: 'Principal',
     isUndoing: false,
     isRedoing: false,
-    groups: {}
+    groups: {},
+    // Layer system cache
+    layers: {},
+    activeLayerId: 'default'
 };
 
 /**
@@ -175,6 +178,8 @@ const resetMemoryStore = () => {
     memoryStore.isUndoing = false;
     memoryStore.isRedoing = false;
     memoryStore.groups = {};
+    memoryStore.layers = {};
+    memoryStore.activeLayerId = 'default';
 };
 
 // ===== MAP CRUD OPERATIONS =====
@@ -548,7 +553,8 @@ const getDefaultLayer = () => ({
     name: 'Padrão',
     visible: true,
     locked: false,
-    color: '#3b82f6'
+    order: 0,
+    createdAt: Date.now()
 });
 
 /**
