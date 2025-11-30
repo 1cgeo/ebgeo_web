@@ -6,7 +6,10 @@
       "Bash(timeout 15 npm run dev:*)",
       "Bash(ls:*)",
       "Bash(timeout 20 npm run dev:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(timeout 5 npm run start:*)",
+      "Bash(taskkill:*)",
+      "Bash(timeout 3 npm run start:*)"
     ],
     "deny": [],
     "ask": []
