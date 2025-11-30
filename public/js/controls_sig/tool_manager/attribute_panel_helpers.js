@@ -466,13 +466,19 @@ function closeColorModal(modal) {
  * @returns {HTMLElement} Checkbox label element
  */
 export function createCheckbox(checked, onChange) {
-    const label = $("<label>", { class: "switch" });
+    const label = document.createElement('label');
+    label.className = 'switch';
+
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.checked = checked;
-    input.classList.add("slider-check-input");
-    label.append(input);
-    label.append($("<div>", { class: "slider-check round" }));
+    input.classList.add('slider-check-input');
+
+    const slider = document.createElement('div');
+    slider.className = 'slider-check round';
+
+    label.appendChild(input);
+    label.appendChild(slider);
     input.onchange = onChange;
     return label;
 }
@@ -537,12 +543,22 @@ export function createLineStyleSelect(currentValue, onChange) {
  * @returns {HTMLElement} Attribute row container
  */
 export function createAttributeRow(labelText, inputElement) {
-    const container = $("<div>", { class: "attr-container-row" });
+    const container = document.createElement('div');
+    container.className = 'attr-container-row';
+
     const label = document.createElement('label');
     label.textContent = labelText;
 
-    container.append($("<div>", { class: "attr-name" }).append(label));
-    container.append($("<div>", { class: "attr-input" }).append(inputElement));
+    const attrName = document.createElement('div');
+    attrName.className = 'attr-name';
+    attrName.appendChild(label);
+
+    const attrInput = document.createElement('div');
+    attrInput.className = 'attr-input';
+    attrInput.appendChild(inputElement);
+
+    container.appendChild(attrName);
+    container.appendChild(attrInput);
 
     return container;
 }
@@ -633,7 +649,8 @@ export function createStandardButtons(config) {
         onSetDefault = null
     } = config;
 
-    const buttonContainer = $("<div>", { class: "attr-container-row" });
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'attr-container-row';
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Salvar';
@@ -643,7 +660,7 @@ export function createStandardButtons(config) {
         control.saveFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
     };
-    buttonContainer.append(saveButton)
+    buttonContainer.appendChild(saveButton);
 
     if (hasSetDefault && onSetDefault) {
         const setDefaultButton = document.createElement('button');
@@ -653,7 +670,7 @@ export function createStandardButtons(config) {
             onSetDefault();
             selectionManager.deselectAllFeatures();
         };
-        buttonContainer.append(setDefaultButton);
+        buttonContainer.appendChild(setDefaultButton);
     }
 
     const discardButton = document.createElement('button');
@@ -663,7 +680,7 @@ export function createStandardButtons(config) {
         control.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
         selectionManager.deselectAllFeatures();
     };
-    buttonContainer.append(discardButton);
+    buttonContainer.appendChild(discardButton);
 
     return buttonContainer;
 }

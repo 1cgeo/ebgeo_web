@@ -53,7 +53,7 @@ export function addCoordinationMeasureAttributesToPanel(
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -71,7 +71,7 @@ export function addCoordinationMeasureAttributesToPanel(
         
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     // ===== CONFIGURAÇÃO DE PONTO ESPECÍFICA =====
@@ -83,7 +83,7 @@ export function addCoordinationMeasureAttributesToPanel(
         pointButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
         pointButton.onclick = () => openPointModal();
 
-        $(panel).append(createAttributeRow('Símbolo:', pointButton));
+        panel.appendChild(createAttributeRow('Símbolo:', pointButton));
     }
 
     // ===== CONTROLES DE RENDERIZAÇÃO =====
@@ -97,7 +97,7 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     }));
 
-    $(panel).append(createAttributeRow('Tamanho:', sizeControl));
+    panel.appendChild(createAttributeRow('Tamanho:', sizeControl));
 
     // Zoom de referência
     const createdAtZoomControl = createSliderWithInput({
@@ -112,7 +112,7 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     });
 
-    $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
+    panel.appendChild(createAttributeRow('Zoom de referência:', createdAtZoomControl));
 
     // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
@@ -124,7 +124,7 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     }));
 
-    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
 
     // Rotação (usando steps de 15 graus)
     const rotationControl = createSliderWithInput({
@@ -138,7 +138,7 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     });
 
-    $(panel).append(createAttributeRow('Rotação (°):', rotationControl));
+    panel.appendChild(createAttributeRow('Rotação (°):', rotationControl));
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
 
@@ -169,7 +169,7 @@ export function addCoordinationMeasureAttributesToPanel(
             },
             false
         );
-        $(panel).append(coordEditor);
+        panel.appendChild(coordEditor);
     }
     const buttons = createStandardButtons({
         selectedFeatures,
@@ -180,7 +180,7 @@ export function addCoordinationMeasureAttributesToPanel(
         onSetDefault: () => coordinationMeasureControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 
     // ===== MODAL DO PONTO (2 COLUNAS) =====
 
@@ -233,11 +233,11 @@ export function addCoordinationMeasureAttributesToPanel(
 
         // Clicar no label também alterna o checkbox
         checkboxLabel.onclick = () => {
-            const checkboxInput = checkbox.find('input')[0];
+            const checkboxInput = checkbox.querySelector('input');
             checkboxInput.click();
         };
 
-        checkboxContainer.appendChild(checkbox[0]);
+        checkboxContainer.appendChild(checkbox);
         checkboxContainer.appendChild(checkboxLabel);
 
         // Container dos controles de cor
@@ -258,7 +258,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
         function updateColorControlState(color) {
             const isCustomColor = !!color;
-            const checkboxInput = checkbox.find('input')[0];
+            const checkboxInput = checkbox.querySelector('input');
 
             // Update
             checkboxInput.checked = isCustomColor;

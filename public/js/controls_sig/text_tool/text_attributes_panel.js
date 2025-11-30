@@ -38,7 +38,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -56,7 +56,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
 
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const tabsContainer = document.createElement('div');
@@ -118,10 +118,13 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
             textControl.updateFeaturesProperty(selectedFeatures, 'text', e.target.value);
             uiManager.updateSelectionHighlight();
         };
-        $(textTabContent).append(
-            $("<div>", { class: "attr-container-column" })
-                .append($("<div>", { class: "attr-input-full" }).append(textInput))
-        );
+        const textContainer = document.createElement('div');
+        textContainer.className = 'attr-container-column';
+        const inputWrapper = document.createElement('div');
+        inputWrapper.className = 'attr-input-full';
+        inputWrapper.appendChild(textInput);
+        textContainer.appendChild(inputWrapper);
+        textTabContent.appendChild(textContainer);
     }
 
     const sizeControl = createSliderWithInput({
@@ -135,7 +138,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     });
 
-    $(textTabContent).append(createAttributeRow('Tamanho (px):', sizeControl));
+    textTabContent.appendChild(createAttributeRow('Tamanho (px):', sizeControl));
 
     const createdAtZoomControl = createSliderWithInput({
         min: 1,
@@ -149,13 +152,13 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     });
 
-    $(textTabContent).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
+    textTabContent.appendChild(createAttributeRow('Zoom de referência:', createdAtZoomControl));
 
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
     }, 'Cor do texto');
 
-    $(textTabContent).append(createAttributeRow('Cor:', colorInput));
+    textTabContent.appendChild(createAttributeRow('Cor:', colorInput));
 
     const textHaloWidthControl = createSliderWithInput({
         min: 0,
@@ -167,13 +170,13 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     });
 
-    $(textTabContent).append(createAttributeRow('Espessura borda:', textHaloWidthControl));
+    textTabContent.appendChild(createAttributeRow('Espessura borda:', textHaloWidthControl));
 
     const textHaloInput = createColorPicker(feature.properties.backgroundColor, (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'backgroundColor', e.target.value);
     }, 'Borda do texto');
 
-    $(textTabContent).append(createAttributeRow('Borda do texto:', textHaloInput));
+    textTabContent.appendChild(createAttributeRow('Borda do texto:', textHaloInput));
 
     const rotateControl = createSliderWithInput(getCommonConfig('rotation',
         feature.properties.rotation || 0, {
@@ -183,12 +186,13 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     }));
 
-    $(textTabContent).append(createAttributeRow('Rotação:', rotateControl));
+    textTabContent.appendChild(createAttributeRow('Rotação:', rotateControl));
 
     const justifyLabel = document.createElement('label');
     justifyLabel.textContent = 'Justificativa:';
     justifyLabel.className = 'justify-label';
-    const justifyButtonsContainer = $("<div>", { class: "justify-buttons" });
+    const justifyButtonsContainer = document.createElement('div');
+    justifyButtonsContainer.className = 'justify-buttons';
 
     let justifyLeftButton, justifyCenterButton, justifyRightButton;
     const justifyOptions = ['left', 'center', 'right'];
@@ -199,7 +203,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         button.onclick = () => {
             textControl.updateFeaturesProperty(selectedFeatures, 'justify', option);
         };
-        justifyButtonsContainer.append(button);
+        justifyButtonsContainer.appendChild(button);
 
         if (option === 'left') {
             justifyLeftButton = button;
@@ -210,11 +214,11 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     });
 
-    $(textTabContent).append(
-        $("<div>", { class: "justify-container" })
-            .append(justifyLabel)
-            .append(justifyButtonsContainer)
-    );
+    const justifyContainer = document.createElement('div');
+    justifyContainer.className = 'justify-container';
+    justifyContainer.appendChild(justifyLabel);
+    justifyContainer.appendChild(justifyButtonsContainer);
+    textTabContent.appendChild(justifyContainer);
 
     const updateJustifyButtons = (text) => {
         const lines = text.split('\n').length;
@@ -237,13 +241,13 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         toggleBackgroundControls(enabled);
     });
 
-    $(backgroundTabContent).append(createAttributeRow('Mostrar caixa:', showBackgroundCheckbox));
+    backgroundTabContent.appendChild(createAttributeRow('Mostrar caixa:', showBackgroundCheckbox));
 
     const backgroundFillColorInput = createColorPicker(feature.properties.backgroundFillColor, (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'backgroundFillColor', e.target.value);
     }, 'Cor do preenchimento');
 
-    $(backgroundTabContent).append(createAttributeRow('Preenchimento:', backgroundFillColorInput));
+    backgroundTabContent.appendChild(createAttributeRow('Preenchimento:', backgroundFillColorInput));
 
     const backgroundFillOpacityControl = createSliderWithInput({
         min: 0,
@@ -255,13 +259,13 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     });
 
-    $(backgroundTabContent).append(createAttributeRow('Opacidade preenchimento:', backgroundFillOpacityControl));
+    backgroundTabContent.appendChild(createAttributeRow('Opacidade preenchimento:', backgroundFillOpacityControl));
 
     const backgroundBorderColorInput = createColorPicker(feature.properties.backgroundBorderColor, (e) => {
         textControl.updateFeaturesProperty(selectedFeatures, 'backgroundBorderColor', e.target.value);
     }, 'Cor da borda');
 
-    $(backgroundTabContent).append(createAttributeRow('Borda:', backgroundBorderColorInput));
+    backgroundTabContent.appendChild(createAttributeRow('Borda:', backgroundBorderColorInput));
 
     const backgroundBorderOpacityControl = createSliderWithInput({
         min: 0,
@@ -273,7 +277,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     });
 
-    $(backgroundTabContent).append(createAttributeRow('Opacidade borda:', backgroundBorderOpacityControl));
+    backgroundTabContent.appendChild(createAttributeRow('Opacidade borda:', backgroundBorderOpacityControl));
 
     const backgroundBorderWidthControl = createSliderWithInput({
         min: 1,
@@ -285,7 +289,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         }
     });
 
-    $(backgroundTabContent).append(createAttributeRow('Largura borda:', backgroundBorderWidthControl));
+    backgroundTabContent.appendChild(createAttributeRow('Largura borda:', backgroundBorderWidthControl));
 
     const toggleBackgroundControls = (enabled) => {
         const controls = [
@@ -338,7 +342,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     tabsContainer.appendChild(tabsNav);
     tabsContainer.appendChild(tabsContent);
 
-    $(panel).append(tabsContainer);
+    panel.appendChild(tabsContainer);
 
     const buttons = createStandardButtons({
         selectedFeatures,
@@ -349,5 +353,5 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         onSetDefault: () => textControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

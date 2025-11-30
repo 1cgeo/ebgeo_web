@@ -34,7 +34,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -52,7 +52,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
@@ -60,13 +60,13 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         uiManager.updateSelectionHighlight();
     }, 'Cor da linha do círculo');
 
-    $(panel).append(createAttributeRow('Linha:', lineColorInput));
+    panel.appendChild(createAttributeRow('Linha:', lineColorInput));
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         circleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
     }, 'Cor do preenchimento do círculo');
 
-    $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
+    panel.appendChild(createAttributeRow('Preenchimento:', fillColorInput));
     const opacityControl = createSliderWithInput(getCommonConfig('complete_opacity',
         Math.round((feature.properties.opacity || 0.7) * 100), {
         onChange: (value) => {
@@ -75,7 +75,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         }
     }));
 
-    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 2, {
         onChange: (value) => {
@@ -84,14 +84,14 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         }
     }));
 
-    $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
+    panel.appendChild(createAttributeRow('Largura (px):', lineWidthControl));
     const lineStyleSelect = createLineStyleSelect(
         feature.properties.lineStyle || 'solid',
         (newValue) => {
             circleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
         }
     );
-    $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
+    panel.appendChild(createAttributeRow('Estilo da linha:', lineStyleSelect));
     const hatchContainer = document.createElement('div');
     hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
 
@@ -110,9 +110,9 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         openHatchConfigModal(feature, selectedFeatures, circleControl);
     };
 
-    $(hatchContainer).append(hatchCheckbox);
-    $(hatchContainer).append(hatchConfigButton);
-    $(panel).append(createAttributeRow('Hachura:', hatchContainer));
+    hatchContainer.appendChild(hatchCheckbox);
+    hatchContainer.appendChild(hatchConfigButton);
+    panel.appendChild(createAttributeRow('Hachura:', hatchContainer));
     const radiusInput = createNumericInput({
         min: 10,
         max: 100000,
@@ -125,7 +125,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         }
     });
 
-    $(panel).append(createAttributeRow('Raio:', radiusInput));
+    panel.appendChild(createAttributeRow('Raio:', radiusInput));
     const buttons = createStandardButtons({
         selectedFeatures,
         control: circleControl,
@@ -135,5 +135,5 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         onSetDefault: () => circleControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

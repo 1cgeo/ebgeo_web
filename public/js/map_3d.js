@@ -410,7 +410,7 @@ export function init3DFeatures() {
 }
 
 export function activeTool() {
-    const toolId = $(this).attr('id');
+    const toolId = this.id;
     if (!toolId || !cesiumState.viewer) return;
     switch (toolId) {
         case 'limpar':
@@ -444,7 +444,7 @@ export function activeTool() {
 }
 
 export function handleClickGoTo() {
-    const targetId = $(this).attr('id');
+    const targetId = this.id;
     if (!targetId || !cesiumState.viewer) return;
 
     removeAllTools();
@@ -506,7 +506,9 @@ function handleScreenshot() {
 }
 
 // ===== EVENT HANDLERS =====
-$('#locate-3d-container button').on('click', handleClickGoTo);
+document.querySelectorAll('#locate-3d-container button').forEach(btn => {
+    btn.addEventListener('click', handleClickGoTo);
+});
 
 function initCesiumEventHandlers() {
     if (typeof Cesium !== 'undefined' && cesiumState.viewer) {
@@ -599,15 +601,17 @@ async function loadCesiumAndInitWithTileset(tilesetId) {
 
 function registerToolEventListeners() {
     setTimeout(() => {
-        const buttons = $('.button-tool-3d');
+        const buttons = document.querySelectorAll('.button-tool-3d');
 
         if (buttons.length === 0) {
             console.warn('3D tool buttons not found');
             return;
         }
 
-        buttons.off('click');
-        buttons.on('click', activeTool);
+        buttons.forEach(btn => {
+            btn.removeEventListener('click', activeTool);
+            btn.addEventListener('click', activeTool);
+        });
 
         console.log(`${buttons.length} 3D tool buttons registered`);
     }, 100);

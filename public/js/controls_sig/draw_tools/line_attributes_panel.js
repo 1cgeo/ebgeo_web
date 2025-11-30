@@ -41,7 +41,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -59,13 +59,13 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
 
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         lineControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
     });
-    $(panel).append(createAttributeRow('Cor:', colorInput));
+    panel.appendChild(createAttributeRow('Cor:', colorInput));
 
     const sizeSlider = createSliderWithInput({
         min: 1,
@@ -76,7 +76,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
             lineControl.updateFeaturesProperty(selectedFeatures, 'size', newValue);
         }
     });
-    $(panel).append(createAttributeRow('Largura:', sizeSlider));
+    panel.appendChild(createAttributeRow('Largura:', sizeSlider));
 
     const lineStyleSelect = createLineStyleSelect(
         feature.properties.lineStyle || 'solid',
@@ -84,7 +84,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
             lineControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
         }
     );
-    $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
+    panel.appendChild(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
     const opacitySlider = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100), {
@@ -92,7 +92,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
             lineControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
         }
     }));
-    $(panel).append(createAttributeRow('Opacidade:', opacitySlider));
+    panel.appendChild(createAttributeRow('Opacidade:', opacitySlider));
 
     const measureCheckbox = createCheckbox(
         feature.properties.measure === true,
@@ -100,7 +100,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
             lineControl.updateFeaturesProperty(selectedFeatures, 'measure', e.target.checked);
         }
     );
-    $(panel).append(createAttributeRow('Medir:', measureCheckbox));
+    panel.appendChild(createAttributeRow('Medir:', measureCheckbox));
 
     if (selectedFeatures.length === 1) {
         const profileCheckbox = createCheckbox(
@@ -112,7 +112,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
                 }
             }
         );
-        $(panel).append(createAttributeRow('Perfil do terreno:', profileCheckbox));
+        panel.appendChild(createAttributeRow('Perfil do terreno:', profileCheckbox));
     }
 
     const buttons = createStandardButtons({
@@ -124,5 +124,5 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
         onSetDefault: () => lineControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

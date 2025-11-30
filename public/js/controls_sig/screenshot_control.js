@@ -26,7 +26,8 @@ class ScreenshotControl {
     }
 
     changeButtonColor = () => {
-        $("#screenshot-tool").html(`<img class="icon-sig-tool" src="./images/icon_screenshot_black.svg" alt="SCREENSHOT" />`);
+        const btn = document.getElementById('screenshot-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="./images/icon_screenshot_black.svg" alt="SCREENSHOT" />`;
     }
 
     takeScreenshot() {

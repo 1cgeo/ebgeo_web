@@ -52,7 +52,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -70,7 +70,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     // ===== SYMBOL-SPECIFIC CONFIGURATION =====
@@ -83,7 +83,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         symbolButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
         symbolButton.onclick = () => openSymbolModal();
 
-        $(panel).append(createAttributeRow('Símbolo:', symbolButton));
+        panel.appendChild(createAttributeRow('Símbolo:', symbolButton));
     }
     // ===== RENDERING CONTROLS =====
 
@@ -96,7 +96,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         }
     }));
 
-    $(panel).append(createAttributeRow('Tamanho:', sizeControl));
+    panel.appendChild(createAttributeRow('Tamanho:', sizeControl));
 
     // Reference zoom
     const createdAtZoomControl = createSliderWithInput({
@@ -111,7 +111,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         }
     });
 
-    $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
+    panel.appendChild(createAttributeRow('Zoom de referência:', createdAtZoomControl));
 
     // Opacidade (0-100%)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
@@ -123,7 +123,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         }
     }));
 
-    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
 
     // Rotation (using 15-degree steps)
     const rotationControl = createSliderWithInput({
@@ -137,7 +137,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         }
     });
 
-    $(panel).append(createAttributeRow('Rotação (°):', rotationControl));
+    panel.appendChild(createAttributeRow('Rotação (°):', rotationControl));
 
     // ===== STANDARD ACTION BUTTONS =====
 
@@ -168,7 +168,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             },
             false
         );
-        $(panel).append(coordEditor);
+        panel.appendChild(coordEditor);
     }
     const buttons = createStandardButtons({
         selectedFeatures,
@@ -179,7 +179,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         onSetDefault: () => militarySymbolControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 
     // ===== SYMBOL MODAL =====
 
@@ -707,11 +707,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         // Clicking the label also toggles the checkbox
         checkboxLabel.onclick = () => {
-            const checkboxInput = checkbox.find('input')[0];
+            const checkboxInput = checkbox.querySelector('input');
             checkboxInput.click();
         };
 
-        checkboxContainer.appendChild(checkbox[0]);
+        checkboxContainer.appendChild(checkbox);
         checkboxContainer.appendChild(checkboxLabel);
 
         // Container dos controles de cor
@@ -732,7 +732,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         function updateColorControlState(color) {
             const isCustomColor = !!color;
-            const checkboxInput = checkbox.find('input')[0];
+            const checkboxInput = checkbox.querySelector('input');
 
             // Atualizar checkbox state
             checkboxInput.checked = isCustomColor;
@@ -1681,11 +1681,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         commandCheckboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
 
         commandCheckboxLabel.onclick = () => {
-            const checkboxInput = commandCheckbox.find('input')[0];
+            const checkboxInput = commandCheckbox.querySelector('input');
             checkboxInput.click();
         };
 
-        commandCheckboxWrapper.appendChild(commandCheckbox[0]);
+        commandCheckboxWrapper.appendChild(commandCheckbox);
         commandCheckboxWrapper.appendChild(commandCheckboxLabel);
         commandCheckboxContainer.appendChild(commandLabel);
         commandCheckboxContainer.appendChild(commandCheckboxWrapper);
@@ -1698,7 +1698,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         // Store reference for updates
         comboboxes.isCommand = {
             updateValue: (newValue) => {
-                const checkboxInput = commandCheckbox.find('input')[0];
+                const checkboxInput = commandCheckbox.querySelector('input');
                 checkboxInput.checked = !!newValue;
             }
         };

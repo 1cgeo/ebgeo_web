@@ -31,7 +31,7 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -49,7 +49,7 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
         
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     // ===== PROPRIEDADES ESPECÍFICAS DA FRENTE OCUPADA =====
@@ -60,7 +60,7 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
         uiManager.updateSelectionHighlight();
     }, 'Cor da frente ocupada');
 
-    $(panel).append(createAttributeRow('Cor:', colorInput));
+    panel.appendChild(createAttributeRow('Cor:', colorInput));
 
     // Espessura da linha
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
@@ -71,7 +71,7 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
         }
     }));
 
-    $(panel).append(createAttributeRow('Espessura (px):', lineWidthControl));
+    panel.appendChild(createAttributeRow('Espessura (px):', lineWidthControl));
 
     // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
@@ -83,7 +83,7 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
         }
     }));
 
-    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
 
     // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
     // ✅ FIXED: Pass initialPropertiesMap captured at panel opening
@@ -100,5 +100,5 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
         })
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

@@ -167,7 +167,8 @@ class AddStreetViewControl {
             return this.metadataCache.get(name);
         }
 
-        const data = await $.getJSON(`${this.METADATA_LOCATION}/${name}.json`);
+        const response = await fetch(`${this.METADATA_LOCATION}/${name}.json`);
+        const data = await response.json();
         this.metadataCache.set(name, data);
         return data;
     }
@@ -417,18 +418,18 @@ class AddStreetViewControl {
     }
 
     changeButtonColor = () => {
+        const btn = document.getElementById('street-view-tool');
+        if (!btn) return;
+
         const isEnabled = config.features?.imagens_panoramicas ?? true;
         if (!isEnabled) {
-            // Use setTimeout para garantir que DOM está pronto
-            setTimeout(() => {
-                $("#street-view-tool").html('<img class="icon-sig-tool" src="./images/icon_street_view_gray.svg" />');
-            }, 10);
+            btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_gray.svg" />';
             return;
         }
 
-        $("#street-view-tool").html(`<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />`);
-        if (!this.isActive) return
-        $("#street-view-tool").html('<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />');
+        btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
+        if (!this.isActive) return;
+        btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />';
     }
 
     reload = async () => {
@@ -453,9 +454,11 @@ class AddStreetViewControl {
             this.deactivate();
             return
         }
-        $('#close-street-view-button').on('click', this.closeStreetView)
+        const closeBtn = document.getElementById('close-street-view-button');
+        if (closeBtn) closeBtn.addEventListener('click', this.closeStreetView);
         this.isActive = true;
-        $("#street-view-tool").empty().append('<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />');
+        const btn = document.getElementById('street-view-tool');
+        if (btn) btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />';
         await this.loadData()
         this.showPhotos()
     }
@@ -987,21 +990,17 @@ class AddStreetViewControl {
     }
 
     setFullMap = (full) => {
-        $('#top-bar').css({
-            display: full ? 'flex' : 'none'
-        });
-        $('#map-sig').css({
-            display: full ? 'block' : 'none'
-        });
-        $('#mini-map-street-view').css({
-            display: full ? 'none' : 'block'
-        });
-        $('#street-view-container').css({
-            display: full ? 'none' : 'block'
-        });
-        $('#close-street-view-button').css({
-            display: full ? 'none' : 'flex'
-        });
+        const topBar = document.getElementById('top-bar');
+        const mapSig = document.getElementById('map-sig');
+        const miniMap = document.getElementById('mini-map-street-view');
+        const streetViewContainer = document.getElementById('street-view-container');
+        const closeBtn = document.getElementById('close-street-view-button');
+
+        if (topBar) topBar.style.display = full ? 'flex' : 'none';
+        if (mapSig) mapSig.style.display = full ? 'block' : 'none';
+        if (miniMap) miniMap.style.display = full ? 'none' : 'block';
+        if (streetViewContainer) streetViewContainer.style.display = full ? 'none' : 'block';
+        if (closeBtn) closeBtn.style.display = full ? 'none' : 'flex';
     }
 
     onWindowResize = () => {
@@ -1124,7 +1123,8 @@ class AddStreetViewControl {
         this.changeButtonColor()
         this.map.getCanvas().style.cursor = '';
         this.hidePhotos()
-        $('#close-street-view-button').off('click', this.closeStreetView)
+        const closeBtn = document.getElementById('close-street-view-button');
+        if (closeBtn) closeBtn.removeEventListener('click', this.closeStreetView);
         if (this.isOpen) {
             this.setFullMap(true);
             this.isOpen = false;

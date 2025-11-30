@@ -259,7 +259,8 @@ class AddTextControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_text_red.svg' :
             './images/icon_text_black.svg';
-        $("#text-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="TEXT" />`);
+        const btn = document.getElementById('text-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="TEXT" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

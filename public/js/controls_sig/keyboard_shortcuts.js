@@ -283,8 +283,10 @@ class KeyboardShortcuts {
 
             case 'escape':
                 e.preventDefault();
-                if ($('#map-3d-container').is(':visible')) {
-                    $('#close-3d-viewer-button').trigger('click');
+                const map3dContainer = document.getElementById('map-3d-container');
+                if (map3dContainer && map3dContainer.style.display !== 'none') {
+                    const close3dBtn = document.getElementById('close-3d-viewer-button');
+                    if (close3dBtn) close3dBtn.click();
                     return true;
                 }
                 this.toolManager.deactivateCurrentTool();

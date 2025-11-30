@@ -236,7 +236,8 @@ class AddLineControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_line_red.svg' :
             './images/icon_line_black.svg';
-        $("#line-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="LINE" />`);
+        const btn = document.getElementById('line-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="LINE" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

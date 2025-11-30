@@ -232,7 +232,8 @@ class AddEllipseControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_ellipse_red.svg' :
             './images/icon_ellipse_black.svg';
-        $("#ellipse-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="ELLIPSE" />`);
+        const btn = document.getElementById('ellipse-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="ELLIPSE" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

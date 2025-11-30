@@ -27,7 +27,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -45,7 +45,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     // ===== PROPRIEDADES ESPECÍFICAS DA IMAGEM =====
@@ -59,7 +59,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         }
     }));
 
-    $(panel).append(createAttributeRow('Tamanho:', sizeControl));
+    panel.appendChild(createAttributeRow('Tamanho:', sizeControl));
     const createdAtZoomControl = createSliderWithInput({
         min: 1,
         max: 21,
@@ -72,7 +72,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         }
     });
 
-    $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
+    panel.appendChild(createAttributeRow('Zoom de referência:', createdAtZoomControl));
     const rotationControl = createSliderWithInput(getCommonConfig('rotation',
         feature.properties.rotation || 0, {
         onChange: (value) => {
@@ -81,7 +81,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         }
     }));
 
-    $(panel).append(createAttributeRow('Rotação:', rotationControl));
+    panel.appendChild(createAttributeRow('Rotação:', rotationControl));
 
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round(feature.properties.opacity * 100), {
@@ -91,7 +91,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         }
     }));
 
-    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
 
     const buttons = createStandardButtons({
         selectedFeatures,
@@ -102,5 +102,5 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         onSetDefault: null
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

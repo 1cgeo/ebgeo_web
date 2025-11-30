@@ -48,17 +48,19 @@ class VectorTileInfoControl {
 
     changeButtonColor = () => {
         const isEnabled = config.features?.vector_info ?? true;
+        const btn = document.getElementById('vector-tile-info-tool');
+        if (!btn) return;
 
         if (!isEnabled) {
             setTimeout(() => {
-                $("#vector-tile-info-tool").html('<img class="icon-sig-tool" src="./images/icon_info_gray.svg" alt="INFO" />');
+                btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_info_gray.svg" alt="INFO" />';
             }, 10);
             return;
         }
 
-        $("#vector-tile-info-tool").html(`<img class="icon-sig-tool" src="./images/icon_info_black.svg" alt="INFO" />`);
-        if (!this.isActive) return
-        $("#vector-tile-info-tool").html('<img class="icon-sig-tool" src="./images/icon_info_red.svg" alt="INFO" />');
+        btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_info_black.svg" alt="INFO" />';
+        if (!this.isActive) return;
+        btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_info_red.svg" alt="INFO" />';
     }
 
     onRemove() {

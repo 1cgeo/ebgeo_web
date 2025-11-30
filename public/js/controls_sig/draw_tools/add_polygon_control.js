@@ -237,7 +237,8 @@ class AddPolygonControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_polygon_red.svg' :
             './images/icon_polygon_black.svg';
-        $("#polygon-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="POLYGON" />`);
+        const btn = document.getElementById('polygon-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="POLYGON" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

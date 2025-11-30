@@ -312,7 +312,8 @@ class AddRectangleControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_rectangle_red.svg' :
             './images/icon_rectangle_black.svg';
-        $("#rectangle-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="RECTANGLE" />`);
+        const btn = document.getElementById('rectangle-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="RECTANGLE" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

@@ -30,7 +30,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -48,7 +48,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
         
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
@@ -56,7 +56,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
         uiManager.updateSelectionHighlight();
     }, 'Cor do pincel');
 
-    $(panel).append(createAttributeRow('Cor:', lineColorInput));
+    panel.appendChild(createAttributeRow('Cor:', lineColorInput));
     const lineWidthControl = createSliderWithInput({
         min: 1,
         max: 50,
@@ -68,7 +68,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
         }
     });
 
-    $(panel).append(createAttributeRow('Largura (px):', lineWidthControl));
+    panel.appendChild(createAttributeRow('Largura (px):', lineWidthControl));
 
     const createdAtZoomControl = createSliderWithInput({
         min: 1,
@@ -82,7 +82,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
         }
     });
 
-    $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
+    panel.appendChild(createAttributeRow('Zoom de referência:', createdAtZoomControl));
     const buttons = createStandardButtons({
         selectedFeatures,
         control: brushControl,
@@ -92,5 +92,5 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
         onSetDefault: () => brushControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

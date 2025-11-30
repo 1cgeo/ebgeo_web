@@ -30,7 +30,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -48,7 +48,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     // ===== ECHELON DROPDOWN =====
@@ -85,7 +85,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         uiManager.updateSelectionHighlight();
     };
 
-    $(panel).append(createAttributeRow('Escalão:', echelonSelect));
+    panel.appendChild(createAttributeRow('Escalão:', echelonSelect));
 
     // Line color
     const colorInput = createColorPicker(feature.properties.color, (e) => {
@@ -93,7 +93,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         uiManager.updateSelectionHighlight();
     }, 'Cor da linha de limite');
 
-    $(panel).append(createAttributeRow('Cor:', colorInput));
+    panel.appendChild(createAttributeRow('Cor:', colorInput));
 
     // Espessura da Linha
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
@@ -104,7 +104,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         }
     }));
 
-    $(panel).append(createAttributeRow('Espessura (px):', lineWidthControl));
+    panel.appendChild(createAttributeRow('Espessura (px):', lineWidthControl));
 
     // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
@@ -115,7 +115,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         }
     }));
 
-    $(panel).append(createAttributeRow('Opacidade:', opacityControl));
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
     const buttons = createStandardButtons({
         selectedFeatures,
         control: boundaryControl,
@@ -125,5 +125,5 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         onSetDefault: () => boundaryControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

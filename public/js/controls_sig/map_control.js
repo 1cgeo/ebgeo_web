@@ -58,8 +58,13 @@ class MapControl {
         this.container.id = 'map-list'
         this.container.className = 'list-map-container';
 
-        const col = $("<div>", { id: 'header-map-list', class: "header-container-column" });
-        const headerContainer = $("<div>", { class: "header-container-row" }).append(col);
+        const col = document.createElement('div');
+        col.id = 'header-map-list';
+        col.className = 'header-container-column';
+
+        const headerContainer = document.createElement('div');
+        headerContainer.className = 'header-container-row';
+        headerContainer.appendChild(col);
 
         const collapseButton = document.createElement('button');
         collapseButton.className = 'collapse-button';
@@ -73,11 +78,13 @@ class MapControl {
 
         collapseButton.addEventListener('click', () => this.collapsePanel());
 
-        headerContainer[0].appendChild(collapseButton);
+        headerContainer.appendChild(collapseButton);
 
-        const titleContainer = $("<div>", { id: 'menu-map-list', class: "menu-container" });
-        col.append(titleContainer);
-        $(this.container).append(headerContainer);
+        const titleContainer = document.createElement('div');
+        titleContainer.id = 'menu-map-list';
+        titleContainer.className = 'menu-container';
+        col.appendChild(titleContainer);
+        this.container.appendChild(headerContainer);
 
         this.contentArea = document.createElement('div');
         this.contentArea.className = 'tab-content-area';
@@ -109,7 +116,8 @@ class MapControl {
     async loadMenu() {
         await initializeWithLastActiveMap();
 
-        $("#menu-map-list").empty();
+        const menuMapList = document.getElementById('menu-map-list');
+        if (menuMapList) menuMapList.innerHTML = '';
 
         const tabSelector = document.createElement('div');
         tabSelector.className = 'tab-selector';
@@ -133,11 +141,12 @@ class MapControl {
         tabSelector.appendChild(featuresTab);
         tabSelector.appendChild(pdfTab);
 
-        $("#header-map-list").append(tabSelector);
+        const headerMapList = document.getElementById('header-map-list');
+        if (headerMapList) headerMapList.appendChild(tabSelector);
 
-        const baseLayerControl = $('.base-layer-control');
-        if (baseLayerControl.length > 0) {
-            baseLayerControl.appendTo('#header-map-list');
+        const baseLayerControl = document.querySelector('.base-layer-control');
+        if (baseLayerControl && headerMapList) {
+            headerMapList.appendChild(baseLayerControl);
         }
 
         this.mapsActionsContainer = document.createElement('div');
@@ -183,7 +192,8 @@ class MapControl {
 
         this.mapsActionsContainer.appendChild(allActionsContainer);
 
-        $("#menu-map-list").append(this.mapsActionsContainer);
+        const menuMapListEl = document.getElementById('menu-map-list');
+        if (menuMapListEl) menuMapListEl.appendChild(this.mapsActionsContainer);
 
         this.updateVisibilityForCurrentTab();
 
@@ -344,15 +354,15 @@ class MapControl {
     }
 
     updateBaseLayerControlVisibility() {
-        const baseLayerControl = $('.base-layer-control');
+        const baseLayerControl = document.querySelector('.base-layer-control');
 
-        if (baseLayerControl.length > 0) {
+        if (baseLayerControl) {
             if (this.currentTab === 'maps' && !this.isCollapsed) {
-                baseLayerControl[0].style.setProperty('display', 'grid', 'important');
-                baseLayerControl.removeClass('base-layer-hidden');
+                baseLayerControl.style.setProperty('display', 'grid', 'important');
+                baseLayerControl.classList.remove('base-layer-hidden');
             } else {
-                baseLayerControl[0].style.setProperty('display', 'none', 'important');
-                baseLayerControl.addClass('base-layer-hidden');
+                baseLayerControl.style.setProperty('display', 'none', 'important');
+                baseLayerControl.classList.add('base-layer-hidden');
             }
         }
     }

@@ -4,7 +4,7 @@ import {
     createSliderWithInput,
     createCheckbox,
     createStandardButtons,
-    createEditableFeatureName,
+    createAttributeRow,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton,
     getCommonConfig
@@ -27,7 +27,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -45,7 +45,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
         
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
@@ -56,11 +56,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
         }
     }));
 
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append($("<label>").text('Opacidade:')))
-            .append($("<div>", { class: "attr-input" }).append(opacityControl))
-    );
+    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
     const widthControl = createSliderWithInput({
         min: 1,
         max: 30,
@@ -72,31 +68,18 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
         }
     });
 
-    $(panel).append(
-        $("<div>", { class: "attr-container-row" })
-            .append($("<div>", { class: "attr-name" }).append($("<label>").text('Largura:')))
-            .append($("<div>", { class: "attr-input" }).append(widthControl))
-    );
-
-    const addAttributeRow = (labelText, inputElement) => {
-        const container = $("<div>", { class: "attr-container-row" });
-        const label = document.createElement('label');
-        label.textContent = labelText;
-        container.append($("<div>", { class: "attr-name" }).append(label));
-        container.append($("<div>", { class: "attr-input" }).append(inputElement));
-        $(panel).append(container);
-    };
+    panel.appendChild(createAttributeRow('Largura:', widthControl));
     const mostrarTamanhoCheckbox = createCheckbox(feature.properties.measure || false, (e) => {
         losControl.updateFeaturesProperty(selectedFeatures, 'measure', e.target.checked);
     });
-    addAttributeRow('Mostrar tamanho:', mostrarTamanhoCheckbox);
+    panel.appendChild(createAttributeRow('Mostrar tamanho:', mostrarTamanhoCheckbox));
 
     if (selectedFeatures.length === 1) {
         const mostrarPerfilCheckbox = createCheckbox(feature.properties.profile || false, (e) => {
             losControl.updateFeaturesProperty(selectedFeatures, 'profile', e.target.checked);
             selectionManager.updateProfile();
         });
-        addAttributeRow('Mostrar perfil:', mostrarPerfilCheckbox);
+        panel.appendChild(createAttributeRow('Mostrar perfil:', mostrarPerfilCheckbox));
     }
 
     const buttons = createStandardButtons({
@@ -108,5 +91,5 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
         onSetDefault: null
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }

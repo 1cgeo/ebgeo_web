@@ -232,7 +232,8 @@ class AddOccupiedFrontControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_occupied_front_red.svg' :
             './images/icon_occupied_front_black.svg';
-        $("#occupied-front-tool").html(`<img class="icon-sig-tool" src="${iconSrc}" alt="FRENTE OCUPADA" />`);
+        const btn = document.getElementById('occupied-front-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="FRENTE OCUPADA" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

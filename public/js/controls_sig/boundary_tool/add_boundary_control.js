@@ -289,7 +289,8 @@ class AddBoundaryControl extends BaseControl {
         const iconSrc = this.isActive ?
             './images/icon_boundary_red.svg' :
             './images/icon_boundary_black.svg';
-        $(`#boundary-tool`).html(`<img class="icon-sig-tool" src="${iconSrc}" alt="BOUNDARY" />`);
+        const btn = document.getElementById('boundary-tool');
+        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="BOUNDARY" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

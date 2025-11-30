@@ -42,7 +42,7 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
             selectionManager,
             uiManager
         );
-        $(panel).append(headerComponent);
+        panel.appendChild(headerComponent);
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
@@ -60,18 +60,18 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
 
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
-        $(panel).append(multiSelectHeader);
+        panel.appendChild(multiSelectHeader);
     }
 
     const fillColorInput = createColorPicker(feature.properties.color, (e) => {
         polygonControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
     });
-    $(panel).append(createAttributeRow('Cor de preenchimento:', fillColorInput));
+    panel.appendChild(createAttributeRow('Cor de preenchimento:', fillColorInput));
 
     const outlineColorInput = createColorPicker(feature.properties.outlinecolor, (e) => {
         polygonControl.updateFeaturesProperty(selectedFeatures, 'outlinecolor', e.target.value);
     });
-    $(panel).append(createAttributeRow('Cor da borda:', outlineColorInput));
+    panel.appendChild(createAttributeRow('Cor da borda:', outlineColorInput));
 
     const fillOpacitySlider = createSliderWithInput({
         min: 0,
@@ -82,7 +82,7 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
             polygonControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
         }
     });
-    $(panel).append(createAttributeRow('Opacidade preenchimento:', fillOpacitySlider));
+    panel.appendChild(createAttributeRow('Opacidade preenchimento:', fillOpacitySlider));
 
     const borderSizeSlider = createSliderWithInput({
         min: 1,
@@ -93,7 +93,7 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
             polygonControl.updateFeaturesProperty(selectedFeatures, 'size', newValue);
         }
     });
-    $(panel).append(createAttributeRow('Largura da borda:', borderSizeSlider));
+    panel.appendChild(createAttributeRow('Largura da borda:', borderSizeSlider));
 
     const borderStyleSelect = createLineStyleSelect(
         feature.properties.lineStyle || 'solid',
@@ -101,7 +101,7 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
             polygonControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
         }
     );
-    $(panel).append(createAttributeRow('Estilo da borda:', borderStyleSelect));
+    panel.appendChild(createAttributeRow('Estilo da borda:', borderStyleSelect));
 
     const hatchContainer = document.createElement('div');
     hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
@@ -121,9 +121,9 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
         openHatchConfigModal(feature, selectedFeatures, polygonControl);
     };
 
-    $(hatchContainer).append(hatchCheckbox);
-    $(hatchContainer).append(hatchConfigButton);
-    $(panel).append(createAttributeRow('Hachura:', hatchContainer));
+    hatchContainer.appendChild(hatchCheckbox);
+    hatchContainer.appendChild(hatchConfigButton);
+    panel.appendChild(createAttributeRow('Hachura:', hatchContainer));
 
     const measureCheckbox = createCheckbox(
         feature.properties.measure === true,
@@ -131,7 +131,7 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
             polygonControl.updateFeaturesProperty(selectedFeatures, 'measure', e.target.checked);
         }
     );
-    $(panel).append(createAttributeRow('Medir:', measureCheckbox));
+    panel.appendChild(createAttributeRow('Medir:', measureCheckbox));
 
     const buttons = createStandardButtons({
         selectedFeatures,
@@ -142,5 +142,5 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
         onSetDefault: () => polygonControl.setDefaultProperties(feature.properties)
     });
 
-    $(panel).append(buttons);
+    panel.appendChild(buttons);
 }
