@@ -1,4 +1,4 @@
-// Path: js\controls_sig\rectangle_tool\add_rectangle_geometry.js
+// Path: js/controls_sig/rectangle_tool/add_rectangle_geometry.js
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**

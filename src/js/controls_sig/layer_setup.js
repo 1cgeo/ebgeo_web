@@ -1,4 +1,4 @@
-// Path: js\controls_sig\layer_setup.js
+// Path: js/controls_sig/layer_setup.js
 import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle, getVisibleLayerIds } from './store/store.js';
 import { HatchPatternGenerator } from './tool_manager/hatch_pattern_generator.js';
 import { initFrameLayers } from './frameLayersConfig.js';

@@ -1,4 +1,4 @@
-// Path: js\controls_sig\export_import_service.js
+// Path: js/controls_sig/export_import_service.js
 import {
     getAllMapNamesStore,
     getCurrentMapName,

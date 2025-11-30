@@ -1,4 +1,4 @@
-// Path: js\controls_sig\store\store.js
+// Path: js/controls_sig/store/store.js
 import {
     SCHEMA_VERSION,
     MIN_SCHEMA_VERSION,

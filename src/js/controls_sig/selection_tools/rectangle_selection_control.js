@@ -1,4 +1,4 @@
-// Path: js\controls_sig\selection_tools\rectangle_selection_control.js
+// Path: js/controls_sig/selection_tools/rectangle_selection_control.js
 import { getSelectionControlConfig } from '../store/store.js';
 
 class RectangleSelectionControl {

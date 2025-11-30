@@ -1,4 +1,4 @@
-// Path: js\controls_sig\street_view_tool\add_street_view_control.js
+// Path: js/controls_sig/street_view_tool/add_street_view_control.js
 
 import * as THREE from '../../../vendor/three/three.module.js';
 import { DragControls } from '../../../vendor/three/addons/controls/DragControls.js';

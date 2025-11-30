@@ -1,4 +1,4 @@
-// Path: js\controls_sig\rectangle_tool\rectangle_attributes_panel.js
+// Path: js/controls_sig/rectangle_tool/rectangle_attributes_panel.js
 
 import {
     createSliderWithInput,

@@ -2,13 +2,14 @@ const fs = require('fs');
 const path = require('path');
 const ignorePackage = require('ignore');
 
-// Define folder names
-const SRC_FOLDER_NAME = 'public';
-const SUBFOLDERS_AND_FILES = ['js', 'css', 'index.html']; // Added css folder and index.html file
+// Define folder names (atualizado para estrutura Vite)
+const SRC_FOLDER_NAME = 'src';
+const SUBFOLDERS_AND_FILES = ['js', 'css']; // Pastas dentro de src/
+const ROOT_FILES = ['index.html']; // Arquivos na raiz do projeto
 const DEST_FOLDER_NAME = 'src_total';
 
 // List of folders to ignore
-const FOLDERS_TO_IGNORE = ['.git', 'node_modules', 'vendors', 'images', 'assets'];
+const FOLDERS_TO_IGNORE = ['.git', 'node_modules', 'vendors', 'images', 'assets', 'vendor'];
 
 // File extensions to process
 const EXTENSIONS_TO_PROCESS = ['.js', '.css', '.html'];
@@ -58,7 +59,7 @@ function copyFilesToDestination(srcDir, destDir, currentDir, ig, pathPrefix = ''
                 const pathParts = relativePath.split(path.sep);
                 const newFileName = pathParts.join('_');
                 const destPath = path.join(destDir, newFileName);
-                
+
                 // Copy the file with the new name
                 fs.copyFileSync(fullPath, destPath);
                 console.log(`Copied: ${relativePath} -> ${newFileName}`);
@@ -67,10 +68,10 @@ function copyFilesToDestination(srcDir, destDir, currentDir, ig, pathPrefix = ''
     }
 }
 
-// Function to copy a single file
-function copySingleFile(srcDir, destDir, filename, ig) {
-    const fullPath = path.join(srcDir, filename);
-    
+// Function to copy a single file from project root
+function copyRootFile(projectRoot, destDir, filename, ig) {
+    const fullPath = path.join(projectRoot, filename);
+
     if (!fs.existsSync(fullPath)) {
         console.log(`File not found: ${fullPath}`);
         return;
@@ -114,25 +115,27 @@ function main() {
 
     console.log(`Processing files from ${srcDirPath} to ${destDirPath}`);
 
-    // Process each subfolder and file
+    // Process each subfolder inside src/
     for (const item of SUBFOLDERS_AND_FILES) {
         const itemPath = path.join(srcDirPath, item);
-        
+
         if (fs.existsSync(itemPath)) {
             const stats = fs.statSync(itemPath);
-            
+
             if (stats.isDirectory()) {
                 // Process directory
-                console.log(`\nProcessing directory: ${item}/`);
+                console.log(`\nProcessing directory: ${SRC_FOLDER_NAME}/${item}/`);
                 copyFilesToDestination(srcDirPath, destDirPath, itemPath, ig);
-            } else if (stats.isFile()) {
-                // Process single file
-                console.log(`\nProcessing file: ${item}`);
-                copySingleFile(srcDirPath, destDirPath, item, ig);
             }
         } else {
             console.log(`\nPath not found: ${itemPath}`);
         }
+    }
+
+    // Process root files (index.html)
+    console.log(`\nProcessing root files:`);
+    for (const file of ROOT_FILES) {
+        copyRootFile(projectRoot, destDirPath, file, ig);
     }
 
     console.log("\nFinished copying and renaming files.");

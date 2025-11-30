@@ -1,4 +1,4 @@
-// Path: js\controls_sig\occupied_front_tool\add_occupied_front_geometry.js
+// Path: js/controls_sig/occupied_front_tool/add_occupied_front_geometry.js
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**

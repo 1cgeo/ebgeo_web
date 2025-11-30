@@ -1,4 +1,4 @@
-// Path: js\controls_sig\map_manager.js
+// Path: js/controls_sig/map_manager.js
 import {
     addMap,
     addFeature,

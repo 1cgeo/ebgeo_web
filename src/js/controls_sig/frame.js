@@ -1,4 +1,4 @@
-// Path: js\controls_sig\frame.js
+// Path: js/controls_sig/frame.js
 import { FRAME_LAYERS, initFrameLayers } from './frameLayersConfig.js';
 import { getCurrentMapNameSync, getFrameStyle, setFrameStyle } from './store/store.js';
 

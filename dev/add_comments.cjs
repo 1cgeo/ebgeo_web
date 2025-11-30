@@ -2,12 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const ignorePackage = require('ignore');
 
-// Define the source folder name
-const SRC_FOLDER_NAME = 'public';
+// Define the source folder name (atualizado para estrutura Vite)
+const SRC_FOLDER_NAME = 'src';
 const JS_SUBFOLDER = 'js';
 
 // List of folders to ignore
-const FOLDERS_TO_IGNORE = ['.git', 'node_modules', 'vendors', 'images', 'assets'];
+const FOLDERS_TO_IGNORE = ['.git', 'node_modules', 'vendors', 'images', 'assets', 'vendor'];
 
 function readGitignore(projectRoot) {
     const gitignorePath = path.join(projectRoot, '.gitignore');
@@ -53,7 +53,9 @@ function processJsFiles(startDir, currentDir, ig) {
 function addCommentToFile(srcDir, filePath, relativePath) {
     try {
         let content = fs.readFileSync(filePath, 'utf8');
-        const comment = `// Path: ${relativePath}\n`;
+        // Normalizar separadores para forward slash (Unix style)
+        const normalizedPath = relativePath.split(path.sep).join('/');
+        const comment = `// Path: ${normalizedPath}\n`;
         const lines = content.split('\n');
         let firstLine = lines[0];
 
@@ -88,7 +90,7 @@ function main() {
     console.log(`Running script from directory: ${jsDirPath}`);
 
     const ig = readGitignore(projectRoot); // Gitignore from project root
-    processJsFiles(srcDirPath, jsDirPath, ig); // Start processing files from public/js folder
+    processJsFiles(srcDirPath, jsDirPath, ig); // Start processing files from src/js folder
 
     console.log("Finished processing .js files.");
 }
