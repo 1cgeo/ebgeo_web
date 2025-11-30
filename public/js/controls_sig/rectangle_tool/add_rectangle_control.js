@@ -1,6 +1,6 @@
 // Path: js\controls_sig\rectangle_tool\add_rectangle_control.js
 
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addRectangleAttributesToPanel } from './rectangle_attributes_panel.js';
 import AddRectangleGeometry from './add_rectangle_geometry.js';
@@ -499,6 +499,7 @@ class AddRectangleControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddRectangleControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 corner1: finalCorner1,  // ✅ Corners normalizados
                 corner2: finalCorner2,  // ✅ Corners normalizados
                 center: finalDimensions.center,  // ✅ Center recalculado

@@ -5,6 +5,7 @@ import {
   removeFeature,
   storeImage,
   removeImage,
+  getActiveLayerIdSync
 } from "../store/store.js";
 import { IDUtils } from "../id_utils.js";
 import { addImageAttributesToPanel } from "./image_attributes_panel.js";
@@ -412,6 +413,7 @@ class AddImageControl extends BaseControl {
         width,
         height,
         id: imageId,
+        layerId: getActiveLayerIdSync(),
       },
       geometry: this.geometry.generate([lngLat.lng, lngLat.lat]),
     };

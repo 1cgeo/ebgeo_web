@@ -1,5 +1,5 @@
 // Path: js\controls_sig\boundary_tool\add_boundary_control.js
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
 import AddBoundaryGeometry from './add_boundary_geometry.js';
@@ -501,7 +501,8 @@ class AddBoundaryControl extends BaseControl {
             symbol_size: adaptiveSymbolSize, // Override with zoom-adaptive size
             baseCoordinates: [...this.drawPoints],
             id: featureId,
-            nome: featureName
+            nome: featureName,
+            layerId: getActiveLayerIdSync(),
         };
 
         const geometry = this.geometry.generate(properties);

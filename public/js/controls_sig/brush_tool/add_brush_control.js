@@ -1,6 +1,6 @@
 // Path: js\controls_sig\brush_tool\add_brush_control.js
 
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addBrushAttributesToPanel } from './brush_attributes_panel.js';
 import AddBrushGeometry from './add_brush_geometry.js';
@@ -403,6 +403,7 @@ class AddBrushControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddBrushControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName,
                 createdAtZoom: currentZoom,

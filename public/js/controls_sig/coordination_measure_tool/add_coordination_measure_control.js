@@ -6,6 +6,7 @@ import {
   removeFeature,
   storeImage,
   removeImage,
+  getActiveLayerIdSync
 } from "../store/store.js";
 import { CoordinationMeasureGenerator } from './coordination_measure_generator.js';
 import { IDUtils } from "../id_utils.js";
@@ -460,6 +461,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       id: Date.now().toString(),
       properties: {
         ...AddCoordinationMeasureControl.DEFAULT_PROPERTIES,
+        layerId: getActiveLayerIdSync(),
         id: featureId,
         nome: featureName,
         pointCode: pointCode,

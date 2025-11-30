@@ -1,6 +1,6 @@
 // Path: js\controls_sig\arrow_tool\add_arrow_control.js
 
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addArrowAttributesToPanel } from './arrow_attributes_panel.js';
 import AddArrowGeometry from './add_arrow_geometry.js';
@@ -464,6 +464,7 @@ class AddArrowControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddArrowControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 width: adaptiveWidth,
                 baseCoordinates: [...this.drawPoints],
                 id: featureId,

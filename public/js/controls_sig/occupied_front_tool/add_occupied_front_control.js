@@ -1,6 +1,6 @@
 // Path: js\controls_sig\occupied_front_tool\add_occupied_front_control.js
 
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addOccupiedFrontAttributesToPanel } from './occupied_front_attributes_panel.js';
 import AddOccupiedFrontGeometry from './add_occupied_front_geometry.js';
@@ -389,6 +389,7 @@ class AddOccupiedFrontControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddOccupiedFrontControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName,
                 baseCoordinates: coordinates

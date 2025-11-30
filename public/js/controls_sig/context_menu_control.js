@@ -5,7 +5,10 @@ import {
     getFeatureGroup, 
     createGroup, 
     combineGroups, 
-    ungroupFeatures 
+    ungroupFeatures,
+    getLayers,
+    moveFeaturesToLayer,
+    getActiveLayerIdSync
 } from './store/store.js';
 
 class ContextMenuControl {
@@ -27,12 +30,11 @@ class ContextMenuControl {
         this._map = map;
         this._createContextMenu();
         
-        // Add event listeners
         this._map.getCanvas().addEventListener('contextmenu', this._onRightClick);
         this._map.on('click', this._onMapClick);
         document.addEventListener('click', this._onDocumentClick);
         
-        return document.createElement('div'); // Empty container as this is not a UI control
+        return document.createElement('div');
     }
 
     onRemove() {
@@ -68,36 +70,39 @@ class ContextMenuControl {
         document.body.appendChild(this._contextMenu);
     }
 
-    _rebuildContextMenu() {
+    async _rebuildContextMenu() {
         if (!this._contextMenu) return;
 
-        // Limpar menu atual
         this._contextMenu.innerHTML = '';
 
-        // Analisar seleção atual para opções de agrupamento
         const groupingAnalysis = this._analyzeSelectionForGrouping();
         const hasGroupingOptions = groupingAnalysis.canCreateGroup || 
                                  groupingAnalysis.canCombineGroups || 
                                  groupingAnalysis.canUngroup;
 
-        // NOVO: Adicionar opções de agrupamento no início (se há seleção)
+        const hasSelectedFeatures = groupingAnalysis.selectedFeatures.length > 0;
+
         if (hasGroupingOptions) {
             this._addGroupingOptions(groupingAnalysis);
             
-            // Separador
             const separator = this._createSeparator();
             this._contextMenu.appendChild(separator);
         }
 
-        // Opções padrão (sempre presentes)
+        if (hasSelectedFeatures) {
+            const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
+            
+            // Só adiciona separador se algo foi realmente adicionado
+            if (layerOptionsAdded) {
+                const separator = this._createSeparator();
+                this._contextMenu.appendChild(separator);
+            }
+        }
+
         this._addDefaultOptions();
     }
 
-    /**
-     * NOVO: Adiciona opções de agrupamento ao menu
-     */
     _addGroupingOptions(analysis) {
-        // Opção "Criar Grupo"
         if (analysis.canCreateGroup) {
             const createGroupItem = this._createMenuItem(
                 'Criar Grupo', 
@@ -106,7 +111,6 @@ class ContextMenuControl {
             this._contextMenu.appendChild(createGroupItem);
         }
 
-        // Opção "Combinar Grupos"
         if (analysis.canCombineGroups) {
             const combineText = analysis.groupIds.length > 1 ? 'Combinar Grupos' : 'Adicionar ao Grupo';
             const combineGroupsItem = this._createMenuItem(
@@ -116,7 +120,6 @@ class ContextMenuControl {
             this._contextMenu.appendChild(combineGroupsItem);
         }
 
-        // Opção "Desagrupar"
         if (analysis.canUngroup) {
             const ungroupItem = this._createMenuItem(
                 'Desagrupar',
@@ -126,15 +129,155 @@ class ContextMenuControl {
         }
     }
 
-    /**
-     * NOVO: Adiciona opções padrão do menu
-     */
+    async _addLayerMoveOptions(selectedFeatures) {
+        const layers = await getLayers();
+        const activeLayerId = getActiveLayerIdSync();
+        
+        const currentLayerId = selectedFeatures[0]?.properties?.layerId || 'default';
+        
+        const availableLayers = layers.filter(l => !l.locked && l.id !== currentLayerId);
+        
+        if (availableLayers.length === 0) {
+            return false; // Nada foi adicionado
+        }
+
+        const submenuContainer = document.createElement('div');
+        submenuContainer.className = 'context-menu-submenu-container';
+        submenuContainer.style.cssText = `
+            position: relative;
+        `;
+
+        const moveToLayerItem = document.createElement('div');
+        moveToLayerItem.className = 'context-menu-item';
+        moveToLayerItem.innerHTML = `
+            <span>Mover para camada</span>
+            <span style="float: right; margin-left: 8px;">▶</span>
+        `;
+        moveToLayerItem.style.cssText = `
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            user-select: none;
+            transition: background-color 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        `;
+
+        const submenu = document.createElement('div');
+        submenu.className = 'context-submenu';
+        submenu.style.cssText = `
+            position: absolute;
+            left: 100%;
+            top: -8px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 8px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            min-width: 150px;
+            display: none;
+            z-index: 10001;
+        `;
+
+        availableLayers.forEach(layer => {
+            const layerItem = document.createElement('div');
+            layerItem.className = 'context-menu-item';
+            
+            let displayName = layer.name;
+            if (layer.id === activeLayerId) {
+                displayName += ' ★';
+            }
+            
+            layerItem.textContent = displayName;
+            layerItem.style.cssText = `
+                padding: 8px 16px;
+                cursor: pointer;
+                font-size: 13px;
+                user-select: none;
+                transition: background-color 0.2s;
+            `;
+
+            layerItem.addEventListener('mouseenter', () => {
+                layerItem.style.backgroundColor = '#f5f5f5';
+            });
+            
+            layerItem.addEventListener('mouseleave', () => {
+                layerItem.style.backgroundColor = '';
+            });
+
+            layerItem.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._handleMoveToLayer(selectedFeatures, layer.id, layer.name);
+                this._hideMenu();
+            });
+
+            submenu.appendChild(layerItem);
+        });
+
+        moveToLayerItem.addEventListener('mouseenter', () => {
+            moveToLayerItem.style.backgroundColor = '#f5f5f5';
+            submenu.style.display = 'block';
+            
+            const rect = submenu.getBoundingClientRect();
+            const windowWidth = window.innerWidth;
+            if (rect.right > windowWidth) {
+                submenu.style.left = 'auto';
+                submenu.style.right = '100%';
+            }
+        });
+
+        submenuContainer.addEventListener('mouseleave', () => {
+            moveToLayerItem.style.backgroundColor = '';
+            submenu.style.display = 'none';
+        });
+
+        submenuContainer.appendChild(moveToLayerItem);
+        submenuContainer.appendChild(submenu);
+        this._contextMenu.appendChild(submenuContainer);
+        
+        return true; // Algo foi adicionado
+    }
+
+    async _handleMoveToLayer(features, targetLayerId, targetLayerName) {
+        try {
+            const featureRefs = features.map(f => ({
+                type: f.properties.source,
+                id: f.properties.id
+            }));
+
+            await moveFeaturesToLayer(featureRefs, targetLayerId);
+
+            for (const feature of features) {
+                const storageType = feature.properties.source + 's';
+                const source = this._map.getSource(storageType);
+                if (source) {
+                    try {
+                        const data = await source.getData();
+                        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
+                        if (sourceFeature) {
+                            sourceFeature.properties.layerId = targetLayerId;
+                        }
+                        source.setData(data);
+                    } catch (e) {
+                        // Source may not support getData
+                    }
+                }
+            }
+
+            showSuccess(`${features.length} feição(ões) movida(s) para "${targetLayerName}"`);
+
+            document.dispatchEvent(new CustomEvent('layers-changed'));
+        } catch (error) {
+            console.error('Erro ao mover features:', error);
+            alert('Erro ao mover feições: ' + error.message);
+        }
+    }
+
     _addDefaultOptions() {
-        // Copiar coordenadas
         const copyItem = this._createMenuItem('Copiar Coordenadas', this._onCopyCoordinates);
         this._contextMenu.appendChild(copyItem);
 
-        // Orientar para norte
         const resetNorthItem = this._createMenuItem('Orientar para Norte', this._onResetNorth.bind(this));
         this._contextMenu.appendChild(resetNorthItem);
     }
@@ -151,7 +294,6 @@ class ContextMenuControl {
             transition: background-color 0.2s;
         `;
         
-        // Hover effects
         item.addEventListener('mouseenter', () => {
             item.style.backgroundColor = '#f5f5f5';
         });
@@ -174,9 +316,6 @@ class ContextMenuControl {
         return item;
     }
 
-    /**
-     * NOVO: Cria separador visual
-     */
     _createSeparator() {
         const separator = document.createElement('div');
         separator.style.cssText = `
@@ -187,9 +326,6 @@ class ContextMenuControl {
         return separator;
     }
 
-    /**
-     * NOVO: Analisa seleção atual para determinar opções de agrupamento
-     */
     _analyzeSelectionForGrouping() {
         if (!this._selectionManager) {
             return {
@@ -197,7 +333,8 @@ class ContextMenuControl {
                 canCombineGroups: false,
                 canUngroup: false,
                 groupIds: [],
-                ungroupedFeatures: []
+                ungroupedFeatures: [],
+                selectedFeatures: []
             };
         }
 
@@ -214,18 +351,31 @@ class ContextMenuControl {
             }
         });
 
+        // Verificar se todas as features selecionadas pertencem à mesma camada
+        const allSameLayer = this._allFeaturesInSameLayer(selected);
+
         return {
-            canCreateGroup: ungroupedFeatures.length > 1,
-            canCombineGroups: groups.size > 0 && (groups.size > 1 || ungroupedFeatures.length > 0),
+            // Só pode criar grupo se todas estiverem na mesma camada
+            canCreateGroup: ungroupedFeatures.length > 1 && allSameLayer,
+            // Só pode combinar grupos se todas estiverem na mesma camada
+            canCombineGroups: groups.size > 0 && (groups.size > 1 || ungroupedFeatures.length > 0) && allSameLayer,
             canUngroup: groups.size === 1 && ungroupedFeatures.length === 0,
             groupIds: Array.from(groups),
-            ungroupedFeatures: ungroupedFeatures
+            ungroupedFeatures: ungroupedFeatures,
+            selectedFeatures: selected
         };
     }
 
     /**
-     * NOVO: Manipula criação de grupo
+     * Verifica se todas as features estão na mesma camada
      */
+    _allFeaturesInSameLayer(features) {
+        if (features.length <= 1) return true;
+        
+        const firstLayerId = features[0]?.properties?.layerId || 'default';
+        return features.every(f => (f.properties?.layerId || 'default') === firstLayerId);
+    }
+
     _handleCreateGroup(features) {
         if (features.length < 2) {
             throw new Error('É necessário pelo menos 2 feições para criar um grupo.');
@@ -233,7 +383,6 @@ class ContextMenuControl {
 
         const newGroup = createGroup(features);
         
-        // Manter seleção das features agrupadas
         if (this._selectionManager) {
             this._selectionManager.deselectAllFeatures();
             this._selectGroup(newGroup);
@@ -241,9 +390,6 @@ class ContextMenuControl {
         }
     }
 
-    /**
-     * NOVO: Manipula combinação de grupos
-     */
     _handleCombineGroups(groupIds, ungroupedFeatures) {
         if (groupIds.length === 0 && ungroupedFeatures.length < 2) {
             throw new Error('É necessário pelo menos 2 feições ou 1 grupo para combinar.');
@@ -251,7 +397,6 @@ class ContextMenuControl {
 
         const combinedGroup = combineGroups(groupIds, ungroupedFeatures);
         
-        // Selecionar o grupo combinado
         if (this._selectionManager) {
             this._selectionManager.deselectAllFeatures();
             this._selectGroup(combinedGroup);
@@ -259,27 +404,18 @@ class ContextMenuControl {
         }
     }
 
-    /**
-     * NOVO: Manipula desagrupamento
-     */
     _handleUngroup(groupId) {
         const features = ungroupFeatures(groupId);
         
-        // Manter features selecionadas após desagrupar
-        // (elas já estão selecionadas, então não precisa fazer nada)
         if (this._selectionManager) {
             this._selectionManager.updateUI();
         }
     }
 
-    /**
-     * NOVO: Seleciona todas as features de um grupo
-     */
     _selectGroup(group) {
         if (!this._selectionManager) return;
 
         group.features.forEach(featureRef => {
-            // Buscar feature completa do source
             const completeFeature = this._selectionManager.getCompleteFeatureFromSource(featureRef.type, featureRef.id);
             if (completeFeature) {
                 this._selectionManager.toggleFeatureSelection(featureRef.type, featureRef.id, completeFeature, false);
@@ -287,19 +423,17 @@ class ContextMenuControl {
         });
     }
 
-    _onRightClick(e) {
+    async _onRightClick(e) {
         e.preventDefault();
         
-        // Check if there's an active tool - block context menu if there is
         if (this._toolManager && this._toolManager.hasActiveTool()) {
             return;
         }
         
-        // Get coordinates from the click position
         const coordinates = this._map.unproject([e.offsetX, e.offsetY]);
         this._lastCoordinates = { lat: coordinates.lat, lng: coordinates.lng };
         
-        this._rebuildContextMenu();
+        await this._rebuildContextMenu();
         
         this._showMenu(e.clientX, e.clientY);
     }
@@ -321,7 +455,6 @@ class ContextMenuControl {
         this._contextMenu.style.top = `${y}px`;
         this._contextMenu.style.display = 'block';
         
-        // Adjust position if menu would be off-screen
         const rect = this._contextMenu.getBoundingClientRect();
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
@@ -368,7 +501,6 @@ class ContextMenuControl {
     _copyToClipboard(text) {
         if (!text || text.trim() === '') return;
 
-        // Try modern clipboard API first
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(text).then(() => {
                 showSuccess('Coordenadas copiadas!');

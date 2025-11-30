@@ -1,6 +1,6 @@
 // Path: js\controls_sig\ellipse_tool\add_ellipse_control.js
 
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
 import AddEllipseGeometry from './add_ellipse_geometry.js';
@@ -393,6 +393,7 @@ class AddEllipseControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddEllipseControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 center: center,
                 majorRadius: majorRadius,
                 minorRadius: minorRadius,

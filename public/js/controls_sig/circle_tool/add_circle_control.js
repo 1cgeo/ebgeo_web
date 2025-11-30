@@ -1,5 +1,5 @@
 // Path: js\controls_sig\circle_tool\add_circle_control.js
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addCircleAttributesToPanel } from './circle_attributes_panel.js';
 import AddCircleGeometry from './add_circle_geometry.js';
@@ -302,6 +302,7 @@ class AddCircleControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddCircleControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 center: center,
                 radius: radius,
                 id: featureId,

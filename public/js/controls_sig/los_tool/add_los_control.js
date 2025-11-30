@@ -1,5 +1,5 @@
 // Path: js\controls_sig\los_tool\add_los_control.js
-import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addLOSAttributesToPanel } from './los_attributes_panel.js';
 import AddLOSGeometry from './add_los_geometry.js';
@@ -511,7 +511,8 @@ class AddLOSControl extends BaseControl {
             const properties = {
                 ...AddLOSControl.DEFAULT_PROPERTIES,
                 id: featureId,
-                nome: featureName
+                nome: featureName,
+                layerId: getActiveLayerIdSync(),
             };
 
             // Create complete LOS feature with geometry and profile

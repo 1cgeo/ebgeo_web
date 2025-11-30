@@ -1,7 +1,7 @@
 // Path: js\controls_sig\tool_manager\attribute_panel_helpers.js
 
-// Import para acessar cores frequentes
-import { getFrequentColors } from '../store/store.js';
+// Import para acessar cores frequentes e layers
+import { getFrequentColors, getLayers, getActiveLayerIdSync, isFeatureEffectivelyLocked } from '../store/store.js';
 import { COORDINATE_FORMATS, getPlaceholderForFormat, parseCoordinates, formatCoordinates } from '../utilities/coordinate_converter.js';
 
 /**
@@ -1280,7 +1280,7 @@ function shouldDisableOptionsButton(selectedFeatures) {
 /**
  * Abre o dropdown de opções
  */
-function openFeatureDropdown(button, selectedFeatures, selectionManager, uiManager) {
+async function openFeatureDropdown(button, selectedFeatures, selectionManager, uiManager) {
     const dropdown = document.createElement('div');
     dropdown.className = 'feature-dropdown-content';
     dropdown.dataset.buttonId = `feature-options-${Date.now()}`;
@@ -1300,6 +1300,49 @@ function openFeatureDropdown(button, selectedFeatures, selectionManager, uiManag
 
     dropdown.appendChild(selectAllButton);
 
+    // Obter camada da feature selecionada
+    const currentFeature = selectedFeatures[0];
+    const currentLayerId = currentFeature?.properties?.layerId || 'default';
+    const layers = await getLayers();
+    const currentLayer = layers.find(l => l.id === currentLayerId);
+
+    if (currentLayer) {
+        // Separador
+        const separator1 = document.createElement('div');
+        separator1.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        dropdown.appendChild(separator1);
+
+        // Item: "Selecionar todos da camada X"
+        const selectAllLayerButton = document.createElement('button');
+        selectAllLayerButton.className = 'feature-menu-button';
+        selectAllLayerButton.textContent = `Selecionar todos da camada "${currentLayer.name}"`;
+        
+        selectAllLayerButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await selectAllInLayer(currentLayerId, selectionManager, uiManager);
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(selectAllLayerButton);
+
+        // Item: "Selecionar todos do tipo na camada"
+        const featureType = currentFeature?.properties?.source;
+        if (featureType) {
+            const selectTypeInLayerButton = document.createElement('button');
+            selectTypeInLayerButton.className = 'feature-menu-button';
+            const typeName = getFeatureTypeName(featureType);
+            selectTypeInLayerButton.textContent = `Selecionar todos "${typeName}" da camada`;
+            
+            selectTypeInLayerButton.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                await selectAllOfTypeInLayer(featureType, currentLayerId, selectionManager, uiManager);
+                closeAllFeatureDropdowns(true);
+            });
+            dropdown.appendChild(selectTypeInLayerButton);
+        }
+    }
+
     // Anexar ao body
     document.body.appendChild(dropdown);
 
@@ -1309,6 +1352,153 @@ function openFeatureDropdown(button, selectedFeatures, selectionManager, uiManag
     // Marcar botão como ativo
     button.classList.add('dropdown-active');
     button.dataset.dropdownOpen = 'true';
+}
+
+/**
+ * Retorna nome legivel do tipo de feature
+ */
+function getFeatureTypeName(featureType) {
+    const names = {
+        'point': 'Pontos',
+        'line': 'Linhas',
+        'polygon': 'Poligonos',
+        'text': 'Textos',
+        'image': 'Imagens',
+        'circle': 'Circulos',
+        'rectangle': 'Retangulos',
+        'ellipse': 'Elipses',
+        'brush': 'Pinceis',
+        'arrow': 'Setas',
+        'boundary': 'Limites',
+        'occupied_front': 'Frentes Ocupadas',
+        'military_symbol': 'Simbolos Militares',
+        'coordination_measure': 'Medidas de Coordenacao'
+    };
+    return names[featureType] || featureType;
+}
+
+/**
+ * Seleciona todas as features de uma camada (nao bloqueadas)
+ */
+async function selectAllInLayer(layerId, selectionManager, uiManager) {
+    try {
+        // Coletar todas as features de todos os sources do mapa filtrando por layerId
+        const allFeatures = [];
+        
+        // Iterar sobre todos os controls registrados no selectionManager
+        for (const [featureType, control] of selectionManager.controls) {
+            const sourceNames = control.getSourceNames();
+            if (!sourceNames || sourceNames.length === 0) continue;
+            
+            for (const sourceName of sourceNames) {
+                const source = selectionManager.map.getSource(sourceName);
+                if (!source) continue;
+                
+                try {
+                    const data = await source.getData();
+                    if (data && data.features) {
+                        // Filtrar features da camada especificada
+                        const layerFeatures = data.features.filter(f => {
+                            const featureLayerId = f.properties?.layerId || 'default';
+                            return featureLayerId === layerId;
+                        });
+                        allFeatures.push(...layerFeatures);
+                    }
+                } catch (e) {
+                    console.debug(`Erro ao obter dados do source ${sourceName}:`, e);
+                }
+            }
+        }
+        
+        // Filtrar features bloqueadas
+        const selectableFeatures = allFeatures.filter(f => !isFeatureEffectivelyLocked(f));
+        
+        if (selectableFeatures.length === 0) {
+            return;
+        }
+
+        selectionManager.deselectAllFeatures();
+
+        for (const feature of selectableFeatures) {
+            const featureType = feature.properties?.source;
+            const featureId = feature.properties?.id;
+            if (featureType && featureId) {
+                if (!selectionManager.isFeatureSelected(featureType, featureId)) {
+                    await selectionManager.toggleFeatureSelection(featureType, featureId, feature, false);
+                }
+            }
+        }
+
+        // Atualizar UI
+        uiManager.updateSelectionHighlight();
+        uiManager.updatePanels();
+    } catch (error) {
+        console.error('Erro ao selecionar todas features da camada:', error);
+    }
+}
+
+/**
+ * Seleciona todas as features de um tipo em uma camada especifica
+ */
+async function selectAllOfTypeInLayer(featureType, layerId, selectionManager, uiManager) {
+    try {
+        // Obter control correspondente ao tipo
+        const control = selectionManager.controls.get(featureType);
+        if (!control) {
+            console.warn(`Control não encontrado para tipo: ${featureType}`);
+            return;
+        }
+
+        // Obter source names do control
+        const sourceNames = control.getSourceNames();
+        if (!sourceNames || sourceNames.length === 0) {
+            console.warn(`Source names não encontrados para tipo: ${featureType}`);
+            return;
+        }
+
+        // Coletar features do tipo na camada especificada
+        const filteredFeatures = [];
+        
+        for (const sourceName of sourceNames) {
+            const source = selectionManager.map.getSource(sourceName);
+            if (!source) continue;
+            
+            try {
+                const data = await source.getData();
+                if (data && data.features) {
+                    // Filtrar features da camada especificada e não bloqueadas
+                    const layerFeatures = data.features.filter(f => {
+                        const featureLayerId = f.properties?.layerId || 'default';
+                        return featureLayerId === layerId && !isFeatureEffectivelyLocked(f);
+                    });
+                    filteredFeatures.push(...layerFeatures);
+                }
+            } catch (e) {
+                console.debug(`Erro ao obter dados do source ${sourceName}:`, e);
+            }
+        }
+        
+        if (filteredFeatures.length === 0) {
+            return;
+        }
+
+        selectionManager.deselectAllFeatures();
+
+        for (const feature of filteredFeatures) {
+            const featureId = feature.properties?.id;
+            if (featureId) {
+                if (!selectionManager.isFeatureSelected(featureType, featureId)) {
+                    await selectionManager.toggleFeatureSelection(featureType, featureId, feature, false);
+                }
+            }
+        }
+
+        // Atualizar UI
+        uiManager.updateSelectionHighlight();
+        uiManager.updatePanels();
+    } catch (error) {
+        console.error('Erro ao selecionar features do tipo na camada:', error);
+    }
 }
 
 /**

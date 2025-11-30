@@ -1,6 +1,8 @@
 // Path: js\controls_sig\tool_manager\selection_manager.js
 import { 
-    getFeatureGroup, 
+    getFeatureGroup,
+    getVisibleLayerIds,
+    isFeatureEffectivelyLocked,
 } from '../store/store.js';
 class SelectionManager {
     constructor(map) {
@@ -86,10 +88,16 @@ class SelectionManager {
     }
     /**
      * Get ALL clicked custom features at a point
+     * MODIFIED: Filter out features whose layer is not visible
      */
     getAllClickedCustomFeatures = (point) => {
         const features = this.map.queryRenderedFeatures(point);
         const clickedFeatures = [];
+        
+        // Get visible layer IDs for filtering
+        const visibleLayerIds = getVisibleLayerIds();
+        const visibleLayerSet = new Set(visibleLayerIds);
+        
         // Search through each configured control type
         for (const [type, control] of this.controls) {
             const layerIds = control.getLayerIds();
@@ -99,7 +107,12 @@ class SelectionManager {
                     f.source === sourceName && f.properties.source === type
                 );
                 matchingFeatures.forEach(feature => {
-                    if (feature.properties.bloqueado === true) {
+                    if (isFeatureEffectivelyLocked(feature)) {
+                        return;
+                    }
+                    // LAYER VISIBILITY CHECK: Skip features in hidden layers
+                    const featureLayerId = feature.properties.layerId || 'default';
+                    if (!visibleLayerSet.has(featureLayerId)) {
                         return;
                     }
                     clickedFeatures.push({ ...feature, toolType: type });
@@ -129,8 +142,8 @@ class SelectionManager {
      * Handle click on a specific feature - MODIFICADO para grupos
      */
     _handleFeatureClick = async (clickedFeature, e) => {
-        // Check if feature is blocked
-        if (clickedFeature.properties.bloqueado === true) {
+        // Check if feature is blocked (layer, group, or individual)
+        if (isFeatureEffectivelyLocked(clickedFeature)) {
             return;
         }
         const type = clickedFeature.toolType;
@@ -215,8 +228,8 @@ class SelectionManager {
     _showFeatureSelectionMenu = (features, e) => {
         // Close previous menu if exists
         this._hideFeatureSelectionMenu();
-        // Filter out blocked features
-        const availableFeatures = features.filter(f => f.properties.bloqueado !== true);
+        // Filter out blocked features (layer, group, or individual)
+        const availableFeatures = features.filter(f => !isFeatureEffectivelyLocked(f));
         if (availableFeatures.length === 0) return;
         if (availableFeatures.length === 1) {
             // If only one remains after filtering, select directly

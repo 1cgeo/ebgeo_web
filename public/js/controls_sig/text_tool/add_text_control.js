@@ -1,6 +1,6 @@
 // Path: js\controls_sig\text_tool\add_text_control.js
 
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addTextAttributesToPanel } from './text_attributes_panel.js';
 import AddTextGeometry from './add_text_geometry.js';
@@ -416,6 +416,7 @@ class AddTextControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddTextControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName,
                 createdAtZoom: currentZoom,

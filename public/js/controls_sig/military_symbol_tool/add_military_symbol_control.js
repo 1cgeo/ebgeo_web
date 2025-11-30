@@ -7,7 +7,8 @@ import {
   removeFeature,
   storeImage,
   removeImage,
-} from "../store/store.js";
+  getActiveLayerIdSync
+} from '../store/store.js';
 import { MilitarySymbolGenerator } from "./military_symbol_generator.js";
 import { IDUtils } from "../id_utils.js";
 import { addMilitarySymbolAttributesToPanel } from "./military_symbol_attributes_panel.js";
@@ -471,6 +472,7 @@ class AddMilitarySymbolControl extends BaseControl {
       id: Date.now().toString(),
       properties: {
         ...AddMilitarySymbolControl.DEFAULT_PROPERTIES,
+        layerId: getActiveLayerIdSync(),
         id: featureId,
         nome: featureName,
         sidc: sidc30,

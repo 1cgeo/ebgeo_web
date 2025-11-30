@@ -2,15 +2,16 @@
 import config from '../../config.js';
 
 // Schema versioning
-const SCHEMA_VERSION = '1.4';
+const SCHEMA_VERSION = '1.5';
 const MIN_SCHEMA_VERSION = '1.3';
-const MAX_SCHEMA_VERSION = '1.4';
+const MAX_SCHEMA_VERSION = '1.5';
 
 // LocalForage instances - PRIVADAS, não exportadas
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
-const groupStore = localforage.createInstance({ name: 'ebgeo_groups' }); // NOVO: Store para grupos
+const groupStore = localforage.createInstance({ name: 'ebgeo_groups' });
+const layerStore = localforage.createInstance({ name: 'ebgeo_layers' }); // NOVO: Store para camadas
 
 // Memory store - gerenciado aqui mas acessado via map-manager
 const memoryStore = {
@@ -23,7 +24,7 @@ const memoryStore = {
     currentMap: 'Principal',
     isUndoing: false,
     isRedoing: false,
-    groups: {} // NOVO: Cache de grupos por mapa - groups[mapName] = Map<groupId, groupData>
+    groups: {}
 };
 
 /**
@@ -138,7 +139,8 @@ const checkAndCleanLegacyData = async () => {
             await mapStore.clear();
             await imageStore.clear();
             await appStore.clear();
-            await groupStore.clear(); // NOVO: Limpar grupos também
+            await groupStore.clear();
+            await layerStore.clear(); // NOVO: Limpar layers também
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
 
         }
@@ -148,7 +150,8 @@ const checkAndCleanLegacyData = async () => {
             await mapStore.clear();
             await imageStore.clear();
             await appStore.clear();
-            await groupStore.clear(); // NOVO: Limpar grupos também
+            await groupStore.clear();
+            await layerStore.clear(); // NOVO: Limpar layers também
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         } catch (cleanupError) {
             console.error('❌ Erro crítico na limpeza de dados:', cleanupError);
@@ -169,7 +172,7 @@ const resetMemoryStore = () => {
     memoryStore.currentMap = 'Principal';
     memoryStore.isUndoing = false;
     memoryStore.isRedoing = false;
-    memoryStore.groups = {}; // NOVO: Resetar cache de grupos
+    memoryStore.groups = {};
 };
 
 // ===== MAP CRUD OPERATIONS =====
@@ -192,7 +195,8 @@ const deleteMapData = async (mapName) => {
     await mapStore.removeItem(mapName);
     await removeColorUsage(mapName);
     await removeMapNotes(mapName);
-    await removeMapGroups(mapName); // NOVO: Remover grupos do mapa
+    await removeMapGroups(mapName);
+    await removeMapLayers(mapName); // NOVO: Remover layers do mapa
 };
 
 const getAllMapNames = async () => {
@@ -219,11 +223,20 @@ const renameMapData = async (oldName, newName) => {
             await removeMapNotes(oldName);
         }
 
-        // NOVO: Transferir grupos
+        // Transferir grupos
         const groupsData = await getMapGroups(oldName);
         if (groupsData && Object.keys(groupsData).length > 0) {
             await setMapGroups(newName, groupsData);
             await removeMapGroups(oldName);
+        }
+
+        // NOVO: Transferir layers
+        const layersData = await getLayers(oldName);
+        const activeLayerId = await getActiveLayerId(oldName);
+        if (layersData && layersData.length > 0) {
+            await setLayers(newName, layersData);
+            await setActiveLayerId(newName, activeLayerId);
+            await removeMapLayers(oldName);
         }
     }
 };
@@ -293,6 +306,10 @@ const clearAllGroupData = async () => {
     await groupStore.clear();
 };
 
+const clearAllLayerData = async () => {
+    await layerStore.clear();
+};
+
 // ===== APP SETTINGS OPERATIONS =====
 
 const setAppSetting = async (key, value) => {
@@ -310,7 +327,8 @@ const clearAllAppSettings = async () => {
         try {
             await removeColorUsage(mapName);
             await removeMapNotes(mapName);
-            await removeMapGroups(mapName); // NOVO: Limpar grupos
+            await removeMapGroups(mapName);
+            await removeMapLayers(mapName); 
         } catch (error) {
             console.warn(`Erro ao limpar dados do mapa ${mapName}:`, error);
         }
@@ -354,6 +372,51 @@ const migrateAllMapsTo14 = async () => {
     }
 };
 
+/**
+ * Migra um mapa individual para v1.5 (adiciona layerId: 'default' em features sem layerId)
+ */
+const migrateMapTo15 = async (mapName, mapData) => {
+    let modified = false;
+    const featureTypes = Object.keys(mapData.features);
+    
+    for (const featureType of featureTypes) {
+        const features = mapData.features[featureType];
+        if (!Array.isArray(features)) continue;
+        
+        for (const feature of features) {
+            if (feature.properties && !feature.properties.layerId) {
+                feature.properties.layerId = 'default';
+                modified = true;
+            }
+        }
+    }
+    
+    if (modified) {
+        await mapStore.setItem(mapName, mapData);
+    }
+    return modified;
+};
+
+/**
+ * Migra todos os mapas para v1.5
+ */
+const migrateAllMapsTo15 = async () => {
+    const mapNames = await getAllMapNames();
+    let migratedCount = 0;
+    
+    for (const mapName of mapNames) {
+        const mapData = await mapStore.getItem(mapName);
+        if (mapData) {
+            const wasMigrated = await migrateMapTo15(mapName, mapData);
+            if (wasMigrated) migratedCount++;
+        }
+    }
+    
+    if (migratedCount > 0) {
+        console.log(`✅ Migrated ${migratedCount} map(s) to v1.5 (added layerId to features)`);
+    }
+};
+
 // ===== INITIALIZATION =====
 
 const initializeRepository = async () => {
@@ -365,8 +428,15 @@ const initializeRepository = async () => {
         // Migração 1.3 → 1.4
         if (currentSchemaVersion === '1.3') {
             await migrateAllMapsTo14();
+            await migrateAllMapsTo15();
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        } else if (!currentSchemaVersion) {
+        }
+        // Migração 1.4 → 1.5
+        else if (currentSchemaVersion === '1.4') {
+            await migrateAllMapsTo15();
+            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        }
+        else if (!currentSchemaVersion) {
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         }
 
@@ -458,6 +528,78 @@ const setMapOrder = async (orderArray) => {
     await appStore.setItem('mapOrder', orderArray);
 };
 
+// ===== LAYER OPERATIONS (NOVO) =====
+
+/**
+ * Retorna a camada padrão
+ */
+const getDefaultLayer = () => ({
+    id: 'default',
+    name: 'Padrão',
+    visible: true,
+    locked: false,
+    color: '#3b82f6'
+});
+
+/**
+ * Salva as camadas de um mapa no IndexedDB
+ * @param {string} mapName - Nome do mapa
+ * @param {Array} layers - Array de camadas
+ */
+const setLayers = async (mapName, layers) => {
+    const key = `layers_${mapName}`;
+    await layerStore.setItem(key, layers);
+};
+
+/**
+ * Carrega as camadas de um mapa do IndexedDB
+ * @param {string} mapName - Nome do mapa
+ * @returns {Promise<Array>} Array de camadas
+ */
+const getLayers = async (mapName) => {
+    const key = `layers_${mapName}`;
+    const layers = await layerStore.getItem(key);
+    
+    // Se não existem camadas, retornar array com camada padrão
+    if (!layers || layers.length === 0) {
+        return [getDefaultLayer()];
+    }
+    
+    return layers;
+};
+
+/**
+ * Salva o ID da camada ativa de um mapa
+ * @param {string} mapName - Nome do mapa
+ * @param {string} layerId - ID da camada ativa
+ */
+const setActiveLayerId = async (mapName, layerId) => {
+    const key = `activeLayer_${mapName}`;
+    await layerStore.setItem(key, layerId);
+};
+
+/**
+ * Retorna o ID da camada ativa de um mapa
+ * @param {string} mapName - Nome do mapa
+ * @returns {Promise<string>} ID da camada ativa
+ */
+const getActiveLayerId = async (mapName) => {
+    const key = `activeLayer_${mapName}`;
+    const activeId = await layerStore.getItem(key);
+    return activeId || 'default';
+};
+
+/**
+ * Remove todas as camadas de um mapa
+ * @param {string} mapName - Nome do mapa
+ */
+const removeMapLayers = async (mapName) => {
+    const layersKey = `layers_${mapName}`;
+    const activeKey = `activeLayer_${mapName}`;
+    await layerStore.removeItem(layersKey);
+    await layerStore.removeItem(activeKey);
+};
+
 // ===== EXPORTS =====
 
 export {
@@ -491,7 +633,8 @@ export {
     hasImageData,
     clearAllImageData,
     clearAllMapData,
-    clearAllGroupData, // NOVO
+    clearAllGroupData,
+    clearAllLayerData, // NOVO
 
     // App settings
     setAppSetting,
@@ -523,9 +666,17 @@ export {
     getMapOrder,
     setMapOrder,
 
-    // Group operations (NOVO)
+    // Group operations
     setMapGroups,
     getMapGroups,
     removeMapGroups,
-    getAllMapsWithGroups
+    getAllMapsWithGroups,
+
+    // Layer operations (NOVO)
+    setLayers,
+    getLayers,
+    setActiveLayerId,
+    getActiveLayerId,
+    removeMapLayers,
+    getDefaultLayer
 };

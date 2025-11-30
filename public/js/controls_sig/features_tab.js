@@ -13,6 +13,16 @@ import {
   updateGroupProperty,
   getCurrentMapNameSync,
   getStorageTypeFromSource,
+  // LAYER SYSTEM IMPORTS
+  getLayers,
+  getActiveLayerIdSync,
+  setActiveLayer,
+  setLayerVisibility,
+  setLayerLocked,
+  createLayer,
+  deleteLayer,
+  renameLayer,
+  reorderLayers,
 } from "./store/store.js";
 import { FeatureNavigationUtils } from "./utilities/feature_navigation_utils.js";
 import config from "../config.js";
@@ -27,8 +37,20 @@ class FeaturesTab {
 
     this._sourceDataHandler = null;
     this._groupsChangedHandler = null;
+    this._layersChangedHandler = null; // NEW: Layer system handler
     this._debounceTimer = null;
     this._isVisible = false;
+    
+    // Flag para suprimir refresh durante atualizações internas
+    this._suppressRefresh = false;
+    // Flag para suprimir eventos layers-changed emitidos internamente
+    this._suppressLayersChangedRefresh = false;
+    // Cache do último estado para detectar mudanças estruturais
+    this._lastFeatureCount = null;
+    this._lastLayerIds = null;
+    
+    // Instância do Sortable para reordenação de camadas
+    this._sortableInstance = null;
 
     this.INLINE_ICONS = {
       EYE_VISIBLE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -65,6 +87,24 @@ class FeaturesTab {
       COLLAPSE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="18 15 12 9 6 15"/>
             </svg>`,
+      // NEW: Layer system icons
+      LAYER: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                <polyline points="2 17 12 22 22 17"/>
+                <polyline points="2 12 12 17 22 12"/>
+            </svg>`,
+      ADD: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>`,
+      DELETE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>`,
+      DRAG: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="4" y1="8" x2="20" y2="8"/>
+                <line x1="4" y1="16" x2="20" y2="16"/>
+            </svg>`,
     };
   }
 
@@ -83,7 +123,7 @@ class FeaturesTab {
     const analysisLayersContainer = this.createAnalysisLayersControl();
     this.container.appendChild(analysisLayersContainer);
 
-    // Header with refresh button
+    // Header com botão de adicionar camada
     const header = this.createHeader();
     this.container.appendChild(header);
 
@@ -97,8 +137,389 @@ class FeaturesTab {
     // Adicionar estilos CSS para grupos
     this.addGroupStyles();
 
+    // Adicionar estilos CSS para layers integrados
+    this.addLayerStyles();
+
     return this.container;
   }
+
+  // ============================================================
+  // NEW: LAYER SYSTEM METHODS
+  // ============================================================
+
+  /**
+   * Adiciona nova camada
+   */
+  async handleAddLayer() {
+    const name = prompt('Nome da nova camada:', 'Nova Camada');
+    if (!name || !name.trim()) return;
+
+    try {
+      const newLayer = await createLayer(name.trim());
+      await setActiveLayer(newLayer.id);
+      await this.loadFeatures();
+      this.emitLayersChanged();
+    } catch (error) {
+      console.error('Erro ao criar camada:', error);
+      alert('Erro ao criar camada: ' + error.message);
+    }
+  }
+
+  /**
+   * Define camada ativa - atualiza apenas indicadores visuais sem reconstruir a lista
+   */
+  async handleSetActiveLayer(layerId) {
+    try {
+      const layers = await getLayers();
+      const layer = layers.find(l => l.id === layerId);
+      
+      if (layer && layer.locked) {
+        console.warn('Nao e possivel ativar uma camada bloqueada');
+        return;
+      }
+      
+      const previousActiveId = getActiveLayerIdSync();
+      await setActiveLayer(layerId);
+      
+      // Atualização incremental: apenas atualizar indicadores visuais
+      this._updateActiveLayerIndicators(previousActiveId, layerId);
+    } catch (error) {
+      console.error('Erro ao definir camada ativa:', error);
+    }
+  }
+
+  /**
+   * Toggle visibilidade da camada
+   */
+  async handleToggleLayerVisibility(layerId) {
+    try {
+      const layers = await getLayers();
+      const layer = layers.find(l => l.id === layerId);
+      if (!layer) return;
+
+      const newVisibility = !layer.visible;
+      await setLayerVisibility(layerId, newVisibility);
+      
+      // Atualização incremental: apenas atualizar indicadores visuais da layer
+      this._updateLayerVisibilityIndicator(layerId, newVisibility);
+      
+      // Emitir evento mas suprimir nosso próprio refresh
+      this._suppressLayersChangedRefresh = true;
+      this.emitLayersChanged();
+      setTimeout(() => { this._suppressLayersChangedRefresh = false; }, 50);
+    } catch (error) {
+      console.error('Erro ao alterar visibilidade:', error);
+    }
+  }
+
+  /**
+   * Toggle bloqueio da camada
+   */
+  async handleToggleLayerLock(layerId) {
+    try {
+      const layers = await getLayers();
+      const layer = layers.find(l => l.id === layerId);
+      if (!layer) return;
+
+      const newLockState = !layer.locked;
+      await setLayerLocked(layerId, newLockState);
+      
+      // Atualização incremental: apenas atualizar indicadores visuais da layer
+      this._updateLayerLockIndicator(layerId, newLockState);
+      
+      // Emitir evento mas suprimir nosso próprio refresh
+      this._suppressLayersChangedRefresh = true;
+      this.emitLayersChanged();
+      setTimeout(() => { this._suppressLayersChangedRefresh = false; }, 50);
+    } catch (error) {
+      console.error('Erro ao alterar bloqueio:', error);
+    }
+  }
+
+  /**
+   * Deleta camada e todas as suas features
+   */
+  async handleDeleteLayer(layerId) {
+    const layers = await getLayers();
+    
+    // Regra: deve existir sempre pelo menos uma camada
+    if (layers.length <= 1) {
+      alert('Não é possível excluir a única camada existente.');
+      return;
+    }
+
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer) return;
+
+    const confirmed = confirm(`Excluir a camada "${layer.name}"?\n\n⚠️ ATENÇÃO: Todas as feições desta camada serão PERMANENTEMENTE excluídas!`);
+    if (!confirmed) return;
+
+    try {
+      await deleteLayer(layerId);
+      // Sincronizar sources do MapLibre com o IndexedDB
+      await this._syncMapSourcesAfterDelete(layerId);
+      await this.loadFeatures();
+      this.emitLayersChanged();
+    } catch (error) {
+      console.error('Erro ao excluir camada:', error);
+      alert('Erro ao excluir camada: ' + error.message);
+    }
+  }
+
+  /**
+   * Sincroniza as sources do MapLibre após deletar features de uma camada
+   * Remove features que pertencem à camada deletada de todas as sources
+   */
+  async _syncMapSourcesAfterDelete(deletedLayerId) {
+    for (const sourceId of this.FEATURE_SOURCES) {
+      const source = this.map.getSource(sourceId);
+      if (!source) continue;
+      
+      try {
+        const data = await source.getData();
+        if (data && data.features && data.features.length > 0) {
+          const initialCount = data.features.length;
+          // Filtrar removendo features da camada deletada
+          data.features = data.features.filter(f => {
+            const featureLayerId = f.properties?.layerId || 'default';
+            return featureLayerId !== deletedLayerId;
+          });
+          
+          // Só atualizar se houve mudança
+          if (data.features.length !== initialCount) {
+            source.setData(data);
+          }
+        }
+      } catch (error) {
+        console.debug(`Erro ao sincronizar source ${sourceId}:`, error.message);
+      }
+    }
+  }
+
+  /**
+   * Renomeia uma camada
+   */
+  async handleRenameLayer(layerId, newName) {
+    if (!newName || !newName.trim()) {
+      throw new Error('Nome da camada não pode ser vazio');
+    }
+
+    await renameLayer(layerId, newName.trim());
+    await this.loadFeatures();
+  }
+
+  /**
+   * Emite evento de mudanÃ§a nas layers
+   */
+  emitLayersChanged() {
+    document.dispatchEvent(new CustomEvent('layers-changed'));
+  }
+
+  /**
+   * Adiciona estilos CSS para o sistema de layers integrado
+   */
+  addLayerStyles() {
+    if (document.getElementById('layer-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'layer-styles';
+    style.textContent = `
+      /* Botão adicionar camada no header */
+      .layer-add-btn {
+        background: none;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        cursor: pointer;
+        padding: 2px 6px;
+        color: #666;
+        display: flex;
+        align-items: center;
+        transition: all 0.2s;
+      }
+      
+      .layer-add-btn:hover {
+        background-color: #e9ecef;
+        border-color: #007bff;
+        color: #007bff;
+      }
+      
+      /* Container de cada layer na lista */
+      .layer-container {
+        margin-bottom: 2px;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        overflow: hidden;
+        background-color: #fff;
+      }
+      
+      .layer-container.layer-active {
+        border-color: #28a745;
+        border-left: 3px solid #28a745;
+      }
+      
+      .layer-container.layer-hidden {
+        opacity: 0.6;
+      }
+      
+      .layer-container.layer-locked {
+        background-color: #fffbf0;
+      }
+      
+      /* Header da layer */
+      .layer-header {
+        display: flex;
+        align-items: center;
+        padding: 6px 8px;
+        background-color: #f5f5f5;
+        cursor: pointer;
+        user-select: none;
+        gap: 4px;
+      }
+      
+      .layer-header:hover {
+        background-color: #e9ecef;
+      }
+      
+      .layer-header.active {
+        background-color: #d4edda;
+      }
+      
+      .layer-radio {
+        margin: 0;
+        cursor: pointer;
+      }
+      
+      .layer-expand-icon {
+        color: #666;
+        display: flex;
+        align-items: center;
+        transition: transform 0.2s ease;
+      }
+      
+      .layer-expand-icon.collapsed {
+        transform: rotate(-90deg);
+      }
+      
+      .layer-icon {
+        color: #666;
+        display: flex;
+        align-items: center;
+      }
+      
+      .layer-name {
+        flex: 1;
+        font-size: 13px;
+        font-weight: 500;
+        color: #333;
+        cursor: pointer;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      
+      .layer-count {
+        font-size: 11px;
+        color: #666;
+        background-color: #e9ecef;
+        padding: 1px 6px;
+        border-radius: 10px;
+        margin-right: 4px;
+      }
+      
+      .layer-controls {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      
+      .layer-controls button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: 3px;
+        border-radius: 3px;
+        color: #666;
+        display: flex;
+        align-items: center;
+        transition: all 0.2s;
+      }
+      
+      .layer-controls button:hover:not(:disabled) {
+        background-color: #fff;
+        color: #007bff;
+      }
+      
+      .layer-controls button:disabled {
+        cursor: not-allowed;
+        opacity: 0.3;
+      }
+      
+      .layer-delete-btn:hover:not(:disabled) {
+        color: #dc3545 !important;
+      }
+      
+      /* Conteúdo da layer (features e grupos) */
+      .layer-content {
+        padding: 4px 4px 4px 16px;
+        background-color: #fff;
+      }
+      
+      .layer-content.collapsed {
+        display: none;
+      }
+      
+      /* Indicador de grupo split (cross-layer) */
+      .group-split-indicator {
+        color: #fd7e14;
+        font-style: italic;
+      }
+      
+      /* Drag handle para reordenação de camadas */
+      .layer-drag-handle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        cursor: grab;
+        color: #999;
+        user-select: none;
+        flex-shrink: 0;
+        transition: color 0.2s ease;
+        padding: 0 2px;
+      }
+      
+      .layer-drag-handle:hover {
+        color: #007bff;
+      }
+      
+      .layer-drag-handle:active {
+        cursor: grabbing;
+      }
+      
+      /* Estados do Sortable para layers */
+      .layer-sortable-ghost {
+        opacity: 0.4;
+        background-color: rgba(0, 123, 255, 0.1) !important;
+      }
+      
+      .layer-sortable-chosen {
+        background-color: rgba(0, 123, 255, 0.15) !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+      }
+      
+      .layer-sortable-drag {
+        opacity: 1 !important;
+        background-color: white !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // ============================================================
+  // END OF LAYER SYSTEM METHODS
+  // ============================================================
 
   /**
    * Adiciona estilos CSS específicos para grupos
@@ -442,10 +863,17 @@ class FeaturesTab {
         `;
 
     const title = document.createElement("span");
-    title.textContent = "Feições";
+    title.textContent = "Camadas";
     title.style.cssText = "font-weight: 500; font-size: 14px;";
 
+    const addLayerBtn = document.createElement("button");
+    addLayerBtn.className = "layer-add-btn";
+    addLayerBtn.title = "Nova camada";
+    addLayerBtn.innerHTML = this.INLINE_ICONS.ADD;
+    addLayerBtn.onclick = () => this.handleAddLayer();
+
     header.appendChild(title);
+    header.appendChild(addLayerBtn);
 
     return header;
   }
@@ -595,19 +1023,23 @@ class FeaturesTab {
   async loadFeatures() {
     if (!this.container) return;
 
-    // Mostrar spinner
-    this.showLoadingSpinner();
+    const featuresList = this.container.querySelector(".features-list");
+    const isInitialLoad = !featuresList || featuresList.children.length === 0 || 
+                          featuresList.querySelector('.features-loading') ||
+                          featuresList.querySelector('.features-empty-message');
+
+    // Mostrar spinner apenas na carga inicial
+    if (isInitialLoad) {
+      this.showLoadingSpinner();
+    }
 
     try {
       // Obter features diretamente dos sources do mapa
       // Isso garante que mudanças não salvas (ex: nome editado) sejam refletidas
-      const [features] = await Promise.all([
-        this._getFeaturesFromMapSources(),
-        new Promise((resolve) => setTimeout(resolve, 100)),
-      ]);
+      const features = await this._getFeaturesFromMapSources();
 
       // Organizar features por grupos
-      const organizedData = this.organizeFeaturesByGroups(features);
+      const organizedData = await this.organizeFeaturesByGroups(features);
       this.renderOrganizedFeatures(organizedData);
     } catch (error) {
       console.error("Erro ao carregar features:", error);
@@ -630,86 +1062,431 @@ class FeaturesTab {
   }
 
   /**
-   * Organiza features por grupos e features soltas
+   * Organiza features por LAYERS, depois por grupos e features soltas
+   * Implementa a hierarquia: Layer -> Group -> Feature
+   * Grupos cross-layer aparecem em cada layer com indicador "N de M"
    */
-  organizeFeaturesByGroups(features) {
+  async organizeFeaturesByGroups(features) {
     const currentMapName = getCurrentMapNameSync();
     const groups = getMapGroups(currentMapName);
+    const layers = await getLayers();
+    const activeLayerId = getActiveLayerIdSync();
 
-    const groupedFeatures = new Map();
-    const ungroupedFeatures = [];
-
-    // Preparar estrutura flat de features
     const flatFeatures = this.flattenAndSortFeatures(features);
 
-    // Organizar por grupos
+    const layerData = {};
+
+    layers.forEach(layer => {
+      layerData[layer.id] = {
+        layer: layer,
+        isActive: layer.id === activeLayerId,
+        groups: new Map(),
+        ungrouped: [],
+        featureCount: 0
+      };
+    });
+
+    if (!layerData['default']) {
+      layerData['default'] = {
+        layer: { id: 'default', name: 'Padrão', visible: true, locked: false },
+        isActive: activeLayerId === 'default',
+        groups: new Map(),
+        ungrouped: [],
+        featureCount: 0
+      };
+    }
+
+    const groupTotals = new Map();
+    if (groups instanceof Map) {
+      groups.forEach((group, groupId) => {
+        groupTotals.set(groupId, group.features ? group.features.length : 0);
+      });
+    }
+
     flatFeatures.forEach((feature) => {
+      const layerId = feature.rawFeature?.properties?.layerId || 'default';
       const sourceType = feature.storageType.endsWith("s")
         ? feature.storageType.slice(0, -1)
         : feature.storageType;
       const group = getFeatureGroup(sourceType, feature.id, currentMapName);
 
+      if (!layerData[layerId]) {
+        layerData[layerId] = {
+          layer: { id: layerId, name: 'Desconhecida', visible: true, locked: false },
+          isActive: false,
+          groups: new Map(),
+          ungrouped: [],
+          featureCount: 0
+        };
+      }
+
+      layerData[layerId].featureCount++;
+
       if (group) {
-        if (!groupedFeatures.has(group.id)) {
-          groupedFeatures.set(group.id, {
+        if (!layerData[layerId].groups.has(group.id)) {
+          layerData[layerId].groups.set(group.id, {
             groupData: group,
             features: [],
+            totalInGroup: groupTotals.get(group.id) || group.features?.length || 0
           });
         }
-        groupedFeatures.get(group.id).features.push(feature);
+        layerData[layerId].groups.get(group.id).features.push(feature);
       } else {
-        ungroupedFeatures.push(feature);
+        layerData[layerId].ungrouped.push(feature);
       }
     });
 
-    return {
-      groups: groupedFeatures,
-      ungrouped: ungroupedFeatures,
-    };
+    const sortedLayers = Object.values(layerData)
+      .sort((a, b) => {
+        // Ordenar por order (não reordena por camada ativa)
+        const orderA = a.layer.order ?? 999;
+        const orderB = b.layer.order ?? 999;
+        if (orderA !== orderB) return orderA - orderB;
+        // Por fim por nome
+        return (a.layer.name || '').localeCompare(b.layer.name || '', 'pt-BR');
+      });
+
+    return sortedLayers;
   }
 
   /**
-   * Renderiza features organizadas hierarquicamente
+   * Renderiza features organizadas hierarquicamente por Layer -> Group -> Feature
    */
-  renderOrganizedFeatures({ groups, ungrouped }) {
+  renderOrganizedFeatures(organizedLayers) {
     const featuresList = this.container.querySelector(".features-list");
     featuresList.innerHTML = "";
 
-    if (groups.size === 0 && ungrouped.length === 0) {
-      const emptyMessage = document.createElement("div");
-      emptyMessage.className = "features-empty-message";
-      emptyMessage.style.cssText = `
-                padding: 20px;
-                text-align: center;
-                color: #666;
-                font-size: 14px;
-                font-style: italic;
-                background-color: #ffffff;
-                border-radius: 4px;
-            `;
-      emptyMessage.textContent = "Sem feições no mapa";
-      featuresList.appendChild(emptyMessage);
+    // Se recebeu formato antigo (objeto com groups e ungrouped), converter
+    if (organizedLayers && organizedLayers.groups !== undefined && !Array.isArray(organizedLayers)) {
+      const { groups, ungrouped } = organizedLayers;
+      if (groups.size === 0 && ungrouped.length === 0) {
+        this._renderEmptyMessage(featuresList);
+        return;
+      }
+      // Renderizar no formato antigo para compatibilidade
+      const sortedGroups = Array.from(groups.entries()).sort((a, b) =>
+        a[1].groupData.name.localeCompare(b[1].groupData.name, "pt-BR")
+      );
+      sortedGroups.forEach(([groupId, groupInfo]) => {
+        const groupItem = this.createGroupItem(groupInfo.groupData, groupInfo.features);
+        featuresList.appendChild(groupItem);
+      });
+      ungrouped.forEach((feature) => {
+        const item = this.createFeatureItem(feature);
+        featuresList.appendChild(item);
+      });
       return;
     }
 
-    // Renderizar grupos primeiro (ordenados por nome)
+    // Novo formato: array de layers
+    if (!Array.isArray(organizedLayers) || organizedLayers.length === 0) {
+      this._renderEmptyMessage(featuresList);
+      return;
+    }
+
+    // Renderizar cada layer como container colapsável
+    organizedLayers.forEach((layerInfo) => {
+      const layerContainer = this.createLayerContainer(layerInfo);
+      featuresList.appendChild(layerContainer);
+    });
+    
+    // Inicializar Sortable para reordenação de camadas
+    this._initLayerSortable(featuresList);
+  }
+
+  _renderEmptyMessage(container) {
+    const emptyMessage = document.createElement("div");
+    emptyMessage.className = "features-empty-message";
+    emptyMessage.style.cssText = `
+      padding: 20px;
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+      font-style: italic;
+      background-color: #ffffff;
+      border-radius: 4px;
+    `;
+    emptyMessage.textContent = "Sem feições no mapa";
+    container.appendChild(emptyMessage);
+  }
+
+  /**
+   * Inicializa Sortable.js para reordenação de camadas via drag and drop
+   */
+  _initLayerSortable(featuresList) {
+    // Destruir instância anterior se existir
+    if (this._sortableInstance) {
+      this._sortableInstance.destroy();
+      this._sortableInstance = null;
+    }
+
+    // Verificar se Sortable.js está disponível
+    if (typeof Sortable === 'undefined') {
+      console.warn('Sortable.js não carregado - reordenação de camadas desabilitada');
+      return;
+    }
+
+    this._sortableInstance = Sortable.create(featuresList, {
+      handle: '.layer-drag-handle',
+      animation: 150,
+      ghostClass: 'layer-sortable-ghost',
+      chosenClass: 'layer-sortable-chosen',
+      dragClass: 'layer-sortable-drag',
+      onEnd: async (evt) => {
+        // Extrair nova ordem dos data-layer-id
+        const newOrder = Array.from(featuresList.querySelectorAll('.layer-container'))
+          .map(el => el.dataset.layerId)
+          .filter(Boolean);
+        
+        // Persistir nova ordem no store
+        await reorderLayers(newOrder);
+      }
+    });
+  }
+
+  /**
+   * Cria container visual de uma layer com seus grupos e features
+   */
+  createLayerContainer(layerInfo) {
+    const { layer, isActive, groups, ungrouped, featureCount } = layerInfo;
+
+    const container = document.createElement("div");
+    container.className = "layer-container";
+    container.dataset.layerId = layer.id;
+
+    if (isActive) container.classList.add("layer-active");
+    if (!layer.visible) container.classList.add("layer-hidden");
+    if (layer.locked) container.classList.add("layer-locked");
+
+    // Header da layer
+    const header = this.createLayerHeaderForList(layer, isActive, featureCount);
+    container.appendChild(header);
+
+    // Conteúdo (grupos + features soltas)
+    const content = document.createElement("div");
+    content.className = "layer-content";
+
+    // Renderizar grupos desta layer (ordenados por nome)
     const sortedGroups = Array.from(groups.entries()).sort((a, b) =>
       a[1].groupData.name.localeCompare(b[1].groupData.name, "pt-BR")
     );
 
     sortedGroups.forEach(([groupId, groupInfo]) => {
-      const groupItem = this.createGroupItem(
-        groupInfo.groupData,
-        groupInfo.features
-      );
-      featuresList.appendChild(groupItem);
+      const groupItem = this.createGroupItemInLayer(groupInfo, layer);
+      content.appendChild(groupItem);
     });
 
-    // Depois renderizar features soltas
+    // Renderizar features soltas
     ungrouped.forEach((feature) => {
       const item = this.createFeatureItem(feature);
-      featuresList.appendChild(item);
+      content.appendChild(item);
     });
+
+    container.appendChild(content);
+    return container;
+  }
+
+  /**
+   * Cria header de layer para a lista de features
+   * Inclui: radio para ativar, nome editável, controles de visibilidade/lock/delete
+   */
+  createLayerHeaderForList(layer, isActive, featureCount) {
+    const header = document.createElement("div");
+    header.className = "layer-header" + (isActive ? " active" : "");
+    header.dataset.layerId = layer.id;
+
+    // Radio para selecionar camada ativa
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "active-layer";
+    radio.className = "layer-radio";
+    radio.checked = isActive;
+    radio.title = "Definir como camada ativa";
+    radio.onclick = (e) => {
+      e.stopPropagation();
+      // Sempre chama handleSetActiveLayer - ele verifica internamente se já é ativa
+      this.handleSetActiveLayer(layer.id);
+    };
+
+    // Ícone de expansão
+    const expandIcon = document.createElement("div");
+    expandIcon.className = "layer-expand-icon";
+    expandIcon.innerHTML = this.INLINE_ICONS.EXPAND;
+
+
+    // Nome da layer (editável por duplo-clique)
+    const layerName = document.createElement("div");
+    layerName.className = "layer-name";
+    layerName.textContent = layer.name;
+    layerName.title = "Duplo-clique para renomear";
+    
+    // Duplo-clique para editar nome
+    layerName.ondblclick = (e) => {
+      e.stopPropagation();
+      this.startLayerRenameInline(layer.id, layerName);
+    };
+
+    // Contador
+    const count = document.createElement("div");
+    count.className = "layer-count";
+    count.textContent = `(${featureCount})`;
+
+    // Controles
+    const controls = document.createElement("div");
+    controls.className = "layer-controls";
+
+    // Botão visibilidade
+    const visBtn = document.createElement("button");
+    visBtn.className = "visibility-toggle";
+    visBtn.innerHTML = layer.visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
+    visBtn.title = layer.visible ? "Ocultar camada" : "Mostrar camada";
+    visBtn.onclick = (e) => {
+      e.stopPropagation();
+      this.handleToggleLayerVisibility(layer.id);
+    };
+
+    // Botão lock
+    const lockBtn = document.createElement("button");
+    lockBtn.className = "lock-toggle";
+    lockBtn.innerHTML = layer.locked ? this.INLINE_ICONS.LOCK_LOCKED : this.INLINE_ICONS.LOCK_UNLOCKED;
+    lockBtn.title = layer.locked ? "Desbloquear camada" : "Bloquear camada";
+    lockBtn.onclick = (e) => {
+      e.stopPropagation();
+      this.handleToggleLayerLock(layer.id);
+    };
+
+    // Botão delete
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "layer-delete-btn";
+    deleteBtn.innerHTML = this.INLINE_ICONS.DELETE;
+    deleteBtn.title = "Excluir camada";
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      this.handleDeleteLayer(layer.id);
+    };
+
+    controls.appendChild(visBtn);
+    controls.appendChild(lockBtn);
+    controls.appendChild(deleteBtn);
+
+    // Drag handle para reordenação
+    const dragHandle = document.createElement("div");
+    dragHandle.className = "layer-drag-handle";
+    dragHandle.innerHTML = this.INLINE_ICONS.DRAG;
+    dragHandle.title = "Arraste para reordenar";
+
+    header.appendChild(dragHandle);
+    header.appendChild(radio);
+    header.appendChild(expandIcon);
+    header.appendChild(layerName);
+    header.appendChild(count);
+    header.appendChild(controls);
+
+    // Click no ícone de expansão para expandir/colapsar
+    expandIcon.onclick = (e) => {
+      e.stopPropagation();
+      this.toggleLayerExpansion(layer.id);
+    };
+    expandIcon.style.cursor = "pointer";
+
+    return header;
+  }
+
+  /**
+   * Inicia edição inline do nome da camada
+   */
+  startLayerRenameInline(layerId, nameElement) {
+    const currentName = nameElement.textContent.replace(" ★", "").trim();
+    
+    // Criar input
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "layer-rename-input";
+    input.value = currentName;
+    input.style.cssText = `
+      font-size: inherit;
+      padding: 2px 4px;
+      border: 1px solid #007bff;
+      border-radius: 3px;
+      outline: none;
+      width: 120px;
+    `;
+
+    // Salvar referência ao texto original
+    const originalHTML = nameElement.innerHTML;
+    
+    // Substituir conteúdo pelo input
+    nameElement.innerHTML = "";
+    nameElement.appendChild(input);
+    input.focus();
+    input.select();
+
+    const finishEdit = async (save) => {
+      const newName = input.value.trim();
+      
+      if (save && newName && newName !== currentName) {
+        try {
+          await this.handleRenameLayer(layerId, newName);
+        } catch (error) {
+          console.error("Erro ao renomear camada:", error);
+          nameElement.innerHTML = originalHTML;
+        }
+      } else {
+        nameElement.innerHTML = originalHTML;
+      }
+    };
+
+    input.onblur = () => finishEdit(true);
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        input.blur();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        finishEdit(false);
+      }
+    };
+  }
+
+  /**
+   * Toggle expansão da layer
+   */
+  toggleLayerExpansion(layerId) {
+    const container = this.container.querySelector(`.layer-container[data-layer-id="${layerId}"]`);
+    if (!container) return;
+
+    const content = container.querySelector(".layer-content");
+    const expandIcon = container.querySelector(".layer-expand-icon");
+
+    if (content.classList.contains("collapsed")) {
+      content.classList.remove("collapsed");
+      expandIcon.classList.remove("collapsed");
+    } else {
+      content.classList.add("collapsed");
+      expandIcon.classList.add("collapsed");
+    }
+  }
+
+  /**
+   * Cria grupo dentro de uma layer (com indicador de split se cross-layer)
+   */
+  createGroupItemInLayer(groupInfo, layer) {
+    const { groupData, features, totalInGroup } = groupInfo;
+    const isSplit = features.length < totalInGroup;
+
+    const groupContainer = document.createElement("div");
+    groupContainer.className = "group-container";
+    groupContainer.dataset.groupId = groupData.id;
+
+    // Header do grupo
+    const groupHeader = this.createGroupHeader(groupData, features.length, isSplit, totalInGroup);
+    groupContainer.appendChild(groupHeader);
+
+    // Lista de features do grupo
+    const featuresList = this.createGroupFeaturesList(groupData, features);
+    groupContainer.appendChild(featuresList);
+
+    return groupContainer;
   }
 
   /**
@@ -733,8 +1510,12 @@ class FeaturesTab {
 
   /**
    * Cria header do grupo com controles
+   * @param {Object} groupData - Dados do grupo
+   * @param {number} featureCount - Numero de features nesta layer
+   * @param {boolean} isSplit - Se o grupo esta dividido entre layers
+   * @param {number} totalInGroup - Total de features no grupo (para cross-layer)
    */
-  createGroupHeader(groupData, featureCount) {
+  createGroupHeader(groupData, featureCount, isSplit = false, totalInGroup = featureCount) {
     const header = document.createElement("div");
     header.className = "group-header";
 
@@ -745,37 +1526,35 @@ class FeaturesTab {
       header.classList.add("group-locked");
     }
 
-    // Ícone de expansão
     const expandIcon = document.createElement("div");
     expandIcon.className = "group-expand-icon expanded";
     expandIcon.innerHTML = this.INLINE_ICONS.EXPAND;
 
-    // Ícone do grupo
     const groupIcon = document.createElement("div");
     groupIcon.className = "group-icon";
     groupIcon.innerHTML = this.INLINE_ICONS.GROUP;
 
-    // Nome do grupo
     const groupName = document.createElement("div");
     groupName.className = "group-name";
     groupName.textContent = groupData.name;
 
-    // Contador de features
     const groupCount = document.createElement("div");
     groupCount.className = "group-count";
-    groupCount.textContent = featureCount;
+    if (isSplit) {
+      groupCount.innerHTML = `<span class="group-split-indicator">${featureCount} de ${totalInGroup}</span>`;
+      groupCount.title = "Este grupo contem feicoes em multiplas camadas";
+    } else {
+      groupCount.textContent = featureCount;
+    }
 
-    // Controles do grupo
     const groupControls = this.createGroupControls(groupData);
 
-    // Adicionar elementos ao header
     header.appendChild(expandIcon);
     header.appendChild(groupIcon);
     header.appendChild(groupName);
     header.appendChild(groupCount);
     header.appendChild(groupControls);
 
-    // Event listener para expansão (exceto nos controles)
     header.addEventListener("click", (e) => {
       if (!e.target.closest(".group-controls")) {
         this.toggleGroupExpansion(groupData.id);
@@ -786,13 +1565,13 @@ class FeaturesTab {
   }
 
   /**
-   * Cria controles específicos do grupo
+   * Cria controles especificos do grupo
    */
   createGroupControls(groupData) {
     const controls = document.createElement("div");
     controls.className = "group-controls";
 
-    // Botão de visibilidade
+    // BotÃ£o de visibilidade
     const visibilityBtn = document.createElement("button");
     visibilityBtn.className = "visibility-toggle";
     visibilityBtn.title = groupData.visible ? "Ocultar grupo" : "Mostrar grupo";
@@ -805,7 +1584,7 @@ class FeaturesTab {
       this.toggleGroupVisibility(groupData.id, groupData.visible);
     });
 
-    // Botão de bloqueio
+    // BotÃ£o de bloqueio
     const lockBtn = document.createElement("button");
     lockBtn.className = "lock-toggle";
     lockBtn.title = groupData.locked ? "Desbloquear grupo" : "Bloquear grupo";
@@ -1371,6 +2150,7 @@ class FeaturesTab {
   /**
    * Propaga alteração de propriedade para o source do Mapbox
    * Pega todas as features do source, atualiza a específica e faz setData
+   * Suprime refresh automático para evitar reconstrução desnecessária
    */
   async propagateFeaturePropertyToSource(featureType, featureId, property, value) {
     const source = this.map.getSource(featureType);
@@ -1380,6 +2160,9 @@ class FeaturesTab {
     }
 
     try {
+      // Suprimir refresh durante atualização interna
+      this._suppressRefresh = true;
+      
       // Pegar TODAS as features do source
       const data = await source.getData();
 
@@ -1403,6 +2186,11 @@ class FeaturesTab {
         `Erro ao propagar propriedade para source ${featureType}:`,
         error
       );
+    } finally {
+      // Restaurar após pequeno delay para garantir que sourcedata já foi processado
+      setTimeout(() => {
+        this._suppressRefresh = false;
+      }, 50);
     }
   }
 
@@ -1464,12 +2252,123 @@ class FeaturesTab {
     }
   }
 
+  /**
+   * Atualiza indicadores visuais de camada ativa sem reconstruir a lista
+   * @param {string} previousActiveId - ID da camada anteriormente ativa
+   * @param {string} newActiveId - ID da nova camada ativa
+   */
+  _updateActiveLayerIndicators(previousActiveId, newActiveId) {
+    if (!this.container) return;
+
+    // Remover indicadores da camada anterior
+    if (previousActiveId) {
+      const prevContainer = this.container.querySelector(
+        `.layer-container[data-layer-id="${previousActiveId}"]`
+      );
+      if (prevContainer) {
+        prevContainer.classList.remove("layer-active");
+        const prevHeader = prevContainer.querySelector(".layer-header");
+        if (prevHeader) {
+          prevHeader.classList.remove("active");
+        }
+        // Desmarcar radio
+        const prevRadio = prevContainer.querySelector(".layer-radio");
+        if (prevRadio) prevRadio.checked = false;
+      }
+    }
+
+    // Adicionar indicadores à nova camada ativa
+    if (newActiveId) {
+      const newContainer = this.container.querySelector(
+        `.layer-container[data-layer-id="${newActiveId}"]`
+      );
+      if (newContainer) {
+        newContainer.classList.add("layer-active");
+        const newHeader = newContainer.querySelector(".layer-header");
+        if (newHeader) {
+          newHeader.classList.add("active");
+        }
+        // Marcar radio
+        const newRadio = newContainer.querySelector(".layer-radio");
+        if (newRadio) newRadio.checked = true;
+      }
+    }
+  }
+
+  /**
+   * Atualiza indicador visual de visibilidade de uma camada
+   * @param {string} layerId - ID da camada
+   * @param {boolean} visible - Novo estado de visibilidade
+   */
+  _updateLayerVisibilityIndicator(layerId, visible) {
+    if (!this.container) return;
+
+    const layerContainer = this.container.querySelector(
+      `.layer-container[data-layer-id="${layerId}"]`
+    );
+    if (!layerContainer) return;
+
+    // Atualizar classe do container
+    if (visible) {
+      layerContainer.classList.remove("layer-hidden");
+    } else {
+      layerContainer.classList.add("layer-hidden");
+    }
+
+    // Atualizar botão e ícone
+    const visBtn = layerContainer.querySelector(".layer-header .visibility-toggle");
+    if (visBtn) {
+      visBtn.innerHTML = visible ? this.INLINE_ICONS.EYE_VISIBLE : this.INLINE_ICONS.EYE_HIDDEN;
+      visBtn.title = visible ? "Ocultar camada" : "Mostrar camada";
+    }
+  }
+
+  /**
+   * Atualiza indicador visual de bloqueio de uma camada
+   * @param {string} layerId - ID da camada
+   * @param {boolean} locked - Novo estado de bloqueio
+   */
+  _updateLayerLockIndicator(layerId, locked) {
+    if (!this.container) return;
+
+    const layerContainer = this.container.querySelector(
+      `.layer-container[data-layer-id="${layerId}"]`
+    );
+    if (!layerContainer) return;
+
+    // Atualizar classe do container
+    if (locked) {
+      layerContainer.classList.add("layer-locked");
+    } else {
+      layerContainer.classList.remove("layer-locked");
+    }
+
+    // Atualizar botão e ícone
+    const lockBtn = layerContainer.querySelector(".layer-header .lock-toggle");
+    if (lockBtn) {
+      lockBtn.innerHTML = locked ? this.INLINE_ICONS.LOCK_LOCKED : this.INLINE_ICONS.LOCK_UNLOCKED;
+      lockBtn.title = locked ? "Desbloquear camada" : "Bloquear camada";
+      
+      // Atualizar cor do SVG
+      const svg = lockBtn.querySelector("svg");
+      if (svg) {
+        svg.style.color = locked ? "#dc3545" : "";
+      }
+    }
+  }
+
   _setupEventListeners() {
     this._sourceDataHandler = (e) => this._handleSourceData(e);
     this.map.on('sourcedata', this._sourceDataHandler);
 
     this._groupsChangedHandler = () => this._scheduleRefresh();
     document.addEventListener('groups-changed', this._groupsChangedHandler);
+
+    this._layersChangedHandler = () => {
+      if (this._suppressLayersChangedRefresh) return;
+      this._scheduleRefresh();
+    };
+    document.addEventListener('layers-changed', this._layersChangedHandler);
   }
 
   _removeEventListeners() {
@@ -1481,10 +2380,16 @@ class FeaturesTab {
       document.removeEventListener('groups-changed', this._groupsChangedHandler);
       this._groupsChangedHandler = null;
     }
+    // NEW: Remove layer listener
+    if (this._layersChangedHandler) {
+      document.removeEventListener('layers-changed', this._layersChangedHandler);
+      this._layersChangedHandler = null;
+    }
   }
 
   _handleSourceData(e) {
     if (!this._isVisible) return;
+    if (this._suppressRefresh) return; // Ignora se estamos em atualização interna
     if (!this._isRelevantSource(e.sourceId)) return;
     this._scheduleRefresh();
   }
@@ -1541,6 +2446,12 @@ class FeaturesTab {
   destroy() {
     this._removeEventListeners();
     clearTimeout(this._debounceTimer);
+    
+    // Destruir instância do Sortable
+    if (this._sortableInstance) {
+      this._sortableInstance.destroy();
+      this._sortableInstance = null;
+    }
   }
 
   async show() {

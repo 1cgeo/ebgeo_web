@@ -1,6 +1,6 @@
 // Path: js\controls_sig\draw_tools\add_polygon_control.js
 
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addPolygonAttributesToPanel } from './polygon_attributes_panel.js';
 import AddPolygonGeometry from './add_polygon_geometry.js';
@@ -445,6 +445,7 @@ class AddPolygonControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddPolygonControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName,
                 baseCoordinates: coordinates

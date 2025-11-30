@@ -1,6 +1,6 @@
 // Path: js\controls_sig\draw_tools\add_line_control.js
 
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addLineAttributesToPanel } from './line_attributes_panel.js';
 import { getTerrainElevation } from '../terrain_control.js';
@@ -529,6 +529,7 @@ class AddLineControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddLineControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName,
                 baseCoordinates: coordinates,

@@ -1,5 +1,5 @@
 // Path: js\controls_sig\add_import_control.js
-import { addFeatures } from './store/store.js';
+import { addFeatures, createLayerForImport, getLayers } from './store/store.js';
 import { IDUtils } from './id_utils.js';
 import { getTerrainElevation } from './terrain_control.js';
 import { showSuccess } from './utilities/toast_service.js';
@@ -87,7 +87,9 @@ class AddImportControl {
         try {
             const geoJSON = await this.processFile(file);
             if (geoJSON) {
-                const importedCount = await this.importGeoJSON(geoJSON);
+                // Extrair nome do arquivo sem extensão
+                const fileName = file.name.replace(/\.[^/.]+$/, '');
+                const importedCount = await this.importGeoJSON(geoJSON, fileName);
                 const message = importedCount === 1
                     ? '1 geometria importada com sucesso'
                     : `${importedCount} geometrias importadas com sucesso`;
@@ -544,8 +546,12 @@ class AddImportControl {
 
     /**
      * Prepara feature para importação com TODOS os atributos necessários
+     * @param {Object} feature - Feature GeoJSON
+     * @param {string} targetType - Tipo de destino (points, lines, polygons)
+     * @param {Object} typeCounters - Contadores por tipo
+     * @param {string} layerId - ID da camada de destino
      */
-    async prepareFeatureForImportAsync(feature, targetType, typeCounters) {
+    async prepareFeatureForImportAsync(feature, targetType, typeCounters, layerId) {
         const featureId = IDUtils.generateUniqueId();
         const featureName = this.generateImportName(targetType, typeCounters);
 
@@ -554,7 +560,8 @@ class AddImportControl {
             ...feature.properties,
             id: featureId,
             nome: featureName,
-            source: targetType.slice(0, -1) // Remove 's' final
+            source: targetType.slice(0, -1), // Remove 's' final
+            layerId: layerId, // Usar layerId fornecido
         };
 
         // Atributos específicos por tipo de geometria
@@ -598,7 +605,7 @@ class AddImportControl {
         };
     }
 
-    async importGeoJSON(geoJSON) {
+    async importGeoJSON(geoJSON, fileName = 'Importação') {
         if (!geoJSON.features || !Array.isArray(geoJSON.features)) {
             throw new Error('GeoJSON inválido - features não encontradas');
         }
@@ -638,26 +645,60 @@ class AddImportControl {
             throw new Error('Nenhuma geometria válida encontrada para importar');
         }
 
-        // 4️⃣ PREPARAR FEATURES (loop assíncrono pesado - só se passou na validação)
+        // 4️⃣ CRIAR NOVA CAMADA COM NOME DO ARQUIVO (com sufixo único se necessário)
+        const uniqueLayerName = await this._getUniqueLayerName(fileName);
+        const importLayer = await createLayerForImport(uniqueLayerName);
+        const importLayerId = importLayer.id;
+
+        // 5️⃣ PREPARAR FEATURES (loop assíncrono pesado - só se passou na validação)
         for (const { feature, targetType } of decomposedFeatures) {
             const preparedFeature = await this.prepareFeatureForImportAsync(
                 feature,
                 targetType,
-                typeCounters
+                typeCounters,
+                importLayerId
             );
             featuresByType[targetType].push(preparedFeature);
         }
 
-        // 5️⃣ SALVAR EM BATCH E ATUALIZAR MAPA
+        // 6️⃣ SALVAR EM BATCH E ATUALIZAR MAPA
         const totalCount = await this.saveAndUpdateMap(featuresByType);
 
-        // 6️⃣ ZOOM PARA FEATURES IMPORTADAS
+        // 7️⃣ EMITIR EVENTO DE LAYERS CHANGED APÓS IMPORTAÇÃO
+        document.dispatchEvent(new CustomEvent('layers-changed'));
+
+        // 8️⃣ ZOOM PARA FEATURES IMPORTADAS
         if (totalCount > 0) {
             this.zoomToAllImportedFeatures(featuresByType);
         }
 
         return totalCount;
     }
+
+    /**
+     * Gera nome único para camada de importação
+     * Se já existir camada com o nome, adiciona sufixo _2, _3, etc.
+     */
+    async _getUniqueLayerName(baseName) {
+        const layers = await getLayers();
+        const existingNames = layers.map(l => l.name);
+        
+        // Se o nome não existe, usar diretamente
+        if (!existingNames.includes(baseName)) {
+            return baseName;
+        }
+        
+        // Encontrar sufixo único
+        let suffix = 2;
+        let candidateName = `${baseName}_${suffix}`;
+        while (existingNames.includes(candidateName)) {
+            suffix++;
+            candidateName = `${baseName}_${suffix}`;
+        }
+        
+        return candidateName;
+    }
+
 
     async saveAndUpdateMap(featuresByType) {
         let totalCount = 0;

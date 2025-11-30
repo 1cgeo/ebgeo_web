@@ -17,7 +17,10 @@ import {
     setSchemaVersion,
     getColorUsage,
     getMapNotes,
-    getMapGroups
+    getMapGroups,
+    // Layer imports
+    getLayers,
+    setMapLayers,
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
@@ -185,7 +188,8 @@ export class ExportImportService {
                 maps: {},
                 colorUsage: {},
                 mapNotes: {},
-                groups: {}
+                groups: {},
+                layers: {}, // NEW: Add layers to export data
             };
 
             // Exportar dados dos mapas com otimização
@@ -226,6 +230,7 @@ export class ExportImportService {
                     console.warn(`Não foi possível exportar notas do mapa ${mapName}:`, error);
                 }
 
+                // Exportar grupos do mapa
                 try {
                     const groupsMap = getMapGroups(mapName);
                     if (groupsMap && groupsMap.size > 0) {
@@ -234,6 +239,16 @@ export class ExportImportService {
                     }
                 } catch (error) {
                     console.warn(`Não foi possível exportar grupos do mapa ${mapName}:`, error);
+                }
+
+                // NEW: Exportar layers do mapa
+                try {
+                    const layersData = await getLayers(mapName);
+                    if (layersData && layersData.length > 0) {
+                        data.layers[mapName] = layersData;
+                    }
+                } catch (error) {
+                    console.warn(`Não foi possível exportar layers do mapa ${mapName}:`, error);
                 }
             }
 
@@ -406,8 +421,11 @@ export class ExportImportService {
                     importedMapsCount++;
                 }
 
-                // NOVO: Importar grupos com nomes de mapas atualizados
+                // Importar grupos com nomes de mapas atualizados
                 await this.importGroupsAdditively(data.groups, mapNameMapping);
+
+                // NEW: Importar layers com nomes de mapas atualizados
+                await this.importLayersAdditively(data.layers, mapNameMapping);
 
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
@@ -422,8 +440,11 @@ export class ExportImportService {
 
                 setCurrentMap(data.currentMap);
 
-                // NOVO: Importar grupos diretamente (import normal)
+                // Importar grupos diretamente (import normal)
                 await this.importGroupsDirectly(data.groups);
+
+                // NEW: Importar layers diretamente (import normal)
+                await this.importLayersDirectly(data.layers);
 
                 // Carregar imagens após processamento dos mapas (import normal)
                 await this.loadImagesFromZip(zip);
@@ -452,7 +473,7 @@ export class ExportImportService {
     }
 
     /**
-     * NOVO: Importa grupos diretamente (import normal - substitui tudo)
+     * Importa grupos diretamente (import normal - substitui tudo)
      */
     async importGroupsDirectly(groupsData) {
         if (!groupsData || Object.keys(groupsData).length === 0) {
@@ -488,7 +509,7 @@ export class ExportImportService {
     }
 
     /**
-     * NOVO: Importa grupos aditivamente (import aditivo - com resolução de conflitos)
+     * Importa grupos aditivamente (import aditivo - com resolução de conflitos)
      */
     async importGroupsAdditively(groupsData, mapNameMapping) {
         if (!groupsData || Object.keys(groupsData).length === 0) {
@@ -532,7 +553,7 @@ export class ExportImportService {
     }
 
     /**
-     * NOVO: Processa grupos para import aditivo (novos IDs e nomes únicos)
+     * Processa grupos para import aditivo (novos IDs e nomes únicos)
      */
     async processGroupsForAdditiveImport(mapGroups, mapName) {
         const processedGroups = {};
@@ -568,6 +589,87 @@ export class ExportImportService {
         });
 
         return processedGroups;
+    }
+
+    /**
+     * NEW: Importa layers diretamente (import normal - substitui tudo)
+     */
+    async importLayersDirectly(layersData) {
+        if (!layersData || Object.keys(layersData).length === 0) {
+            return; // Não há layers para importar
+        }
+
+        try {
+            for (const [mapName, layers] of Object.entries(layersData)) {
+                if (layers && Array.isArray(layers) && layers.length > 0) {
+                    await setMapLayers(mapName, { layers });
+                }
+            }
+        } catch (error) {
+            console.error('Erro ao importar layers diretamente:', error);
+        }
+    }
+
+    /**
+     * NEW: Importa layers aditivamente (import aditivo - com resolução de conflitos)
+     */
+    async importLayersAdditively(layersData, mapNameMapping) {
+        if (!layersData || Object.keys(layersData).length === 0) {
+            return; // Não há layers para importar
+        }
+
+        try {
+            for (const [originalMapName, layers] of Object.entries(layersData)) {
+                const finalMapName = mapNameMapping.get(originalMapName);
+                
+                if (!finalMapName || !layers || !Array.isArray(layers) || layers.length === 0) {
+                    continue;
+                }
+
+                // Obter layers existentes do mapa de destino
+                const existingLayers = await getLayers(finalMapName) || [];
+                const existingNames = new Set(existingLayers.map(l => l.name));
+                const existingIds = new Set(existingLayers.map(l => l.id));
+
+                // Processar layers importadas
+                const processedLayers = layers.map(layer => {
+                    // Gerar novo ID se já existe
+                    let newId = layer.id;
+                    if (existingIds.has(newId) || newId === 'default') {
+                        newId = IDUtils.generateUniqueId();
+                    }
+
+                    // Resolver conflito de nomes
+                    let finalName = layer.name;
+                    let counter = 1;
+                    while (existingNames.has(finalName)) {
+                        finalName = `${layer.name}_${counter}`;
+                        counter++;
+                    }
+                    existingNames.add(finalName);
+                    existingIds.add(newId);
+
+                    return {
+                        ...layer,
+                        id: newId,
+                        name: finalName
+                    };
+                });
+
+                // Mesclar com layers existentes (exceto 'default' duplicada)
+                const mergedLayers = [...existingLayers];
+                processedLayers.forEach(layer => {
+                    // Não adicionar se for a layer 'default' e já existe uma
+                    if (layer.id !== 'default' || !mergedLayers.some(l => l.id === 'default')) {
+                        mergedLayers.push(layer);
+                    }
+                });
+
+                await setMapLayers(finalMapName, { layers: mergedLayers });
+            }
+        } catch (error) {
+            console.error('Erro ao importar layers aditivamente:', error);
+        }
     }
 
     async loadImagesFromZip(zip) {

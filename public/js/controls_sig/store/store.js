@@ -19,7 +19,8 @@ import {
     hasImageData,
     clearAllImageData,
     clearAllMapData,
-    clearAllGroupData, // NOVO
+    clearAllGroupData,
+    clearAllLayerData,
     setAppSetting,
     getAppSetting,
     clearAllAppSettings,
@@ -34,11 +35,17 @@ import {
     getGridStyle as getGridStyleRepo,
     getMapOrder as getMapOrderRepo,
     setMapOrder as setMapOrderRepo,
+    // Layer imports
+    getLayers as getLayersRepo,
+    setLayers as setLayersRepo,
+    getActiveLayerId as getActiveLayerIdRepo,
+    setActiveLayerId as setActiveLayerIdRepo,
 } from './repository.js';
 
 import mapManager from './map-manager.js';
 import config from '../../config.js';
-import groupManager from '../tool_manager/group_manager.js'; // NOVO: InstÃ¢ncia do GroupManager
+import groupManager from '../tool_manager/group_manager.js';
+import { IDUtils } from '../id_utils.js';
 
 // ===== CENTRALIZED FEATURE TYPE MAPPINGS =====
 
@@ -195,9 +202,6 @@ export const isValidStorageType = (storageType) => {
 
 // ===== COLOR TRACKING API =====
 
-/**
- * NOVA API: Exportar função de cores frequentes
- */
 export const getFrequentColors = (limit = 10, scope = 'current') => {
     return mapManager.getFrequentColors(limit, scope);
 };
@@ -234,108 +238,44 @@ export const getGridStyle = async (mapName) => {
     return await getGridStyleRepo(mapName);
 };
 
-// ===== GROUP MANAGEMENT (NOVO) =====
+// ===== GROUP MANAGEMENT =====
 
-/**
- * Cria um novo grupo com as features especificadas
- * @param {Array} features - Features a serem agrupadas
- * @param {string} mapName - Nome do mapa (null = atual)
- * @returns {Object} Grupo criado
- */
 export const createGroup = (features, mapName = null) => {
     return groupManager.createGroup(features, mapName);
 };
 
-/**
- * Combina grupos e/ou features em um novo grupo
- * @param {Array} groupIds - IDs dos grupos a combinar
- * @param {Array} selectedFeatures - Features adicionais
- * @param {string} mapName - Nome do mapa
- * @returns {Object} Grupo combinado
- */
 export const combineGroups = (groupIds, selectedFeatures = [], mapName = null) => {
     return groupManager.combineGroups(groupIds, selectedFeatures, mapName);
 };
 
-/**
- * Desfaz um grupo, deixando features soltas
- * @param {string} groupId - ID do grupo
- * @param {string} mapName - Nome do mapa
- * @returns {Array} Features que estavam no grupo
- */
 export const ungroupFeatures = (groupId, mapName = null) => {
     return groupManager.ungroupFeatures(groupId, mapName);
 };
 
-/**
- * Atualiza propriedade de um grupo
- * @param {string} groupId - ID do grupo
- * @param {string} property - Propriedade a atualizar
- * @param {*} value - Novo valor
- * @param {string} mapName - Nome do mapa
- * @returns {Object} Grupo atualizado
- */
 export const updateGroupProperty = (groupId, property, value, mapName = null) => {
     return groupManager.updateGroupProperty(groupId, property, value, mapName);
 };
 
-/**
- * Busca o grupo que contém uma feature
- * @param {string} type - Tipo da feature (source)
- * @param {string} featureId - ID da feature
- * @param {string} mapName - Nome do mapa
- * @returns {Object|null} Grupo encontrado ou null
- */
 export const getFeatureGroup = (type, featureId, mapName = null) => {
     return groupManager.getFeatureGroup(type, featureId, mapName);
 };
 
-/**
- * Verifica se uma feature está agrupada
- * @param {string} type - Tipo da feature
- * @param {string} featureId - ID da feature
- * @param {string} mapName - Nome do mapa
- * @returns {boolean} True se está agrupada
- */
 export const isFeatureGrouped = (type, featureId, mapName = null) => {
     return groupManager.isFeatureGrouped(type, featureId, mapName);
 };
 
-/**
- * Retorna todos os grupos de um mapa
- * @param {string} mapName - Nome do mapa
- * @returns {Map} Map com grupos do mapa
- */
 export const getMapGroups = (mapName = null) => {
     return groupManager.getMapGroups(mapName);
 };
 
-/**
- * Retorna um grupo específico por ID
- * @param {string} groupId - ID do grupo
- * @param {string} mapName - Nome do mapa
- * @returns {Object|null} Grupo encontrado
- */
 export const getGroupById = (groupId, mapName = null) => {
     return groupManager.getGroupById(groupId, mapName);
 };
 
-/**
- * Retorna features de um grupo
- * @param {string} groupId - ID do grupo
- * @param {string} mapName - Nome do mapa
- * @returns {Array} Features do grupo
- */
 export const getGroupFeatures = (groupId, mapName = null) => {
     return groupManager.getGroupFeatures(groupId, mapName);
 };
 
-/**
- * Remove feature de todos os grupos (quando deletada)
- * @param {string} type - Tipo da feature
- * @param {string} featureId - ID da feature
- * @param {string} mapName - Nome do mapa
- */
 export const removeFeatureFromAllGroups = (type, featureId, mapName = null) => {
     return groupManager.removeFeatureFromAllGroups(type, featureId, mapName);
 };
@@ -345,13 +285,12 @@ export const removeFeatureFromAllGroups = (type, featureId, mapName = null) => {
 export const initializeWithLastActiveMap = async () => {
     const lastActiveMap = await initializeRepository();
     await mapManager.setCurrentMap(lastActiveMap);
-
-    // Inicializar cache de cores do projeto
     await mapManager.initializeProjectColorCache();
-
-    // NOVO: Carregar grupos em memória
     await groupManager.loadGroupsToMemory(lastActiveMap);
-
+    
+    // Carregar layers em memória
+    await loadLayersToMemory(lastActiveMap);
+    
     return lastActiveMap;
 };
 
@@ -361,12 +300,10 @@ export const getAllMapNamesStore = async () => {
     const allMaps = await getAllMapNames();
     const savedOrder = await getMapOrderRepo();
     
-    // Se não há ordem salva, retorna os mapas como estão
     if (!savedOrder || savedOrder.length === 0) {
         return allMaps;
     }
     
-    // Ordenar: primeiro os que estão na ordem salva, depois os novos
     const orderedMaps = [];
     const remainingMaps = new Set(allMaps);
     
@@ -377,7 +314,6 @@ export const getAllMapNamesStore = async () => {
         }
     }
     
-    // Adicionar mapas novos (não presentes na ordem salva) ao final
     for (const mapName of remainingMaps) {
         orderedMaps.push(mapName);
     }
@@ -396,8 +332,6 @@ export const setMapOrder = async (orderArray) => {
 export const addMap = async (mapName, mapData = null, colorUsageData = null, notesData = null) => {
     const newMapData = await createMapData(mapName, mapData);
     mapManager.addMapToMemory(mapName);
-
-    // Processar cores do mapa
     await mapManager.processMapColors(mapName, newMapData, colorUsageData);
 
     if (notesData && (notesData.title || notesData.description)) {
@@ -419,11 +353,8 @@ export const removeMap = async (mapName) => {
     const allMaps = await getAllMapNames();
     const remainingMaps = allMaps.filter(name => name !== mapName);
 
-    // removeMapFromMemory agora cuida das cores automaticamente
     await deleteMapData(mapName);
     await mapManager.removeMapFromMemory(mapName);
-
-    // NOVO: Limpar grupos do mapa
     await groupManager.clearMapGroups(mapName);
 
     if (isCurrentMap) {
@@ -448,7 +379,6 @@ export const renameMap = async (oldName, newName) => {
     await renameMapData(oldName, newName);
     mapManager.renameMapInMemory(oldName, newName);
 
-    // NOVO: Atualizar cache de grupos se necessário
     if (mapManager.getCurrentMapName() === newName) {
         await groupManager.loadGroupsToMemory(newName);
     }
@@ -456,9 +386,8 @@ export const renameMap = async (oldName, newName) => {
 
 export const setCurrentMap = async (mapName) => {
     await mapManager.setCurrentMap(mapName);
-
-    // NOVO: Carregar grupos do novo mapa
     await groupManager.loadGroupsToMemory(mapName);
+    await loadLayersToMemory(mapName);
 };
 
 export const getCurrentMapName = async () => {
@@ -517,7 +446,6 @@ export const addFeature = async (type, feature, mapName = null) => {
     currentMapData.features[type].push(cleanedFeature);
     await updateMapData(targetMap, currentMapData);
 
-    // Track cor da nova feature
     const color = mapManager.getFeatureColor(cleanedFeature);
     if (color) {
         mapManager.updateColorUsage(null, color, targetMap);
@@ -546,7 +474,6 @@ export const updateFeature = async (type, feature, mapName = null) => {
     if (index !== -1) {
         const oldFeature = currentMapData.features[type][index];
 
-        // Track mudança de cor
         const oldColor = mapManager.getFeatureColor(oldFeature);
         const newColor = mapManager.getFeatureColor(cleanedFeature);
         if (oldColor !== newColor) {
@@ -578,13 +505,11 @@ export const removeFeature = async (type, id, mapName = null) => {
 
     const mainFeature = currentMapData.features[type].splice(featureIndex, 1)[0];
 
-    // Track remoção de cor
     const color = mapManager.getFeatureColor(mainFeature);
     if (color) {
         mapManager.updateColorUsage(color, null, targetMap);
     }
 
-    // NOVO: Remover feature dos grupos
     removeFeatureFromAllGroups(mainFeature.properties.source, id, targetMap);
 
     const processedFeatures = findRelatedProcessedFeatures(type, id, currentMapData);
@@ -609,7 +534,6 @@ export const removeFeature = async (type, id, mapName = null) => {
         });
     }
 
-    // ROBUST DELETION: Verify and retry if needed
     setTimeout(async () => {
         try {
             const verifyMapData = await getMapData(targetMap);
@@ -642,13 +566,11 @@ export const removeFeatureFromMap = async (type, id, mapName) => {
 
     const mainFeature = mapData.features[type].splice(featureIndex, 1)[0];
 
-    // Track remoção de cor (sempre atualizar projeto, mesmo que não seja mapa atual)
     const color = mapManager.getFeatureColor(mainFeature);
     if (color) {
         mapManager.updateColorUsage(color, null, mapName);
     }
 
-    // NOVO: Remover dos grupos
     removeFeatureFromAllGroups(mainFeature.properties.source, id, mapName);
 
     const processedFeatures = findRelatedProcessedFeatures(type, id, mapData);
@@ -678,7 +600,6 @@ export const addFeatureSilent = async (type, feature, mapName = null) => {
     const currentMapData = await getMapData(targetMap);
     currentMapData.features[type].push(cleanedFeature);
     await updateMapData(targetMap, currentMapData);
-    // SEM recordAction e SEM color tracking - totalmente silencioso
 };
 
 export const removeFeatureSilent = async (type, id, mapName = null) => {
@@ -690,7 +611,6 @@ export const removeFeatureSilent = async (type, id, mapName = null) => {
         currentMapData.features[type].splice(featureIndex, 1);
         await updateMapData(targetMap, currentMapData);
     }
-    // SEM recordAction e SEM color tracking - totalmente silencioso
 };
 
 export const addFeatures = async (featuresMap, mapName = null) => {
@@ -709,7 +629,6 @@ export const addFeatures = async (featuresMap, mapName = null) => {
             currentMapData.features[type].push(...cleanedFeatures);
             action.features[type] = JSON.parse(JSON.stringify(cleanedFeatures));
 
-            // Track cores das novas features
             cleanedFeatures.forEach(feature => {
                 const color = mapManager.getFeatureColor(feature);
                 if (color) {
@@ -748,7 +667,6 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
         return false;
     }
 
-    // Track mudança de cor se a propriedade afeta cor
     const isColorProperty = ['color', 'fillColor', 'lineColor', 'outlinecolor', 'backgroundColor'].includes(property);
     let oldColor, newColor;
 
@@ -1088,12 +1006,487 @@ export const clearAllDataStore = async () => {
     await clearAllMapData();
     await clearAllImageData();
     await clearAllAppSettings();
-    await clearAllGroupData(); // NOVO: Limpar grupos
+    await clearAllGroupData();
+    await clearAllLayerData();
 
-    // Limpar todos os caches de cor internamente
     await mapManager.clearAllColorCaches();
+    
+    // Resetar cache de layers
+    currentMapLayers = null;
+    currentMapActiveLayerId = null;
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
+    
+    // Emitir evento de mudança de layers
+    document.dispatchEvent(new CustomEvent('layers-changed'));
+};
+
+// ===== LAYER MANAGEMENT =====
+
+// Cache em memória para layers do mapa atual
+let currentMapLayers = null;
+let currentMapActiveLayerId = null;
+
+/**
+ * Retorna as camadas de um mapa
+ */
+export const getLayers = async (mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    
+    if (targetMap === getCurrentMapNameSync() && currentMapLayers !== null) {
+        return currentMapLayers;
+    }
+    
+    const layers = await getLayersRepo(targetMap);
+    
+    if (targetMap === getCurrentMapNameSync()) {
+        currentMapLayers = layers;
+    }
+    
+    return layers;
+};
+
+/**
+ * Define as camadas de um mapa
+ */
+export const setLayers = async (mapName, layers) => {
+    await setLayersRepo(mapName, layers);
+    
+    if (mapName === getCurrentMapNameSync()) {
+        currentMapLayers = layers;
+        document.dispatchEvent(new CustomEvent('layers-changed'));
+    }
+};
+
+/**
+ * Retorna o ID da camada ativa de um mapa
+ */
+export const getActiveLayerId = async (mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    
+    if (targetMap === getCurrentMapNameSync() && currentMapActiveLayerId !== null) {
+        return currentMapActiveLayerId;
+    }
+    
+    const activeId = await getActiveLayerIdRepo(targetMap);
+    
+    if (targetMap === getCurrentMapNameSync()) {
+        currentMapActiveLayerId = activeId;
+    }
+    
+    return activeId;
+};
+
+/**
+ * Versão síncrona para obter ID da camada ativa (usa cache)
+ */
+export const getActiveLayerIdSync = (mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    
+    if (targetMap === getCurrentMapNameSync() && currentMapActiveLayerId !== null) {
+        return currentMapActiveLayerId;
+    }
+    
+    return 'default';
+};
+
+/**
+ * Define a camada ativa de um mapa
+ */
+export const setActiveLayerId = async (mapName, layerId) => {
+    await setActiveLayerIdRepo(mapName, layerId);
+    
+    if (mapName === getCurrentMapNameSync()) {
+        currentMapActiveLayerId = layerId;
+    }
+};
+
+/**
+ * Define a camada ativa (versão simplificada)
+ */
+export const setActiveLayer = async (layerId) => {
+    const mapName = getCurrentMapNameSync();
+    await setActiveLayerIdRepo(mapName, layerId);
+    currentMapActiveLayerId = layerId;
+};
+
+/**
+ * Carrega camadas do mapa para a memória (cache)
+ */
+export const loadLayersToMemory = async (mapName) => {
+    if (mapName === getCurrentMapNameSync()) {
+        currentMapLayers = await getLayersRepo(mapName);
+        currentMapActiveLayerId = await getActiveLayerIdRepo(mapName);
+    }
+};
+
+/**
+ * Limpa o cache de camadas
+ */
+export const clearLayersCache = () => {
+    currentMapLayers = null;
+    currentMapActiveLayerId = null;
+};
+
+/**
+ * Define camadas de um mapa (para import)
+ */
+export const setMapLayers = async (mapName, layersData) => {
+    if (layersData.layers) {
+        await setLayersRepo(mapName, layersData.layers);
+    }
+    if (layersData.activeLayerId) {
+        await setActiveLayerIdRepo(mapName, layersData.activeLayerId);
+    }
+    
+    if (mapName === getCurrentMapNameSync()) {
+        currentMapLayers = layersData.layers || currentMapLayers;
+        currentMapActiveLayerId = layersData.activeLayerId || currentMapActiveLayerId;
+        document.dispatchEvent(new CustomEvent('layers-changed'));
+    }
+};
+
+/**
+ * Retorna IDs das camadas visíveis do mapa atual
+ */
+export const getVisibleLayerIds = () => {
+    if (!currentMapLayers || currentMapLayers.length === 0) {
+        return ['default'];
+    }
+    
+    return currentMapLayers
+        .filter(layer => layer.visible !== false)
+        .map(layer => layer.id);
+};
+
+/**
+ * Cria uma nova camada
+ */
+export const createLayer = async (name = 'Nova Camada') => {
+    const mapName = getCurrentMapNameSync();
+    const layers = currentMapLayers || [];
+    
+    const newLayer = {
+        id: IDUtils.generateUniqueId('layer'),
+        name: name,
+        visible: true,
+        locked: false,
+        createdAt: Date.now()
+    };
+    
+    const updatedLayers = [...layers, newLayer];
+    await setLayersRepo(mapName, updatedLayers);
+    currentMapLayers = updatedLayers;
+    
+    document.dispatchEvent(new CustomEvent('layers-changed'));
+    
+    return newLayer;
+};
+
+/**
+ * Cria uma nova camada para importação (não emite evento, não muda camada ativa)
+ * @param {string} name - Nome da camada
+ * @returns {Object} - Nova camada criada
+ */
+export const createLayerForImport = async (name = 'Importação') => {
+    const mapName = getCurrentMapNameSync();
+    const layers = await getLayersRepo(mapName) || [];
+    
+    const newLayer = {
+        id: IDUtils.generateUniqueId('layer'),
+        name: name,
+        visible: true,
+        locked: false,
+        createdAt: Date.now()
+    };
+    
+    const updatedLayers = [...layers, newLayer];
+    await setLayersRepo(mapName, updatedLayers);
+    currentMapLayers = updatedLayers;
+    
+    // Não emite evento - será emitido após importação completa
+    return newLayer;
+};
+
+/**
+ * Exclui uma camada e todas as suas features
+ */
+export const deleteLayer = async (layerId) => {
+    const mapName = getCurrentMapNameSync();
+    
+    // Buscar layers diretamente do repositório para garantir dados atualizados
+    const layers = await getLayersRepo(mapName) || [];
+    
+    // Regra: deve existir sempre pelo menos uma camada
+    if (layers.length <= 1) {
+        console.warn('Não é possível excluir a única camada existente');
+        return false;
+    }
+    
+    // Deletar todas as features da camada
+    await deleteLayerFeatures(layerId, mapName);
+    
+    // Remover a camada da lista
+    const updatedLayers = layers.filter(l => l.id !== layerId);
+    await setLayersRepo(mapName, updatedLayers);
+    currentMapLayers = updatedLayers;
+    
+    // Se a camada ativa foi excluída, ativar a primeira camada restante
+    if (currentMapActiveLayerId === layerId) {
+        const newActiveLayer = updatedLayers[0];
+        if (newActiveLayer) {
+            await setActiveLayerIdRepo(mapName, newActiveLayer.id);
+            currentMapActiveLayerId = newActiveLayer.id;
+        }
+    }
+    
+    document.dispatchEvent(new CustomEvent('layers-changed'));
+    
+    return true;
+};
+
+/**
+ * Deleta todas as features de uma camada específica
+ */
+export const deleteLayerFeatures = async (layerId, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    let modified = false;
+    
+    for (const storageType of getAllStorageTypes()) {
+        const typeFeatures = currentMapData.features[storageType] || [];
+        const initialLength = typeFeatures.length;
+        
+        // Filtrar mantendo apenas features que NÃO pertencem à camada
+        currentMapData.features[storageType] = typeFeatures.filter(feature => {
+            const featureLayerId = feature.properties?.layerId || 'default';
+            if (featureLayerId === layerId) {
+                // Remover feature de grupos
+                const featureId = feature.properties?.id;
+                if (featureId) {
+                    groupManager.removeFeatureFromAllGroups(storageType, featureId, targetMap);
+                }
+                return false; // Remove
+            }
+            return true; // Mantém
+        });
+        
+        if (currentMapData.features[storageType].length !== initialLength) {
+            modified = true;
+        }
+    }
+    
+    if (modified) {
+        await updateMapData(targetMap, currentMapData);
+        
+        // Disparar evento para que o mapa seja atualizado
+        document.dispatchEvent(new CustomEvent('features-changed', {
+            detail: { mapName: targetMap, action: 'delete-layer-features', layerId }
+        }));
+    }
+    
+    return modified;
+};
+
+/**
+ * Renomeia uma camada
+ */
+export const renameLayer = async (layerId, newName) => {
+    const mapName = getCurrentMapNameSync();
+    const layers = currentMapLayers || [];
+    
+    const layerIndex = layers.findIndex(l => l.id === layerId);
+    if (layerIndex === -1) return false;
+    
+    layers[layerIndex].name = newName;
+    await setLayersRepo(mapName, layers);
+    currentMapLayers = layers;
+    
+    document.dispatchEvent(new CustomEvent('layers-changed'));
+    
+    return true;
+};
+
+/**
+ * Define visibilidade de uma camada
+ */
+export const setLayerVisibility = async (layerId, visible) => {
+    const mapName = getCurrentMapNameSync();
+    const layers = currentMapLayers || [];
+    
+    const layerIndex = layers.findIndex(l => l.id === layerId);
+    if (layerIndex === -1) return false;
+    
+    layers[layerIndex].visible = visible;
+    await setLayersRepo(mapName, layers);
+    currentMapLayers = layers;
+    
+    document.dispatchEvent(new CustomEvent('layers-changed'));
+    
+    return true;
+};
+
+/**
+ * Define bloqueio de uma camada
+ */
+export const setLayerLocked = async (layerId, locked) => {
+    const mapName = getCurrentMapNameSync();
+    const layers = currentMapLayers || [];
+    
+    const layerIndex = layers.findIndex(l => l.id === layerId);
+    if (layerIndex === -1) return false;
+    
+    layers[layerIndex].locked = locked;
+    await setLayersRepo(mapName, layers);
+    currentMapLayers = layers;
+    
+    document.dispatchEvent(new CustomEvent('layers-changed'));
+    
+    return true;
+};
+
+/**
+ * Reordena camadas conforme array de IDs
+ * @param {string[]} orderedLayerIds - Array de IDs de camadas na nova ordem
+ */
+export const reorderLayers = async (orderedLayerIds) => {
+    const mapName = getCurrentMapNameSync();
+    const layers = currentMapLayers || [];
+    
+    // Criar nova ordem baseada nos IDs fornecidos
+    const reorderedLayers = [];
+    for (const layerId of orderedLayerIds) {
+        const layer = layers.find(l => l.id === layerId);
+        if (layer) {
+            reorderedLayers.push(layer);
+        }
+    }
+    
+    // Adicionar camadas que não estavam na lista (segurança)
+    for (const layer of layers) {
+        if (!reorderedLayers.find(l => l.id === layer.id)) {
+            reorderedLayers.push(layer);
+        }
+    }
+    
+    await setLayersRepo(mapName, reorderedLayers);
+    currentMapLayers = reorderedLayers;
+    
+    // Não emite layers-changed para evitar rebuild - a UI já foi atualizada pelo drag
+    return true;
+};
+
+/**
+ * Retorna features de uma camada especÃ­fica
+ */
+export const getLayerFeatures = async (layerId, mapName = null) => {
+    const features = await getCurrentMapFeatures(mapName);
+    const result = [];
+    
+    for (const storageType of getAllStorageTypes()) {
+        const typeFeatures = features[storageType] || [];
+        for (const feature of typeFeatures) {
+            const featureLayerId = feature.properties?.layerId || 'default';
+            if (featureLayerId === layerId) {
+                result.push(feature);
+            }
+        }
+    }
+    
+    return result;
+};
+
+/**
+ * Move features de uma camada para outra
+ */
+export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = null) => {
+    const targetMap = mapName || getCurrentMapNameSync();
+    const currentMapData = await getMapData(targetMap);
+    let modified = false;
+    
+    // featureRefs pode ser:
+    // 1. Array de strings (layerIds de origem) - move todas as features dessas camadas
+    // 2. Array de objetos { type, id } - move features específicas
+    
+    if (featureRefs.length === 0) return;
+    
+    // Verificar se é array de layerIds ou de referências
+    const isLayerIdArray = typeof featureRefs[0] === 'string';
+    
+    for (const storageType of getAllStorageTypes()) {
+        const typeFeatures = currentMapData.features[storageType] || [];
+        
+        for (const feature of typeFeatures) {
+            let shouldMove = false;
+            
+            if (isLayerIdArray) {
+                // Move todas as features das camadas especificadas
+                const featureLayerId = feature.properties?.layerId || 'default';
+                shouldMove = featureRefs.includes(featureLayerId);
+            } else {
+                // Move features específicas
+                shouldMove = featureRefs.some(ref => 
+                    ref.type === storageType && ref.id === feature.properties?.id
+                );
+            }
+            
+            if (shouldMove) {
+                feature.properties.layerId = targetLayerId;
+                modified = true;
+            }
+        }
+    }
+    
+    if (modified) {
+        await updateMapData(targetMap, currentMapData);
+        document.dispatchEvent(new CustomEvent('layers-changed'));
+    }
+};
+
+/**
+ * Verifica se uma feature está efetivamente visível
+ */
+export const isFeatureEffectivelyVisible = (feature) => {
+    if (!feature || !feature.properties) return true;
+    
+    // 1. Visibilidade individual
+    if (feature.properties.visivel === false) return false;
+    
+    // 2. Visibilidade da camada
+    const layerId = feature.properties.layerId || 'default';
+    if (currentMapLayers && currentMapLayers.length > 0) {
+        const layer = currentMapLayers.find(l => l.id === layerId);
+        if (layer && layer.visible === false) return false;
+    }
+    
+    return true;
+};
+
+/**
+ * Verifica se uma feature está efetivamente bloqueada
+ */
+export const isFeatureEffectivelyLocked = (feature) => {
+    if (!feature || !feature.properties) return false;
+    
+    // 1. Bloqueio individual (legacy)
+    if (feature.properties.bloqueado === true) return true;
+    
+    // 2. Bloqueio por camada
+    const layerId = feature.properties.layerId || 'default';
+    if (currentMapLayers && currentMapLayers.length > 0) {
+        const layer = currentMapLayers.find(l => l.id === layerId);
+        if (layer && layer.locked === true) return true;
+    }
+    
+    // 3. Bloqueio por grupo
+    const featureId = feature.properties.id;
+    const sourceType = feature.properties.source;
+    if (featureId && sourceType) {
+        const group = groupManager.getFeatureGroup(sourceType, featureId);
+        if (group && group.locked === true) return true;
+    }
+    
+    return false;
 };
 
 // ===== LEGACY COMPATIBILITY EXPORTS =====

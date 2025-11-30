@@ -1,6 +1,6 @@
 // Path: js\controls_sig\draw_tools\add_point_control.js
 
-import { addFeature, updateFeature, removeFeature } from '../store/store.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addPointAttributesToPanel } from './point_attributes_panel.js';
 import AddPointGeometry from './add_point_geometry.js';
@@ -279,6 +279,7 @@ class AddPointControl extends BaseControl {
             id: Date.now().toString(),
             properties: {
                 ...AddPointControl.DEFAULT_PROPERTIES,
+                layerId: getActiveLayerIdSync(),
                 id: featureId,
                 nome: featureName
             },

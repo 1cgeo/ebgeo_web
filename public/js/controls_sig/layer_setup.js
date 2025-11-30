@@ -1,12 +1,158 @@
 // Path: js\controls_sig\layer_setup.js
-import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle } from './store/store.js';
+import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle, getVisibleLayerIds } from './store/store.js';
 import { HatchPatternGenerator } from './tool_manager/hatch_pattern_generator.js';
 import { initFrameLayers } from './frameLayersConfig.js';
 import { GRID_LAYERS, initGridLayers } from './gridLayersConfig.js';
 import config from '../config.js';
 
+// ============================================================
+// LAYER VISIBILITY FILTER SYSTEM
+// ============================================================
+
+/**
+ * Lista de layer IDs do MapLibre que devem receber filtros de visibilidade por layerId
+ */
+const FEATURE_LAYER_IDS = [
+    'point-layer',
+    'line-layer',
+    'brush-layer',
+    'polygon-fill-layer',
+    'polygon-fill-pattern-layer',
+    'polygon-layer',
+    'rectangle-fill-layer',
+    'rectangle-fill-pattern-layer',
+    'rectangle-layer',
+    'circle-fill-layer',
+    'circle-fill-pattern-layer',
+    'circle-layer',
+    'ellipse-fill-layer',
+    'ellipse-fill-pattern-layer',
+    'ellipse-layer',
+    'arrow-fill-layer',
+    'arrow-layer',
+    'text-layer',
+    'text-background-fill-layer',
+    'text-background-border-layer',
+    'image-layer',
+    'military-symbols-layer',
+    'coordination-measures-layer',
+    'boundary-main-layer',
+    'boundary-circles-layer',
+    'boundary-circles-stroke-layer',
+    'boundary-text-layer',
+    'occupied-front-layer',
+    'processed-los-layer',
+    'visibility-visible-layer',
+    'visibility-obstructed-layer'
+];
+
+/**
+ * Layer IDs que usam filtro de hatch pattern
+ */
+const HATCH_PATTERN_LAYERS = {
+    'polygon-fill-layer': false,
+    'polygon-fill-pattern-layer': true,
+    'rectangle-fill-layer': false,
+    'rectangle-fill-pattern-layer': true,
+    'circle-fill-layer': false,
+    'circle-fill-pattern-layer': true,
+    'ellipse-fill-layer': false,
+    'ellipse-fill-pattern-layer': true
+};
+
+let cachedVisibleLayerIds = null;
+
+function createLayerVisibilityFilter(visibleLayerIds, additionalFilters = null) {
+    const layerFilter = [
+        'in',
+        ['coalesce', ['get', 'layerId'], 'default'],
+        ['literal', visibleLayerIds]
+    ];
+    
+    const baseFilters = [
+        ['!=', ['get', 'visivel'], false],
+        layerFilter
+    ];
+    
+    if (additionalFilters) {
+        return ['all', ...baseFilters, ...additionalFilters];
+    }
+    
+    return ['all', ...baseFilters];
+}
+
+function createHatchLayerFilter(visibleLayerIds, hatchEnabled) {
+    const layerFilter = [
+        'in',
+        ['coalesce', ['get', 'layerId'], 'default'],
+        ['literal', visibleLayerIds]
+    ];
+    
+    if (hatchEnabled) {
+        return [
+            'all',
+            ['!=', ['get', 'visivel'], false],
+            layerFilter,
+            ['==', ['get', 'hatchEnabled'], true],
+            ['has', 'hatchPatternId']
+        ];
+    } else {
+        return [
+            'all',
+            ['!=', ['get', 'visivel'], false],
+            layerFilter,
+            ['!=', ['get', 'hatchEnabled'], true]
+        ];
+    }
+}
+
+export function updateAllLayerFilters(mapInstance) {
+    if (!mapInstance) return;
+    
+    const visibleLayerIds = getVisibleLayerIds();
+    const cacheKey = JSON.stringify(visibleLayerIds);
+    if (cachedVisibleLayerIds === cacheKey) return;
+    cachedVisibleLayerIds = cacheKey;
+    
+    FEATURE_LAYER_IDS.forEach(layerId => {
+        if (!mapInstance.getLayer(layerId)) return;
+        
+        try {
+            let newFilter;
+            if (layerId in HATCH_PATTERN_LAYERS) {
+                newFilter = createHatchLayerFilter(visibleLayerIds, HATCH_PATTERN_LAYERS[layerId]);
+            } else {
+                newFilter = createLayerVisibilityFilter(visibleLayerIds);
+            }
+            mapInstance.setFilter(layerId, newFilter);
+        } catch (error) {
+            console.warn(`Erro ao atualizar filtro de ${layerId}:`, error);
+        }
+    });
+}
+
+export function setupLayerVisibilityListener(mapInstance) {
+    const handler = () => {
+        // Invalida o cache antes de atualizar para garantir que mudanças sejam aplicadas
+        invalidateFilterCache();
+        updateAllLayerFilters(mapInstance);
+    };
+    document.addEventListener('layers-changed', handler);
+    return () => document.removeEventListener('layers-changed', handler);
+}
+
+export function invalidateFilterCache() {
+    cachedVisibleLayerIds = null;
+}
+
+// ============================================================
+// ORIGINAL LAYER SETUP CODE
+// ============================================================
+
 export async function setupMapFeatures(mapInstance, analysisLayersManager) {
     try {
+        invalidateFilterCache();
+        
         // 1. Setup layer separators first (define pontos de referência para ordenação)
         setupLayerSeparators(mapInstance);
 
@@ -43,6 +189,10 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager) {
             setupFrameLayers(mapInstance);
         }
 
+        // Setup layer visibility system
+        setupLayerVisibilityListener(mapInstance);
+        updateAllLayerFilters(mapInstance);
+
         requestAnimationFrame(() => {
             clearAllMeasurements();
             restoreMeasurements(features, mapInstance);
@@ -54,19 +204,9 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager) {
 }
 
 /**
- * Configura separadores invisíveis para controle de ordenação das camadas
- * Estes separadores servem como âncoras para posicionamento correto das layers
- *
- * Ordem final:
- * 1. Basemap
- * 2. Hillshade
- * 3. ← analysis-separator (invisible)
- * 4. Analysis Layers (todas)
- * 5. ← features-separator (invisible)
- * 6. Drawing Features (todas)
+ * Configura separadores invisÃ­veis para controle de ordenaÃ§Ã£o das camadas
  */
 function setupLayerSeparators(mapInstance) {
-    // Separador para analysis layers (referência para hillshade e analysis layers)
     if (!mapInstance.getSource('analysis-separator-source')) {
         mapInstance.addSource('analysis-separator-source', {
             type: 'geojson',
@@ -77,12 +217,11 @@ function setupLayerSeparators(mapInstance) {
             id: 'analysis-separator',
             type: 'circle',
             source: 'analysis-separator-source',
-            layout: { visibility: 'none' }, // Completamente invisível
+            layout: { visibility: 'none' },
             paint: { 'circle-opacity': 0 }
         });
     }
 
-    // Separador para features (referência para drawing layers)
     if (!mapInstance.getSource('features-separator-source')) {
         mapInstance.addSource('features-separator-source', {
             type: 'geojson',
@@ -93,7 +232,7 @@ function setupLayerSeparators(mapInstance) {
             id: 'features-separator',
             type: 'circle',
             source: 'features-separator-source',
-            layout: { visibility: 'none' }, // Completamente invisível
+            layout: { visibility: 'none' },
             paint: { 'circle-opacity': 0 }
         });
     }
@@ -264,7 +403,7 @@ function setupRectangleLayers(features, mapInstance) {
                     'dashed', ['literal', [8, 4]],
                     'dotted', ['literal', [2, 3]],
                     'dash-dot', ['literal', [8, 4, 2, 4]],
-                    ['literal', [1, 0]] // solid (default)
+                    ['literal', [1, 0]]
                 ]
             },
             filter: ['!=', ['get', 'visivel'], false]
@@ -280,9 +419,9 @@ function setupRectangleLayers(features, mapInstance) {
                 'circle-radius': 8,
                 'circle-color': [
                     'case',
-                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',        // VERMELHO para corners
-                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',  // AZUL para rotação
-                    '#ffffff'  // Branco como fallback
+                    ['==', ['get', 'handleType'], 'vertex'], '#ff0000',
+                    ['==', ['get', 'handleType'], 'eccentricity'], '#0066ff',
+                    '#ffffff'
                 ],
                 'circle-stroke-color': '#ffffff',
                 'circle-stroke-width': 2
@@ -466,7 +605,7 @@ function setupCoordinationMeasureLayers(features, mapInstance) {
                 'icon-anchor': [
                     'coalesce',
                     ['get', 'anchor'],
-                    'center' // fallback para features antigas
+                    'center'
                 ],
                 'icon-allow-overlap': true,
                 'icon-ignore-placement': true
@@ -594,7 +733,7 @@ function setupLineLayers(features, mapInstance) {
                     'dashed', ['literal', [8, 4]],
                     'dotted', ['literal', [2, 3]],
                     'dash-dot', ['literal', [8, 4, 2, 4]],
-                    ['literal', [1, 0]] // solid (default)
+                    ['literal', [1, 0]]
                 ]
             },
             filter: ['!=', ['get', 'visivel'], false]
@@ -724,7 +863,7 @@ function setupPolygonLayers(features, mapInstance) {
                     'dashed', ['literal', [8, 4]],
                     'dotted', ['literal', [2, 3]],
                     'dash-dot', ['literal', [8, 4, 2, 4]],
-                    ['literal', [1, 0]] // solid (default)
+                    ['literal', [1, 0]]
                 ]
             },
             filter: ['!=', ['get', 'visivel'], false]
@@ -779,10 +918,6 @@ async function setImages(features, mapInstance) {
     await Promise.allSettled(imagePromises);
 }
 
-/**
- * Cria uma imagem de erro padrão (SVG de imagem quebrada)
- * @returns {Promise<HTMLImageElement>} Imagem de erro carregada
- */
 function createErrorImage() {
     const errorSvg = `
         <svg width="64" height="64" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
@@ -837,8 +972,6 @@ async function loadSingleImage(imageId, mapInstance) {
 
         if (!blob) {
             console.warn(`Imagem ${imageId} não encontrada no store, usando imagem de erro`);
-
-            // Usar imagem de erro como fallback
             try {
                 const errorImage = await createErrorImage();
                 if (!mapInstance.hasImage(imageId)) {
@@ -871,8 +1004,6 @@ async function loadSingleImage(imageId, mapInstance) {
             image.onerror = () => {
                 URL.revokeObjectURL(url);
                 console.warn(`Falha ao carregar imagem ${imageId}, usando imagem de erro`);
-
-                // Fallback para imagem de erro mesmo quando o blob existe mas falha ao carregar
                 createErrorImage()
                     .then(errorImage => {
                         if (!mapInstance.hasImage(imageId)) {
@@ -889,8 +1020,6 @@ async function loadSingleImage(imageId, mapInstance) {
             setTimeout(() => {
                 URL.revokeObjectURL(url);
                 console.warn(`Timeout ao carregar imagem ${imageId}, usando imagem de erro`);
-
-                // Fallback para imagem de erro em caso de timeout
                 createErrorImage()
                     .then(errorImage => {
                         if (!mapInstance.hasImage(imageId)) {
@@ -909,8 +1038,6 @@ async function loadSingleImage(imageId, mapInstance) {
 
     } catch (error) {
         console.warn(`Erro ao processar imagem ${imageId}:`, error);
-
-        // Fallback final para imagem de erro
         try {
             const errorImage = await createErrorImage();
             if (!mapInstance.hasImage(imageId)) {
@@ -1180,7 +1307,7 @@ function setupEllipseLayers(features, mapInstance) {
                     'dashed', ['literal', [8, 4]],
                     'dotted', ['literal', [2, 3]],
                     'dash-dot', ['literal', [8, 4, 2, 4]],
-                    ['literal', [1, 0]] // solid (default)
+                    ['literal', [1, 0]]
                 ]
             },
             filter: ['!=', ['get', 'visivel'], false]
@@ -1239,7 +1366,6 @@ function setupVisibilityLayers(features, mapInstance) {
         });
     }
 
-    // ADD: Visibility feedback source for preview (following LOS pattern)
     if (!mapInstance.getSource('visibility-feedback')) {
         mapInstance.addSource('visibility-feedback', {
             type: 'geojson',
@@ -1291,7 +1417,6 @@ function setupVisibilityLayers(features, mapInstance) {
         });
     }
 
-    // ADD: Visibility feedback layer for preview (following LOS pattern)
     if (!mapInstance.getLayer('visibility-feedback-layer')) {
         mapInstance.addLayer({
             id: 'visibility-feedback-layer',
@@ -1382,7 +1507,6 @@ function setupLOSLayers(features, mapInstance) {
         });
     }
 
-    // ADD: LOS feedback source for preview (missing from current implementation)
     if (!mapInstance.getSource('los-feedback')) {
         mapInstance.addSource('los-feedback', {
             type: 'geojson',
@@ -1417,7 +1541,6 @@ function setupLOSLayers(features, mapInstance) {
         });
     }
 
-    // ADD: LOS feedback layer for preview (missing from current implementation)
     if (!mapInstance.getLayer('los-feedback-layer')) {
         mapInstance.addLayer({
             id: 'los-feedback-layer',
@@ -1637,7 +1760,7 @@ function setupCircleLayers(features, mapInstance) {
                     'dashed', ['literal', [8, 4]],
                     'dotted', ['literal', [2, 3]],
                     'dash-dot', ['literal', [8, 4, 2, 4]],
-                    ['literal', [1, 0]] // solid (default)
+                    ['literal', [1, 0]]
                 ]
             },
             filter: ['!=', ['get', 'visivel'], false]
@@ -1685,16 +1808,15 @@ function setupTextLayers(features, mapInstance) {
         });
     }
 
-    // Source separado para backgrounds (usando selectionBox como geometria)
     const backgroundFeatures = correctedTexts
         .filter(feature => feature.properties.showBackground && feature.properties.selectionBox)
         .map(feature => ({
             type: 'Feature',
             properties: {
                 ...feature.properties,
-                id: feature.properties.id + '_bg' // ID único para o background
+                id: feature.properties.id + '_bg'
             },
-            geometry: feature.properties.selectionBox // Usar selectionBox como geometria
+            geometry: feature.properties.selectionBox
         }));
 
     if (!mapInstance.getSource('text-backgrounds')) {
@@ -1712,7 +1834,6 @@ function setupTextLayers(features, mapInstance) {
         });
     }
 
-    // Layer 1: Background Fill (primeiro layer - atrás de tudo)
     if (!mapInstance.getLayer('text-background-fill-layer')) {
         mapInstance.addLayer({
             id: 'text-background-fill-layer',
@@ -1729,7 +1850,6 @@ function setupTextLayers(features, mapInstance) {
         });
     }
 
-    // Layer 2: Background Border (segundo layer)
     if (!mapInstance.getLayer('text-background-border-layer')) {
         mapInstance.addLayer({
             id: 'text-background-border-layer',
@@ -1747,7 +1867,6 @@ function setupTextLayers(features, mapInstance) {
         });
     }
 
-    // Layer 3: Texto (terceiro layer - na frente)
     if (!mapInstance.getLayer('text-layer')) {
         mapInstance.addLayer({
             id: 'text-layer',
@@ -1771,7 +1890,6 @@ function setupTextLayers(features, mapInstance) {
         });
     }
 
-    // Função helper para atualizar backgrounds quando textos mudarem
     const updateBackgroundFeatures = async () => {
         const currentTexts = await mapInstance.getSource('texts').getData();
         const updatedBackgroundFeatures = currentTexts.features
@@ -1791,20 +1909,17 @@ function setupTextLayers(features, mapInstance) {
         });
     };
 
-    // Event listener para sincronizar backgrounds quando textos mudarem
     if (textControl && !textControl._backgroundUpdateListener) {
         const originalSetData = mapInstance.getSource('texts').setData.bind(mapInstance.getSource('texts'));
         mapInstance.getSource('texts').setData = function (data) {
             originalSetData(data);
-            // Pequeno delay para garantir que o source principal foi atualizado
             setTimeout(updateBackgroundFeatures, 0);
         };
-        textControl._backgroundUpdateListener = true; // Flag para evitar múltiplas binding
+        textControl._backgroundUpdateListener = true;
     }
 }
 
 function setupAuxiliaryLayers(mapInstance) {
-
     if (!mapInstance.getSource('rectangle-selection-preview')) {
         mapInstance.addSource('rectangle-selection-preview', {
             type: 'geojson',
@@ -1814,7 +1929,6 @@ function setupAuxiliaryLayers(mapInstance) {
             }
         });
 
-        // Add preview layer with dashed red stroke
         mapInstance.addLayer({
             id: 'rectangle-selection-preview-layer',
             type: 'line',
@@ -1854,13 +1968,12 @@ function setupAuxiliaryLayers(mapInstance) {
 
 async function restoreTerrainState(mapInstance) {
     try {
-
         const terrainControl = mapInstance._controls.find(control =>
             control.constructor.name === 'TerrainControl'
         );
 
         if (!terrainControl) {
-            return; // Nenhum controle de terreno encontrado
+            return;
         }
 
         if (terrainControl.terrainConfig) {
@@ -1880,7 +1993,6 @@ function clearAllMeasurements() {
             if (parentMarker) {
                 parentMarker.remove();
             } else {
-                // Fallback: remover apenas o label
                 label.remove();
             }
         });
@@ -1892,7 +2004,6 @@ function clearAllMeasurements() {
 
 function restoreMeasurements(features, mapInstance) {
     try {
-
         const lineControl = mapInstance._controls.find(control =>
             control.constructor.name === 'AddLineControl'
         );
@@ -1994,12 +2105,9 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
 }
 
 async function setupFrameLayers(mapInstance) {
-    // 1. Inicializa as camadas da moldura
     initFrameLayers(mapInstance);
 
     try {
-
-
         const mouseCoordinatesControl = mapInstance._controls.find(
             c => c.constructor.name === 'MouseCoordinatesControl'
         );
@@ -2011,16 +2119,12 @@ async function setupFrameLayers(mapInstance) {
 
         const frameControl = mouseCoordinatesControl.frameControl;
 
-
-
-
         if (!frameControl) {
             console.log('Nenhum controle de moldura encontrado');
             return;
         }
         const mapName = getCurrentMapNameSync();
         const savedFrame = await getFrameStyle(mapName);
-
 
         let scale = 'scale_25k';
         let visible = false;
@@ -2036,7 +2140,6 @@ async function setupFrameLayers(mapInstance) {
         frameControl._updateButtonState(visible);
         console.info(`Moldura restaurada: scale = ${scale}, fillVisible = ${fillVisible}, visível=${visible}`);
 
-
     } catch (error) {
         console.warn('Erro ao restaurar moldura:', error);
     }
@@ -2045,7 +2148,7 @@ async function setupFrameLayers(mapInstance) {
 async function setupGridLayers(mapInstance) {
     initGridLayers(mapInstance);
     try {
-         const mouseCoordinatesControl = mapInstance._controls.find(
+        const mouseCoordinatesControl = mapInstance._controls.find(
             c => c.constructor.name === 'MouseCoordinatesControl'
         );
 
@@ -2056,16 +2159,12 @@ async function setupGridLayers(mapInstance) {
 
         const gridControl = mouseCoordinatesControl.gridControl;
 
-
-
-
         if (!gridControl) {
             console.log('Nenhum controle de grid encontrado');
             return;
         }
         const mapName = getCurrentMapNameSync();
         const savedGrid = await getGridStyle(mapName);
-
 
         let format = 'latlong';
         let visible = false;
@@ -2077,7 +2176,6 @@ async function setupGridLayers(mapInstance) {
         gridControl._getGrid(format, visible, false);
         gridControl._updateButtonState(visible);
         console.info(`Grid restaurado: format = ${format}, visível=${visible}`);
-
 
     } catch (error) {
         console.warn('Erro ao restaurar grid:', error);

@@ -1,5 +1,5 @@
 // Path: js\controls_sig\visibility_tool\add_visibility_control.js
-import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures } from '../store/store.js';
+import { addFeature, removeFeature, getCurrentMapFeatures, batchUpdateVisibilityFeatures, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addVisibilityAttributesToPanel } from './visibility_attributes_panel.js';
 import AddVisibilityGeometry from './add_visibility_geometry.js';
@@ -496,7 +496,8 @@ class AddVisibilityControl extends BaseControl {
             const properties = {
                 ...AddVisibilityControl.DEFAULT_PROPERTIES,
                 id: featureId,
-                nome: featureName
+                nome: featureName,
+                layerId: getActiveLayerIdSync(),
             };
 
             // Create complete visibility feature with geometry using geometry class
