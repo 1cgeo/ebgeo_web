@@ -41,9 +41,10 @@ class AddStreetViewControl {
             attributionControl: false,
             zoom: 12.5,
             minZoom: 11,
-            maxZoom: 17.9
+            maxZoom: 17.9,
+            validateStyle: false
         });
-        this.isOpen = false
+        this.isOpen = false,
 
         // Performance optimization properties
         this.animationId = null

@@ -590,7 +590,8 @@ export default class PDFExportTab {
                 pixelRatio: 1,
                 preserveDrawingBuffer: true,
                 interactive: false,
-                fadeDuration: 0
+                fadeDuration: 0,
+                validateStyle: false
             });
 
             this.updateProgress(40, 'Transferindo recursos...');

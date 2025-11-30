@@ -139,7 +139,8 @@ class ScreenshotControl {
                 bearing: bearing,
                 pitch: pitch,
                 preserveDrawingBuffer: true,
-                interactive: false
+                interactive: false,
+                validateStyle: false
             });
 
             tempMap.once('load', () => {

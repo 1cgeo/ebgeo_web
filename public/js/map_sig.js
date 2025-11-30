@@ -52,7 +52,8 @@ const map = new maplibregl.Map({
     minZoom: config.map2d.minZoom,
     maxZoom: config.map2d.maxZoom,
     maxPitch: config.map2d.maxPitch,
-    bounds: config.map2d.bounds
+    bounds: config.map2d.bounds,
+    validateStyle: false
 });
 
 map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
