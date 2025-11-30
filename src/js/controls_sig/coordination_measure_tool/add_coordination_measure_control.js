@@ -1,4 +1,4 @@
-// Path: js/controls_sig/coordination_measure_tool/add_coordination_measure_control.js
+// Path: src/js/controls_sig/coordination_measure_tool/add_coordination_measure_control.js
 
 import {
   addFeature,

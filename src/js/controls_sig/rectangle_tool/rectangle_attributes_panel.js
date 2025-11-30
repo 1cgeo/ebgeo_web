@@ -90,7 +90,6 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
 
     panel.appendChild(createAttributeRow('Largura (px):', lineWidthControl));
 
-    // Estilo da linha
     const lineStyleSelect = createLineStyleSelect(
         feature.properties.lineStyle || 'solid',
         (newValue) => {
@@ -99,7 +98,6 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     );
     panel.appendChild(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
-    // Hachura
     const hatchContainer = document.createElement('div');
     hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
 

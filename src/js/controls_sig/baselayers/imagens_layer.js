@@ -1,4 +1,4 @@
-// Path: js/controls_sig/baselayers/imagens_layer.js
+// Path: src/js/controls_sig/baselayers/imagens_layer.js
 
 export default {
     "version": 8,

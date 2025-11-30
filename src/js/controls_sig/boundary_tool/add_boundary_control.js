@@ -1,10 +1,15 @@
-// Path: js/controls_sig/boundary_tool/add_boundary_control.js
+// Path: src/js/controls_sig/boundary_tool/add_boundary_control.js
+
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import { addBoundaryAttributesToPanel } from './boundary_attributes_panel.js';
 import AddBoundaryGeometry from './add_boundary_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
 
+/**
+ * Boundary Tool Control
+ * Manages drawing, editing, and interaction for boundary line features with echelon symbols
+ */
 class AddBoundaryControl extends BaseControl {
     // ===== SYMBOL SIZE CONSTANTS =====
     static SYMBOL_SIZE_CONSTANTS = {
@@ -17,7 +22,6 @@ class AddBoundaryControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
 
-        // State management
         this.drawPoints = [];
         this.isDraggingHandle = false;
         this.activeHandleType = null;
@@ -25,14 +29,12 @@ class AddBoundaryControl extends BaseControl {
 
         this.geometry = new AddBoundaryGeometry();
 
-        // RAF-based preview system for performance
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
         this.lastPreviewPoints = null;
         this.geometryDebounceTimer = null;
 
-        // Double-click detection
         this.clickTimer = null;
         this.lastClickCoords = null;
     }

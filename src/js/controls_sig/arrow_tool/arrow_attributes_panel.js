@@ -1,4 +1,4 @@
-// Path: js/controls_sig/arrow_tool/arrow_attributes_panel.js
+// Path: src/js/controls_sig/arrow_tool/arrow_attributes_panel.js
 
 import {
     createSliderWithInput,
@@ -12,6 +12,14 @@ import {
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
+/**
+ * Create and populate arrow attributes panel with controls
+ * @param {HTMLElement} panel - Panel container element
+ * @param {Array} selectedFeatures - Selected arrow features
+ * @param {Object} arrowControl - Arrow control instance
+ * @param {Object} selectionManager - Selection manager instance
+ * @param {Object} uiManager - UI manager instance
+ */
 export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;
 

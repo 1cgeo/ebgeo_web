@@ -1,4 +1,4 @@
-// Path: js/controls_sig/utilities/toast_service.js
+// Path: src/js/controls_sig/utilities/toast_service.js
 
 class ToastService {
     static DEFAULT_DURATION = 3000;
@@ -86,6 +86,10 @@ class ToastService {
 
     /**
      * Creates toast DOM element
+     * @param {string} message - Message to display
+     * @param {string} type - Toast type
+     * @param {Object} config - Toast configuration
+     * @returns {HTMLElement} Toast element
      */
     static createToastElement(message, type, config) {
         const toast = document.createElement('div');
@@ -154,6 +158,8 @@ class ToastService {
 
     /**
      * Positions toast on screen
+     * @param {HTMLElement} toast - Toast element
+     * @param {string} position - Position identifier
      */
     static positionToast(toast, position) {
         const activeCount = ToastService.activeToasts.size;
@@ -195,6 +201,8 @@ class ToastService {
 
     /**
      * Shows toast with animation
+     * @param {HTMLElement} toast - Toast element
+     * @param {Object} config - Toast configuration
      */
     static showToastElement(toast, config) {
         document.body.appendChild(toast);

@@ -1,4 +1,4 @@
-// Path: js/controls_sig/store/map-manager.js
+// Path: src/js/controls_sig/store/map-manager.js
 
 import { memoryStore, setAppSetting, setColorUsage, getColorUsage, removeColorUsage, getAllMapNames, getMapData } from './repository.js';
 import groupManager from '../tool_manager/group_manager.js';

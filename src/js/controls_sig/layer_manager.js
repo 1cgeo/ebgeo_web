@@ -1,4 +1,4 @@
-// Path: js/controls_sig/layer_manager.js
+// Path: src/js/controls_sig/layer_manager.js
 import { memoryStore, setMapLayers, getMapLayers } from './store/repository.js';
 import { IDUtils } from './id_utils.js';
 

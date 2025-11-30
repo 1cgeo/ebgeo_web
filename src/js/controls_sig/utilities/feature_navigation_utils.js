@@ -1,4 +1,4 @@
-// Path: js/controls_sig/utilities/feature_navigation_utils.js
+// Path: src/js/controls_sig/utilities/feature_navigation_utils.js
 
 /**
  * Utility for map feature navigation and zoom operations
@@ -72,6 +72,10 @@ export class FeatureNavigationUtils {
 
     /**
      * Zooms to a specific point
+     * @param {Array} coordinates - [lng, lat] coordinates
+     * @param {Object} mapInstance - Map instance
+     * @param {Object} options - Zoom options
+     * @returns {Promise} Promise that resolves when zoom completes
      */
     static async _zoomToPoint(coordinates, mapInstance, options) {
         return new Promise((resolve) => {
@@ -87,6 +91,10 @@ export class FeatureNavigationUtils {
 
     /**
      * Zooms to bounds of a geometry
+     * @param {Object} geometry - GeoJSON geometry
+     * @param {Object} mapInstance - Map instance
+     * @param {Object} options - Zoom options
+     * @returns {Promise} Promise that resolves when zoom completes
      */
     static async _zoomToBounds(geometry, mapInstance, options) {
         const coordinates = this.extractAllCoordinates(geometry);
@@ -125,6 +133,9 @@ export class FeatureNavigationUtils {
 
     /**
      * Calculates padding in pixels based on bbox size
+     * @param {number} bboxSize - Bounding box size
+     * @param {number} paddingPercent - Padding percentage
+     * @returns {number} Padding in pixels
      */
     static _calculatePaddingFromBbox(bboxSize, paddingPercent) {
         const basePixelSize = bboxSize * 100000;
@@ -187,6 +198,8 @@ export class FeatureNavigationUtils {
 
     /**
      * Converts feature type from store format to SelectionManager format
+     * @param {string} storeType - Feature type in store format
+     * @returns {string} Feature type in SelectionManager format
      */
     static mapFeatureType(storeType) {
         return getSourceTypeFromStorage(storeType);

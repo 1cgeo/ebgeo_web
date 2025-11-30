@@ -1,4 +1,4 @@
-// Path: js/controls_sig/brush_tool/add_brush_control.js
+// Path: src/js/controls_sig/brush_tool/add_brush_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
@@ -6,6 +6,10 @@ import { addBrushAttributesToPanel } from './brush_attributes_panel.js';
 import AddBrushGeometry from './add_brush_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
 
+/**
+ * Brush Tool Control
+ * Manages freehand drawing for brush/pencil features with zoom-adaptive scaling
+ */
 class AddBrushControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);
@@ -16,11 +20,9 @@ class AddBrushControl extends BaseControl {
 
         this.geometry = new AddBrushGeometry();
 
-        // RAF-based preview
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
 
-        // Zoom-based line width scaling
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
     }

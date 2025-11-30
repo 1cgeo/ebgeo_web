@@ -1,4 +1,4 @@
-// Path: js/controls_sig/layer_setup.js
+// Path: src/js/controls_sig/layer_setup.js
 import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle, getVisibleLayerIds } from './store/store.js';
 import { HatchPatternGenerator } from './tool_manager/hatch_pattern_generator.js';
 import { initFrameLayers } from './frameLayersConfig.js';
@@ -10,7 +10,7 @@ import config from '../config.js';
 // ============================================================
 
 /**
- * Lista de layer IDs do MapLibre que devem receber filtros de visibilidade por layerId
+ * List of MapLibre layer IDs that should receive visibility filters by layerId
  */
 const FEATURE_LAYER_IDS = [
     'point-layer',
@@ -47,7 +47,7 @@ const FEATURE_LAYER_IDS = [
 ];
 
 /**
- * Layer IDs que usam filtro de hatch pattern
+ * Layer IDs that use hatch pattern filter
  */
 const HATCH_PATTERN_LAYERS = {
     'polygon-fill-layer': false,
@@ -126,14 +126,14 @@ export function updateAllLayerFilters(mapInstance) {
             }
             mapInstance.setFilter(layerId, newFilter);
         } catch (error) {
-            console.warn(`Erro ao atualizar filtro de ${layerId}:`, error);
+            console.warn(`Error updating filter for ${layerId}:`, error);
         }
     });
 }
 
 export function setupLayerVisibilityListener(mapInstance) {
     const handler = () => {
-        // Invalida o cache antes de atualizar para garantir que mudanças sejam aplicadas
+        // Invalidate cache before updating to ensure changes are applied
         invalidateFilterCache();
         updateAllLayerFilters(mapInstance);
     };
@@ -152,8 +152,8 @@ export function invalidateFilterCache() {
 export async function setupMapFeatures(mapInstance, analysisLayersManager) {
     try {
         invalidateFilterCache();
-        
-        // 1. Setup layer separators first (define pontos de referência para ordenação)
+
+        // 1. Setup layer separators first (define reference points for ordering)
         setupLayerSeparators(mapInstance);
 
         // 2. Restore terrain state (hillshade)
@@ -199,12 +199,12 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager) {
             restoreBoundaryDependentFeatures(features, mapInstance);
         });
     } catch (error) {
-        console.error('Erro ao configurar features do mapa:', error);
+        console.error('Error setting up map features:', error);
     }
 }
 
 /**
- * Configura separadores invisÃ­veis para controle de ordenaÃ§Ã£o das camadas
+ * Sets up invisible separators for layer ordering control
  */
 function setupLayerSeparators(mapInstance) {
     if (!mapInstance.getSource('analysis-separator-source')) {
@@ -1981,7 +1981,7 @@ async function restoreTerrainState(mapInstance) {
         }
 
     } catch (error) {
-        console.warn('Erro ao restaurar estado do terreno:', error);
+        console.warn('Error restoring terrain state:', error);
     }
 }
 
@@ -1998,7 +1998,7 @@ function clearAllMeasurements() {
         });
 
     } catch (error) {
-        console.warn('⚠️ Erro ao limpar medições antigas:', error);
+        console.warn('Error clearing old measurements:', error);
     }
 }
 
@@ -2039,7 +2039,7 @@ function restoreMeasurements(features, mapInstance) {
             });
         }
     } catch (error) {
-        console.warn('Erro ao restaurar medições:', error);
+        console.warn('Error restoring measurements:', error);
     }
 }
 
@@ -2141,7 +2141,7 @@ async function setupFrameLayers(mapInstance) {
         console.info(`Moldura restaurada: scale = ${scale}, fillVisible = ${fillVisible}, visível=${visible}`);
 
     } catch (error) {
-        console.warn('Erro ao restaurar moldura:', error);
+        console.warn('Error restoring frame:', error);
     }
 }
 
@@ -2178,6 +2178,6 @@ async function setupGridLayers(mapInstance) {
         console.info(`Grid restaurado: format = ${format}, visível=${visible}`);
 
     } catch (error) {
-        console.warn('Erro ao restaurar grid:', error);
+        console.warn('Error restoring grid:', error);
     }
 }

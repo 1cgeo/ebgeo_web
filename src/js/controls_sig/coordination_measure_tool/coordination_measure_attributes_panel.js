@@ -1,4 +1,4 @@
-// Path: js/controls_sig/coordination_measure_tool/coordination_measure_attributes_panel.js
+// Path: src/js/controls_sig/coordination_measure_tool/coordination_measure_attributes_panel.js
 
 import {
     createSliderWithInput,
@@ -57,26 +57,24 @@ export function addCoordinationMeasureAttributesToPanel(
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
-        
+
         const infoText = document.createElement('div');
         infoText.className = 'feature-name-wrapper';
         infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
-        infoText.textContent = `${selectedFeatures.length} medidas selecionados`;
-        
+        infoText.textContent = `${selectedFeatures.length} medidas selecionadas`;
+
         const optionsButton = createFeatureOptionsButton(
             selectedFeatures,
             selectionManager,
             uiManager
         );
-        
+
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
         panel.appendChild(multiSelectHeader);
     }
 
-    // ===== CONFIGURAÇÃO DE PONTO ESPECÍFICA =====
     if (selectedFeatures.length === 1) {
-        // Botão para abrir modal do ponto
         const pointButton = document.createElement('button');
         pointButton.classList.add('tool-button', 'pure-material-button-contained');
         pointButton.textContent = 'Configurar';
@@ -86,9 +84,6 @@ export function addCoordinationMeasureAttributesToPanel(
         panel.appendChild(createAttributeRow('Símbolo:', pointButton));
     }
 
-    // ===== CONTROLES DE RENDERIZAÇÃO =====
-
-    // Size
     const sizeControl = createSliderWithInput(getCommonConfig('size',
         feature.properties.size || 1.0, {
         onChange: (value) => {
@@ -99,7 +94,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
     panel.appendChild(createAttributeRow('Tamanho:', sizeControl));
 
-    // Zoom de referência
     const createdAtZoomControl = createSliderWithInput({
         min: 1,
         max: 21,
@@ -114,11 +108,9 @@ export function addCoordinationMeasureAttributesToPanel(
 
     panel.appendChild(createAttributeRow('Zoom de referência:', createdAtZoomControl));
 
-    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity || 1.0) * 100), {
         onChange: (value) => {
-            // Convert from 0-100 range to 0-1 range for internal storage
             coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
             uiManager.updateSelectionHighlight();
         }
@@ -126,7 +118,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
     panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
 
-    // Rotação (usando steps de 15 graus)
     const rotationControl = createSliderWithInput({
         min: -180,
         max: 180,
@@ -140,14 +131,11 @@ export function addCoordinationMeasureAttributesToPanel(
 
     panel.appendChild(createAttributeRow('Rotação (°):', rotationControl));
 
-    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
-
-    // ===== EDITOR DE COORDENADAS (APENAS SELEÇÃO ÚNICA) =====
     if (selectedFeatures.length === 1) {
         const coordEditor = createCoordinateEditor(
             feature,
             uiManager,
-            async (lat, lng) => { // ✅ FIX: Make callback async
+            async (lat, lng) => {
                 const updatedFeature = {
                     ...feature,
                     geometry: {
@@ -155,8 +143,7 @@ export function addCoordinationMeasureAttributesToPanel(
                         coordinates: [lng, lat]
                     }
                 };
-                
-                // Update the feature with new coordinates (await to ensure it completes)
+
                 await coordinationMeasureControl.updateFeatures([updatedFeature], true, false);
                 
                 uiManager.updateSelectionHighlight();
@@ -182,12 +169,8 @@ export function addCoordinationMeasureAttributesToPanel(
 
     panel.appendChild(buttons);
 
-    // ===== MODAL DO PONTO (2 COLUNAS) =====
-
-    // Variável global para rastrear dropdowns abertos
     const openDropdowns = [];
 
-    // Função para fechar todos os dropdowns
     function closeAllDropdowns() {
         openDropdowns.forEach(dropdown => {
             if (dropdown.style.display === 'block') {
@@ -196,7 +179,6 @@ export function addCoordinationMeasureAttributesToPanel(
         });
     }
 
-    // ===== FUNÇÃO PARA CRIAR CONTROLE DE COR =====
     function createColorControl(currentValue, onChange, label) {
         const container = document.createElement('div');
         container.className = 'color-control-container';
@@ -205,22 +187,18 @@ export function addCoordinationMeasureAttributesToPanel(
         labelElement.textContent = label + ':';
         labelElement.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
 
-        // Container do checkbox e label
         const checkboxContainer = document.createElement('div');
         checkboxContainer.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 12px;';
 
-        // Checkbox usando helper
         const checkbox = createCheckbox(
-            !!currentValue, // true se tem cor, false se é padrão
+            !!currentValue,
             (e) => {
                 const isEnabled = e.target.checked;
                 if (isEnabled) {
-                    // Habilitar cor personalizada - usar cor atual ou verde padrão
                     const color = currentValue || '#11FF00';
                     onChange(color);
                     updateColorControlState(color);
                 } else {
-                    // Desabilitar cor personalizada - usar padrão (branco)
                     onChange(null);
                     updateColorControlState(null);
                 }
@@ -231,7 +209,6 @@ export function addCoordinationMeasureAttributesToPanel(
         checkboxLabel.textContent = 'Usar cor personalizada';
         checkboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
 
-        // Clicar no label também alterna o checkbox
         checkboxLabel.onclick = () => {
             const checkboxInput = checkbox.querySelector('input');
             checkboxInput.click();
@@ -240,11 +217,9 @@ export function addCoordinationMeasureAttributesToPanel(
         checkboxContainer.appendChild(checkbox);
         checkboxContainer.appendChild(checkboxLabel);
 
-        // Container dos controles de cor
         const controlsContainer = document.createElement('div');
         controlsContainer.style.cssText = 'display: flex; align-items: center; gap: 12px;';
 
-        // Color picker usando helper
         const colorPicker = createColorPicker(
             currentValue || '#11FF00',
             (e) => {
@@ -260,21 +235,17 @@ export function addCoordinationMeasureAttributesToPanel(
             const isCustomColor = !!color;
             const checkboxInput = checkbox.querySelector('input');
 
-            // Update
             checkboxInput.checked = isCustomColor;
 
-            // Update
             colorPicker.disabled = !isCustomColor;
             colorPicker.style.opacity = isCustomColor ? '1' : '0.5';
             colorPicker.style.cursor = isCustomColor ? 'pointer' : 'not-allowed';
 
-            // Update
             if (isCustomColor) {
                 colorPicker.value = color;
             }
         }
 
-        // Estado inicial
         updateColorControlState(currentValue);
 
         controlsContainer.appendChild(colorPicker);
@@ -287,10 +258,8 @@ export function addCoordinationMeasureAttributesToPanel(
     }
 
     function openPointModal() {
-        // Propriedades temporárias (serão aplicadas apenas ao clicar em "Aplicar")
         const tempProperties = { ...feature.properties };
 
-        // Modal overlay
         const modalOverlay = document.createElement('div');
         modalOverlay.style.cssText = `
             position: fixed;
@@ -305,7 +274,6 @@ export function addCoordinationMeasureAttributesToPanel(
             justify-content: center;
         `;
 
-        // Modal content
         const modal = document.createElement('div');
         modal.style.cssText = `
             background: white;
@@ -318,14 +286,12 @@ export function addCoordinationMeasureAttributesToPanel(
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
         `;
 
-        // Modal header - Título centralizado e sem "tipo atual"
         const header = document.createElement('div');
         header.style.cssText = 'margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #eee;';
         header.innerHTML = `
             <h2 style="margin: 0; font-size: 24px; color: #333; text-align: center;">Configurar Medida de Coordenação</h2>
         `;
 
-        // Modal content container - Grid com 2 colunas
         const modalContent = document.createElement('div');
         modalContent.style.cssText = `
             display: grid;
@@ -334,7 +300,6 @@ export function addCoordinationMeasureAttributesToPanel(
             margin-bottom: 25px;
         `;
 
-        // ===== COLUNA 1: CONTROLES =====
         const controlsColumn = document.createElement('div');
         controlsColumn.style.cssText = `
             display: flex;
@@ -345,7 +310,6 @@ export function addCoordinationMeasureAttributesToPanel(
             padding-right: 10px;
         `;
 
-        // ===== COLUNA 2: PREVIEW =====
         const previewColumn = document.createElement('div');
         previewColumn.style.cssText = `
             display: flex;
@@ -357,7 +321,6 @@ export function addCoordinationMeasureAttributesToPanel(
             max-height: 65vh;
         `;
 
-        // Título fora do container (seguindo padrão do military_symbol)
         const previewTitle = document.createElement('h4');
         previewTitle.textContent = 'Visualização';
         previewTitle.style.cssText = `
@@ -367,7 +330,6 @@ export function addCoordinationMeasureAttributesToPanel(
         `;
         previewColumn.appendChild(previewTitle);
 
-        // Container do preview com estilo
         const previewImageContainer = document.createElement('div');
         previewImageContainer.style.cssText = `
             padding: 20px;
@@ -390,33 +352,26 @@ export function addCoordinationMeasureAttributesToPanel(
         previewImageContainer.appendChild(previewImage);
         previewColumn.appendChild(previewImageContainer);
 
-
-        // Update preview function
         let previewDebounceTimer = null;
         async function updatePreview() {
             try {
-                // Validate pointCode
                 if (!tempProperties.pointCode) {
                     previewImage.style.display = 'none';
                     return;
                 }
 
-                // For ECHELON placeholders, ensure echelonCode is set
                 if (isEchelonPointCode(tempProperties.pointCode) && !tempProperties.echelonCode) {
                     previewImage.style.display = 'none';
                     return;
                 }
 
-                // Determine actual point code to use
                 let actualPointCode = tempProperties.pointCode;
-                
-                // Handle echelon placeholders - use the actual echelon code
+
                 if (actualPointCode === 'ECHELON' || actualPointCode === 'ECHELON_FT') {
-                    actualPointCode = tempProperties.echelonCode || 
+                    actualPointCode = tempProperties.echelonCode ||
                         (actualPointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
                 }
 
-                // Generate preview
                 const result = await coordinationMeasureControl.symbolGenerator.generate(
                     actualPointCode,
                     tempProperties
@@ -441,7 +396,6 @@ export function addCoordinationMeasureAttributesToPanel(
             }, 50);
         }
 
-        // ===== TIPO DE PONTO (COMBO BOX COM PREVIEW) =====
         const pointTypeCombo = createDigitalComboBoxWithThumbnails(
             getPointsGroupedOptions(),
             tempProperties.pointCode,
@@ -451,21 +405,16 @@ export function addCoordinationMeasureAttributesToPanel(
 
                 tempProperties.pointCode = newValue;
 
-                // Clear echelon code if switching from echelon to regular point
                 if (wasEchelon && !isEchelon) {
-                    tempProperties.echelonCode = null; // ✅ Set to null instead of delete
+                    tempProperties.echelonCode = null;
                 }
 
-                // Set default echelon code when switching to any echelon type
-                // (includes switching between ECHELON and ECHELON_FT)
                 if (isEchelon) {
                     tempProperties.echelonCode = newValue === 'ECHELON_FT' ? 'ECHELON_FT_16' : 'ECHELON_16';
                 }
 
-                // Clear text modifiers when changing point type
                 clearAllTextModifiers(tempProperties);
 
-                // Show/hide and update subtype dropdown
                 if (isEchelon) {
                     subtypeDropdown.style.display = 'block';
                     updateSubtypeCombo();
@@ -473,7 +422,6 @@ export function addCoordinationMeasureAttributesToPanel(
                     subtypeDropdown.style.display = 'none';
                 }
 
-                // Rebuild text modifiers section
                 rebuildTextModifiersSection(tempProperties.pointCode);
 
                 updatePreviewDebounced();
@@ -483,7 +431,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
         controlsColumn.appendChild(pointTypeCombo);
 
-        // ===== SUBTIPO DE ESCALÃO (CONDICIONAL) =====
         const subtypeDropdown = document.createElement('div');
         subtypeDropdown.style.display = isEchelonPointCode(tempProperties.pointCode) ? 'block' : 'none';
 
@@ -509,7 +456,6 @@ export function addCoordinationMeasureAttributesToPanel(
         updateSubtypeCombo();
         controlsColumn.appendChild(subtypeDropdown);
 
-        // ===== COR PERSONALIZADA =====
         const colorControlModal = createColorControl(
             tempProperties.fillColor,
             (newColor) => {
@@ -520,20 +466,17 @@ export function addCoordinationMeasureAttributesToPanel(
         );
         controlsColumn.appendChild(colorControlModal);
 
-        // ===== AMPLIFICADORES TEXTUAIS =====
         const textModifiersSection = document.createElement('div');
         textModifiersSection.style.cssText = `
             padding-top: 15px;
         `;
 
-        // Content container (sempre visível)
         const textModifiersContent = document.createElement('div');
         textModifiersContent.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 15px;';
 
         textModifiersSection.appendChild(textModifiersContent);
         controlsColumn.appendChild(textModifiersSection);
 
-        // Função para reconstruir os campos baseado no pointCode
         function rebuildTextModifiersSection(pointCode) {
             textModifiersContent.innerHTML = '';
 
@@ -557,17 +500,14 @@ export function addCoordinationMeasureAttributesToPanel(
             });
         }
 
-        // Chamar inicialmente
         rebuildTextModifiersSection(tempProperties.pointCode);
 
-        // ✅ MODIFICAÇÃO 6: Galeria removida - montar modal diretamente
         modalContent.appendChild(controlsColumn);
         modalContent.appendChild(previewColumn);
 
         modal.appendChild(header);
         modal.appendChild(modalContent);
 
-        // ===== BOTÕES DO MODAL =====
         const modalButtons = document.createElement('div');
         modalButtons.style.cssText = `
             margin-top: 30px;
@@ -593,7 +533,6 @@ export function addCoordinationMeasureAttributesToPanel(
         applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
         applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
         applyButton.onclick = async () => {
-            // Apply all properties at once to avoid race conditions
             const propertiesToUpdate = [
                 'pointCode', 'echelonCode', 'fillColor',
                 // Text modifiers
@@ -601,24 +540,20 @@ export function addCoordinationMeasureAttributesToPanel(
                 'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
             ];
 
-            // Get source data ONCE
             const data = await coordinationMeasureControl.map.getSource("coordination_measures").getData();
             let needsRegeneration = false;
 
-            // Update all properties in the source
             for (const feature of selectedFeatures) {
                 const sourceFeature = data.features.find(
                     (f) => f.properties.id == feature.properties.id
                 );
-                
+
                 if (sourceFeature) {
-                    // Update each property
                     for (const key of propertiesToUpdate) {
                         if (tempProperties.hasOwnProperty(key)) {
                             sourceFeature.properties[key] = tempProperties[key];
                             feature.properties[key] = tempProperties[key];
-                            
-                            // Check if regeneration is needed
+
                             if (coordinationMeasureControl.geometry.affectsSIDC(key) ||
                                 coordinationMeasureControl.geometry.affectsTextModifiers(key) ||
                                 key === 'fillColor') {
@@ -629,22 +564,16 @@ export function addCoordinationMeasureAttributesToPanel(
                 }
             }
 
-            // Update source with ALL changes
             coordinationMeasureControl.map.getSource("coordination_measures").setData(data);
 
-            // Regenerate symbol ONCE if needed
             if (needsRegeneration && selectedFeatures.length > 0) {
-                // Get UPDATED feature from source to ensure all properties are present
                 const updatedData = await coordinationMeasureControl.map.getSource("coordination_measures").getData();
                 const updatedFeature = updatedData.features.find(
                     f => f.properties.id === selectedFeatures[0].properties.id
                 );
-                
+
                 if (updatedFeature) {
-                    // Regenerate symbol with ALL updated properties
                     await coordinationMeasureControl.updateSymbolImage(updatedFeature);
-                    
-                    // Update SelectionManager with updated feature
                     coordinationMeasureControl.updateSelectionManagerFeature(updatedFeature);
                 }
             }
@@ -677,7 +606,6 @@ export function addCoordinationMeasureAttributesToPanel(
         modal.appendChild(modalButtons);
         modalOverlay.appendChild(modal);
 
-        // Event listeners
         modalOverlay.onclick = (e) => {
             if (e.target === modalOverlay) {
                 closeModal();
@@ -686,14 +614,12 @@ export function addCoordinationMeasureAttributesToPanel(
 
         document.addEventListener('keydown', handleModalKeyDown);
 
-        // Add
         document.body.appendChild(modalOverlay);
         updatePreview();
 
         function closeModal() {
             document.removeEventListener('keydown', handleModalKeyDown);
 
-            // Cleanup dos dropdowns
             const comboBoxes = [controlsColumn].flatMap(col => Array.from(col.children));
             comboBoxes.forEach(combo => {
                 if (combo._cleanup) {
@@ -710,7 +636,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
         function handleModalKeyDown(e) {
             if (e.key === 'Escape') {
-                // Only close modal if no dropdown is open
                 const hasOpenDropdown = openDropdowns.some(dropdown =>
                     dropdown.style.display === 'block'
                 );
@@ -723,31 +648,27 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     }
 
-    // ===== HELPER FUNCTIONS =====
-
     /**
      * Generate thumbnail for combo box options
      */
     async function generatePointThumbnailForCombo(pointCode, defaultEchelonCode) {
         try {
-            // Handle echelon placeholders - use the actual echelon code
             if (pointCode === 'ECHELON' || pointCode === 'ECHELON_FT') {
-                pointCode = defaultEchelonCode || 
+                pointCode = defaultEchelonCode ||
                     (pointCode === 'ECHELON' ? 'ECHELON_16' : 'ECHELON_FT_16');
             }
-            
+
             const result = await coordinationMeasureControl.symbolGenerator.generate(
                 pointCode,
-                {}  // Empty properties for thumbnail generation
+                {}
             );
-            
+
             return result?.dataUrl || null;
         } catch (error) {
-            console.warn(`Erro ao gerar thumbnail para combo: ${pointCode}`, error);
+            console.warn(`Error generating combo thumbnail: ${pointCode}`, error);
             return null;
         }
     }
-
 
     /**
      * Create digital combo box with thumbnail previews
@@ -788,7 +709,6 @@ export function addCoordinationMeasureAttributesToPanel(
             min-height: 50px;
         `;
 
-        // Container para thumbnail e texto
         const displayContent = document.createElement('div');
         displayContent.style.cssText = 'display: flex; align-items: center; gap: 10px; flex: 1;';
         
@@ -807,7 +727,6 @@ export function addCoordinationMeasureAttributesToPanel(
         displayContent.appendChild(displayText);
         selectDisplay.appendChild(displayContent);
 
-        // Ícone dropdown
         const dropdownIcon = document.createElement('span');
         dropdownIcon.innerHTML = '▼';
         dropdownIcon.style.cssText = `
@@ -836,16 +755,13 @@ export function addCoordinationMeasureAttributesToPanel(
             min-width: 300px;
         `;
 
-        // Register dropdown
         openDropdowns.push(dropdown);
 
-        // Update
         async function updateDisplay(value) {
             const selected = options.find(opt => opt.value === value);
             if (selected) {
                 displayText.textContent = selected.label;
-                
-                // Generate thumbnail if iconCode exists
+
                 if (selected.iconCode) {
                     const thumbnailUrl = await generatePointThumbnailForCombo(
                         selected.iconCode,
@@ -867,7 +783,6 @@ export function addCoordinationMeasureAttributesToPanel(
             }
         }
 
-        // Popular dropdown com thumbnails
         options.forEach(option => {
             const optionElement = document.createElement('div');
             optionElement.style.cssText = `
@@ -881,7 +796,6 @@ export function addCoordinationMeasureAttributesToPanel(
                 gap: 10px;
             `;
 
-            // Thumbnail na opção
             const optionThumbnail = document.createElement('img');
             optionThumbnail.style.cssText = `
                 width: 25px;
@@ -894,7 +808,6 @@ export function addCoordinationMeasureAttributesToPanel(
             optionText.textContent = option.label;
             optionText.style.cssText = 'flex: 1;';
 
-            // Generate thumbnail if iconCode exists
             if (option.iconCode) {
                 generatePointThumbnailForCombo(option.iconCode, option.defaultEchelonCode)
                     .then(thumbnailUrl => {
@@ -921,8 +834,7 @@ export function addCoordinationMeasureAttributesToPanel(
                 updateDisplay(option.value);
                 onChange(option.value);
                 closeAllDropdowns();
-                
-                // Update selected state
+
                 dropdown.querySelectorAll('div').forEach(div => {
                     div.style.backgroundColor = 'transparent';
                 });
@@ -932,14 +844,12 @@ export function addCoordinationMeasureAttributesToPanel(
             dropdown.appendChild(optionElement);
         });
 
-        // Toggle dropdown
         selectDisplay.onclick = (e) => {
             e.stopPropagation();
             const isOpen = dropdown.style.display === 'block';
             closeAllDropdowns();
-            
+
             if (!isOpen) {
-                // Calcular posição do dropdown
                 const rect = selectDisplay.getBoundingClientRect();
                 dropdown.style.top = (rect.bottom + 5) + 'px';
                 dropdown.style.left = rect.left + 'px';
@@ -952,7 +862,6 @@ export function addCoordinationMeasureAttributesToPanel(
             }
         };
 
-        // Close on outside click
         const closeDropdown = () => {
             dropdown.style.display = 'none';
             selectDisplay.style.borderColor = '#ddd';
@@ -965,7 +874,6 @@ export function addCoordinationMeasureAttributesToPanel(
             if (index > -1) {
                 openDropdowns.splice(index, 1);
             }
-            // Remove
             if (dropdown.parentNode) {
                 dropdown.parentNode.removeChild(dropdown);
             }
@@ -974,12 +882,10 @@ export function addCoordinationMeasureAttributesToPanel(
         document.addEventListener('click', closeDropdown);
 
         selectContainer.appendChild(selectDisplay);
-        // Add
         document.body.appendChild(dropdown);
         container.appendChild(labelElement);
         container.appendChild(selectContainer);
 
-        // Initialize display
         updateDisplay(currentValue);
 
         return container;
@@ -1060,16 +966,13 @@ export function addCoordinationMeasureAttributesToPanel(
             min-width: 200px;
         `;
 
-        // Register dropdown
         openDropdowns.push(dropdown);
 
-        // Update
         function updateDisplay() {
             const selected = options.find(opt => opt.value === currentValue);
             textContainer.textContent = selected ? selected.label : 'Selecione...';
         }
 
-        // Popular dropdown
         options.forEach(option => {
             const item = document.createElement('div');
             item.style.cssText = `
@@ -1101,14 +1004,12 @@ export function addCoordinationMeasureAttributesToPanel(
             dropdown.appendChild(item);
         });
 
-        // Toggle dropdown
         selectDisplay.onclick = (e) => {
             e.stopPropagation();
             const isOpen = dropdown.style.display === 'block';
             closeAllDropdowns();
-            
+
             if (!isOpen) {
-                // Calcular posição do dropdown
                 const rect = selectDisplay.getBoundingClientRect();
                 dropdown.style.top = (rect.bottom + 5) + 'px';
                 dropdown.style.left = rect.left + 'px';
@@ -1121,7 +1022,6 @@ export function addCoordinationMeasureAttributesToPanel(
             }
         };
 
-        // Fechar ao clicar fora
         const closeDropdown = () => {
             dropdown.style.display = 'none';
             selectDisplay.style.borderColor = '#ddd';
@@ -1134,7 +1034,6 @@ export function addCoordinationMeasureAttributesToPanel(
             if (index > -1) {
                 openDropdowns.splice(index, 1);
             }
-            // Remove
             if (dropdown.parentNode) {
                 dropdown.parentNode.removeChild(dropdown);
             }
@@ -1146,7 +1045,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
         container.appendChild(labelElement);
         selectContainer.appendChild(selectDisplay);
-        // Add
         document.body.appendChild(dropdown);
         container.appendChild(selectContainer);
 
@@ -1160,7 +1058,6 @@ export function addCoordinationMeasureAttributesToPanel(
         const container = document.createElement('div');
         container.style.cssText = 'display: flex; flex-direction: column; gap: 5px;';
 
-        // Label
         const label = document.createElement('label');
         label.textContent = fieldDef.label;
         label.style.cssText = `
@@ -1170,11 +1067,9 @@ export function addCoordinationMeasureAttributesToPanel(
         `;
         container.appendChild(label);
 
-        // Input element
         let inputElement;
 
         if (fieldDef.type === 'select') {
-            // Dropdown
             inputElement = document.createElement('select');
             inputElement.style.cssText = `
                 padding: 8px;
@@ -1183,13 +1078,11 @@ export function addCoordinationMeasureAttributesToPanel(
                 font-size: 13px;
             `;
 
-            // Add empty option
             const emptyOption = document.createElement('option');
             emptyOption.value = '';
             emptyOption.textContent = '-- Selecione --';
             inputElement.appendChild(emptyOption);
 
-            // Add options
             fieldDef.options.forEach(optKey => {
                 const option = document.createElement('option');
                 option.value = optKey;
@@ -1207,7 +1100,6 @@ export function addCoordinationMeasureAttributesToPanel(
             inputElement.onchange = (e) => onChange(e.target.value || null);
 
         } else {
-            // Text or number input
             inputElement = document.createElement('input');
             inputElement.type = fieldDef.type;
             inputElement.placeholder = fieldDef.placeholder || '';
@@ -1227,7 +1119,6 @@ export function addCoordinationMeasureAttributesToPanel(
 
         container.appendChild(inputElement);
 
-        // Help text
         if (fieldDef.help) {
             const helpText = document.createElement('div');
             helpText.textContent = fieldDef.help;
@@ -1244,7 +1135,6 @@ export function addCoordinationMeasureAttributesToPanel(
     function getPointsGroupedOptions() {
         const options = [];
 
-        // Add regular points by category
         const grouped = {};
         UI_DATA.pointsList.forEach(point => {
             const category = point.category || 'Outros';
@@ -1252,7 +1142,6 @@ export function addCoordinationMeasureAttributesToPanel(
             grouped[category].push(point);
         });
 
-        // Category order
         const categoryOrder = [
             'Gerais',
             'Movimento e Manobra',
@@ -1280,18 +1169,17 @@ export function addCoordinationMeasureAttributesToPanel(
             }
         });
 
-        // Add special types (echelon)
         options.push({
             value: 'ECHELON',
             label: 'Escalão (requer subtipo)',
-            iconCode: null,  // Sem preview para placeholder
+            iconCode: null,
             isEchelon: true,
             defaultEchelonCode: 'ECHELON_16'
         });
         options.push({
             value: 'ECHELON_FT',
             label: 'Escalão Força-Tarefa (requer subtipo)',
-            iconCode: null,  // Sem preview para placeholder
+            iconCode: null,
             isEchelon: true,
             defaultEchelonCode: 'ECHELON_FT_16'
         });
@@ -1310,7 +1198,7 @@ export function addCoordinationMeasureAttributesToPanel(
         return subtypes.map(st => ({
             value: st.code,
             label: st.label,
-            iconCode: st.code  // Add
+            iconCode: st.code
         }));
     }
 
@@ -1326,7 +1214,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
     /**
      * Clear all text modifiers from properties
-     * Sets to null instead of delete to ensure they are cleared when applied
+     * Sets to null to ensure they are cleared when applied
      */
     function clearAllTextModifiers(properties) {
         const modifiers = [
@@ -1335,7 +1223,7 @@ export function addCoordinationMeasureAttributesToPanel(
         ];
 
         modifiers.forEach(mod => {
-            properties[mod] = null; // ✅ Set to null instead of delete
+            properties[mod] = null;
         });
     }
 
@@ -1350,13 +1238,11 @@ export function addCoordinationMeasureAttributesToPanel(
             return pointData.name || pointData.label || pointCode;
         }
 
-        // Try to find in UI_DATA
         const uiPoint = UI_DATA.pointsList.find(p => p.code === pointCode);
         if (uiPoint) {
             return uiPoint.label;
         }
 
-        // Check echelon types
         const echelon = UI_DATA.echelonSubtypes.find(e => e.code === pointCode);
         if (echelon) {
             return echelon.label;

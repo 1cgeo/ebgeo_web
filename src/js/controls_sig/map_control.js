@@ -1,4 +1,4 @@
-// Path: js/controls_sig/map_control.js
+// Path: src/js/controls_sig/map_control.js
 import {
     initializeWithLastActiveMap,
     setCurrentMap,

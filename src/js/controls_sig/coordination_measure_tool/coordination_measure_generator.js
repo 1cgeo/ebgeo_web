@@ -1,4 +1,5 @@
-// Path: js/controls_sig/coordination_measure_tool/coordination_measure_generator.js
+// Path: src/js/controls_sig/coordination_measure_tool/coordination_measure_generator.js
+
 import { COORDINATION_POINTS_CATALOG } from './coordination_points_catalog.js';
 
 const DEFAULT_SIZE = 80;
@@ -133,9 +134,9 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Escapa caracteres especiais XML
-   * @param {string} text - Texto a escapar
-   * @returns {string} Texto escapado
+   * Escape XML special characters
+   * @param {string} text - Text to escape
+   * @returns {string} Escaped text
    */
   escapeXml(text) {
     const map = {
@@ -149,12 +150,11 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Aplica tracejado para símbolos "preparados"
-   * @param {string} svg - String SVG
-   * @returns {string} SVG com tracejado
+   * Apply dashed stroke for "preparado" status symbols
+   * @param {string} svg - SVG string
+   * @returns {string} SVG with dashed stroke
    */
   applyDashedStroke(svg) {
-    // Add
     return svg.replace(
       /stroke="([^"]*)"/g, 
       'stroke="$1" stroke-dasharray="5,5"'
@@ -162,18 +162,16 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Aplica cor personalizada substituindo rgb(255,255,255) pela cor escolhida
-   * @param {string} svg - String SVG
-   * @param {string} color - Cor em formato hex (ex: #11FF00)
-   * @returns {string} SVG com cor aplicada
+   * Apply custom color by replacing rgb(255,255,255) with chosen color
+   * @param {string} svg - SVG string
+   * @param {string} color - Color in hex format (e.g. #11FF00)
+   * @returns {string} SVG with applied color
    */
   applyCustomColor(svg, color) {
-    // Sem preenchimento
     if (color === 'none') {
       return svg.replace(/fill="rgb\(255,\s*255,\s*255\)"/gi, 'fill="none"');
     }
-    
-    // Converter cor hex para rgb
+
     const rgb = this.hexToRgb(color);
     if (rgb) {
       return svg.replace(/rgb\(255,\s*255,\s*255\)/gi, `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`);
@@ -182,19 +180,17 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Converte cor hexadecimal para RGB
-   * @param {string} hex - Cor em formato hex (ex: #11FF00)
-   * @returns {Object|null} Objeto com propriedades r, g, b ou null se inválido
+   * Convert hexadecimal color to RGB
+   * @param {string} hex - Color in hex format (e.g. #11FF00)
+   * @returns {Object|null} Object with r, g, b properties or null if invalid
    */
   hexToRgb(hex) {
-    // Remove # se presente
     hex = hex.replace(/^#/, '');
-    
-    // Valida formato hex
+
     if (!/^[0-9A-F]{6}$/i.test(hex)) {
       return null;
     }
-    
+
     return {
       r: parseInt(hex.substr(0, 2), 16),
       g: parseInt(hex.substr(2, 2), 16),
@@ -203,24 +199,21 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Adiciona elementos de texto externos ao símbolo e ajusta viewBox
-   * @param {string} svg - String SVG
-   * @param {Object} properties - Propriedades do ponto
-   * @param {Object} pointData - Dados do catálogo do ponto
-   * @returns {string} SVG com textos adicionados e viewBox ajustado
+   * Add external text elements to symbol and adjust viewBox
+   * @param {string} svg - SVG string
+   * @param {Object} properties - Point properties
+   * @param {Object} pointData - Catalog point data
+   * @returns {string} SVG with added texts and adjusted viewBox
    */
   addExternalTexts(svg, properties, pointData) {
     const textElements = [];
     const textFieldsConfig = pointData.textFields || {};
-    
-    // Iterar sobre cada campo configurado no catálogo
+
     Object.entries(textFieldsConfig).forEach(([fieldName, config]) => {
       const value = properties[fieldName];
-      
-      // Se não tem valor, não renderizar
+
       if (!value && value !== 0) return;
-      
-      // Create
+
       textElements.push(this.createTextElement(
         config.position.x,
         config.position.y,
@@ -233,22 +226,18 @@ export class CoordinationMeasureGenerator {
         }
       ));
     });
-    
-    // Inserir textos antes do fechamento do SVG
+
     if (textElements.length > 0) {
       const textsString = textElements.join('\n  ');
       svg = svg.replace('</svg>', textsString + '\n</svg>');
-      
-      // Recalcular e atualizar viewBox para incluir texto
+
       const dynamicVB = this.calculateDynamicViewBox(svg, properties, pointData);
-      
-      // Substituir viewBox no SVG
+
       svg = svg.replace(
         /viewBox="[^"]*"/,
         `viewBox="${dynamicVB.viewBoxString}"`
       );
-      
-      // Update
+
       svg = svg.replace(
         /width="[^"]*"/,
         `width="${dynamicVB.width}"`
@@ -258,17 +247,17 @@ export class CoordinationMeasureGenerator {
         `height="${dynamicVB.height}"`
       );
     }
-    
+
     return svg;
   }
 
   /**
-   * Cria elemento de texto SVG
-   * @param {number} x - Coordenada X
-   * @param {number} y - Coordenada Y
-   * @param {string} content - Conteúdo do texto
-   * @param {Object} options - Opções de formatação
-   * @returns {string} Elemento text SVG
+   * Create SVG text element
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate
+   * @param {string} content - Text content
+   * @param {Object} options - Formatting options
+   * @returns {string} SVG text element
    */
   createTextElement(x, y, content, options = {}) {
     const {
@@ -282,13 +271,13 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Extrai dimensões completas do viewBox do SVG
-   * @param {string} svg - String SVG
-   * @returns {Object} Objeto com minX, minY, width, height, maxX, maxY
+   * Extract complete dimensions from SVG viewBox
+   * @param {string} svg - SVG string
+   * @returns {Object} Object with minX, minY, width, height, maxX, maxY
    */
   extractDimensions(svg) {
     const viewBoxMatch = svg.match(/viewBox="([^"]+)"/);
-    
+
     if (viewBoxMatch) {
       const values = viewBoxMatch[1].split(/\s+/).map(parseFloat);
       if (values.length === 4) {
@@ -302,8 +291,7 @@ export class CoordinationMeasureGenerator {
         };
       }
     }
-    
-    // Dimensão padrão caso não encontre viewBox
+
     return { 
       minX: 0, 
       minY: 0, 
@@ -344,50 +332,41 @@ export class CoordinationMeasureGenerator {
             if (naturalWidth === 0 || naturalHeight === 0) {
               throw new Error('Invalid image dimensions');
             }
-            
-            // ✅ Use natural dimensions if targets not specified
+
             const finalWidth = targetWidth || naturalWidth;
             const finalHeight = targetHeight || naturalHeight;
-            
-            // Create canvas with final dimensions
+
             const canvas = document.createElement('canvas');
             canvas.width = finalWidth;
             canvas.height = finalHeight;
             const ctx = canvas.getContext('2d');
-            
-            // Clear background (transparent)
+
             ctx.clearRect(0, 0, finalWidth, finalHeight);
-            
-            // ✅ Draw image scaled to fit canvas while maintaining aspect ratio
+
             const aspectRatio = naturalWidth / naturalHeight;
             const canvasAspectRatio = finalWidth / finalHeight;
             
             let drawWidth, drawHeight, offsetX, offsetY;
-            
+
             if (Math.abs(aspectRatio - canvasAspectRatio) < 0.01) {
-              // Aspect ratios match - draw full size
               drawWidth = finalWidth;
               drawHeight = finalHeight;
               offsetX = 0;
               offsetY = 0;
             } else if (aspectRatio >= canvasAspectRatio) {
-              // Image is wider - fit to width
               drawWidth = finalWidth;
               drawHeight = Math.round(finalWidth / aspectRatio);
               offsetX = 0;
               offsetY = (finalHeight - drawHeight) / 2;
             } else {
-              // Image is taller - fit to height
               drawHeight = finalHeight;
               drawWidth = Math.round(finalHeight * aspectRatio);
               offsetX = (finalWidth - drawWidth) / 2;
               offsetY = 0;
             }
-            
-            // Draw resized and centered image
+
             ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
-            
-            // Convert to blob
+
             canvas.toBlob(pngBlob => {
               URL.revokeObjectURL(url);
               resolve(pngBlob);
@@ -415,81 +394,78 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Valida propriedades do ponto antes de gerar
-   * @param {string} pointCode - Código do ponto
-   * @param {Object} properties - Propriedades a validar
-   * @returns {Array<string>} Array de mensagens de erro (vazio se válido)
+   * Validate point properties before generation
+   * @param {string} pointCode - Point code
+   * @param {Object} properties - Properties to validate
+   * @returns {Array<string>} Array of error messages (empty if valid)
    */
   validate(pointCode, properties) {
     const errors = [];
     const pointData = this.catalog[pointCode];
-    
+
     if (!pointData) {
-      errors.push(`Ponto ${pointCode} não encontrado`);
+      errors.push(`Point ${pointCode} not found`);
       return errors;
     }
-    
-    // Validar classe de suprimento
+
     if (pointData.hasSupplyIcon && !properties.classeSuprimento) {
-      errors.push('Selecione a classe de suprimento');
+      errors.push('Select supply class');
     }
-    
-    // Validar campos de escalão
+
     if (pointData.isEchelon) {
       if (!properties.nome) {
-        errors.push('Informe o nome da unidade');
+        errors.push('Enter unit name');
       }
       if (!properties.status) {
-        errors.push('Selecione o status (ocupado/preparado)');
+        errors.push('Select status (occupied/prepared)');
       }
     }
-    
-    // Validar campos específicos de concentração de fogos (240601)
+
     if (pointData.code === '240601') {
       if (!properties.numeroConcentracao) {
-        errors.push('Informe o número da concentração (ex: HA 107)');
+        errors.push('Enter concentration number (e.g. HA 107)');
       }
     }
-    
+
     return errors;
   }
 
   /**
-   * Obtém lista de campos de texto disponíveis para um ponto
-   * @param {string} pointCode - Código do ponto
-   * @returns {Array<string>} Lista de nomes de campos
+   * Get list of available text fields for a point
+   * @param {string} pointCode - Point code
+   * @returns {Array<string>} List of field names
    */
   getAvailableTextFields(pointCode) {
     const pointData = this.catalog[pointCode];
-    
+
     if (!pointData || !pointData.textFields) {
       return [];
     }
-    
+
     return Object.keys(pointData.textFields);
   }
 
   /**
-   * Obtém informações completas de um ponto
-   * @param {string} pointCode - Código do ponto
-   * @returns {Object|null} Dados do ponto ou null se não encontrado
+   * Get complete information for a point
+   * @param {string} pointCode - Point code
+   * @returns {Object|null} Point data or null if not found
    */
   getPointInfo(pointCode) {
     return this.catalog[pointCode] || null;
   }
 
   /**
-   * Lista todos os códigos disponíveis no catálogo
-   * @returns {Array<string>} Lista de códigos
+   * List all available codes in catalog
+   * @returns {Array<string>} List of codes
    */
   listAvailableCodes() {
     return Object.keys(this.catalog);
   }
 
   /**
-   * Lista pontos por categoria
-   * @param {string} category - Nome da categoria
-   * @returns {Array<Object>} Lista de pontos da categoria
+   * List points by category
+   * @param {string} category - Category name
+   * @returns {Array<Object>} List of points in category
    */
   listByCategory(category) {
     return Object.values(this.catalog)
@@ -502,8 +478,8 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Obtém todas as categorias disponíveis
-   * @returns {Array<string>} Lista de categorias únicas
+   * Get all available categories
+   * @returns {Array<string>} List of unique categories
    */
   getCategories() {
     const categories = new Set();
@@ -516,83 +492,71 @@ export class CoordinationMeasureGenerator {
   }
 
   /**
-   * Estima largura do texto em unidades SVG
-   * @param {string} text - Texto a medir
-   * @param {number} fontSize - Tamanho da fonte
-   * @param {string} fontWeight - Peso da fonte ('normal' ou 'bold')
-   * @returns {number} Largura estimada em unidades SVG
+   * Estimate text width in SVG units
+   * @param {string} text - Text to measure
+   * @param {number} fontSize - Font size
+   * @param {string} fontWeight - Font weight ('normal' or 'bold')
+   * @returns {number} Estimated width in SVG units
    */
   estimateTextWidth(text, fontSize, fontWeight = 'normal') {
-    // Aproximação empírica para fontes sans-serif
     const charWidth = fontWeight === 'bold' ? fontSize * 0.7 : fontSize * 0.6;
     return String(text).length * charWidth;
   }
 
   /**
-   * Calcula viewBox dinâmico que expande para incluir todos os textos
-   * @param {string} svg - String SVG
-   * @param {Object} properties - Propriedades do ponto (valores dos textos)
-   * @param {Object} pointData - Dados do catálogo do ponto
-   * @returns {Object} ViewBox expandido { minX, minY, width, height, maxX, maxY, viewBoxString }
+   * Calculate dynamic viewBox that expands to include all texts
+   * @param {string} svg - SVG string
+   * @param {Object} properties - Point properties (text values)
+   * @param {Object} pointData - Catalog point data
+   * @returns {Object} Expanded viewBox { minX, minY, width, height, maxX, maxY, viewBoxString }
    */
   calculateDynamicViewBox(svg, properties, pointData) {
-    // Extrair viewBox original do SVG
     const original = this.extractDimensions(svg);
-    
-    // Inicializar limites com o viewBox original
+
     let minX = original.minX;
     let minY = original.minY;
     let maxX = original.maxX;
     let maxY = original.maxY;
-    
-    // Margem adicional ao redor dos textos
+
     const MARGIN = 5;
-    
-    // Obter configuração de campos de texto
+
     const textFieldsConfig = pointData.textFields || {};
-    
-    // Para cada campo de texto configurado
+
     Object.entries(textFieldsConfig).forEach(([fieldName, config]) => {
       const value = properties[fieldName];
-      
-      // Ignorar campos sem valor
+
       if (value === undefined || value === null || value === '') return;
-      
+
       const x = config.position.x;
       const y = config.position.y;
       const anchor = config.anchor;
       const fontSize = config.fontSize;
       const fontWeight = config.fontWeight || 'normal';
-      
-      // Estimar largura do texto
+
       const textWidth = this.estimateTextWidth(value, fontSize, fontWeight);
-      
-      // Calcular limites do texto baseado na âncora
+
       let textMinX, textMaxX;
-      
+
       if (anchor === 'start') {
         textMinX = x;
         textMaxX = x + textWidth;
       } else if (anchor === 'end') {
         textMinX = x - textWidth;
         textMaxX = x;
-      } else { // middle
+      } else {
         textMinX = x - (textWidth / 2);
         textMaxX = x + (textWidth / 2);
       }
-      
-      // Calcular limites verticais
+
       const textMinY = y - fontSize;
       const textMaxY = y + (fontSize * 0.3);
-      
-      // Expandir viewBox se necessário
+
       minX = Math.min(minX, textMinX - MARGIN);
       maxX = Math.max(maxX, textMaxX + MARGIN);
       minY = Math.min(minY, textMinY - MARGIN);
       maxY = Math.max(maxY, textMaxY + MARGIN);
     });
-    
-    // Arredondar valores
+
     minX = Math.floor(minX);
     minY = Math.floor(minY);
     maxX = Math.ceil(maxX);

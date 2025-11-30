@@ -1,4 +1,4 @@
-// Path: js/controls_sig/tool_manager/hatch_pattern_generator.js
+// Path: src/js/controls_sig/tool_manager/hatch_pattern_generator.js
 
 export class HatchPatternGenerator {
     constructor() {

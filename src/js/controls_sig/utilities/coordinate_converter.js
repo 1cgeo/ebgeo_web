@@ -1,4 +1,4 @@
-// Path: js/controls_sig/utilities/coordinate_converter.js
+// Path: src/js/controls_sig/utilities/coordinate_converter.js
 
 /**
  * Centralized utility for coordinate format conversions
@@ -129,6 +129,8 @@ export function getDisplayFormat(lat, lng, formatId) {
 
 /**
  * Parses Lat/Long in various formats
+ * @param {string} input - Coordinate string to parse
+ * @returns {Object|null} {lat, lng} object or null if invalid
  */
 function parseLatLong(input) {
     const patterns = [
@@ -163,16 +165,16 @@ function parseLatLong(input) {
  */
 function parseLatLongDMS(input) {
     const normalized = input.trim();
-    
-    // Padrão para capturar GMS completo com segundos decimais
-    // Aceita º ou ° para graus, ' para minutos, " para segundos
-    // Aceita direções: N/S para latitude, L/O/E/W para longitude
+
+    // Pattern to capture full DMS with decimal seconds
+    // Accepts º or ° for degrees, ' for minutes, " for seconds
+    // Accepts directions: N/S for latitude, L/O/E/W for longitude
     const dmsPattern = /(\d+)[º°]\s*(\d+)['′]\s*(\d+(?:\.\d+)?)[\"″]?\s*([NS])\s+(\d+)[º°]\s*(\d+)['′]\s*(\d+(?:\.\d+)?)[\"″]?\s*([LOEW])/i;
-    
-    // Padrão sem segundos (apenas graus e minutos)
+
+    // Pattern without seconds (only degrees and minutes)
     const dmPattern = /(\d+)[º°]\s*(\d+)['′]\s*([NS])\s+(\d+)[º°]\s*(\d+)['′]\s*([LOEW])/i;
-    
-    // Padrão mais flexível com espaços
+
+    // More flexible pattern with spaces
     const flexiblePattern = /(\d+)\s+(\d+)\s+(\d+(?:\.\d+)?)\s*([NS])\s+(\d+)\s+(\d+)\s+(\d+(?:\.\d+)?)\s*([LOEW])/i;
 
     let match = normalized.match(dmsPattern);
@@ -238,6 +240,8 @@ function parseLatLongDMS(input) {
 
 /**
  * Parses UTM WGS84 coordinates
+ * @param {string} input - UTM coordinate string
+ * @returns {Object|null} {lat, lng} object or null if invalid
  */
 function parseUTMWGS84(input) {
     if (typeof proj4 === 'undefined') {
@@ -272,6 +276,8 @@ function parseUTMWGS84(input) {
 
 /**
  * Parses MGRS coordinates
+ * @param {string} input - MGRS coordinate string
+ * @returns {Object|null} {lat, lng} object or null if invalid
  */
 function parseMGRS(input) {
     if (typeof mgrs === 'undefined') {
@@ -291,6 +297,9 @@ function parseMGRS(input) {
 
 /**
  * Formats Lat/Long as decimal
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @returns {string} Formatted coordinate string
  */
 function formatLatLong(lat, lng) {
     return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
@@ -325,6 +334,9 @@ function formatLatLongDMS(lat, lng) {
 
 /**
  * Formats coordinates as UTM WGS84
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @returns {string} Formatted UTM coordinate string
  */
 function formatUTMWGS84(lat, lng) {
     if (typeof proj4 === 'undefined') {
@@ -348,6 +360,9 @@ function formatUTMWGS84(lat, lng) {
 
 /**
  * Formats coordinates as MGRS
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @returns {string} Formatted MGRS coordinate string
  */
 function formatMGRS(lat, lng) {
     if (typeof mgrs === 'undefined') {
@@ -365,6 +380,9 @@ function formatMGRS(lat, lng) {
 
 /**
  * Gets DMS display format
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @returns {Object} Display format object with parts
  */
 function getDMSDisplayFormat(lat, lng) {
     const latDir = lat >= 0 ? 'N' : 'S';
@@ -396,6 +414,9 @@ function getDMSDisplayFormat(lat, lng) {
 
 /**
  * Gets UTM WGS84 display format
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @returns {Object} Display format object with parts
  */
 function getUTMWGS84DisplayFormat(lat, lng) {
     if (typeof proj4 === 'undefined') {
@@ -434,6 +455,9 @@ function getUTMWGS84DisplayFormat(lat, lng) {
 
 /**
  * Gets MGRS display format
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @returns {Object} Display format object with parts
  */
 function getMGRSDisplayFormat(lat, lng) {
     if (typeof mgrs === 'undefined') {
@@ -466,6 +490,8 @@ function getMGRSDisplayFormat(lat, lng) {
 
 /**
  * Formats MGRS string with proper spacing
+ * @param {string} mgrsString - MGRS string to format
+ * @returns {string} Formatted MGRS string with spaces
  */
 function formatMGRSString(mgrsString) {
     if (mgrsString.length !== 15) {

@@ -1,4 +1,4 @@
-// Path: js/controls_sig/screenshot_control.js
+// Path: src/js/controls_sig/screenshot_control.js
 class ScreenshotControl {
     constructor() {
         this.map = null;

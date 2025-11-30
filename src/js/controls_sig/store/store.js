@@ -1,4 +1,4 @@
-// Path: js/controls_sig/store/store.js
+// Path: src/js/controls_sig/store/store.js
 import {
     SCHEMA_VERSION,
     MIN_SCHEMA_VERSION,
@@ -288,9 +288,8 @@ export const initializeWithLastActiveMap = async () => {
     await mapManager.initializeProjectColorCache();
     await groupManager.loadGroupsToMemory(lastActiveMap);
     
-    // Load layers into memory
     await loadLayersToMemory(lastActiveMap);
-    
+
     return lastActiveMap;
 };
 
@@ -1010,14 +1009,12 @@ export const clearAllDataStore = async () => {
     await clearAllLayerData();
 
     await mapManager.clearAllColorCaches();
-    
-    // Resetar cache de layers
+
     currentMapLayers = null;
     currentMapActiveLayerId = null;
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
-    
-    // Emit layers change event
+
     document.dispatchEvent(new CustomEvent('layers-changed'));
 };
 
@@ -1028,7 +1025,7 @@ let currentMapLayers = null;
 let currentMapActiveLayerId = null;
 
 /**
- * Retorna as camadas de um mapa
+ * Returns layers for a map
  */
 export const getLayers = async (mapName = null) => {
     const targetMap = mapName || getCurrentMapNameSync();
@@ -1067,7 +1064,7 @@ export const getLayers = async (mapName = null) => {
 };
 
 /**
- * Define as camadas de um mapa
+ * Sets layers for a map
  */
 export const setLayers = async (mapName, layers) => {
     await setLayersRepo(mapName, layers);
@@ -1079,7 +1076,7 @@ export const setLayers = async (mapName, layers) => {
 };
 
 /**
- * Retorna o ID da camada ativa de um mapa
+ * Returns active layer ID for a map
  */
 export const getActiveLayerId = async (mapName = null) => {
     const targetMap = mapName || getCurrentMapNameSync();
@@ -1087,13 +1084,13 @@ export const getActiveLayerId = async (mapName = null) => {
     if (targetMap === getCurrentMapNameSync() && currentMapActiveLayerId !== null) {
         return currentMapActiveLayerId;
     }
-    
+
     const activeId = await getActiveLayerIdRepo(targetMap);
-    
+
     if (targetMap === getCurrentMapNameSync()) {
         currentMapActiveLayerId = activeId;
     }
-    
+
     return activeId;
 };
 
@@ -1107,17 +1104,16 @@ export const getActiveLayerIdSync = (mapName = null) => {
     if (targetMap === getCurrentMapNameSync() && currentMapActiveLayerId !== null) {
         return currentMapActiveLayerId;
     }
-    
-    // Return first layer ID from cache if available, otherwise null
+
     if (currentMapLayers && currentMapLayers.length > 0) {
         return currentMapLayers[0].id;
     }
-    
+
     return null;
 };
 
 /**
- * Define a camada ativa de um mapa
+ * Sets active layer ID for a map
  */
 export const setActiveLayerId = async (mapName, layerId) => {
     await setActiveLayerIdRepo(mapName, layerId);
@@ -1166,7 +1162,7 @@ export const loadLayersToMemory = async (mapName) => {
 };
 
 /**
- * Limpa o cache de camadas
+ * Clears layers cache
  */
 export const clearLayersCache = () => {
     currentMapLayers = null;
@@ -1174,7 +1170,7 @@ export const clearLayersCache = () => {
 };
 
 /**
- * Define camadas de um mapa (para import)
+ * Sets layers for a map (for import)
  */
 export const setMapLayers = async (mapName, layersData) => {
     if (layersData.layers) {
@@ -1238,10 +1234,10 @@ export const createLayer = async (name = 'Nova Camada') => {
  * @param {string} name - Layer name
  * @returns {Object} - Newly created layer
  */
-export const createLayerForImport = async (name = 'ImportaÃ§Ã£o') => {
+export const createLayerForImport = async (name = 'Importação') => {
     const mapName = getCurrentMapNameSync();
     const layers = await getLayersRepo(mapName) || [];
-    
+
     const newLayer = {
         id: IDUtils.generateUniqueId('layer'),
         name: name,
@@ -1249,12 +1245,11 @@ export const createLayerForImport = async (name = 'ImportaÃ§Ã£o') => {
         locked: false,
         createdAt: Date.now()
     };
-    
+
     const updatedLayers = [...layers, newLayer];
     await setLayersRepo(mapName, updatedLayers);
     currentMapLayers = updatedLayers;
-    
-    // Does not emit event - will be emitted after complete import
+
     return newLayer;
 };
 
@@ -1264,44 +1259,36 @@ export const createLayerForImport = async (name = 'ImportaÃ§Ã£o') => {
  * @returns {boolean} - True if layer was deleted successfully
  */
 export const deleteLayer = async (layerId) => {
-    
+
     const mapName = getCurrentMapNameSync();
-    
-    // Force fetch from repository (bypass cache)
+
     const layers = await getLayersRepo(mapName) || [];
-    
-    // Check if layer exists
+
     const layerIndex = layers.findIndex(l => l.id === layerId);
     if (layerIndex === -1) {
         console.warn('[deleteLayer] Layer not found in repository:', layerId);
         return false;
     }
-    
-    // Delete layer features first
+
     await deleteLayerFeatures(layerId, mapName);
-    
-    // Remove layer from list
+
     const updatedLayers = layers.filter(l => l.id !== layerId);
-    
-    // Persist to repository FIRST
+
     await setLayersRepo(mapName, updatedLayers);
-    
-    // THEN update memory cache
+
     currentMapLayers = updatedLayers;
-    
-    // If active layer was deleted, activate first remaining layer (if any)
+
     if (currentMapActiveLayerId === layerId) {
         if (updatedLayers.length > 0) {
             const newActiveLayer = updatedLayers[0];
             await setActiveLayerIdRepo(mapName, newActiveLayer.id);
             currentMapActiveLayerId = newActiveLayer.id;
         } else {
-            // No layers left - clear active layer
             await setActiveLayerIdRepo(mapName, null);
             currentMapActiveLayerId = null;
         }
     }
-    
+
     return true;
 };
 
@@ -1338,8 +1325,7 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
     
     if (modified) {
         await updateMapData(targetMap, currentMapData);
-        
-        // Dispatch event so map gets updated
+
         document.dispatchEvent(new CustomEvent('features-changed', {
             detail: { mapName: targetMap, action: 'delete-layer-features', layerId }
         }));
@@ -1349,7 +1335,7 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
 };
 
 /**
- * Rename a layer
+ * Renames a layer
  */
 export const renameLayer = async (layerId, newName) => {
     const mapName = getCurrentMapNameSync();
@@ -1368,7 +1354,7 @@ export const renameLayer = async (layerId, newName) => {
 };
 
 /**
- * Define visibilidade de uma camada
+ * Sets layer visibility
  */
 export const setLayerVisibility = async (layerId, visible) => {
     const mapName = getCurrentMapNameSync();
@@ -1387,7 +1373,7 @@ export const setLayerVisibility = async (layerId, visible) => {
 };
 
 /**
- * Define bloqueio de uma camada
+ * Sets layer lock state
  */
 export const setLayerLocked = async (layerId, locked) => {
     const mapName = getCurrentMapNameSync();
@@ -1406,14 +1392,13 @@ export const setLayerLocked = async (layerId, locked) => {
 };
 
 /**
- * Reordena camadas conforme array de IDs
- * @param {string[]} orderedLayerIds - Array de IDs de camadas na nova ordem
+ * Reorders layers according to array of IDs
+ * @param {string[]} orderedLayerIds - Array of layer IDs in new order
  */
 export const reorderLayers = async (orderedLayerIds) => {
     const mapName = getCurrentMapNameSync();
     const layers = currentMapLayers || [];
-    
-    // Create
+
     const reorderedLayers = [];
     for (const layerId of orderedLayerIds) {
         const layer = layers.find(l => l.id === layerId);
@@ -1421,23 +1406,21 @@ export const reorderLayers = async (orderedLayerIds) => {
             reorderedLayers.push(layer);
         }
     }
-    
-    // Add
+
     for (const layer of layers) {
         if (!reorderedLayers.find(l => l.id === layer.id)) {
             reorderedLayers.push(layer);
         }
     }
-    
+
     await setLayersRepo(mapName, reorderedLayers);
     currentMapLayers = reorderedLayers;
-    
-    // Does not emit layers-changed to avoid rebuild - UI was already updated by drag
+
     return true;
 };
 
 /**
- * Return features from a specific layer
+ * Returns features from a specific layer
  */
 export const getLayerFeatures = async (layerId, mapName = null) => {
     const features = await getCurrentMapFeatures(mapName);
@@ -1457,39 +1440,32 @@ export const getLayerFeatures = async (layerId, mapName = null) => {
 };
 
 /**
- * Move features de uma camada para outra
+ * Moves features from one layer to another
  */
 export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = null) => {
     const targetMap = mapName || getCurrentMapNameSync();
     const currentMapData = await getMapData(targetMap);
     let modified = false;
-    
-    // featureRefs pode ser:
-    // 1. Array of strings (source layerIds) - moves all features from these layers
-    // 2. Array of objects { type, id } - moves specific features
-    
+
     if (featureRefs.length === 0) return;
-    
-    // Check if it is array of layerIds or references
+
     const isLayerIdArray = typeof featureRefs[0] === 'string';
-    
+
     for (const storageType of getAllStorageTypes()) {
         const typeFeatures = currentMapData.features[storageType] || [];
-        
+
         for (const feature of typeFeatures) {
             let shouldMove = false;
-            
+
             if (isLayerIdArray) {
-                // Move all features from specified layers
                 const featureLayerId = feature.properties?.layerId || 'default';
                 shouldMove = featureRefs.includes(featureLayerId);
             } else {
-                // Move specific features
-                shouldMove = featureRefs.some(ref => 
+                shouldMove = featureRefs.some(ref =>
                     ref.type === storageType && ref.id === feature.properties?.id
                 );
             }
-            
+
             if (shouldMove) {
                 feature.properties.layerId = targetLayerId;
                 modified = true;
@@ -1504,48 +1480,43 @@ export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = 
 };
 
 /**
- * Check if a feature is effectively visible
+ * Checks if a feature is effectively visible
  */
 export const isFeatureEffectivelyVisible = (feature) => {
     if (!feature || !feature.properties) return true;
-    
-    // 1. Visibilidade individual
+
     if (feature.properties.visivel === false) return false;
-    
-    // 2. Layer visibility
+
     const layerId = feature.properties.layerId || 'default';
     if (currentMapLayers && currentMapLayers.length > 0) {
         const layer = currentMapLayers.find(l => l.id === layerId);
         if (layer && layer.visible === false) return false;
     }
-    
+
     return true;
 };
 
 /**
- * Check if a feature is effectively locked
+ * Checks if a feature is effectively locked
  */
 export const isFeatureEffectivelyLocked = (feature) => {
     if (!feature || !feature.properties) return false;
-    
-    // 1. Bloqueio individual (legacy)
+
     if (feature.properties.bloqueado === true) return true;
-    
-    // 2. Layer lock
+
     const layerId = feature.properties.layerId || 'default';
     if (currentMapLayers && currentMapLayers.length > 0) {
         const layer = currentMapLayers.find(l => l.id === layerId);
         if (layer && layer.locked === true) return true;
     }
-    
-    // 3. Bloqueio por grupo
+
     const featureId = feature.properties.id;
     const sourceType = feature.properties.source;
     if (featureId && sourceType) {
         const group = groupManager.getFeatureGroup(sourceType, featureId);
         if (group && group.locked === true) return true;
     }
-    
+
     return false;
 };
 

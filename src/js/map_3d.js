@@ -1,4 +1,4 @@
-// Path: js/map_3d.js
+// Path: src/js/map_3d.js
 import config from './config.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
@@ -44,7 +44,7 @@ export async function loadCesiumAndInit() {
             await loadScript('./vendors/cesium/Cesium.js');
             await waitForGlobal('Cesium', 5000);
 
-            // ===== DISABLE CESIUM ION =====
+            // Disable Cesium Ion to use only local resources
             if (Cesium.Ion) {
                 Cesium.Ion.defaultAccessToken = undefined;
                 if (Cesium.Ion.defaultServer) {
@@ -123,7 +123,6 @@ async function initCesiumMap() {
     Cesium.Camera.DEFAULT_VIEW_RECTANGLE = extent;
     Cesium.Camera.DEFAULT_VIEW_FACTOR = 0;
 
-    // ===== PROVIDERS CONFIGURATION =====
     const terrainProviderConfig = config.createTerrainProvider();
     const imageryProviderConfig = config.createImageryProvider();
 
@@ -175,7 +174,6 @@ async function initCesiumMap() {
         }
     }
 
-    // ===== VIEWER CONFIGURATION =====
     const viewer = new Cesium.Viewer("map-3d", {
         ...config.map3d.viewer,
         terrainProvider: terrainProvider,
@@ -256,7 +254,7 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
     if (tilesetConfig.default) {
         const { lat, lon, height } = tilesetConfig.locate;
         viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
+            destination: Cesium.Cartesian3.fromDegrees(lon, lat, height)
         });
     }
 
@@ -452,7 +450,6 @@ export function handleClickGoTo() {
     const tilesetData = cesiumState.loadedTilesets[targetId];
     if (tilesetData) {
         const { location } = tilesetData;
-        // Simple navigation without orbit
         cesiumState.viewer.camera.flyTo({
             destination: Cesium.Cartesian3.fromDegrees(
                 location.lon,

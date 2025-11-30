@@ -1,4 +1,4 @@
-// Path: js/controls_sig/brush_tool/brush_attributes_panel.js
+// Path: src/js/controls_sig/brush_tool/brush_attributes_panel.js
 
 import {
     createSliderWithInput,
@@ -11,6 +11,14 @@ import {
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
+/**
+ * Create and populate brush attributes panel with controls
+ * @param {HTMLElement} panel - Panel container element
+ * @param {Array} selectedFeatures - Selected brush features
+ * @param {Object} brushControl - Brush control instance
+ * @param {Object} selectionManager - Selection manager instance
+ * @param {Object} uiManager - UI manager instance
+ */
 export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;
 
@@ -18,7 +26,6 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== EDITABLE FEATURE NAME (SINGLE SELECTION ONLY) =====
     if (selectedFeatures.length === 1) {
         const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
@@ -83,6 +90,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
     });
 
     panel.appendChild(createAttributeRow('Zoom de referência:', createdAtZoomControl));
+
     const buttons = createStandardButtons({
         selectedFeatures,
         control: brushControl,

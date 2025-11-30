@@ -1,4 +1,4 @@
-// Path: js/controls_sig/pdf_export_tab.js
+// Path: src/js/controls_sig/pdf_export_tab.js
 import config from '../config.js'
 
 export default class PDFExportTab {

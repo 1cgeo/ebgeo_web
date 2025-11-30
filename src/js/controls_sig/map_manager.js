@@ -1,4 +1,4 @@
-// Path: js/controls_sig/map_manager.js
+// Path: src/js/controls_sig/map_manager.js
 import {
     addMap,
     addFeature,
@@ -20,7 +20,7 @@ import {
 
 import { IDUtils } from './id_utils.js';
 import { showError, showWarning } from './utilities/toast_service.js';
-import groupManager from './tool_manager/group_manager.js'; // NOVO: Importar GroupManager
+import groupManager from './tool_manager/group_manager.js';
 
 class MapManager {
     constructor(baseLayerControl, selectionManager) {
@@ -132,16 +132,16 @@ class MapManager {
                 return { success: false, message: 'Dados do mapa não encontrados' };
             }
 
-            // Buscar cores e notas do mapa original
+            // Get colors and notes from original map
             const originalColorUsage = await getColorUsage(mapName);
             const originalNotes = await getMapNotes(mapName);
 
             const { newMapData } = await IDUtils.regenerateMapIds(originalMapData, newMapName.trim());
 
-            // Passar cores e notas para otimizar e preservar dados
+            // Pass colors and notes to optimize and preserve data
             await addMap(newMapName.trim(), newMapData, originalColorUsage, originalNotes);
-            
-            // NOVO: Duplicar grupos do mapa original
+
+            // Duplicate groups from original map
             await groupManager.duplicateMapGroups(mapName, newMapName.trim());
             
             setCurrentMap(newMapName.trim());
@@ -194,7 +194,7 @@ class MapManager {
     // ===== MAP COMBINATION =====
     async combineSelectedMapsIntoTarget(selectedMapNames, targetMapName) {
         const originalCurrentMap = await getCurrentMapName();
-        const idMappings = {}; // ✅ Coletar mapeamentos de IDs
+        const idMappings = {};
 
         try {
             let totalFeatures = 0;
@@ -202,14 +202,14 @@ class MapManager {
             for (const mapName of selectedMapNames) {
                 const mapData = await getMapDataStore(mapName);
                 if (mapData && mapData.features) {
-                    // Usar regenerateMapIds para regenerar IDs e duplicar recursos
+                    // Use regenerateMapIds to regenerate IDs and duplicate resources
                     const { newMapData, idMapping } = await IDUtils.regenerateMapIds(mapData, targetMapName);
-                    idMappings[mapName] = idMapping; // ✅ Armazenar mapeamento para atualizar grupos
-                    
-                    // Setar contexto UMA VEZ antes do loop
+                    idMappings[mapName] = idMapping;
+
+                    // Set context ONCE before loop
                     setCurrentMap(targetMapName);
-                    
-                    // Adicionar features principais
+
+                    // Add main features
                     for (const [featureType, features] of Object.entries(newMapData.features)) {
                         if (Array.isArray(features)) {
                             for (const feature of features) {
@@ -219,7 +219,7 @@ class MapManager {
                         }
                     }
                     
-                    // Copiar features processadas (LOS/Visibility)
+                    // Copy processed features (LOS/Visibility)
                     if (newMapData.features.processed_los && newMapData.features.processed_los.length > 0) {
                         for (const processedFeature of newMapData.features.processed_los) {
                             await addFeature('processed_los', processedFeature);
@@ -234,12 +234,12 @@ class MapManager {
                 }
             }
 
-            // Passar mapeamentos de IDs para combineMapGroups
+            // Pass ID mappings to combineMapGroups
             try {
                 await groupManager.combineMapGroups(selectedMapNames, targetMapName, idMappings);
             } catch (groupError) {
-                console.warn('Erro ao combinar grupos:', groupError);
-                // Continuar mesmo se houver erro com grupos
+                console.warn('Error combining groups:', groupError);
+                // Continue even if there's an error with groups
             }
 
             if (originalCurrentMap === targetMapName && this.baseLayerControl) {
@@ -250,7 +250,7 @@ class MapManager {
         } catch (error) {
             throw error;
         } finally {
-            // Garantir restauração do contexto sempre
+            // Always ensure context restoration
             setCurrentMap(originalCurrentMap);
         }
     }
@@ -264,7 +264,7 @@ class MapManager {
                 return { success: false, message: 'As feições já estão neste mapa' };
             }
 
-            // NOVO: Verificar se alguma feature faz parte de grupo
+            // Check if any feature is part of a group
             const groupedFeatures = this.getGroupedFeatures(features);
             
             if (groupedFeatures.length > 0) {
@@ -299,9 +299,9 @@ class MapManager {
     }
 
     /**
-     * NOVO: Verifica quais features fazem parte de grupos
-     * @param {Array} features - Features a serem verificadas
-     * @returns {Array} Array com informações sobre features agrupadas
+     * Checks which features are part of groups
+     * @param {Array} features - Features to check
+     * @returns {Array} Array with information about grouped features
      */
     getGroupedFeatures(features) {
         const groupedFeatures = [];
@@ -434,7 +434,7 @@ class MapManager {
 
             const padding = 10;
 
-            // Ajustar horizontalmente
+            // Adjust horizontally
             if (left < padding) {
                 left = rect.left;
             }
@@ -442,7 +442,7 @@ class MapManager {
                 left = Math.max(padding, viewport.width - dropdownWidth - padding);
             }
 
-            // Ajustar verticalmente
+            // Adjust vertically
             if (top + dropdownHeight > viewport.height - padding) {
                 const topAbove = rect.top - dropdownHeight - 4;
                 if (topAbove >= padding) {
@@ -469,7 +469,7 @@ class MapManager {
         const currentMapName = await getCurrentMapName();
         const hasSavedPosition = await hasMapSavedPosition(mapName);
 
-        // Botão salvar posição
+        // Save position button
         const savePositionBtn = document.createElement('button');
         savePositionBtn.className = 'menu-button';
         savePositionBtn.innerHTML = hasSavedPosition ? '📍 Atualizar posição salva' : '📍 Salvar posição';
@@ -489,7 +489,7 @@ class MapManager {
         });
         dropdownContent.appendChild(savePositionBtn);
 
-        // Botão limpar posição (se existe)
+        // Clear position button (if exists)
         if (hasSavedPosition) {
             const clearPositionBtn = document.createElement('button');
             clearPositionBtn.className = 'menu-button clear-position';
@@ -513,7 +513,7 @@ class MapManager {
             dropdownContent.appendChild(clearPositionBtn);
         }
 
-        // Botão duplicar
+        // Duplicate button
         const copyBtn = document.createElement('button');
         copyBtn.className = 'menu-button';
         copyBtn.innerHTML = '📋 Duplicar';
@@ -538,7 +538,7 @@ class MapManager {
         });
         dropdownContent.appendChild(copyBtn);
 
-        // Botão renomear
+        // Rename button
         const renameBtn = document.createElement('button');
         renameBtn.className = 'menu-button';
         renameBtn.innerHTML = '✏️ Renomear';
@@ -561,7 +561,7 @@ class MapManager {
         });
         dropdownContent.appendChild(renameBtn);
 
-        // Botão combinar mapas
+        // Combine maps button
         const combineBtn = document.createElement('button');
         combineBtn.className = 'menu-button';
         combineBtn.innerHTML = '🔄 Puxar outros mapas';
@@ -576,7 +576,7 @@ class MapManager {
         });
         dropdownContent.appendChild(combineBtn);
 
-        // Botão mover feições (se não é mapa atual)
+        // Move features button (if not current map)
         if (mapName !== currentMapName && this.selectionManager) {
             const selectedFeatures = this.selectionManager.getAllSelectedFeatures();
             const selectedCount = selectedFeatures.length;
@@ -585,7 +585,7 @@ class MapManager {
             let buttonDisabled = selectedCount === 0;
 
             if (selectedCount > 0) {
-                // NOVO: Verificar se há feições agrupadas
+                // Check if there are grouped features
                 const groupedFeatures = this.getGroupedFeatures(selectedFeatures);
                 
                 if (groupedFeatures.length > 0) {
@@ -630,7 +630,7 @@ class MapManager {
             dropdownContent.appendChild(moveBtn);
         }
 
-        // Botão deletar
+        // Delete button
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'menu-button menu-button-danger';
         deleteBtn.innerHTML = '🗑️ Deletar mapa';
@@ -683,7 +683,7 @@ class MapManager {
             });
         }
 
-        // Limpar estado dos botões ativos
+        // Clear active button states
         if (this.mapControl && this.mapControl.container) {
             const activeButtons = this.mapControl.container.querySelectorAll('.more-info-icon.dropdown-active');
             activeButtons.forEach(button => {
@@ -694,19 +694,19 @@ class MapManager {
     }
 
     setupDropdownPositionListeners() {
-        // Fechar dropdown ao clicar fora
+        // Close dropdown on click outside
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.dropdown-content') && !e.target.closest('.more-info-icon')) {
                 this.closeAllDropdowns(false);
             }
         });
 
-        // Fechar dropdown ao fazer scroll
+        // Close dropdown on scroll
         document.addEventListener('scroll', () => {
             this.closeAllDropdowns(false);
         }, true);
 
-        // Fechar dropdown ao redimensionar janela
+        // Close dropdown on window resize
         window.addEventListener('resize', () => {
             this.closeAllDropdowns(false);
         });

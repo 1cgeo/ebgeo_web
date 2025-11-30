@@ -1,4 +1,4 @@
-// Path: js/controls_sig/arrow_tool/add_arrow_control.js
+// Path: src/js/controls_sig/arrow_tool/add_arrow_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
@@ -6,6 +6,10 @@ import { addArrowAttributesToPanel } from './arrow_attributes_panel.js';
 import AddArrowGeometry from './add_arrow_geometry.js';
 import BaseControl from '../tool_manager/base_control.js';
 
+/**
+ * Arrow Tool Control
+ * Manages drawing, editing, and interaction for arrow features on the map
+ */
 class AddArrowControl extends BaseControl {
     constructor(toolManager) {
         super(toolManager);

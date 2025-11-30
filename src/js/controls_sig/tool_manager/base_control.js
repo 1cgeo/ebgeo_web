@@ -1,4 +1,4 @@
-// Path: js/controls_sig/tool_manager/base_control.js
+// Path: src/js/controls_sig/tool_manager/base_control.js
 
 /**
  * Base Control class with expanded tool-centric interface

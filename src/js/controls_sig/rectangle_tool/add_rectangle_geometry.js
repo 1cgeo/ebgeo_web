@@ -24,7 +24,7 @@ class AddRectangleGeometry extends BaseGeometry {
             return this.generateRotatedRectangleGeometry(center, width, height, borderRadius, bearing);
         }
         
-        // Comportamento original para retângulos sem rotação
+        // Original behavior for rectangles without rotation
         return this.generateRectangleGeometry(corner1, corner2, borderRadius);
     }
 
@@ -131,30 +131,30 @@ class AddRectangleGeometry extends BaseGeometry {
      * @returns {Object} GeoJSON Polygon geometry with rotation applied
      */
     generateRotatedRectangleGeometry(center, width, height, borderRadius, bearing) {
-        // Calcular os 4 cantos do retângulo não rotacionado (em offsets locais)
+        // Calculate 4 corners of non-rotated rectangle (in local offsets)
         const halfWidth = width / 2;
         const halfHeight = height / 2;
         
-        // Cantos em coordenadas locais (metros)
+        // Corners in local coordinates (meters)
         const localCorners = [
-            { x: halfWidth, y: halfHeight },    // Top-right
-            { x: -halfWidth, y: halfHeight },   // Top-left
-            { x: -halfWidth, y: -halfHeight },  // Bottom-left
-            { x: halfWidth, y: -halfHeight }    // Bottom-right
+            { x: halfWidth, y: halfHeight },
+            { x: -halfWidth, y: halfHeight },
+            { x: -halfWidth, y: -halfHeight },
+            { x: halfWidth, y: -halfHeight }
         ];
         
-        // Rotacionar e converter para coordenadas geográficas
+        // Rotate and convert to geographic coordinates
         const rotatedCorners = localCorners.map(corner => 
             this.rotateAndTranslate(corner.x, corner.y, center, bearing)
         );
         
-        // Se borderRadius > 0, adicionar arcos arredondados nos cantos
+        // If borderRadius > 0, add rounded arcs at corners
         if (borderRadius && borderRadius > 0) {
             return this.generateRoundedRotatedRectangle(rotatedCorners, center, borderRadius, width, height);
         }
         
-        // Retângulo simples rotacionado
-        rotatedCorners.push(rotatedCorners[0]); // Fechar o polígono
+        // Simple rotated rectangle
+        rotatedCorners.push(rotatedCorners[0]);
         
         return {
             type: 'Polygon',
@@ -163,7 +163,7 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ NOVO: Rotate point and translate to geographic coordinates
+     * Rotate point and translate to geographic coordinates
      * @param {number} x - Local X offset in meters
      * @param {number} y - Local Y offset in meters
      * @param {Array} center - Center coordinates [lng, lat]
@@ -171,20 +171,18 @@ class AddRectangleGeometry extends BaseGeometry {
      * @returns {Array} Rotated geographic coordinates [lng, lat]
      */
     rotateAndTranslate(x, y, center, bearing) {
-        // Calcular distância e ângulo do offset local
-        const distance = Math.sqrt(x * x + y * y) / 1000; // Converter para km
+        // Calculate distance and angle from local offset
+        const distance = Math.sqrt(x * x + y * y) / 1000;
         const localAngle = Math.atan2(y, x) * 180 / Math.PI;
         
-        // Ajustar ângulo: 0° = leste, 90° = norte (sistema de coordenadas do mapa)
-        // bearing = 0° deve resultar em retângulo alinhado norte-sul
+        // Adjust angle: 0 degrees = east, 90 degrees = north
         const adjustedAngle = localAngle + bearing;
         
-        // Usar turf.destination para precisão geodésica
         return turf.destination(center, distance, adjustedAngle, { units: 'kilometers' }).geometry.coordinates;
     }
 
     /**
-     * ✅ NOVO: Generate rounded corners for rotated rectangle
+     * Generate rounded corners for rotated rectangle
      * @param {Array} corners - Array of 4 corner coordinates
      * @param {Array} center - Center of rectangle
      * @param {number} borderRadius - Border radius (0-10 scale)
@@ -202,26 +200,25 @@ class AddRectangleGeometry extends BaseGeometry {
         
         const coordinates = [];
         
-        // Para cada canto, adicionar arco arredondado
+        // For each corner, add rounded arc
         for (let i = 0; i < corners.length; i++) {
             const corner = corners[i];
             const prevCorner = corners[(i + 3) % 4];
             const nextCorner = corners[(i + 1) % 4];
             
-            // Calcular direções para os lados adjacentes
+            // Calculate directions for adjacent sides
             const prevDir = this.normalizeDirection(prevCorner, corner);
             const nextDir = this.normalizeDirection(corner, nextCorner);
             
-            // Ponto inicial do arco (deslocado do canto)
+            // Arc start point (offset from corner)
             const arcStart = this.offsetPoint(corner, prevDir, radius);
             coordinates.push(arcStart);
             
-            // Add
             const arcPoints = this.createArcPoints(corner, arcStart, nextDir, radius, segmentsPerCorner);
             coordinates.push(...arcPoints);
         }
         
-        coordinates.push(coordinates[0]); // Fechar polígono
+        coordinates.push(coordinates[0]);
         
         return {
             type: 'Polygon',
@@ -230,7 +227,7 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ NOVO: Helper to normalize direction vector
+     * Helper to normalize direction vector
      */
     normalizeDirection(from, to) {
         const dx = to[0] - from[0];
@@ -240,10 +237,10 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ NOVO: Helper to offset point
+     * Helper to offset point
      */
     offsetPoint(point, direction, distance) {
-        // Converter distância de metros para graus (aproximado)
+        // Convert distance from meters to degrees (approximate)
         const distInDegrees = distance / 111320;
         return [
             point[0] + direction[0] * distInDegrees,
@@ -252,7 +249,7 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ NOVO: Helper to create arc points for rounded corner
+     * Helper to create arc points for rounded corner
      */
     createArcPoints(corner, start, direction, radius, segments) {
         const points = [];
@@ -260,7 +257,7 @@ class AddRectangleGeometry extends BaseGeometry {
         
         for (let i = 1; i <= segments; i++) {
             const t = i / segments;
-            const angle = t * Math.PI / 2; // 90 graus
+            const angle = t * Math.PI / 2;
             const x = Math.cos(angle) * distInDegrees;
             const y = Math.sin(angle) * distInDegrees;
             
@@ -387,11 +384,11 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ REFATORADO: Create edit handles - agora usa width-resize e height-resize (similar à elipse)
+     * Create edit handles using width-resize and height-resize (similar to ellipse)
      * @param {Object} geometry - Rectangle geometry
      * @param {string} featureId - Feature ID
      * @param {number} bearing - Current bearing (rotation angle)
-     * @param {Object} properties - Feature properties (usado quando há bearing)
+     * @param {Object} properties - Feature properties (used when bearing exists)
      * @returns {Array} Array of handle features
      */
     createHandlesFromGeometry(geometry, featureId, bearing = 0, properties = null) {
@@ -411,7 +408,7 @@ class AddRectangleGeometry extends BaseGeometry {
 
         const handles = [];
 
-        // Handle 1: Width resize (RED) - na direção do bearing
+        // Handle 1: Width resize - in bearing direction
         const widthHandlePos = this.calculateWidthHandlePosition(center, width, bearing);
         handles.push({
             type: 'Feature',
@@ -422,7 +419,7 @@ class AddRectangleGeometry extends BaseGeometry {
             },
             properties: {
                 role: 'handle',
-                handleType: 'vertex', // RED
+                handleType: 'vertex',
                 handleId: 'width-resize',
                 featureId: featureId,
                 mode: 'rectangle_editing',
@@ -431,7 +428,7 @@ class AddRectangleGeometry extends BaseGeometry {
             }
         });
 
-        // Handle 2: Height resize (RED) - perpendicular ao bearing (bearing + 90°)
+        // Handle 2: Height resize - perpendicular to bearing (bearing + 90 degrees)
         const heightHandlePos = this.calculateHeightHandlePosition(center, height, bearing);
         handles.push({
             type: 'Feature',
@@ -442,7 +439,7 @@ class AddRectangleGeometry extends BaseGeometry {
             },
             properties: {
                 role: 'handle',
-                handleType: 'vertex', // RED
+                handleType: 'vertex',
                 handleId: 'height-resize',
                 featureId: featureId,
                 mode: 'rectangle_editing',
@@ -451,7 +448,7 @@ class AddRectangleGeometry extends BaseGeometry {
             }
         });
 
-        // Handle 3: Rotation (BLUE) - oposto ao height handle
+        // Handle 3: Rotation - opposite to height handle
         const rotationHandlePos = this.calculateRotationHandlePosition(center, height, bearing);
         handles.push({
             type: 'Feature',
@@ -462,7 +459,7 @@ class AddRectangleGeometry extends BaseGeometry {
             },
             properties: {
                 role: 'handle',
-                handleType: 'eccentricity', // BLUE
+                handleType: 'eccentricity',
                 handleId: 'rotation',
                 featureId: featureId,
                 mode: 'rectangle_editing',
@@ -475,19 +472,19 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ NOVO: Calculate width handle position (na direção do bearing)
+     * Calculate width handle position (in bearing direction)
      * @param {Array} center - Center coordinates [lng, lat]
      * @param {number} width - Width in meters
      * @param {number} bearing - Current bearing
      * @returns {Array} Handle position coordinates
      */
     calculateWidthHandlePosition(center, width, bearing) {
-        const distance = (width / 2) / 1000; // Converter para km
+        const distance = (width / 2) / 1000;
         return turf.destination(center, distance, bearing, { units: 'kilometers' }).geometry.coordinates;
     }
 
     /**
-     * ✅ NOVO: Calculate height handle position (perpendicular ao bearing - bearing + 90°)
+     * Calculate height handle position (perpendicular to bearing - bearing + 90 degrees)
      * @param {Array} center - Center coordinates [lng, lat]
      * @param {number} height - Height in meters
      * @param {number} bearing - Current bearing
@@ -495,21 +492,19 @@ class AddRectangleGeometry extends BaseGeometry {
      */
     calculateHeightHandlePosition(center, height, bearing) {
         const heightBearing = bearing + 90;
-        const distance = (height / 2) / 1000; // Converter para km
+        const distance = (height / 2) / 1000;
         return turf.destination(center, distance, heightBearing, { units: 'kilometers' }).geometry.coordinates;
     }
 
     /**
-     * ✅ CORRIGIDO: Calculate rotation handle position
-     * Posicionado no lado OPOSTO ao height handle
-     * Height está em bearing+90, então rotation em bearing-90 (ou bearing+270)
+     * Calculate rotation handle position
+     * Positioned opposite to height handle (bearing - 90 degrees)
      * @param {Array} center - Center coordinates [lng, lat]
      * @param {number} height - Height in meters
      * @param {number} bearing - Current bearing
      * @returns {Array} Handle position coordinates
      */
     calculateRotationHandlePosition(center, height, bearing) {
-        // Rotation no lado OPOSTO ao height: bearing - 90 (ou bearing + 270)
         const rotationBearing = bearing - 90;
         const distance = (height / 2) / 1000;
         
@@ -535,8 +530,8 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ NOVO: Calculate dimensions from corners considering rotation
-     * Para retângulos rotacionados, usa a diagonal e o bearing para calcular dimensões corretas
+     * Calculate dimensions from corners considering rotation
+     * For rotated rectangles, uses diagonal and bearing to calculate correct dimensions
      * @param {Array} corner1 - First corner (opposite diagonal from corner2)
      * @param {Array} corner2 - Second corner (opposite diagonal from corner1)
      * @param {number} bearing - Current rotation bearing in degrees
@@ -548,19 +543,16 @@ class AddRectangleGeometry extends BaseGeometry {
             (corner1[1] + corner2[1]) / 2
         ];
         
-        // Calcular a distância diagonal entre os corners
-        const diagonalDistance = turf.distance(corner1, corner2, { units: 'kilometers' }) * 1000; // em metros
-        
-        // Calcular o ângulo da diagonal
+        // Calculate diagonal distance between corners (in meters)
+        const diagonalDistance = turf.distance(corner1, corner2, { units: 'kilometers' }) * 1000;
+
+        // Calculate diagonal angle
         const diagonalBearing = turf.bearing(corner2, corner1);
         
-        // A diferença entre o bearing da diagonal e o bearing do retângulo nos dá o ângulo interno
+        // Difference between diagonal bearing and rectangle bearing gives internal angle
         const angleDiff = (diagonalBearing - bearing) * Math.PI / 180;
         
-        // Com a diagonal e o ângulo, calcular width e height
-        // diagonal² = width² + height²
-        // tan(angle) = height / width
-        // Portanto: width = diagonal * cos(angle), height = diagonal * sin(angle)
+        // Calculate width and height from diagonal and angle
         const width = Math.abs(diagonalDistance * Math.cos(angleDiff));
         const height = Math.abs(diagonalDistance * Math.sin(angleDiff));
         
@@ -584,8 +576,8 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ REFATORADO: Update rectangle geometry based on handle movement
-     * Agora usa width-resize, height-resize e rotation (similar à elipse)
+     * Update rectangle geometry based on handle movement
+     * Uses width-resize, height-resize and rotation (similar to ellipse)
      * @param {string} handleType - Type of handle ('width-resize', 'height-resize', 'rotation')
      * @param {Array} newPosition - New handle position [lng, lat]
      * @param {Object} feature - Rectangle feature being edited
@@ -627,7 +619,7 @@ class AddRectangleGeometry extends BaseGeometry {
             return null;
         }
 
-        // Recalcular corners com as novas dimensões
+        // Recalculate corners with new dimensions
         const halfWidth = width / 2;
         const halfHeight = height / 2;
         const newCorner1 = this.rotateAndTranslate(halfWidth, halfHeight, center, bearing);
@@ -653,45 +645,44 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * ✅ NOVO: Calculate width from handle position
+     * Calculate width from handle position
      * @param {Array} center - Center coordinates
      * @param {Array} newPosition - New handle position
-     * @param {number} bearing - Current bearing (não usado, handle define diretamente)
-     * @returns {number} New half-width (distance from center to handle)
+     * @param {number} bearing - Current bearing (not used, handle defines directly)
+     * @returns {number} New half-width in meters (distance from center to handle)
      */
     calculateWidthFromHandle(center, newPosition, bearing) {
-        // A distância do centro ao handle é metade da largura
-        return turf.distance(center, newPosition, { units: 'kilometers' }) * 1000; // em metros
+        // Distance from center to handle is half the width
+        return turf.distance(center, newPosition, { units: 'kilometers' }) * 1000;
     }
 
     /**
-     * ✅ NOVO: Calculate height from handle position
+     * Calculate height from handle position
      * @param {Array} center - Center coordinates
      * @param {Array} newPosition - New handle position
-     * @param {number} bearing - Current bearing (não usado, handle define diretamente)
-     * @returns {number} New half-height (distance from center to handle)
+     * @param {number} bearing - Current bearing (not used, handle defines directly)
+     * @returns {number} New half-height in meters (distance from center to handle)
      */
     calculateHeightFromHandle(center, newPosition, bearing) {
-        // A distância do centro ao handle é metade da altura
-        return turf.distance(center, newPosition, { units: 'kilometers' }) * 1000; // em metros
+        // Distance from center to handle is half the height
+        return turf.distance(center, newPosition, { units: 'kilometers' }) * 1000;
     }
 
     /**
-     * ✅ CORRIGIDO: Calculate bearing from rotation handle position
-     * Handle está posicionado em bearing-90, então precisa compensar adicionando 90
+     * Calculate bearing from rotation handle position
+     * Handle is positioned at bearing-90, so compensate by adding 90
      * @param {Array} center - Center coordinates
      * @param {Array} handlePosition - Rotation handle position
      * @returns {number} New bearing in degrees
      */
     calculateBearingFromRotationHandle(center, handlePosition) {
         const handleBearing = turf.bearing(center, handlePosition);
-        // Handle foi posicionado em bearing-90, então compensar adicionando 90
         return handleBearing + 90;
     }
 
     /**
-     * ✅ REFATORADO: Calculate preview geometry during handle dragging
-     * Agora usa width-resize, height-resize e rotation
+     * Calculate preview geometry during handle dragging
+     * Uses width-resize, height-resize and rotation
      * @param {string} handleType - Type of handle being moved
      * @param {Array} newPosition - New handle position
      * @param {Object} feature - Rectangle feature
@@ -733,12 +724,12 @@ class AddRectangleGeometry extends BaseGeometry {
             bearing
         );
 
-        // Calcular novas posições dos handles para o preview
+        // Calculate new handle positions for preview
         const widthHandlePos = this.calculateWidthHandlePosition(center, width, bearing);
         const heightHandlePos = this.calculateHeightHandlePosition(center, height, bearing);
         const rotationHandlePos = this.calculateRotationHandlePosition(center, height, bearing);
 
-        // Recalcular corners para manter compatibilidade
+        // Recalculate corners for compatibility
         const halfWidth = width / 2;
         const halfHeight = height / 2;
         const previewCorner1 = this.rotateAndTranslate(halfWidth, halfHeight, center, bearing);

@@ -1,4 +1,4 @@
-// Path: js/controls_sig/tool_manager/ui_manager.js
+// Path: src/js/controls_sig/tool_manager/ui_manager.js
 
 import { cleanupFeatureDropdownListeners } from './attribute_panel_helpers.js';
 

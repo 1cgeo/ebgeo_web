@@ -1,4 +1,4 @@
-// Path: js/controls_sig/street_view_tool/add_street_view_control.js
+// Path: src/js/controls_sig/street_view_tool/add_street_view_control.js
 
 import * as THREE from '../../../vendor/three/three.module.js';
 import { DragControls } from '../../../vendor/three/addons/controls/DragControls.js';
@@ -69,9 +69,8 @@ class AddStreetViewControl {
 
         this.photosSourceId = 'pmtiles-photos';
 
-        // Cache para features próximas (otimização)
         this.nearbyFeaturesCache = new Map();
-        this.cacheRadius = 1000; // metros
+        this.cacheRadius = 1000;
 
         if (config.features.imagens_panoramicas){
             this.streetViewPointsLayer= {
@@ -103,7 +102,6 @@ class AddStreetViewControl {
     }
 
     onStreetViewKeyDown = (e) => {
-        // Ignorar se estiver digitando
         if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
             return;
         }
@@ -112,13 +110,11 @@ class AddStreetViewControl {
         let cameraRotated = false;
 
         switch (e.key) {
-            // ESC para fechar street view
             case 'Escape':
                 e.preventDefault();
                 this.closeStreetView();
                 break;
 
-            // Controles de câmera - Setas e WASD
             case 'ArrowLeft':
             case 'a':
             case 'A':
@@ -155,7 +151,6 @@ class AddStreetViewControl {
                 break;
         }
 
-        // Update
         if (cameraRotated) {
             this.setCurrentMouse();
         }
@@ -273,44 +268,41 @@ class AddStreetViewControl {
 
     loadData = async () => {
         try {
-            // Para o mapa principal, adicionar as sources PMTiles
             if (!this.map.getSource(this.streetViewPointsLayer['source'])) {
                 this.map.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
-                // Espera a fonte ser carregada para adicionar a camada
                 const onPhotosSourceData = (e) => {
                     if (e.sourceId === this.streetViewPointsLayer['source'] && this.map.isSourceLoaded(this.streetViewPointsLayer['source'])) {
                         if (!this.map.getLayer(this.streetViewPointsLayer['id'])) {
                             this.map.addLayer(this.streetViewPointsLayer);
                         }
-                        this.showLayers(); // Garante que a camada está visível
-                        this.map.off('sourcedata', onPhotosSourceData); // Remove o listener para não executar de novo
+                        this.showLayers();
+                        this.map.off('sourcedata', onPhotosSourceData);
                     }
                 };
                 this.map.on('sourcedata', onPhotosSourceData);
             } else {
-                this.showLayers(); // Se a fonte já existe, apenas garante visibilidade
+                this.showLayers();
             }
 
 
             if (!this.map.getSource(this.streetViewLinesLayer['source'])) {
                 this.map.addSource(this.streetViewLinesLayer['source'], config.map2d.streetViewLinesSource);
 
-                // Espera a fonte ser carregada para adicionar a camada
                 const onLinesSourceData = (e) => {
                     if (e.sourceId === this.streetViewLinesLayer['source'] && this.map.isSourceLoaded(this.streetViewLinesLayer['source'])) {
                         if (!this.map.getLayer(this.streetViewLinesLayer['id'])) {
                             this.map.addLayer(this.streetViewLinesLayer);
                         }
-                        this.showLayers(); // Garante que a camada está visível
-                        this.map.off('sourcedata', onLinesSourceData); // Remove o listener
+                        this.showLayers();
+                        this.map.off('sourcedata', onLinesSourceData);
                     }
                 };
                 this.map.on('sourcedata', onLinesSourceData);
             } else {
-                this.showLayers(); // Se a fonte já existe, apenas garante visibilidade
+                this.showLayers();
             }
         } catch (error) {
-            console.error('Erro ao carregar dados PMTiles:', error);
+            console.error('Error loading PMTiles data:', error);
         }
 
     }
@@ -322,7 +314,6 @@ class AddStreetViewControl {
     onAdd(map) {
         this.map = map;
 
-        // Registrar protocolo PMTiles se ainda não foi registrado
         if (typeof PMTiles !== 'undefined' && !this.map._pmtilesRegistered) {
             let protocol = new PMTiles.Protocol();
             maplibregl.addProtocol("pmtiles", protocol.tile);
@@ -356,38 +347,32 @@ class AddStreetViewControl {
         return this.container;
     }
 
-    // NOVA: Setup do minimapa para PMTiles
     setupMiniMapWithPMTiles = async () => {
         this.miniMap.on('load', async () => {
             try {
-                // Registrar protocolo PMTiles no minimapa também
                 if (typeof PMTiles !== 'undefined') {
                     let protocol = new PMTiles.Protocol();
                     maplibregl.addProtocol("pmtiles", protocol.tile);
                 }
 
-                // Add
                 this.miniMap.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
 
-                // Carregar imagens para os pontos
                 let pointImage = await this.miniMap.loadImage('./street_view/point.png');
                 await this.miniMap.addImage('point', pointImage.data);
 
                 let pointSelectedImage = await this.miniMap.loadImage('./street_view/point-selected-v2.png');
                 this.miniMap.addImage('point-selected', pointSelectedImage.data);
 
-                // Add
                 this.miniMap.addLayer({
                     'id': 'points',
                     'type': 'symbol',
                     'source': this.streetViewPointsLayer['source'],
-                    'source-layer': this.streetViewPointsLayer['source-layer'], // Nome da layer no PMTiles
+                    'source-layer': this.streetViewPointsLayer['source-layer'],
                     'layout': {
                         'icon-image': 'point'
                     }
                 });
 
-                // Event listeners
                 this.miniMap.on('click', 'points', (e) => {
                     const properties = e.features[0].properties;
                     this.loadTarget(properties.nome_img, () => {
@@ -403,7 +388,6 @@ class AddStreetViewControl {
                     this.miniMap.getCanvas().style.cursor = '';
                 });
 
-                // Optimize DOM queries for wheel events
                 this.miniMap.getCanvas().addEventListener('mouseenter', () => {
                     this.miniMapHovered = true;
                 });
@@ -412,7 +396,7 @@ class AddStreetViewControl {
                 });
 
             } catch (error) {
-                console.error('Erro ao configurar minimapa PMTiles:', error);
+                console.error('Error setting up PMTiles minimap:', error);
             }
         });
     }
@@ -474,11 +458,9 @@ class AddStreetViewControl {
 
     showPhotos = async () => {
         this.map.on('click', this.streetViewLinesLayer['id'], this.loadPoint);
-        // this.map.on('touchend', this.streetViewLinesLayer['id'], this.loadPoint);
         this.map.on('mouseenter', this.streetViewLinesLayer['id'], this.showHoverCursor);
         this.map.on('mouseleave', this.streetViewLinesLayer['id'], this.hideHoverCursor);
 
-        // Update
         if (this.miniMap.getLayer('selected')) {
             this.miniMap.removeLayer('selected');
         }
@@ -494,7 +476,6 @@ class AddStreetViewControl {
         });
     }
 
-    // NOVA: Função para buscar vizinho mais próximo usando PMTiles
     getNeighborFromPMTiles = async (point) => {
         try {
             const cacheKey = `${Math.round(point.lng * 1000)}_${Math.round(point.lat * 1000)}`;
@@ -503,11 +484,9 @@ class AddStreetViewControl {
                 return this.nearbyFeaturesCache.get(cacheKey);
             }
 
-            // Converter ponto para pixel
             const pixelPoint = this.map.project([point.lng, point.lat]);
 
-            // Buscar features em um raio de pixels
-            const radius = 50; // pixels
+            const radius = 50;
             const bbox = [
                 [pixelPoint.x - radius, pixelPoint.y - radius],
                 [pixelPoint.x + radius, pixelPoint.y + radius]
@@ -518,11 +497,9 @@ class AddStreetViewControl {
             });
 
             if (features.length === 0) {
-                // Tentar busca mais ampla se não encontrou nada
                 return await this.getNeighborWithBboxQuery(point);
             }
 
-            // Encontrar o mais próximo usando Turf
             const from = turf.point([point.lng, point.lat]);
             let minDistance = Infinity;
             let target = null;
@@ -538,7 +515,6 @@ class AddStreetViewControl {
                 }
             }
 
-            // Cache o resultado
             if (target) {
                 this.nearbyFeaturesCache.set(cacheKey, target);
             }
@@ -546,16 +522,14 @@ class AddStreetViewControl {
             return target;
 
         } catch (error) {
-            console.error('Erro ao buscar vizinho mais próximo:', error);
+            console.error('Error finding nearest neighbor:', error);
             return null;
         }
     }
 
-    // NOVA: Busca alternativa usando bbox
     getNeighborWithBboxQuery = async (point) => {
         try {
-            // Create
-            const bufferDistance = 0.001; // aproximadamente 100m em graus
+            const bufferDistance = 0.001;
             const bbox = [
                 point.lng - bufferDistance,
                 point.lat - bufferDistance,
@@ -563,7 +537,6 @@ class AddStreetViewControl {
                 point.lat + bufferDistance
             ];
 
-            // Query features usando bbox
             const features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], {
                 sourceLayer: this.streetViewPointsLayer['source-layer'],
                 bbox: bbox
@@ -573,7 +546,6 @@ class AddStreetViewControl {
                 return null;
             }
 
-            // Encontrar o mais próximo
             const from = turf.point([point.lng, point.lat]);
             let minDistance = Infinity;
             let target = null;
@@ -592,7 +564,7 @@ class AddStreetViewControl {
             return target;
 
         } catch (error) {
-            console.error('Erro na busca por bbox:', error);
+            console.error('Error in bbox search:', error);
             return null;
         }
     }
@@ -608,20 +580,17 @@ class AddStreetViewControl {
         this.isOpen = true
         const container = document.getElementById('street-view-container');
 
-        // Use tracked document listeners
         this.addDocumentListener('keydown', this.onStreetViewKeyDown);
         this.addDocumentListener('pointermove', this.setCurrentMouse, { passive: true });
         this.addDocumentListener('mousemove', this.onMouseMove, false);
 
         this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        //camera.rotation.reorder("YXZ");
         this.camera.position.set(0, -0.1, 0)
         this.camera.rotation.order = 'YXZ';
 
         this.scene = new THREE.Scene();
         this.scene.add(this.camera)
 
-        // Use cached sphere geometry for performance
         if (!this.sphereGeometry) {
             this.sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
             this.sphereGeometry.scale(- 1, 1, 1);
@@ -629,30 +598,25 @@ class AddStreetViewControl {
 
         this.setCurrentPhotoName(info.camera.img)
 
-        // Handle texture loading with cache (async safe)
         const imagePath = `${this.IMAGES_LOCATION}/${info.camera.img}.jpg`;
 
         if (this.textureCache.has(imagePath)) {
-            // Use cached texture immediately
             const texture = this.textureCache.get(imagePath);
             this.material = new THREE.MeshBasicMaterial({ map: texture });
             this.mesh = new THREE.Mesh(this.sphereGeometry, this.material);
             this.mesh.name = 'IMAGE_360';
         } else {
-            // Load new texture with callback
             const texture = new THREE.TextureLoader().load(
                 imagePath,
                 (loadedTexture) => {
                     loadedTexture.colorSpace = THREE.SRGBColorSpace;
                     this.textureCache.set(imagePath, loadedTexture);
-                    // Update material after texture loads
                     if (this.material) {
                         this.material.map = loadedTexture;
                         this.material.needsUpdate = true;
                     }
                 }
             );
-            // Create material with placeholder texture that will be updated
             this.material = new THREE.MeshBasicMaterial({ map: texture });
             this.mesh = new THREE.Mesh(this.sphereGeometry, this.material);
             this.mesh.name = 'IMAGE_360';
@@ -672,16 +636,12 @@ class AddStreetViewControl {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         container.appendChild(this.renderer.domElement);
 
-        ///
         this.createControl()
 
         container.style.touchAction = 'none';
         container.addEventListener('pointerdown', this.onPointerDown);
-        //container.addEventListener('pointerdown', clickObj);
 
         this.addDocumentListener('wheel', this.onDocumentMouseWheel, { passive: true });
-
-        //
 
         this.addDocumentListener('dragover', function (event) {
 
@@ -719,12 +679,7 @@ class AddStreetViewControl {
 
         });
 
-        //
         window.addEventListener('resize', this.onWindowResize);
-
-
-        /////
-        //addCube(info)
 
         var pt = turf.point([info.camera.lon, info.camera.lat])
         var distance = 50
@@ -767,7 +722,6 @@ class AddStreetViewControl {
     setCurrentPhotoName = (name) => {
         this.currentPhotoName = name
 
-        // Update
         if (this.miniMap.getLayer('selected')) {
             this.miniMap.setFilter('selected', ["==", "nome_img", this.currentPhotoName]);
         }
@@ -778,7 +732,6 @@ class AddStreetViewControl {
         this.cleanArrows(this.arrows.map(i => i.arrow));
         this.arrows = [];
 
-        // Use cached resources for better performance
         if (!this.arrowGeometry) {
             this.arrowGeometry = new THREE.CircleGeometry(0.5, 70);
         }
@@ -827,7 +780,6 @@ class AddStreetViewControl {
             this.dragStartPosition = null;
         });
 
-        // Aplicar visibilidade inicial baseada no zoom atual
         this.updateArrowsVisibility();
     }
 
@@ -843,11 +795,9 @@ class AddStreetViewControl {
         for (let mesh of objects) {
             const object = this.scene.getObjectByProperty('uuid', mesh.uuid);
             if (!object) continue
-            // Don't dispose cached geometry and texture
             if (object.geometry !== this.arrowGeometry && object.geometry !== this.sphereGeometry) {
                 object.geometry.dispose();
             }
-            // Check if material map is not a cached texture before disposing
             if (object.material && object.material.map &&
                 object.material.map !== this.arrowTexture &&
                 !Array.from(this.textureCache.values()).includes(object.material.map)) {
@@ -868,7 +818,6 @@ class AddStreetViewControl {
 
         const imagePath = `${this.IMAGES_LOCATION}/${data.camera.img}.jpg`;
 
-        // Check if texture is already cached
         if (this.textureCache.has(imagePath)) {
             const texture = this.textureCache.get(imagePath);
             this.material.map = texture;
@@ -876,7 +825,6 @@ class AddStreetViewControl {
             this.mesh.rotation.y = this.offsetRad;
             cb();
         } else {
-            // Load new texture
             const texture = new THREE.TextureLoader().load(
                 imagePath,
                 (loadedTexture) => {
@@ -933,16 +881,14 @@ class AddStreetViewControl {
         this.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
         this.camera.updateProjectionMatrix();
 
-        // Controlar visibilidade das setas baseado no FOV
         this.updateArrowsVisibility();
     }
 
     updateArrowsVisibility = () => {
         if (!this.arrows || this.arrows.length === 0) return;
 
-        // Definir thresholds de FOV
-        const HIDE_ARROWS_FOV = 35; // FOV abaixo do qual as setas ficam escondidas
-        const SCALE_ARROWS_FOV = 45; // FOV abaixo do qual as setas começam a diminuir
+        const HIDE_ARROWS_FOV = 35;
+        const SCALE_ARROWS_FOV = 45;
 
         const currentFOV = this.camera.fov;
 
@@ -950,16 +896,13 @@ class AddStreetViewControl {
             const arrow = item.arrow;
 
             if (currentFOV <= HIDE_ARROWS_FOV) {
-                // Zoom muito alto - esconder setas completamente
                 arrow.visible = false;
             } else if (currentFOV <= SCALE_ARROWS_FOV) {
-                // Zoom médio - mostrar setas mas com escala reduzida
                 arrow.visible = true;
                 const scaleFactor = (currentFOV - HIDE_ARROWS_FOV) / (SCALE_ARROWS_FOV - HIDE_ARROWS_FOV);
-                const scale = 0.3 + (scaleFactor * 0.7); // Escala de 0.3 a 1.0
+                const scale = 0.3 + (scaleFactor * 0.7);
                 arrow.scale.setScalar(scale);
             } else {
-                // Zoom normal - mostrar setas normalmente
                 arrow.visible = true;
                 arrow.scale.setScalar(1.0);
             }
@@ -967,7 +910,6 @@ class AddStreetViewControl {
     }
 
     animate = () => {
-        // Intelligent animation loop control
         if (this.isOpen && this.isActive) {
             this.animationId = requestAnimationFrame(this.animate);
             this.update();
@@ -1043,14 +985,12 @@ class AddStreetViewControl {
         this.miniMap.fitBounds(bbox, {
             maxZoom: 15
         })
-        //miniMap2.zoomTo(19, {duration: 2000})
     }
 
     drawControl = () => {
         for (let [idx, item] of this.arrows.entries()) {
             let arrow = item.arrow;
 
-            // Só calcular posição se a seta estiver visível
             if (!arrow.visible) continue;
 
             const heading = this.camera.rotation.y;
@@ -1081,13 +1021,10 @@ class AddStreetViewControl {
         }
     }
 
-    // ATUALIZADA: loadPoint para PMTiles
     loadPoint = async (e) => {
         try {
-            // Primeiro tentar buscar nas features renderizadas
             let feature = await this.getNeighborFromPMTiles(e.lngLat);
 
-            // Se não encontrar, tentar busca por bbox
             if (!feature) {
                 feature = await this.getNeighborWithBboxQuery(e.lngLat);
             }
@@ -1102,11 +1039,11 @@ class AddStreetViewControl {
 
                 this.loadImageByName(feature.properties.nome_img);
             } else {
-                console.warn('Nenhuma foto encontrada próxima ao ponto clicado');
+                console.warn('No photo found near clicked point');
             }
 
         } catch (error) {
-            console.error('Erro ao carregar ponto:', error);
+            console.error('Error loading point:', error);
         }
     }
 
@@ -1153,7 +1090,6 @@ class AddStreetViewControl {
         }
     }
 
-    // NOVA: Função para mostrar layers novamente
     showLayers = () => {
         if (this.map.getLayer(this.streetViewPointsLayer['id'])) {
             this.map.setLayoutProperty(this.streetViewPointsLayer['id'], 'visibility', 'visible');

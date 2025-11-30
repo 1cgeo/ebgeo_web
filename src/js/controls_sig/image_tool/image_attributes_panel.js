@@ -48,8 +48,6 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         panel.appendChild(multiSelectHeader);
     }
 
-    // ===== PROPRIEDADES ESPECÍFICAS DA IMAGEM =====
-
     // Size
     const sizeControl = createSliderWithInput(getCommonConfig('size',
         feature.properties.size, {

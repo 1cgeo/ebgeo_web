@@ -1,4 +1,4 @@
-// Path: js/controls_sig/tool_manager/tool_manager.js
+// Path: src/js/controls_sig/tool_manager/tool_manager.js
 
 class ToolManager {
     constructor() {

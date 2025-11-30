@@ -1,4 +1,4 @@
-// Path: js/controls_sig/frameLayersConfig.js
+// Path: src/js/controls_sig/frameLayersConfig.js
 export const FRAME_LAYERS = {
   scale_25k: [
     'moldura_fill_25k',
@@ -96,10 +96,10 @@ export function initFrameLayers(map) {
             "fill-color": [
                 "case",
                 ["==", ["get", "situacao_topo"], "Concluído"],
-                "rgba(145,207,96,0.5)",       // verde translúcido
+                "rgba(145,207,96,0.5)",
                 ["==", ["get", "situacao_topo"], "Múltiplas edições"],
-                "rgba(102,178,255,0.5)",        // azul translúcido
-                "rgba(255, 0, 0, 0)"        // vermelho translúcido
+                "rgba(102,178,255,0.5)",
+                "rgba(255, 0, 0, 0)"
             ],
             "fill-outline-color": "rgba(0,0,0,0)"
         },
@@ -120,20 +120,20 @@ export function initFrameLayers(map) {
         "source-layer": "situacao_25k",
         "paint": {
             "line-width": [
-                'step', ['length', ['get', 'edicoes_orto']],  0.5,  // Tamanho do array = 0
-                8, 5, // Tamanho do array >= 1
-                14, 5 // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  0.5,
+                8, 5,
+                14, 5
             ],
             "line-color": [
-                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',  // Tamanho do array = 0
-                8, 'rgba(145,207,96,1)', // Tamanho do array >= 1
-                14, 'rgba(102,178,255,1)' // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',
+                8, 'rgba(145,207,96,1)',
+                14, 'rgba(102,178,255,1)'
             ],
             "line-opacity": 1,
             "line-offset": [
-                'step', ['length', ['get', 'edicoes_orto']],  1,  // Tamanho do array = 0
-                8, 3.5, // Tamanho do array >= 1
-                14, 3.5 // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  1,
+                8, 3.5,
+                14, 3.5
             ]
         },
         "layout": {
@@ -185,10 +185,10 @@ export function initFrameLayers(map) {
             "fill-color": [
                 "case",
                 ["==", ["get", "situacao_topo"], "Concluído"],
-                "rgba(145,207,96,0.5)",       // verde translúcido
+                "rgba(145,207,96,0.5)",
                 ["==", ["get", "situacao_topo"], "Múltiplas edições"],
-                "rgba(102,178,255,0.5)",        // azul translúcido
-                "rgba(255, 0, 0, 0)"        // vermelho translúcido
+                "rgba(102,178,255,0.5)",
+                "rgba(255, 0, 0, 0)"
             ],
             "fill-outline-color": "rgba(0,0,0,0)"
         },
@@ -209,20 +209,20 @@ export function initFrameLayers(map) {
         "source-layer": "situacao_50k",
         "paint": {
             "line-width": [
-                'step', ['length', ['get', 'edicoes_orto']],  0.5,  // Tamanho do array = 0
-                8, 5, // Tamanho do array >= 1
-                14, 5 // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  0.5,
+                8, 5,
+                14, 5
             ],
             "line-color": [
-                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',  // Tamanho do array = 0
-                8, 'rgba(145,207,96,1)', // Tamanho do array >= 1
-                14, 'rgba(102,178,255,1)' // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',
+                8, 'rgba(145,207,96,1)',
+                14, 'rgba(102,178,255,1)'
             ],
             "line-opacity": 1,
             "line-offset": [
-                'step', ['length', ['get', 'edicoes_orto']],  1,  // Tamanho do array = 0
-                8, 3.5, // Tamanho do array >= 1
-                14, 3.5 // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  1,
+                8, 3.5,
+                14, 3.5
             ]
         },
         "layout": {
@@ -274,10 +274,10 @@ export function initFrameLayers(map) {
             "fill-color": [
                 "case",
                 ["==", ["get", "situacao_topo"], "Concluído"],
-                "rgba(145,207,96,0.5)",       // verde translúcido
+                "rgba(145,207,96,0.5)",
                 ["==", ["get", "situacao_topo"], "Múltiplas edições"],
-                "rgba(102,178,255,0.5)",        // azul translúcido
-                "rgba(255, 0, 0, 0)"        // vermelho translúcido
+                "rgba(102,178,255,0.5)",
+                "rgba(255, 0, 0, 0)"
             ],
             "fill-outline-color": "rgba(0,0,0,0)"
         },
@@ -298,20 +298,20 @@ export function initFrameLayers(map) {
         "source-layer": "situacao_100k",
         "paint": {
             "line-width": [
-                'step', ['length', ['get', 'edicoes_orto']],  0.5,  // Tamanho do array = 0
-                8, 5, // Tamanho do array >= 1
-                14, 5 // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  0.5,
+                8, 5,
+                14, 5
             ],
             "line-color": [
-                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',  // Tamanho do array = 0
-                8, 'rgba(145,207,96,1)', // Tamanho do array >= 1
-                14, 'rgba(102,178,255,1)' // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',
+                8, 'rgba(145,207,96,1)',
+                14, 'rgba(102,178,255,1)'
             ],
             "line-opacity": 1,
             "line-offset": [
-                'step', ['length', ['get', 'edicoes_orto']],  1,  // Tamanho do array = 0
-                8, 3.5, // Tamanho do array >= 1
-                14, 3.5 // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  1,
+                8, 3.5,
+                14, 3.5
             ]
         },
         "layout": {
@@ -365,10 +365,10 @@ export function initFrameLayers(map) {
             "fill-color": [
                 "case",
                 ["==", ["get", "situacao_topo"], "Concluído"],
-                "rgba(145,207,96,0.5)",       // verde translúcido
+                "rgba(145,207,96,0.5)",
                 ["==", ["get", "situacao_topo"], "Múltiplas edições"],
-                "rgba(102,178,255,0.5)",        // azul translúcido
-                "rgba(255, 0, 0, 0)"        // vermelho translúcido
+                "rgba(102,178,255,0.5)",
+                "rgba(255, 0, 0, 0)"
             ],
             "fill-outline-color": "rgba(0,0,0,0)"
         },
@@ -389,20 +389,20 @@ export function initFrameLayers(map) {
         "source-layer": "situacao_250k",
         "paint": {
             "line-width": [
-                'step', ['length', ['get', 'edicoes_orto']],  0.5,  // Tamanho do array = 0
-                8, 5, // Tamanho do array >= 1
-                14, 5 // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  0.5,
+                8, 5,
+                14, 5
             ],
             "line-color": [
-                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',  // Tamanho do array = 0
-                8, 'rgba(145,207,96,1)', // Tamanho do array >= 1
-                14, 'rgba(102,178,255,1)' // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  '#aaaaaaff',
+                8, 'rgba(145,207,96,1)',
+                14, 'rgba(102,178,255,1)'
             ],
             "line-opacity": 1,
             "line-offset": [
-                'step', ['length', ['get', 'edicoes_orto']],  1,  // Tamanho do array = 0
-                8, 3.5, // Tamanho do array >= 1
-                14, 3.5 // Tamanho do array >= 2
+                'step', ['length', ['get', 'edicoes_orto']],  1,
+                8, 3.5,
+                14, 3.5
             ]
         },
         "layout": {

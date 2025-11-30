@@ -1,4 +1,4 @@
-// Path: js/controls_sig/baselayers/osm_layer.js
+// Path: src/js/controls_sig/baselayers/osm_layer.js
 
 export default {
     "version": 8,

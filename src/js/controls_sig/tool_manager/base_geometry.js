@@ -1,4 +1,4 @@
-// Path: js/controls_sig/tool_manager/base_geometry.js
+// Path: src/js/controls_sig/tool_manager/base_geometry.js
 
 /**
  * Base class for all geometry operations

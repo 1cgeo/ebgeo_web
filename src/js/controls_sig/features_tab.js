@@ -1,4 +1,4 @@
-// Path: js/controls_sig/features_tab.js
+// Path: src/js/controls_sig/features_tab.js
 import {
   updateFeatureProperty,
   getFeatureById,

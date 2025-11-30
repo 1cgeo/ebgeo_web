@@ -1,4 +1,4 @@
-// Path: js/controls_sig/store/repository.js
+// Path: src/js/controls_sig/store/repository.js
 
 import config from '../../config.js';
 

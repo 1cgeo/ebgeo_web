@@ -1,4 +1,4 @@
-// Path: js/controls_sig/tool_manager/hatch_config_modal.js
+// Path: src/js/controls_sig/tool_manager/hatch_config_modal.js
 
 import { createSliderWithInput, createColorPicker, createAttributeRow } from './attribute_panel_helpers.js';
 

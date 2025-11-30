@@ -1,4 +1,4 @@
-// Path: js/controls_sig/boundary_tool/boundary_attributes_panel.js
+// Path: src/js/controls_sig/boundary_tool/boundary_attributes_panel.js
 
 import {
     createSliderWithInput,
@@ -11,6 +11,14 @@ import {
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 
+/**
+ * Create and populate boundary attributes panel with controls
+ * @param {HTMLElement} panel - Panel container element
+ * @param {Array} selectedFeatures - Selected boundary features
+ * @param {Object} boundaryControl - Boundary control instance
+ * @param {Object} selectionManager - Selection manager instance
+ * @param {Object} uiManager - UI manager instance
+ */
 export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryControl, selectionManager, uiManager) {
     if (selectedFeatures.length === 0) return;
 
@@ -18,7 +26,6 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== EDITABLE FEATURE NAME (SINGLE SELECTION ONLY) =====
     if (selectedFeatures.length === 1) {
         const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
@@ -51,7 +58,6 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         panel.appendChild(multiSelectHeader);
     }
 
-    // ===== ECHELON DROPDOWN =====
     const echelonLabel = document.createElement('label');
     echelonLabel.textContent = 'Escalão:';
     const echelonSelect = document.createElement('select');
@@ -87,7 +93,6 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
 
     panel.appendChild(createAttributeRow('Escalão:', echelonSelect));
 
-    // Line color
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         boundaryControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -95,7 +100,6 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
 
     panel.appendChild(createAttributeRow('Cor:', colorInput));
 
-    // Espessura da Linha
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 4, {
         onChange: (value) => {
@@ -106,7 +110,6 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
 
     panel.appendChild(createAttributeRow('Espessura (px):', lineWidthControl));
 
-    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity || 1) * 100), {
         onChange: (value) => {
@@ -116,6 +119,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
     }));
 
     panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
+
     const buttons = createStandardButtons({
         selectedFeatures,
         control: boundaryControl,

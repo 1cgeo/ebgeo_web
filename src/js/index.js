@@ -1,4 +1,4 @@
-// Path: js/index.js
+// Path: src/js/index.js
 import './config-loader.js';
 import config from './config.js';
 import { } from './map_sig.js';

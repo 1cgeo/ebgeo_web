@@ -1,4 +1,4 @@
-// Path: js/controls_sig/suggestions_modal.js
+// Path: src/js/controls_sig/suggestions_modal.js
 
 /**
  * Manages the suggestions/support modal for EBGeo application

@@ -22,7 +22,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== EDITABLE FEATURE NAME (SINGLE SELECTION ONLY) =====
+    // Editable feature name for single selection
     if (selectedFeatures.length === 1) {
         const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,

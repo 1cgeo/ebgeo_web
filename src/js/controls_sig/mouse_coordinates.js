@@ -1,4 +1,4 @@
-// Path: js/controls_sig/mouse_coordinates.js
+// Path: src/js/controls_sig/mouse_coordinates.js
 import {
     COORDINATE_FORMATS,
     getPlaceholderForFormat,
@@ -221,9 +221,7 @@ class MouseCoordinatesControl {
                     const elevation = await getTerrainElevation(this._map, lat, lng, signal);
                     resolve(elevation);
                 } catch (error) {
-                    if (error.name === 'AbortError') {
-                        // Request was aborted, this is fine
-                    } else {
+                    if (error.name !== 'AbortError') {
                         console.warn('Failed to get elevation:', error);
                     }
                     resolve(null);

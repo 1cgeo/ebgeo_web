@@ -1,4 +1,4 @@
-// Path: js/controls_sig/id_utils.js
+// Path: src/js/controls_sig/id_utils.js
 import { getFeatureDisplayName, getStorageTypeFromSource, hasImageResource as storeHasImageResource } from './store/store.js';
 
 /**

@@ -1,4 +1,5 @@
-// Path: js/controls_sig/brush_tool/add_brush_geometry.js
+// Path: src/js/controls_sig/brush_tool/add_brush_geometry.js
+
 import BaseGeometry from '../tool_manager/base_geometry.js';
 
 /**

@@ -1,4 +1,4 @@
-// Path: js/controls_sig/map_notes_panel.js
+// Path: src/js/controls_sig/map_notes_panel.js
 import { showSuccess, showError } from './utilities/toast_service.js';
 import {
     getMapNotes,

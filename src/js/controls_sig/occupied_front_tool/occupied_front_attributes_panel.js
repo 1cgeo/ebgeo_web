@@ -15,11 +15,10 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    
-    // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
+
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
+
     if (selectedFeatures.length === 1) {
         const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
@@ -52,9 +51,7 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
         panel.appendChild(multiSelectHeader);
     }
 
-    // ===== PROPRIEDADES ESPECÍFICAS DA FRENTE OCUPADA =====
 
-    // Cor
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         occupiedFrontControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -85,13 +82,11 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
 
     panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
 
-    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
-    // ✅ FIXED: Pass initialPropertiesMap captured at panel opening
     const buttons = createStandardButtons({
         selectedFeatures,
         control: occupiedFrontControl,
         selectionManager,
-        initialPropertiesMap, // ✅ PASS THE ORIGINAL STATE
+        initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
         onSetDefault: () => occupiedFrontControl.setDefaultProperties({
             color: feature.properties.color,

@@ -1,7 +1,11 @@
-// Path: js/controls_sig/coordination_measure_tool/coordination_points_catalog.js
+// Path: src/js/controls_sig/coordination_measure_tool/coordination_points_catalog.js
+
 import { ECHELON_CODES, SUPPLY_CLASSES } from './coordination_measure_constants.js';
 
-// Símbolos de escalão
+// ============================================================================
+// ECHELON SYMBOLS
+// ============================================================================
+
 const ECHELON_SYMBOLS = {
   "00": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
   "11": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
@@ -18,6 +22,10 @@ const ECHELON_SYMBOLS = {
   "25": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
   "26": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`
 };
+
+// ============================================================================
+// ECHELON SYMBOLS - TASK FORCE
+// ============================================================================
 
 const ECHELON_SYMBOLS_FT = {
   "00": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
@@ -36,7 +44,10 @@ const ECHELON_SYMBOLS_FT = {
   "26": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`
 };
 
-// Ícones de classe de suprimento (mantidos para compatibilidade com o generator)
+// ============================================================================
+// SUPPLY CLASS ICONS
+// ============================================================================
+
 const SUPPLY_CLASS_ICONS = {
   "I": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
   "II": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
@@ -51,6 +62,10 @@ const SUPPLY_CLASS_ICONS = {
   "Agua": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`,
   "Outras": `<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="88" height="168" viewBox="56 -64 88 168"><path d="m 60,45 80,0 m -40,55 -40,-55 0,-105 80,0 0,105 z" stroke-width="4" stroke="black" fill="rgb(255,255,255)"></path></svg>`
 };
+
+// ============================================================================
+// BASE COORDINATION POINTS
+// ============================================================================
 
 const BASE_POINTS = {
   // ===== GERAIS =====
@@ -716,11 +731,17 @@ const BASE_POINTS = {
   }
 };
 
-// Função para gerar pontos de escalão
+// ============================================================================
+// ECHELON POINT GENERATION
+// ============================================================================
+
+/**
+ * Generate all echelon point definitions
+ * @returns {Object} Map of echelon point codes to point definitions
+ */
 function generateEchelonPoints() {
   const echelonPoints = {};
 
-  // Escalões normais
   Object.entries(ECHELON_CODES).forEach(([code, label]) => {
     const pointCode = `ECHELON_${code}`;
     echelonPoints[pointCode] = {
@@ -731,11 +752,10 @@ function generateEchelonPoints() {
       anchor: "center",
       isEchelon: true,
       echelonCode: code,
-      textFields: {} // Escalões não têm texto adicional
+      textFields: {}
     };
   });
 
-  // Escalões Força-Tarefa
   Object.entries(ECHELON_CODES).forEach(([code, label]) => {
     const pointCode = `ECHELON_FT_${code}`;
     echelonPoints[pointCode] = {
@@ -747,14 +767,21 @@ function generateEchelonPoints() {
       isEchelon: true,
       isForcaTarefa: true,
       echelonCode: code,
-      textFields: {} // Escalões FT não têm texto adicional
+      textFields: {}
     };
   });
 
   return echelonPoints;
 }
 
-// Função para gerar pontos de suprimento
+// ============================================================================
+// SUPPLY POINT GENERATION
+// ============================================================================
+
+/**
+ * Generate all supply point definitions
+ * @returns {Object} Map of supply point codes to point definitions
+ */
 function generateSupplyPoints() {
   const supplyPoints = {};
 
@@ -791,18 +818,34 @@ function generateSupplyPoints() {
   return supplyPoints;
 }
 
-// Helper functions
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Get text fields configuration for a point
+ * @param {string} pointCode - Point code
+ * @returns {Object} Text fields configuration
+ */
 export function getTextFieldsConfig(pointCode) {
   const point = COORDINATION_POINTS_CATALOG[pointCode];
   return point?.textFields || {};
 }
 
+/**
+ * Get available text field names for a point
+ * @param {string} pointCode - Point code
+ * @returns {Array<string>} Array of text field names
+ */
 export function getAvailableTextFields(pointCode) {
   const textFields = getTextFieldsConfig(pointCode);
   return Object.keys(textFields);
 }
 
-// Construir catálogo completo unificado
+// ============================================================================
+// COMPLETE CATALOG EXPORT
+// ============================================================================
+
 export const COORDINATION_POINTS_CATALOG = {
   ...BASE_POINTS,
   ...generateEchelonPoints(),
