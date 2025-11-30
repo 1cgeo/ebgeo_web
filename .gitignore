@@ -1,5 +1,8 @@
 src_total
 
+# Vite build output
+dist/
+
 # Node.js
 node_modules/
 npm-debug.log*
