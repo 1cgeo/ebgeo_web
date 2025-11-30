@@ -9,7 +9,8 @@
       "Bash(npm run build:*)",
       "Bash(timeout 5 npm run start:*)",
       "Bash(taskkill:*)",
-      "Bash(timeout 3 npm run start:*)"
+      "Bash(timeout 3 npm run start:*)",
+      "Bash(npx knip:*)"
     ],
     "deny": [],
     "ask": []

@@ -5,7 +5,7 @@ import config from './config.js';
 /**
  * Apply application configuration (title and subtitle) to HTML
  */
-export function applyAppConfig() {
+function applyAppConfig() {
     if (config.app.title) {
         document.title = config.app.title;
     }
@@ -52,7 +52,7 @@ function createTilesetButtons() {
 /**
  * Initialize application configuration on DOM ready
  */
-export function initializeAppConfig() {
+function initializeAppConfig() {
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             applyAppConfig();

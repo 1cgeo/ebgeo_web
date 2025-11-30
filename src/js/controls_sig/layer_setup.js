@@ -106,7 +106,7 @@ function createHatchLayerFilter(visibleLayerIds, hatchEnabled) {
     }
 }
 
-export function updateAllLayerFilters(mapInstance) {
+function updateAllLayerFilters(mapInstance) {
     if (!mapInstance) return;
     
     const visibleLayerIds = getVisibleLayerIds();
@@ -131,7 +131,7 @@ export function updateAllLayerFilters(mapInstance) {
     });
 }
 
-export function setupLayerVisibilityListener(mapInstance) {
+function setupLayerVisibilityListener(mapInstance) {
     const handler = () => {
         // Invalidate cache before updating to ensure changes are applied
         invalidateFilterCache();
@@ -141,7 +141,7 @@ export function setupLayerVisibilityListener(mapInstance) {
     return () => document.removeEventListener('layers-changed', handler);
 }
 
-export function invalidateFilterCache() {
+function invalidateFilterCache() {
     cachedVisibleLayerIds = null;
 }
 

@@ -621,7 +621,6 @@ export {
     SCHEMA_VERSION,
     MIN_SCHEMA_VERSION,
     MAX_SCHEMA_VERSION,
-    getEmptyMapData,
     cleanFeature,
     isInternalProperty,
     compareVersions,
@@ -659,12 +658,9 @@ export {
     setMapOrder,
     setMapGroups,
     getMapGroups,
-    removeMapGroups,
-    getAllMapsWithGroups,
     setLayers,
     getLayers,
     setActiveLayerId,
     getActiveLayerId,
-    removeMapLayers,
     getDefaultLayer
 };

@@ -34,7 +34,7 @@ function loadScript(src) {
  * Disables Cesium Ion completely to use only local resources
  * @returns {Promise} Promise that resolves when Cesium is loaded and initialized
  */
-export async function loadCesiumAndInit() {
+async function loadCesiumAndInit() {
     if (cesiumState.loadPromise) {
         return cesiumState.loadPromise;
     }
@@ -290,7 +290,7 @@ async function setupTools(viewer) {
  * Pauses 3D rendering to save resources when viewer is not visible
  * Disables camera controls and hides primitives
  */
-export function pauseRendering() {
+function pauseRendering() {
     if (!cesiumState.viewer || cesiumState.isPaused) return;
 
     cesiumState.isPaused = true;
@@ -309,7 +309,7 @@ export function pauseRendering() {
  * Resumes 3D rendering when viewer becomes visible again
  * Re-enables camera controls and shows primitives
  */
-export function resumeRendering() {
+function resumeRendering() {
     if (!cesiumState.viewer || !cesiumState.isPaused) return;
 
     cesiumState.isPaused = false;
@@ -395,7 +395,7 @@ export function cleanup3DFeatures() {
 /**
  * Initializes 3D tools (mouse coordinates, etc.)
  */
-export function init3DFeatures() {
+function init3DFeatures() {
     if (!cesiumState.viewer) return;
 
     try {
@@ -407,7 +407,7 @@ export function init3DFeatures() {
     }
 }
 
-export function activeTool() {
+function activeTool() {
     const toolId = this.id;
     if (!toolId || !cesiumState.viewer) return;
     switch (toolId) {
@@ -441,7 +441,7 @@ export function activeTool() {
     }
 }
 
-export function handleClickGoTo() {
+function handleClickGoTo() {
     const targetId = this.id;
     if (!targetId || !cesiumState.viewer) return;
 
@@ -673,7 +673,7 @@ function cleanupActiveTools() {
  * Switches to a different tileset when viewer is already open
  * @param {string} newTilesetId - ID of the new tileset to load
  */
-export async function switchTileset(newTilesetId) {
+async function switchTileset(newTilesetId) {
     if (!cesiumState.viewer || cesiumState.viewer.isDestroyed()) return;
 
     cleanupActiveTools();

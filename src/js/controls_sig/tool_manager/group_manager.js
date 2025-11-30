@@ -7,7 +7,7 @@ import { IDUtils } from '../id_utils.js';
  * Central manager for feature groups
  * Maintains memory cache for synchronous queries and persists to IndexedDB
  */
-export class GroupManager {
+class GroupManager {
     constructor() {
         this.memoryStore = memoryStore;
     }

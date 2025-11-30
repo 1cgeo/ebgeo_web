@@ -17,7 +17,7 @@ import { IDUtils } from './id_utils.js';
  * - Asynchronous persistence to IndexedDB
  * - Events to notify changes
  */
-export class LayerManager {
+class LayerManager {
     constructor() {
         this.memoryStore = memoryStore;
     }
