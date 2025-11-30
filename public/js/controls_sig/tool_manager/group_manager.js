@@ -35,7 +35,7 @@ export class GroupManager {
             throw new Error('É necessário pelo menos 2 features para criar um grupo.');
         }
 
-        // Criar grupo
+        // Create
         const groupId = IDUtils.generateUniqueId();
         const groupName = this.generateGroupName(targetMap);
         
@@ -50,7 +50,7 @@ export class GroupManager {
             locked: false
         };
 
-        // Adicionar ao cache
+        // Add
         this._ensureMapGroupsExist(targetMap);
         this.memoryStore.groups[targetMap].set(groupId, newGroup);
 
@@ -79,7 +79,7 @@ export class GroupManager {
         const allFeatures = [];
         let combinedGroupName = '';
 
-        // Adicionar features dos grupos existentes
+        // Add
         groupIds.forEach((groupId, index) => {
             const group = groupsCache.get(groupId);
             if (group) {
@@ -90,7 +90,7 @@ export class GroupManager {
             }
         });
 
-        // Adicionar features soltas (verificar se não estão agrupadas)
+        // Add
         selectedFeatures.forEach(feature => {
             const isGrouped = this.isFeatureGrouped(
                 feature.properties.source, 
@@ -110,7 +110,7 @@ export class GroupManager {
             throw new Error('É necessário pelo menos 2 features para formar um grupo.');
         }
 
-        // Criar novo grupo combinado
+        // Create
         const newGroupId = IDUtils.generateUniqueId();
         const finalGroupName = combinedGroupName || this.generateGroupName(targetMap);
         
@@ -122,12 +122,12 @@ export class GroupManager {
             locked: false
         };
 
-        // Remover grupos antigos do cache
+        // Remove
         groupIds.forEach(groupId => {
             groupsCache.delete(groupId);
         });
 
-        // Adicionar novo grupo
+        // Add
         groupsCache.set(newGroupId, combinedGroup);
 
         // Persistir
@@ -157,7 +157,7 @@ export class GroupManager {
 
         const features = [...group.features];
         
-        // Remover grupo do cache
+        // Remove
         groupsCache.delete(groupId);
 
         // Persistir
@@ -182,7 +182,7 @@ export class GroupManager {
             throw new Error(`Grupo ${groupId} não encontrado.`);
         }
 
-        // Atualizar propriedade
+        // Update
         group[property] = value;
 
         // Persistir
@@ -311,7 +311,7 @@ export class GroupManager {
                 return; // Não há grupos para duplicar
             }
 
-            // Criar novos IDs para os grupos (mas manter os IDs das features)
+            // Create
             const duplicatedGroups = {};
             
             Object.values(sourceGroupsData).forEach(group => {
@@ -323,10 +323,10 @@ export class GroupManager {
                 };
             });
 
-            // Salvar grupos duplicados
+            // Save
             await setMapGroups(targetMapName, duplicatedGroups);
 
-            // Atualizar cache se for o mapa atual
+            // Update
             if (targetMapName === this.memoryStore.currentMap) {
                 const groupsMap = new Map();
                 Object.entries(duplicatedGroups).forEach(([groupId, groupData]) => {
@@ -360,7 +360,7 @@ export class GroupManager {
                 // Obter mapeamento de IDs para este mapa (se fornecido)
                 const mapIdMapping = idMappings[sourceMapName] || new Map();
                 
-                // Atualizar IDs das features nos grupos
+                // Update
                 const updatedGroups = this._updateGroupFeatureIds(sourceGroups, mapIdMapping);
                 
                 Object.values(updatedGroups).forEach(group => {
@@ -375,7 +375,7 @@ export class GroupManager {
                     }
                     existingNames.add(finalName);
 
-                    // Adicionar grupo com novo ID e nome resolvido
+                    // Add
                     targetGroups[newGroupId] = {
                         ...group,
                         id: newGroupId,
@@ -384,10 +384,10 @@ export class GroupManager {
                 });
             }
 
-            // Salvar grupos combinados
+            // Save
             await setMapGroups(targetMapName, targetGroups);
 
-            // Atualizar cache se necessário
+            // Update
             if (targetMapName === this.memoryStore.currentMap) {
                 await this.loadGroupsToMemory(targetMapName);
             }

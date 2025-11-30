@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\data\equipamentos_viaturas.js
+// Path: js/controls_sig/military_symbol_tool/data/equipamentos_viaturas.js
 
 export default {
   "symbol_sets": [

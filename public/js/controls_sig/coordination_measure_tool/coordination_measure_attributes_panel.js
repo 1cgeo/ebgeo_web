@@ -88,7 +88,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
     // ===== CONTROLES DE RENDERIZAÇÃO =====
 
-    // Tamanho
+    // Size
     const sizeControl = createSliderWithInput(getCommonConfig('size',
         feature.properties.size || 1.0, {
         onChange: (value) => {
@@ -114,7 +114,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
     $(panel).append(createAttributeRow('Zoom de referência:', createdAtZoomControl));
 
-    // Opacidade (0-100%)
+    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity || 1.0) * 100), {
         onChange: (value) => {
@@ -260,15 +260,15 @@ export function addCoordinationMeasureAttributesToPanel(
             const isCustomColor = !!color;
             const checkboxInput = checkbox.find('input')[0];
 
-            // Atualizar checkbox state
+            // Update
             checkboxInput.checked = isCustomColor;
 
-            // Atualizar color picker
+            // Update
             colorPicker.disabled = !isCustomColor;
             colorPicker.style.opacity = isCustomColor ? '1' : '0.5';
             colorPicker.style.cursor = isCustomColor ? 'pointer' : 'not-allowed';
 
-            // Atualizar valor do color picker se cor personalizada ativa
+            // Update
             if (isCustomColor) {
                 colorPicker.value = color;
             }
@@ -686,7 +686,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
         document.addEventListener('keydown', handleModalKeyDown);
 
-        // Adicionar ao DOM e gerar preview inicial
+        // Add
         document.body.appendChild(modalOverlay);
         updatePreview();
 
@@ -839,7 +839,7 @@ export function addCoordinationMeasureAttributesToPanel(
         // Register dropdown
         openDropdowns.push(dropdown);
 
-        // Atualizar display com thumbnail
+        // Update
         async function updateDisplay(value) {
             const selected = options.find(opt => opt.value === value);
             if (selected) {
@@ -965,7 +965,7 @@ export function addCoordinationMeasureAttributesToPanel(
             if (index > -1) {
                 openDropdowns.splice(index, 1);
             }
-            // Remover dropdown do body
+            // Remove
             if (dropdown.parentNode) {
                 dropdown.parentNode.removeChild(dropdown);
             }
@@ -974,7 +974,7 @@ export function addCoordinationMeasureAttributesToPanel(
         document.addEventListener('click', closeDropdown);
 
         selectContainer.appendChild(selectDisplay);
-        // Adicionar dropdown ao body para position: fixed funcionar
+        // Add
         document.body.appendChild(dropdown);
         container.appendChild(labelElement);
         container.appendChild(selectContainer);
@@ -1063,7 +1063,7 @@ export function addCoordinationMeasureAttributesToPanel(
         // Register dropdown
         openDropdowns.push(dropdown);
 
-        // Atualizar display
+        // Update
         function updateDisplay() {
             const selected = options.find(opt => opt.value === currentValue);
             textContainer.textContent = selected ? selected.label : 'Selecione...';
@@ -1134,7 +1134,7 @@ export function addCoordinationMeasureAttributesToPanel(
             if (index > -1) {
                 openDropdowns.splice(index, 1);
             }
-            // Remover dropdown do body
+            // Remove
             if (dropdown.parentNode) {
                 dropdown.parentNode.removeChild(dropdown);
             }
@@ -1146,7 +1146,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
         container.appendChild(labelElement);
         selectContainer.appendChild(selectDisplay);
-        // Adicionar dropdown ao body para position: fixed funcionar
+        // Add
         document.body.appendChild(dropdown);
         container.appendChild(selectContainer);
 
@@ -1310,7 +1310,7 @@ export function addCoordinationMeasureAttributesToPanel(
         return subtypes.map(st => ({
             value: st.code,
             label: st.label,
-            iconCode: st.code  // Adicionar iconCode para gerar thumbnails
+            iconCode: st.code  // Add
         }));
     }
 

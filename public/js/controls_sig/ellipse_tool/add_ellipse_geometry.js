@@ -232,17 +232,17 @@ class AddEllipseGeometry extends BaseGeometry {
 
         switch (handleType) {
             case 'horizontal-resize':
-                // Atualizar apenas a largura (majorRadius quando bearing = 0, ou calcular baseado na orientação)
+                // Update
                 majorRadius = this.calculateHorizontalRadius(center, newPosition, bearing);
                 break;
 
             case 'vertical-resize':
-                // Atualizar apenas a altura (minorRadius quando bearing = 0, ou calcular baseado na orientação)
+                // Update
                 minorRadius = this.calculateVerticalRadius(center, newPosition, bearing);
                 break;
 
             case 'rotation':
-                // Atualizar apenas o bearing, mantendo dimensões
+                // Update
                 bearing = this.calculateRotationBearing(center, newPosition);
                 break;
 
@@ -321,7 +321,7 @@ class AddEllipseGeometry extends BaseGeometry {
 
         let { majorRadius, minorRadius, bearing } = feature.properties;
 
-        // Atualizar parâmetro baseado no tipo de handle
+        // Update
         switch (handleType) {
             case 'horizontal-resize':
                 majorRadius = this.calculateHorizontalRadius(center, newPosition, bearing);

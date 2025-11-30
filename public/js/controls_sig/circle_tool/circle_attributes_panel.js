@@ -42,7 +42,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         const infoText = document.createElement('div');
         infoText.className = 'feature-name-wrapper';
         infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
-        infoText.textContent = `${selectedFeatures.length} círculos selecionados`;
+        infoText.textContent = `${selectedFeatures.length} circles selected`;
         
         const optionsButton = createFeatureOptionsButton(
             selectedFeatures,
@@ -57,7 +57,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
 
     // ===== PROPRIEDADES ESPECÍFICAS DO CÍRCULO =====
 
-    // Cor da linha
+    // Line color
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
         circleControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -65,7 +65,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
 
     $(panel).append(createAttributeRow('Linha:', lineColorInput));
 
-    // Cor do preenchimento
+    // Fill color
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         circleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -73,7 +73,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
 
     $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
 
-    // Opacidade (0-100% com conversão automática)
+    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('complete_opacity',
         Math.round((feature.properties.opacity || 0.7) * 100), {
         onChange: (value) => {
@@ -85,7 +85,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
 
     $(panel).append(createAttributeRow('Opacidade:', opacityControl));
 
-    // Largura da linha
+    // Line width (pixels)
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 2, {
         onChange: (value) => {
@@ -128,7 +128,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
     $(hatchContainer).append(hatchConfigButton);
     $(panel).append(createAttributeRow('Hachura:', hatchContainer));
 
-    // Raio - MUDADO: agora é input editável em vez de apenas informativo
+    // Radius
     const radiusInput = createNumericInput({
         min: 10,
         max: 100000,

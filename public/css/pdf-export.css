@@ -1,6 +1,6 @@
-/* css/pdf-export.css - Estilos para PDF Export Tab */
+/* Path: css/pdf-export.css */
 
-/* ===== INTEGRAÇÃO COM MAP CONTROL ===== */
+/* ===== MAP CONTROL INTEGRATION ===== */
 .pdf-export-tab-content {
     width: 100% !important;
     background: inherit !important;
@@ -8,7 +8,7 @@
     padding: 0 !important;
 }
 
-/* ===== CONTAINER PRINCIPAL ===== */
+/* ===== MAIN CONTAINER ===== */
 .pdf-export-container {
     padding: 16px;
     background: rgba(255, 255, 255, 0.95);
@@ -20,7 +20,7 @@
     box-sizing: border-box;
 }
 
-/* ===== SELETOR DE ORIENTAÇÃO ===== */
+/* ===== ORIENTATION SELECTOR ===== */
 .orientation-selector {
     margin-bottom: 16px;
     padding: 12px;
@@ -66,7 +66,7 @@
     font-weight: 600;
 }
 
-/* ===== BOTÃO DE EXPORTAÇÃO ===== */
+/* ===== EXPORT BUTTON ===== */
 .export-pdf-btn {
     width: 100%;
     padding: 12px 16px;
@@ -100,7 +100,7 @@
     background-color: #6c757d;
 }
 
-/* ===== STATUS DE EXPORTAÇÃO ===== */
+/* ===== EXPORT STATUS ===== */
 .export-status {
     margin-top: 12px;
     padding: 12px;
@@ -130,7 +130,7 @@
     100% { transform: rotate(360deg); }
 }
 
-/* ===== ESTADOS E ANIMAÇÕES ===== */
+/* ===== STATES AND ANIMATIONS ===== */
 .pdf-export-container.loading {
     pointer-events: none;
     opacity: 0.8;
@@ -146,7 +146,7 @@
     100% { background: rgba(80, 141, 78, 0.15); }
 }
 
-/* ===== ACESSIBILIDADE ===== */
+/* ===== ACCESSIBILITY ===== */
 .orientation-selector label:focus-within,
 .export-pdf-btn:focus {
     outline: 2px solid var(--primary-color);
@@ -158,9 +158,7 @@
     outline-offset: 2px;
 }
 
-/* ===== INTEGRAÇÃO COM TEMA PRINCIPAL ===== */
-
-/* Garantir que o container se integre bem com o layout geral */
+/* ===== MAIN THEME INTEGRATION ===== */
 .pdf-export-tab-content {
     transition: opacity 0.3s ease;
 }

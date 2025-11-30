@@ -1,4 +1,4 @@
-// Path: js\controls_sig\terrain_control.js
+// Path: js/controls_sig/terrain_control.js
 
 import { getMapHillshadeState } from './store/store.js';
 
@@ -75,13 +75,13 @@ class TerrainControl {
                 this._map.addSource('hillshadeSource', this.hillshadeSourceConfig);
             }
 
-            // NOVO: Restaurar estado do hillshade (que gerenciará a layer)
+            // NEW: Restore hillshade state (which will manage the layer)
             try {
                 const hillshadeEnabled = await getMapHillshadeState();
                 this.setHillshadeVisibility(hillshadeEnabled);
             } catch (error) {
-                console.warn('Erro ao restaurar estado do hillshade:', error);
-                // Em caso de erro, usar padrão (desabilitado)
+                console.warn('Error restoring hillshade state:', error);
+                // In case of error, use default (disabled)
                 this.setHillshadeVisibility(false);
             }
         }
@@ -138,13 +138,13 @@ class TerrainControl {
         }
     }
 
-    // ===== NOVO: MÉTODO PÚBLICO PARA CONTROLE DE HILLSHADE =====
+    // ===== PUBLIC METHOD FOR HILLSHADE CONTROL =====
 
     /**
-     * Método público para controlar visibilidade do hillshade
-     * Chamado pelo features_tab.js
-     * NOVO: Usa separador analysis-separator para posicionamento correto
-     * @param {boolean} enabled - true para mostrar, false para ocultar
+     * Public method to control hillshade visibility
+     * Called by features_tab.js
+     * Uses analysis-separator for correct positioning
+     * @param {boolean} enabled - true to show, false to hide
      */
     setHillshadeVisibility = (enabled) => {
         if (!this.hillshadeConfig?.enabled) {
@@ -152,41 +152,41 @@ class TerrainControl {
         }
 
         if (!this._map.getSource('hillshadeSource')) {
-            console.warn('Hillshade source não disponível');
+            console.warn('Hillshade source not available');
             return;
         }
 
-        // Garantir que layer existe na posição correta
+        // Ensure layer exists in correct position
         if (!this._map.getLayer('hillshade')) {
             this._addHillshadeLayerInCorrectPosition();
         }
 
-        // Apenas alterar visibilidade (NUNCA remove/add)
+        // Only change visibility (NEVER remove/add)
         const visibility = enabled ? 'visible' : 'none';
         try {
             this._map.setLayoutProperty('hillshade', 'visibility', visibility);
         } catch (error) {
-            console.error('Erro ao alterar visibilidade do hillshade:', error);
+            console.error('Error changing hillshade visibility:', error);
         }
     }
 
     _addHillshadeLayerInCorrectPosition() {
-        // NOVO: Usar analysis-separator como referência
-        // Hillshade fica ANTES do separador (entre basemap e analysis layers)
+        // Use analysis-separator as reference
+        // Hillshade goes BEFORE the separator (between basemap and analysis layers)
         const beforeId = 'analysis-separator';
-        
+
         try {
             if (this._map.getLayer(beforeId)) {
-                // Posicionar hillshade ANTES do separador de analysis layers
+                // Position hillshade BEFORE the analysis layers separator
                 this._map.addLayer(this.hillshadeConfig.layer, beforeId);
             } else {
-                // Fallback: se separador não existe ainda, adicionar normalmente
-                // (isso pode acontecer durante inicialização)
+                // Fallback: if separator doesn't exist yet, add normally
+                // (this can happen during initialization)
                 this._map.addLayer(this.hillshadeConfig.layer);
-                console.warn('Separador analysis-separator não encontrado, adicionando hillshade sem referência');
+                console.warn('Separator analysis-separator not found, adding hillshade without reference');
             }
         } catch (error) {
-            console.error('Erro ao adicionar hillshade layer:', error);
+            console.error('Error adding hillshade layer:', error);
         }
     }
 }

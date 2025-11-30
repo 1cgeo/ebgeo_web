@@ -1,7 +1,7 @@
-// Path: js\map_3d.js
+// Path: js/map_3d.js
 import config from './config.js';
 
-// ===== GESTÃO DE ESTADO GLOBAL =====
+// ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
     isLoaded: false,
     isVisible: false,
@@ -10,14 +10,14 @@ let cesiumState = {
     viewer: null,
     loadedTilesets: {},
     resizeObserver: null,
-    // Cache para módulos carregados dinamicamente
+    // Cache for dynamically loaded modules
     modules: {}
 };
 
-// ===== CARREGAMENTO LAZY =====
+// ===== LAZY LOADING =====
 function loadScript(src) {
     return new Promise((resolve, reject) => {
-        // Verifica se já foi carregado
+        // Check if already loaded
         if (document.querySelector(`script[src="${src}"]`)) {
             resolve();
             return;
@@ -39,25 +39,25 @@ export async function loadCesiumAndInit() {
     cesiumState.loadPromise = new Promise(async (resolve, reject) => {
         try {
 
-            // Carrega scripts em ordem correta
+            // Load scripts in correct order
             await loadScript('./vendors/cesium/Cesium.js');
 
-            // Aguarda Cesium estar disponível globalmente
+            // Wait for Cesium to be available globally
             await waitForGlobal('Cesium', 5000);
 
-            // ===== DESABILITA COMPLETAMENTE O CESIUM ION =====
-            // Remove qualquer token que possa estar configurado
+            // ===== COMPLETELY DISABLE CESIUM ION =====
+            // Remove any token that might be configured
             if (Cesium.Ion) {
                 Cesium.Ion.defaultAccessToken = undefined;
-                // Desabilita o servidor padrão do Ion
+                // Disable Ion's default server
                 if (Cesium.Ion.defaultServer) {
                     Cesium.Ion.defaultServer = new Cesium.Resource({ url: 'about:blank' });
                 }
             }
 
-            // Configura terrain e imagery providers locais ANTES de criar o viewer
+            // Configure local terrain and imagery providers BEFORE creating the viewer
             if (Cesium.createWorldTerrain) {
-                // Impede criação automática de terreno do Ion
+                // Prevent automatic creation of Ion terrain
                 const originalCreateWorldTerrain = Cesium.createWorldTerrain;
                 Cesium.createWorldTerrain = function () {
                     return new Cesium.EllipsoidTerrainProvider();
@@ -65,16 +65,16 @@ export async function loadCesiumAndInit() {
             }
 
             if (Cesium.createWorldImagery) {
-                // Impede criação automática de imagery do Ion
+                // Prevent automatic creation of Ion imagery
                 const originalCreateWorldImagery = Cesium.createWorldImagery;
                 Cesium.createWorldImagery = function () {
                     return false;
                 };
             }
 
-            // Desabilita requests para Ion
+            // Disable requests to Ion
             if (Cesium.RequestScheduler) {
-                // Bloqueia qualquer request para api.cesium.com
+                // Block any request to api.cesium.com
                 const originalRequest = Cesium.RequestScheduler.request;
                 Cesium.RequestScheduler.request = function (request) {
                     if (request.url && request.url.includes('api.cesium.com')) {
@@ -85,21 +85,21 @@ export async function loadCesiumAndInit() {
                 };
             }
 
-            // Carrega dependências do Cesium
+            // Load Cesium dependencies
             await Promise.all([
                 loadScript('./vendors/cesium/cesium-measure.js'),
                 loadScript('./vendors/cesium/cesium-viewshed.js')
             ]);
 
-            // Inicializa o mapa
+            // Initialize the map
             await initCesiumMap();
 
             cesiumState.isLoaded = true;
             resolve();
 
         } catch (error) {
-            console.error('❌ Erro ao carregar Cesium:', error);
-            cesiumState.loadPromise = null; // Permite retry
+            console.error('Error loading Cesium:', error);
+            cesiumState.loadPromise = null; // Allow retry
             reject(error);
         }
     });
@@ -129,36 +129,36 @@ function waitForGlobal(globalName, timeout = 5000) {
 
 async function initCesiumMap() {
 
-    // Configuração básica do extent
+    // Basic extent configuration
     const { bounds } = config.map3d;
     const extent = new Cesium.Rectangle.fromDegrees(bounds.west, bounds.south, bounds.east, bounds.north);
     Cesium.Camera.DEFAULT_VIEW_RECTANGLE = extent;
     Cesium.Camera.DEFAULT_VIEW_FACTOR = 0;
 
-    // ===== PROVIDERS BÁSICOS =====
+    // ===== BASIC PROVIDERS =====
     const terrainProviderConfig = config.createTerrainProvider();
     const imageryProviderConfig = config.createImageryProvider();
 
-    // Criar terrain provider (simplificado)
+    // Create terrain provider (simplified)
     let terrainProvider;
     try {
         if (terrainProviderConfig.provider === 'CesiumTerrainProvider') {
             terrainProvider = new Cesium.CesiumTerrainProvider({
                 url: terrainProviderConfig.url,
-                // Apenas configurações essenciais
+                // Only essential settings
                 requestVertexNormals: terrainProviderConfig.requestVertexNormals || false,
-                requestWaterMask: false, // Simplificado
-                requestMetadata: false   // Simplificado
+                requestWaterMask: false, // Simplified
+                requestMetadata: false   // Simplified
             });
         } else {
             terrainProvider = new Cesium.EllipsoidTerrainProvider();
         }
     } catch (error) {
-        console.warn('⚠️ Erro ao criar terrain provider, usando ellipsoid:', error);
+        console.warn('Warning: Error creating terrain provider, using ellipsoid:', error);
         terrainProvider = new Cesium.EllipsoidTerrainProvider();
     }
 
-    // Criar imagery provider (simplificado)
+    // Create imagery provider (simplified)
     let imageryProvider = false;
     if (imageryProviderConfig) {
         try {
@@ -166,7 +166,7 @@ async function initCesiumMap() {
                 case 'UrlTemplateImageryProvider':
                     imageryProvider = new Cesium.UrlTemplateImageryProvider({
                         url: imageryProviderConfig.url,
-                        // Configurações essenciais para imagery
+                        // Essential imagery settings
                         maximumLevel: imageryProviderConfig.maximumLevel || 18,
                         minimumLevel: imageryProviderConfig.minimumLevel || 0,
                         tileWidth: imageryProviderConfig.tileWidth || 256,
@@ -186,53 +186,53 @@ async function initCesiumMap() {
                     break;
             }
         } catch (error) {
-            console.warn('⚠️ Erro ao criar imagery provider:', error);
+            console.warn('Warning: Error creating imagery provider:', error);
             imageryProvider = false;
         }
     }
 
-    // ===== CONFIGURAÇÃO MÍNIMA DO VIEWER =====
+    // ===== MINIMAL VIEWER CONFIGURATION =====
     const viewer = new Cesium.Viewer("map-3d", {
-        // Configurações básicas de UI
+        // Basic UI settings
         ...config.map3d.viewer,
 
         // Providers
         terrainProvider: terrainProvider,
         imageryProvider: imageryProvider,
 
-        // Configurações essenciais para funcionalidade
+        // Essential functionality settings
         contextOptions: {
             webgl: {
-                // APENAS o essencial para screenshots
+                // ONLY essentials for screenshots
                 preserveDrawingBuffer: true,
-                // Usar defaults para o resto
+                // Use defaults for the rest
                 powerPreference: "default"
             }
         },
     });
 
 
-    // ===== APENAS CONFIGURAÇÕES ESSENCIAIS =====
+    // ===== ONLY ESSENTIAL SETTINGS =====
 
-    // Se imagery foi desabilitado, remove layers padrão
+    // If imagery was disabled, remove default layers
     if (!imageryProvider) {
         viewer.imageryLayers.removeAll();
     }
 
-    // Força o terrain provider configurado
+    // Force the configured terrain provider
     viewer.terrainProvider = terrainProvider;
 
-    // Configurações mínimas de cena
+    // Minimal scene settings
     const scene = viewer.scene;
 
-    // Manter apenas o essencial:
+    // Keep only essentials:
     scene.globe.baseColor = Cesium.Color.BLACK;
     viewer.bottomContainer.style.display = "none";
 
 
     cesiumState.viewer = viewer;
 
-    // Setup básico (sem over-engineering)
+    // Basic setup (without over-engineering)
     await loadTilesets(viewer);
     await setupTools(viewer);
 
@@ -240,7 +240,7 @@ async function initCesiumMap() {
 }
 
 async function loadTilesets(viewer) {
-    // Usar tilesets da configuração
+    // Use tilesets from configuration
     for (const tilesetConfig of config.tilesets) {
         try {
             const tileset = await createOptimizedTileset(viewer, tilesetConfig);
@@ -259,7 +259,7 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
         url: tilesetConfig.url,
         maximumScreenSpaceError: 16,
         maximumMemoryUsage: 512,
-        preferLeaves: false, // Melhor para tilesets grandes
+        preferLeaves: false, // Better for large tilesets
         skipLevelOfDetail: true,
         baseScreenSpaceError: 1024,
         skipScreenSpaceErrorFactor: 16,
@@ -267,7 +267,7 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
         cacheBytes: 1073741824, // 1 GB
         dynamicScreenSpaceError: true,
         dynamicScreenSpaceErrorDensity: 0.00278,
-        dynamicScreenSpaceErrorFactor: 2.0, // Reduzido de 4
+        dynamicScreenSpaceErrorFactor: 2.0, // Reduced from 4
         dynamicScreenSpaceErrorHeightFalloff: 0.25,
         cullWithChildrenBounds: true,
         cullRequestsWhileMoving: true,
@@ -279,7 +279,7 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
 
     await tileset.readyPromise;
 
-    // Aplica transformações
+    // Apply transformations
     const heightOffset = tilesetConfig.heightOffset;
     const boundingSphere = tileset.boundingSphere;
     const cartographic = Cesium.Cartographic.fromCartesian(boundingSphere.center);
@@ -299,37 +299,37 @@ async function createOptimizedTileset(viewer, tilesetConfig) {
 }
 
 async function setupTools(viewer) {
-    // Inicializa ferramentas existentes com o novo viewer
-    window.map = viewer; // Compatibilidade com código existente
+    // Initialize existing tools with the new viewer
+    window.map = viewer; // Compatibility with existing code
 
-    // Setup de ferramentas otimizado
+    // Optimized tools setup
     const measure = new Cesium.Measure(viewer);
     window.measure = measure;
 
-    // Inicializa event handlers do Cesium
+    // Initialize Cesium event handlers
     initCesiumEventHandlers();
 
-    // Carrega módulos das ferramentas dinamicamente
+    // Load tool modules dynamically
     try {
-        // Carrega e inicializa mouse coordinates 3D
+        // Load and initialize 3D mouse coordinates
         const mouseCoordModule = await import('./control_3d/mouse_coordinates_3d.js');
         cesiumState.modules.mouseCoordinates = mouseCoordModule;
 
-        // Carrega módulo de viewshed
+        // Load viewshed module
         const viewshedModule = await import('./control_3d/viewshed.js');
         cesiumState.modules.viewshed = viewshedModule;
 
-        // Carrega módulo de screenshot
+        // Load screenshot module
         const screenshotModule = await import('./control_3d/screenshot_tool.js');
         cesiumState.modules.screenshot = screenshotModule;
 
 
     } catch (error) {
-        console.warn('⚠️ Alguns módulos 3D falharam ao carregar:', error);
+        console.warn('Warning: Some 3D modules failed to load:', error);
     }
 }
 
-// ===== GESTÃO DE PERFORMANCE =====
+// ===== PERFORMANCE MANAGEMENT =====
 export function pauseRendering() {
     if (!cesiumState.viewer || cesiumState.isPaused) return;
 
@@ -338,22 +338,22 @@ export function pauseRendering() {
 
     const scene = cesiumState.viewer.scene;
 
-    // Para renderização contínua
+    // Stop continuous rendering
     scene.requestRenderMode = true;
 
-    // Oculta primitives para economizar VRAM
+    // Hide primitives to save VRAM
     scene.primitives.show = false;
     scene.groundPrimitives.show = false;
 
-    // Para animações
+    // Stop animations
     cesiumState.viewer.clock.shouldAnimate = false;
 
-    // Para controles de câmera desnecessários
+    // Stop unnecessary camera controls
     scene.screenSpaceCameraController.enableInputs = false;
 
-    // Limpa cache de texturas se possível
+    // Clear texture cache if possible
     if (scene.context && scene.context._textureCache) {
-        // scene.context._textureCache.clear(); // Cuidado: API privada
+        // scene.context._textureCache.clear(); // Warning: private API
     }
 }
 
@@ -365,27 +365,27 @@ export function resumeRendering() {
 
     const scene = cesiumState.viewer.scene;
 
-    // Retoma renderização
+    // Resume rendering
     scene.requestRenderMode = false;
 
-    // Mostra primitives
+    // Show primitives
     scene.primitives.show = true;
     scene.groundPrimitives.show = true;
 
-    // Retoma animações se necessário
+    // Resume animations if needed
     cesiumState.viewer.clock.shouldAnimate = true;
 
-    // Reabilita controles
+    // Re-enable controls
     scene.screenSpaceCameraController.enableInputs = true;
 
-    // Força um render inicial
+    // Force an initial render
     scene.requestRender();
 }
 
-// ===== LIMPEZA COMPLETA DE MEMÓRIA =====
+// ===== COMPLETE MEMORY CLEANUP =====
 export function cleanup3DFeatures() {
 
-    // Limpa ferramentas usando módulos carregados dinamicamente (SEM ÓRBITA)
+    // Clean tools using dynamically loaded modules (NO ORBIT)
     try {
         if (cesiumState.modules.viewshed) {
             cesiumState.modules.viewshed.clearAllViewField();
@@ -395,10 +395,10 @@ export function cleanup3DFeatures() {
             cesiumState.modules.mouseCoordinates.cleanupMouseCoordinates3D();
         }
     } catch (error) {
-        console.warn('Erro na limpeza de módulos:', error);
+        console.warn('Error cleaning modules:', error);
     }
 
-    // Limpa ferramentas de medição
+    // Clean measurement tools
     if (window.measure && window.measure._drawLayer) {
         window.measure._drawLayer.entities.removeAll();
         if (window.measure.removeDrawLineMeasureGraphics) {
@@ -410,23 +410,23 @@ export function cleanup3DFeatures() {
     }
 
     if (cesiumState.viewer && !cesiumState.viewer.isDestroyed()) {
-        // Remove todos os event listeners
+        // Remove all event listeners
         const scene = cesiumState.viewer.scene;
 
-        // Limpa tilesets
+        // Clean tilesets
         Object.values(cesiumState.loadedTilesets).forEach(({ tileset }) => {
             if (tileset && !tileset.isDestroyed()) {
                 scene.primitives.remove(tileset);
             }
         });
 
-        // Limpa entities
+        // Clean entities
         cesiumState.viewer.entities.removeAll();
 
-        // Limpa data sources
+        // Clean data sources
         cesiumState.viewer.dataSources.removeAll();
 
-        // Limpa primitives
+        // Clean primitives
         scene.primitives.removeAll();
         scene.groundPrimitives.removeAll();
 
@@ -434,13 +434,13 @@ export function cleanup3DFeatures() {
         cesiumState.viewer.destroy();
     }
 
-    // Limpa resize observer
+    // Clean resize observer
     if (cesiumState.resizeObserver) {
         cesiumState.resizeObserver.disconnect();
         cesiumState.resizeObserver = null;
     }
 
-    // Reset estado
+    // Reset state
     cesiumState = {
         isLoaded: false,
         isVisible: false,
@@ -452,12 +452,12 @@ export function cleanup3DFeatures() {
         modules: {}
     };
 
-    // Limpa referências globais
+    // Clean global references
     window.map = null;
     window.measure = null;
 }
 
-// ===== FERRAMENTAS EXISTENTES =====
+// ===== EXISTING TOOLS =====
 export function init3DFeatures() {
     if (!cesiumState.viewer) return;
 
@@ -466,7 +466,7 @@ export function init3DFeatures() {
             cesiumState.modules.mouseCoordinates.initMouseCoordinates3D(cesiumState.viewer);
         }
     } catch (error) {
-        console.warn('Erro ao inicializar ferramentas 3D:', error);
+        console.warn('Error initializing 3D tools:', error);
     }
 }
 
@@ -513,7 +513,7 @@ export function handleClickGoTo() {
     const tilesetData = cesiumState.loadedTilesets[targetId];
     if (tilesetData) {
         const { location } = tilesetData;
-        // Navegação simples sem órbita
+        // Simple navigation without orbit
         cesiumState.viewer.camera.flyTo({
             destination: Cesium.Cartesian3.fromDegrees(
                 location.lon,
@@ -525,7 +525,7 @@ export function handleClickGoTo() {
     }
 }
 
-// ===== UTILITÁRIOS =====
+// ===== UTILITIES =====
 function debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {
@@ -557,7 +557,7 @@ function removeAllTools() {
         }
 
     } catch (error) {
-        console.warn('Erro ao remover ferramentas:', error);
+        console.warn('Error removing tools:', error);
     }
 }
 
@@ -577,10 +577,10 @@ function handleScreenshot() {
     }
 }
 
-// ===== EVENT HANDLERS PARA COMPATIBILIDADE =====
+// ===== EVENT HANDLERS FOR COMPATIBILITY =====
 $('#locate-3d-container button').on('click', handleClickGoTo);
 
-// Handler do Cesium será inicializado após carregamento
+// Cesium handler will be initialized after loading
 function initCesiumEventHandlers() {
     if (typeof Cesium !== 'undefined' && cesiumState.viewer) {
         const handler = new Cesium.ScreenSpaceEventHandler(cesiumState.viewer.canvas);
@@ -598,23 +598,23 @@ function initCesiumEventHandlers() {
     }
     return null;
 }
-// ===== NOVAS FUNÇÕES PARA VISUALIZADOR DE MODELOS 3D =====
-// Adicionado para suportar ferramenta de visualização de modelos 3D
-// (Single tileset loading ao invés de carregar todos)
+// ===== NEW FUNCTIONS FOR 3D MODELS VIEWER =====
+// Added to support 3D models viewer tool
+// (Single tileset loading instead of loading all)
 
 let currentTileset = null;
 let currentTilesetId = null;
 
 /**
- * Carrega um único tileset (ao invés de todos)
+ * Loads a single tileset (instead of all)
  */
 async function loadSingleTileset(viewer, tilesetId) {
-    // 0. Validar viewer
+    // 0. Validate viewer
     if (!viewer || viewer.isDestroyed()) {
-        throw new Error('Viewer inválido ou destruído');
+        throw new Error('Invalid or destroyed viewer');
     }
-    
-    // 1. Limpar tileset anterior
+
+    // 1. Clear previous tileset
     if (currentTileset) {
         viewer.scene.primitives.remove(currentTileset);
         if (!currentTileset.isDestroyed()) {
@@ -624,17 +624,17 @@ async function loadSingleTileset(viewer, tilesetId) {
         currentTilesetId = null;
     }
 
-    // 2. Buscar configuração
+    // 2. Find configuration
     const tilesetConfig = config.tilesets.find(t => t.id === tilesetId);
     if (!tilesetConfig) {
-        throw new Error(`Tileset ${tilesetId} não encontrado em config.tilesets`);
+        throw new Error(`Tileset ${tilesetId} not found in config.tilesets`);
     }
 
-    // 3. Criar tileset
+    // 3. Create tileset
     currentTileset = await createOptimizedTileset(viewer, tilesetConfig);
     currentTilesetId = tilesetId;
 
-    // 4. Voar para localização
+    // 4. Fly to location
     viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(
             tilesetConfig.locate.lon,
@@ -648,14 +648,14 @@ async function loadSingleTileset(viewer, tilesetId) {
 }
 
 /**
- * Inicializa Cesium com um tileset específico (lazy loading)
+ * Initializes Cesium with a specific tileset (lazy loading)
  */
 async function loadCesiumAndInitWithTileset(tilesetId) {
     if (!cesiumState.viewer) {
-        // Primeira vez - usar função existente para carregar Cesium e criar viewer
+        // First time - use existing function to load Cesium and create viewer
         await loadCesiumAndInit();
-        
-        // Limpar tilesets carregados automaticamente
+
+        // Clear automatically loaded tilesets
         const primitives = cesiumState.viewer.scene.primitives;
         for (let i = primitives.length - 1; i >= 0; i--) {
             const primitive = primitives.get(i);
@@ -668,63 +668,63 @@ async function loadCesiumAndInitWithTileset(tilesetId) {
         }
     }
 
-    // Carregar tileset específico
+    // Load specific tileset
     await loadSingleTileset(cesiumState.viewer, tilesetId);
-    
+
     return cesiumState.viewer;
 }
 
 /**
- * Registra event listeners dos botões de ferramentas 3D
+ * Registers event listeners for 3D tool buttons
  */
 function registerToolEventListeners() {
-    // Usar setTimeout para garantir que DOM esteja pronto
+    // Use setTimeout to ensure DOM is ready
     setTimeout(() => {
         const buttons = $('.button-tool-3d');
-        
+
         if (buttons.length === 0) {
-            console.warn('⚠️ Botões de ferramentas 3D não encontrados');
+            console.warn('Warning: 3D tool buttons not found');
             return;
         }
-        
-        // Remover listeners antigos para evitar duplicação
+
+        // Remove old listeners to avoid duplication
         buttons.off('click');
-        
-        // Registrar listeners das ferramentas
+
+        // Register tool listeners
         buttons.on('click', activeTool);
-        
-        console.log(`✅ ${buttons.length} botões de ferramentas 3D registrados`);
+
+        console.log(`${buttons.length} 3D tool buttons registered`);
     }, 100);
 }
 
 /**
- * Abre o viewer 3D com um tileset específico
- * (Função pública chamada pela ferramenta)
+ * Opens the 3D viewer with a specific tileset
+ * (Public function called by the tool)
  */
 export async function openViewerWithTileset(tilesetId) {
-    // Verificar se viewer existe E não foi destruído
+    // Check if viewer exists AND has not been destroyed
     const viewerExists = cesiumState.viewer && !cesiumState.viewer.isDestroyed();
-    
+
     if (viewerExists) {
-        // Viewer já existe e é válido - apenas trocar tileset
+        // Viewer already exists and is valid - just switch tileset
         await switchTileset(tilesetId);
         resumeRendering();
     } else {
-        // Primeira abertura OU viewer foi destruído - carregar tudo
+        // First opening OR viewer was destroyed - load everything
         await loadCesiumAndInitWithTileset(tilesetId);
         init3DFeatures();
         resumeRendering();
     }
 
-    // Sempre registrar event listeners ao abrir viewer (mesmo em reaberturas)
+    // Always register event listeners when opening viewer (even on reopening)
     registerToolEventListeners();
 
     cesiumState.isVisible = true;
 }
 
 /**
- * Fecha o viewer 3D (pausa sem destruir)
- * (Função pública chamada pela ferramenta)
+ * Closes the 3D viewer (pause without destroying)
+ * (Public function called by the tool)
  */
 export function closeViewer() {
     if (cesiumState.viewer && !cesiumState.viewer.isDestroyed() && cesiumState.isVisible) {
@@ -734,20 +734,20 @@ export function closeViewer() {
 }
 
 /**
- * Limpa apenas as ferramentas ativas sem destruir o viewer
- * (Versão leve do cleanup3DFeatures para troca de modelos)
+ * Cleans only active tools without destroying the viewer
+ * (Lightweight version of cleanup3DFeatures for model switching)
  */
 function cleanupActiveTools() {
-    // Limpa ferramentas usando módulos carregados
+    // Clean tools using loaded modules
     try {
         if (cesiumState.modules.viewshed) {
             cesiumState.modules.viewshed.clearAllViewField();
         }
     } catch (error) {
-        console.warn('Erro na limpeza de ferramentas:', error);
+        console.warn('Error cleaning tools:', error);
     }
 
-    // Limpa ferramentas de medição
+    // Clean measurement tools
     if (window.measure && window.measure._drawLayer) {
         window.measure._drawLayer.entities.removeAll();
         if (window.measure.removeDrawLineMeasureGraphics) {
@@ -757,26 +757,26 @@ function cleanupActiveTools() {
             window.measure.removeDrawAreaMeasureGraphics();
         }
     }
-    
-    // Limpa entities (mas não destrói o viewer)
+
+    // Clean entities (but don't destroy the viewer)
     if (cesiumState.viewer && !cesiumState.viewer.isDestroyed()) {
         cesiumState.viewer.entities.removeAll();
     }
 }
 
 /**
- * Troca de tileset (já estando com viewer aberto)
- * (Função pública chamada pela ferramenta ao clicar em outro marcador)
+ * Switches tileset (when viewer is already open)
+ * (Public function called by the tool when clicking another marker)
  */
 export async function switchTileset(newTilesetId) {
     if (!cesiumState.viewer || cesiumState.viewer.isDestroyed()) return;
-    
-    // Limpar apenas ferramentas ativas (NÃO destruir o viewer!)
+
+    // Clean only active tools (DO NOT destroy the viewer!)
     cleanupActiveTools();
-    
-    // Carregar novo tileset
+
+    // Load new tileset
     await loadSingleTileset(cesiumState.viewer, newTilesetId);
-    
-    // Reinicializar ferramentas
+
+    // Reinitialize tools
     init3DFeatures();
 }

@@ -1,4 +1,4 @@
-/* css/panels-2d.css - Painéis do Modo SIG/2D */
+/* Path: css/panels-2d.css */
 
 /* ===== STREET VIEW SYSTEM ===== */
 #mini-map-street-view {
@@ -33,7 +33,7 @@
     overflow: hidden;
 }
 
-/* ===== BOTÃO DE FECHAR STREET VIEW ===== */
+/* ===== STREET VIEW CLOSE BUTTON ===== */
 #close-street-view-button {
     position: fixed;
     width: 60px;
@@ -105,7 +105,7 @@
     border-radius: 4px;
 }
 
-/* ===== BOTÃO DE FECHAR DO PROFILE PANEL ===== */
+/* ----- Close Button ----- */
 .profile-panel .close-button {
     position: absolute;
     top: 8px;
@@ -134,7 +134,7 @@
     transform: scale(0.9);
 }
 
-/* ===== FEATURE SEARCH PANEL - CORREÇÃO OVERFLOW ===== */
+/* ===== FEATURE SEARCH PANEL ===== */
 .feature-search-panel {
     position: absolute;
     bottom: 10px;
@@ -150,7 +150,7 @@
     z-index: 100;
     animation: slideInFromRight 0.3s ease;
     
-    /* CORREÇÃO: Prevenir overflow horizontal */
+    /* Prevent horizontal overflow */
     box-sizing: border-box !important;
     overflow-x: hidden !important;
     word-wrap: break-word !important;
@@ -164,7 +164,7 @@
     border-bottom: 2px solid var(--primary-color);
     padding-bottom: 5px;
     
-    /* CORREÇÃO: Garantir que não vaze */
+    /* Ensure no overflow */
     width: 100%;
     box-sizing: border-box;
     word-wrap: break-word;
@@ -176,7 +176,7 @@
     margin: 0;
     padding: 0;
     
-    /* CORREÇÃO: Controlar largura da lista */
+    /* Control list width */
     width: 100%;
     box-sizing: border-box;
 }
@@ -188,7 +188,7 @@
     font-size: 14px;
     line-height: 1.4;
     
-    /* CORREÇÃO: Quebra de texto e controle de largura */
+    /* Text wrap and width control */
     width: 100%;
     box-sizing: border-box;
     word-wrap: break-word !important;
@@ -207,14 +207,14 @@
     color: var(--primary-color);
     font-weight: 600;
     
-    /* CORREÇÃO: Permitir quebra em elementos strong também */
+    /* Allow word wrap in strong elements */
     word-wrap: break-word;
     overflow-wrap: break-word;
     display: inline;
     max-width: 100%;
 }
 
-/* ===== BOTÃO DE FECHAR DO FEATURE SEARCH ===== */
+/* ----- Feature Search Button ----- */
 .feature-search-panel button {
     background-color: var(--primary-color);
     color: white;
@@ -227,7 +227,7 @@
     margin-top: 15px;
     transition: all 0.2s ease;
     
-    /* CORREÇÃO: Garantir que o botão não vaze */
+    /* Ensure button does not overflow */
     width: 100%;
     box-sizing: border-box;
 }
@@ -316,7 +316,7 @@
     transform: translateY(0);
 }
 
-/* ===== ANIMAÇÕES ===== */
+/* ===== ANIMATIONS ===== */
 @keyframes slideInFromLeft {
     from {
         opacity: 0;
@@ -350,7 +350,7 @@
     }
 }
 
-/* ===== SCROLLBARS CUSTOMIZADOS ===== */
+/* ===== CUSTOM SCROLLBARS ===== */
 .profile-panel::-webkit-scrollbar,
 .vector-tile-info-panel::-webkit-scrollbar,
 .feature-search-panel::-webkit-scrollbar {
@@ -377,7 +377,7 @@
     background-color: var(--primary-dark);
 }
 
-/* ===== ESTADOS DE CARREGAMENTO ===== */
+/* ===== LOADING STATES ===== */
 .profile-panel.loading::after,
 .feature-search-panel.loading::after,
 .vector-tile-info-panel.loading::after {
@@ -399,7 +399,7 @@
     100% { transform: rotate(360deg); }
 }
 
-/* ===== ACESSIBILIDADE ===== */
+/* ===== ACCESSIBILITY ===== */
 .profile-panel .close-button:focus,
 .feature-search-panel button:focus,
 #close-street-view-button:focus {

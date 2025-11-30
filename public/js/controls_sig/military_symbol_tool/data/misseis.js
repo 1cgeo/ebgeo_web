@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\data\misseis.js
+// Path: js/controls_sig/military_symbol_tool/data/misseis.js
 
 export default {
   "symbol_sets": [

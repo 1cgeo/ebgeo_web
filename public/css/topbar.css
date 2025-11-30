@@ -1,6 +1,6 @@
-/* css/topbar.css - EBGEO Top Bar Compacta */
+/* Path: css/topbar.css */
 
-/* ===== ESTRUTURA PRINCIPAL ===== */
+/* ===== MAIN STRUCTURE ===== */
 #top-bar {
     background-color: var(--ebgeo-primary);
     color: white;
@@ -25,7 +25,7 @@
     font-weight: 700;
 }
 
-/* ===== LOGO SECTION ===== */
+/* ===== LOGO ===== */
 .logo-section {
     flex: 0 0 auto;
     display: flex;
@@ -65,7 +65,7 @@
     color: var(--ebgeo-contrast);
 }
 
-/* ===== NAVEGAÇÃO CENTRALIZADA ===== */
+/* ===== CENTERED NAVIGATION ===== */
 .nav-buttons-container {
     background-color: var(--ebgeo-dark);
     border-radius: 18px;
@@ -86,7 +86,7 @@
     gap: 6px;
 }
 
-/* ===== BOTÕES DE NAVEGAÇÃO ===== */
+/* ===== NAVIGATION BUTTONS ===== */
 .nav-button,
 .icon-button {
     display: flex;
@@ -126,7 +126,7 @@
     font-weight: bold;
 }
 
-/* ===== BOTÕES EXTRAS (TUTORIAL) ===== */
+/* ===== EXTRA BUTTONS (TUTORIAL) ===== */
 .extra-bar-buttons {
     flex: 0 0 auto;
     display: flex;
@@ -154,7 +154,7 @@
     background-color: var(--ebgeo-light);
 }
 
-/* ===== BOTÕES DE ÍCONE (ATALHOS, TUTORIAL, SUGESTÕES) ===== */
+/* ===== ICON BUTTONS (SHORTCUTS, TUTORIAL, SUGGESTIONS) ===== */
 .icon-only-button {
     background-color: transparent;
     border: none;
@@ -189,7 +189,7 @@
     stroke-linejoin: round;
 }
 
-/* ===== MODAL DE SUGESTÕES - ESTILOS ESPECÍFICOS ===== */
+/* ===== SUGGESTIONS MODAL ===== */
 .suggestions-modal-content {
     max-width: 700px;
 }
@@ -222,7 +222,7 @@
     color: #555;
 }
 
-/* Lista de CGEOs */
+/* ----- CGEO List ----- */
 .cgeo-list {
     list-style: none;
     padding: 0;
@@ -276,7 +276,7 @@
     transform: translateX(2px);
 }
 
-/* Container do email com botão copiar */
+/* ----- Email Container ----- */
 .email-container {
     display: flex;
     align-items: center;
@@ -286,7 +286,7 @@
     flex-wrap: wrap;
 }
 
-/* Link de email ajustado */
+/* ----- Email Link ----- */
 .email-link {
     display: inline-block;
     color: var(--ebgeo-primary);
@@ -306,7 +306,7 @@
     box-shadow: 0 4px 12px rgba(80, 141, 78, 0.3);
 }
 
-/* Botão de copiar email */
+/* ----- Copy Email Button ----- */
 .copy-email-btn {
     display: flex;
     align-items: center;
@@ -344,7 +344,7 @@
     fill: none;
 }
 
-/* ===== MENU MOBILE ===== */
+/* ===== MOBILE MENU ===== */
 .openSidebarMenu {
     display: none;
 }
@@ -395,7 +395,7 @@ input[type="checkbox"]:checked ~ .sidebarIconToggle .diagonal.part-2 {
     margin-top: -9px;
 }
 
-/* ===== SIDEBAR MOBILE ===== */
+/* ===== MOBILE SIDEBAR ===== */
 #sidebarMenu {
     width: 250px;
     height: 100%;
@@ -415,14 +415,14 @@ input[type="checkbox"]:checked ~ #sidebarMenu {
     transform: translateX(0);
 }
 
-/* ===== ESTADOS ATIVOS ===== */
+/* ===== ACTIVE STATES ===== */
 .active-button {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--ebgeo-light);
     background-color: var(--ebgeo-main) !important;
 }
 
-/* ===== COMPATIBILIDADE COM CLASSES EXISTENTES ===== */
+/* ===== LEGACY CLASS COMPATIBILITY ===== */
 .button {
     text-decoration: none;
     border: none;
@@ -453,7 +453,7 @@ input[type="checkbox"]:checked ~ #sidebarMenu {
     font-size: 1.15rem;
 }
 
-/* ===== ESTADOS DE FOCO PARA ACESSIBILIDADE ===== */
+/* ===== ACCESSIBILITY FOCUS STATES ===== */
 .logo:focus,
 .nav-button:focus,
 .icon-button:focus,
@@ -463,7 +463,7 @@ input[type="checkbox"]:checked ~ #sidebarMenu {
     outline-offset: 2px;
 }
 
-/* ===== RESPONSIVIDADE ===== */
+/* ===== RESPONSIVE ===== */
 @media screen and (max-width: 768px) {
     .suggestions-modal-content {
         max-width: 95%;

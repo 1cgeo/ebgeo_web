@@ -89,7 +89,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
 
     $(panel).append(createAttributeRow('Escalão:', echelonSelect));
 
-    // Cor da Linha
+    // Line color
     const colorInput = createColorPicker(feature.properties.color, (e) => {
         boundaryControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -108,7 +108,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
 
     $(panel).append(createAttributeRow('Espessura (px):', lineWidthControl));
 
-    // Opacidade (0-100% com conversão automática)
+    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity || 1) * 100), {
         onChange: (value) => {

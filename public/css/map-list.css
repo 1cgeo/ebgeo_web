@@ -1,6 +1,6 @@
-/* css/map-list.css - Painel de Lista de Mapas Completo */
+/* Path: css/map-list.css */
 
-/* ===== ESTRUTURA BASE DO CONTAINER ===== */
+/* ===== BASE CONTAINER STRUCTURE ===== */
 .list-map-container {
     width: 320px !important;
     border-radius: 12px !important;
@@ -24,7 +24,7 @@
     pointer-events: auto !important;
 }
 
-/* ===== HEADER DO PAINEL ===== */
+/* ===== PANEL HEADER ===== */
 .list-map-container .header-container-row {
     width: calc(100% - 32px) !important;
     color: #333 !important;
@@ -65,7 +65,7 @@
     gap: 8px !important;
 }
 
-/* ===== SELETOR DE ABAS INTEGRADO ===== */
+/* ===== TAB SELECTOR ===== */
 .tab-selector {
     display: flex !important;
     width: 100% !important;
@@ -127,7 +127,7 @@
     100% { transform: scale(1); }
 }
 
-/* ===== CONTAINERS DE AÇÕES ===== */
+/* ===== ACTION CONTAINERS ===== */
 .maps-actions-container {
     width: 100% !important;
     margin-bottom: 0 !important;
@@ -166,7 +166,7 @@
     pointer-events: auto !important;
 }
 
-/* ===== BOTÕES DE AÇÃO UNIFICADOS ===== */
+/* ===== ACTION BUTTONS ===== */
 .map-action-button {
     background-color: transparent !important;
     border: 1px solid #d0d0d0 !important;
@@ -202,7 +202,7 @@
     pointer-events: none !important;
 }
 
-/* ===== VARIAÇÕES DOS BOTÕES ===== */
+/* ===== BUTTON VARIATIONS ===== */
 .add-map-button:hover img {
     filter: brightness(1.2);
 }
@@ -227,7 +227,7 @@
     border-color: #65a30d !important;
 }
 
-/* ===== INPUTS OCULTOS ===== */
+/* ===== HIDDEN INPUTS ===== */
 .hidden-file-input {
     display: none !important;
     position: absolute !important;
@@ -236,7 +236,7 @@
     z-index: -1 !important;
 }
 
-/* ===== BASE LAYER CONTROL INTEGRADO ===== */
+/* ===== BASE LAYER CONTROL ===== */
 .base-layer-control.base-layer-grid-2x2 {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
@@ -255,7 +255,7 @@
     min-width: 240px !important;
 }
 
-/* Layout 1x2 (quando showOsmAndImages = false) */
+/* ----- Grid Layout 1x2 ----- */
 .base-layer-control.base-layer-grid-1x2 {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
@@ -274,7 +274,7 @@
     min-width: 240px !important;
 }
 
-/* Layout para 1 basemap apenas */
+/* ----- Grid Layout 1x1 ----- */
 .base-layer-control.base-layer-grid-1x1 {
     display: grid !important;
     grid-template-columns: 1fr !important;
@@ -293,7 +293,7 @@
     min-width: 120px !important;
 }
 
-/* Layout para 3 basemaps (2 em cima, 1 centralizado embaixo) */
+/* ----- Grid Layout 2x1-center ----- */
 .base-layer-control.base-layer-grid-2x1-center {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
@@ -312,14 +312,14 @@
     min-width: 240px !important;
 }
 
-/* Terceiro elemento (centralizado na segunda linha) */
+/* Third element centered in second row */
 .base-layer-control.base-layer-grid-2x1-center .layer-switch:nth-child(3) {
     grid-column: 1 / 3 !important;
     justify-self: center !important;
     max-width: 110px !important;
 }
 
-/* Layout para 5 basemaps (2x2 + 1 centralizado) */
+/* ----- Grid Layout 2x2-center ----- */
 .base-layer-control.base-layer-grid-2x2-center {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
@@ -338,7 +338,7 @@
     min-width: 240px !important;
 }
 
-/* O 5º item (último) ocupa ambas colunas e fica centralizado */
+/* Fifth element spans both columns and is centered */
 .base-layer-control.base-layer-grid-2x2-center .layer-switch:nth-child(5) {
     grid-column: 1 / -1 !important;
     justify-self: center !important;
@@ -420,7 +420,7 @@
     outline-offset: 2px !important;
 }
 
-/* ===== ÁREA DE CONTEÚDO DAS ABAS ===== */
+/* ===== TAB CONTENT AREA ===== */
 .tab-content-area {
     width: 100% !important;
     flex: 1 !important;
@@ -430,17 +430,17 @@
     padding: 0 !important;
 }
 
-/* ===== LISTA DE MAPAS ===== */
+/* ===== MAP LIST ===== */
 .list-map-container ul {
     margin: 0;
     padding: 0;
     list-style: none;
     
-    /* NOVA LÓGICA: altura fixa para até 5 mapas, depois scroll */
-    max-height: calc(5 * 44px + 20px); /* 5 mapas * altura mínima + padding */
+    /* Fixed height for up to 5 maps, then scroll */
+    max-height: calc(5 * 44px + 20px);
     overflow-y: auto;
     
-    /* Estilização da barra de scroll */
+    /* Scrollbar styling */
     scrollbar-width: thin;
     scrollbar-color: var(--primary-color) transparent;
     overscroll-behavior: contain !important;
@@ -468,7 +468,7 @@
     border-radius: 0 0 12px 12px;
 }
 
-/* ===== ITEM PRINCIPAL DO MAPA ===== */
+/* ===== MAP ITEM ===== */
 .map-item-main {
     display: flex !important;
     align-items: center !important;
@@ -505,7 +505,7 @@
     user-select: none !important;
 }
 
-/* ===== DROPDOWN E MORE INFO ===== */
+/* ===== DROPDOWN MENU ===== */
 .more-info-icon {
     width: 32px !important;
     height: 32px !important;
@@ -547,7 +547,7 @@
     pointer-events: none !important;
 }
 
-/* Dropdown agora anexado ao body */
+/* ----- Dropdown Content ----- */
 .dropdown-content {
     position: fixed !important;
     background-color: white !important;
@@ -561,7 +561,7 @@
     backdrop-filter: blur(12px) !important;
     pointer-events: auto !important;
     
-    /* Garantir que apareça acima de tudo */
+    /* Ensure it appears above everything */
     transform: translateZ(0) !important;
     isolation: isolate !important;
 }
@@ -597,15 +597,15 @@
     background-color: #fef2f2 !important;
 }
 
-/* Estilo específico para o botão de limpar posição */
+/* ----- Clear Position Button ----- */
 .clear-position {
-    color: #dc3545 !important; /* Cor vermelha para indicar ação de remoção */
+    color: #dc3545 !important;
 }
 .clear-position:hover {
     background-color: #fef2f2 !important;
 }
 
-/* ===== CHECKBOX DOS MAPAS ===== */
+/* ===== MAP CHECKBOXES ===== */
 .map-checkbox {
     margin-right: 8px;
     width: 16px;
@@ -628,15 +628,14 @@
     filter: brightness(0) invert(1);
 }
 
-/* Animação para dropdown */
+/* ----- Dropdown Animation ----- */
 .dropdown-content {
-    /* Melhor sombra para destacar */
     box-shadow: 
         0 8px 32px rgba(0, 0, 0, 0.15),
         0 0 0 1px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* ===== ESTADOS DE FEEDBACK ===== */
+/* ===== FEEDBACK STATES ===== */
 .map-action-button.loading {
     opacity: 0.7;
     pointer-events: none;
@@ -697,12 +696,12 @@
     pointer-events: none;
 }
 
-/* Estado colapsado do painel */
+/* ----- Collapsed State ----- */
 .list-map-container.collapsed {
     display: none !important;
 }
 
-/* Botão flutuante para reabrir */
+/* ----- Reopen Button ----- */
 .reopen-button {
     position: absolute !important;
     top: 60px !important;
@@ -736,7 +735,7 @@
     fill: #333;
 }
 
-/* ===== ESTADOS DE CARREGAMENTO ===== */
+/* ===== LOADING STATES ===== */
 .list-map-container.loading {
     opacity: 0.7;
     pointer-events: none;
@@ -756,7 +755,7 @@
     animation: spin 1s linear infinite;
 }
 
-/* ===== ACESSIBILIDADE ===== */
+/* ===== ACCESSIBILITY ===== */
 .map-item-main:focus,
 .more-info-icon:focus,
 .menu-button:focus,
@@ -766,7 +765,7 @@
     outline-offset: 2px;
 }
 
-/* ===== PERFORMANCE OPTIMIZATIONS ===== */
+/* ===== PERFORMANCE ===== */
 .list-map-container ul li,
 .menu-button,
 .more-info-icon,
@@ -798,7 +797,7 @@
     opacity: 1;
 }
 
-/* ===== DRAG & DROP REORDENAÇÃO ===== */
+/* ===== DRAG AND DROP REORDERING ===== */
 .map-drag-handle {
     display: flex;
     align-items: center;
@@ -825,7 +824,7 @@
     cursor: grabbing;
 }
 
-/* Estado durante arraste */
+/* ----- Drag States ----- */
 .sortable-ghost {
     opacity: 0.4;
     background-color: rgba(80, 141, 78, 0.1) !important;
@@ -843,11 +842,11 @@
     border-radius: 8px !important;
 }
 
-/* Ajuste do item principal para acomodar o handle */
+/* ----- Main Item Adjustment ----- */
 .list-map-container li {
     padding-left: 0 !important;
 }
 
 .list-map-container li .map-item-main {
-    width: calc(100% - 100px) !important; /* Ajuste para handle + botões */
+    width: calc(100% - 100px) !important;
 }

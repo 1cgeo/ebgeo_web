@@ -1,15 +1,10 @@
-// Path: js\controls_sig\military_symbol_tool\data\unidades.js
+// Path: js/controls_sig/military_symbol_tool/data/unidades.js
 export default {
   "symbol_sets": [
     {
       "name": "Land Unit",
       "nome_portugues": "Unidade Terrestre",
       "main icon": [
-        // ============================================
-        // ÍCONES DO SETOR CENTRAL - CONFORME MANUAL BRASILEIRO
-        // MD33-C-01, Capítulo III, Seção 3.1.1
-        // ============================================
-
         {
           "entity": "Named Command",
           "entity_portugues": "Comando nomeado",

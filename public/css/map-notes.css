@@ -1,5 +1,6 @@
-/* ===== MAP NOTES PANEL ===== */
+/* Path: css/map-notes.css */
 
+/* ===== MAP NOTES BUTTON ===== */
 .map-notes-button {
     width: 32px;
     height: 32px;
@@ -141,7 +142,7 @@
     flex-direction: column;
 }
 
-/* ===== VIEW PANEL SPECIFIC STYLES ===== */
+/* ===== VIEW PANEL STYLES ===== */
 .map-notes-view-panel .map-notes-title-display {
     font-size: 20px;
     font-weight: 700;
@@ -172,9 +173,7 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-/* ===== CORREÇÕES PARA PARIDADE VISUAL COM QUILL ===== */
-
-/* Parágrafos - usar mesma formatação do Quill */
+/* ===== QUILL VISUAL PARITY ===== */
 .map-notes-description-display p {
     margin: 0 0 1em 0;
 }
@@ -183,7 +182,7 @@
     margin-bottom: 0;
 }
 
-/* Listas - replicar exatamente os estilos do Quill */
+/* ----- List Styles ----- */
 .map-notes-description-display ul,
 .map-notes-description-display ol {
     margin: 0 0 1em 0;
@@ -211,7 +210,7 @@
     margin-bottom: 0;
 }
 
-/* Listas aninhadas */
+/* ----- Nested Lists ----- */
 .map-notes-description-display li ul,
 .map-notes-description-display li ol {
     margin-top: 0.5em;
@@ -226,7 +225,7 @@
     list-style-type: square;
 }
 
-/* Formatação de texto - todos os formatos do Quill */
+/* ----- Text Formatting ----- */
 .map-notes-description-display strong {
     font-weight: 600;
 }
@@ -243,7 +242,7 @@
     text-decoration: line-through;
 }
 
-/* Links */
+/* ----- Links ----- */
 .map-notes-description-display a {
     color: #007bff;
     text-decoration: none;
@@ -253,7 +252,7 @@
     text-decoration: underline;
 }
 
-/* Headers */
+/* ----- Headers ----- */
 .map-notes-description-display h1 {
     font-size: 2em;
     font-weight: bold;
@@ -281,7 +280,7 @@
     margin-top: 0;
 }
 
-/* Blockquote (para possível expansão futura) */
+/* ----- Blockquote ----- */
 .map-notes-description-display blockquote {
     border-left: 4px solid #007bff;
     margin: 1em 0;
@@ -291,7 +290,7 @@
     color: #495057;
 }
 
-/* Code blocks (para possível expansão futura) */
+/* ----- Code Blocks ----- */
 .map-notes-description-display pre {
     background: #f8f9fa;
     border: 1px solid #e9ecef;
@@ -313,7 +312,7 @@
     font-size: 13px;
 }
 
-/* Placeholder quando vazio */
+/* ----- Empty Placeholder ----- */
 .map-notes-placeholder {
     color: #6c757d;
     font-style: italic;
@@ -322,9 +321,7 @@
     text-align: center;
 }
 
-/* ===== CLASSES ESPECÍFICAS DO QUILL PARA INDENTAÇÃO ===== */
-
-/* Indentação/Tabulação - Quill usa ql-indent-1, ql-indent-2, etc. */
+/* ===== QUILL INDENTATION CLASSES ===== */
 .map-notes-description-display .ql-indent-1 {
     padding-left: 3em;
 }
@@ -357,9 +354,7 @@
     padding-left: 24em;
 }
 
-/* ===== CLASSES ESPECÍFICAS DO QUILL PARA ALINHAMENTO ===== */
-
-/* Alinhamento de texto - Quill usa ql-align-center, ql-align-right, etc. */
+/* ===== QUILL ALIGNMENT CLASSES ===== */
 .map-notes-description-display .ql-align-center {
     text-align: center;
 }
@@ -372,13 +367,13 @@
     text-align: justify;
 }
 
-/* Alinhamento padrão (left) - explícito para garantia */
+/* Default left alignment */
 .map-notes-description-display .ql-align-left,
 .map-notes-description-display p:not([class*="ql-align"]) {
     text-align: left;
 }
 
-/* ===== DIREÇÃO DE TEXTO (RTL/LTR) ===== */
+/* ===== TEXT DIRECTION ===== */
 .map-notes-description-display .ql-direction-rtl {
     direction: rtl;
     text-align: right;
@@ -389,8 +384,7 @@
     text-align: left;
 }
 
-/* ===== LISTAS COM INDENTAÇÃO ===== */
-/* Listas também podem ter indentação */
+/* ===== INDENTED LISTS ===== */
 .map-notes-description-display .ql-indent-1 ul,
 .map-notes-description-display .ql-indent-1 ol {
     padding-left: 1.5em;
@@ -431,20 +425,18 @@
     padding-left: 1.5em;
 }
 
-/* Limpeza de conteúdo vazio do Quill */
+/* ----- Empty Content Cleanup ----- */
 .map-notes-description-display p:empty,
 .map-notes-description-display div:empty {
     display: none;
 }
 
-/* Remover quebras de linha desnecessárias do Quill */
+/* ----- Unnecessary Line Break Removal ----- */
 .map-notes-description-display p br:only-child {
     display: none;
 }
 
-/* ===== IMAGENS NO EDITOR E VISUALIZAÇÃO ===== */
-
-/* Imagens no editor Quill */
+/* ===== IMAGES ===== */
 .map-notes-description-editor .ql-editor img {
     max-width: 100%;
     height: auto;
@@ -454,7 +446,7 @@
     display: block;
 }
 
-/* Imagens no painel de visualização */
+/* ----- View Panel Images ----- */
 .map-notes-description-display img {
     max-width: 100%;
     height: auto;
@@ -464,18 +456,18 @@
     display: block;
 }
 
-/* Centralizar imagens quando estão sozinhas em um parágrafo */
+/* ----- Image Centering ----- */
 .map-notes-description-display p:has(img:only-child) {
     text-align: center;
 }
 
-/* Fallback para navegadores que não suportam :has() */
+/* Fallback for browsers without :has() support */
 .map-notes-description-display p img:only-child {
     margin-left: auto;
     margin-right: auto;
 }
 
-/* ===== EDIT PANEL SPECIFIC STYLES ===== */
+/* ===== EDIT PANEL STYLES ===== */
 .map-notes-title-section {
     margin-bottom: 24px;
     flex-shrink: 0; /* Never shrink */

@@ -56,7 +56,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
 
     // ===== PROPRIEDADES ESPECÍFICAS DA ELIPSE =====
 
-    // Cor da linha
+    // Line color
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
         ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -64,7 +64,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
 
     $(panel).append(createAttributeRow('Linha:', lineColorInput));
 
-    // Cor do preenchimento
+    // Fill color
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         ellipseControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -72,7 +72,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
 
     $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
 
-    // Opacidade (0-100% com conversão automática)
+    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('complete_opacity',
         Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100), {
         onChange: (value) => {
@@ -84,7 +84,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
 
     $(panel).append(createAttributeRow('Opacidade:', opacityControl));
 
-    // Largura da linha
+    // Line width (pixels)
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 2, {
         onChange: (value) => {

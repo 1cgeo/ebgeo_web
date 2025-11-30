@@ -1,30 +1,11 @@
-// Path: js\controls_sig\military_symbol_tool\text_modifiers_catalog.js
+// Path: js/controls_sig/military_symbol_tool/text_modifiers_catalog.js
 
 /**
- * Text Modifiers Catalog
- * Defines text amplifiers (amplificadores textuais) for each symbol set dimension
- * Based on MD33-M-02 Brazilian military symbology standard
- * 
- * Implemented dimensions:
- * - 02: Missiles (Mísseis)
- * - 10: Land Units (Unidades)
- * - 15: Equipment and Vehicles (Equipamentos e Viaturas)
- * - 20: Aerospace - Aircraft (Aeronaves)
- * - 25: Space (Espaciais)
- * - 27: Dismounted Individuals (Indivíduos Desembarcados)
- * - 30: Sea Surface (Marítimos de Superfície)
- * - 35: Subsurface (Submarinos)
- * - 36: Mine Warfare (Guerra de Minas)
- * - 40: Installations (Instalações)
- * - 60: Activities and Events (Atividades e Eventos)
- */
-
-/**
- * Catálogo de amplificadores textuais por dimensão
- * Mapeamento conforme MD33-M-02 e milsymbol.js
+ * Text amplifiers catalog by dimension
+ * Mapping according to MD33-M-02 and milsymbol.js
  */
 export const TEXT_MODIFIERS_CATALOG = {
-    '02': { // SÍMBOLOS DE MÍSSEIS
+    '02': { // MISSILE SYMBOLS
         label: 'Mísseis',
         fields: [
             {
@@ -71,7 +52,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '10': { // SÍMBOLOS TERRESTRES - UNIDADES
+    '10': { // LAND SYMBOLS - UNITS
         label: 'Unidades',
         fields: [
             {
@@ -150,7 +131,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '15': { // SÍMBOLOS TERRESTRES - EQUIPAMENTOS E VIATURAS
+    '15': { // LAND SYMBOLS - EQUIPMENT AND VEHICLES
         label: 'Equipamentos e Viaturas',
         fields: [
             {
@@ -225,7 +206,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '20': { // SÍMBOLOS AEROESPACIAIS - AERONAVES
+    '20': { // AEROSPACE SYMBOLS - AIRCRAFT
         label: 'Aeronaves',
         fields: [
             {
@@ -272,7 +253,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '25': { // SÍMBOLOS ESPACIAIS
+    '25': { // SPACE SYMBOLS
         label: 'Espaciais',
         fields: [
             {
@@ -305,7 +286,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '27': { // SÍMBOLOS DE INDIVÍDUOS DESEMBARCADOS
+    '27': { // DISMOUNTED INDIVIDUALS SYMBOLS
         label: 'Indivíduos Desembarcados',
         fields: [
             {
@@ -391,7 +372,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '30': { // SÍMBOLOS MARÍTIMOS DE SUPERFÍCIE
+    '30': { // SEA SURFACE SYMBOLS
         label: 'Marítimos de Superfície',
         fields: [
             {
@@ -431,7 +412,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '35': { // SÍMBOLOS SUBMARINOS
+    '35': { // SUBSURFACE SYMBOLS
         label: 'Submarinos',
         fields: [
             {
@@ -464,7 +445,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '36': { // SÍMBOLOS DE GUERRA DE MINAS
+    '36': { // MINE WARFARE SYMBOLS
         label: 'Guerra de Minas',
         fields: [
             {
@@ -497,7 +478,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '40': { // SÍMBOLOS DE INSTALAÇÕES
+    '40': { // INSTALLATIONS SYMBOLS
         label: 'Instalações',
         fields: [
             {
@@ -544,7 +525,7 @@ export const TEXT_MODIFIERS_CATALOG = {
             }
         ]
     },
-    '60': { // SÍMBOLOS DE ATIVIDADES E EVENTOS
+    '60': { // ACTIVITIES AND EVENTS SYMBOLS
         label: 'Atividades e Eventos',
         fields: [
             {

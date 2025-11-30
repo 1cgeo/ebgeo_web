@@ -1,47 +1,47 @@
-// Path: js\index.js
+// Path: js/index.js
 import './config-loader.js';
 import config from './config.js';
 import { } from './map_sig.js';
 import { cleanup3DFeatures } from './map_3d.js';
 
-// ===== INICIALIZAÇÃO =====
+// ===== INITIALIZATION =====
 $(document).ready(() => {
-    // Performance monitoring (opcional)
+    // Performance monitoring (optional)
     if (window.performance?.mark) {
         window.performance.mark('app-init');
     }
-    
-    // Remover botão 3D se desabilitado na config
+
+    // Remove 3D button if disabled in config
     const map3dEnabled = config.features?.map_3d ?? true;
     if (!map3dEnabled) {
         $('#3d-button').remove();
     }
 });
 
-// ===== LOADING SCREEN - EXPORTADA PARA USO EXTERNO =====
+// ===== LOADING SCREEN - EXPORTED FOR EXTERNAL USE =====
 export function hideLoadingScreen() {
     $('.loading-background').fadeOut(500, function () {
         $(this).remove();
     });
 
-    // Mostra elementos que estavam ocultos durante loading
+    // Show elements that were hidden during loading
     document.querySelectorAll('.loading-hidden').forEach(function (el) {
         el.classList.add('loaded');
     });
 
-    // Inicializa ícones se disponível
+    // Initialize icons if available
     if (window.feather) {
         feather.replace();
     }
 }
 
-// ===== CLEANUP GLOBAL =====
+// ===== GLOBAL CLEANUP =====
 window.addEventListener('beforeunload', () => {
-    // Cleanup do Cesium para prevenir memory leaks
+    // Cesium cleanup to prevent memory leaks
     try {
         cleanup3DFeatures();
     } catch (error) {
-        console.warn('⚠️ Erro no cleanup do Cesium:', error);
+        console.warn('Warning: Cesium cleanup error:', error);
     }
 });
 
@@ -49,14 +49,14 @@ window.addEventListener('beforeunload', () => {
 $('#mini-map-street-view').css({ display: 'none' });
 
 // ===== DEBUG HELPERS =====
-// Função para forçar limpeza do Cesium se necessário (debug/manutenção)
+// Function to force Cesium cleanup if needed (debug/maintenance)
 if (typeof process === 'undefined' || process.env?.NODE_ENV !== 'production') {
     window.forceCesiumCleanup = function () {
         try {
             cleanup3DFeatures();
-            console.log('✅ Cleanup manual do Cesium executado');
+            console.log('Manual Cesium cleanup executed');
         } catch (error) {
-            console.error('❌ Erro no cleanup manual:', error);
+            console.error('Error in manual cleanup:', error);
         }
     };
 }

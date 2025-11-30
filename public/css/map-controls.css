@@ -1,6 +1,6 @@
-/* css/map-controls.css - Controles e Ferramentas do Mapa */
+/* Path: css/map-controls.css */
 
-/* Posicionar controles da COLUNA ESQUERDA individualmente */
+/* ===== LEFT COLUMN CONTROLS POSITIONING ===== */
 .controls-column-left {
     position: fixed !important;
     top: 60px !important;
@@ -10,7 +10,7 @@
     margin: 0 !important;
 }
 
-/* Posicionar controles da COLUNA DIREITA individualmente */
+/* ===== RIGHT COLUMN CONTROLS POSITIONING ===== */
 .controls-column-right {
     position: fixed !important;
     top: 60px !important;
@@ -40,7 +40,7 @@
     pointer-events: auto !important;
 }
 
-/* ===== NOVA ORDEM DA COLUNA ESQUERDA (com agrupamento de terreno) ===== */
+/* ----- Left Column Vertical Positioning ----- */
 .feature-search-control.controls-column-left {
     top: 60px !important;
 }
@@ -70,7 +70,7 @@
     top: 264px !important;
 }
 
-/* Grupo de controles de terreno */
+/* ----- Terrain Controls Group ----- */
 .terrain-control.controls-column-left {
     top: 298px !important;
 }
@@ -104,7 +104,7 @@
     border-color: #e0e0e0 !important;
 }
 
-/* 3D Models Viewer Control Disabled */
+/* ----- 3D Models Viewer Control Disabled ----- */
 .models3d-view-control.disabled {
     cursor: not-allowed !important;
 }
@@ -122,7 +122,7 @@
     border-color: #e0e0e0 !important;
 }
 
-/* Vector Info Control Disabled */
+/* ----- Vector Info Control Disabled ----- */
 .vector-info-control.disabled {
     cursor: not-allowed !important;
 }
@@ -140,7 +140,7 @@
     border-color: #e0e0e0 !important;
 }
 
-/* Feature Search Control Disabled - ajustar para consistência */
+/* ----- Feature Search Control Disabled ----- */
 .feature-search-control.disabled {
     cursor: not-allowed !important;
 }
@@ -162,14 +162,14 @@
     stroke: #999 !important;
 }
 
-/* ===== ESTILOS DO FEATURE SEARCH CONTROL ===== */
+/* ===== FEATURE SEARCH CONTROL STYLES ===== */
 .feature-search-control {
     display: flex !important;
     flex-direction: column !important;
     align-items: stretch !important;
 }
 
-/* Botão de busca seguindo padrão dos outros controles - SEMPRE FIXO */
+/* ----- Search Button ----- */
 .feature-search-control .mapbox-gl-draw_ctrl-draw-btn {
     background-image: none !important;
     background-color: transparent !important;
@@ -199,7 +199,7 @@
     background-color: transparent !important;
 }
 
-/* SVG da lupa */
+/* ----- Search Icon ----- */
 .feature-search-control .icon-sig-tool {
     width: 20px !important;
     height: 20px !important;
@@ -209,7 +209,7 @@
 
 
 
-/* Input de busca - À DIREITA DO BOTÃO */
+/* ----- Search Input ----- */
 .feature-search-control .feature-search-input {
     position: fixed !important;
     top: 0px !important;
@@ -225,12 +225,10 @@
     color: #333 !important;
     box-sizing: border-box !important;
     flex-shrink: 0 !important;
-    /* Não encolhe */
-
-    /* Transições suaves */
+    /* Transitions */
     transition: all 0.2s ease !important;
 
-    /* Typography consistente */
+    /* Typography */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
     font-weight: 400 !important;
 }
@@ -245,13 +243,12 @@
     font-size: 11px !important;
 }
 
-/* Lista de sugestões - ABAIXO DO INPUT */
+/* ----- Suggestions List ----- */
 .feature-search-control .feature-search-suggestions {
     position: fixed !important;
     top: 35px !important;
     /* 60px (control top) + ~40px (control height) + 8px gap */
     right: 37px !important;
-    /* Alinha com a coluna esquerda */
     margin-top: 2px !important;
     background: white !important;
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
@@ -265,7 +262,6 @@
     padding: 0 !important;
     margin-left: 0 !important;
     width: 245px !important;
-    /* Mesma largura do input */
 }
 
 .feature-search-control .feature-search-suggestion {
@@ -301,7 +297,7 @@
     background: rgba(220, 53, 69, 0.05) !important;
 }
 
-/* Estado de carregamento */
+/* ----- Loading State ----- */
 .feature-search-control.searching .feature-search-input {
     opacity: 0.7 !important;
 }
@@ -329,7 +325,7 @@
     stroke: white !important;
 }
 
-/* Posicionamento vertical específico para COLUNA DIREITA */
+/* ----- Right Column Vertical Positioning ----- */
 .point-control.controls-column-right {
     top: 60px !important;
 }
@@ -386,7 +382,7 @@
     top: 502px !important;
 }
 
-/* ===== ESTILOS BASE DOS CONTROLES ===== */
+/* ===== BASE CONTROL STYLES ===== */
 .mapboxgl-ctrl-group {
     display: flex !important;
     flex-direction: column !important;
@@ -431,24 +427,21 @@
     transition: filter 0.2s ease;
 }
 
-/* ===== REDUÇÃO DE TAMANHO PARA CONTROLES DAS COLUNAS ===== */
-/* Aplicar apenas aos controles nas colunas esquerda e direita */
-
-/* Reduzir ícones SIG nas colunas - incluindo feature search */
+/* ===== COLUMN CONTROLS SIZE REDUCTION ===== */
 .controls-column-left .icon-sig-tool,
 .controls-column-right .icon-sig-tool {
     width: 26px !important;
     height: 26px !important;
 }
 
-/* Reduzir ícones SVG internos dos botões Mapbox Draw nas colunas */
+/* ----- Mapbox Draw Button Icons ----- */
 .controls-column-left .mapbox-gl-draw_ctrl-draw-btn img,
 .controls-column-right .mapbox-gl-draw_ctrl-draw-btn img {
     width: 25px !important;
     height: 25px !important;
 }
 
-/* Reduzir elementos path dentro dos SVGs do Mapbox Draw */
+/* ----- Mapbox Draw SVG Icons ----- */
 .controls-column-left .mapbox-gl-draw_polygon svg,
 .controls-column-left .mapbox-gl-draw_line svg,
 .controls-column-left .mapbox-gl-draw_point svg,
@@ -462,7 +455,7 @@
     transform: scale(0.8);
 }
 
-/* Reduzir botões de ação do mapa nas colunas */
+/* ----- Map Action Buttons ----- */
 .controls-column-left .map-action-button,
 .controls-column-right .map-action-button {
     width: 32px !important;
@@ -470,21 +463,21 @@
     padding: 6px !important;
 }
 
-/* Reduzir ícones dentro dos botões de ação nas colunas */
+/* ----- Action Button Icons ----- */
 .controls-column-left .map-action-button img,
 .controls-column-right .map-action-button img {
     width: 16px !important;
     height: 16px !important;
 }
 
-/* Reduzir controles do grupo mapbox nas colunas */
+/* ----- Mapbox Control Groups ----- */
 .controls-column-left .mapboxgl-ctrl-group,
 .controls-column-right .mapboxgl-ctrl-group {
     transform: scale(0.8);
     transform-origin: top right;
 }
 
-/* Ajustar layer switches nas colunas */
+/* ----- Layer Switches ----- */
 .controls-column-left .layer-switch,
 .controls-column-right .layer-switch {
     padding: 6px 10px !important;
@@ -527,7 +520,7 @@
     transform: scale(0.95);
 }
 
-/* ===== ESTADOS DE CARREGAMENTO ===== */
+/* ===== LOADING STATES ===== */
 .mapboxgl-ctrl-group.loading {
     opacity: 0.7;
     pointer-events: none;
@@ -557,7 +550,7 @@
     }
 }
 
-/* ===== ACESSIBILIDADE ===== */
+/* ===== ACCESSIBILITY ===== */
 .mapbox-gl-draw_ctrl-draw-btn:focus,
 #screenshot-tool:focus,
 #feature-search-tool:focus {
@@ -565,7 +558,7 @@
     outline-offset: 2px;
 }
 
-/* ===== PREVENT INTERACTION CONFLICTS ===== */
+/* ===== INTERACTION CONFLICT PREVENTION ===== */
 .mapboxgl-ctrl-group button {
     touch-action: manipulation;
 }

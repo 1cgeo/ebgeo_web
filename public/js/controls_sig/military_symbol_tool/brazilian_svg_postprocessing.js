@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\brazilian_svg_postprocessing.js
+// Path: js/controls_sig/military_symbol_tool/brazilian_svg_postprocessing.js
 
 import {
     getCatalogEntry,
@@ -13,10 +13,10 @@ import { BrazilianSIDCExtension } from './brazilian_sidc_extension.js';
 
 /**
  * ========================================
- * SITUAÇÃO 1: ADAPTAÇÃO DE TEXTO
+ * SITUATION 1: TEXT ADAPTATION
  * ========================================
- * Substitui textos americanos por brasileiros
- * Suporta: Main Icon, Modifier 1, Modifier 2
+ * Replaces American text with Brazilian text
+ * Supports: Main Icon, Modifier 1, Modifier 2
  */
 
 /**
@@ -105,9 +105,9 @@ function replaceTextInSVG(svgString, mapping) {
 
 /**
  * ========================================
- * SITUAÇÃO 2: ADAPTAÇÃO GRÁFICA
+ * SITUATION 2: GRAPHIC ADAPTATION
  * ========================================
- * Substitui elementos SVG completos usando find/replace
+ * Replaces complete SVG elements using find/replace
  */
 
 /**
@@ -176,7 +176,7 @@ function hexToRgb(hex) {
 
 /**
  * ========================================
- * PIPELINE COMPLETO
+ * COMPLETE PIPELINE
  * ========================================
  */
 

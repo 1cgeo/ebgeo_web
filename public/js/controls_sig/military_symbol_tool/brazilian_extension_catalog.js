@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\brazilian_extension_catalog.js
+// Path: js/controls_sig/military_symbol_tool/brazilian_extension_catalog.js
 
 /**
  * ========================================
@@ -47,7 +47,6 @@ const SYMBOL_SET_10_CATALOG = {
                     }
                 }
             },
-            //Anfíbio
             '120300': {
                 type: 'replace',
                 find: '<path d="m 25,90 c 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 20,-20" stroke-width="3" stroke="black" fill="none" ></path>',
@@ -75,7 +74,6 @@ const SYMBOL_SET_10_CATALOG = {
                     }
                 }
             },
-            //Anticarro
             '120400': {
                 type: 'replace',
                 find: '<path d="M25,150 L100,52 175,150" stroke-width="3" stroke="black" fill="none" ></path>',
@@ -103,7 +101,6 @@ const SYMBOL_SET_10_CATALOG = {
                     }
                 }
             },
-            //Cavalaria Blindada ou Mecanizada, Carros de Combate
             '120500': {
                 type: 'replace',
                 find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path>',
@@ -131,7 +128,6 @@ const SYMBOL_SET_10_CATALOG = {
                     }
                 }
             },
-            //Carros sobre Lagartas Anfíbios
             '120502': {
                 type: 'replace',
                 find: '<path d="M125,80 C150,80 150,120 125,120 L75,120 C50,120 50,80 75,80 Z" stroke-width="3" stroke="black" fill="none" ></path><path d="m 25,90 c 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 20,-20" stroke-width="3" stroke="black" fill="none" ></path>',
@@ -159,7 +155,6 @@ const SYMBOL_SET_10_CATALOG = {
                     }
                 }
             },
-            //Aviação de Reconhecimento – Asa Rotativa
             '120601': {
                 type: 'replace',
                 find: '<path d="M60,85 l40,15 40,-15 0,30 -40,-15 -40,15 z" stroke-width="3" stroke="none" fill="black" ></path><path d="M25,150L175,50" stroke-width="3" stroke="black" fill="black" ></path>',
@@ -187,7 +182,6 @@ const SYMBOL_SET_10_CATALOG = {
                     }
                 }
             },
-            //Aviação de Reconhecimento – Asa Fixa
             '120801': {
                 type: 'replace',
                 find: '<path d="M100,100 L130,88 c15,0 15,24 0,24 L100,100 70,112 c-15,0 -15,-24 0,-24 Z" stroke-width="3" stroke="none" fill="black" ></path><path d="M25,150L175,50" stroke-width="3" stroke="black" fill="black" ></path>',
@@ -215,7 +209,6 @@ const SYMBOL_SET_10_CATALOG = {
                     }
                 }
             },
-            // Infantaria Anfíbia
             '121101': {
                 type: 'replace',
                 find: '<path d="M25,50 L175,150 M25,150 L175,50" stroke-width="3" stroke="black" fill="black" ></path><path d="m 25,90 c 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 18.8,-20 18.8,0 0,20 18.8,20 18.8,0 0,-20 20,-20" stroke-width="3" stroke="black" fill="none" ></path>',
@@ -243,7 +236,6 @@ const SYMBOL_SET_10_CATALOG = {
                     }
                 }
             },
-            // Artilharia Antiaérea
             '130100': {
                 type: 'replace',
                 find: '<path d="M25,150 C25,110 175,110 175,150" stroke-width="3" stroke="black" fill="none" ></path>',
@@ -367,7 +359,6 @@ const SYMBOL_SET_10_CATALOG = {
                     style: { fontSize: '32', fontWeight: 'bold', fill: 'black' }
                 }
             },
-            // Manutenção e Suprimento
             '161199': {
                 0: {
                     type: 'svg',

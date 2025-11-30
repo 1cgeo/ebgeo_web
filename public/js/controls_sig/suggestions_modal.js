@@ -1,8 +1,8 @@
-// Path: js\controls_sig\suggestions_modal.js
+// Path: js/controls_sig/suggestions_modal.js
 
 /**
- * Gerenciador do modal de sugestões/suporte do EBGeo
- * Responsável por abrir/fechar o modal e gerenciar interações
+ * EBGeo suggestions/support modal manager
+ * Responsible for opening/closing the modal and managing interactions
  */
 class SuggestionsModal {
     constructor() {
@@ -13,7 +13,7 @@ class SuggestionsModal {
     }
 
     /**
-     * Inicializa o modal de sugestões
+     * Initializes the suggestions modal
      */
     init() {
         if (this.modalInitialized) {
@@ -22,13 +22,13 @@ class SuggestionsModal {
 
         const button = document.getElementById('suggestions-button');
         if (!button) {
-            console.warn('Botão de sugestões não encontrado');
+            console.warn('Suggestions button not found');
             return;
         }
 
         this.modal = document.getElementById('suggestions-modal');
         if (!this.modal) {
-            console.warn('Modal de sugestões não encontrado');
+            console.warn('Suggestions modal not found');
             return;
         }
 
@@ -37,7 +37,7 @@ class SuggestionsModal {
     }
 
     /**
-     * Configura todos os event listeners do modal
+     * Sets up all event listeners for the modal
      */
     setupEventListeners() {
         const button = document.getElementById('suggestions-button');
@@ -70,11 +70,11 @@ class SuggestionsModal {
     }
 
     /**
-     * Configura botões de copiar email
+     * Sets up copy email buttons
      */
     setupCopyButtons() {
         const copyButtons = this.modal.querySelectorAll('.copy-email-btn');
-        
+
         copyButtons.forEach(button => {
             button.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -85,7 +85,7 @@ class SuggestionsModal {
     }
 
     /**
-     * Copia texto para clipboard e mostra feedback
+     * Copies text to clipboard and shows feedback
      */
     async copyToClipboard(text, button) {
         try {
@@ -106,13 +106,13 @@ class SuggestionsModal {
             }, 2000);
             
         } catch (err) {
-            console.error('Erro ao copiar:', err);
+            console.error('Error copying:', err);
             this.copyToClipboardFallback(text, button);
         }
     }
 
     /**
-     * Fallback para copiar em navegadores que não suportam clipboard API
+     * Fallback for copying in browsers that don't support clipboard API
      */
     copyToClipboardFallback(text, button) {
         const textArea = document.createElement('textarea');
@@ -139,14 +139,14 @@ class SuggestionsModal {
                 button.classList.remove('copied');
             }, 2000);
         } catch (err) {
-            console.error('Erro ao copiar (fallback):', err);
+            console.error('Error copying (fallback):', err);
         }
-        
+
         document.body.removeChild(textArea);
     }
 
     /**
-     * Handler para tecla ESC
+     * Handler for ESC key
      */
     handleModalKeyDown(e) {
         if (e.key === 'Escape' && this.modal && this.modal.style.display === 'block') {
@@ -155,11 +155,11 @@ class SuggestionsModal {
     }
 
     /**
-     * Mostra o modal de sugestões
+     * Shows the suggestions modal
      */
     show() {
         if (!this.modal) {
-            console.warn('Modal de sugestões não inicializado');
+            console.warn('Suggestions modal not initialized');
             return;
         }
 
@@ -169,7 +169,7 @@ class SuggestionsModal {
     }
 
     /**
-     * Esconde o modal de sugestões
+     * Hides the suggestions modal
      */
     hide() {
         if (!this.modal) {
@@ -182,7 +182,7 @@ class SuggestionsModal {
     }
 
     /**
-     * Cleanup - remove event listeners e fecha modal
+     * Cleanup - removes event listeners and closes modal
      */
     destroy() {
         if (this.modalInitialized) {

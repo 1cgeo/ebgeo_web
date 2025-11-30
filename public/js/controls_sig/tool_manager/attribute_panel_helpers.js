@@ -316,7 +316,7 @@ function openColorPickerModal(triggerElement, onChange, scope) {
     };
     document.addEventListener('keydown', escListener);
 
-    // Adicionar ao DOM
+    // Add
     document.body.appendChild(modal);
 
     // Posicionar próximo ao trigger
@@ -380,17 +380,17 @@ function createModalColorButton(color, count, currentValue, onChange, triggerEle
     button.onclick = (e) => {
         e.preventDefault();
         
-        // Atualizar trigger element diretamente
+        // Update
         triggerElement.value = color;
         triggerElement.dataset.realValue = color;
 
-        // Atualizar native picker no modal
+        // Update
         const nativePicker = document.querySelector('.color-picker-native');
         if (nativePicker) {
             nativePicker.value = color;
         }
 
-        // Atualizar palette visual
+        // Update
         const paletteContainer = button.closest('.color-palette-modal-container');
         if (paletteContainer) {
             updateActivePaletteButton(paletteContainer, color);
@@ -1285,7 +1285,7 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
     dropdown.className = 'feature-dropdown-content';
     dropdown.dataset.buttonId = `feature-options-${Date.now()}`;
 
-    // Criar item do menu: "Selecionar todos com mesmo tipo"
+    // Create
     const selectAllButton = document.createElement('button');
     selectAllButton.className = 'feature-menu-button';
     selectAllButton.textContent = 'Selecionar todos com mesmo tipo';
@@ -1429,7 +1429,7 @@ async function selectAllInLayer(layerId, selectionManager, uiManager) {
             }
         }
 
-        // Atualizar UI
+        // Update
         uiManager.updateSelectionHighlight();
         uiManager.updatePanels();
     } catch (error) {
@@ -1493,7 +1493,7 @@ async function selectAllOfTypeInLayer(featureType, layerId, selectionManager, ui
             }
         }
 
-        // Atualizar UI
+        // Update
         uiManager.updateSelectionHighlight();
         uiManager.updatePanels();
     } catch (error) {
@@ -1630,7 +1630,7 @@ async function selectAllFeaturesOfSameType(selectedFeatures, selectionManager, u
         }
     }
 
-    // Atualizar UI
+    // Update
     uiManager.updateSelectionHighlight();
     uiManager.updatePanels();
 }
@@ -1650,7 +1650,7 @@ let dropdownResizeHandler = null;
 function initializeFeatureDropdownListeners() {
     if (featureDropdownListenersInitialized) return;
 
-    // Criar handlers nomeados (antes eram arrow functions anônimas)
+    // Create
     dropdownClickHandler = (e) => {
         if (!e.target.closest('.feature-dropdown-content') && 
             !e.target.closest('.feature-options-button')) {
@@ -1672,7 +1672,7 @@ function initializeFeatureDropdownListeners() {
         closeAllFeatureDropdowns(false);
     };
 
-    // Adicionar listeners usando handlers nomeados
+    // Add
     document.addEventListener('click', dropdownClickHandler);
     document.addEventListener('keydown', dropdownKeydownHandler);
     document.addEventListener('scroll', dropdownScrollHandler, true);
@@ -1682,13 +1682,13 @@ function initializeFeatureDropdownListeners() {
 }
 
 /**
- * ✅ NOVA FUNÇÃO: Remove event listeners globais (previne memory leaks)
+ * Remove event listeners globais (previne memory leaks)
  * IMPORTANTE: Chame ao destruir o painel de atributos
  */
 export function cleanupFeatureDropdownListeners() {
     if (!featureDropdownListenersInitialized) return;
 
-    // Remover todos os listeners
+    // Remove
     if (dropdownClickHandler) {
         document.removeEventListener('click', dropdownClickHandler);
     }

@@ -1,6 +1,6 @@
-/* css/coordinates.css - Sistema de Coordenadas Completo */
+/* Path: css/coordinates.css */
 
-/* ===== ESTRUTURA BASE DO PAINEL ===== */
+/* ===== BASE PANEL STRUCTURE ===== */
 .coordinates-control {
     position: fixed !important;
     bottom: 10px !important;
@@ -39,7 +39,7 @@
     z-index: 1000 !important;
     margin: 0 !important;
 
-    /* Visual styles - idênticos ao 2D */
+    /* Visual styles */
     background: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(8px) !important;
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
@@ -61,7 +61,7 @@
     align-items: center !important;
 }
 
-/* ===== ELEMENTOS INTERNOS ===== */
+/* ===== INTERNAL ELEMENTS ===== */
 .coordinates-display {
     display: flex !important;
     align-items: center !important;
@@ -89,7 +89,7 @@
     outline: none !important;
 }
 
-/* ===== BOTÕES DE CONTROLE ===== */
+/* ===== CONTROL BUTTONS ===== */
 .coordinates-controls {
     display: flex !important;
     align-items: center !important;
@@ -132,7 +132,7 @@
     background-color: rgba(0, 0, 0, 0.05) !important;
 }
 
-/* ===== SELETOR DE FORMATO ===== */
+/* ===== FORMAT SELECTOR ===== */
 
 .coordinates-format-selector {
     position: absolute !important;
@@ -222,7 +222,7 @@
 }
 
 
-/* ===== MODAL DE COORDENADAS ===== */
+/* ===== COORDINATES MODAL ===== */
 .coordinates-modal {
     display: none;
     position: fixed;
@@ -356,7 +356,7 @@
     background-color: #e9e9e9;
 }
 
-/* ===== ANIMAÇÕES ===== */
+/* ===== ANIMATIONS ===== */
 .coordinates-copy-button.copied {
     color: var(--success-color) !important;
     animation: copySuccess 0.3s ease !important;
@@ -384,7 +384,7 @@
     }
 }
 
-/* ===== Z-INDEX E ISOLAMENTO ===== */
+/* ===== Z-INDEX AND ISOLATION ===== */
 .coordinates-control-3d + div[style*="position: fixed"] {
     z-index: 1002 !important;
 }
@@ -398,7 +398,7 @@
     z-index: 1001 !important;
 }
 
-/* ===== RESET DE HERANÇAS PROBLEMÁTICAS ===== */
+/* ===== INHERITANCE RESET ===== */
 .coordinates-control,
 .coordinates-control-3d {
     text-align: left !important;

@@ -216,7 +216,7 @@ class AddRectangleGeometry extends BaseGeometry {
             const arcStart = this.offsetPoint(corner, prevDir, radius);
             coordinates.push(arcStart);
             
-            // Adicionar arco arredondado
+            // Add
             const arcPoints = this.createArcPoints(corner, arcStart, nextDir, radius, segmentsPerCorner);
             coordinates.push(...arcPoints);
         }
@@ -602,17 +602,17 @@ class AddRectangleGeometry extends BaseGeometry {
 
         switch (handleType) {
             case 'width-resize':
-                // Atualizar apenas a largura, mantendo altura e bearing
+                // Update
                 width = this.calculateWidthFromHandle(center, newPosition, bearing) * 2;
                 break;
 
             case 'height-resize':
-                // Atualizar apenas a altura, mantendo largura e bearing
+                // Update
                 height = this.calculateHeightFromHandle(center, newPosition, bearing) * 2;
                 break;
 
             case 'rotation':
-                // Atualizar apenas o bearing, mantendo dimensões
+                // Update
                 bearing = this.calculateBearingFromRotationHandle(center, newPosition);
                 break;
 
@@ -705,7 +705,7 @@ class AddRectangleGeometry extends BaseGeometry {
 
         let { width, height, bearing } = feature.properties;
 
-        // Atualizar parâmetro baseado no tipo de handle
+        // Update
         switch (handleType) {
             case 'width-resize':
                 width = this.calculateWidthFromHandle(center, newPosition, bearing) * 2;

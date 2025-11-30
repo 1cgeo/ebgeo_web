@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\brazilian_sidc_extension.js
+// Path: js/controls_sig/military_symbol_tool/brazilian_sidc_extension.js
 
 /**
  * Brazilian SIDC Extension Handler

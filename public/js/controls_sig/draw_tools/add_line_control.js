@@ -297,7 +297,7 @@ class AddLineControl extends BaseControl {
             try {
                 const updatedFeatures = await this.recalculateMovedLineFeatures(lineFeatures);
                 
-                // Atualizar SelectionManager com features recalculados (seguindo padrão LOS)
+                // Update
                 this.updateSelectionManagerFeatures(updatedFeatures);
                 
                 // Forçar atualização do UI/painel com dados frescos (seguindo padrão LOS)
@@ -368,10 +368,10 @@ class AddLineControl extends BaseControl {
                             movedFeature.properties.profileData = JSON.stringify(newProfileData);
                         }
 
-                        // Salvar no IndexedDB (seguindo padrão LOS)
+                        // Save
                         await updateFeature('lines', movedFeature);
 
-                        // Atualizar measurement se habilitado (seguindo padrão LOS)
+                        // Update
                         if (movedFeature.properties.measure) {
                             this.updateFeatureMeasurement(movedFeature);
                         }

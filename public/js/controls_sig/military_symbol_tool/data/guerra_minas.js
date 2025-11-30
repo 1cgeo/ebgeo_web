@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\data\guerra_minas.js
+// Path: js/controls_sig/military_symbol_tool/data/guerra_minas.js
 
 export default {
   "symbol_sets": [

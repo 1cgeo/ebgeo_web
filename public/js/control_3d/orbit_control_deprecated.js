@@ -1,5 +1,6 @@
-// Path: js\control_3d\orbit_control_deprecated.js
+// Path: js/control_3d/orbit_control_deprecated.js
 
+// ===== MODULE STATE =====
 // Orbit control variables
 let isOrbiting = false;
 let orbitRemoveCallback = null;
@@ -7,60 +8,60 @@ let currentTileset = null;
 let viewerInstance = null;
 
 /**
- * Inicia a órbita ao redor do tileset especificado
- * @param {Cesium.Cesium3DTileset} tileset - O tileset para orbitar
+ * Starts orbit around the specified tileset
+ * @param {Cesium.Cesium3DTileset} tileset - The tileset to orbit around
  */
 function startOrbit(tileset) {
     if (!tileset || isOrbiting) return;
     
-    // Para qualquer órbita existente
+    // Stop any existing orbit
     stopOrbit();
     
     currentTileset = tileset;
     isOrbiting = true;
     
     
-    // Aguarda o tileset estar carregado
+    // Wait for tileset to be ready
     tileset.readyPromise.then(() => {
-        if (!isOrbiting) return; // Verifica se ainda deve orbitar
+        if (!isOrbiting) return; // Check if orbit should continue
         
-        // Pega o bounding sphere do tileset
+        // Get tileset bounding sphere
         const boundingSphere = tileset.boundingSphere;
         const center = boundingSphere.center;
         const radius = boundingSphere.radius;
         
         if (radius === 0 || !center) {
-            console.log('Dados do bounding sphere inválidos');
+            console.log('Invalid bounding sphere data');
             stopOrbit();
             return;
         }
         
-        // Configura parâmetros da órbita
+        // Configure orbit parameters
         const camera = viewerInstance.camera;
-        const range = radius * 2.5; // Distância do alvo
-        const orbitSpeed = 0.4; // Graus por frame
-        const pitch = -25; // Ângulo de visão (olhando ligeiramente para baixo)
+        const range = radius * 2.5; // Distance from target
+        const orbitSpeed = 0.4; // Degrees per frame
+        const pitch = -25; // View angle (looking slightly down)
         
         let currentHeading = 0;
         
-        // Posição inicial da câmera
+        // Initial camera position
         camera.lookAt(center, new Cesium.HeadingPitchRange(
             Cesium.Math.toRadians(currentHeading), 
             Cesium.Math.toRadians(pitch),
             range
         ));
         
-        // Inicia a animação da órbita usando clock tick
+        // Start orbit animation using clock tick
         orbitRemoveCallback = viewerInstance.clock.onTick.addEventListener(function(clock) {
             if (!isOrbiting) return;
             
-            // Incrementa o heading
+            // Increment heading
             currentHeading += orbitSpeed;
             if (currentHeading >= 360) {
                 currentHeading = 0;
             }
             
-            // Atualiza posição da câmera
+            // Update camera position
             camera.lookAt(center, new Cesium.HeadingPitchRange(
                 Cesium.Math.toRadians(currentHeading),
                 Cesium.Math.toRadians(pitch),
@@ -69,13 +70,13 @@ function startOrbit(tileset) {
         });
         
     }).catch(error => {
-        console.error('Erro ao iniciar órbita:', error);
+        console.error('Error starting orbit:', error);
         stopOrbit();
     });
 }
 
 /**
- * Para a órbita atual
+ * Stops the current orbit
  */
 function stopOrbit() {
     if (!isOrbiting) return;
@@ -91,7 +92,7 @@ function stopOrbit() {
 }
 
 /**
- * Cancela a órbita em caso de interação do usuário
+ * Cancels orbit on user interaction
  */
 function cancelOrbitOnUserInteraction() {
     if (isOrbiting) {
@@ -100,22 +101,22 @@ function cancelOrbitOnUserInteraction() {
 }
 
 /**
- * Configura listeners para detectar interações do usuário e cancelar a órbita
+ * Sets up listeners to detect user interactions and cancel orbit
  */
 function setupUserInteractionListeners() {
     const canvas = viewerInstance.canvas;
     
-    // Interações do mouse
+    // Mouse interactions
     canvas.addEventListener('mousedown', cancelOrbitOnUserInteraction);
     canvas.addEventListener('wheel', cancelOrbitOnUserInteraction);
     
-    // Interações touch (dispositivos móveis)
+    // Touch interactions (mobile devices)
     canvas.addEventListener('touchstart', cancelOrbitOnUserInteraction);
     canvas.addEventListener('touchmove', cancelOrbitOnUserInteraction);
     
-    // Teclas de navegação
+    // Navigation keys
     document.addEventListener('keydown', (event) => {
-        // Cancela órbita ao usar teclas de navegação da câmera
+        // Cancel orbit when using camera navigation keys
         const navigationKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'];
         if (navigationKeys.includes(event.code)) {
             cancelOrbitOnUserInteraction();
@@ -124,33 +125,33 @@ function setupUserInteractionListeners() {
 }
 
 /**
- * Inicia órbita após voo para localização
+ * Starts orbit after flying to location
  * @param {Object} location - {lat, lon, height}
- * @param {Cesium.Cesium3DTileset} tileset - Tileset para orbitar
+ * @param {Cesium.Cesium3DTileset} tileset - Tileset to orbit around
  */
 function flyToAndOrbit(location, tileset) {
     if (!location || !tileset) return;
     
     const { lat, lon, height } = location;
     
-    // Para órbita atual se existir
+    // Stop current orbit if exists
     stopOrbit();
     
-    // Voa para a localização
+    // Fly to location
     viewerInstance.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
-        duration: 2.0, // Duração do voo em segundos
+        duration: 2.0, // Flight duration in seconds
         complete: function() {
-            // Inicia órbita após completar o voo
+            // Start orbit after completing flight
             setTimeout(() => {
                 startOrbit(tileset);
-            }, 800); // Pequeno delay para garantir que o voo terminou
+            }, 800); // Small delay to ensure flight is complete
         }
     });
 }
 
 /**
- * Verifica se está orbitando atualmente
+ * Checks if currently orbiting
  * @returns {boolean}
  */
 function isCurrentlyOrbiting() {
@@ -158,7 +159,7 @@ function isCurrentlyOrbiting() {
 }
 
 /**
- * Inicializa os listeners de interação do usuário
+ * Initializes user interaction listeners
  */
 function initOrbitControl(viewer) {
     viewerInstance = viewer
@@ -166,11 +167,11 @@ function initOrbitControl(viewer) {
 }
 
 /**
- * Limpa os recursos da órbita
+ * Cleans up orbit resources
  */
 function cleanupOrbitControl() {
     stopOrbit();
-    // Os event listeners são automaticamente removidos quando o canvas é destruído
+    // Event listeners are automatically removed when canvas is destroyed
 }
 
 export { 

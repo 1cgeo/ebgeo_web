@@ -1,6 +1,5 @@
-// Path: js\controls_sig\military_symbol_tool\add_military_symbol_geometry.js
+// Path: js/controls_sig/military_symbol_tool/add_military_symbol_geometry.js
 import BaseGeometry from '../tool_manager/base_geometry.js';
-import { normalizeSIDC, getBaseSIDC } from './brazilian_sidc_extension.js';
 
 /**
  * Military Symbol Geometry Operations
@@ -209,21 +208,21 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      */
     affectsTextModifiers(property) {
         const textModifierProperties = [
-            'uniqueDesignation',      // C - Designação
-            'higherFormation',        // B - Subordinação
-            'quantity',               // C1 - Quantidade
-            'reinforcedReduced',      // F - Reforço/Redução
-            'additionalInformation',  // H - Informações Adicionais
-            'credibility',            // J - Credibilidade (combinado J+K)
-            'type',                   // V - Tipo de Equipamento / AIS
-            'iffSif',                 // P - Código IFF
-            'dateTimeGroup',          // W - GDH
-            'altitudeDepth',          // X - Altitude/Profundidade
-            'equipmentTeardownTime',  // X1 - Tempo de Destruição
-            'location',               // Y - Localização
-            'speed',                  // Z - Velocidade
-            'specialHeadquarters',    // AA - Tipo de PC
-            'direction',              // Q - Direção/Azimute
+            'uniqueDesignation',      // C - Designation
+            'higherFormation',        // B - Higher Formation
+            'quantity',               // C1 - Quantity
+            'reinforcedReduced',      // F - Reinforced/Reduced
+            'additionalInformation',  // H - Additional Information
+            'credibility',            // J - Credibility (combined J+K)
+            'type',                   // V - Equipment Type / AIS
+            'iffSif',                 // P - IFF Code
+            'dateTimeGroup',          // W - Date-Time Group
+            'altitudeDepth',          // X - Altitude/Depth
+            'equipmentTeardownTime',  // X1 - Equipment Teardown Time
+            'location',               // Y - Location
+            'speed',                  // Z - Speed
+            'specialHeadquarters',    // AA - HQ Type
+            'direction',              // Q - Direction/Azimuth
             'engagementBar'
         ];
         

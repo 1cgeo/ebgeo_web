@@ -1,4 +1,4 @@
-// Path: js\controls_sig\vector_info_control.js
+// Path: js/controls_sig/vector_info_control.js
 import config from '../config.js';
 
 class VectorTileInfoControl {
@@ -14,7 +14,7 @@ class VectorTileInfoControl {
     }
 
     setupEventListeners() {
-        // Fechar menu com ESC
+        // Close menu with ESC
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.contextMenu) {
                 this._hideVectorTileSelectionMenu();
@@ -117,7 +117,7 @@ class VectorTileInfoControl {
     handleMapClick(e) {
         if (this.isActive) {
             const features = this.map.queryRenderedFeatures(e.point);
-            // filtrar para pegar apenas vector tiles, não pegar desenhos, nem grid, nem streetview, nem rotulo dos produtos
+            // Filter to get only vector tiles, not drawings, grid, streetview, or product labels
             const vectorTileFeatures = features.filter(f => f.sourceLayer && !f.properties.source && !f.sourceLayer.startsWith('grid') && !f.sourceLayer.startsWith('situacao_ponto') && !f.sourceLayer.startsWith('fotos'));
             if (vectorTileFeatures.length > 0) {
                 const preferenceOrder = ['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'];
@@ -130,11 +130,11 @@ class VectorTileInfoControl {
                 });
 
                 if (vectorTileFeatures.length === 1) {
-                    // Única feature: exibir direto
+                    // Single feature: display directly
                     this._hideVectorTileSelectionMenu();
                     this.uiManager.showVectorTileInfoPanel(vectorTileFeatures[0]);
                 } else {
-                    // Múltiplas features: mostrar menu
+                    // Multiple features: show menu
                     this._showVectorTileSelectionMenu(vectorTileFeatures, e);
                 }
             } else {
@@ -145,30 +145,30 @@ class VectorTileInfoControl {
     }
 
     /**
-     * Mostra menu de seleção de vector tiles
+     * Shows vector tiles selection menu
      */
     _showVectorTileSelectionMenu(features, e) {
-        // Fechar menu anterior se existir
+        // Close previous menu if exists
         this._hideVectorTileSelectionMenu();
-        
+
         if (features.length === 0) return;
-        
-        // Armazenar features pendentes
+
+        // Store pending features
         this.pendingVectorTileFeatures = features;
-        
-        // Criar e exibir menu
+
+        // Create and display menu
         this.contextMenu = this._createContextMenuElement(features, e);
         document.body.appendChild(this.contextMenu);
     }
 
     /**
-     * Criar elemento HTML do menu de contexto
+     * Create context menu HTML element
      */
     _createContextMenuElement(features, e) {
         const menu = document.createElement('div');
         menu.className = 'vector-tile-selection-menu';
-        
-        // Estilos (idênticos ao SelectionManager)
+
+        // Styles (identical to SelectionManager)
         menu.style.cssText = `
             position: fixed !important;
             background: white !important;
@@ -188,12 +188,12 @@ class VectorTileInfoControl {
             pointer-events: auto !important;
         `;
         
-        // Posicionar próximo ao clique
+        // Position near click
         const x = Math.min(e.originalEvent.clientX, window.innerWidth - 220);
         const y = Math.min(e.originalEvent.clientY, window.innerHeight - 50);
         menu.style.left = `${x}px`;
         menu.style.top = `${y}px`;
-        
+
         // Header
         const header = document.createElement('div');
         header.textContent = `Selecionar camada (${features.length})`;
@@ -208,7 +208,7 @@ class VectorTileInfoControl {
         `;
         menu.appendChild(header);
         
-        // Item para cada feature
+        // Item for each feature
         features.forEach((feature, index) => {
             const item = document.createElement('div');
             const featureName = this._getVectorTileFeatureName(feature);
@@ -247,14 +247,14 @@ class VectorTileInfoControl {
     }
 
     /**
-     * Obter nome de exibição da vector tile (sourceLayer)
+     * Get display name of vector tile (sourceLayer)
      */
     _getVectorTileFeatureName(feature) {
         return feature.sourceLayer || 'Camada desconhecida';
     }
 
     /**
-     * Esconder menu de seleção
+     * Hide selection menu
      */
     _hideVectorTileSelectionMenu() {
         if (this.contextMenu) {

@@ -387,7 +387,7 @@ class AddBrushControl extends BaseControl {
 
     createFeature = async () => {
         if (!this.geometry.validate(this.points)) {
-            console.warn('Linha deve ter pelo menos 2 pontos válidos');
+            console.warn('Line must have at least 2 valid points');
             return;
         }
 

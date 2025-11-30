@@ -73,7 +73,7 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
 
     $(panel).append(createAttributeRow('Espessura (px):', lineWidthControl));
 
-    // Opacidade (0-100% com conversão automática)
+    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity || 1.0) * 100), {
         onChange: (value) => {

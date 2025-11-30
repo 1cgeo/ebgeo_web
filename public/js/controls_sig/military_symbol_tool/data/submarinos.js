@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\data\submarinos.js
+// Path: js/controls_sig/military_symbol_tool/data/submarinos.js
 
 export default {
   "symbol_sets": [

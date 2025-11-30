@@ -1,21 +1,6 @@
-/* css/panels-3d.css - Painéis do Modo 3D */
+/* Path: css/panels-3d.css */
 
-/* 
-NOTA IMPORTANTE:
-Este arquivo corrige os problemas de estilo do painel 3D:
-1. Background branco puro (igual ao painel SIG)
-2. Maior espaçamento entre "Modelos 3D" e "Ferramentas" 
-3. 5 botões de ferramentas em linha única
-4. Override da classe .card que pode estar interferindo
-
-PROBLEMAS RESOLVIDOS:
-- Background cinza → Background branco com !important
-- Gap pequeno (15px) → Gap maior (35px)  
-- Botões grandes → Botões compactos em grid de 5 colunas
-- Possível conflito com classe externa .card
-*/
-
-/* ===== CONTAINER PRINCIPAL DO 3D ===== */
+/* ===== 3D MAIN CONTAINER ===== */
 #map-3d-container {
     display: none;
     position: relative;
@@ -31,7 +16,7 @@ PROBLEMAS RESOLVIDOS:
     overflow: hidden;
 }
 
-/* ===== TOOLBAR PRINCIPAL 3D ===== */
+/* ===== 3D MAIN TOOLBAR ===== */
 #map-3d-tool-bar {
     padding: 15px !important;
     position: absolute !important;
@@ -39,7 +24,6 @@ PROBLEMAS RESOLVIDOS:
     flex-direction: column !important;
     top: 20px !important;
     left: 1px !important;
-    /* CORREÇÃO 1: Background branco puro forçado (importante para sobrescrever classe .card) */
     background-color: rgba(255, 255, 255, 0.95) !important;
     background: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(8px) !important;
@@ -48,12 +32,11 @@ PROBLEMAS RESOLVIDOS:
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
     z-index: 100 !important;
-    /* CORREÇÃO 2: Reduzir o espaçamento entre seções */
     gap: 20px !important;
     transition: all 0.3s ease !important;
 }
 
-/* Força override da classe .card se existir */
+/* ----- Card Class Override ----- */
 #map-3d-tool-bar.card {
     background-color: rgba(255, 255, 255, 0.95) !important;
     background: rgba(255, 255, 255, 0.95) !important;
@@ -65,7 +48,7 @@ PROBLEMAS RESOLVIDOS:
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
 }
 
-/* ===== CONTAINER DE MODELOS 3D ===== */
+/* ===== 3D MODELS CONTAINER ===== */
 #model-3d-container {
     width: 100%;
     color: #333;
@@ -74,13 +57,12 @@ PROBLEMAS RESOLVIDOS:
 #model-3d-container p {
     margin: 0 0 10px 0 !important;
     font-weight: 600 !important;
-    /* CORREÇÃO: Texto preto forçado */
     color: #000 !important;
     font-size: 16px !important;
     text-align: center !important;
 }
 
-/* ===== CONTAINER DE LOCALIZAÇÃO 3D ===== */
+/* ===== 3D LOCATION CONTAINER ===== */
 #locate-3d-container,
 #locate-3d-container-mobile {
     display: flex;
@@ -123,7 +105,7 @@ PROBLEMAS RESOLVIDOS:
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* ===== CONTAINER DE FERRAMENTAS ===== */
+/* ===== 3D TOOLS CONTAINER ===== */
 #tool-3d-container {
     width: 100%;
     color: #333;
@@ -132,23 +114,23 @@ PROBLEMAS RESOLVIDOS:
 #tool-3d-container p {
     margin: 0 0 10px 0 !important;
     font-weight: 600 !important;
-    /* CORREÇÃO: Texto preto forçado */
+    /* Force black text */
     color: #000 !important;
     font-size: 16px !important;
     text-align: center !important;
 }
 
-/* ===== GRID DE FERRAMENTAS 3D ===== */
+/* ===== 3D TOOLS GRID ===== */
 .tools-3d-bar {
     display: grid;
-    /* CORREÇÃO 3: Forçar 5 colunas em uma linha */
+    /* Force 5 columns in a single row */
     grid-template-columns: repeat(5, 1fr);
     gap: 6px;
     width: 100%;
     padding: 4px 0;
 }
 
-/* ===== BOTÕES DE FERRAMENTAS 3D ===== */
+/* ===== 3D TOOL BUTTONS ===== */
 .button-tool-3d {
     text-decoration: none;
     border: none;
@@ -165,7 +147,7 @@ PROBLEMAS RESOLVIDOS:
     transition: all 0.2s ease;
     background-color: transparent;
     border-radius: 6px;
-    /* CORREÇÃO 3: Reduzir padding dos botões */
+    /* Reduced button padding */
     padding: 4px;
     min-width: 50px;
     min-height: 50px;
@@ -199,7 +181,7 @@ PROBLEMAS RESOLVIDOS:
     filter: brightness(1.1);
 }
 
-/* ===== SCREENSHOT 3D ESPECÍFICO ===== */
+/* ===== 3D SCREENSHOT BUTTON ===== */
 #screenshot-3d {
     position: relative;
     overflow: hidden;
@@ -219,7 +201,7 @@ PROBLEMAS RESOLVIDOS:
     transform: scale(0.9);
 }
 
-/* ===== PAINEL FLOAT PARA MOBILE ===== */
+/* ===== MOBILE FLOAT PANEL ===== */
 .panel-icon-float {
     position: fixed;
     bottom: 30px;
@@ -255,7 +237,7 @@ PROBLEMAS RESOLVIDOS:
     fill: white;
 }
 
-/* ===== ESTADOS DE CARREGAMENTO ===== */
+/* ===== LOADING STATES ===== */
 #map-3d-tool-bar.loading {
     opacity: 0.7;
     pointer-events: none;
@@ -280,7 +262,7 @@ PROBLEMAS RESOLVIDOS:
     100% { transform: rotate(360deg); }
 }
 
-/* ===== TOOLTIPS PARA FERRAMENTAS ===== */
+/* ===== TOOL TOOLTIPS ===== */
 .button-tool-3d::after {
     content: attr(aria-label);
     position: absolute;
@@ -304,7 +286,7 @@ PROBLEMAS RESOLVIDOS:
     opacity: 1;
 }
 
-/* ===== ACESSIBILIDADE ===== */
+/* ===== ACCESSIBILITY ===== */
 .button-tool-3d:focus,
 .panel-icon-float:focus,
 #locate-3d-container button:focus,
@@ -313,7 +295,7 @@ PROBLEMAS RESOLVIDOS:
     outline-offset: 2px;
 }
 
-/* ===== PERFORMANCE OPTIMIZATIONS ===== */
+/* ===== PERFORMANCE ===== */
 .button-tool-3d,
 .panel-icon-float,
 #locate-3d-container button,
@@ -346,8 +328,7 @@ PROBLEMAS RESOLVIDOS:
    margin-top: 80px !important;
 }
 
-/* ===== BOTÃO DE FECHAR VIEWER 3D ===== */
-/* Posicionado no canto superior direito, mais chamativo que street view */
+/* ===== 3D VIEWER CLOSE BUTTON ===== */
 #close-3d-viewer-button {
     position: fixed;
     top: 20px;
@@ -377,7 +358,7 @@ PROBLEMAS RESOLVIDOS:
 }
 
 
-/* Mobile responsivo */
+/* ----- Mobile Responsive ----- */
 @media (max-width: 768px) {
     #close-3d-viewer-button {
         width: 45px;

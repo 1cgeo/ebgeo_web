@@ -154,7 +154,7 @@ class AddStreetViewControl {
                 break;
         }
 
-        // Atualizar interface se câmera foi rotacionada
+        // Update
         if (cameraRotated) {
             this.setCurrentMouse();
         }
@@ -364,7 +364,7 @@ class AddStreetViewControl {
                     maplibregl.addProtocol("pmtiles", protocol.tile);
                 }
 
-                // Adicionar sources PMTiles ao minimapa
+                // Add
                 this.miniMap.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
 
                 // Carregar imagens para os pontos
@@ -374,7 +374,7 @@ class AddStreetViewControl {
                 let pointSelectedImage = await this.miniMap.loadImage('./street_view/point-selected-v2.png');
                 this.miniMap.addImage('point-selected', pointSelectedImage.data);
 
-                // Adicionar layer de pontos
+                // Add
                 this.miniMap.addLayer({
                     'id': 'points',
                     'type': 'symbol',
@@ -474,7 +474,7 @@ class AddStreetViewControl {
         this.map.on('mouseenter', this.streetViewLinesLayer['id'], this.showHoverCursor);
         this.map.on('mouseleave', this.streetViewLinesLayer['id'], this.hideHoverCursor);
 
-        // Atualizar layer selecionado no minimapa
+        // Update
         if (this.miniMap.getLayer('selected')) {
             this.miniMap.removeLayer('selected');
         }
@@ -550,7 +550,7 @@ class AddStreetViewControl {
     // NOVA: Busca alternativa usando bbox
     getNeighborWithBboxQuery = async (point) => {
         try {
-            // Criar bbox ao redor do ponto (aproximadamente 100m de raio)
+            // Create
             const bufferDistance = 0.001; // aproximadamente 100m em graus
             const bbox = [
                 point.lng - bufferDistance,
@@ -763,7 +763,7 @@ class AddStreetViewControl {
     setCurrentPhotoName = (name) => {
         this.currentPhotoName = name
 
-        // Atualizar filtro no minimapa
+        // Update
         if (this.miniMap.getLayer('selected')) {
             this.miniMap.setFilter('selected', ["==", "nome_img", this.currentPhotoName]);
         }

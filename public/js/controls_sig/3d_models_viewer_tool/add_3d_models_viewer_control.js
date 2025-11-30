@@ -90,7 +90,7 @@ class Add3DModelsViewerControl {
     }
 
     async loadMarkers() {
-        // Criar GeoJSON a partir de config.tilesets
+        // Create
         const features = config.tilesets.map(tileset => ({
             type: 'Feature',
             geometry: {
@@ -152,7 +152,7 @@ class Add3DModelsViewerControl {
                 source: this.markersLayer,
                 layout: {
                     'icon-image': '3d-model-marker',
-                    'icon-size': 1.7,  // Tamanho adequado para o pin
+                    'icon-size': 1.7,  // Size
                     'icon-anchor': 'bottom',  // Pin aponta para baixo
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': true,
@@ -163,7 +163,7 @@ class Add3DModelsViewerControl {
                 }
             });
 
-            // Adicionar layer de labels
+            // Add
             this.map.addLayer({
                 id: this.markersLayer + '-labels',
                 type: 'symbol',

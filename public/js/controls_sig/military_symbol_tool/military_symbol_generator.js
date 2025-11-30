@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\military_symbol_generator.js
+// Path: js/controls_sig/military_symbol_tool/military_symbol_generator.js
 
 import { BrazilianSIDCExtension, normalizeSIDC, getBaseSIDC } from './brazilian_sidc_extension.js';
 import {
@@ -476,19 +476,19 @@ function extractTextModifiers(properties) {
 
     // Direct fields (pass through without transformation)
     const directFields = [
-        'uniqueDesignation',      // C - Designação
-        'higherFormation',        // B - Subordinação
-        'quantity',               // C1 - Quantidade
-        'reinforcedReduced',      // F - Reforço/Redução
-        'additionalInformation',  // H - Informações Adicionais
-        'type',                   // V - Tipo de Equipamento / Identificação AIS
-        'iffSif',                 // P - Código IFF
-        'altitudeDepth',          // X - Altitude/Profundidade
-        'equipmentTeardownTime',  // X1 - Tempo de Destruição
-        'location',               // Y - Localização
-        'speed',                  // Z - Velocidade
-        'specialHeadquarters',    // AA - Tipo de PC
-        'direction',               // Q - Direção/Azimute
+        'uniqueDesignation',      // C - Designation
+        'higherFormation',        // B - Higher Formation
+        'quantity',               // C1 - Quantity
+        'reinforcedReduced',      // F - Reinforced/Reduced
+        'additionalInformation',  // H - Additional Information
+        'type',                   // V - Equipment Type / AIS Identification
+        'iffSif',                 // P - IFF Code
+        'altitudeDepth',          // X - Altitude/Depth
+        'equipmentTeardownTime',  // X1 - Equipment Teardown Time
+        'location',               // Y - Location
+        'speed',                  // Z - Speed
+        'specialHeadquarters',    // AA - HQ Type
+        'direction',               // Q - Direction/Azimuth
         'engagementBar'
     ];
 

@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\data\atividades_eventos.js
+// Path: js/controls_sig/military_symbol_tool/data/atividades_eventos.js
 
 export default {
   "symbol_sets": [

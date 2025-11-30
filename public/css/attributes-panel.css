@@ -1,6 +1,6 @@
-/* css/attributes-panel.css - Sistema de Atributos Compacto */
+/* Path: css/attributes-panel.css */
 
-/* ===== VARIÁVEIS PARA CORES ===== */
+/* ===== COLOR VARIABLES ===== */
 :root {
     --error-color: #dc3545;
     --error-dark: #c82333;
@@ -13,13 +13,13 @@
     --primary-light: #6ba068;
 }
 
-/* ===== ESTRUTURA BASE DO PAINEL (COMPACTA) ===== */
+/* ===== BASE PANEL STRUCTURE ===== */
 .unified-attributes-panel {
-    min-width: 300px;  /* Reduzido de 320px */
+    min-width: 300px;
     position: absolute;
     bottom: 10px;
     right: 10px;
-    padding: 12px;  /* Reduzido de 15px */
+    padding: 12px;
     background-color: rgba(248, 248, 248, 0.95);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -28,17 +28,17 @@
     z-index: 100;
     display: flex;
     flex-direction: column;
-    width: 300px;  /* Reduzido de 320px */
+    width: 300px;
     max-height: calc(100vh - 100px);
     overflow-y: auto;
 }
 
 .unified-attributes-panel-mobile {
-    min-width: 300px;  /* Reduzido de 320px */
+    min-width: 300px;
     position: absolute;
     bottom: 10px;
     right: 10px;
-    padding: 10px;  /* Já compacto */
+    padding: 10px;
     background-color: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -53,26 +53,26 @@
     bottom: 50px;
 }
 
-/* ===== TÍTULOS E HEADERS ===== */
+/* ===== TITLES AND HEADERS ===== */
 .unified-attributes-panel h3,
 .unified-attributes-panel-mobile h3 {
-    margin: 0 0 12px 0;  /* Reduzido de 15px */
+    margin: 0 0 12px 0;
     color: #333;
-    font-size: 15px;  /* Reduzido de 16px */
+    font-size: 15px;
     font-weight: 600;
     border-bottom: 2px solid var(--primary-color);
-    padding-bottom: 4px;  /* Reduzido de 5px */
+    padding-bottom: 4px;
 }
 
-/* ===== LAYOUTS DE ATRIBUTOS (COMPACTOS) ===== */
+/* ===== ATTRIBUTE LAYOUTS ===== */
 .attr-container-row {
     display: flex;
     flex-direction: row;
-    gap: 6px;  /* Reduzido de 8px */
+    gap: 6px;
     align-items: center;
     width: 100%;
     justify-content: space-between;
-    margin-bottom: 10px;  /* Reduzido de 12px */
+    margin-bottom: 10px;
 }
 
 .attr-container-row:has(button) {
@@ -80,28 +80,28 @@
 }
 
 .attr-container-row button {
-    flex: 1; /* Cada botão ocupa 1/3 do espaço */
-    white-space: nowrap; /* Evita quebra de texto */
+    flex: 1;
+    white-space: nowrap;
 }
 
 .attr-container-column {
     display: flex;
     flex-direction: column;
-    gap: 5px;  /* Reduzido de 6px */
+    gap: 5px;
     align-items: flex-start;
     width: 100%;
     justify-content: start;
-    margin-bottom: 10px;  /* Reduzido de 12px */
+    margin-bottom: 10px;
 }
 
 .attr-name {
     width: 35%;
     font-weight: 500;
     color: #333;
-    font-size: 13px;  /* Reduzido de 14px */
+    font-size: 13px;
     display: flex;
     align-items: center;
-    min-height: 28px;  /* Reduzido de 32px */
+    min-height: 28px;
 }
 
 .attr-input {
@@ -116,7 +116,7 @@
     align-items: center;
 }
 
-/* ===== COMPONENTE NOME EDITÁVEL (NOVO) ===== */
+/* ===== EDITABLE NAME COMPONENT ===== */
 .feature-name-container {
     width: 100%;
     margin-bottom: 12px;
@@ -157,26 +157,26 @@
     box-shadow: 0 0 0 3px rgba(80, 141, 78, 0.1);
 }
 
-/* ===== SLIDERS E INPUTS NUMÉRICOS (COMPACTOS) ===== */
+/* ===== SLIDERS AND NUMERIC INPUTS ===== */
 .slider-numeric-container {
     display: flex;
-    gap: 6px;  /* Reduzido de 8px */
+    gap: 6px;
     align-items: center;
     width: 100%;
 }
 
 .slider-numeric-container input[type="number"] {
-    width: 70px;  /* Padronizado e compacto */
-    min-width: 70px;          /* ✅ NOVO: Garante width mínimo */
-    max-width: 70px;          /* ✅ NOVO: Garante width máximo */
-    flex-shrink: 0;           /* ✅ NOVO: Nunca encolhe no flex */
-    padding: 6px 4px;         /* ✅ AUMENTADO: Era 3px */
-    min-height: 28px;         /* ✅ NOVO: Altura mínima */
-    box-sizing: border-box;   /* ✅ GARANTIA: Padding incluído no width */
-    padding: 3px;  /* Reduzido de 4px */
+    width: 70px;
+    min-width: 70px;
+    max-width: 70px;
+    flex-shrink: 0;
+    padding: 6px 4px;
+    min-height: 28px;
+    box-sizing: border-box;
+    padding: 3px;
     border: 1px solid #ccc;
     border-radius: 3px;
-    font-size: 11px;  /* Reduzido de 12px */
+    font-size: 11px;
     text-align: center;
     transition: border-color 0.2s ease;
 }
@@ -188,20 +188,20 @@
 }
 
 .slider-numeric-container span {
-    font-size: 11px;  /* Reduzido de 12px */
+    font-size: 11px;
     color: #666;
     min-width: 20px;
     font-weight: 500;
 }
 
-/* ===== LABELS E INPUTS BÁSICOS ===== */
+/* ===== LABELS AND BASIC INPUTS ===== */
 .unified-attributes-panel label,
 .unified-attributes-panel-mobile label {
     display: block;
     font-weight: 500;
     color: #333;
-    font-size: 13px;  /* Reduzido de 14px */
-    margin-bottom: 4px;  /* Reduzido de 5px */
+    font-size: 13px;
+    margin-bottom: 4px;
 }
 
 .unified-attributes-panel input[type="text"],
@@ -213,10 +213,10 @@
 .unified-attributes-panel-mobile textarea,
 .unified-attributes-panel-mobile select {
     width: 100%;
-    padding: 6px;  /* Reduzido de 8px */
+    padding: 6px;
     border: 1px solid #ccc;
     border-radius: 3px;
-    font-size: 12px;  /* Reduzido de 13px */
+    font-size: 12px;
     transition: border-color 0.2s ease;
     box-sizing: border-box;
 }
@@ -235,15 +235,15 @@
 .unified-attributes-panel textarea,
 .unified-attributes-panel-mobile textarea {
     resize: vertical;
-    min-height: 60px;  /* Reduzido de 70px */
+    min-height: 60px;
     font-family: inherit;
 }
 
-/* ===== SLIDERS (COMPACTOS) ===== */
+/* ===== SLIDERS ===== */
 .slider {
     -webkit-appearance: none;
     width: 100%;
-    height: 6px;  /* Reduzido de 8px */
+    height: 6px; 
     border-radius: 3px;
     background: #ddd;
     outline: none;
@@ -257,8 +257,8 @@
 .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 15px;  /* Reduzido de 20px */
-    height: 15px;  /* Reduzido de 20px */
+    width: 15px;
+    height: 15px;
     border-radius: 50%;
     background: var(--primary-color);
     cursor: pointer;
@@ -272,8 +272,8 @@
 }
 
 .slider::-moz-range-thumb {
-    width: 15px;  /* Reduzido de 20px */
-    height: 15px;  /* Reduzido de 20px */
+    width: 15px;
+    height: 15px;
     border-radius: 50%;
     background: var(--primary-color);
     cursor: pointer;
@@ -303,12 +303,12 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* ===== CHECKBOXES/SWITCHES (COMPACTOS) ===== */
+/* ===== CHECKBOXES AND SWITCHES ===== */
 .switch {
     position: relative;
     display: inline-block;
-    width: 45px;  /* Reduzido de 54px */
-    height: 23px;  /* Reduzido de 30px */
+    width: 45px;
+    height: 23px;
 }
 
 .switch input {
@@ -326,14 +326,14 @@
     bottom: 0;
     background-color: #ccc;
     transition: 0.3s ease;
-    border-radius: 14px;  /* Ajustado proporcionalmente */
+    border-radius: 14px;
 }
 
 .slider-check:before {
     position: absolute;
     content: "";
-    height: 15px;  /* Reduzido de 22px */
-    width: 20px;   /* Reduzido de 22px */
+    height: 15px;
+    width: 20px;
     left: 4px;
     bottom: 4px;
     background-color: white;
@@ -362,19 +362,19 @@
     background-color: var(--primary-dark);
 }
 
-/* ===== BOTÕES DO PAINEL (COMPACTOS) ===== */
+/* ===== PANEL BUTTONS ===== */
 .unified-attributes-panel button,
 .unified-attributes-panel-mobile button {
-    margin-top: 8px;  /* Reduzido de 10px */
-    margin-right: 6px;  /* Reduzido de 8px */
-    padding: 7px 14px;  /* Reduzido de 8px 16px */
+    margin-top: 8px;
+    margin-right: 6px;
+    padding: 7px 14px;
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    font-size: 13px;  /* Reduzido de 14px */
+    font-size: 13px;
     font-weight: 500;
     transition: all 0.2s ease;
-    min-height: 32px;  /* Reduzido de 36px */
+    min-height: 32px;
     
     display: flex !important;
     align-items: center !important;
@@ -403,7 +403,7 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* ===== BOTÃO DELETE VERMELHO ===== */
+/* ===== DELETE BUTTON ===== */
 .delete-button,
 .unified-attributes-panel .delete-button,
 .unified-attributes-panel-mobile .delete-button {
@@ -434,31 +434,31 @@
     box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2) !important;
 }
 
-/* ===== JUSTIFY BUTTONS (PARA TEXT TOOL) ===== */
+/* ===== JUSTIFY BUTTONS ===== */
 .justify-container {
     display: flex;
     flex-direction: column;
-    gap: 6px;  /* Reduzido de 8px */
-    margin-bottom: 10px;  /* Reduzido de 12px */
+    gap: 6px;
+    margin-bottom: 10px;
 }
 
 .justify-label {
     font-weight: 500;
     color: #333;
-    font-size: 13px;  /* Reduzido de 14px */
+    font-size: 13px;
 }
 
 .justify-buttons {
     display: flex;
-    gap: 4px;  /* Reduzido de 6px */
+    gap: 4px;
 }
 
 .justify-buttons button {
     flex: 1;
-    padding: 6px;  /* Reduzido de 8px */
+    padding: 6px;
     margin: 0;
-    min-height: 30px;  /* Reduzido de 32px */
-    font-size: 12px;  /* Reduzido de 13px */
+    min-height: 30px;
+    font-size: 12px;
 }
 
 /* ===== SCROLLBAR STYLING ===== */
@@ -485,7 +485,7 @@
     background: var(--primary-color);
 }
 
-/* ===== ANIMAÇÕES SUAVES ===== */
+/* ===== ANIMATIONS ===== */
 .unified-attributes-panel {
     animation: slideInUp 0.3s ease-out;
 }
@@ -500,9 +500,7 @@
         transform: translateY(0);
     }
 }
-/* ===== HEADER COM OPÇÕES (NOVO) ===== */
-
-/* Container principal: nome + botão lado a lado */
+/* ===== HEADER WITH OPTIONS ===== */
 .feature-header-with-options {
     width: 100%;
     margin-bottom: 12px;
@@ -511,19 +509,17 @@
     gap: 8px;
 }
 
-/* Wrapper do nome (ocupa espaço restante) */
 .feature-name-wrapper {
     flex: 1;
     min-width: 0;
 }
 
-/* feature-name-container mantém seu estilo original */
 .feature-header-with-options .feature-name-container {
     width: 100%;
     margin-bottom: 0;
 }
 
-/* Botão de opções (3 pontos) */
+/* ----- Options Button ----- */
 .feature-options-button {
     width: 18px;
     height: 18px;
@@ -571,7 +567,7 @@
     pointer-events: none;
 }
 
-/* Dropdown de opções da feature */
+/* ----- Feature Dropdown ----- */
 .feature-dropdown-content {
     position: fixed;
     background-color: white;
@@ -602,7 +598,7 @@
     }
 }
 
-/* Botão do menu dropdown */
+/* ----- Menu Buttons ----- */
 .feature-menu-button {
     background: none;
     border: none;

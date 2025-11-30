@@ -1,4 +1,4 @@
-// Path: js\controls_sig\arrow_tool\add_arrow_control.js
+// Path: js/controls_sig/arrow_tool/add_arrow_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
@@ -49,26 +49,26 @@ class AddArrowControl extends BaseControl {
 
     // ===== ZOOM-ADAPTIVE WIDTH CONSTANTS =====
     static WIDTH_SIZE_CONSTANTS = {
-        MIN_WIDTH_M: 50,           // Largura mínima: 50 metros
-        DEFAULT_WIDTH_M: 500,      // Fallback se cálculo falhar
-        ZOOM_BASE_MULTIPLIER: 40, // Multiplicador base
-        ZOOM_EXPONENT_BASE: 2      // Base exponencial
+        MIN_WIDTH_M: 50,           // Minimum width: 50 meters
+        DEFAULT_WIDTH_M: 500,      // Fallback if calculation fails
+        ZOOM_BASE_MULTIPLIER: 40,  // Base multiplier
+        ZOOM_EXPONENT_BASE: 2      // Exponential base
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
 
 
     /**
-     * Calcula largura da seta baseada no zoom atual
-     * @param {number} zoom - Nível de zoom do mapa
-     * @returns {number} Largura em metros
+     * Calculate arrow width based on current zoom level
+     * @param {number} zoom - Map zoom level
+     * @returns {number} Width in meters
      */
     calculateWidthForZoom(zoom) {
         const { ZOOM_BASE_MULTIPLIER, ZOOM_EXPONENT_BASE, DEFAULT_WIDTH_M, MIN_WIDTH_M } =
             AddArrowControl.WIDTH_SIZE_CONSTANTS;
-        
+
         try {
-            // Decaimento exponencial: zoom alto = setas menores
+            // Exponential decay: higher zoom = smaller arrows
             // Zoom 5 → ~8000m, Zoom 10 → ~500m, Zoom 15 → ~50m
             const calculatedWidth = Math.pow(ZOOM_EXPONENT_BASE, 16 - zoom) * ZOOM_BASE_MULTIPLIER;
             return Math.max(MIN_WIDTH_M, calculatedWidth);
@@ -383,14 +383,14 @@ class AddArrowControl extends BaseControl {
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
             this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
         }
-        // Drawing mode - showing arrow preview  
+        // Drawing mode - showing arrow preview
         else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 2) {
             const isAirmobile = AddArrowControl.DEFAULT_PROPERTIES.airmobile;
             const debounceTime = isAirmobile ? 12 : 8;
 
             clearTimeout(this.geometryDebounceTimer);
             this.geometryDebounceTimer = setTimeout(() => {
-                // Calcular largura adaptativa para preview
+                // Calculate adaptive width for preview
                 const currentZoom = this.map.getZoom();
                 const previewWidth = this.calculateWidthForZoom(currentZoom);
                 
@@ -455,7 +455,7 @@ class AddArrowControl extends BaseControl {
         const featureId = IDUtils.generateUniqueId();
         const featureName = await IDUtils.generateFeatureName('arrow', this.map);
 
-        // Calcular largura adaptativa ao zoom
+        // Calculate adaptive width based on zoom
         const currentZoom = this.map.getZoom();
         const adaptiveWidth = this.calculateWidthForZoom(currentZoom);
 

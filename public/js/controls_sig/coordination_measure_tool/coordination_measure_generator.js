@@ -154,7 +154,7 @@ export class CoordinationMeasureGenerator {
    * @returns {string} SVG com tracejado
    */
   applyDashedStroke(svg) {
-    // Adicionar stroke-dasharray a todos os elementos com stroke
+    // Add
     return svg.replace(
       /stroke="([^"]*)"/g, 
       'stroke="$1" stroke-dasharray="5,5"'
@@ -220,7 +220,7 @@ export class CoordinationMeasureGenerator {
       // Se não tem valor, não renderizar
       if (!value && value !== 0) return;
       
-      // Criar elemento de texto
+      // Create
       textElements.push(this.createTextElement(
         config.position.x,
         config.position.y,
@@ -248,7 +248,7 @@ export class CoordinationMeasureGenerator {
         `viewBox="${dynamicVB.viewBoxString}"`
       );
       
-      // Atualizar width e height
+      // Update
       svg = svg.replace(
         /width="[^"]*"/,
         `width="${dynamicVB.width}"`

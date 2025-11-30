@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\data\individuos_desembarcados.js
+// Path: js/controls_sig/military_symbol_tool/data/individuos_desembarcados.js
 
 export default {
   "symbol_sets": [

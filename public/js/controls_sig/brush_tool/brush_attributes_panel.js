@@ -53,7 +53,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
 
     // ===== PROPRIEDADES ESPECÍFICAS DO PINCEL =====
 
-    // Cor da linha
+    // Line color
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
         brushControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -61,7 +61,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
 
     $(panel).append(createAttributeRow('Cor:', lineColorInput));
 
-    // Largura da linha (em pixels)
+    // Line width (pixels)
     const lineWidthControl = createSliderWithInput({
         min: 1,
         max: 50,

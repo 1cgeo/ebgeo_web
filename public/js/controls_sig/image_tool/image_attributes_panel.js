@@ -53,7 +53,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
 
     // ===== PROPRIEDADES ESPECÍFICAS DA IMAGEM =====
 
-    // Tamanho
+    // Size
     const sizeControl = createSliderWithInput(getCommonConfig('size',
         feature.properties.size, {
         onChange: (value) => {
@@ -90,7 +90,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
 
     $(panel).append(createAttributeRow('Rotação:', rotationControl));
 
-    // Opacidade (0-100% com conversão automática)
+    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round(feature.properties.opacity * 100), {
         onChange: (value) => {

@@ -85,7 +85,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
     );
     $(panel).append(createAttributeRow('Estilo da linha:', lineStyleSelect));
 
-    // Opacidade
+    // Opacity (0-100% with automatic conversion)
     const opacitySlider = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100), {
         onChange: (newValue) => {

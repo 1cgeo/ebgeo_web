@@ -1,4 +1,4 @@
-// Path: js\control_3d\mouse_coordinates_3d.js
+// Path: js/control_3d/mouse_coordinates_3d.js
 import { 
     COORDINATE_FORMATS, 
     getPlaceholderForFormat, 
@@ -21,7 +21,7 @@ function initMouseCoordinates3D(viewer) {
     if (!viewer) return;
     viewerInstance = viewer;
     
-    // Remove existing if any
+    // Remove existing container if any
     cleanupMouseCoordinates3D();
     
     // Create coordinates container

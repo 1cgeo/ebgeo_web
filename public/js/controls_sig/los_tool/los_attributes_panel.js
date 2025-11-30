@@ -52,7 +52,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
 
     // ===== PROPRIEDADES ESPECÍFICAS DA LOS =====
 
-    // Opacidade (0-100% com conversão automática)
+    // Opacity (0-100% with automatic conversion)
     const opacityControl = createSliderWithInput(getCommonConfig('opacity',
         Math.round(feature.properties.opacity * 100), {
         onChange: (value) => {

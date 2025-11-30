@@ -1,4 +1,4 @@
-/* css/features-tab.css - Features tab styling */
+/* Path: css/features-tab.css */
 
 .features-tab-content {
     width: 100%;
@@ -458,7 +458,7 @@
     color: var(--primary-color);
 }
 
-/* Feature States */
+/* ----- Feature States ----- */
 .feature-item.feature-hidden .feature-name {
     opacity: 0.5;
     color: #999;
@@ -493,7 +493,7 @@
     color: #c82333;
 }
 
-/* Performance optimizations */
+/* ----- Performance Optimizations ----- */
 .feature-item,
 .visibility-toggle,
 .lock-toggle,
@@ -504,7 +504,7 @@
     will-change: transform, background-color, color;
 }
 
-/* Accessibility */
+/* ----- Accessibility ----- */
 .visibility-toggle:focus,
 .lock-toggle:focus,
 .feature-name:focus {

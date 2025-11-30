@@ -324,7 +324,7 @@ class AddLOSControl extends BaseControl {
             try {
                 const updatedFeatures = await this.recalculateMovedLOSFeatures(losFeatures);
                 
-                // Atualizar SelectionManager com features recalculados
+                // Update
                 this.updateSelectionManagerFeatures(updatedFeatures);
                 
                 // Forçar atualização do UI/painel com dados frescos
@@ -384,19 +384,19 @@ class AddLOSControl extends BaseControl {
                         // Recalcular LOS com nova posição
                         const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map);
 
-                        // Atualizar feature com nova geometria e perfil
+                        // Update
                         movedFeature.geometry = result.geometry;
                         movedFeature.properties.profileData = JSON.stringify(result.profileData);
 
-                        // Salvar no IndexedDB
+                        // Save
                         await updateFeature('los', movedFeature);
 
-                        // Atualizar measurement se habilitado
+                        // Update
                         if (movedFeature.properties.measure) {
                             this.updateFeatureMeasurement(movedFeature);
                         }
 
-                        // Atualizar processed features
+                        // Update
                         await this.updateProcessedFeaturesAfterMove(movedFeature);
                         
                         updatedFeatures.push(movedFeature);

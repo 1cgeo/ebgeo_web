@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\data\maritimos_superficie.js
+// Path: js/controls_sig/military_symbol_tool/data/maritimos_superficie.js
 
 export default {
   "symbol_sets": [

@@ -1223,10 +1223,10 @@ export const deleteLayer = async (layerId) => {
         return false;
     }
     
-    // Deletar todas as features da camada
+    // Delete
     await deleteLayerFeatures(layerId, mapName);
     
-    // Remover a camada da lista
+    // Remove
     const updatedLayers = layers.filter(l => l.id !== layerId);
     await setLayersRepo(mapName, updatedLayers);
     currentMapLayers = updatedLayers;
@@ -1261,7 +1261,7 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
         currentMapData.features[storageType] = typeFeatures.filter(feature => {
             const featureLayerId = feature.properties?.layerId || 'default';
             if (featureLayerId === layerId) {
-                // Remover feature de grupos
+                // Remove
                 const featureId = feature.properties?.id;
                 if (featureId) {
                     groupManager.removeFeatureFromAllGroups(storageType, featureId, targetMap);
@@ -1353,7 +1353,7 @@ export const reorderLayers = async (orderedLayerIds) => {
     const mapName = getCurrentMapNameSync();
     const layers = currentMapLayers || [];
     
-    // Criar nova ordem baseada nos IDs fornecidos
+    // Create
     const reorderedLayers = [];
     for (const layerId of orderedLayerIds) {
         const layer = layers.find(l => l.id === layerId);
@@ -1362,7 +1362,7 @@ export const reorderLayers = async (orderedLayerIds) => {
         }
     }
     
-    // Adicionar camadas que não estavam na lista (segurança)
+    // Add
     for (const layer of layers) {
         if (!reorderedLayers.find(l => l.id === layer.id)) {
             reorderedLayers.push(layer);

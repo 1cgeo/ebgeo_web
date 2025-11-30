@@ -1147,7 +1147,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       'classeSuprimento', 'status', 'numeroConcentracao', 'altitude'
     ];
 
-    // Criar cópia das propriedades SEM text modifiers
+    // Create
     const safeProperties = { ...properties };
     TEXT_MODIFIERS.forEach(key => {
       delete safeProperties[key];

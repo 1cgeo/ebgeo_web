@@ -66,7 +66,7 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
     });
     $(panel).append(createAttributeRow('Cor:', colorInput));
 
-    // Tamanho
+    // Size
     const sizeSlider = createSliderWithInput({
         min: 6,
         max: 20,
@@ -78,7 +78,7 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
     });
     $(panel).append(createAttributeRow('Tamanho:', sizeSlider));
 
-    // Opacidade
+    // Opacity (0-100% with automatic conversion)
     const opacitySlider = createSliderWithInput(getCommonConfig('opacity',
         Math.round((feature.properties.opacity !== undefined ?
             feature.properties.opacity : 1) * 100), {

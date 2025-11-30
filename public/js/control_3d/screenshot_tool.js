@@ -1,38 +1,38 @@
-// Path: js\control_3d\screenshot_tool.js
+// Path: js/control_3d/screenshot_tool.js
 let viewerInstance = null;
 
 /**
- * Função principal para capturar screenshot do viewer Cesium
- * @param {Cesium.Viewer} viewer - Instância do viewer Cesium
- * @returns {Promise<boolean>} - True se capturou com sucesso, false caso contrário
+ * Main function to capture screenshot from Cesium viewer
+ * @param {Cesium.Viewer} viewer - Cesium viewer instance
+ * @returns {Promise<boolean>} - True if captured successfully, false otherwise
  */
 async function takeScreenshot(viewer) {
     viewerInstance = viewer;
     
     try {
         
-        // Verificar se preserveDrawingBuffer está ativo
+        // Check if preserveDrawingBuffer is active
         if (!checkPreserveDrawingBuffer()) {
-            console.warn('⚠️ preserveDrawingBuffer não está ativo, tentando workaround...');
+            console.warn('preserveDrawingBuffer is not active, trying workaround...');
         }
         
-        // Aguardar que tudo esteja carregado e renderizado
+        // Wait for everything to be loaded and rendered
         await ensureFullyRendered();
         
-        // Capturar o screenshot com método robusto
+        // Capture screenshot with robust method
         const success = await captureScreenshotRobust();
         
         return success;
         
     } catch (error) {
-        console.error('💥 Erro ao capturar screenshot 3D:', error);
-        alert('Não foi possível capturar o screenshot 3D');
+        console.error('Error capturing 3D screenshot:', error);
+        alert('Could not capture 3D screenshot');
         return false;
     }
 }
 
 /**
- * Verifica se preserveDrawingBuffer está ativo no contexto WebGL
+ * Checks if preserveDrawingBuffer is active in WebGL context
  */
 function checkPreserveDrawingBuffer() {
     try {
@@ -46,34 +46,34 @@ function checkPreserveDrawingBuffer() {
         
         return false;
     } catch (error) {
-        console.warn('Erro ao verificar preserveDrawingBuffer:', error);
+        console.warn('Error checking preserveDrawingBuffer:', error);
         return false;
     }
 }
 
 /**
- * Aguarda que a cena esteja completamente carregada e renderizada
+ * Waits for scene to be fully loaded and rendered
  */
 async function ensureFullyRendered() {
     const scene = viewerInstance.scene;
     const globe = scene.globe;
     
-    // 1. Aguardar que imagery layers estejam prontos
+    // 1. Wait for imagery layers to be ready
     await waitForImageryLayers();
     
-    // 2. Aguardar que terrain esteja carregado
+    // 2. Wait for terrain to be loaded
     await waitForTerrain();
     
-    // 3. Aguardar que tilesets estejam carregados
+    // 3. Wait for tilesets to be loaded
     await waitForTilesets();
     
-    // 4. Forçar várias renderizações para garantir que tudo foi desenhado
+    // 4. Force multiple renders to ensure everything is drawn
     await renderMultipleFrames();
     
 }
 
 /**
- * Aguarda que todos os imagery layers estejam prontos
+ * Waits for all imagery layers to be ready
  */
 function waitForImageryLayers() {
     return new Promise((resolve) => {
@@ -107,22 +107,22 @@ function waitForImageryLayers() {
 }
 
 /**
- * Aguarda que o terrain esteja carregado na view atual
+ * Waits for terrain to be loaded in current view
  */
 function waitForTerrain() {
     return new Promise((resolve) => {
         const scene = viewerInstance.scene;
         const globe = scene.globe;
-        // Se usando EllipsoidTerrainProvider, não precisa aguardar
+        // If using EllipsoidTerrainProvider, no need to wait
         if (!globe.terrainProvider._availability) {
             resolve();
             return;
         }
         
-        // Para CesiumTerrainProvider, aguardar que esteja pronto
+        // For CesiumTerrainProvider, wait until ready
         const checkTerrain = () => {
             if (globe.terrainProvider.ready) {
-                // Aguardar um pouco mais para garantir que os tiles foram carregados
+                // Wait a bit more to ensure tiles are loaded
                 setTimeout(resolve, 200);
             } else {
                 setTimeout(checkTerrain, 100);
@@ -134,14 +134,14 @@ function waitForTerrain() {
 }
 
 /**
- * Aguarda que os tilesets 3D estejam carregados
+ * Waits for 3D tilesets to be loaded
  */
 function waitForTilesets() {
     return new Promise((resolve) => {
         const primitives = viewerInstance.scene.primitives;
         const tilesets = [];
         
-        // Encontrar todos os tilesets
+        // Find all tilesets
         for (let i = 0; i < primitives.length; i++) {
             const primitive = primitives.get(i);
             if (primitive instanceof Cesium.Cesium3DTileset) {
@@ -154,12 +154,12 @@ function waitForTilesets() {
             return;
         }
         
-        // Aguardar que todos estejam prontos
+        // Wait for all to be ready
         const checkTilesets = () => {
             const allReady = tilesets.every(tileset => tileset.ready);
-            
+
             if (allReady) {
-                // Aguardar um pouco mais para carregamento de tiles na view atual
+                // Wait a bit more for tile loading in current view
                 setTimeout(resolve, 300);
             } else {
                 setTimeout(checkTilesets, 100);
@@ -171,7 +171,7 @@ function waitForTilesets() {
 }
 
 /**
- * Renderiza múltiplos frames para garantir que tudo foi desenhado
+ * Renders multiple frames to ensure everything is drawn
  */
 function renderMultipleFrames() {
     return new Promise((resolve) => {
@@ -181,11 +181,11 @@ function renderMultipleFrames() {
         function renderFrame() {
             frameCount++;
             
-            // Forçar renderização
+            // Force render
             viewerInstance.render();
             
             if (frameCount >= maxFrames) {
-                // Aguardar mais um frame para garantir
+                // Wait one more frame to ensure
                 requestAnimationFrame(() => {
                     viewerInstance.render();
                     resolve();
@@ -200,128 +200,128 @@ function renderMultipleFrames() {
 }
 
 /**
- * Captura screenshot com estratégia robusta
+ * Captures screenshot with robust strategy
  */
 async function captureScreenshotRobust() {
     const canvas = viewerInstance.scene.canvas;
     
-    // Método 1: Verificar se o canvas tem conteúdo válido
+    // Method 1: Check if canvas has valid content
     if (await isCanvasEmpty(canvas)) {
-        console.warn('⚠️ Canvas vazio detectado, tentando método alternativo...');
+        console.warn('Empty canvas detected, trying alternative method...');
         return await captureWithWorkaround();
     }
     
-    // Método 2: Captura direta do canvas (melhor qualidade)
+    // Method 2: Direct canvas capture (best quality)
     try {
         const dataURL = canvas.toDataURL('image/png');
-        
-        // Verificar se o dataURL é válido (não só header)
-        if (dataURL.length > 100) { // Um PNG válido tem mais que 100 caracteres
+
+        // Check if dataURL is valid (not just header)
+        if (dataURL.length > 100) { // A valid PNG has more than 100 characters
             await downloadImageFromDataURL(dataURL);
             return true;
         } else {
-            throw new Error('DataURL muito pequeno, provavelmente vazio');
+            throw new Error('DataURL too small, probably empty');
         }
         
     } catch (error) {
-        console.warn('Erro na captura direta, tentando método alternativo:', error);
+        console.warn('Error in direct capture, trying alternative method:', error);
         return await captureWithWorkaround();
     }
 }
 
 /**
- * Verifica se o canvas está vazio (preto ou transparente)
+ * Checks if canvas is empty (black or transparent)
  */
 async function isCanvasEmpty(canvas) {
     try {
-        // Criar um canvas temporário para testar
+        // Create temporary canvas for testing
         const testCanvas = document.createElement('canvas');
         testCanvas.width = Math.min(canvas.width, 100); // Amostra pequena para performance
         testCanvas.height = Math.min(canvas.height, 100);
         
         const ctx = testCanvas.getContext('2d');
         
-        // Copiar uma pequena área do canvas original
+        // Copy a small area from original canvas
         ctx.drawImage(canvas, 0, 0, testCanvas.width, testCanvas.height);
         
-        // Obter dados dos pixels
+        // Get pixel data
         const imageData = ctx.getImageData(0, 0, testCanvas.width, testCanvas.height);
         const data = imageData.data;
         
-        // Verificar se há pixels não-pretos
+        // Check for non-black pixels
         for (let i = 0; i < data.length; i += 4) {
             const r = data[i];
             const g = data[i + 1];
             const b = data[i + 2];
             const a = data[i + 3];
-            
-            // Se encontrar qualquer pixel que não seja preto/transparente
+
+            // If any pixel is not black/transparent
             if ((r > 0 || g > 0 || b > 0) && a > 0) {
-                return false; // Canvas não está vazio
+                return false; // Canvas is not empty
             }
         }
-        
-        return true; // Canvas está vazio
+
+        return true; // Canvas is empty
         
     } catch (error) {
-        console.warn('Erro ao verificar se canvas está vazio:', error);
-        return false; // Em caso de erro, assumir que não está vazio
+        console.warn('Error checking if canvas is empty:', error);
+        return false; // On error, assume not empty
     }
 }
 
 /**
- * Método alternativo para captura quando o canvas está vazio
+ * Alternative capture method when canvas is empty
  */
 async function captureWithWorkaround() {
     
     try {
-        // Salvar configurações atuais
+        // Save current settings
         const scene = viewerInstance.scene;
         const originalRequestRenderMode = scene.requestRenderMode;
         
-        // Desabilitar render mode otimizado temporariamente
+        // Temporarily disable optimized render mode
         scene.requestRenderMode = false;
         
-        // Aguardar um tempo maior para recarregamento
+        // Wait longer for reload
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Forçar múltiplas renderizações
+        // Force multiple renders
         for (let i = 0; i < 10; i++) {
             viewerInstance.render();
             await new Promise(resolve => requestAnimationFrame(resolve));
         }
         
-        // Tentar capturar novamente
+        // Try to capture again
         const canvas = viewerInstance.scene.canvas;
         const dataURL = canvas.toDataURL('image/png');
         
-        // Restaurar configurações originais
+        // Restore original settings
         scene.requestRenderMode = originalRequestRenderMode;
         
         if (dataURL.length > 100) {
             await downloadImageFromDataURL(dataURL);
             return true;
         } else {
-            throw new Error('Ainda produzindo canvas vazio após workaround');
+            throw new Error('Still producing empty canvas after workaround');
         }
         
     } catch (error) {
-        console.error('Workaround falhou:', error);
+        console.error('Workaround failed:', error);
         return await captureLastResort();
     }
 }
 
 /**
- * Último recurso para captura
+ * Last resort capture method
  */
 async function captureLastResort() {
-    console.warn('🆘 Usando último recurso para screenshot...');
+    console.warn('Using last resort for screenshot...');
     
     try {
-        // Aguardar mais tempo
+        // Wait longer
         await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // Forçar renderização com configurações menos otimizadas
+        // Force render with less optimized settings
         const scene = viewerInstance.scene;
         const originalFXAA = scene.fxaa;
         const originalRequestRenderMode = scene.requestRenderMode;
@@ -329,7 +329,7 @@ async function captureLastResort() {
         scene.fxaa = true;
         scene.requestRenderMode = false;
         
-        // Múltiplas renderizações
+        // Multiple renders
         for (let i = 0; i < 15; i++) {
             viewerInstance.render();
             await new Promise(resolve => setTimeout(resolve, 50));
@@ -338,12 +338,12 @@ async function captureLastResort() {
         const canvas = viewerInstance.scene.canvas;
         const dataURL = canvas.toDataURL('image/png');
         
-        // Restaurar configurações
+        // Restore settings
         scene.fxaa = originalFXAA;
         scene.requestRenderMode = originalRequestRenderMode;
         
         if (dataURL === 'data:,' || dataURL.length < 100) {
-            console.error('❌ Canvas permanece vazio mesmo após último recurso');
+            console.error('Canvas remains empty even after last resort');
             alert('Screenshot não pôde ser capturado. Tente aguardar o carregamento completo da cena.');
             return false;
         }
@@ -352,13 +352,13 @@ async function captureLastResort() {
         return true;
         
     } catch (error) {
-        console.error('Último recurso falhou completamente:', error);
+        console.error('Last resort failed completely:', error);
         return false;
     }
 }
 
 /**
- * Download usando dataURL
+ * Downloads image using dataURL
  */
 async function downloadImageFromDataURL(dataURL) {
     try {
@@ -366,13 +366,13 @@ async function downloadImageFromDataURL(dataURL) {
         link.download = `ebgeo-3d-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
         link.href = dataURL;
         
-        // Simular clique para iniciar download
+        // Simulate click to start download
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
                 
     } catch (error) {
-        console.error('Erro ao fazer download via dataURL:', error);
+        console.error('Error downloading via dataURL:', error);
         throw error;
     }
 }

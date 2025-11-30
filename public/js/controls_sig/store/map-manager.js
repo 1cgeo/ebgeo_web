@@ -22,7 +22,7 @@ class MapManager {
     setCurrentMapName(mapName) {
         this.memoryStore.currentMap = mapName;
         
-        // Criar entrada no memoryStore se não existir
+        // Create
         if (!this.memoryStore.maps[mapName]) {
             this.memoryStore.maps[mapName] = {
                 undoStack: [],
@@ -32,7 +32,7 @@ class MapManager {
     }
 
     async setCurrentMap(mapName) {
-        // Salvar cache do mapa anterior (se houver)
+        // Save
         if (this.memoryStore.currentMap && this.memoryStore.currentMap !== mapName) {
             await this.saveColorUsageToDB(this.memoryStore.currentMap);
         }
@@ -83,10 +83,10 @@ class MapManager {
             mapColorCounts = await this.calculateMapColors(mapData);
         }
         
-        // Salvar no IndexDB específico do mapa
+        // Save
         await setColorUsage(mapName, Object.fromEntries(mapColorCounts));
         
-        // Atualizar cache do projeto (soma global)
+        // Update
         this.updateProjectColorCache(mapColorCounts, 'add');
         
         // Se é o mapa atual, também atualizar cache de memória
@@ -200,7 +200,7 @@ class MapManager {
             // Sempre persistir no IndexDB
             await setColorUsage(mapName, Object.fromEntries(colorCounts));
             
-            // Atualizar cache do projeto
+            // Update
             this.updateProjectColorCache(colorCounts, 'add');
             
         } catch (error) {
@@ -219,7 +219,7 @@ class MapManager {
         if (newColor === 'none') newColor = null;
         
         if (isCurrentMap) {
-            // Atualizar cache de memória apenas se for o mapa atual
+            // Update
             if (oldColor) {
                 const oldCount = this.memoryStore.colorUsageCache.get(oldColor) || 0;
                 if (oldCount <= 1) {
@@ -384,7 +384,7 @@ class MapManager {
                 // UNDO: Mover features de volta (destino → origem)
                 for (const [type, typeOps] of Object.entries(action.movedFeatures)) {
                     for (const featureOp of typeOps.mainFeatures) {
-                        // Remover do destino
+                        // Remove
                         await executeFunction.removeFeatureFromMap(type, featureOp.feature.properties.id, action.targetMapName);
                         
                         // Restaurar na origem
@@ -414,7 +414,7 @@ class MapManager {
                 await executeFunction.removeFeature(action.featureType, action.feature.properties.id);
                 break;
             case 'removeWithProcessed':
-                // Remover feature principal (que automaticamente remove processadas)
+                // Remove
                 await executeFunction.removeFeature(action.mainFeatureType, action.mainFeature.properties.id);
                 break;
             case 'addMultiple':
@@ -428,13 +428,13 @@ class MapManager {
                 // REDO: Refazer o movimento (origem → destino)
                 for (const [type, typeOps] of Object.entries(action.movedFeatures)) {
                     for (const featureOp of typeOps.mainFeatures) {
-                        // Remover da origem
+                        // Remove
                         await executeFunction.removeFeatureFromMap(type, featureOp.removedData.mainFeature.properties.id, action.sourceMapName);
                         
-                        // Adicionar no destino
+                        // Add
                         await executeFunction.addFeatureToMap(type, featureOp.feature, action.targetMapName);
 
-                        // Adicionar processadas se houver
+                        // Add
                         if (featureOp.removedData.processedFeatures) {
                             for (const pf of featureOp.removedData.processedFeatures.features) {
                                 await executeFunction.addFeatureToMap(featureOp.removedData.processedFeatures.type, pf, action.targetMapName);
@@ -487,7 +487,7 @@ class MapManager {
         // Código existente
         delete this.memoryStore.maps[mapName];
         
-        // Remover cores do cache do projeto
+        // Remove
         try {
             const mapColors = await getColorUsage(mapName);
             if (mapColors && Object.keys(mapColors).length > 0) {

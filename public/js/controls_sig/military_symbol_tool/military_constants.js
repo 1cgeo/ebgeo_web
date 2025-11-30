@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\military_constants.js
+// Path: js/controls_sig/military_symbol_tool/military_constants.js
 
 // Import all symbol set data files
 import landUnitsData from './data/unidades.js';
@@ -92,10 +92,10 @@ export function getModifier2(symbolSetCode) {
  * ========================================
  */
 export const MILITARY_DATA = {
-    // Campo A: Identificador de formato (sempre "10")
+    // Field A: Format Identifier (always "10")
     format: "10",
 
-    // Campo C: Standard Identity (1 dígito)
+    // Field C: Standard Identity (1 digit)
     standardIdentity: [
         { value: "0", label: "Pendente" },
         { value: "1", label: "Desconhecido" },
@@ -106,7 +106,7 @@ export const MILITARY_DATA = {
         { value: "6", label: "Hostil" }
     ],
 
-    // Campo D: Symbol Set (2 dígitos) - AGORA DINÂMICO
+    // Field D: Symbol Set (2 digits) - NOW DYNAMIC
     symbolSets: [
         { value: "01", label: "Aeronaves" },
         { value: "02", label: "Mísseis" },
@@ -121,7 +121,7 @@ export const MILITARY_DATA = {
         { value: "40", label: "Atividades e Eventos" }
     ],
 
-    // Campo E: Status (1 dígito)
+    // Field E: Status (1 digit)
     status: [
         { value: "0", label: "Posição atual ou confirmada" },
         { value: "1", label: "Posição planejada, estimada ou suspeita" },
@@ -131,7 +131,7 @@ export const MILITARY_DATA = {
         { value: "5", label: "Confirmado e completo" }
     ],
 
-    // Campo F: HQ/TF/Dummy (1 dígito)
+    // Field F: HQ/TF/Dummy (1 digit)
     hqTfDummy: [
         { value: "0", label: "Não Aplicável" },
         { value: "2", label: "Posto de Comando" },
@@ -139,7 +139,7 @@ export const MILITARY_DATA = {
         { value: "6", label: "Posto de Comando de Força-Tarefa" },
     ],
 
-    // Campo G: Escalão (2 dígitos)
+    // Field G: Echelon (2 digits)
     echelon: [
         { value: "00", label: "Não Especificado" },
         { value: "11", label: "Equipe/Guarnição" },
@@ -157,7 +157,7 @@ export const MILITARY_DATA = {
         { value: "26", label: "Valor Indeterminado" }
     ],
 
-    // Campo G: Mobilidade (para Equipamentos e Viaturas - Symbol Set 15)
+    // Field G: Mobility (for Equipment and Vehicles - Symbol Set 15)
     mobility: [
         { value: "00", label: "Não Especificado" },
         { value: "31", label: "Sobre rodas – sem tração" },
@@ -175,15 +175,15 @@ export const MILITARY_DATA = {
         { value: "62", label: "Reboque naval longo" }
     ],
 
-    // Campo G: Liderança (para Indivíduos Desembarcados - Symbol Set 27)
+    // Field G: Leadership (for Dismounted Individuals - Symbol Set 27)
     leadership: [
         { value: "00", label: "Não Especificado" },
         { value: "71", label: "Líder/Comandante" },
         { value: "72", label: "Subchefe/Subcomandante" }
     ],
 
-    // Modificador Transversal (Extensão Brasileira - Bits 10-12)
-    // Para Unidades (10) - todas as opções
+    // Cross-Cutting Modifier (Brazilian Extension - Bits 10-12)
+    // For Units (10) - all options
     specialModifier: [
         { value: "0", label: "Não Aplicável" },
         { value: "1", label: "Blindado" },
@@ -192,7 +192,7 @@ export const MILITARY_DATA = {
         { value: "4", label: "Defesa Aérea" }
     ],
 
-    // Modificador Transversal para Equipamentos e Viaturas (15) - apenas Blindado
+    // Cross-Cutting Modifier for Equipment and Vehicles (15) - Armored only
     specialModifierEquipment: [
         { value: "0", label: "Não Aplicável" },
         { value: "1", label: "Blindado" }
@@ -264,7 +264,7 @@ export function getEchelonData(symbolSetCode) {
                 label: 'Mobilidade',
                 applicable: true
             };
-        case '27': // Indivíduos Desembarcados
+        case '27': // Dismounted Individuals
             return {
                 data: MILITARY_DATA.leadership,
                 label: 'Liderança',
@@ -286,12 +286,12 @@ export function getEchelonData(symbolSetCode) {
  */
 export function getSpecialModifierData(symbolSetCode) {
     switch(symbolSetCode) {
-        case '10': // Unidades - todas as opções
+        case '10': // Units - all options
             return {
                 data: MILITARY_DATA.specialModifier,
                 applicable: true
             };
-        case '15': // Equipamentos e Viaturas - apenas Blindado
+        case '15': // Equipment and Vehicles - Armored only
             return {
                 data: MILITARY_DATA.specialModifierEquipment,
                 applicable: true
@@ -310,7 +310,7 @@ export function getSpecialModifierData(symbolSetCode) {
  * @returns {boolean} True if command element is applicable
  */
 export function isCommandApplicable(symbolSetCode) {
-    // Elemento de comando só para Unidades
+    // Command element only for Units
     return symbolSetCode === '10';
 }
 
@@ -320,7 +320,7 @@ export function isCommandApplicable(symbolSetCode) {
  * @returns {boolean} True if Modifier 1 is applicable
  */
 export function isModifier1Applicable(symbolSetCode) {
-    // Guerra de Minas não tem modifier 1
+    // Mine Warfare does not have modifier 1
     const noModifier1 = ['36'];
     return !noModifier1.includes(symbolSetCode);
 }
@@ -331,7 +331,7 @@ export function isModifier1Applicable(symbolSetCode) {
  * @returns {boolean} True if Modifier 2 is applicable
  */
 export function isModifier2Applicable(symbolSetCode) {
-    // Não tem modifier 2: Guerra de Minas, Equipamentos/Viaturas, Atividades/Eventos
+    // No modifier 2: Mine Warfare, Equipment/Vehicles, Activities/Events
     const noModifier2 = ['36', '15', '40'];
     return !noModifier2.includes(symbolSetCode);
 }

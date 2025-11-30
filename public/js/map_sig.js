@@ -1,4 +1,4 @@
-// Path: js\map_sig.js
+// Path: js/map_sig.js
 import BaseLayerControl from './controls_sig/base_layer_control.js';
 import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';
@@ -43,9 +43,7 @@ import GridControl from './controls_sig/grid.js';
 import FrameControl from './controls_sig/frame.js';
 import AddCoordinationMeasureControl from './controls_sig/coordination_measure_tool/add_coordination_measure_control.js';
 
-//-----------------------------------------------
-// CRIAÇÃO E CONFIGURAÇÃO DO MAPA
-//-----------------------------------------------
+// ===== MAP CREATION AND CONFIGURATION =====
 
 const map = new maplibregl.Map({
     container: 'map-sig',
@@ -72,17 +70,15 @@ const analysisLayersManager = new AnalysisLayersManager(map);
 const gridControl = new GridControl(map);
 const frameControl = new FrameControl(map);
 
-//-----------------------------------------------
-// EVENTO LOAD DO MAPA
-//-----------------------------------------------
+// ===== MAP LOAD EVENT =====
 
 map.on('load', async () => {
     map.doubleClickZoom.disable();
     map.boxZoom.disable();
     map.dragRotate.disable();
     await baseLayerControl.switchMap(true);
-    
-    // Aplicar projeção globo se habilitada
+
+    // Apply globe projection if enabled
     if (config.map2d.globe_projection) {
         map.setProjection({ type: 'globe' });
     }
@@ -93,9 +89,7 @@ map.on('load', async () => {
 
 
 
-//-----------------------------------------------
-// CONTROLES
-//-----------------------------------------------
+// ===== CONTROLS INITIALIZATION =====
 
 const selectionManager = new SelectionManager(map);
 const toolManager = new ToolManager();
@@ -177,7 +171,7 @@ const mouseCoordinatesControl = new MouseCoordinatesControl(
 uiManager.setMouseCoordinatesControl(mouseCoordinatesControl);
 
 
-// Context menu e drag rotate customizados
+// Custom context menu and drag rotate
 const contextMenuControl = new ContextMenuControl(mouseCoordinatesControl, toolManager, selectionManager);
 const dragRotateHandler = new DragRotateHandler(map);
 dragRotateHandler.enable();
@@ -196,9 +190,7 @@ const clipboardManager = new ClipboardManager(selectionManager, map);
 const rectangleSelectionControl = new RectangleSelectionControl(toolManager);
 selectionManager.setRectangleSelectionControl(rectangleSelectionControl);
 
-//-----------------------------------------------
-// CONFIGURAÇÃO DOS ATALHOS DE TECLADO
-//-----------------------------------------------
+// ===== KEYBOARD SHORTCUTS CONFIGURATION =====
 
 const keyboardShortcuts = new KeyboardShortcuts({
     map,
@@ -237,9 +229,7 @@ keyboardShortcuts.initModal();
 const suggestionsModal = new SuggestionsModal();
 suggestionsModal.init();
 
-//-----------------------------------------------
-// ADICIONAR CONTROLES AO MAPA
-//-----------------------------------------------
+// ===== ADD CONTROLS TO MAP =====
 map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
 mapControl.loadMenu();
@@ -259,7 +249,7 @@ map.addControl(terrainControl, 'top-right');
 map.addControl(losControl, 'top-right');
 map.addControl(visibilityControl, 'top-right');
 
-// COLUNA DIREITA - Ferramentas de desenho
+// RIGHT COLUMN - Drawing tools
 map.addControl(pointControl, 'top-right');
 map.addControl(lineControl, 'top-right');
 map.addControl(polygonControl, 'top-right');
@@ -275,25 +265,21 @@ map.addControl(occupiedFrontControl, 'top-right');
 map.addControl(militarySymbolControl, 'top-right');
 map.addControl(coordinationMeasureControl, 'top-right');
 
-//-----------------------------------------------
-// TRATAMENTO DE ERROS GLOBAIS
-//-----------------------------------------------
+// ===== GLOBAL ERROR HANDLING =====
 
 window.addEventListener('unhandledrejection', (event) => {
-    console.error('Erro não tratado:', event.reason);
+    console.error('Unhandled error:', event.reason);
 });
 
 window.addEventListener('error', (event) => {
-    console.error('Erro JavaScript:', event.error);
+    console.error('JavaScript error:', event.error);
 });
-// Exportar ferramentas para acesso global (usado por 3D models viewer)
+// Export tools for global access (used by 3D models viewer)
 window.streetViewControl = addStreetViewControl;
 window.modelsViewerControl = add3DModelsViewerControl;
 
 
-//-----------------------------------------------
-// EXPORTS E CLEANUP
-//-----------------------------------------------
+// ===== EXPORTS AND CLEANUP =====
 
 window.addEventListener('beforeunload', () => {
     keyboardShortcuts.destroy();

@@ -1,4 +1,4 @@
-// Path: js\controls_sig\arrow_tool\arrow_attributes_panel.js
+// Path: js/controls_sig/arrow_tool/arrow_attributes_panel.js
 
 import { 
     createSliderWithInput,
@@ -7,7 +7,6 @@ import {
     createCheckbox,
     createAttributeRow,
     createStandardButtons,
-    createEditableFeatureName,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton,
     getCommonConfig
@@ -17,11 +16,11 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    
-    // ✅ CORRECT: Capture initial properties at panel opening (before any user interaction)
+
+    // Capture initial properties at panel opening (before any user interaction)
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // ===== NOME EDITÁVEL DA FEIÇÃO (APENAS SELEÇÃO ÚNICA) =====
+    // ===== EDITABLE FEATURE NAME (SINGLE SELECTION ONLY) =====
     if (selectedFeatures.length === 1) {
         const headerComponent = createFeatureHeaderWithOptions(
             feature.properties.nome,
@@ -54,9 +53,9 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         $(panel).append(multiSelectHeader);
     }
 
-    // ===== PROPRIEDADES ESPECÍFICAS DA SETA =====
+    // ===== ARROW-SPECIFIC PROPERTIES =====
 
-    // Largura (metros) - MUDADO: agora é input numérico em vez de slider
+    // Width (meters)
     const widthInput = createNumericInput({
         min: 10,
         max: 10000,
@@ -71,7 +70,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Largura:', widthInput));
 
-    // Cor de preenchimento
+    // Fill color
     const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -79,7 +78,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Preenchimento:', fillColorInput));
 
-    // Cor da borda
+    // Line color
     const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
         uiManager.updateSelectionHighlight();
@@ -91,7 +90,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         return (value !== null && value !== undefined) ? value : defaultValue;
     };
 
-    // Opacidade do preenchimento (0-100% com conversão automática)
+    // Fill opacity (0-100% with automatic conversion)
     const fillOpacityControl = createSliderWithInput({
         min: 0,
         max: 100,
@@ -106,7 +105,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Opacidade do preenchimento:', fillOpacityControl));
 
-    // Largura da borda
+    // Border width
     const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
         feature.properties.lineWidth || 3, {
         onChange: (value) => {
@@ -117,9 +116,9 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Largura da borda (px):', lineWidthControl));
 
-    // ===== CHECKBOXES ESPECÍFICOS =====
+    // ===== SPECIFIC CHECKBOXES =====
 
-    // Checkbox Aeromóvel / Aeroterrestre
+    // Airmobile / Air-ground checkbox
     const airmobileCheckbox = createCheckbox(feature.properties.airmobile || false, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'airmobile', e.target.checked);
         uiManager.updateSelectionHighlight();
@@ -127,7 +126,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Aeromóvel / Aeroterrestre:', airmobileCheckbox));
 
-    // Checkbox "Seta" para mostrar/ocultar cabeça
+    // Show arrow head checkbox
     const showArrowHeadCheckbox = createCheckbox(feature.properties.showArrowHead !== false, (e) => {
         arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', e.target.checked);
         uiManager.updateSelectionHighlight();
@@ -135,9 +134,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
 
     $(panel).append(createAttributeRow('Seta:', showArrowHeadCheckbox));
 
-    // ===== BOTÕES DE AÇÃO PADRONIZADOS =====
-    // ✅ FIXED: Pass initialPropertiesMap captured at panel opening
-    // ⚠️ MANTER: Custom onSetDefault logic (from original)
+    // ===== STANDARD ACTION BUTTONS =====
     const buttons = createStandardButtons({
         selectedFeatures,
         control: arrowControl,

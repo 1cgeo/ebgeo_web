@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\data\aeronaves.js
+// Path: js/controls_sig/military_symbol_tool/data/aeronaves.js
 
 export default {
   "symbol_sets": [

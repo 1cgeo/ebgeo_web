@@ -1,4 +1,4 @@
-// Path: js\controls_sig\military_symbol_tool\add_military_symbol_control.js
+// Path: js/controls_sig/military_symbol_tool/add_military_symbol_control.js
 
 import { normalizeSIDC } from './brazilian_sidc_extension.js';
 import {
@@ -68,25 +68,25 @@ class AddMilitarySymbolControl extends BaseControl {
     visivel: true,
     bloqueado: false,
 
-    uniqueDesignation: null,      // C - Designação
-    higherFormation: null,        // B - Subordinação
-    quantity: null,               // C1 - Quantidade
-    reinforcedReduced: null,      // F - Reforço/Redução
-    additionalInformation: null,  // H - Informações Adicionais
-    credibility: null,            // J - Credibilidade
-    location: null,               // Y - Localização
-    dateTimeGroup: null,          // W - GDH (Grupo Data-Hora)
-    altitudeDepth: null,          // X - Altitude/Profundidade
-    speed: null,                  // Z - Velocidade
-    specialHeadquarters: null,    // AA - Tipo de PC
-    type: null,                   // V - Tipo de Equipamento
-    iffSif: null,                 // P - Código IFF/SIF
-    equipmentTeardownTime: null,  // X1 - Tempo de Destruição
-    direction: null,               // Q - Direção/Azimute
+    uniqueDesignation: null,      // C - Designation
+    higherFormation: null,        // B - Higher Formation
+    quantity: null,               // C1 - Quantity
+    reinforcedReduced: null,      // F - Reinforced/Reduced
+    additionalInformation: null,  // H - Additional Information
+    credibility: null,            // J - Credibility
+    location: null,               // Y - Location
+    dateTimeGroup: null,          // W - Date-Time Group
+    altitudeDepth: null,          // X - Altitude/Depth
+    speed: null,                  // Z - Speed
+    specialHeadquarters: null,    // AA - HQ Type
+    type: null,                   // V - Equipment Type
+    iffSif: null,                 // P - IFF/SIF Code
+    equipmentTeardownTime: null,  // X1 - Equipment Teardown Time
+    direction: null,               // Q - Direction/Azimuth
     engagementBar: null
   };
 
-  // ===== FONTE ÚNICA DA VERDADE =====
+  // ===== SINGLE SOURCE OF TRUTH =====
 
   /**
    * Get currently selected military symbol feature from SelectionManager
@@ -1090,7 +1090,7 @@ class AddMilitarySymbolControl extends BaseControl {
   };
 
   setDefaultProperties = (properties) => {
-    // Text modifiers são conteúdo específico de cada símbolo, não configurações padrão
+    // Text modifiers are symbol-specific content, not default configuration settings
     const TEXT_MODIFIERS = [
       'uniqueDesignation',
       'higherFormation',
@@ -1109,16 +1109,16 @@ class AddMilitarySymbolControl extends BaseControl {
       'engagementBar'
     ];
 
-    // Criar cópia das propriedades SEM text modifiers
+    // Create copy of properties WITHOUT text modifiers
     const safeProperties = { ...properties };
     TEXT_MODIFIERS.forEach(key => {
       delete safeProperties[key];
     });
 
-    // Aplicar apenas propriedades seguras (configurações de estilo)
+    // Apply only safe properties (style configuration)
     Object.assign(AddMilitarySymbolControl.DEFAULT_PROPERTIES, safeProperties);
 
-    // Isso garante que mesmo se houve contaminação anterior, ela é limpa
+    // This ensures that even if there was previous contamination, it is cleaned
     TEXT_MODIFIERS.forEach(key => {
       AddMilitarySymbolControl.DEFAULT_PROPERTIES[key] = null;
     });
