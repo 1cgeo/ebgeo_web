@@ -83,7 +83,7 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
             createdAtZoom
         );
 
-        let adjustedCoordinates = [...coordinates];
+        const adjustedCoordinates = [...coordinates];
 
         if (anchor && anchor !== 'center') {
             const heightOffsetDegrees = uiManager.pixelsToDegrees(

@@ -40,7 +40,7 @@ class FeaturesTab {
     this._layersChangedHandler = null; // Layer system event handler
     this._debounceTimer = null;
     this._isVisible = false;
-    
+
     // Flag to suppress refresh during internal updates
     this._suppressRefresh = false;
     // Flag to suppress internally-emitted layers-changed events
@@ -48,10 +48,10 @@ class FeaturesTab {
     // Cache of last state for detecting structural changes
     this._lastFeatureCount = null;
     this._lastLayerIds = null;
-    
+
     // Sortable instance for layer reordering
     this._sortableInstance = null;
-    
+
     // Expansion state cache to preserve during re-renders
     this._collapsedLayers = new Set();
     this._collapsedGroups = new Set();
@@ -174,15 +174,15 @@ class FeaturesTab {
     try {
       const layers = await getLayers();
       const layer = layers.find(l => l.id === layerId);
-      
+
       if (layer && layer.locked) {
         console.warn('Cannot activate a locked layer');
         return;
       }
-      
+
       const previousActiveId = getActiveLayerIdSync();
       await setActiveLayer(layerId);
-      
+
       // Incremental update: only update visual indicators
       this._updateActiveLayerIndicators(previousActiveId, layerId);
     } catch (error) {
@@ -201,10 +201,10 @@ class FeaturesTab {
 
       const newVisibility = !layer.visible;
       await setLayerVisibility(layerId, newVisibility);
-      
+
       // Incremental update: only update layer visual indicators
       this._updateLayerVisibilityIndicator(layerId, newVisibility);
-      
+
       // Emit event but suppress our own refresh
       this._suppressLayersChangedRefresh = true;
       this.emitLayersChanged();
@@ -225,10 +225,10 @@ class FeaturesTab {
 
       const newLockState = !layer.locked;
       await setLayerLocked(layerId, newLockState);
-      
+
       // Incremental update: only update layer visual indicators
       this._updateLayerLockIndicator(layerId, newLockState);
-      
+
       // Emit event but suppress our own refresh
       this._suppressLayersChangedRefresh = true;
       this.emitLayersChanged();
@@ -258,34 +258,34 @@ class FeaturesTab {
     try {
       // Suppress automatic refreshes during this operation
       this._suppressLayersChangedRefresh = true;
-      
+
       // Sync MapLibre sources first (removes features from map)
       await this._syncMapSourcesAfterDelete(layerId);
-      
+
       // Delete the layer
       const deleteResult = await deleteLayer(layerId);
-      
+
       if (!deleteResult) {
         this._suppressLayersChangedRefresh = false;
         return;
       }
-      
+
       // Verify deletion - force fresh fetch
       const layersAfterDelete = await getLayers();
-      
+
       // If it was the last layer (and now we have no layers or just the auto-created one),
       // we don't need to create another one since getLayers auto-creates
       // But if the auto-created one has a different name, rename it
       if (isLastLayer && layersAfterDelete.length === 1 && layersAfterDelete[0].name !== 'Padrão') {
         await renameLayer(layersAfterDelete[0].id, 'Padrão');
       }
-      
+
       // Re-enable refresh and update UI
       this._suppressLayersChangedRefresh = false;
-      
+
       await this.loadFeatures();
       this.emitLayersChanged();
-      
+
     } catch (error) {
       this._suppressLayersChangedRefresh = false;
       console.error('Error deleting layer:', error);
@@ -301,7 +301,7 @@ class FeaturesTab {
     for (const sourceId of this.FEATURE_SOURCES) {
       const source = this.map.getSource(sourceId);
       if (!source) continue;
-      
+
       try {
         const data = await source.getData();
         if (data && data.features && data.features.length > 0) {
@@ -311,7 +311,7 @@ class FeaturesTab {
             const featureLayerId = f.properties?.layerId || 'default';
             return featureLayerId !== deletedLayerId;
           });
-          
+
           // Only update if there was a change
           if (data.features.length !== initialCount) {
             source.setData(data);
@@ -1049,7 +1049,7 @@ class FeaturesTab {
     if (!this.container) return;
 
     const featuresList = this.container.querySelector(".features-list");
-    const isInitialLoad = !featuresList || featuresList.children.length === 0 || 
+    const isInitialLoad = !featuresList || featuresList.children.length === 0 ||
                           featuresList.querySelector('.features-loading') ||
                           featuresList.querySelector('.features-empty-message');
 
@@ -1219,7 +1219,7 @@ class FeaturesTab {
     organizedLayers.forEach((layerInfo) => {
       const layerContainer = this.createLayerContainer(layerInfo);
       featuresList.appendChild(layerContainer);
-      
+
       // Restore layer collapse state
       if (this._collapsedLayers.has(layerInfo.layer.id)) {
         const content = layerContainer.querySelector(".layer-content");
@@ -1228,7 +1228,7 @@ class FeaturesTab {
         if (expandIcon) expandIcon.classList.add("collapsed");
       }
     });
-    
+
     // Restore group collapse states
     this._collapsedGroups.forEach(groupId => {
       const groupContainer = featuresList.querySelector(`[data-group-id="${groupId}"]`);
@@ -1244,7 +1244,7 @@ class FeaturesTab {
         }
       }
     });
-    
+
     // Initialize Sortable for layer reordering
     this._initLayerSortable(featuresList);
   }
@@ -1292,7 +1292,7 @@ class FeaturesTab {
         const newOrder = Array.from(featuresList.querySelectorAll('.layer-container'))
           .map(el => el.dataset.layerId)
           .filter(Boolean);
-        
+
         // Persist new order to store
         await reorderLayers(newOrder);
       }
@@ -1374,7 +1374,7 @@ class FeaturesTab {
     layerName.className = "layer-name";
     layerName.textContent = layer.name;
     layerName.title = "Duplo-clique para renomear";
-    
+
     // Double-click to edit name
     layerName.ondblclick = (e) => {
       e.stopPropagation();
@@ -1452,7 +1452,7 @@ class FeaturesTab {
    */
   startLayerRenameInline(layerId, nameElement) {
     const currentName = nameElement.textContent.replace(" â˜…", "").trim();
-    
+
     // Create input element
     const input = document.createElement("input");
     input.type = "text";
@@ -1469,7 +1469,7 @@ class FeaturesTab {
 
     // Save reference to original text
     const originalHTML = nameElement.innerHTML;
-    
+
     // Replace content with input
     nameElement.innerHTML = "";
     nameElement.appendChild(input);
@@ -1478,7 +1478,7 @@ class FeaturesTab {
 
     const finishEdit = async (save) => {
       const newName = input.value.trim();
-      
+
       if (save && newName && newName !== currentName) {
         try {
           await this.handleRenameLayer(layerId, newName);
@@ -2222,7 +2222,7 @@ class FeaturesTab {
     try {
       // Suppress refresh during internal update
       this._suppressRefresh = true;
-      
+
       // Pegar TODAS as features do source
       const data = await source.getData();
 
@@ -2408,7 +2408,7 @@ class FeaturesTab {
     if (lockBtn) {
       lockBtn.innerHTML = locked ? this.INLINE_ICONS.LOCK_LOCKED : this.INLINE_ICONS.LOCK_UNLOCKED;
       lockBtn.title = locked ? "Desbloquear camada" : "Bloquear camada";
-      
+
       // Update SVG color
       const svg = lockBtn.querySelector("svg");
       if (svg) {
@@ -2474,13 +2474,13 @@ class FeaturesTab {
    */
   async _getFeaturesFromMapSources() {
     const features = {};
-    
+
     for (const sourceId of this.FEATURE_SOURCES) {
       features[sourceId] = [];
-      
+
       const source = this.map.getSource(sourceId);
       if (!source) continue;
-      
+
       try {
         const data = await source.getData();
         if (data && data.features) {
@@ -2491,7 +2491,7 @@ class FeaturesTab {
         console.debug(`Could not get data from source ${sourceId}:`, error.message);
       }
     }
-    
+
     return features;
   }
 
@@ -2509,7 +2509,7 @@ class FeaturesTab {
   destroy() {
     this._removeEventListeners();
     clearTimeout(this._debounceTimer);
-    
+
     // Destroy Sortable instance
     if (this._sortableInstance) {
       this._sortableInstance.destroy();

@@ -18,7 +18,7 @@ const config = {
   },
 
   url_paths: {
-    url: 'IP:PORT', //endereço da aplicação. Colocar porta se necessário
+    url: 'IP:PORT', // endereço da aplicação. Colocar porta se necessário
     prefix_name: '' // nome da aplicação na url, como aman, arandu, etc. Deixar vazio para testes locais
   },
 
@@ -148,8 +148,8 @@ const config = {
       type: "raster-dem",                                    // Tipo: sempre "raster-dem"
       url: "https://demotiles.maplibre.org/terrain-tiles/tiles.json",             // URL dos tiles de elevação
       tileSize: 256,
-      //minzoom: 10,                                          // Zoom mínimo do terrain
-      //maxzoom: 10                                           // Zoom máximo do terrain
+      // minzoom: 10,                                          // Zoom mínimo do terrain
+      // maxzoom: 10                                           // Zoom máximo do terrain
       // Nota: Para URLs externas use: "https://example.com/terrain/{z}/{x}/{y}.png"
     },
 
@@ -158,8 +158,8 @@ const config = {
       type: "raster-dem",                                    // Tipo: sempre "raster-dem"
       url: "https://demotiles.maplibre.org/terrain-tiles/tiles.json",             // URL dos tiles de elevação
       tileSize: 256,
-      //minzoom: 10,                                          // Zoom mínimo do hillshade
-      //maxzoom: 10                                           // Zoom máximo do hillshade
+      // minzoom: 10,                                          // Zoom mínimo do hillshade
+      // maxzoom: 10                                           // Zoom máximo do hillshade
     },
 
     // ----- 3D Terrain Toggle -----
@@ -175,8 +175,8 @@ const config = {
         id: 'hillshade',                                    // ID da camada (não alterar)
         type: 'hillshade',                                  // Tipo da camada (não alterar)
         source: 'hillshadeSource',                          // Source a usar (não alterar)
-        //minzoom: 10,                                        // Zoom mínimo da camada
-        //maxzoom: 10,                                        // Zoom máximo da camada
+        // minzoom: 10,                                        // Zoom mínimo da camada
+        // maxzoom: 10,                                        // Zoom máximo da camada
 
         // Propriedades visuais do hillshade
         paint: {
@@ -239,7 +239,7 @@ const config = {
       animation: false,           // Controles de animação
       timeline: false,            // Linha do tempo
       fullscreenButton: false,    // Botão tela cheia
-      //shadows: false,              // Desativa completamente as sombras
+      // shadows: false,              // Desativa completamente as sombras
     },
 
     // ----- Data Providers -----
@@ -307,7 +307,7 @@ config.validateBasemapsConfig = () => {
  */
 config.getEnabledBasemaps = () => {
   return Object.entries(config.basemaps)
-    .filter(([id, basemapConfig]) => basemapConfig.enabled)
+    .filter(([_id, basemapConfig]) => basemapConfig.enabled)
     .sort(([,a], [,b]) => a.priority - b.priority);
 };
 

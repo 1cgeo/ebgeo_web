@@ -1,8 +1,8 @@
 // Path: js/controls_sig/layer_manager.js
 
-import { 
-    memoryStore, 
-    setLayers as setLayersRepo, 
+import {
+    memoryStore,
+    setLayers as setLayersRepo,
     getLayers as getLayersRepo,
     setActiveLayerId as setActiveLayerIdRepo,
     getActiveLayerId as getActiveLayerIdRepo,
@@ -99,10 +99,10 @@ class LayerManager {
      */
     isFeatureEffectivelyVisible(feature, mapName = null) {
         if (!feature || !feature.properties) return true;
-        
+
         // Individual visibility
         if (feature.properties.visivel === false) return false;
-        
+
         // Layer visibility
         const layerId = feature.properties.layerId || 'default';
         const layer = this.getLayerById(layerId, mapName);
@@ -117,10 +117,10 @@ class LayerManager {
      */
     isFeatureEffectivelyLocked(feature, mapName = null) {
         if (!feature || !feature.properties) return false;
-        
+
         // Individual lock (legacy)
         if (feature.properties.bloqueado === true) return true;
-        
+
         // Layer lock
         const layerId = feature.properties.layerId || 'default';
         const layer = this.getLayerById(layerId, mapName);
@@ -222,7 +222,7 @@ class LayerManager {
             if (this.memoryStore.activeLayerId === layerId) {
                 const remaining = Array.from(layersMap.values())
                     .filter(l => l.id !== layerId && !l.locked);
-                
+
                 if (remaining.length > 0) {
                     this.memoryStore.activeLayerId = remaining[0].id;
                 } else {
@@ -241,8 +241,8 @@ class LayerManager {
         this._persistActiveLayerAsync(targetMap);
         this._notifyLayersChanged();
 
-        return { 
-            success: true, 
+        return {
+            success: true,
             deletedLayerId: layerId,
             createdDefaultLayer: createdDefaultLayer
         };
@@ -258,7 +258,7 @@ class LayerManager {
     renameLayer(layerId, newName, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         const layer = this.getLayerById(layerId, targetMap);
-        
+
         if (!layer) {
             throw new Error(`Layer ${layerId} not found.`);
         }
@@ -310,7 +310,7 @@ class LayerManager {
     setLayerVisibility(layerId, visible, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
         const layer = this.getLayerById(layerId, targetMap);
-        
+
         if (!layer) {
             throw new Error(`Layer ${layerId} not found.`);
         }
@@ -359,7 +359,7 @@ class LayerManager {
         this._ensureMapLayersExist(targetMap);
 
         const layersMap = this.memoryStore.layers[targetMap];
-        
+
         orderedLayerIds.forEach((layerId, index) => {
             const layer = layersMap.get(layerId);
             if (layer) {
@@ -421,7 +421,7 @@ class LayerManager {
 
             sourceLayers.forEach(layer => {
                 const newId = layer.id === 'default' ? 'default' : IDUtils.generateUniqueId('layer');
-                
+
                 duplicatedLayers.push({
                     ...layer,
                     id: newId,
@@ -457,7 +457,7 @@ class LayerManager {
     async clearMapLayers(mapName) {
         try {
             await setLayersRepo(mapName, []);
-            
+
             if (this.memoryStore.layers[mapName]) {
                 this.memoryStore.layers[mapName].clear();
             }

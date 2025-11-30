@@ -8,22 +8,22 @@ let viewerInstance = null;
  */
 async function takeScreenshot(viewer) {
     viewerInstance = viewer;
-    
+
     try {
-        
+
         // Check if preserveDrawingBuffer is active
         if (!checkPreserveDrawingBuffer()) {
             console.warn('preserveDrawingBuffer is not active, trying workaround...');
         }
-        
+
         // Wait for everything to be loaded and rendered
         await ensureFullyRendered();
-        
+
         // Capture screenshot with robust method
         const success = await captureScreenshotRobust();
-        
+
         return success;
-        
+
     } catch (error) {
         console.error('Error capturing 3D screenshot:', error);
         alert('Could not capture 3D screenshot');
@@ -38,12 +38,12 @@ function checkPreserveDrawingBuffer() {
     try {
         const canvas = viewerInstance.scene.canvas;
         const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-        
+
         if (gl) {
             const contextAttributes = gl.getContextAttributes();
             return contextAttributes && contextAttributes.preserveDrawingBuffer;
         }
-        
+
         return false;
     } catch (error) {
         console.warn('Error checking preserveDrawingBuffer:', error);
@@ -55,21 +55,19 @@ function checkPreserveDrawingBuffer() {
  * Waits for scene to be fully loaded and rendered
  */
 async function ensureFullyRendered() {
-    const scene = viewerInstance.scene;
-    const globe = scene.globe;
-    
+
     // 1. Wait for imagery layers to be ready
     await waitForImageryLayers();
-    
+
     // 2. Wait for terrain to be loaded
     await waitForTerrain();
-    
+
     // 3. Wait for tilesets to be loaded
     await waitForTilesets();
-    
+
     // 4. Force multiple renders to ensure everything is drawn
     await renderMultipleFrames();
-    
+
 }
 
 /**
@@ -82,10 +80,10 @@ function waitForImageryLayers() {
             resolve();
             return;
         }
-        
+
         let readyCount = 0;
         const totalLayers = imageryLayers.length;
-        
+
         const checkReady = () => {
             readyCount = 0;
             for (let i = 0; i < imageryLayers.length; i++) {
@@ -94,14 +92,14 @@ function waitForImageryLayers() {
                     readyCount++;
                 }
             }
-            
+
             if (readyCount === totalLayers) {
                 resolve();
             } else {
                 setTimeout(checkReady, 100);
             }
         };
-        
+
         checkReady();
     });
 }
@@ -118,7 +116,7 @@ function waitForTerrain() {
             resolve();
             return;
         }
-        
+
         // For CesiumTerrainProvider, wait until ready
         const checkTerrain = () => {
             if (globe.terrainProvider.ready) {
@@ -128,7 +126,7 @@ function waitForTerrain() {
                 setTimeout(checkTerrain, 100);
             }
         };
-        
+
         checkTerrain();
     });
 }
@@ -140,7 +138,7 @@ function waitForTilesets() {
     return new Promise((resolve) => {
         const primitives = viewerInstance.scene.primitives;
         const tilesets = [];
-        
+
         // Find all tilesets
         for (let i = 0; i < primitives.length; i++) {
             const primitive = primitives.get(i);
@@ -148,12 +146,12 @@ function waitForTilesets() {
                 tilesets.push(primitive);
             }
         }
-        
+
         if (tilesets.length === 0) {
             resolve();
             return;
         }
-        
+
         // Wait for all to be ready
         const checkTilesets = () => {
             const allReady = tilesets.every(tileset => tileset.ready);
@@ -165,7 +163,7 @@ function waitForTilesets() {
                 setTimeout(checkTilesets, 100);
             }
         };
-        
+
         checkTilesets();
     });
 }
@@ -177,13 +175,13 @@ function renderMultipleFrames() {
     return new Promise((resolve) => {
         let frameCount = 0;
         const maxFrames = 5;
-        
+
         function renderFrame() {
             frameCount++;
-            
+
             // Force render
             viewerInstance.render();
-            
+
             if (frameCount >= maxFrames) {
                 // Wait one more frame to ensure
                 requestAnimationFrame(() => {
@@ -194,7 +192,7 @@ function renderMultipleFrames() {
                 requestAnimationFrame(renderFrame);
             }
         }
-        
+
         renderFrame();
     });
 }
@@ -204,13 +202,13 @@ function renderMultipleFrames() {
  */
 async function captureScreenshotRobust() {
     const canvas = viewerInstance.scene.canvas;
-    
+
     // Method 1: Check if canvas has valid content
     if (await isCanvasEmpty(canvas)) {
         console.warn('Empty canvas detected, trying alternative method...');
         return await captureWithWorkaround();
     }
-    
+
     // Method 2: Direct canvas capture (best quality)
     try {
         const dataURL = canvas.toDataURL('image/png');
@@ -222,7 +220,7 @@ async function captureScreenshotRobust() {
         } else {
             throw new Error('DataURL too small, probably empty');
         }
-        
+
     } catch (error) {
         console.warn('Error in direct capture, trying alternative method:', error);
         return await captureWithWorkaround();
@@ -238,16 +236,16 @@ async function isCanvasEmpty(canvas) {
         const testCanvas = document.createElement('canvas');
         testCanvas.width = Math.min(canvas.width, 100); // Amostra pequena para performance
         testCanvas.height = Math.min(canvas.height, 100);
-        
+
         const ctx = testCanvas.getContext('2d');
-        
+
         // Copy a small area from original canvas
         ctx.drawImage(canvas, 0, 0, testCanvas.width, testCanvas.height);
-        
+
         // Get pixel data
         const imageData = ctx.getImageData(0, 0, testCanvas.width, testCanvas.height);
         const data = imageData.data;
-        
+
         // Check for non-black pixels
         for (let i = 0; i < data.length; i += 4) {
             const r = data[i];
@@ -262,7 +260,7 @@ async function isCanvasEmpty(canvas) {
         }
 
         return true; // Canvas is empty
-        
+
     } catch (error) {
         console.warn('Error checking if canvas is empty:', error);
         return false; // On error, assume not empty
@@ -273,38 +271,38 @@ async function isCanvasEmpty(canvas) {
  * Alternative capture method when canvas is empty
  */
 async function captureWithWorkaround() {
-    
+
     try {
         // Save current settings
         const scene = viewerInstance.scene;
         const originalRequestRenderMode = scene.requestRenderMode;
-        
+
         // Temporarily disable optimized render mode
         scene.requestRenderMode = false;
-        
+
         // Wait longer for reload
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
+
         // Force multiple renders
         for (let i = 0; i < 10; i++) {
             viewerInstance.render();
             await new Promise(resolve => requestAnimationFrame(resolve));
         }
-        
+
         // Try to capture again
         const canvas = viewerInstance.scene.canvas;
         const dataURL = canvas.toDataURL('image/png');
-        
+
         // Restore original settings
         scene.requestRenderMode = originalRequestRenderMode;
-        
+
         if (dataURL.length > 100) {
             await downloadImageFromDataURL(dataURL);
             return true;
         } else {
             throw new Error('Still producing empty canvas after workaround');
         }
-        
+
     } catch (error) {
         console.error('Workaround failed:', error);
         return await captureLastResort();
@@ -316,41 +314,41 @@ async function captureWithWorkaround() {
  */
 async function captureLastResort() {
     console.warn('Using last resort for screenshot...');
-    
+
     try {
         // Wait longer
         await new Promise(resolve => setTimeout(resolve, 2000));
-        
+
         // Force render with less optimized settings
         const scene = viewerInstance.scene;
         const originalFXAA = scene.fxaa;
         const originalRequestRenderMode = scene.requestRenderMode;
-        
+
         scene.fxaa = true;
         scene.requestRenderMode = false;
-        
+
         // Multiple renders
         for (let i = 0; i < 15; i++) {
             viewerInstance.render();
             await new Promise(resolve => setTimeout(resolve, 50));
         }
-        
+
         const canvas = viewerInstance.scene.canvas;
         const dataURL = canvas.toDataURL('image/png');
-        
+
         // Restore settings
         scene.fxaa = originalFXAA;
         scene.requestRenderMode = originalRequestRenderMode;
-        
+
         if (dataURL === 'data:,' || dataURL.length < 100) {
             console.error('Canvas remains empty even after last resort');
             alert('Screenshot não pôde ser capturado. Tente aguardar o carregamento completo da cena.');
             return false;
         }
-        
+
         await downloadImageFromDataURL(dataURL);
         return true;
-        
+
     } catch (error) {
         console.error('Last resort failed completely:', error);
         return false;
@@ -365,12 +363,12 @@ async function downloadImageFromDataURL(dataURL) {
         const link = document.createElement('a');
         link.download = `ebgeo-3d-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
         link.href = dataURL;
-        
+
         // Simulate click to start download
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-                
+
     } catch (error) {
         console.error('Error downloading via dataURL:', error);
         throw error;

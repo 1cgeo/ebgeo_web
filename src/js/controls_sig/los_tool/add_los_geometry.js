@@ -139,7 +139,7 @@ class AddLOSGeometry extends BaseGeometry {
         for (let i = 0; i <= this.PROFILE_STEPS; i++) {
             const point = turf.along(line, i * stepLength, { units: 'meters' });
             const elevation = await getTerrainElevation(map, point.geometry.coordinates);
-            
+
             profileData.push({
                 distance: i * stepLength,
                 elevation: elevation
@@ -366,7 +366,7 @@ class AddLOSGeometry extends BaseGeometry {
         const line = turf.lineString(coordinates);
         const distance = turf.length(line, { units: 'meters' });
         const midpoint = turf.along(line, distance / 2, { units: 'meters' });
-        
+
         return midpoint.geometry.coordinates;
     }
 

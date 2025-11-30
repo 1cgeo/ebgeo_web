@@ -143,7 +143,7 @@ class MapManager {
 
             // Duplicate groups from original map
             await groupManager.duplicateMapGroups(mapName, newMapName.trim());
-            
+
             setCurrentMap(newMapName.trim());
 
             if (this.baseLayerControl) {
@@ -218,14 +218,14 @@ class MapManager {
                             }
                         }
                     }
-                    
+
                     // Copy processed features (LOS/Visibility)
                     if (newMapData.features.processed_los && newMapData.features.processed_los.length > 0) {
                         for (const processedFeature of newMapData.features.processed_los) {
                             await addFeature('processed_los', processedFeature);
                         }
                     }
-                    
+
                     if (newMapData.features.processed_visibility && newMapData.features.processed_visibility.length > 0) {
                         for (const processedFeature of newMapData.features.processed_visibility) {
                             await addFeature('processed_visibility', processedFeature);
@@ -266,12 +266,12 @@ class MapManager {
 
             // Check if any feature is part of a group
             const groupedFeatures = this.getGroupedFeatures(features);
-            
+
             if (groupedFeatures.length > 0) {
                 const groupNames = groupedFeatures.map(gf => gf.groupName).join(', ');
-                return { 
-                    success: false, 
-                    message: `Não é possível mover feições agrupadas individualmente. Grupos encontrados: ${groupNames}. Desfaça os grupos primeiro ou use a funcionalidade "Puxar outros mapas" para mover grupos completos.` 
+                return {
+                    success: false,
+                    message: `Não é possível mover feições agrupadas individualmente. Grupos encontrados: ${groupNames}. Desfaça os grupos primeiro ou use a funcionalidade "Puxar outros mapas" para mover grupos completos.`
                 };
             }
 
@@ -305,13 +305,13 @@ class MapManager {
      */
     getGroupedFeatures(features) {
         const groupedFeatures = [];
-        
+
         features.forEach(feature => {
             const group = groupManager.getFeatureGroup(
-                feature.properties.source, 
+                feature.properties.source,
                 feature.properties.id
             );
-            
+
             if (group) {
                 groupedFeatures.push({
                     featureId: feature.properties.id,
@@ -321,7 +321,7 @@ class MapManager {
                 });
             }
         });
-        
+
         return groupedFeatures;
     }
 
@@ -587,7 +587,7 @@ class MapManager {
             if (selectedCount > 0) {
                 // Check if there are grouped features
                 const groupedFeatures = this.getGroupedFeatures(selectedFeatures);
-                
+
                 if (groupedFeatures.length > 0) {
                     buttonText = `↗️ Não é possível mover feições agrupadas`;
                     buttonDisabled = true;

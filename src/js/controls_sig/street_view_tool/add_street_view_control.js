@@ -315,7 +315,7 @@ class AddStreetViewControl {
         this.map = map;
 
         if (typeof PMTiles !== 'undefined' && !this.map._pmtilesRegistered) {
-            let protocol = new PMTiles.Protocol();
+            const protocol = new PMTiles.Protocol();
             maplibregl.addProtocol("pmtiles", protocol.tile);
             this.map._pmtilesRegistered = true;
         }
@@ -351,16 +351,16 @@ class AddStreetViewControl {
         this.miniMap.on('load', async () => {
             try {
                 if (typeof PMTiles !== 'undefined') {
-                    let protocol = new PMTiles.Protocol();
+                    const protocol = new PMTiles.Protocol();
                     maplibregl.addProtocol("pmtiles", protocol.tile);
                 }
 
                 this.miniMap.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
 
-                let pointImage = await this.miniMap.loadImage('./street_view/point.png');
+                const pointImage = await this.miniMap.loadImage('./street_view/point.png');
                 await this.miniMap.addImage('point', pointImage.data);
 
-                let pointSelectedImage = await this.miniMap.loadImage('./street_view/point-selected-v2.png');
+                const pointSelectedImage = await this.miniMap.loadImage('./street_view/point-selected-v2.png');
                 this.miniMap.addImage('point-selected', pointSelectedImage.data);
 
                 this.miniMap.addLayer({
@@ -504,7 +504,7 @@ class AddStreetViewControl {
             let minDistance = Infinity;
             let target = null;
 
-            for (let feature of features) {
+            for (const feature of features) {
                 const coords = feature.geometry.coordinates;
                 const to = turf.point(coords);
                 const distance = turf.distance(from, to);
@@ -550,7 +550,7 @@ class AddStreetViewControl {
             let minDistance = Infinity;
             let target = null;
 
-            for (let feature of features) {
+            for (const feature of features) {
                 const coords = feature.geometry.coordinates;
                 const to = turf.point(coords);
                 const distance = turf.distance(from, to);
@@ -681,10 +681,10 @@ class AddStreetViewControl {
 
         window.addEventListener('resize', this.onWindowResize);
 
-        var pt = turf.point([info.camera.lon, info.camera.lat])
-        var distance = 50
-        var bearing = info.camera.heading
-        var destination = turf.rhumbDestination(pt, distance, bearing)
+        const pt = turf.point([info.camera.lon, info.camera.lat])
+        const distance = 50
+        const bearing = info.camera.heading
+        const destination = turf.rhumbDestination(pt, distance, bearing)
         const [x, y, z] = this.calculateTargetPositionInMeters(
             {
                 latitude: info.camera.lat,
@@ -745,7 +745,7 @@ class AddStreetViewControl {
             transparent: true
         });
 
-        for (let target of this.currentInfo.targets) {
+        for (const target of this.currentInfo.targets) {
             const control = new THREE.Mesh(this.arrowGeometry, material);
             control.imgId = () => target.id;
             control.callback = () => this.loadTarget(target.id);
@@ -785,14 +785,14 @@ class AddStreetViewControl {
 
     clickObj = (event) => {
         this.raycaster.setFromCamera(this.mouse, this.camera);
-        var intersects = this.raycaster.intersectObjects(this.arrows.filter(i => i.arrow.visible).map(i => i.arrow));
+        const intersects = this.raycaster.intersectObjects(this.arrows.filter(i => i.arrow.visible).map(i => i.arrow));
         if (intersects.length > 0) {
             intersects[0].object.callback();
         }
     }
 
     cleanArrows = (objects) => {
-        for (let mesh of objects) {
+        for (const mesh of objects) {
             const object = this.scene.getObjectByProperty('uuid', mesh.uuid);
             if (!object) continue
             if (object.geometry !== this.arrowGeometry && object.geometry !== this.sphereGeometry) {
@@ -847,7 +847,7 @@ class AddStreetViewControl {
         this.mouse.x = event.clientX / window.innerWidth * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
         this.raycaster.setFromCamera(this.mouse, this.camera);
-        var intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
+        const intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
         if (intersects.length > 0) {
             this.lastClickAt = intersects[0].point
         }
@@ -857,11 +857,11 @@ class AddStreetViewControl {
 
     onPointerMove = (event) => {
         if (event.isPrimary === false || !this.isUserInteracting) return;
-        let factor = 0.00005
+        const factor = 0.00005
         this.mouse.x = (this.onPointerDownMouseX - event.clientX) * factor
         this.mouse.y = (event.clientY - this.onPointerDownMouseY) * factor * 0.8
         this.raycaster.setFromCamera(this.mouse, this.camera);
-        var intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
+        const intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
         if (intersects.length > 0) {
             this.currentLookAt = intersects[0].point
         }
@@ -919,7 +919,7 @@ class AddStreetViewControl {
     }
 
     update = () => {
-        let target = this.nextTarget || this.currentLookAt;
+        const target = this.nextTarget || this.currentLookAt;
         if (target) {
             this.setCurrentMouse();
             this.drawControl();
@@ -979,41 +979,41 @@ class AddStreetViewControl {
     };
 
     setCurrentMiniMap = () => {
-        var pt = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat])
-        var buffered = turf.buffer(pt, 0.04)
-        var bbox = turf.bbox(buffered)
+        const pt = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat])
+        const buffered = turf.buffer(pt, 0.04)
+        const bbox = turf.bbox(buffered)
         this.miniMap.fitBounds(bbox, {
             maxZoom: 15
         })
     }
 
     drawControl = () => {
-        for (let [idx, item] of this.arrows.entries()) {
-            let arrow = item.arrow;
+        for (const [idx, item] of this.arrows.entries()) {
+            const arrow = item.arrow;
 
             if (!arrow.visible) continue;
 
             const heading = this.camera.rotation.y;
             const radians = heading > 0 ? heading : (2 * Math.PI) + heading;
-            let degrees = THREE.MathUtils.radToDeg(radians);
-            var point1 = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat]);
-            var point2 = turf.point([item.lon, item.lat]);
-            var bearing = (turf.rhumbBearing(point1, point2) + degrees + 360) % 360;
+            const degrees = THREE.MathUtils.radToDeg(radians);
+            const point1 = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat]);
+            const point2 = turf.point([item.lon, item.lat]);
+            const bearing = (turf.rhumbBearing(point1, point2) + degrees + 360) % 360;
 
-            let center = turf.point([0, -0.4]);
-            var distance = this.queryMobile.matches ? 55 : 35;
-            var destination = turf.rhumbDestination(center, distance, bearing);
+            const center = turf.point([0, -0.4]);
+            const distance = this.queryMobile.matches ? 55 : 35;
+            const destination = turf.rhumbDestination(center, distance, bearing);
 
-            var vector = new THREE.Vector3(
+            const vector = new THREE.Vector3(
                 destination.geometry.coordinates[0],
                 destination.geometry.coordinates[1],
                 0.5
             );
 
             vector.unproject(this.camera);
-            var dir = vector.sub(this.camera.position).normalize();
-            var distanceFromCamera = 5;
-            var pos = this.camera.position.clone().add(dir.multiplyScalar(distanceFromCamera));
+            const dir = vector.sub(this.camera.position).normalize();
+            const distanceFromCamera = 5;
+            const pos = this.camera.position.clone().add(dir.multiplyScalar(distanceFromCamera));
             arrow.position.copy(pos);
             arrow.lookAt(this.camera.position);
             arrow.rotation.z -= THREE.MathUtils.degToRad(bearing);
@@ -1098,8 +1098,7 @@ class AddStreetViewControl {
         if (this.map.getLayer(this.streetViewLinesLayer['id'])) {
 
             this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'visible');
-        }
-        else {
+        } else {
             this.map.addLayer(this.streetViewLinesLayer);
 
             this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'visible');

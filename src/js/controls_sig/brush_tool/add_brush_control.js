@@ -429,7 +429,7 @@ class AddBrushControl extends BaseControl {
         if(this.map.getSource('brushes')){
             const data = await this.map.getSource('brushes').getData();
             if (data && data.features) {
-                const updatedFeatures = data.features.map(feature => 
+                const updatedFeatures = data.features.map(feature =>
                     this.applyZoomCorrections([feature])[0]
                 );
 
@@ -507,7 +507,7 @@ class AddBrushControl extends BaseControl {
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
-        let correctedFeatures = this.applyZoomCorrections(features);
+        const correctedFeatures = this.applyZoomCorrections(features);
 
         const currentData = await this.map.getSource('brushes').getData();
         let hasChanges = false;
@@ -568,7 +568,7 @@ class AddBrushControl extends BaseControl {
     }
 
     updateFeatures = async (featuresBeforeZoomFix, save = false, onlyUpdateProperties = false) => {
-        let features = this.applyZoomCorrections(featuresBeforeZoomFix);
+        const features = this.applyZoomCorrections(featuresBeforeZoomFix);
 
         if (features.length > 0) {
             const data = await this.map.getSource('brushes').getData();

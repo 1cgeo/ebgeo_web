@@ -553,7 +553,7 @@ export class ExportImportService {
         try {
             for (const [originalMapName, mapGroups] of Object.entries(groupsData)) {
                 const finalMapName = mapNameMapping.get(originalMapName);
-                
+
                 if (!finalMapName || !mapGroups || Object.keys(mapGroups).length === 0) {
                     continue;
                 }

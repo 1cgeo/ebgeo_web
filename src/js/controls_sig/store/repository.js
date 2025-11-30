@@ -442,12 +442,10 @@ const initializeRepository = async () => {
             await migrateAllMapsTo14();
             await migrateAllMapsTo15();
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        }
-        else if (currentSchemaVersion === '1.4') {
+        } else if (currentSchemaVersion === '1.4') {
             await migrateAllMapsTo15();
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
-        }
-        else if (!currentSchemaVersion) {
+        } else if (!currentSchemaVersion) {
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         }
 

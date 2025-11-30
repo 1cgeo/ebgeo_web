@@ -426,7 +426,7 @@ class AddVisibilityGeometry extends BaseGeometry {
         if (mainFeature.geometry.type === 'MultiPolygon') {
             mainFeature.geometry.coordinates.forEach((polygonCoords, index) => {
                 const cellData = properties.cellData[index];
-                
+
                 processedFeatures.push({
                     type: 'Feature',
                     id: `${properties.id}-${index}`,
@@ -512,7 +512,7 @@ class AddVisibilityGeometry extends BaseGeometry {
         const center = turf.point(startPoint);
         const radius = turf.distance(startPoint, endPoint, { units: 'meters' });
         const angle = turf.bearing(startPoint, endPoint);
-        
+
         center.properties = { observerHeight: properties.observerHeight };
 
         const viewshedResult = await this.calculateViewshed(center, radius, angle, map, progressCallback);
@@ -530,7 +530,7 @@ class AddVisibilityGeometry extends BaseGeometry {
         }
 
         const feature = this.createViewshedFeature(optimizedCells, radius, angle, properties.observerHeight);
-        
+
         return {
             ...feature,
             properties: {
@@ -626,12 +626,12 @@ class AddVisibilityGeometry extends BaseGeometry {
      * @returns {boolean} True if valid center
      */
     isValidCenter(coordinates) {
-        return coordinates && 
-               Array.isArray(coordinates) && 
-               coordinates.length >= 2 && 
-               typeof coordinates[0] === 'number' && 
+        return coordinates &&
+               Array.isArray(coordinates) &&
+               coordinates.length >= 2 &&
+               typeof coordinates[0] === 'number' &&
                typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) && 
+               !isNaN(coordinates[0]) &&
                !isNaN(coordinates[1]);
     }
 }

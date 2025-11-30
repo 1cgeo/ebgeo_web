@@ -517,7 +517,7 @@ class AddImportControl {
             const steps = 25;
             const stepLength = length / steps;
 
-            let profileData = [];
+            const profileData = [];
 
             for (let i = 0; i <= steps; i++) {
                 const point = turf.along(line, i * stepLength, { units: 'meters' });

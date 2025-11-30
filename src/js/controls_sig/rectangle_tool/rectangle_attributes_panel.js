@@ -18,7 +18,7 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     if (selectedFeatures.length === 0) return;
 
     const feature = selectedFeatures[0];
-    
+
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
     if (selectedFeatures.length === 1) {
@@ -36,18 +36,18 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
-        
+
         const infoText = document.createElement('div');
         infoText.className = 'feature-name-wrapper';
         infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
         infoText.textContent = `${selectedFeatures.length} retângulos selecionados`;
-        
+
         const optionsButton = createFeatureOptionsButton(
             selectedFeatures,
             selectionManager,
             uiManager
         );
-        
+
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
         panel.appendChild(multiSelectHeader);
@@ -127,13 +127,13 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         value: feature.properties.borderRadius || 0,
         onChange: (value) => {
             rectangleControl.updateFeaturesProperty(selectedFeatures, 'borderRadius', value);
-            
+
             selectedFeatures.forEach(f => {
                 const corner1 = rectangleControl.geometry.normalizeCorner(f.properties.corner1);
                 const corner2 = rectangleControl.geometry.normalizeCorner(f.properties.corner2);
                 f.geometry = rectangleControl.geometry.generate(corner1, corner2, value);
             });
-            
+
             rectangleControl.updateFeatures(selectedFeatures, false, false);
             uiManager.updateSelectionHighlight();
         }

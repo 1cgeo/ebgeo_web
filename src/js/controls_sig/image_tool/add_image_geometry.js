@@ -26,12 +26,12 @@ class AddImageGeometry extends BaseGeometry {
      * @returns {boolean} True if valid
      */
     validate(coordinates) {
-        return coordinates && 
-               Array.isArray(coordinates) && 
+        return coordinates &&
+               Array.isArray(coordinates) &&
                coordinates.length >= 2 &&
-               typeof coordinates[0] === 'number' && 
+               typeof coordinates[0] === 'number' &&
                typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) && 
+               !isNaN(coordinates[0]) &&
                !isNaN(coordinates[1]);
     }
 
@@ -134,7 +134,7 @@ class AddImageGeometry extends BaseGeometry {
         const [lng, lat] = coordinates;
         const halfWidth = widthDegrees / 2;
         const halfHeight = heightDegrees / 2;
-        
+
         return {
             type: 'Polygon',
             coordinates: [[
@@ -198,12 +198,12 @@ class AddImageGeometry extends BaseGeometry {
      * @returns {boolean} True if valid position
      */
     isValidPosition(coordinates) {
-        return coordinates && 
-               Array.isArray(coordinates) && 
-               coordinates.length >= 2 && 
-               typeof coordinates[0] === 'number' && 
+        return coordinates &&
+               Array.isArray(coordinates) &&
+               coordinates.length >= 2 &&
+               typeof coordinates[0] === 'number' &&
                typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) && 
+               !isNaN(coordinates[0]) &&
                !isNaN(coordinates[1]);
     }
 

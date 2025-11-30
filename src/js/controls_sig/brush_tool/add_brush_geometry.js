@@ -135,7 +135,7 @@ class AddBrushGeometry extends BaseGeometry {
 
             // Check if current point deviates significantly from straight line
             const deviation = this.calculatePointLineDistance(curr, prev, next);
-            
+
             if (deviation > tolerance) {
                 simplified.push(curr);
             }
@@ -164,11 +164,11 @@ class AddBrushGeometry extends BaseGeometry {
 
         const dot = A * C + B * D;
         const lenSq = C * C + D * D;
-        
+
         if (lenSq === 0) return Math.sqrt(A * A + B * B);
 
         const param = dot / lenSq;
-        
+
         let xx, yy;
         if (param < 0) {
             xx = x1;

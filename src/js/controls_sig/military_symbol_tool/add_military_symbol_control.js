@@ -502,12 +502,12 @@ class AddMilitarySymbolControl extends BaseControl {
       const result = await this.symbolGenerator.generateSymbolBlob(
         feature.properties
       );
-      
-      // ✅ UPDATE feature with real dimensions from generated image
+
+      // UPDATE feature with real dimensions from generated image
       feature.properties.width = result.width;
       feature.properties.height = result.height;
-      
-      // ✅ RECALCULATE selection box with real dimensions
+
+      // RECALCULATE selection box with real dimensions
       feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
         coordinates,
         result.width,
@@ -517,7 +517,7 @@ class AddMilitarySymbolControl extends BaseControl {
         currentZoom,
         this.selectionManager.uiManager
       );
-      
+
       // Store image (blob only)
       await storeImage(featureId, result.blob);
 
@@ -605,18 +605,18 @@ class AddMilitarySymbolControl extends BaseControl {
       const result = await this.symbolGenerator.generateSymbolBlob(
         feature.properties
       );
-      
-      // ✅ UPDATE dimensions in feature
+
+      // UPDATE dimensions in feature
       feature.properties.width = result.width;
       feature.properties.height = result.height;
-      
-      // ✅ RECALCULATE selection box with new dimensions
+
+      // RECALCULATE selection box with new dimensions
       feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
         feature,
         this.selectionManager.uiManager
       );
-      
-      // ✅ PERSIST changes to map source
+
+      // PERSIST changes to map source
       const data = await this.map.getSource("military_symbols").getData();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
@@ -631,7 +631,7 @@ class AddMilitarySymbolControl extends BaseControl {
       // Update imageStore and map
       await storeImage(symbolId, result.blob);
       await this.loadSymbolToMap(symbolId, result.blob);
-      
+
       // ✅ INVALIDATE cache for this feature (dimensions/selectionBox changed)
       if (this.selectionManager.uiManager.invalidateCache) {
         this.selectionManager.uiManager.invalidateCache(symbolId);
@@ -660,16 +660,16 @@ class AddMilitarySymbolControl extends BaseControl {
       const result = await this.symbolGenerator.generateSymbolBlob(
         feature.properties
       );
-      
+
       feature.properties.width = result.width;
       feature.properties.height = result.height;
-      
+
       feature.properties.selectionBox = this.geometry.recalculateSelectionBox(
         feature,
         this.selectionManager.uiManager
       );
-      
-      // ✅ PERSIST changes to map source
+
+      // PERSIST changes to map source
       const data = await this.map.getSource("military_symbols").getData();
       const sourceFeature = data.features.find(
         f => f.properties.id === feature.properties.id
@@ -689,13 +689,13 @@ class AddMilitarySymbolControl extends BaseControl {
         this.map.removeImage(symbolId);
       }
       await this.loadSymbolToMap(symbolId, result.blob);
-      
-      // ✅ INVALIDATE cache for this feature (dimensions/selectionBox changed)
+
+      // INVALIDATE cache for this feature (dimensions/selectionBox changed)
       if (this.selectionManager.uiManager.invalidateCache) {
         this.selectionManager.uiManager.invalidateCache(symbolId);
       }
 
-      // ✅ UPDATE selection highlight
+      // UPDATE selection highlight
       if (this.selectionManager.uiManager.updateSelectionHighlight) {
         requestAnimationFrame(() => {
           this.selectionManager.uiManager.updateSelectionHighlight();

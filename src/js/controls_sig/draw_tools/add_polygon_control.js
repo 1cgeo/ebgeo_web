@@ -369,7 +369,7 @@ class AddPolygonControl extends BaseControl {
     updateDrawingPreview = () => {
         if (this.drawPoints.length === 0) return;
 
-        let previewCoords = [...this.drawPoints];
+        const previewCoords = [...this.drawPoints];
         if (this.lastPreviewPosition) {
             previewCoords.push(this.lastPreviewPosition);
         }
@@ -576,7 +576,7 @@ class AddPolygonControl extends BaseControl {
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
             // Apply geometry changes directly (like Line Tool)
             this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
-            
+
             const result = this.geometry.updateFromHandle(this.activeHandleType, this.lastPreviewPosition, selectedFeature);
 
             if (result) {
@@ -731,7 +731,7 @@ class AddPolygonControl extends BaseControl {
                 const area = this.geometry.calculateArea(coordinates);
                 const areaFormatted = this.geometry.formatArea(area);
                 const centroid = this.geometry.calculateCentroid(coordinates);
-                
+
                 if (centroid) {
                     this.displayMeasurement(centroid, areaFormatted, feature.properties.id);
                 }
@@ -828,7 +828,7 @@ class AddPolygonControl extends BaseControl {
             this.createEditHandles(selectedFeature);
         }
     }
-     
+
     updateHatchPatterns = (data) => {
         if (!data || !data.features) {
             return;
@@ -869,10 +869,10 @@ class AddPolygonControl extends BaseControl {
         for (const feature of features) {
             try {
                 const featureId = feature.properties.id;
-                
+
                 // Remove measurement label
                 this.removeFeatureMeasurement(featureId);
-                
+
                 await removeFeature('polygons', featureId);
                 const data = await this.map.getSource('polygons').getData();
                 const idsToDelete = new Set(features.map(f => String(f.properties.id)));

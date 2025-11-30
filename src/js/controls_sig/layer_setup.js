@@ -68,16 +68,16 @@ function createLayerVisibilityFilter(visibleLayerIds, additionalFilters = null) 
         ['coalesce', ['get', 'layerId'], 'default'],
         ['literal', visibleLayerIds]
     ];
-    
+
     const baseFilters = [
         ['!=', ['get', 'visivel'], false],
         layerFilter
     ];
-    
+
     if (additionalFilters) {
         return ['all', ...baseFilters, ...additionalFilters];
     }
-    
+
     return ['all', ...baseFilters];
 }
 
@@ -87,7 +87,7 @@ function createHatchLayerFilter(visibleLayerIds, hatchEnabled) {
         ['coalesce', ['get', 'layerId'], 'default'],
         ['literal', visibleLayerIds]
     ];
-    
+
     if (hatchEnabled) {
         return [
             'all',
@@ -108,15 +108,15 @@ function createHatchLayerFilter(visibleLayerIds, hatchEnabled) {
 
 function updateAllLayerFilters(mapInstance) {
     if (!mapInstance) return;
-    
+
     const visibleLayerIds = getVisibleLayerIds();
     const cacheKey = JSON.stringify(visibleLayerIds);
     if (cachedVisibleLayerIds === cacheKey) return;
     cachedVisibleLayerIds = cacheKey;
-    
+
     FEATURE_LAYER_IDS.forEach(layerId => {
         if (!mapInstance.getLayer(layerId)) return;
-        
+
         try {
             let newFilter;
             if (layerId in HATCH_PATTERN_LAYERS) {

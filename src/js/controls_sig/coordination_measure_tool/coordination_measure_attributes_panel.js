@@ -18,7 +18,7 @@ import { UI_DATA, SUPPLY_CLASSES } from './coordination_measure_constants.js';
 /**
  * Add Coordination Measure attributes to panel
  * Follows the same pattern as military symbol attributes panel with 2-column modal
- * 
+ *
  * @param {HTMLElement} panel - Panel container element
  * @param {Array} selectedFeatures - Array of selected coordination measure features
  * @param {Object} coordinationMeasureControl - Control instance
@@ -145,13 +145,13 @@ export function addCoordinationMeasureAttributesToPanel(
                 };
 
                 await coordinationMeasureControl.updateFeatures([updatedFeature], true, false);
-                
+
                 uiManager.updateSelectionHighlight();
-                
+
                 if (coordEditor.updateCoordinates) {
                     coordEditor.updateCoordinates(lat, lng);
                 }
-                
+
                 setTimeout(() => uiManager.updatePanels(), 100);
             },
             false
@@ -436,7 +436,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
         function updateSubtypeCombo() {
             subtypeDropdown.innerHTML = '';
-            
+
             if (!isEchelonPointCode(tempProperties.pointCode)) return;
 
             const isFT = tempProperties.pointCode === 'ECHELON_FT';
@@ -711,7 +711,7 @@ export function addCoordinationMeasureAttributesToPanel(
 
         const displayContent = document.createElement('div');
         displayContent.style.cssText = 'display: flex; align-items: center; gap: 10px; flex: 1;';
-        
+
         const displayThumbnail = document.createElement('img');
         displayThumbnail.style.cssText = `
             width: 30px;
@@ -719,10 +719,10 @@ export function addCoordinationMeasureAttributesToPanel(
             object-fit: contain;
             flex-shrink: 0;
         `;
-        
+
         const displayText = document.createElement('span');
         displayText.style.cssText = 'flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
-        
+
         displayContent.appendChild(displayThumbnail);
         displayContent.appendChild(displayText);
         selectDisplay.appendChild(displayContent);
@@ -767,7 +767,7 @@ export function addCoordinationMeasureAttributesToPanel(
                         selected.iconCode,
                         selected.defaultEchelonCode
                     );
-                    
+
                     if (thumbnailUrl) {
                         displayThumbnail.src = thumbnailUrl;
                         displayThumbnail.style.display = 'block';
@@ -817,7 +817,7 @@ export function addCoordinationMeasureAttributesToPanel(
                         }
                     });
             }
-            
+
             optionElement.appendChild(optionText);
 
             if (option.value === currentValue) {

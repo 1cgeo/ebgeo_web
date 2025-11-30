@@ -506,7 +506,7 @@ class AddCircleControl extends BaseControl {
                 }
             }
         }
-        
+
         if (property.startsWith('hatch')) {
             this.updateHatchPatterns(data);
         }

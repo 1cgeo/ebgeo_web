@@ -338,16 +338,12 @@ class MoveHandler {
                 if (lineControl && lineControl.updateFeatureMeasurement) {
                     lineControl.updateFeatureMeasurement(feature);
                 }
-            }
-
-            else if (type === 'polygon' && feature.properties.measure) {
+            } else if (type === 'polygon' && feature.properties.measure) {
                 const polygonControl = this.getControl('polygon');
                 if (polygonControl && polygonControl.updateFeatureMeasurement) {
                     polygonControl.updateFeatureMeasurement(feature);
                 }
-            }
-
-            else if (type === 'los' && feature.properties.measure) {
+            } else if (type === 'los' && feature.properties.measure) {
                 const losControl = this.getControl('los');
                 if (losControl && losControl.updateFeatureMeasurement) {
                     losControl.updateFeatureMeasurement(feature);

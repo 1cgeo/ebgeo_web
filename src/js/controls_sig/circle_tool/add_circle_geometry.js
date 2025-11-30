@@ -149,7 +149,7 @@ class AddCircleGeometry extends BaseGeometry {
         }
 
         const newRadius = this.calculateDistance(center, newPosition);
-        
+
         if (newRadius < 10) {
             console.warn('Radius too small:', newRadius);
             return null;
@@ -171,13 +171,13 @@ class AddCircleGeometry extends BaseGeometry {
      */
     calculatePreview(center, newPosition) {
         const newRadius = this.calculateDistance(center, newPosition);
-        
+
         if (newRadius < 10) {
             return null;
         }
 
         const previewGeometry = this.generateCircleGeometry(center, newRadius);
-        
+
         const radiusInDegrees = newRadius / 111320;
         const handlePoint = [
             center[0] + (radiusInDegrees / Math.cos(center[1] * Math.PI / 180)),
@@ -197,12 +197,12 @@ class AddCircleGeometry extends BaseGeometry {
      * @returns {boolean} True if valid center
      */
     isValidCenter(coordinates) {
-        return coordinates && 
-               Array.isArray(coordinates) && 
-               coordinates.length >= 2 && 
-               typeof coordinates[0] === 'number' && 
+        return coordinates &&
+               Array.isArray(coordinates) &&
+               coordinates.length >= 2 &&
+               typeof coordinates[0] === 'number' &&
                typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) && 
+               !isNaN(coordinates[0]) &&
                !isNaN(coordinates[1]);
     }
 

@@ -379,8 +379,7 @@ class AddArrowControl extends BaseControl {
 
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
             this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
-        }
-        else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 2) {
+        } else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 2) {
             const isAirmobile = AddArrowControl.DEFAULT_PROPERTIES.airmobile;
             const debounceTime = isAirmobile ? 12 : 8;
 

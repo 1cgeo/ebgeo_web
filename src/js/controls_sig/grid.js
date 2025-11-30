@@ -171,7 +171,6 @@ class GridControl {
     }
 
 
-
 }
 
 export default GridControl;

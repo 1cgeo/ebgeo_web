@@ -40,8 +40,7 @@ class FrameControl {
                     this._fillMode = this._fillVisible ? 'normal' : 'sem_fill';
                     this._getFrame(this.currentScale);
                 }
-            }
-            else{
+            } else{
                 this.currentScale = 'scale_25k';
                 this.frameVisible = false;
                 this._fillVisible = true;
@@ -143,15 +142,13 @@ class FrameControl {
                 this.frameVisible = false;
                 this._getFrame(this.currentScale);
                 this._updateButtonState();
-            }
-            else if (scale === 'toggle_fill') {
+            } else if (scale === 'toggle_fill') {
                 if (!this.frameVisible) {
                     item.classList.add('disabled');
                     return;
                 }
                 this._toggleFillVisibility(item, this.currentScale, !this._fillVisible);
-            }
-            else {
+            } else {
                 this.currentScale = scale;
                 this.frameVisible = true;
                 this._getFrame(scale);
@@ -277,16 +274,11 @@ class FrameControl {
             if (item){
                 item.textContent = 'Mostrar produtos disp.';
             }
-        }
-        else {
-            if (this._originalFillColor)
-                this._map.setPaintProperty(fillLayer, 'fill-color', this._originalFillColor);
-            if (this._originalLineColor)
-                this._map.setPaintProperty(borderLayer, 'line-color', this._originalLineColor);
-            if (this._originalLineWidth)
-                this._map.setPaintProperty(borderLayer, 'line-width', this._originalLineWidth);
-            if (this._originalLineOffset)
-                this._map.setPaintProperty(borderLayer, 'line-offset', this._originalLineOffset);
+        } else {
+            if (this._originalFillColor) {this._map.setPaintProperty(fillLayer, 'fill-color', this._originalFillColor);}
+            if (this._originalLineColor) {this._map.setPaintProperty(borderLayer, 'line-color', this._originalLineColor);}
+            if (this._originalLineWidth) {this._map.setPaintProperty(borderLayer, 'line-width', this._originalLineWidth);}
+            if (this._originalLineOffset) {this._map.setPaintProperty(borderLayer, 'line-offset', this._originalLineOffset);}
 
             this._map.setLayoutProperty(fillLayer, 'visibility', 'visible');
 
@@ -297,8 +289,6 @@ class FrameControl {
 
         this._updateButtonState();
     }
-
-
 
 
 }

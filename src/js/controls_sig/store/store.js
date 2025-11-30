@@ -282,10 +282,10 @@ export const initializeWithLastActiveMap = async () => {
     await mapManager.setCurrentMap(lastActiveMap);
     await mapManager.initializeProjectColorCache();
     await groupManager.loadGroupsToMemory(lastActiveMap);
-    
+
     // Load layers to memory via LayerManager
     await layerManager.loadLayersToMemory(lastActiveMap);
-    
+
     return lastActiveMap;
 };
 
@@ -294,25 +294,25 @@ export const initializeWithLastActiveMap = async () => {
 export const getAllMapNamesStore = async () => {
     const allMaps = await getAllMapNames();
     const savedOrder = await getMapOrderRepo();
-    
+
     if (!savedOrder || savedOrder.length === 0) {
         return allMaps;
     }
-    
+
     const orderedMaps = [];
     const remainingMaps = new Set(allMaps);
-    
+
     for (const mapName of savedOrder) {
         if (remainingMaps.has(mapName)) {
             orderedMaps.push(mapName);
             remainingMaps.delete(mapName);
         }
     }
-    
+
     for (const mapName of remainingMaps) {
         orderedMaps.push(mapName);
     }
-    
+
     return orderedMaps;
 };
 
@@ -1005,12 +1005,12 @@ export const clearAllDataStore = async () => {
     await clearAllLayerData();
 
     await mapManager.clearAllColorCaches();
-    
+
     // Reset layer cache via manager
     layerManager.clearLayersCache();
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
-    
+
     // Emit layers-changed event
     document.dispatchEvent(new CustomEvent('layers-changed'));
 };
@@ -1179,14 +1179,14 @@ export const clearLayersCache = () => {
 export const setMapLayers = async (mapName, layersData) => {
     // This is used during import - directly save to repository and reload
     const { setLayers: setLayersRepo, setActiveLayerId: setActiveLayerIdRepo } = await import('./repository.js');
-    
+
     if (layersData.layers) {
         await setLayersRepo(mapName, layersData.layers);
     }
     if (layersData.activeLayerId) {
         await setActiveLayerIdRepo(mapName, layersData.activeLayerId);
     }
-    
+
     // Reload to memory if current map
     if (mapName === getCurrentMapNameSync()) {
         await layerManager.loadLayersToMemory(mapName);
@@ -1206,11 +1206,11 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
     const targetMap = mapName || getCurrentMapNameSync();
     const currentMapData = await getMapData(targetMap);
     let modified = false;
-    
+
     for (const storageType of getAllStorageTypes()) {
         const typeFeatures = currentMapData.features[storageType] || [];
         const initialLength = typeFeatures.length;
-        
+
         // Filter keeping only features that do NOT belong to the layer
         currentMapData.features[storageType] = typeFeatures.filter(feature => {
             const featureLayerId = feature.properties?.layerId || 'default';
@@ -1224,21 +1224,21 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
             }
             return true; // Keep
         });
-        
+
         if (currentMapData.features[storageType].length !== initialLength) {
             modified = true;
         }
     }
-    
+
     if (modified) {
         await updateMapData(targetMap, currentMapData);
-        
+
         // Emit event for map update
         document.dispatchEvent(new CustomEvent('features-changed', {
             detail: { mapName: targetMap, action: 'delete-layer-features', layerId }
         }));
     }
-    
+
     return modified;
 };
 
@@ -1251,7 +1251,7 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
 export const getLayerFeatures = async (layerId, mapName = null) => {
     const features = await getCurrentMapFeatures(mapName);
     const result = [];
-    
+
     for (const storageType of getAllStorageTypes()) {
         const typeFeatures = features[storageType] || [];
         for (const feature of typeFeatures) {
@@ -1261,7 +1261,7 @@ export const getLayerFeatures = async (layerId, mapName = null) => {
             }
         }
     }
-    
+
     return result;
 };
 
@@ -1275,36 +1275,36 @@ export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = 
     const targetMap = mapName || getCurrentMapNameSync();
     const currentMapData = await getMapData(targetMap);
     let modified = false;
-    
+
     if (featureRefs.length === 0) return;
-    
+
     // Check if array of layerIds or references
     const isLayerIdArray = typeof featureRefs[0] === 'string';
-    
+
     for (const storageType of getAllStorageTypes()) {
         const typeFeatures = currentMapData.features[storageType] || [];
-        
+
         for (const feature of typeFeatures) {
             let shouldMove = false;
-            
+
             if (isLayerIdArray) {
                 // Move all features from specified layers
                 const featureLayerId = feature.properties?.layerId || 'default';
                 shouldMove = featureRefs.includes(featureLayerId);
             } else {
                 // Move specific features
-                shouldMove = featureRefs.some(ref => 
+                shouldMove = featureRefs.some(ref =>
                     ref.type === storageType && ref.id === feature.properties?.id
                 );
             }
-            
+
             if (shouldMove) {
                 feature.properties.layerId = targetLayerId;
                 modified = true;
             }
         }
     }
-    
+
     if (modified) {
         await updateMapData(targetMap, currentMapData);
         document.dispatchEvent(new CustomEvent('layers-changed'));
@@ -1329,10 +1329,10 @@ export const isFeatureEffectivelyVisible = (feature) => {
  */
 export const isFeatureEffectivelyLocked = (feature) => {
     if (!feature || !feature.properties) return false;
-    
+
     // 1. Layer lock (via manager)
     if (layerManager.isFeatureEffectivelyLocked(feature)) return true;
-    
+
     // 2. Group lock
     const featureId = feature.properties.id;
     const sourceType = feature.properties.source;
@@ -1340,7 +1340,7 @@ export const isFeatureEffectivelyLocked = (feature) => {
         const group = groupManager.getFeatureGroup(sourceType, featureId);
         if (group && group.locked === true) return true;
     }
-    
+
     return false;
 };
 

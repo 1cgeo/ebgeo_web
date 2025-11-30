@@ -459,7 +459,7 @@ class AddLineControl extends BaseControl {
     updateDrawingPreview = () => {
         if (this.drawPoints.length === 0) return;
 
-        let previewCoords = [...this.drawPoints];
+        const previewCoords = [...this.drawPoints];
         if (this.lastPreviewPosition) {
             previewCoords.push(this.lastPreviewPosition);
         }
@@ -646,7 +646,7 @@ class AddLineControl extends BaseControl {
                 const result = this.geometry.updateFromHandle(this.activeHandleType, this.lastPreviewPosition, selectedFeature);
 
                 if (result) {
-                    let updatedFeature = {
+                    const updatedFeature = {
                         ...selectedFeature,
                         properties: {
                             ...selectedFeature.properties,
@@ -807,7 +807,7 @@ class AddLineControl extends BaseControl {
         const steps = 25;
         const stepLength = length / steps;
 
-        let profileData = [];
+        const profileData = [];
 
         for (let i = 0; i <= steps; i++) {
             const point = turf.along(line, i * stepLength, { units: 'meters' });

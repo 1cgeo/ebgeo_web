@@ -23,7 +23,7 @@ class AddRectangleGeometry extends BaseGeometry {
             const { center, width, height } = this.calculateDimensionsFromCorners(corner1, corner2);
             return this.generateRotatedRectangleGeometry(center, width, height, borderRadius, bearing);
         }
-        
+
         // Original behavior for rectangles without rotation
         return this.generateRectangleGeometry(corner1, corner2, borderRadius);
     }
@@ -105,7 +105,7 @@ class AddRectangleGeometry extends BaseGeometry {
         const maxLng = Math.max(corner1[0], corner2[0]);
         const minLat = Math.min(corner1[1], corner2[1]);
         const maxLat = Math.max(corner1[1], corner2[1]);
-        
+
         if (!borderRadius || borderRadius <= 0) {
             return {
                 type: 'Polygon',
@@ -118,7 +118,7 @@ class AddRectangleGeometry extends BaseGeometry {
                 ]]
             };
         }
-        
+
         return this.generateRoundedRectangleGeometry(minLng, minLat, maxLng, maxLat, borderRadius);
     }
 
@@ -134,7 +134,7 @@ class AddRectangleGeometry extends BaseGeometry {
         // Calculate 4 corners of non-rotated rectangle (in local offsets)
         const halfWidth = width / 2;
         const halfHeight = height / 2;
-        
+
         // Corners in local coordinates (meters)
         const localCorners = [
             { x: halfWidth, y: halfHeight },
@@ -142,20 +142,20 @@ class AddRectangleGeometry extends BaseGeometry {
             { x: -halfWidth, y: -halfHeight },
             { x: halfWidth, y: -halfHeight }
         ];
-        
+
         // Rotate and convert to geographic coordinates
-        const rotatedCorners = localCorners.map(corner => 
+        const rotatedCorners = localCorners.map(corner =>
             this.rotateAndTranslate(corner.x, corner.y, center, bearing)
         );
-        
+
         // If borderRadius > 0, add rounded arcs at corners
         if (borderRadius && borderRadius > 0) {
             return this.generateRoundedRotatedRectangle(rotatedCorners, center, borderRadius, width, height);
         }
-        
+
         // Simple rotated rectangle
         rotatedCorners.push(rotatedCorners[0]);
-        
+
         return {
             type: 'Polygon',
             coordinates: [rotatedCorners]
@@ -174,10 +174,10 @@ class AddRectangleGeometry extends BaseGeometry {
         // Calculate distance and angle from local offset
         const distance = Math.sqrt(x * x + y * y) / 1000;
         const localAngle = Math.atan2(y, x) * 180 / Math.PI;
-        
+
         // Adjust angle: 0 degrees = east, 90 degrees = north
         const adjustedAngle = localAngle + bearing;
-        
+
         return turf.destination(center, distance, adjustedAngle, { units: 'kilometers' }).geometry.coordinates;
     }
 
@@ -197,29 +197,29 @@ class AddRectangleGeometry extends BaseGeometry {
         const effectiveRadius = minDimension * radiusScale * 0.5;
         const maxRadius = minDimension / 2;
         const radius = Math.min(effectiveRadius, maxRadius);
-        
+
         const coordinates = [];
-        
+
         // For each corner, add rounded arc
         for (let i = 0; i < corners.length; i++) {
             const corner = corners[i];
             const prevCorner = corners[(i + 3) % 4];
             const nextCorner = corners[(i + 1) % 4];
-            
+
             // Calculate directions for adjacent sides
             const prevDir = this.normalizeDirection(prevCorner, corner);
             const nextDir = this.normalizeDirection(corner, nextCorner);
-            
+
             // Arc start point (offset from corner)
             const arcStart = this.offsetPoint(corner, prevDir, radius);
             coordinates.push(arcStart);
-            
+
             const arcPoints = this.createArcPoints(corner, arcStart, nextDir, radius, segmentsPerCorner);
             coordinates.push(...arcPoints);
         }
-        
+
         coordinates.push(coordinates[0]);
-        
+
         return {
             type: 'Polygon',
             coordinates: [coordinates]
@@ -254,19 +254,19 @@ class AddRectangleGeometry extends BaseGeometry {
     createArcPoints(corner, start, direction, radius, segments) {
         const points = [];
         const distInDegrees = radius / 111320;
-        
+
         for (let i = 1; i <= segments; i++) {
             const t = i / segments;
             const angle = t * Math.PI / 2;
             const x = Math.cos(angle) * distInDegrees;
             const y = Math.sin(angle) * distInDegrees;
-            
+
             points.push([
                 start[0] + direction[0] * x,
                 start[1] + direction[1] * y
             ]);
         }
-        
+
         return points;
     }
 
@@ -281,20 +281,20 @@ class AddRectangleGeometry extends BaseGeometry {
      */
     generateRoundedRectangleGeometry(minLng, minLat, maxLng, maxLat, borderRadius) {
         const segmentsPerCorner = 8;
-        
+
         const centerLat = (minLat + maxLat) / 2;
         const rectWidth = maxLng - minLng;
         const rectHeight = maxLat - minLat;
-        
+
         const minDimension = Math.min(rectWidth, rectHeight);
         const radiusScale = borderRadius / 10;
         const effectiveRadius = minDimension * radiusScale * 0.5;
-        
+
         const maxRadius = minDimension / 2;
         const radius = Math.min(effectiveRadius, maxRadius);
-        
+
         const coordinates = [];
-        
+
         this.addRoundedCorner(
             coordinates,
             maxLng - radius, maxLat - radius,
@@ -302,7 +302,7 @@ class AddRectangleGeometry extends BaseGeometry {
             0, Math.PI / 2,
             segmentsPerCorner
         );
-        
+
         this.addRoundedCorner(
             coordinates,
             minLng + radius, maxLat - radius,
@@ -310,7 +310,7 @@ class AddRectangleGeometry extends BaseGeometry {
             Math.PI / 2, Math.PI,
             segmentsPerCorner
         );
-        
+
         this.addRoundedCorner(
             coordinates,
             minLng + radius, minLat + radius,
@@ -318,7 +318,7 @@ class AddRectangleGeometry extends BaseGeometry {
             Math.PI, 3 * Math.PI / 2,
             segmentsPerCorner
         );
-        
+
         this.addRoundedCorner(
             coordinates,
             maxLng - radius, minLat + radius,
@@ -326,9 +326,9 @@ class AddRectangleGeometry extends BaseGeometry {
             3 * Math.PI / 2, 2 * Math.PI,
             segmentsPerCorner
         );
-        
+
         coordinates.push(coordinates[0]);
-        
+
         return {
             type: 'Polygon',
             coordinates: [coordinates]
@@ -368,10 +368,10 @@ class AddRectangleGeometry extends BaseGeometry {
         }
 
         const coords = geometry.coordinates[0];
-        
+
         const lngs = coords.map(c => c[0]);
         const lats = coords.map(c => c[1]);
-        
+
         const minLng = Math.min(...lngs);
         const maxLng = Math.max(...lngs);
         const minLat = Math.min(...lats);
@@ -400,7 +400,7 @@ class AddRectangleGeometry extends BaseGeometry {
         const center = this.normalizeCenter(properties.center);
         const width = properties.width;
         const height = properties.height;
-        
+
         if (!center || !width || !height) {
             console.error('Cannot create handles - invalid dimensions');
             return [];
@@ -507,7 +507,7 @@ class AddRectangleGeometry extends BaseGeometry {
     calculateRotationHandlePosition(center, height, bearing) {
         const rotationBearing = bearing - 90;
         const distance = (height / 2) / 1000;
-        
+
         return turf.destination(center, distance, rotationBearing, { units: 'kilometers' }).geometry.coordinates;
     }
 
@@ -522,10 +522,10 @@ class AddRectangleGeometry extends BaseGeometry {
             (corner1[0] + corner2[0]) / 2,
             (corner1[1] + corner2[1]) / 2
         ];
-        
+
         const width = this.calculateDistance([corner1[0], center[1]], [corner2[0], center[1]]);
         const height = this.calculateDistance([center[0], corner1[1]], [center[0], corner2[1]]);
-        
+
         return { center, width, height };
     }
 
@@ -542,20 +542,20 @@ class AddRectangleGeometry extends BaseGeometry {
             (corner1[0] + corner2[0]) / 2,
             (corner1[1] + corner2[1]) / 2
         ];
-        
+
         // Calculate diagonal distance between corners (in meters)
         const diagonalDistance = turf.distance(corner1, corner2, { units: 'kilometers' }) * 1000;
 
         // Calculate diagonal angle
         const diagonalBearing = turf.bearing(corner2, corner1);
-        
+
         // Difference between diagonal bearing and rectangle bearing gives internal angle
         const angleDiff = (diagonalBearing - bearing) * Math.PI / 180;
-        
+
         // Calculate width and height from diagonal and angle
         const width = Math.abs(diagonalDistance * Math.cos(angleDiff));
         const height = Math.abs(diagonalDistance * Math.sin(angleDiff));
-        
+
         return { center, width, height };
     }
 
@@ -568,7 +568,7 @@ class AddRectangleGeometry extends BaseGeometry {
     createHandles(feature) {
         console.warn('createHandles is deprecated, use createHandlesFromGeometry for better consistency');
         return this.createHandlesFromGeometry(
-            feature.geometry, 
+            feature.geometry,
             feature.properties.id,
             feature.properties.bearing,
             feature.properties
@@ -757,9 +757,9 @@ class AddRectangleGeometry extends BaseGeometry {
      * @returns {boolean} True if valid corners
      */
     areValidCorners(corner1, corner2) {
-        return this.isValidCoordinate(corner1) && 
+        return this.isValidCoordinate(corner1) &&
                this.isValidCoordinate(corner2) &&
-               corner1[0] !== corner2[0] && 
+               corner1[0] !== corner2[0] &&
                corner1[1] !== corner2[1];
     }
 
@@ -769,12 +769,12 @@ class AddRectangleGeometry extends BaseGeometry {
      * @returns {boolean} True if valid
      */
     isValidCoordinate(coordinates) {
-        return coordinates && 
-               Array.isArray(coordinates) && 
-               coordinates.length >= 2 && 
-               typeof coordinates[0] === 'number' && 
+        return coordinates &&
+               Array.isArray(coordinates) &&
+               coordinates.length >= 2 &&
+               typeof coordinates[0] === 'number' &&
                typeof coordinates[1] === 'number' &&
-               !isNaN(coordinates[0]) && 
+               !isNaN(coordinates[0]) &&
                !isNaN(coordinates[1]);
     }
 
@@ -803,7 +803,7 @@ class AddRectangleGeometry extends BaseGeometry {
     calculateCornersFromCenterAndDimensions(center, width, height) {
         const widthInDegrees = width / 111320;
         const heightInDegrees = height / 111320;
-        
+
         const cosLat = Math.cos(center[1] * Math.PI / 180);
         const adjustedWidthInDegrees = widthInDegrees / cosLat;
 

@@ -317,7 +317,7 @@ class DragDropHandler {
 
         const icon = this.getFileIcon(fileType);
         const message = this.getDropMessage(fileType, fileName);
-        
+
         this.overlay.innerHTML = `
             <div style="font-size: 48px; margin-bottom: 16px;">${icon}</div>
             <div style="color: white; font-size: 18px; font-weight: 600; text-align: center; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
@@ -378,7 +378,7 @@ class DragDropHandler {
 
     getDropMessage(fileType, fileName) {
         const shortName = fileName.length > 30 ? fileName.substring(0, 30) + '...' : fileName;
-        
+
         switch (fileType) {
             case 'EBGEO':
                 return `Importar Projeto<br><em style="font-size: 14px; opacity: 0.9;">${shortName}</em>`;

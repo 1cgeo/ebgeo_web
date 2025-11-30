@@ -102,7 +102,7 @@ class ClipboardManager {
                 const newId = idMapping.get(oldId);
                 const newGeoJSONId = IDUtils.generateGeoJSONId();
 
-                let pastedFeature = this.prepareFeatureForPaste(feature, offset, type);
+                const pastedFeature = this.prepareFeatureForPaste(feature, offset, type);
 
                 if (!pastedFeature) {
                     console.warn(`Failed to prepare feature for paste: ${type}`);

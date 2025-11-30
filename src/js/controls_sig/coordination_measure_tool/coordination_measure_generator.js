@@ -7,14 +7,14 @@ const DEFAULT_SIZE = 80;
 /**
  * Coordination Measure Generator
  * Generates coordination measure symbols from SVG catalog
- * 
+ *
  * Key features:
  * - SVG catalog-based generation
  * - Text modifier support (configured per point type in catalog)
  * - Status-based styling (dashed stroke for "preparado")
  * - Returns actual dimensions for accurate bounding box calculations
  * - Compatible with Military Symbol Generator interface
- * 
+ *
  * @class CoordinationMeasureGenerator
  */
 export class CoordinationMeasureGenerator {
@@ -33,52 +33,52 @@ export class CoordinationMeasureGenerator {
     if (!pointCode) {
       throw new Error('Property pointCode is required');
     }
-    
+
     const pointData = this.catalog[pointCode];
     if (!pointData) {
       throw new Error(`Point ${pointCode} not found in catalog`);
     }
-    
+
     // Get base SVG from catalog
     let svg = pointData.svg;
-    
+
     // Apply color: custom color if specified, otherwise transparent (default)
     // fillColor === null or undefined → transparent ('none')
     // fillColor === hex color → apply that color
     const colorToApply = properties.fillColor || 'none';
     svg = this.applyCustomColor(svg, colorToApply);
-    
+
     const baseViewBox = this.extractDimensions(svg);
-    
+
     const hasText = this.hasExternalText(properties, pointData);
-    
+
     let finalWidth = DEFAULT_SIZE;
     let finalHeight = DEFAULT_SIZE;
-    
+
     if (!hasText) {
       // No text: use baseline directly
       // Keep original viewBox, no modifications needed
     } else {
       const expandedViewBox = this.calculateDynamicViewBox(svg, properties, pointData);
-      
+
       const growthFactorX = expandedViewBox.width / baseViewBox.width;
       const growthFactorY = expandedViewBox.height / baseViewBox.height;
-      
+
       if (growthFactorX > 1.01) {
         finalWidth = Math.round(DEFAULT_SIZE * growthFactorX);
       }
-      
+
       if (growthFactorY > 1.01) {
         finalHeight = Math.round(DEFAULT_SIZE * growthFactorY);
       }
-      
+
       svg = this.addExternalTexts(svg, properties, pointData);
     }
-    
+
     // The SVG with expanded viewBox renders in expanded canvas
     // Net result: symbol base stays at DEFAULT_SIZE pixels visually
     const blob = await this.convertToPngBlob(svg, finalWidth, finalHeight);
-    
+
     return {
       blob: blob,
       width: finalWidth,
@@ -97,16 +97,16 @@ export class CoordinationMeasureGenerator {
   async generate(pointCode, properties) {
     // Add pointCode to properties for generateSymbolBlob
     const propsWithCode = { ...properties, pointCode: pointCode };
-    
+
     const result = await this.generateSymbolBlob(propsWithCode);
-    
+
     // Convert blob to dataUrl for backward compatibility
     const dataUrl = await new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
       reader.readAsDataURL(result.blob);
     });
-    
+
     return {
       dataUrl: dataUrl,
       blob: result.blob,
@@ -125,7 +125,7 @@ export class CoordinationMeasureGenerator {
   hasExternalText(properties, pointData) {
     const textFieldsConfig = pointData.textFields || {};
     const fieldNames = Object.keys(textFieldsConfig);
-    
+
     // Check if any configured field has a value
     return fieldNames.some(fieldName => {
       const value = properties[fieldName];
@@ -156,7 +156,7 @@ export class CoordinationMeasureGenerator {
    */
   applyDashedStroke(svg) {
     return svg.replace(
-      /stroke="([^"]*)"/g, 
+      /stroke="([^"]*)"/g,
       'stroke="$1" stroke-dasharray="5,5"'
     );
   }
@@ -266,7 +266,7 @@ export class CoordinationMeasureGenerator {
       fontWeight = 'normal',
       fill = 'black'
     } = options;
-    
+
     return `  <text x="${x}" y="${y}" text-anchor="${anchor}" font-size="${fontSize}" font-weight="${fontWeight}" fill="${fill}" font-family="Arial">${this.escapeXml(content)}</text>`;
   }
 
@@ -292,10 +292,10 @@ export class CoordinationMeasureGenerator {
       }
     }
 
-    return { 
-      minX: 0, 
-      minY: 0, 
-      width: 40, 
+    return {
+      minX: 0,
+      minY: 0,
+      width: 40,
       height: 40,
       maxX: 40,
       maxY: 40
@@ -315,20 +315,20 @@ export class CoordinationMeasureGenerator {
       const timeout = setTimeout(() => {
         reject(new Error('Timeout processing SVG'));
       }, 5000);
-      
+
       try {
         const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const img = new Image();
-        
+
         img.onload = () => {
           clearTimeout(timeout);
-          
+
           try {
             // Get natural dimensions from rendered SVG
             const naturalWidth = img.naturalWidth || img.width;
             const naturalHeight = img.naturalHeight || img.height;
-            
+
             if (naturalWidth === 0 || naturalHeight === 0) {
               throw new Error('Invalid image dimensions');
             }
@@ -345,7 +345,7 @@ export class CoordinationMeasureGenerator {
 
             const aspectRatio = naturalWidth / naturalHeight;
             const canvasAspectRatio = finalWidth / finalHeight;
-            
+
             let drawWidth, drawHeight, offsetX, offsetY;
 
             if (Math.abs(aspectRatio - canvasAspectRatio) < 0.01) {
@@ -371,21 +371,21 @@ export class CoordinationMeasureGenerator {
               URL.revokeObjectURL(url);
               resolve(pngBlob);
             }, 'image/png');
-            
+
           } catch (canvasError) {
             URL.revokeObjectURL(url);
             reject(new Error('Canvas processing error: ' + canvasError.message));
           }
         };
-        
+
         img.onerror = (error) => {
           clearTimeout(timeout);
           URL.revokeObjectURL(url);
           reject(new Error('Failed to load SVG image: ' + error));
         };
-        
+
         img.src = url;
-        
+
       } catch (error) {
         clearTimeout(timeout);
         reject(new Error('Failed to create SVG blob: ' + error.message));
@@ -561,10 +561,10 @@ export class CoordinationMeasureGenerator {
     minY = Math.floor(minY);
     maxX = Math.ceil(maxX);
     maxY = Math.ceil(maxY);
-    
+
     const width = maxX - minX;
     const height = maxY - minY;
-    
+
     return {
       minX,
       minY,

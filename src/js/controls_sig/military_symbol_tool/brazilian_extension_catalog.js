@@ -393,7 +393,7 @@ const SYMBOL_SET_10_CATALOG = {
                     type: 'svg',
                     svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,120 L100,52 175,120" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M100,50L100,120" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,90 L100,120" stroke-width="3" stroke="black" fill="none" ></path><path d="M100,120L140,90" stroke-width="3" stroke="black" fill="none" ></path>'
                 },
-                //Suprimento Classe VI
+                // Suprimento Classe VI
                 1: {
                     type: 'svg',
                     svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M60,120 L60,80 140,80 140,120 M100,80 L100,110" stroke-width="3" stroke="black" fill="none" ></path>',
@@ -420,7 +420,7 @@ const SYMBOL_SET_10_CATALOG = {
                         }
                     }
                 },
-                //Suprimento Classe VII
+                // Suprimento Classe VII
                 2: {
                     type: 'svg',
                     svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="M25,50 100,93 100,77 175,120" stroke-width="3" stroke="black" fill="none" ></path>',
@@ -447,7 +447,7 @@ const SYMBOL_SET_10_CATALOG = {
                         }
                     }
                 },
-                //Suprimento Classe X
+                // Suprimento Classe X
                 3: {
                     type: 'svg',
                     svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><text x="100" y="115" text-anchor="middle" font-size="45" font-family="Arial" font-weight="bold" stroke-width="3" stroke="none" fill="black" >X</text>',
@@ -474,7 +474,7 @@ const SYMBOL_SET_10_CATALOG = {
                         }
                     }
                 },
-                //Suprimento de Outras Classes
+                // Suprimento de Outras Classes
                 4: {
                     type: 'svg',
                     svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path>',
@@ -605,7 +605,7 @@ const SYMBOL_SET_10_CATALOG = {
                         }
                     }
                 },
-                //Suprimento Classe I e Outras Classes
+                // Suprimento Classe I e Outras Classes
                 9: {
                     type: 'svg',
                     svg: '<path d="M25,120 l150,0" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(-25,0)" ><path d="m 105,85 c -5,10 -5,20 0,30 m 0,-30 c -20,0 -20,30 0,30" stroke-width="3" stroke="black" fill="none" ></path><g transform="translate(45,0)" ><g transform="scale(1)" ><path d="m 100,112 -15,-25 30,0 -15,25 -15,-25" stroke-width="3" stroke="black" fill="none" ></path></g></g></g>',

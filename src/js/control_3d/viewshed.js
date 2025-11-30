@@ -1,8 +1,8 @@
 // Path: js/control_3d/viewshed.js
 
 // ===== MODULE STATE =====
-var arrViewField = [];
-var viewModel = { verticalAngle: 120, horizontalAngle: 150, distance: 10 };
+let arrViewField = [];
+const viewModel = { verticalAngle: 120, horizontalAngle: 150, distance: 10 };
 
 // ===== PUBLIC API =====
 
@@ -11,7 +11,7 @@ var viewModel = { verticalAngle: 120, horizontalAngle: 150, distance: 10 };
  * @param {Cesium.Viewer} map - The Cesium viewer instance
  */
 const addViewField = (map) => {
-    var e = new Cesium.ViewShed3D(map, {
+    const e = new Cesium.ViewShed3D(map, {
         horizontalAngle: Number(viewModel.horizontalAngle),
         verticalAngle: Number(viewModel.verticalAngle),
         distance: Number(viewModel.distance),
@@ -26,7 +26,7 @@ const addViewField = (map) => {
  * Clears all viewshed analysis fields from the map
  */
 const clearAllViewField = () => {
-    for (var e = 0, i = arrViewField.length; e < i; e++) {
+    for (let e = 0, i = arrViewField.length; e < i; e++) {
         arrViewField[e].destroy()
     }
     arrViewField = []

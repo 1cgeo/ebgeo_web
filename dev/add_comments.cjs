@@ -57,7 +57,7 @@ function addCommentToFile(srcDir, filePath, relativePath) {
         const normalizedPath = relativePath.split(path.sep).join('/');
         const comment = `// Path: ${normalizedPath}\n`;
         const lines = content.split('\n');
-        let firstLine = lines[0];
+        const firstLine = lines[0];
 
         if (firstLine.startsWith('//')) {
             // First line is already a comment, replace it

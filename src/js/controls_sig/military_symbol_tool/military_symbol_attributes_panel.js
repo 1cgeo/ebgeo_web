@@ -56,18 +56,18 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
-        
+
         const infoText = document.createElement('div');
         infoText.className = 'feature-name-wrapper';
         infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
         infoText.textContent = `${selectedFeatures.length} símbolos militares selecionados`;
-        
+
         const optionsButton = createFeatureOptionsButton(
             selectedFeatures,
             selectionManager,
             uiManager
         );
-        
+
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
         panel.appendChild(multiSelectHeader);
@@ -154,16 +154,16 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                         coordinates: [lng, lat]
                     }
                 };
-                
+
                 // Update the feature with new coordinates (await to ensure it completes)
                 await militarySymbolControl.updateFeatures([updatedFeature], true, false);
-                
+
                 uiManager.updateSelectionHighlight();
-                
+
                 if (coordEditor.updateCoordinates) {
                     coordEditor.updateCoordinates(lat, lng);
                 }
-                
+
                 setTimeout(() => uiManager.updatePanels(), 100);
             },
             false
@@ -298,11 +298,9 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     // Main Icon: show deepest level
                     if (option.entity_subtype_portugues) {
                         return option.entity_subtype_portugues;
-                    }
-                    else if (option.entity_type_portugues) {
+                    } else if (option.entity_type_portugues) {
                         return option.entity_type_portugues;
-                    }
-                    else {
+                    } else {
                         return option.entity_portugues;
                     }
                 } else {
@@ -318,11 +316,9 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 // Always show only the most detailed level available (deepest in hierarchy)
                 if (option.entity_subtype_portugues) {
                     return option.entity_subtype_portugues;
-                }
-                else if (option.entity_type_portugues) {
+                } else if (option.entity_type_portugues) {
                     return option.entity_type_portugues;
-                }
-                else {
+                } else {
                     return option.entity_portugues;
                 }
             }
@@ -1018,67 +1014,67 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
 
         const stageContainer = document.createElement('div');
         stageContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
-        
+
         const stageLabel = document.createElement('label');
         stageLabel.textContent = 'Estágio do Engajamento:';
         stageLabel.style.cssText = 'font-weight: bold; font-size: 15px; color: #333;';
-        
+
         const stageSelect = document.createElement('select');
         stageSelect.style.cssText = 'padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
-        
+
         const stageDefaultOption = document.createElement('option');
         stageDefaultOption.value = '';
         stageDefaultOption.textContent = 'Não Aplicável';
         stageSelect.appendChild(stageDefaultOption);
-        
+
         data.stages.forEach(stage => {
             const option = document.createElement('option');
             option.value = stage.value;
             option.textContent = `${stage.value} - ${stage.label}`;
             stageSelect.appendChild(option);
         });
-        
+
         stageContainer.appendChild(stageLabel);
         stageContainer.appendChild(stageSelect);
 
         const weaponContainer = document.createElement('div');
         weaponContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
-        
+
         const weaponLabel = document.createElement('label');
         weaponLabel.textContent = 'Armamento/Elemento:';
         weaponLabel.style.cssText = 'font-weight: bold; font-size: 15px; color: #333;';
-        
+
         const weaponSelect = document.createElement('select');
         weaponSelect.style.cssText = 'padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
-        
+
         const weaponDefaultOption = document.createElement('option');
         weaponDefaultOption.value = '';
         weaponDefaultOption.textContent = 'Não Aplicável';
         weaponSelect.appendChild(weaponDefaultOption);
-        
+
         data.weapons.forEach(weapon => {
             const option = document.createElement('option');
             option.value = weapon.value;
             option.textContent = `${weapon.value} - ${weapon.label}`;
             weaponSelect.appendChild(option);
         });
-        
+
         weaponContainer.appendChild(weaponLabel);
         weaponContainer.appendChild(weaponSelect);
 
         const remoteContainer = document.createElement('div');
         remoteContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
-        
+
         const remoteCheckbox = document.createElement('input');
         remoteCheckbox.type = 'checkbox';
         remoteCheckbox.id = 'engagement-remote';
         remoteCheckbox.style.cssText = 'width: 18px; height: 18px; cursor: pointer;';
-        
+
         const remoteLabel = document.createElement('label');
         remoteLabel.htmlFor = 'engagement-remote';
         remoteLabel.textContent = 'Designação Remota';
         remoteLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
-        
+
         remoteContainer.appendChild(remoteCheckbox);
         remoteContainer.appendChild(remoteLabel);
 
@@ -1092,7 +1088,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             } else {
                 const prefix = remote ? 'R:' : '';
                 let text = '';
-                
+
                 if (stage && weapon) {
                     text = `${stage}-${weapon}`;
                 } else if (stage) {
@@ -1100,10 +1096,10 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 } else {
                     text = weapon;
                 }
-                
+
                 tempProperties.engagementBar = `${prefix}${text}`;
             }
-            
+
             onUpdate();
         }
 
@@ -1120,12 +1116,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             if (engagementBar) {
                 let processedBar = engagementBar;
                 let isRemote = false;
-                
+
                 if (processedBar.startsWith('R:')) {
                     isRemote = true;
                     processedBar = processedBar.substring(2);
                 }
-                
+
                 if (processedBar.includes('-')) {
                     const parts = processedBar.split('-');
                     stageSelect.value = parts[0] || '';
@@ -1252,7 +1248,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         previewColumn.appendChild(sidcContainer);
 
         // Temporary properties for the modal
-        let tempProperties = { ...feature.properties };
+        const tempProperties = { ...feature.properties };
         let isUpdatingFromSIDC = false; // Flag to prevent infinite loops
 
         const column1 = document.createElement('div');
@@ -1326,11 +1322,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             if (directionApplicable) {
                 const directionContainer = document.createElement('div');
                 directionContainer.style.cssText = 'margin-bottom: 20px;';
-                
+
                 const directionLabel = document.createElement('label');
                 directionLabel.textContent = 'Direção:';
                 directionLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
-                
+
                 const directionInput = document.createElement('input');
                 directionInput.type = 'text';
                 directionInput.placeholder = 'Azimute em graus';
@@ -1344,12 +1340,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     transition: border-color 0.2s;
                     box-sizing: border-box;
                 `;
-                
+
                 directionInput.addEventListener('input', (e) => {
                     let value = e.target.value;
                     value = value.replace(/[^0-9.]/g, '');
                     e.target.value = value;
-                    
+
                     const numValue = parseFloat(value);
                     if (!isNaN(numValue)) {
                         if (numValue < 0 || numValue > 360) {
@@ -1369,7 +1365,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                         }
                     }
                 });
-                
+
                 directionContainer.appendChild(directionLabel);
                 directionContainer.appendChild(directionInput);
                 column1.appendChild(directionContainer);
@@ -1585,11 +1581,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         if (initialDirectionApplicable) {
             const directionContainer = document.createElement('div');
             directionContainer.style.cssText = 'margin-bottom: 20px;';
-            
+
             const directionLabel = document.createElement('label');
             directionLabel.textContent = 'Direção:';
             directionLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
-            
+
             const directionInput = document.createElement('input');
             directionInput.type = 'text';
             directionInput.placeholder = 'Azimute em graus';
@@ -1603,12 +1599,12 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 transition: border-color 0.2s;
                 box-sizing: border-box;
             `;
-            
+
             directionInput.addEventListener('input', (e) => {
                 let value = e.target.value;
                 value = value.replace(/[^0-9.]/g, '');
                 e.target.value = value;
-                
+
                 const numValue = parseFloat(value);
                 if (!isNaN(numValue)) {
                     if (numValue < 0 || numValue > 360) {
@@ -1628,7 +1624,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                     }
                 }
             });
-            
+
             directionContainer.appendChild(directionLabel);
             directionContainer.appendChild(directionInput);
             column1.appendChild(directionContainer);
@@ -2178,14 +2174,14 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 const sourceFeature = data.features.find(
                     (f) => f.properties.id == feature.properties.id
                 );
-                
+
                 if (sourceFeature) {
                     // Update each property
                     for (const key of propertiesToUpdate) {
                         if (tempProperties.hasOwnProperty(key)) {
                             sourceFeature.properties[key] = tempProperties[key];
                             feature.properties[key] = tempProperties[key];
-                            
+
                             // Check if regeneration is needed
                             if (militarySymbolControl.geometry.affectsSIDC(key) ||
                                 militarySymbolControl.geometry.affectsTextModifiers(key) ||
@@ -2194,7 +2190,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                             }
                         }
                     }
-                    
+
                     // Recalculate SIDC if necessary
                     if (needsRegeneration) {
                         const newSIDC30 = militarySymbolControl.symbolGenerator.buildSIDC(sourceFeature.properties);
@@ -2214,11 +2210,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
                 const updatedFeature = updatedData.features.find(
                     f => f.properties.id === selectedFeatures[0].properties.id
                 );
-                
+
                 if (updatedFeature) {
                     // Regenerate symbol with ALL updated properties
                     await militarySymbolControl.updateSymbolImage(updatedFeature);
-                    
+
                     // Update SelectionManager with updated feature
                     militarySymbolControl.updateSelectionManagerFeature(updatedFeature);
                 }

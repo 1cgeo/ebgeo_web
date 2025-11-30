@@ -6,16 +6,16 @@ class RectangleSelectionControl {
         this.toolManager = toolManager;
         this.selectionManager = toolManager.selectionManager;
         this.isActive = false;
-        
+
         // Two-click selection state
         this.drawPoints = [];
         this.previewFeature = null;
-        
+
         // Performance optimization
         this.previewRafId = null;
         this.pendingPreviewUpdate = false;
         this.lastPreviewPosition = null;
-        
+
     }
 
     // ===== MAPBOX CONTROL INTERFACE =====
@@ -143,11 +143,11 @@ class RectangleSelectionControl {
     createRectangleGeometry = (corner1, corner2) => {
         const [x1, y1] = corner1;
         const [x2, y2] = corner2;
-        
+
         // Create rectangle coordinates (closed polygon)
         const coordinates = [[
             [x1, y1], // bottom-left
-            [x2, y1], // bottom-right  
+            [x2, y1], // bottom-right
             [x2, y2], // top-right
             [x1, y2], // top-left
             [x1, y1]  // close polygon
@@ -201,24 +201,24 @@ class RectangleSelectionControl {
 
         const [corner1, corner2] = this.drawPoints;
         const bbox = this.createBboxFromCorners(corner1, corner2);
-        
+
         // Query all features within the bounding box
         const featuresInArea = this.queryFeaturesInBbox(bbox);
-        
+
         // Apply Shift key logic
         if (!event.originalEvent.shiftKey) {
             this.selectionManager.deselectAllFeatures();
         }
-        
+
         // Select found features - await all selections
         const selectionPromises = featuresInArea
             .filter(feature => {
                 // Skip blocked features
                 if (feature.properties.bloqueado === true) return false;
-                
+
                 const type = feature.toolType;
                 const featureId = feature.properties.id;
-                
+
                 // Only select if not already selected (avoid duplicates)
                 return !this.selectionManager.isFeatureSelected(type, featureId);
             })
@@ -233,7 +233,7 @@ class RectangleSelectionControl {
         // Update UI and provide feedback
         this.selectionManager.updateUI();
 
-        
+
         // Deactivate tool after successful selection
         this.toolManager.deactivateCurrentTool();
     }
@@ -241,7 +241,7 @@ class RectangleSelectionControl {
     createBboxFromCorners = (corner1, corner2) => {
         const [x1, y1] = corner1;
         const [x2, y2] = corner2;
-        
+
         return [
             Math.min(x1, x2), // minX
             Math.min(y1, y2), // minY
@@ -254,7 +254,7 @@ class RectangleSelectionControl {
         // Convert bbox to screen coordinates for querying
         const sw = this.map.project([bbox[0], bbox[1]]); // southwest
         const ne = this.map.project([bbox[2], bbox[3]]); // northeast
-        
+
         // Query all rendered features in the rectangle area
         const allFeatures = this.map.queryRenderedFeatures([
             [sw.x, ne.y], // top-left screen coords
@@ -281,7 +281,7 @@ class RectangleSelectionControl {
         // Remove duplicates based on type + id
         const uniqueFeatures = [];
         const seenKeys = new Set();
-        
+
         customFeatures.forEach(feature => {
             const key = `${feature.toolType}:${feature.properties.id}`;
             if (!seenKeys.has(key)) {

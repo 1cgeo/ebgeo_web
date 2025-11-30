@@ -414,8 +414,7 @@ class AddArrowGeometry extends BaseGeometry {
             const index = parseInt(handleType.split('-')[1]);
             coords[index] = newPosition;
             updatedProperties.baseCoordinates = coords;
-        }
-        else if (handleType.startsWith('midpoint-')) {
+        } else if (handleType.startsWith('midpoint-')) {
             const insertIndex = parseInt(handleType.split('-')[1]) + 1;
             coords.splice(insertIndex, 0, newPosition);
             updatedProperties.baseCoordinates = coords;
@@ -427,8 +426,7 @@ class AddArrowGeometry extends BaseGeometry {
                 activeHandle.properties.handleId = convertedHandleType;
                 activeHandle.properties.index = insertIndex;
             }
-        }
-        else if (handleType === 'width') {
+        } else if (handleType === 'width') {
             const lastPoint = coords[coords.length - 1];
             const secondLastPoint = coords[coords.length - 2];
             const line = turf.lineString([secondLastPoint, lastPoint]);
@@ -443,8 +441,7 @@ class AddArrowGeometry extends BaseGeometry {
             }
 
             updatedProperties.width = newWidth;
-        }
-        else if (handleType === 'headLength') {
+        } else if (handleType === 'headLength') {
             const lastPoint = coords[coords.length - 1];
             const secondLastPoint = coords[coords.length - 2];
             const bearing = turf.bearing(secondLastPoint, lastPoint);
@@ -462,8 +459,7 @@ class AddArrowGeometry extends BaseGeometry {
                 const newHeadLengthRatio = Math.max(0.5, distance / headBaseWidth);
                 updatedProperties.headLengthRatio = newHeadLengthRatio;
             }
-        }
-        else if (handleType === 'airmobile') {
+        } else if (handleType === 'airmobile') {
             const line = turf.lineString(coords);
             const lineLength = turf.length(line, { units: 'meters' });
 

@@ -22,7 +22,7 @@ class AddRectangleControl extends BaseControl {
         this.lastPreviewPosition = null;
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
-        
+
         // Track current mouse position for accurate capture
         this.currentMousePosition = null;
         this.hatchGenerator = new HatchPatternGenerator();
@@ -191,8 +191,8 @@ class AddRectangleControl extends BaseControl {
                 height: finalHeight
             },
             geometry: this.geometry.generate(
-                newCorner1, 
-                newCorner2, 
+                newCorner1,
+                newCorner2,
                 feature.properties.borderRadius || 0,
                 bearing
             )
@@ -209,22 +209,22 @@ class AddRectangleControl extends BaseControl {
 
     updateFeatureForMove(feature, dx, dy, newCoords) {
         const bearing = feature.properties.bearing || 0;
-        
+
         if (bearing !== 0) {
             // For rotated rectangles, move the center and recalculate corners
             const oldCenter = this.geometry.normalizeCenter(feature.properties.center);
             const newCenter = [oldCenter[0] + dx, oldCenter[1] + dy];
-            
+
             // Maintain original dimensions
             const width = feature.properties.width;
             const height = feature.properties.height;
-            
+
             // Recalculate corners with new center, maintaining dimensions and bearing
             const halfWidth = width / 2;
             const halfHeight = height / 2;
             const newCorner1 = this.geometry.rotateAndTranslate(halfWidth, halfHeight, newCenter, bearing);
             const newCorner2 = this.geometry.rotateAndTranslate(-halfWidth, -halfHeight, newCenter, bearing);
-            
+
             const updatedFeature = {
                 ...feature,
                 properties: {
@@ -243,7 +243,7 @@ class AddRectangleControl extends BaseControl {
                     bearing
                 )
             };
-            
+
             return updatedFeature;
         } else {
             // Without rotation: use original logic
@@ -270,8 +270,8 @@ class AddRectangleControl extends BaseControl {
                     height: finalHeight
                 },
                 geometry: this.geometry.generate(
-                    newCorner1, 
-                    newCorner2, 
+                    newCorner1,
+                    newCorner2,
                     feature.properties.borderRadius || 0,
                     0
                 )
@@ -399,8 +399,8 @@ class AddRectangleControl extends BaseControl {
             if (width >= 10 && height >= 10) {
                 clearTimeout(this.geometryDebounceTimer);
                 this.geometryDebounceTimer = setTimeout(() => {
-                    const borderRadius = selectedFeature ? 
-                        (selectedFeature.properties.borderRadius || 0) : 
+                    const borderRadius = selectedFeature ?
+                        (selectedFeature.properties.borderRadius || 0) :
                         AddRectangleControl.DEFAULT_PROPERTIES.borderRadius;
                     const previewGeometry = this.geometry.generate(corner1, corner2, borderRadius);
                     this.showPreview(previewGeometry);
@@ -451,8 +451,8 @@ class AddRectangleControl extends BaseControl {
         // Generate geometry first
         const initialBearing = AddRectangleControl.DEFAULT_PROPERTIES.bearing || 0;
         const geometry = this.geometry.generate(
-            corner1, 
-            corner2, 
+            corner1,
+            corner2,
             AddRectangleControl.DEFAULT_PROPERTIES.borderRadius,
             initialBearing
         );
@@ -546,7 +546,7 @@ class AddRectangleControl extends BaseControl {
 
     createEditHandles = (feature) => {
         const handles = this.geometry.createHandlesFromGeometry(
-            feature.geometry, 
+            feature.geometry,
             feature.properties.id,
             feature.properties.bearing,
             feature.properties
@@ -605,10 +605,10 @@ class AddRectangleControl extends BaseControl {
             this.isDraggingHandle = true;
             this.activeHandleType = handle.properties.handleId;
             this.map.dragPan.disable();
-            
+
             const cursor = this.getCursorForHandleType(this.activeHandleType);
             this.map.getCanvas().style.cursor = cursor;
-            
+
             this.currentMousePosition = [e.lngLat.lng, e.lngLat.lat];
             e.preventDefault();
         }
@@ -649,14 +649,14 @@ class AddRectangleControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature) {
             const finalMousePosition = [e.lngLat.lng, e.lngLat.lat];
-            
+
             if (finalMousePosition && this.activeHandleType) {
                 const result = this.geometry.updateFromHandle(
-                    this.activeHandleType, 
-                    finalMousePosition, 
+                    this.activeHandleType,
+                    finalMousePosition,
                     selectedFeature
                 );
-                
+
                 if (result && result.width > 10 && result.height > 10) {
                     const updatedFeature = {
                         ...selectedFeature,
@@ -678,7 +678,7 @@ class AddRectangleControl extends BaseControl {
                     setTimeout(() => {
                         this.createEditHandles(updatedFeature);
                     }, 10);
-                    
+
                     this.updateUIAfterEdit();
                     this.saveFeatureChanges(updatedFeature);
                 }
@@ -704,7 +704,7 @@ class AddRectangleControl extends BaseControl {
                 newPosition,
                 selectedFeature
             );
-            
+
             if (!preview) return;
 
             this.map.getSource('rectangle-feedback').setData({
@@ -721,8 +721,8 @@ class AddRectangleControl extends BaseControl {
                 {
                     type: 'Feature',
                     id: `rectangle-handle-${selectedFeature.properties.id}-width`,
-                    geometry: { 
-                        type: 'Point', 
+                    geometry: {
+                        type: 'Point',
                         coordinates: preview.handlePositions.width
                     },
                     properties: {
@@ -738,8 +738,8 @@ class AddRectangleControl extends BaseControl {
                 {
                     type: 'Feature',
                     id: `rectangle-handle-${selectedFeature.properties.id}-height`,
-                    geometry: { 
-                        type: 'Point', 
+                    geometry: {
+                        type: 'Point',
                         coordinates: preview.handlePositions.height
                     },
                     properties: {
@@ -755,8 +755,8 @@ class AddRectangleControl extends BaseControl {
                 {
                     type: 'Feature',
                     id: `rectangle-handle-${selectedFeature.properties.id}-rotation`,
-                    geometry: { 
-                        type: 'Point', 
+                    geometry: {
+                        type: 'Point',
                         coordinates: preview.handlePositions.rotation
                     },
                     properties: {
@@ -835,12 +835,12 @@ class AddRectangleControl extends BaseControl {
                     const corner1 = this.geometry.normalizeCorner(sourceFeature.properties.corner1);
                     const corner2 = this.geometry.normalizeCorner(sourceFeature.properties.corner2);
                     const { center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
-                    
+
                     // For bearing = 0, swap width and height to align with handle convention
                     const bearing = sourceFeature.properties.bearing || 0;
                     const finalWidth = bearing === 0 ? height : width;
                     const finalHeight = bearing === 0 ? width : height;
-                    
+
                     sourceFeature.properties.center = center;
                     sourceFeature.properties.width = finalWidth;
                     sourceFeature.properties.height = finalHeight;
@@ -849,8 +849,8 @@ class AddRectangleControl extends BaseControl {
                     feature.properties.height = finalHeight;
 
                     const newGeometry = this.geometry.generate(
-                        corner1, 
-                        corner2, 
+                        corner1,
+                        corner2,
                         sourceFeature.properties.borderRadius || 0,
                         bearing
                     );
@@ -935,7 +935,6 @@ class AddRectangleControl extends BaseControl {
         const features = data.features.filter(f => f.properties.hatchEnabled);
         this.hatchGenerator.loadPatternsToMap(this.map, features);
     }
-
 
 
     setDefaultProperties = (properties) => {

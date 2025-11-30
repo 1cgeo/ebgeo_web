@@ -5,7 +5,6 @@ import {
     createColorPicker,
     createAttributeRow,
     createStandardButtons,
-    createEditableFeatureName,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton,
     getCommonConfig
@@ -41,18 +40,18 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
     } else if (selectedFeatures.length > 1) {
         const multiSelectHeader = document.createElement('div');
         multiSelectHeader.className = 'feature-header-with-options';
-        
+
         const infoText = document.createElement('div');
         infoText.className = 'feature-name-wrapper';
         infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
         infoText.textContent = `${selectedFeatures.length} limites selecionados`;
-        
+
         const optionsButton = createFeatureOptionsButton(
             selectedFeatures,
             selectionManager,
             uiManager
         );
-        
+
         multiSelectHeader.appendChild(infoText);
         multiSelectHeader.appendChild(optionsButton);
         panel.appendChild(multiSelectHeader);
@@ -62,7 +61,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
     echelonLabel.textContent = 'Escalão:';
     const echelonSelect = document.createElement('select');
     echelonSelect.style.cssText = 'width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;';
-    
+
     const echelonOptions = [
         { value: 'XXXXXX', text: 'XXXXXX' },
         { value: 'XXXXX', text: 'XXXXX' },
@@ -77,7 +76,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         { value: 'oo', text: '••' },
         { value: 'o', text: '•' }
     ];
-    
+
     echelonOptions.forEach(option => {
         const opt = document.createElement('option');
         opt.value = option.value;
@@ -85,7 +84,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         if (option.value === feature.properties.echelon) opt.selected = true;
         echelonSelect.appendChild(opt);
     });
-    
+
     echelonSelect.onchange = (e) => {
         boundaryControl.updateFeaturesProperty(selectedFeatures, 'echelon', e.target.value);
         uiManager.updateSelectionHighlight();

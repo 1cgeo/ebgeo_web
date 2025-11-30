@@ -14,10 +14,10 @@ import guerraMinas from './data/guerra_minas.js';
 import atividadesEventos from './data/atividades_eventos.js';
 
 // Import text modifiers catalog
-import { 
-    getTextModifiersConfig, 
-    hasTextModifiers, 
-    getTextModifierFieldIds 
+import {
+    getTextModifiersConfig,
+    hasTextModifiers,
+    getTextModifierFieldIds
 } from './text_modifiers_catalog.js';
 
 /**

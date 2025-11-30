@@ -1,10 +1,10 @@
 // Path: js/control_3d/mouse_coordinates_3d.js
-import { 
-    COORDINATE_FORMATS, 
-    getPlaceholderForFormat, 
-    parseCoordinates, 
-    formatCoordinates, 
-    getDisplayFormat 
+import {
+    COORDINATE_FORMATS,
+    getPlaceholderForFormat,
+    parseCoordinates,
+    formatCoordinates,
+    getDisplayFormat
 } from '../controls_sig/utilities/coordinate_converter.js';
 
 let viewerInstance = null;
@@ -20,10 +20,10 @@ let flyToModal = null;
 function initMouseCoordinates3D(viewer) {
     if (!viewer) return;
     viewerInstance = viewer;
-    
+
     // Remove existing container if any
     cleanupMouseCoordinates3D();
-    
+
     // Create coordinates container
     coordinatesContainer = document.createElement('div');
     coordinatesContainer.className = 'coordinates-control-3d';
@@ -45,7 +45,7 @@ function initMouseCoordinates3D(viewer) {
         display: flex;
         align-items: center;
     `;
-    
+
     // Create coordinates text display
     coordinatesText = document.createElement('div');
     coordinatesText.style.cssText = `
@@ -54,7 +54,7 @@ function initMouseCoordinates3D(viewer) {
         gap: 10px;
         min-width: 160px;
     `;
-    
+
     // Create controls container
     const controlsContainer = document.createElement('div');
     controlsContainer.style.cssText = `
@@ -63,7 +63,7 @@ function initMouseCoordinates3D(viewer) {
         gap: 8px;
         margin-left: 8px;
     `;
-    
+
     // Copy button
     const copyButton = document.createElement('div');
     copyButton.className = 'coordinates-copy-button';
@@ -83,7 +83,7 @@ function initMouseCoordinates3D(viewer) {
     copyButton.addEventListener('click', copyCoordinates);
     copyButton.addEventListener('mouseenter', () => copyButton.style.opacity = '1');
     copyButton.addEventListener('mouseleave', () => copyButton.style.opacity = '0.7');
-    
+
     // Fly to button
     const flyToButton = document.createElement('div');
     flyToButton.innerHTML = `<img src="./images/fly_to_icon.svg" alt="Fly to" width="16" height="16" />`;
@@ -117,7 +117,7 @@ function initMouseCoordinates3D(viewer) {
     formatButton.addEventListener('click', toggleFormatSelector);
     formatButton.addEventListener('mouseenter', () => formatButton.style.opacity = '1');
     formatButton.addEventListener('mouseleave', () => formatButton.style.opacity = '0.7');
-    
+
     // Create format selector dropdown
     formatSelector = document.createElement('div');
     formatSelector.style.cssText = `
@@ -132,7 +132,7 @@ function initMouseCoordinates3D(viewer) {
         display: none;
         z-index: 1001;
     `;
-    
+
     // Add format options
     COORDINATE_FORMATS.forEach(format => {
         const option = document.createElement('div');
@@ -153,7 +153,7 @@ function initMouseCoordinates3D(viewer) {
         });
         formatSelector.appendChild(option);
     });
-    
+
     // Assemble components
     controlsContainer.appendChild(copyButton);
     controlsContainer.appendChild(flyToButton);
@@ -161,20 +161,20 @@ function initMouseCoordinates3D(viewer) {
     coordinatesContainer.appendChild(coordinatesText);
     coordinatesContainer.appendChild(controlsContainer);
     coordinatesContainer.appendChild(formatSelector);
-    
+
     // Add to map container
     document.getElementById('map-3d-container').appendChild(coordinatesContainer);
-    
+
     // Create modal
     createFlyToModal();
-    
+
     // Setup mouse move listener
     mouseMoveHandler = onMouseMove;
     viewerInstance.scene.canvas.addEventListener('mousemove', mouseMoveHandler);
-    
+
     // Setup click outside listener for format selector
     document.addEventListener('click', closeFormatSelector);
-    
+
     // Initial coordinates display
     updateCoordinates(0, 0);
 }
@@ -184,17 +184,17 @@ function cleanupMouseCoordinates3D() {
         viewerInstance.scene.canvas.removeEventListener('mousemove', mouseMoveHandler);
         mouseMoveHandler = null;
     }
-    
+
     if (coordinatesContainer && coordinatesContainer.parentNode) {
         coordinatesContainer.parentNode.removeChild(coordinatesContainer);
         coordinatesContainer = null;
     }
-    
+
     if (flyToModal && flyToModal.parentNode) {
         flyToModal.parentNode.removeChild(flyToModal);
         flyToModal = null;
     }
-    
+
     document.removeEventListener('click', closeFormatSelector);
 }
 
@@ -207,14 +207,14 @@ function onMouseMove(e) {
         e.clientX - rect.left,
         e.clientY - rect.top
     );
-    
+
     const cartesian = viewerInstance.camera.pickEllipsoid(position, viewerInstance.scene.globe.ellipsoid);
-    
+
     if (cartesian) {
         const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
         const longitude = Cesium.Math.toDegrees(cartographic.longitude);
         const latitude = Cesium.Math.toDegrees(cartographic.latitude);
-        
+
         currentCoordinates = { lat: latitude, lng: longitude };
         updateCoordinates(latitude, longitude);
     }
@@ -222,12 +222,12 @@ function onMouseMove(e) {
 
 function updateCoordinates(lat, lng) {
     if (!coordinatesText) return;
-    
+
     coordinatesText.innerHTML = '';
-    
+
     try {
         const displayFormat = getDisplayFormat(lat, lng, currentFormat);
-        
+
         displayFormat.parts.forEach(part => {
             const span = document.createElement('span');
             span.textContent = `${part.label}: ${part.value}`;
@@ -248,9 +248,9 @@ function updateCoordinates(lat, lng) {
 function copyCoordinates() {
     const { lat, lng } = currentCoordinates;
     const textToCopy = formatCoordinates(lat, lng, currentFormat);
-    
+
     if (!textToCopy || textToCopy.trim() === '') return;
-    
+
     if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(textToCopy).then(() => {
             showCopyFeedback();
@@ -267,18 +267,18 @@ function fallbackCopyTextToClipboard(text) {
     textArea.value = text;
     textArea.style.position = "fixed";
     textArea.style.left = "-9999px";
-    
+
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
-    
+
     try {
         document.execCommand('copy');
         showCopyFeedback();
     } catch (err) {
         console.error('Error copying text:', err);
     }
-    
+
     document.body.removeChild(textArea);
 }
 
@@ -288,7 +288,7 @@ function showCopyFeedback() {
         const originalContent = copyButton.innerHTML;
         copyButton.innerHTML = '✅';
         copyButton.style.color = '#28a745';
-        
+
         setTimeout(() => {
             copyButton.innerHTML = originalContent;
             copyButton.style.color = '';
@@ -310,9 +310,9 @@ function closeFormatSelector(e) {
 
 function setFormat(formatId) {
     if (currentFormat === formatId) return;
-    
+
     currentFormat = formatId;
-    
+
     // Update dropdown options
     const options = formatSelector.querySelectorAll('div');
     options.forEach(option => {
@@ -324,7 +324,7 @@ function setFormat(formatId) {
             option.style.fontWeight = '';
         }
     });
-    
+
     formatSelector.style.display = 'none';
     updateCoordinates(currentCoordinates.lat, currentCoordinates.lng);
 }
@@ -341,7 +341,7 @@ function createFlyToModal() {
         height: 100%;
         background-color: rgba(0, 0, 0, 0.4);
     `;
-    
+
     const modalContent = document.createElement('div');
     modalContent.style.cssText = `
         background-color: white;
@@ -352,7 +352,7 @@ function createFlyToModal() {
         max-width: 400px;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     `;
-    
+
     modalContent.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h3 style="margin: 0;">Ir para coordenadas</h3>
@@ -374,10 +374,10 @@ function createFlyToModal() {
             <button id="cancel-btn" style="padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; background-color: #f0f0f0; color: #333;">Cancelar</button>
         </div>
     `;
-    
+
     flyToModal.appendChild(modalContent);
     document.body.appendChild(flyToModal);
-    
+
     // Event listeners
     flyToModal.querySelector('#modal-close').addEventListener('click', closeFlyToModal);
     flyToModal.querySelector('#cancel-btn').addEventListener('click', closeFlyToModal);
@@ -385,7 +385,7 @@ function createFlyToModal() {
     flyToModal.addEventListener('click', (e) => {
         if (e.target === flyToModal) closeFlyToModal();
     });
-    
+
     // Update placeholder on format change
     const formatSelect = flyToModal.querySelector('#format-select');
     const coordsInput = flyToModal.querySelector('#coords-input');
@@ -399,12 +399,12 @@ function openFlyToModal() {
         const formatSelect = flyToModal.querySelector('#format-select');
         const coordsInput = flyToModal.querySelector('#coords-input');
         const validationMsg = flyToModal.querySelector('#validation-msg');
-        
+
         formatSelect.value = currentFormat;
         coordsInput.value = '';
         coordsInput.placeholder = getPlaceholderForFormat(currentFormat);
         validationMsg.textContent = '';
-        
+
         flyToModal.style.display = 'block';
         setTimeout(() => coordsInput.focus(), 100);
     }
@@ -422,9 +422,9 @@ function handleFlyTo() {
     const formatSelect = flyToModal.querySelector('#format-select');
     const coordsInput = flyToModal.querySelector('#coords-input');
     const validationMsg = flyToModal.querySelector('#validation-msg');
-    
+
     const coordinates = parseCoordinates(coordsInput.value.trim(), formatSelect.value);
-    
+
     if (coordinates) {
         viewerInstance.camera.flyTo({
             destination: Cesium.Cartesian3.fromDegrees(coordinates.lng, coordinates.lat, 1000),

@@ -126,13 +126,13 @@ class BaseLayerControl {
         try {
             // Atualizar store
             await setBaseLayer(newLayer);
-            
+
             // Executar mudança
             await this.switchMap(false);
-            
+
         } catch (error) {
             console.error('Error changing base layer:', error);
-            
+
             // ROLLBACK: Voltar ao estado anterior
             setBaseLayer(previousLayer);
             this.syncVisualState(previousLayer);
@@ -210,9 +210,9 @@ class BaseLayerControl {
 
         this.mapControl.deactivateActiveTools();
         this.mapControl.selectionManager.deselectAllFeatures();
-        
+
         await this.switchLayer(baseLayer);
-        
+
         const analysisLayersManager = this.mapControl.getAnalysisLayersManager();
         await setupMapFeatures(this.map, analysisLayersManager);
 

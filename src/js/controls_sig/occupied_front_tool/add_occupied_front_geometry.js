@@ -327,12 +327,12 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
             return false;
         }
 
-        return coords.every(coord => 
-            Array.isArray(coord) && 
-            coord.length >= 2 && 
-            typeof coord[0] === 'number' && 
+        return coords.every(coord =>
+            Array.isArray(coord) &&
+            coord.length >= 2 &&
+            typeof coord[0] === 'number' &&
             typeof coord[1] === 'number' &&
-            !isNaN(coord[0]) && 
+            !isNaN(coord[0]) &&
             !isNaN(coord[1])
         );
     }

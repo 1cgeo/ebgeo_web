@@ -76,22 +76,22 @@ class ContextMenuControl {
         this._contextMenu.innerHTML = '';
 
         const groupingAnalysis = this._analyzeSelectionForGrouping();
-        const hasGroupingOptions = groupingAnalysis.canCreateGroup || 
-                                 groupingAnalysis.canCombineGroups || 
+        const hasGroupingOptions = groupingAnalysis.canCreateGroup ||
+                                 groupingAnalysis.canCombineGroups ||
                                  groupingAnalysis.canUngroup;
 
         const hasSelectedFeatures = groupingAnalysis.selectedFeatures.length > 0;
 
         if (hasGroupingOptions) {
             this._addGroupingOptions(groupingAnalysis);
-            
+
             const separator = this._createSeparator();
             this._contextMenu.appendChild(separator);
         }
 
         if (hasSelectedFeatures) {
             const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
-            
+
             // Só adiciona separador se algo foi realmente adicionado
             if (layerOptionsAdded) {
                 const separator = this._createSeparator();
@@ -105,7 +105,7 @@ class ContextMenuControl {
     _addGroupingOptions(analysis) {
         if (analysis.canCreateGroup) {
             const createGroupItem = this._createMenuItem(
-                'Criar Grupo', 
+                'Criar Grupo',
                 () => this._handleCreateGroup(analysis.ungroupedFeatures)
             );
             this._contextMenu.appendChild(createGroupItem);
@@ -383,7 +383,7 @@ class ContextMenuControl {
         }
 
         const newGroup = createGroup(features);
-        
+
         if (this._selectionManager) {
             this._selectionManager.deselectAllFeatures();
             this._selectGroup(newGroup);
@@ -397,7 +397,7 @@ class ContextMenuControl {
         }
 
         const combinedGroup = combineGroups(groupIds, ungroupedFeatures);
-        
+
         if (this._selectionManager) {
             this._selectionManager.deselectAllFeatures();
             this._selectGroup(combinedGroup);
@@ -407,7 +407,7 @@ class ContextMenuControl {
 
     _handleUngroup(groupId) {
         const features = ungroupFeatures(groupId);
-        
+
         if (this._selectionManager) {
             this._selectionManager.updateUI();
         }

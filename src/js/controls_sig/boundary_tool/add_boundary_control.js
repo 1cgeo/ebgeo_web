@@ -305,7 +305,7 @@ class AddBoundaryControl extends BaseControl {
                 this.selectFeature(feature);
             } else {
                 console.warn('Cannot select boundary feature - invalid coordinates:', feature.properties.baseCoordinates);
-                return;
+
             }
         } else {
             this.selectFeature(feature);
@@ -421,9 +421,8 @@ class AddBoundaryControl extends BaseControl {
 
         if (this.isDraggingHandle && this.getSelectedFeature() && this.activeHandleType) {
             this.updateBoundaryPreview(this.lastPreviewPosition);
-        }
-        else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 1) {
-            let previewPoints = [...this.lastPreviewPoints];
+        } else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 1) {
+            const previewPoints = [...this.lastPreviewPoints];
             if (this.lastClickCoords) {
                 previewPoints.push(this.lastClickCoords);
             }
