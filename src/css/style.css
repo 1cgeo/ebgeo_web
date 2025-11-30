@@ -1,0 +1,34 @@
+/* Path: css/style.css */
+
+/* ===== 1. SHARED BASE ===== */
+@import url('./base.css');
+
+/* ===== 2. COORDINATES SYSTEM ===== */
+@import url('./coordinates.css');
+
+/* ===== 3. TOP BAR ===== */
+@import url('./topbar.css');
+
+/* ===== 4. MAP LIST ===== */
+@import url('./map-list.css');
+
+/* ===== 5. MAP CONTROLS ===== */
+@import url('./map-controls.css');
+
+/* ===== 6. 2D MODE PANELS ===== */
+@import url('./panels-2d.css');
+
+/* ===== 7. 3D MODE PANELS ===== */
+@import url('./panels-3d.css');
+
+/* ===== 8. ATTRIBUTES SYSTEM ===== */
+@import url('./attributes-panel.css');
+
+/* ===== 9. PDF EXPORT ===== */
+@import url('./pdf-export.css');
+
+/* ===== 10. FEATURES TAB ===== */
+@import url('./features-tab.css');
+
+/* ===== 11. MAP NOTES ===== */
+@import url('./map-notes.css');

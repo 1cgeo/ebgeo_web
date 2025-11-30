@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EBGeo</title>
+    <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+
+    <!-- Vendors CSS (servidos de public/) -->
+    <link rel="stylesheet" href="/vendors/cesium/Widgets/widgets.css" media="print"
+        onload="this.media='all'; this.onload=null;">
+    <link rel="stylesheet" href="/vendors/maplibre-gl.css" media="print" onload="this.media='all'; this.onload=null;">
+    <link rel="stylesheet" href="/vendors/quill.snow.css">
+
+    <!-- CSS principal (processado pelo Vite) -->
+    <link rel="stylesheet" href="/src/css/style.css">
+
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        #top-bar {
+            background-color: #fbfbfa;
+            display: flex;
+            flex-direction: row;
+            width: 100%;
+            border-bottom: 0.5mm solid #EEEEEE;
+            min-height: 60px;
+        }
+
+        #map-sig {
+            position: relative;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
+            cursor: default;
+            margin-top: 42px;
+        }
+
+        .loading-background {
+            position: fixed;
+            background-color: #508D4E;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            top: 0;
+            left: 0;
+        }
+
+        .loading-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #map-3d-container {
+            display: none;
+        }
+
+        .progress-bar {
+            width: 200px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+            margin-top: 20px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #B4E380;
+            width: 0%;
+            border-radius: 2px;
+            animation: progressLoad 2s ease-out forwards;
+        }
+
+        @keyframes progressLoad {
+            0% {
+                width: 0%;
+            }
+
+            100% {
+                width: 100%;
+            }
+        }
+
+        .loading-hidden {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .loading-hidden.loaded {
+            opacity: 1;
+        }
+
+        /* ===== MODAL DE ATALHOS ===== */
+        .shortcuts-modal {
+            display: none;
+            position: fixed;
+            z-index: 1001;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s ease;
+        }
+
+        .shortcuts-modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border: none;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s ease;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .shortcuts-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px;
+            background: #427842;
+            color: white;
+            border-radius: 12px 12px 0 0;
+        }
+
+        .shortcuts-modal-header h3 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .shortcuts-modal-close {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+            padding: 4px 8px;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .shortcuts-modal-close:hover {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.1);
+            transform: scale(1.1);
+        }
+
+        .shortcuts-modal-body {
+            padding: 24px;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .shortcuts-section {
+            margin-bottom: 32px;
+        }
+
+        .shortcuts-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .shortcuts-section h4 {
+            color: #508D4E;
+            font-size: 16px;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #508D4E;
+        }
+
+        .shortcuts-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 12px 24px;
+            align-items: center;
+        }
+
+        .shortcut-key {
+            background: linear-gradient(145deg, #f8f9fa, #e9ecef);
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            font-weight: bold;
+            color: #495057;
+            text-align: center;
+            min-width: 60px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            white-space: nowrap;
+        }
+
+        .shortcut-description {
+            color: #333;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-50px) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @media screen and (max-width: 768px) {
+            .shortcuts-modal-content {
+                width: 95%;
+                margin: 10% auto;
+                max-height: 85vh;
+            }
+
+            .shortcuts-modal-header {
+                padding: 16px 20px;
+            }
+
+            .shortcuts-modal-body {
+                padding: 20px;
+            }
+
+            .shortcuts-grid {
+                gap: 8px 16px;
+            }
+
+            .shortcut-key {
+                min-width: 50px;
+                padding: 4px 8px;
+                font-size: 12px;
+            }
+
+            .shortcut-description {
+                font-size: 13px;
+            }
+        }
+    </style>
+
+    <!-- META TAGS PARA PERFORMANCE -->
+    <meta name="theme-color" content="#508D4E">
+    <meta name="color-scheme" content="light">
+    <meta name="robots" content="noindex, nofollow">
+
+    <!-- RESOURCE HINTS -->
+    <link rel="prefetch" href="/vendors/cesium/Cesium.js">
+    <link rel="prefetch" href="/street_view/build/three.min.js">
+
+</head>
+
+<body>
+    <!-- LOADING SCREEN OTIMIZADA -->
+    <div class="loading-background" id="initial-loader">
+        <div class="loading-content">
+            <img src="/images/logo_ebgeo.png" alt="EBGeo" style="width: 300px; height: auto;">
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOP BAR EBGEO COMPACTA -->
+    <div id="top-bar" class="loading-hidden">
+        <!-- Logo Section -->
+        <div class="logo-section">
+            <img class="logo-img" src="/images/logo_ebgeo.png" alt="EBGeo">
+            <h2>
+                <span class="logo-eb">EB</span><span class="logo-geo">Geo</span>
+                <span class="topbar-subtitle"></span>
+            </h2>
+        </div>
+
+        <!-- Navigation Buttons Container -->
+        <div class="nav-buttons-container" style="display: none;">
+            <div class="bar-center-buttons">
+                <a id="sig-button" class="nav-button icon-button active-button" aria-label="Modo SIG">
+                    <img src="/images/icon_sig.svg" alt="SIG" width="25" height="25" loading="eager">
+                    <span class="nav-text">SIG</span>
+                </a>
+                <a id="3d-button" class="nav-button icon-button" aria-label="Modo 3D">
+                    <img src="/images/icon_3d.svg" alt="3D" width="25" height="25" loading="lazy">
+                    <span class="nav-text">3D</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Extra Buttons -->
+        <div class="extra-bar-buttons">
+            <button id="shortcuts-button" class="icon-only-button"
+                    aria-label="Ver atalhos de teclado"
+                    title="Atalhos">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="4" width="20" height="16" rx="2" />
+                    <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h12" />
+                </svg>
+            </button>
+            <button id="tutorial-button" class="icon-only-button"
+                    onclick="window.open('/docs/doc.html', '_blank')"
+                    aria-label="Abrir tutorial"
+                    title="Tutorial">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                </svg>
+            </button>
+            <button id="suggestions-button" class="icon-only-button"
+                    aria-label="Informações de suporte"
+                    title="Suporte">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    <circle cx="9" cy="10" r="1"></circle>
+                    <circle cx="15" cy="10" r="1"></circle>
+                    <path d="M9 14c.8.8 2 1 3 1s2.2-.2 3-1"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- CONTENT AREAS -->
+    <div id="map-sig" class="loading-hidden" role="application" aria-label="Mapa 2D"></div>
+
+    <!-- 3D CONTAINER - LAZY LOADED -->
+    <div id="map-3d-container" style="display: none;" role="application" aria-label="Mapa 3D">
+        <div id="map-3d"></div>
+        <div id="map-3d-tool-bar" class="card" role="toolbar">
+
+            <div id="tool-3d-container">
+                <p><b>Ferramentas</b></p>
+                <hr class="solid">
+                <div class="tools-3d-bar">
+                    <div>
+                        <a id="visualizacao" class="button-tool-3d icon-tool-3d" aria-label="Análise de visibilidade">
+                            <img src="/images/viewshed_icon.svg" alt="Viewshed" width="30" height="30" loading="lazy">
+                        </a>
+                    </div>
+                    <div>
+                        <a id="distancia" class="button-tool-3d icon-tool-3d" aria-label="Medir distância">
+                            <img src="/images/distance_icon.svg" alt="distance" width="30" height="30" loading="lazy">
+                        </a>
+                    </div>
+                    <div>
+                        <a id="area" class="button-tool-3d icon-tool-3d" aria-label="Medir área">
+                            <img src="/images/area_icon.svg" alt="area" width="30" height="30" loading="lazy">
+                        </a>
+                    </div>
+                    <div>
+                        <a id="screenshot-3d" class="button-tool-3d icon-tool-3d" title="Salvar tela"
+                            aria-label="Salvar tela">
+                            <img src="/images/icon_screenshot_black.svg" alt="Screenshot" width="30" height="30"
+                                loading="lazy">
+                        </a>
+                    </div>
+                    <div>
+                        <a id="limpar" class="button-tool-3d icon-tool-3d" aria-label="Limpar ferramentas">
+                            <img src="/images/clear_icon.svg" alt="clear" width="30" height="30" loading="lazy">
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FLOATING ACTION BUTTONS -->
+    <a id="open-close-form" href="#" class="panel-icon-float" aria-label="Alternar painel de atributos"
+        style="display: none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+        </svg>
+    </a>
+
+    <a id="close-street-view-button" href="#" style="display: none;" aria-label="Fechar street view">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M15 9l-6 6M9 9l6 6" />
+        </svg>
+    </a>
+    <a id="close-3d-viewer-button" href="#" style="display: none;" aria-label="Fechar visualização 3D">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M15 9l-6 6M9 9l6 6" />
+        </svg>
+    </a>
+
+    <!-- LAZY LOADED CONTAINERS -->
+    <div id="mini-map-street-view" style="display: none;" role="application" aria-label="Mini mapa street view"></div>
+    <div id="street-view-container" style="display: none;" role="application" aria-label="Street view"></div>
+
+    <!-- SHORTCUTS MODAL -->
+    <div id="shortcuts-modal" class="shortcuts-modal" role="dialog" aria-labelledby="shortcuts-title" aria-hidden="true">
+        <div class="shortcuts-modal-content">
+            <div class="shortcuts-modal-header">
+                <h3 id="shortcuts-title">Atalhos de Teclado</h3>
+                <span class="shortcuts-modal-close" aria-label="Fechar modal">&times;</span>
+            </div>
+            <div class="shortcuts-modal-body">
+                <div class="shortcuts-section">
+                    <h4>Controles do Sistema</h4>
+                    <div class="shortcuts-grid" id="system-shortcuts"></div>
+                </div>
+                <div class="shortcuts-section">
+                    <h4>Ferramentas de Desenho</h4>
+                    <div class="shortcuts-grid" id="tools-shortcuts"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SUGGESTIONS MODAL -->
+    <div id="suggestions-modal" class="shortcuts-modal" role="dialog"
+         aria-labelledby="suggestions-title" aria-hidden="true">
+        <div class="shortcuts-modal-content suggestions-modal-content">
+            <div class="shortcuts-modal-header">
+                <h3 id="suggestions-title">Informações de Suporte</h3>
+                <span class="shortcuts-modal-close" aria-label="Fechar modal">&times;</span>
+            </div>
+            <div class="shortcuts-modal-body">
+                <div class="suggestions-content">
+                    <div class="suggestions-section">
+                        <h4>Suporte ao Usuário</h4>
+                        <p>Entre em contato com o Centro de Geoinformação correspondente ao Comando Militar de Área:</p>
+
+                        <ul class="cgeo-list">
+                            <li>
+                                <div class="cgeo-header">
+                                    <strong>1º CGEO</strong>
+                                    <a href="http://www.1cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                        www.1cgeo.eb.mil.br
+                                    </a>
+                                </div>
+                                <div class="cgeo-description">Comando Militar do Sul</div>
+                            </li>
+                            <li>
+                                <div class="cgeo-header">
+                                    <strong>2º CGEO</strong>
+                                    <a href="http://www.2cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                        www.2cgeo.eb.mil.br
+                                    </a>
+                                </div>
+                                <div class="cgeo-description">Comando Militar do Oeste e Comando Militar do Planalto</div>
+                            </li>
+                            <li>
+                                <div class="cgeo-header">
+                                    <strong>3º CGEO</strong>
+                                    <a href="http://www.3cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                        www.3cgeo.eb.mil.br
+                                    </a>
+                                </div>
+                                <div class="cgeo-description">Comando Militar do Nordeste</div>
+                            </li>
+                            <li>
+                                <div class="cgeo-header">
+                                    <strong>4º CGEO</strong>
+                                    <a href="http://www.4cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                        www.4cgeo.eb.mil.br
+                                    </a>
+                                </div>
+                                <div class="cgeo-description">Comando Militar da Amazônia e Comando Militar do Norte</div>
+                            </li>
+                            <li>
+                                <div class="cgeo-header">
+                                    <strong>5º CGEO</strong>
+                                    <a href="http://www.5cgeo.eb.mil.br/" target="_blank" rel="noopener noreferrer" class="cgeo-link">
+                                        www.5cgeo.eb.mil.br
+                                    </a>
+                                </div>
+                                <div class="cgeo-description">Comando Militar do Leste e Comando Militar do Sudeste</div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="suggestions-section">
+                        <h4>Sugestões para o Sistema</h4>
+                        <p>Entre em contato com o <strong>1º Centro de Geoinformação</strong>, responsável pelo desenvolvimento do sistema:</p>
+
+                        <div class="email-container">
+                            <a href="mailto:ebgeo@1cgeo.eb.mil.br" class="email-link">
+                                ebgeo@1cgeo.eb.mil.br
+                            </a>
+                            <button class="copy-email-btn" data-email="ebgeo@1cgeo.eb.mil.br"
+                                    aria-label="Copiar email" title="Copiar email">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                                <span>Copiar</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================
+         VENDORS EXTERNOS (não bundlear)
+         Carregados antes do módulo principal
+    ======================================== -->
+    <script src="/vendors/gdal/gdal3.js"></script>
+    <script src="/vendors/localforage.min.js"></script>
+    <script src="/vendors/jspdf.umd.min.js"></script>
+    <script src="/vendors/maplibre-gl.js"></script>
+    <script src="/vendors/turf.min.js"></script>
+    <script src="/vendors/milsymbol.min.js"></script>
+    <script src="/vendors/quill.js"></script>
+    <script src="/vendors/Sortable.min.js"></script>
+
+    <!-- Bibliotecas de apoio (defer) -->
+    <script src="/vendors/chart.js" defer></script>
+    <script src="/vendors/feather.min.js" defer></script>
+
+    <!-- Bibliotecas para import/export (defer) -->
+    <script src="/vendors/jszip.min.js" defer></script>
+    <script src="/vendors/shp.min.js" defer></script>
+    <script src="/vendors/togeojson.js" defer></script>
+    <script src="/vendors/proj4.min.js" defer></script>
+    <script src="/vendors/mgrs.min.js" defer></script>
+
+    <!-- ========================================
+         SCRIPT PRINCIPAL (processado pelo Vite)
+    ======================================== -->
+    <script type="module" src="/src/js/index.js"></script>
+
+    <script>
+        // Remove loading screen quando DOM estiver pronto
+        document.addEventListener('DOMContentLoaded', function () {
+            setTimeout(function () {
+                document.querySelectorAll('.loading-hidden').forEach(function (el) {
+                    el.classList.add('loaded');
+                });
+
+                // Remove loader
+                var loader = document.getElementById('initial-loader');
+                if (loader) {
+                    loader.style.opacity = '0';
+                    setTimeout(function () {
+                        loader.remove();
+                    }, 500);
+                }
+
+                if (window.feather) {
+                    feather.replace();
+                }
+            }, 50);
+        });
+
+    </script>
+
+    <!-- FALLBACK PARA BROWSERS ANTIGOS -->
+    <script nomodule>
+        document.getElementById('initial-loader').innerHTML =
+            '<h2>Browser não suportado</h2><p>Por favor, use um browser mais recente.</p>';
+    </script>
+</body>
+
+</html>
