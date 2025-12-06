@@ -11,7 +11,6 @@
     <link rel="stylesheet" href="/vendors/cesium/Widgets/widgets.css" media="print"
         onload="this.media='all'; this.onload=null;">
     <link rel="stylesheet" href="/vendors/maplibre-gl.css" media="print" onload="this.media='all'; this.onload=null;">
-    <link rel="stylesheet" href="/vendors/quill.snow.css">
 
     <!-- CSS principal (processado pelo Vite) -->
     <link rel="stylesheet" href="/src/css/style.css">
@@ -516,31 +515,18 @@
 
     <!-- ========================================
          VENDORS EXTERNOS (não bundlear)
-         Otimizado para performance: scripts críticos primeiro,
-         depois defer para os demais
+         Bibliotecas grandes ou especializadas mantidas como scripts externos
+         As demais foram migradas para npm e bundleadas pelo Vite
     ======================================== -->
     <!-- Críticos para inicialização do mapa -->
     <script src="/vendors/maplibre-gl.js"></script>
     <script src="/vendors/turf.min.js"></script>
 
-    <!-- Necessários para funcionalidades core (defer) -->
-    <script src="/vendors/localforage.min.js" defer></script>
+    <!-- Simbologia militar (defer) -->
     <script src="/vendors/milsymbol.min.js" defer></script>
-    <script src="/vendors/quill.js" defer></script>
-    <script src="/vendors/Sortable.min.js" defer></script>
 
-    <!-- Bibliotecas de apoio (defer) -->
-    <script src="/vendors/chart.js" defer></script>
-    <script src="/vendors/feather.min.js" defer></script>
-
-    <!-- Bibliotecas para import/export (defer) -->
+    <!-- GDAL para export de PDF georreferenciado (defer) -->
     <script src="/vendors/gdal/gdal3.js" defer></script>
-    <script src="/vendors/jspdf.umd.min.js" defer></script>
-    <script src="/vendors/jszip.min.js" defer></script>
-    <script src="/vendors/shp.min.js" defer></script>
-    <script src="/vendors/togeojson.js" defer></script>
-    <script src="/vendors/proj4.min.js" defer></script>
-    <script src="/vendors/mgrs.min.js" defer></script>
 
     <!-- ========================================
          SCRIPT PRINCIPAL (processado pelo Vite)
@@ -563,13 +549,8 @@
                         loader.remove();
                     }, 500);
                 }
-
-                if (window.feather) {
-                    feather.replace();
-                }
             }, 50);
         });
-
     </script>
 
     <!-- FALLBACK PARA BROWSERS ANTIGOS -->

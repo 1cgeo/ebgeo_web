@@ -11,7 +11,10 @@
       "Bash(taskkill:*)",
       "Bash(timeout 3 npm run start:*)",
       "Bash(npx knip:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(dir /B \"C:\\Users\\diniz\\.claude-worktrees\\ebgeo_web\\musing-curran\\public\\vendors\")",
+      "Bash(npm run lint:js:*)",
+      "Bash(npx eslint:*)"
     ],
     "deny": [],
     "ask": []

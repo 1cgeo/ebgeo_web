@@ -1,6 +1,29 @@
 // Path: src/js/controls_sig/tool_manager/ui_manager.js
 
+import {
+    Chart,
+    LineController,
+    LineElement,
+    PointElement,
+    CategoryScale,
+    LinearScale,
+    Filler,
+    Tooltip,
+    Legend
+} from 'chart.js';
 import { cleanupFeatureDropdownListeners } from './attribute_panel_helpers.js';
+
+// Register Chart.js components (tree-shaking)
+Chart.register(
+    LineController,
+    LineElement,
+    PointElement,
+    CategoryScale,
+    LinearScale,
+    Filler,
+    Tooltip,
+    Legend
+);
 
 class UIManager {
     constructor(map, selectionManager, toolManager) {

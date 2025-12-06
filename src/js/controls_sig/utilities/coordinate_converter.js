@@ -1,4 +1,15 @@
 // Path: src/js/controls_sig/utilities/coordinate_converter.js
+import * as mgrs from 'mgrs';
+
+// proj4 is loaded dynamically when needed (it's 119KB)
+let proj4Module = null;
+
+async function getProj4() {
+    if (!proj4Module) {
+        proj4Module = (await import('proj4')).default;
+    }
+    return proj4Module;
+}
 
 /**
  * Centralized utility for coordinate format conversions
@@ -36,9 +47,9 @@ export function getPlaceholderForFormat(formatId) {
  * Converts coordinates from string to {lat, lng} object
  * @param {string} input - Input coordinate string
  * @param {string} formatId - Format identifier
- * @returns {Object|null} {lat, lng} object or null if invalid
+ * @returns {Promise<Object|null>} {lat, lng} object or null if invalid
  */
-export function parseCoordinates(input, formatId) {
+export async function parseCoordinates(input, formatId) {
     try {
         switch (formatId) {
             case 'latlong':
@@ -46,7 +57,7 @@ export function parseCoordinates(input, formatId) {
             case 'latlong_dms':
                 return parseLatLongDMS(input);
             case 'utm_wgs84':
-                return parseUTMWGS84(input);
+                return await parseUTMWGS84(input);
             case 'mgrs':
                 return parseMGRS(input);
             default:
@@ -63,9 +74,9 @@ export function parseCoordinates(input, formatId) {
  * @param {number} lat - Latitude
  * @param {number} lng - Longitude
  * @param {string} formatId - Format identifier
- * @returns {string} Formatted coordinate string
+ * @returns {Promise<string>} Formatted coordinate string
  */
-export function formatCoordinates(lat, lng, formatId) {
+export async function formatCoordinates(lat, lng, formatId) {
     try {
         switch (formatId) {
             case 'latlong':
@@ -73,7 +84,7 @@ export function formatCoordinates(lat, lng, formatId) {
             case 'latlong_dms':
                 return formatLatLongDMS(lat, lng);
             case 'utm_wgs84':
-                return formatUTMWGS84(lat, lng);
+                return await formatUTMWGS84(lat, lng);
             case 'mgrs':
                 return formatMGRS(lat, lng);
             default:
@@ -90,9 +101,9 @@ export function formatCoordinates(lat, lng, formatId) {
  * @param {number} lat - Latitude
  * @param {number} lng - Longitude
  * @param {string} formatId - Format identifier
- * @returns {Object} Display format object with parts
+ * @returns {Promise<Object>} Display format object with parts
  */
-export function getDisplayFormat(lat, lng, formatId) {
+export async function getDisplayFormat(lat, lng, formatId) {
     try {
         switch (formatId) {
             case 'latlong':
@@ -105,7 +116,7 @@ export function getDisplayFormat(lat, lng, formatId) {
             case 'latlong_dms':
                 return getDMSDisplayFormat(lat, lng);
             case 'utm_wgs84':
-                return getUTMWGS84DisplayFormat(lat, lng);
+                return await getUTMWGS84DisplayFormat(lat, lng);
             case 'mgrs':
                 return getMGRSDisplayFormat(lat, lng);
             default:
@@ -241,14 +252,9 @@ function parseLatLongDMS(input) {
 /**
  * Parses UTM WGS84 coordinates
  * @param {string} input - UTM coordinate string
- * @returns {Object|null} {lat, lng} object or null if invalid
+ * @returns {Promise<Object|null>} {lat, lng} object or null if invalid
  */
-function parseUTMWGS84(input) {
-    if (typeof proj4 === 'undefined') {
-        console.warn('UTM conversion requires proj4 library');
-        return null;
-    }
-
+async function parseUTMWGS84(input) {
     const utmPattern = /^\s*(\d{1,2})([NS])?\s+(\d+)\s+(\d+)\s*$/i;
     const match = input.match(utmPattern);
 
@@ -263,11 +269,17 @@ function parseUTMWGS84(input) {
             easting >= 160000 && easting <= 840000 &&
             northing >= 0) {
 
-            const utmProjection = `+proj=utm +zone=${zone} ${hemisphere === 'S' ? '+south' : ''} +datum=WGS84 +units=m +no_defs`;
-            const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
+            try {
+                const proj4 = await getProj4();
+                const utmProjection = `+proj=utm +zone=${zone} ${hemisphere === 'S' ? '+south' : ''} +datum=WGS84 +units=m +no_defs`;
+                const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
 
-            const result = proj4(utmProjection, wgs84, [easting, northing]);
-            return { lng: result[0], lat: result[1] };
+                const result = proj4(utmProjection, wgs84, [easting, northing]);
+                return { lng: result[0], lat: result[1] };
+            } catch (error) {
+                console.error('Error loading proj4:', error);
+                return null;
+            }
         }
     }
 
@@ -280,11 +292,6 @@ function parseUTMWGS84(input) {
  * @returns {Object|null} {lat, lng} object or null if invalid
  */
 function parseMGRS(input) {
-    if (typeof mgrs === 'undefined') {
-        console.warn('MGRS conversion requires mgrs library');
-        return null;
-    }
-
     const mgrsString = input.replace(/\s+/g, '');
 
     try {
@@ -336,14 +343,11 @@ function formatLatLongDMS(lat, lng) {
  * Formats coordinates as UTM WGS84
  * @param {number} lat - Latitude
  * @param {number} lng - Longitude
- * @returns {string} Formatted UTM coordinate string
+ * @returns {Promise<string>} Formatted UTM coordinate string
  */
-function formatUTMWGS84(lat, lng) {
-    if (typeof proj4 === 'undefined') {
-        return formatLatLong(lat, lng);
-    }
-
+async function formatUTMWGS84(lat, lng) {
     try {
+        const proj4 = await getProj4();
         const zone = Math.floor((lng + 180) / 6) + 1;
         const hemisphere = lat >= 0 ? 'N' : 'S';
 
@@ -365,10 +369,6 @@ function formatUTMWGS84(lat, lng) {
  * @returns {string} Formatted MGRS coordinate string
  */
 function formatMGRS(lat, lng) {
-    if (typeof mgrs === 'undefined') {
-        return formatLatLong(lat, lng);
-    }
-
     try {
         const mgrsString = mgrs.forward([lng, lat], 5);
         return formatMGRSString(mgrsString);
@@ -416,19 +416,11 @@ function getDMSDisplayFormat(lat, lng) {
  * Gets UTM WGS84 display format
  * @param {number} lat - Latitude
  * @param {number} lng - Longitude
- * @returns {Object} Display format object with parts
+ * @returns {Promise<Object>} Display format object with parts
  */
-function getUTMWGS84DisplayFormat(lat, lng) {
-    if (typeof proj4 === 'undefined') {
-        return {
-            parts: [
-                { label: 'Lat', value: `${lat.toFixed(5)}°` },
-                { label: 'Lon', value: `${lng.toFixed(5)}°` }
-            ]
-        };
-    }
-
+async function getUTMWGS84DisplayFormat(lat, lng) {
     try {
+        const proj4 = await getProj4();
         const zone = Math.floor((lng + 180) / 6) + 1;
         const hemisphere = lat >= 0 ? 'N' : 'S';
 
@@ -460,15 +452,6 @@ function getUTMWGS84DisplayFormat(lat, lng) {
  * @returns {Object} Display format object with parts
  */
 function getMGRSDisplayFormat(lat, lng) {
-    if (typeof mgrs === 'undefined') {
-        return {
-            parts: [
-                { label: 'Lat', value: `${lat.toFixed(5)}°` },
-                { label: 'Lon', value: `${lng.toFixed(5)}°` }
-            ]
-        };
-    }
-
     try {
         const mgrsString = mgrs.forward([lng, lat], 5);
         const formattedMGRS = formatMGRSString(mgrsString);

@@ -1,5 +1,6 @@
 // Path: js/controls_sig/store/repository.js
 
+import localforage from 'localforage';
 import config from '../../config.js';
 
 const SCHEMA_VERSION = '1.5';

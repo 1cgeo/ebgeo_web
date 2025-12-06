@@ -18,9 +18,19 @@
     "lint:css:fix": "stylelint \"**/*.css\" --fix --ignore-path .gitignore"
   },
   "dependencies": {
+    "@tmcw/togeojson": "^7.1.2",
+    "chart.js": "^4.5.1",
     "compression": "^1.8.1",
+    "feather-icons": "^4.29.2",
+    "jszip": "^3.10.1",
     "knip": "^5.70.2",
-    "restify": "^11.1.0"
+    "localforage": "^1.10.0",
+    "mgrs": "^2.1.0",
+    "proj4": "^2.20.2",
+    "quill": "^2.0.3",
+    "restify": "^11.1.0",
+    "shpjs": "^6.2.0",
+    "sortablejs": "^1.15.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

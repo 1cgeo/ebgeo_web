@@ -1,4 +1,5 @@
 // Path: src/js/controls_sig/features_tab.js
+import Sortable from 'sortablejs';
 import {
   updateFeatureProperty,
   getFeatureById,
@@ -1273,12 +1274,6 @@ class FeaturesTab {
     if (this._sortableInstance) {
       this._sortableInstance.destroy();
       this._sortableInstance = null;
-    }
-
-    // Check if Sortable.js is available
-    if (typeof Sortable === 'undefined') {
-      console.warn('Sortable.js not loaded - layer reordering disabled');
-      return;
     }
 
     this._sortableInstance = Sortable.create(featuresList, {

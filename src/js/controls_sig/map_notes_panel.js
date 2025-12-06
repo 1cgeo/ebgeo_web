@@ -1,4 +1,6 @@
 // Path: src/js/controls_sig/map_notes_panel.js
+import Quill from 'quill';
+import 'quill/dist/quill.snow.css';
 import { showSuccess, showError } from './utilities/toast_service.js';
 import {
     getMapNotes,
@@ -405,7 +407,7 @@ class MapNotesEditPanel {
     }
 
     setupQuillEditor() {
-        if (this.quillInstance || typeof Quill === 'undefined') return;
+        if (this.quillInstance) return;
 
         this.quillInstance = new Quill(this.descriptionEditor, {
             theme: 'snow',

@@ -1,4 +1,7 @@
 // Path: js/controls_sig/add_import_control.js
+import JSZip from 'jszip';
+import * as toGeoJSON from '@tmcw/togeojson';
+import shp from 'shpjs';
 import { addFeatures, createLayerForImport, getLayers } from './store/store.js';
 import { IDUtils } from './id_utils.js';
 import { getTerrainElevation } from './terrain_control.js';

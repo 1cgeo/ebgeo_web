@@ -1,4 +1,5 @@
 // Path: src/js/index.js
+import feather from 'feather-icons';
 import './config-loader.js';
 import config from './config.js';
 import { } from './map_sig.js';
@@ -35,9 +36,7 @@ export function hideLoadingScreen() {
         el.classList.add('loaded');
     });
 
-    if (window.feather) {
-        feather.replace();
-    }
+    feather.replace();
 }
 
 // ===== GLOBAL CLEANUP =====

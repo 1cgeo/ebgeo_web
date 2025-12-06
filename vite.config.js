@@ -178,8 +178,7 @@ export default defineConfig({
       'maplibregl',
       'turf',
       'milsymbol',
-      'Cesium',
-      'localforage'
+      'Cesium'
     ]
   },
 
