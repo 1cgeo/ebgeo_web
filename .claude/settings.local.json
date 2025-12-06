@@ -10,7 +10,8 @@
       "Bash(timeout 5 npm run start:*)",
       "Bash(taskkill:*)",
       "Bash(timeout 3 npm run start:*)",
-      "Bash(npx knip:*)"
+      "Bash(npx knip:*)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []

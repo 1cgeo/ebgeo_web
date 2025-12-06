@@ -264,6 +264,7 @@
     <meta name="robots" content="noindex, nofollow">
 
     <!-- RESOURCE HINTS -->
+    <link rel="preload" href="/images/logo_ebgeo.webp" as="image" fetchpriority="high">
     <link rel="prefetch" href="/vendors/cesium/Cesium.js">
     <link rel="prefetch" href="/street_view/build/three.min.js">
 
@@ -273,7 +274,7 @@
     <!-- LOADING SCREEN OTIMIZADA -->
     <div class="loading-background" id="initial-loader">
         <div class="loading-content">
-            <img src="/images/logo_ebgeo.webp" alt="EBGeo" style="width: 300px; height: auto;">
+            <img src="/images/logo_ebgeo.webp" alt="EBGeo" style="width: 300px; height: auto;" fetchpriority="high">
             <div class="progress-bar">
                 <div class="progress-fill"></div>
             </div>
@@ -515,22 +516,26 @@
 
     <!-- ========================================
          VENDORS EXTERNOS (não bundlear)
-         Carregados antes do módulo principal
+         Otimizado para performance: scripts críticos primeiro,
+         depois defer para os demais
     ======================================== -->
-    <script src="/vendors/gdal/gdal3.js"></script>
-    <script src="/vendors/localforage.min.js"></script>
-    <script src="/vendors/jspdf.umd.min.js"></script>
+    <!-- Críticos para inicialização do mapa -->
     <script src="/vendors/maplibre-gl.js"></script>
     <script src="/vendors/turf.min.js"></script>
-    <script src="/vendors/milsymbol.min.js"></script>
-    <script src="/vendors/quill.js"></script>
-    <script src="/vendors/Sortable.min.js"></script>
+
+    <!-- Necessários para funcionalidades core (defer) -->
+    <script src="/vendors/localforage.min.js" defer></script>
+    <script src="/vendors/milsymbol.min.js" defer></script>
+    <script src="/vendors/quill.js" defer></script>
+    <script src="/vendors/Sortable.min.js" defer></script>
 
     <!-- Bibliotecas de apoio (defer) -->
     <script src="/vendors/chart.js" defer></script>
     <script src="/vendors/feather.min.js" defer></script>
 
     <!-- Bibliotecas para import/export (defer) -->
+    <script src="/vendors/gdal/gdal3.js" defer></script>
+    <script src="/vendors/jspdf.umd.min.js" defer></script>
     <script src="/vendors/jszip.min.js" defer></script>
     <script src="/vendors/shp.min.js" defer></script>
     <script src="/vendors/togeojson.js" defer></script>

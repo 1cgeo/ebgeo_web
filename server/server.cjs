@@ -3,6 +3,7 @@ const os = require('os');
 const restify = require('restify');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 
 const numCPUs = Math.min(16, Math.ceil(os.cpus().length / 2));
 
@@ -34,6 +35,54 @@ if (cluster.isMaster) {
   const server = restify.createServer({
     name: 'EBGEO',
     version: '1.0.0'
+  });
+
+  // Compressão gzip/deflate para reduzir tamanho das respostas (~70% de economia)
+  server.use((req, res, next) => {
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+
+    // Tipos de arquivo que devem ser comprimidos
+    const compressibleTypes = /\.(js|css|html|json|xml|txt|svg|ico)$/i;
+
+    if (compressibleTypes.test(req.url) && acceptEncoding) {
+      const originalWrite = res.write.bind(res);
+      const originalEnd = res.end.bind(res);
+      let chunks = [];
+
+      res.write = (chunk) => {
+        if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        return true;
+      };
+
+      res.end = (chunk) => {
+        if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        const body = Buffer.concat(chunks);
+
+        // Só comprimir se o corpo for maior que 1KB
+        if (body.length > 1024) {
+          if (acceptEncoding.includes('gzip')) {
+            res.setHeader('Content-Encoding', 'gzip');
+            res.removeHeader('Content-Length');
+            const compressed = zlib.gzipSync(body);
+            originalWrite(compressed);
+            originalEnd();
+            return;
+          } else if (acceptEncoding.includes('deflate')) {
+            res.setHeader('Content-Encoding', 'deflate');
+            res.removeHeader('Content-Length');
+            const compressed = zlib.deflateSync(body);
+            originalWrite(compressed);
+            originalEnd();
+            return;
+          }
+        }
+
+        originalWrite(body);
+        originalEnd();
+      };
+    }
+
+    return next();
   });
 
   // Cache headers para produção

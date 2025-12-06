@@ -100,6 +100,16 @@ export default defineConfig({
             './src/js/controls_sig/brush_tool/add_brush_control.js',
             './src/js/controls_sig/brush_tool/add_brush_geometry.js',
             './src/js/controls_sig/brush_tool/brush_attributes_panel.js'
+          ],
+          // Ferramentas de import/export (carregadas sob demanda)
+          'import-export': [
+            './src/js/controls_sig/add_import_control.js',
+            './src/js/controls_sig/export_import_service.js',
+            './src/js/controls_sig/pdf_export_tab.js'
+          ],
+          // Street view (Three.js - carregado sob demanda)
+          'street-view': [
+            './src/js/controls_sig/street_view_tool/add_street_view_control.js'
           ]
         },
         // Nomes dos arquivos
