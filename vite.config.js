@@ -55,6 +55,51 @@ export default defineConfig({
             './src/js/controls_sig/store/store.js',
             './src/js/controls_sig/store/repository.js',
             './src/js/controls_sig/store/map-manager.js'
+          ],
+          // Ferramentas de análise (LOS e visibilidade)
+          'analysis-tools': [
+            './src/js/controls_sig/los_tool/add_los_control.js',
+            './src/js/controls_sig/los_tool/add_los_geometry.js',
+            './src/js/controls_sig/los_tool/los_attributes_panel.js',
+            './src/js/controls_sig/visibility_tool/add_visibility_control.js',
+            './src/js/controls_sig/visibility_tool/add_visibility_geometry.js',
+            './src/js/controls_sig/visibility_tool/visibility_attributes_panel.js'
+          ],
+          // Ferramentas de medidas de coordenação
+          'coordination-tools': [
+            './src/js/controls_sig/coordination_measure_tool/add_coordination_measure_control.js',
+            './src/js/controls_sig/coordination_measure_tool/add_coordination_measure_geometry.js',
+            './src/js/controls_sig/coordination_measure_tool/coordination_measure_attributes_panel.js',
+            './src/js/controls_sig/coordination_measure_tool/coordination_measure_generator.js',
+            './src/js/controls_sig/coordination_measure_tool/coordination_points_catalog.js',
+            './src/js/controls_sig/coordination_measure_tool/coordination_measure_constants.js'
+          ],
+          // Ferramentas de desenho táticas
+          'tactical-tools': [
+            './src/js/controls_sig/boundary_tool/add_boundary_control.js',
+            './src/js/controls_sig/boundary_tool/add_boundary_geometry.js',
+            './src/js/controls_sig/boundary_tool/boundary_attributes_panel.js',
+            './src/js/controls_sig/occupied_front_tool/add_occupied_front_control.js',
+            './src/js/controls_sig/occupied_front_tool/add_occupied_front_geometry.js',
+            './src/js/controls_sig/occupied_front_tool/occupied_front_attributes_panel.js',
+            './src/js/controls_sig/arrow_tool/add_arrow_control.js',
+            './src/js/controls_sig/arrow_tool/add_arrow_geometry.js',
+            './src/js/controls_sig/arrow_tool/arrow_attributes_panel.js'
+          ],
+          // Ferramentas de formas geométricas
+          'shape-tools': [
+            './src/js/controls_sig/circle_tool/add_circle_control.js',
+            './src/js/controls_sig/circle_tool/add_circle_geometry.js',
+            './src/js/controls_sig/circle_tool/circle_attributes_panel.js',
+            './src/js/controls_sig/ellipse_tool/add_ellipse_control.js',
+            './src/js/controls_sig/ellipse_tool/add_ellipse_geometry.js',
+            './src/js/controls_sig/ellipse_tool/ellipse_attributes_panel.js',
+            './src/js/controls_sig/rectangle_tool/add_rectangle_control.js',
+            './src/js/controls_sig/rectangle_tool/add_rectangle_geometry.js',
+            './src/js/controls_sig/rectangle_tool/rectangle_attributes_panel.js',
+            './src/js/controls_sig/brush_tool/add_brush_control.js',
+            './src/js/controls_sig/brush_tool/add_brush_geometry.js',
+            './src/js/controls_sig/brush_tool/brush_attributes_panel.js'
           ]
         },
         // Nomes dos arquivos

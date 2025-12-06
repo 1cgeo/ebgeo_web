@@ -35,6 +35,8 @@ import {
     getGridStyle as getGridStyleRepo,
     getMapOrder as getMapOrderRepo,
     setMapOrder as setMapOrderRepo,
+    setLayers as setLayersRepo,
+    setActiveLayerId as setActiveLayerIdRepo,
 } from './repository.js';
 
 import mapManager from './map-manager.js';
@@ -1177,9 +1179,6 @@ export const clearLayersCache = () => {
  * @param {Object} layersData - Layers data with layers and activeLayerId
  */
 export const setMapLayers = async (mapName, layersData) => {
-    // This is used during import - directly save to repository and reload
-    const { setLayers: setLayersRepo, setActiveLayerId: setActiveLayerIdRepo } = await import('./repository.js');
-
     if (layersData.layers) {
         await setLayersRepo(mapName, layersData.layers);
     }
