@@ -1,15 +1,6 @@
 // Path: src/js/controls_sig/utilities/coordinate_converter.js
 import * as mgrs from 'mgrs';
-
-// proj4 is loaded dynamically when needed (it's 119KB)
-let proj4Module = null;
-
-async function getProj4() {
-    if (!proj4Module) {
-        proj4Module = (await import('proj4')).default;
-    }
-    return proj4Module;
-}
+import proj4 from 'proj4';
 
 /**
  * Centralized utility for coordinate format conversions
@@ -270,7 +261,6 @@ async function parseUTMWGS84(input) {
             northing >= 0) {
 
             try {
-                const proj4 = await getProj4();
                 const utmProjection = `+proj=utm +zone=${zone} ${hemisphere === 'S' ? '+south' : ''} +datum=WGS84 +units=m +no_defs`;
                 const wgs84 = '+proj=longlat +datum=WGS84 +no_defs';
 
@@ -347,7 +337,6 @@ function formatLatLongDMS(lat, lng) {
  */
 async function formatUTMWGS84(lat, lng) {
     try {
-        const proj4 = await getProj4();
         const zone = Math.floor((lng + 180) / 6) + 1;
         const hemisphere = lat >= 0 ? 'N' : 'S';
 
@@ -420,7 +409,6 @@ function getDMSDisplayFormat(lat, lng) {
  */
 async function getUTMWGS84DisplayFormat(lat, lng) {
     try {
-        const proj4 = await getProj4();
         const zone = Math.floor((lng + 180) / 6) + 1;
         const hemisphere = lat >= 0 ? 'N' : 'S';
 

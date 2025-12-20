@@ -5,6 +5,7 @@ import {
     getCurrentMapName
 } from './store/store.js';
 
+import Sortable from 'sortablejs';
 import MapManager from './map_manager.js';
 import { ExportImportService } from './export_import_service.js';
 import PDFExportTab from './pdf_export_tab.js';

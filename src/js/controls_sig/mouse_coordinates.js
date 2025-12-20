@@ -501,7 +501,7 @@ class MouseCoordinatesControl {
         this._updateCoordinates(e.lngLat.lat, e.lngLat.lng);
     }
 
-    _updateCoordinates(lat, lng) {
+    async _updateCoordinates(lat, lng) {
         this._coordinatesText.innerHTML = '';
 
         try {
@@ -509,7 +509,7 @@ class MouseCoordinatesControl {
             zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
             this._coordinatesText.appendChild(zoomSpan);
 
-            const displayFormat = getDisplayFormat(lat, lng, this._currentFormat);
+            const displayFormat = await getDisplayFormat(lat, lng, this._currentFormat);
 
             displayFormat.parts.forEach(part => {
                 const span = document.createElement('span');
