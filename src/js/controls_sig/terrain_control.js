@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/terrain_control.js
+// Path: js/controls_sig/terrain_control.js
 
 import { getMapHillshadeState } from './store/store.js';
 

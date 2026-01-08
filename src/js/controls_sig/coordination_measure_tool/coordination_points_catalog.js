@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/coordination_measure_tool/coordination_points_catalog.js
+// Path: js/controls_sig/coordination_measure_tool/coordination_points_catalog.js
 
 import { ECHELON_CODES, SUPPLY_CLASSES } from './coordination_measure_constants.js';
 

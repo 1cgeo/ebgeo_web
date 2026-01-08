@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/baselayers/carta_topografica.js
+// Path: js/controls_sig/baselayers/carta_topografica.js
 
 export default {
     "version": 8,

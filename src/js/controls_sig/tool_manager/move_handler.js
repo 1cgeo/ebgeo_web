@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/tool_manager/move_handler.js
+// Path: js/controls_sig/tool_manager/move_handler.js
 
 class MoveHandler {
     constructor(map, selectionManager, uiManager) {

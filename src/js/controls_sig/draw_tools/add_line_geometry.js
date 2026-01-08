@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/draw_tools/add_line_geometry.js
+// Path: js/controls_sig/draw_tools/add_line_geometry.js
 
 import BaseGeometry from '../tool_manager/base_geometry.js';
 

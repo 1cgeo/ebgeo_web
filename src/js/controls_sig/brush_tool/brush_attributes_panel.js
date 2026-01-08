@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/brush_tool/brush_attributes_panel.js
+// Path: js/controls_sig/brush_tool/brush_attributes_panel.js
 
 import {
     createSliderWithInput,

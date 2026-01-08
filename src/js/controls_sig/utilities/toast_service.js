@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/utilities/toast_service.js
+// Path: js/controls_sig/utilities/toast_service.js
 
 class ToastService {
     static DEFAULT_DURATION = 3000;

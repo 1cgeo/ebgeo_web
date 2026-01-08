@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/draw_tools/add_polygon_control.js
+// Path: js/controls_sig/draw_tools/add_polygon_control.js
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';

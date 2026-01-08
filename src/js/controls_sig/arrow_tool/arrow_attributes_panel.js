@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/arrow_tool/arrow_attributes_panel.js
+// Path: js/controls_sig/arrow_tool/arrow_attributes_panel.js
 
 import {
     createSliderWithInput,

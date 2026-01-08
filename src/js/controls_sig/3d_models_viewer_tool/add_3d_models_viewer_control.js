@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/3d_models_viewer_tool/add_3d_models_viewer_control.js
+// Path: js/controls_sig/3d_models_viewer_tool/add_3d_models_viewer_control.js
 
 import config from '../../config.js';
 

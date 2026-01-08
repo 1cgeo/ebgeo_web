@@ -1,4 +1,4 @@
-// Path: src/js/index.js
+// Path: js/index.js
 import feather from 'feather-icons';
 import './config-loader.js';
 import config from './config.js';

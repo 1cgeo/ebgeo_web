@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/map_notes_panel.js
+// Path: js/controls_sig/map_notes_panel.js
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 import { showSuccess, showError } from './utilities/toast_service.js';

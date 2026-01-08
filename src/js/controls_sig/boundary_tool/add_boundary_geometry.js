@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/boundary_tool/add_boundary_geometry.js
+// Path: js/controls_sig/boundary_tool/add_boundary_geometry.js
 
 import BaseGeometry from '../tool_manager/base_geometry.js';
 

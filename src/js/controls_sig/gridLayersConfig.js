@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/gridLayersConfig.js
+// Path: js/controls_sig/gridLayersConfig.js
 export const GRID_LAYERS = {
   latlong: [
     'grid_vertical_4326_25k',

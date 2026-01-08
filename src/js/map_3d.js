@@ -1,4 +1,4 @@
-// Path: src/js/map_3d.js
+// Path: js/map_3d.js
 import config from './config.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====

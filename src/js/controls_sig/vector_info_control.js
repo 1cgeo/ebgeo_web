@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/vector_info_control.js
+// Path: js/controls_sig/vector_info_control.js
 import config from '../config.js';
 
 class VectorTileInfoControl {

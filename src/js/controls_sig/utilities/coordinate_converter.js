@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/utilities/coordinate_converter.js
+// Path: js/controls_sig/utilities/coordinate_converter.js
 import * as mgrs from 'mgrs';
 import proj4 from 'proj4';
 

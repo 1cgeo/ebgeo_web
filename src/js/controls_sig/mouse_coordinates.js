@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/mouse_coordinates.js
+// Path: js/controls_sig/mouse_coordinates.js
 import {
     COORDINATE_FORMATS,
     getPlaceholderForFormat,

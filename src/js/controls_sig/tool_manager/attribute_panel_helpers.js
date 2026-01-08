@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/tool_manager/attribute_panel_helpers.js
+// Path: js/controls_sig/tool_manager/attribute_panel_helpers.js
 
 import { getFrequentColors, getLayers, getActiveLayerIdSync, isFeatureEffectivelyLocked } from '../store/store.js';
 import { COORDINATE_FORMATS, getPlaceholderForFormat, parseCoordinates, formatCoordinates } from '../utilities/coordinate_converter.js';

@@ -1,4 +1,4 @@
-// Path: src/js/map_sig.js
+// Path: js/map_sig.js
 import BaseLayerControl from './controls_sig/base_layer_control.js';
 import AddTextControl from './controls_sig/text_tool/add_text_control.js';
 import AddImageControl from './controls_sig/image_tool/add_image_control.js';

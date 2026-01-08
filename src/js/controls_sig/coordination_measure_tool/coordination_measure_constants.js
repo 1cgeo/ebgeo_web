@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/coordination_measure_tool/coordination_measure_constants.js
+// Path: js/controls_sig/coordination_measure_tool/coordination_measure_constants.js
 
 export const ECHELON_CODES = {
   "00": "Não Especificado",

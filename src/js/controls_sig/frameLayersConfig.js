@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/frameLayersConfig.js
+// Path: js/controls_sig/frameLayersConfig.js
 export const FRAME_LAYERS = {
   scale_25k: [
     'moldura_fill_25k',

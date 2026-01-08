@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/tool_manager/group_manager.js
+// Path: js/controls_sig/tool_manager/group_manager.js
 
 import { memoryStore, setMapGroups, getMapGroups } from '../store/repository.js';
 import { IDUtils } from '../id_utils.js';

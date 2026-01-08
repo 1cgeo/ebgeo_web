@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/tool_manager/ui_manager.js
+// Path: js/controls_sig/tool_manager/ui_manager.js
 
 import {
     Chart,

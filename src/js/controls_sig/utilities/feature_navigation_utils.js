@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/utilities/feature_navigation_utils.js
+// Path: js/controls_sig/utilities/feature_navigation_utils.js
 
 /**
  * Utility for map feature navigation and zoom operations

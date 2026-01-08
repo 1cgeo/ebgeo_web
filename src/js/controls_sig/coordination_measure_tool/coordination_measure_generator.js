@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/coordination_measure_tool/coordination_measure_generator.js
+// Path: js/controls_sig/coordination_measure_tool/coordination_measure_generator.js
 
 import { COORDINATION_POINTS_CATALOG } from './coordination_points_catalog.js';
 

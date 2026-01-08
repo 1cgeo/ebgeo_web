@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/coordination_measure_tool/coordination_measure_attributes_panel.js
+// Path: js/controls_sig/coordination_measure_tool/coordination_measure_attributes_panel.js
 
 import {
     createSliderWithInput,

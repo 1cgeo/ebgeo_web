@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/baselayers/bdgex_layer.js
+// Path: js/controls_sig/baselayers/bdgex_layer.js
 
 export default {
     "version": 8,

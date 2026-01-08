@@ -1,4 +1,4 @@
-// Path: src/js/controls_sig/tool_manager/clipboard_manager.js
+// Path: js/controls_sig/tool_manager/clipboard_manager.js
 
 import {
     addFeatures,
