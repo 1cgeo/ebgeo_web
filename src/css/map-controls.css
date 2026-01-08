@@ -566,3 +566,120 @@
 .mapboxgl-ctrl-group input {
     touch-action: manipulation;
 }
+
+/* ===== 3D MODEL PREVIEW POPUP ===== */
+
+.model-preview-popup-container {
+    z-index: 1000 !important;
+}
+
+.model-preview-popup-container .maplibregl-popup-content {
+    padding: 0 !important;
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+    background: #1a1a1a !important;
+    border: none !important;
+}
+
+.model-preview-popup-container .maplibregl-popup-tip {
+    border-top-color: #1a1a1a !important;
+}
+
+.model-preview-popup-container .maplibregl-popup-close-button {
+    position: absolute !important;
+    top: 16px !important;
+    right: 16px !important;
+    width: 24px !important;
+    height: 24px !important;
+    background: rgba(0, 0, 0, 0.6) !important;
+    border: none !important;
+    border-radius: 50% !important;
+    color: #ffffff !important;
+    font-size: 16px !important;
+    line-height: 24px !important;
+    text-align: center !important;
+    cursor: pointer !important;
+    z-index: 10 !important;
+    transition: background 0.2s ease !important;
+    padding: 0 !important;
+}
+
+.model-preview-popup-container .maplibregl-popup-close-button:hover {
+    background: rgba(0, 0, 0, 0.8) !important;
+}
+
+.model-preview-content {
+    width: 426px;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    padding-bottom: 0;
+    box-sizing: content-box;
+}
+
+.model-preview-video {
+    width: 426px;
+    height: 240px;
+    object-fit: cover;
+    display: block;
+    background: #000;
+    border-radius: 6px;
+}
+
+.model-preview-thumbnail {
+    width: 426px;
+    height: 240px;
+    object-fit: cover;
+    display: block;
+    background: #000;
+    border-radius: 6px;
+}
+.model-preview-info {
+    padding: 12px 0;
+    background: #1a1a1a;
+}
+
+.model-preview-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.model-preview-button {
+    width: 100%;
+    padding: 10px 16px;
+    background: #508D4E;
+    border: none;
+    border-radius: 6px;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.model-preview-button:hover {
+    background: #427842;
+}
+
+.model-preview-button:active {
+    background: #3a6a3a;
+}
+
+/* ----- Popup without video ----- */
+.model-preview-content.no-video {
+    padding-bottom: 12px;
+}
+
+.model-preview-content.no-video .model-preview-info {
+    padding-top: 0;
+}
+
+.model-preview-content.no-video .model-preview-name {
+    text-align: center;
+}

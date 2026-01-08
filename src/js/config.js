@@ -27,10 +27,6 @@ const config = {
     apiUrl: "http://localhost:3000/busca"  // URL da API de busca de features
   },
 
-  export: {
-    pdfApiUrl: "http://localhost:3001/api/export-georeferenced-pdf" // URL da API de exportação de PDF georreferenciado (não utilizado atualmente)
-  },
-
   // ===== BASEMAP CONFIGURATION =====
   basemaps: {
     'carta-topografica': {
@@ -268,11 +264,14 @@ const config = {
 
   // ===== 3D TILESETS =====
   tilesets: [
+    // ----- Cluster Rio de Janeiro (5 pontos) -----
     {
       url: "/3d/PCL/tileset.json",                     // Caminho para o tileset
       heightOffset: 35,                                // Offset de altura em metros
       id: "PCL",                                       // ID único do tileset
       name: "PCL",                                     // Nome para exibição
+      previewVideo: "/3d/videos/preview.webm",         // Vídeo de preview
+      previewThumbnail: "/3d/videos/thumbnail.jpg",       // Fallback thumbnail
       locate: {
         lon: -44.47332385414955,                       // Longitude para localizar
         lat: -22.43976556982974,                       // Latitude para localizar

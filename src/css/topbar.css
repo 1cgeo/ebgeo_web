@@ -16,7 +16,7 @@
     top: 0;
     left: 0;
     right: 0;
-    z-index: 1000;
+    z-index: 1001;
 }
 
 .topbar-subtitle {
@@ -469,55 +469,55 @@ input[type="checkbox"]:checked ~ #sidebarMenu {
         max-width: 95%;
         margin: 2% auto;
     }
-    
+
     .cgeo-list li {
         padding: 10px;
     }
-    
+
     .cgeo-header {
         flex-direction: column;
         align-items: flex-start;
         gap: 6px;
     }
-    
+
     .cgeo-header strong {
         font-size: 14px;
     }
-    
+
     .cgeo-link {
         font-size: 12px;
     }
-    
+
     .cgeo-description {
         font-size: 12px;
     }
-    
+
     .email-container {
         flex-direction: column;
         gap: 8px;
     }
-    
+
     .email-link {
         font-size: 15px;
         padding: 10px 16px;
     }
-    
+
     .copy-email-btn {
         width: 100%;
         justify-content: center;
     }
-    
+
     .extra-bar-buttons {
         gap: 8px;
         margin-right: 10px;
     }
-    
+
     .icon-only-button {
         padding: 6px;
         min-width: 28px;
         min-height: 28px;
     }
-    
+
     .icon-only-button svg {
         width: 20px;
         height: 20px;

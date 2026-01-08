@@ -438,6 +438,15 @@ class AddStreetViewControl {
             this.deactivate();
             return
         }
+
+        // Deactivate other tools to prevent conflicts
+        if (window.toolManager?.activeTool) {
+            window.toolManager.deactivateCurrentTool();
+        }
+        if (window.modelsViewerControl?.isActive) {
+            window.modelsViewerControl.deactivate?.();
+        }
+
         const closeBtn = document.getElementById('close-street-view-button');
         if (closeBtn) closeBtn.addEventListener('click', this.closeStreetView);
         this.isActive = true;
@@ -1022,6 +1031,15 @@ class AddStreetViewControl {
     }
 
     loadPoint = async (e) => {
+        // Ignore if tool is not active
+        if (!this.isActive) return;
+
+        // Prevent event from propagating to other map handlers
+        if (e.originalEvent) {
+            e.originalEvent.stopPropagation();
+            e.originalEvent.preventDefault();
+        }
+
         try {
             let feature = await this.getNeighborFromPMTiles(e.lngLat);
 
@@ -1048,10 +1066,12 @@ class AddStreetViewControl {
     }
 
     showHoverCursor = () => {
+        if (!this.isActive) return;
         this.map.getCanvas().style.cursor = 'pointer';
     }
 
     hideHoverCursor = () => {
+        if (!this.isActive) return;
         this.map.getCanvas().style.cursor = '';
     }
 

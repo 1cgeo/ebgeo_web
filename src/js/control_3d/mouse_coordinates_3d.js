@@ -220,13 +220,13 @@ function onMouseMove(e) {
     }
 }
 
-function updateCoordinates(lat, lng) {
+async function updateCoordinates(lat, lng) {
     if (!coordinatesText) return;
 
     coordinatesText.innerHTML = '';
 
     try {
-        const displayFormat = getDisplayFormat(lat, lng, currentFormat);
+        const displayFormat = await getDisplayFormat(lat, lng, currentFormat);
 
         displayFormat.parts.forEach(part => {
             const span = document.createElement('span');
@@ -245,9 +245,9 @@ function updateCoordinates(lat, lng) {
     }
 }
 
-function copyCoordinates() {
+async function copyCoordinates() {
     const { lat, lng } = currentCoordinates;
-    const textToCopy = formatCoordinates(lat, lng, currentFormat);
+    const textToCopy = await formatCoordinates(lat, lng, currentFormat);
 
     if (!textToCopy || textToCopy.trim() === '') return;
 
@@ -416,14 +416,14 @@ function closeFlyToModal() {
     }
 }
 
-function handleFlyTo() {
+async function handleFlyTo() {
     if (!viewerInstance || !flyToModal) return;
 
     const formatSelect = flyToModal.querySelector('#format-select');
     const coordsInput = flyToModal.querySelector('#coords-input');
     const validationMsg = flyToModal.querySelector('#validation-msg');
 
-    const coordinates = parseCoordinates(coordsInput.value.trim(), formatSelect.value);
+    const coordinates = await parseCoordinates(coordsInput.value.trim(), formatSelect.value);
 
     if (coordinates) {
         viewerInstance.camera.flyTo({
