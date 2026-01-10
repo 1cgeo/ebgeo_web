@@ -2,13 +2,19 @@
 import config from '../config.js';
 import { showError } from './utilities/toast_service.js';
 
+// Maximum number of 3D model results to display
+const MAX_3D_MODEL_RESULTS = 5;
+
 class FeatureSearchControl {
   constructor(uiManager) {
     this._apiUrl = config.search.apiUrl;
     this._marker = null;
     this._uiManager = uiManager;
     this._isExpanded = false;
-    this._disabled = !this._apiUrl;
+
+    // Disable only if no API and no tilesets
+    const hasTilesets = config.tilesets && config.tilesets.length > 0;
+    this._disabled = !this._apiUrl && !hasTilesets;
   }
 
   onAdd(map) {
@@ -109,6 +115,36 @@ class FeatureSearchControl {
     };
   }
 
+  /**
+   * Search for 3D models locally in config.tilesets
+   * @param {string} query - Search query (case-insensitive substring match)
+   * @returns {Array} Array of matching 3D model results
+   */
+  _search3DModels(query) {
+    if (!config.tilesets || config.tilesets.length === 0) {
+      return [];
+    }
+
+    const normalizedQuery = query.toLowerCase();
+
+    return config.tilesets
+      .filter(tileset => {
+        if (!tileset.name || !tileset.id || !tileset.locate) {
+          return false;
+        }
+        return tileset.name.toLowerCase().includes(normalizedQuery);
+      })
+      .slice(0, MAX_3D_MODEL_RESULTS)
+      .map(tileset => ({
+        type: '3d-model',
+        tilesetId: tileset.id,
+        nome: tileset.name,
+        dataCaptura: tileset.data_captura || null,
+        longitude: tileset.locate.lon,
+        latitude: tileset.locate.lat
+      }));
+  }
+
   async _getSuggestions() {
     const query = this._input.value.trim();
     if (query.length < 3) {
@@ -116,24 +152,52 @@ class FeatureSearchControl {
       return;
     }
 
+    // Search local 3D models immediately (synchronous)
+    let models3D = [];
     try {
+      models3D = this._search3DModels(query);
+    } catch (error) {
+      console.warn('[Search] Error searching 3D models:', error);
+    }
+
+    // Display 3D results immediately if available
+    if (models3D.length > 0) {
+      this._displaySuggestions(models3D);
+    }
+
+    // Search API in parallel (don't block on failure)
+    if (this._apiUrl) {
       this._container.classList.add('searching');
 
-      const center = this._map.getCenter();
-      const response = await fetch(`${this._apiUrl}?q=${encodeURIComponent(query)}&lat=${center.lat}&lon=${center.lng}`);
+      try {
+        const center = this._map.getCenter();
+        const response = await fetch(`${this._apiUrl}?q=${encodeURIComponent(query)}&lat=${center.lat}&lon=${center.lng}`);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        if (response.ok) {
+          const data = await response.json();
+          const apiResults = Array.isArray(data) ? data : [];
+          const combinedResults = [...models3D, ...apiResults];
+
+          if (combinedResults.length > 0) {
+            this._displaySuggestions(combinedResults);
+          } else {
+            this._suggestionsList.style.display = 'none';
+          }
+        } else if (models3D.length === 0) {
+          // API failed and no 3D models
+          this._suggestionsList.style.display = 'none';
+        }
+      } catch (error) {
+        // API failed - if no 3D models, hide suggestions
+        if (models3D.length === 0) {
+          this._suggestionsList.style.display = 'none';
+        }
+      } finally {
+        this._container.classList.remove('searching');
       }
-
-      const data = await response.json();
-      this._displaySuggestions(data);
-
-    } catch (error) {
-      console.error('Error fetching suggestions:', error);
-      this._displayError();
-    } finally {
-      this._container.classList.remove('searching');
+    } else if (models3D.length === 0) {
+      // No API configured and no 3D models
+      this._suggestionsList.style.display = 'none';
     }
   }
 
@@ -143,6 +207,12 @@ class FeatureSearchControl {
     }
 
     return suggestions.filter(suggestion => {
+      // 3D models have different structure and are already validated
+      if (suggestion.type === '3d-model') {
+        return true;
+      }
+
+      // API results validation
       const requiredFields = ['tipo', 'nome', 'municipio', 'estado', 'longitude', 'latitude'];
 
       return requiredFields.every(field => {
@@ -169,6 +239,7 @@ class FeatureSearchControl {
     this._suggestionsList.innerHTML = '';
 
     const validSuggestions = this._filterValidSuggestions(suggestions);
+    console.log(`[Search] Valid suggestions after filter: ${validSuggestions.length}`);
 
     if (validSuggestions.length === 0) {
       this._suggestionsList.style.display = 'none';
@@ -178,7 +249,21 @@ class FeatureSearchControl {
     validSuggestions.forEach(suggestion => {
       const li = document.createElement('li');
       li.className = 'feature-search-suggestion';
-      li.innerHTML = `<strong>${suggestion.tipo}:</strong> ${suggestion.nome} (${suggestion.municipio}, ${suggestion.estado})`;
+
+      // Different display for 3D models vs API results
+      if (suggestion.type === '3d-model') {
+        li.classList.add('suggestion-3d-model');
+        li.innerHTML = `
+          <svg class="suggestion-3d-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+          <span><strong>Modelo 3D:</strong> ${suggestion.nome}</span>
+        `;
+      } else {
+        li.innerHTML = `<strong>${suggestion.tipo}:</strong> ${suggestion.nome} (${suggestion.municipio}, ${suggestion.estado})`;
+      }
 
       li.addEventListener('pointerdown', (e) => {
         e.preventDefault();
@@ -221,9 +306,17 @@ class FeatureSearchControl {
     this._suggestionsList.style.display = 'none';
 
     this._uiManager.saveChangesAndClosePanel();
-
     this.removeMarker();
 
+    // Handle 3D model selection
+    if (feature.type === '3d-model') {
+      if (window.modelsViewerControl) {
+        window.modelsViewerControl.navigateToModel(feature.tilesetId);
+      }
+      return;
+    }
+
+    // Handle API result selection (existing behavior)
     this._marker = new maplibregl.Marker()
       .setLngLat([feature.longitude, feature.latitude])
       .addTo(this._map);

@@ -322,6 +322,24 @@
     background: rgba(220, 53, 69, 0.05) !important;
 }
 
+/* ----- 3D Model Suggestions ----- */
+.feature-search-control .feature-search-suggestion.suggestion-3d-model {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+}
+
+.feature-search-control .suggestion-3d-icon {
+    width: 16px !important;
+    height: 16px !important;
+    flex-shrink: 0 !important;
+    color: var(--primary-color) !important;
+}
+
+.feature-search-control .suggestion-3d-model span {
+    flex: 1 !important;
+}
+
 /* ----- Loading State ----- */
 .feature-search-control.searching .feature-search-input {
     opacity: 0.7 !important;
@@ -638,7 +656,7 @@
     width: 426px;
     display: flex;
     flex-direction: column;
-    padding: 12px;
+    padding: 10px;
     padding-bottom: 0;
     box-sizing: content-box;
 }
@@ -661,7 +679,7 @@
     border-radius: 6px;
 }
 .model-preview-info {
-    padding: 12px 0;
+    padding: 8px 0;
     background: #1a1a1a;
 }
 
@@ -669,22 +687,22 @@
     font-size: 14px;
     font-weight: 600;
     color: #ffffff;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .model-preview-date {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 400;
     color: rgba(255, 255, 255, 0.7);
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .model-preview-button {
     width: 100%;
-    padding: 10px 16px;
+    padding: 8px 10px;
     background: #508D4E;
     border: none;
     border-radius: 6px;

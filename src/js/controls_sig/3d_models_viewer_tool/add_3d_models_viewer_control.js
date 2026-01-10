@@ -23,7 +23,7 @@ const VIDEO_POPUP_WIDTH = 320;
 const VIDEO_POPUP_HEIGHT = 180;
 
 // Marker pin vertical offset for popup positioning
-const MARKER_POPUP_OFFSET = 60;
+const MARKER_POPUP_OFFSET = 55;
 
 /**
  * Control for viewing 3D models on the map.
@@ -676,6 +676,48 @@ class Add3DModelsViewerControl {
     hideHoverCursor() {
         if (!this.isActive) return;
         this.map.getCanvas().style.cursor = '';
+    }
+
+    /**
+     * Navigate to a specific 3D model and open its preview popup.
+     * Used by external components like search.
+     * @param {string} tilesetId - ID of the tileset to navigate to
+     * @returns {Promise<boolean>} True if navigation successful
+     */
+    async navigateToModel(tilesetId) {
+        const tileset = config.tilesets.find(t => t.id === tilesetId);
+        if (!tileset) {
+            console.warn(`Tileset not found: ${tilesetId}`);
+            return false;
+        }
+
+        // Activate tool if not active
+        if (!this.isActive) {
+            await this.toolManager.setActiveTool(this);
+        }
+
+        const coordinates = [tileset.locate.lon, tileset.locate.lat];
+
+        // Fly to location
+        this.map.flyTo({
+            center: coordinates,
+            zoom: 14,
+            essential: true
+        });
+
+        // Open popup after animation completes
+        this.map.once('moveend', () => {
+            this.createPreviewPopup(
+                coordinates,
+                tileset.id,
+                tileset.name,
+                tileset.data_captura || null,
+                tileset.previewVideo || null,
+                tileset.previewThumbnail || null
+            );
+        });
+
+        return true;
     }
 }
 
