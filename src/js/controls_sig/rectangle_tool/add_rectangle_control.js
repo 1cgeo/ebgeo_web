@@ -173,12 +173,24 @@ class AddRectangleControl extends BaseControl {
         const newCorner1 = [oldCorner1[0] + offset.dx, oldCorner1[1] + offset.dy];
         const newCorner2 = [oldCorner2[0] + offset.dx, oldCorner2[1] + offset.dy];
 
-        const { center, width, height } = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
-
-        // ✅ FIX: Para bearing = 0, trocar width e height para alinhar com convenção dos handles
         const bearing = feature.properties.bearing || 0;
-        const finalWidth = bearing === 0 ? height : width;
-        const finalHeight = bearing === 0 ? width : height;
+        let center, finalWidth, finalHeight;
+
+        if (bearing !== 0) {
+            // For rotated rectangles, preserve original dimensions (just offset center)
+            center = [
+                (newCorner1[0] + newCorner2[0]) / 2,
+                (newCorner1[1] + newCorner2[1]) / 2
+            ];
+            finalWidth = feature.properties.width;
+            finalHeight = feature.properties.height;
+        } else {
+            // For non-rotated rectangles, calculate from corners with swap
+            const calculated = this.geometry.calculateDimensionsFromCorners(newCorner1, newCorner2);
+            center = calculated.center;
+            finalWidth = calculated.height;
+            finalHeight = calculated.width;
+        }
 
         return {
             ...feature,
@@ -194,7 +206,9 @@ class AddRectangleControl extends BaseControl {
                 newCorner1,
                 newCorner2,
                 feature.properties.borderRadius || 0,
-                bearing
+                bearing,
+                finalWidth,
+                finalHeight
             )
         };
     }
@@ -273,7 +287,9 @@ class AddRectangleControl extends BaseControl {
                     newCorner1,
                     newCorner2,
                     feature.properties.borderRadius || 0,
-                    0
+                    0,
+                    finalWidth,
+                    finalHeight
                 )
             };
 
@@ -834,12 +850,27 @@ class AddRectangleControl extends BaseControl {
                 if (['borderRadius', 'bearing', 'corner1', 'corner2'].includes(property)) {
                     const corner1 = this.geometry.normalizeCorner(sourceFeature.properties.corner1);
                     const corner2 = this.geometry.normalizeCorner(sourceFeature.properties.corner2);
-                    const { center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
-
-                    // For bearing = 0, swap width and height to align with handle convention
                     const bearing = sourceFeature.properties.bearing || 0;
-                    const finalWidth = bearing === 0 ? height : width;
-                    const finalHeight = bearing === 0 ? width : height;
+
+                    let center, finalWidth, finalHeight;
+
+                    if (bearing !== 0) {
+                        // For rotated rectangles, use existing properties (already correct)
+                        // Only recalculate center from corners
+                        center = [
+                            (corner1[0] + corner2[0]) / 2,
+                            (corner1[1] + corner2[1]) / 2
+                        ];
+                        finalWidth = sourceFeature.properties.width;
+                        finalHeight = sourceFeature.properties.height;
+                    } else {
+                        // For non-rotated rectangles, calculate from corners with swap
+                        const calculated = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
+                        center = calculated.center;
+                        // For bearing = 0, swap width and height to align with handle convention
+                        finalWidth = calculated.height;
+                        finalHeight = calculated.width;
+                    }
 
                     sourceFeature.properties.center = center;
                     sourceFeature.properties.width = finalWidth;
@@ -852,7 +883,9 @@ class AddRectangleControl extends BaseControl {
                         corner1,
                         corner2,
                         sourceFeature.properties.borderRadius || 0,
-                        bearing
+                        bearing,
+                        finalWidth,
+                        finalHeight
                     );
                     sourceFeature.geometry = newGeometry;
                     feature.geometry = newGeometry;
@@ -864,20 +897,15 @@ class AddRectangleControl extends BaseControl {
             this.updateHatchPatterns(data);
         }
 
+        // Then update the map source
         this.map.getSource('rectangles').setData(data);
-
-        // Get fresh features from map source before updating SelectionManager
-        const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
-            return sourceFeature || feature;
-        });
-
-        this.updateSelectionManagerFeatures(freshFeatures);
 
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
             this.createEditHandles(selectedFeature);
         }
+        this.selectionManager.uiManager.updateSelectionHighlight();
+
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
@@ -905,7 +933,9 @@ class AddRectangleControl extends BaseControl {
                 initialProps.corner1,
                 initialProps.corner2,
                 initialProps.borderRadius || 0,
-                initialProps.bearing || 0
+                initialProps.bearing || 0,
+                initialProps.width || null,
+                initialProps.height || null
             );
         });
 
@@ -1054,7 +1084,6 @@ class AddRectangleControl extends BaseControl {
     }
 
     updateUIAfterEdit = () => {
-        this.selectionManager.uiManager.updateSelectionHighlight();
         this.selectionManager.uiManager.updatePanels();
         this.selectionManager.updateUI();
     }

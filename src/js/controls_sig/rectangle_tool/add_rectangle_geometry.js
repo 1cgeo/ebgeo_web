@@ -16,12 +16,29 @@ class AddRectangleGeometry extends BaseGeometry {
      * @param {Array} corner2 - Opposite corner coordinates [lng, lat]
      * @param {number} borderRadius - Corner radius (0-10 scale, 0 = no rounding)
      * @param {number} bearing - Rotation angle in degrees (0 = aligned with lat/lng, optional)
+     * @param {number|null} width - Optional width in meters (avoids recalculation if provided)
+     * @param {number|null} height - Optional height in meters (avoids recalculation if provided)
      * @returns {Object} GeoJSON Polygon geometry
      */
-    generate(corner1, corner2, borderRadius = 0, bearing = 0) {
+    generate(corner1, corner2, borderRadius = 0, bearing = 0, width = null, height = null) {
         if (bearing && bearing !== 0) {
-            const { center, width, height } = this.calculateDimensionsFromCorners(corner1, corner2);
-            return this.generateRotatedRectangleGeometry(center, width, height, borderRadius, bearing);
+            const center = [
+                (corner1[0] + corner2[0]) / 2,
+                (corner1[1] + corner2[1]) / 2
+            ];
+
+            // Use provided dimensions if available (more reliable due to swap conventions)
+            // Otherwise fall back to calculation from corners
+            let finalWidth = width;
+            let finalHeight = height;
+
+            if (finalWidth === null || finalHeight === null) {
+                const calculated = this.calculateDimensionsFromRotatedCorners(corner1, corner2, bearing);
+                finalWidth = finalWidth ?? calculated.width;
+                finalHeight = finalHeight ?? calculated.height;
+            }
+
+            return this.generateRotatedRectangleGeometry(center, finalWidth, finalHeight, borderRadius, bearing);
         }
 
         // Original behavior for rectangles without rotation
@@ -150,7 +167,7 @@ class AddRectangleGeometry extends BaseGeometry {
 
         // If borderRadius > 0, add rounded arcs at corners
         if (borderRadius && borderRadius > 0) {
-            return this.generateRoundedRotatedRectangle(rotatedCorners, center, borderRadius, width, height);
+            return this.generateRoundedRotatedRectangle(center, width, height, borderRadius, bearing);
         }
 
         // Simple rotated rectangle
@@ -183,91 +200,81 @@ class AddRectangleGeometry extends BaseGeometry {
 
     /**
      * Generate rounded corners for rotated rectangle
-     * @param {Array} corners - Array of 4 corner coordinates
-     * @param {Array} center - Center of rectangle
-     * @param {number} borderRadius - Border radius (0-10 scale)
+     * All calculations are done in local coordinates (meters) then projected to geographic
+     * @param {Array} center - Center of rectangle [lng, lat]
      * @param {number} width - Rectangle width in meters
      * @param {number} height - Rectangle height in meters
+     * @param {number} borderRadius - Border radius (0-10 scale)
+     * @param {number} bearing - Rotation angle in degrees
      * @returns {Object} GeoJSON Polygon with rounded corners
      */
-    generateRoundedRotatedRectangle(corners, center, borderRadius, width, height) {
+    generateRoundedRotatedRectangle(center, width, height, borderRadius, bearing) {
         const segmentsPerCorner = 8;
+        const halfWidth = width / 2;
+        const halfHeight = height / 2;
+
+        // Calculate effective radius
         const minDimension = Math.min(width, height);
         const radiusScale = borderRadius / 10;
-        const effectiveRadius = minDimension * radiusScale * 0.5;
-        const maxRadius = minDimension / 2;
-        const radius = Math.min(effectiveRadius, maxRadius);
+        const radius = Math.min(minDimension * radiusScale * 0.5, minDimension / 2);
 
-        const coordinates = [];
+        // Corner definitions in local coordinates (meters, centered at origin)
+        // Each corner has an arc center offset inward by radius, and sweep angles
+        const cornerDefinitions = [
+            {
+                // C0: top-right corner
+                arcCenter: { x: halfWidth - radius, y: halfHeight - radius },
+                startAngle: 0,
+                endAngle: Math.PI / 2
+            },
+            {
+                // C1: top-left corner
+                arcCenter: { x: -(halfWidth - radius), y: halfHeight - radius },
+                startAngle: Math.PI / 2,
+                endAngle: Math.PI
+            },
+            {
+                // C2: bottom-left corner
+                arcCenter: { x: -(halfWidth - radius), y: -(halfHeight - radius) },
+                startAngle: Math.PI,
+                endAngle: 3 * Math.PI / 2
+            },
+            {
+                // C3: bottom-right corner
+                arcCenter: { x: halfWidth - radius, y: -(halfHeight - radius) },
+                startAngle: 3 * Math.PI / 2,
+                endAngle: 2 * Math.PI
+            }
+        ];
 
-        // For each corner, add rounded arc
-        for (let i = 0; i < corners.length; i++) {
-            const corner = corners[i];
-            const prevCorner = corners[(i + 3) % 4];
-            const nextCorner = corners[(i + 1) % 4];
+        const localPoints = [];
 
-            // Calculate directions for adjacent sides
-            const prevDir = this.normalizeDirection(prevCorner, corner);
-            const nextDir = this.normalizeDirection(corner, nextCorner);
+        // Generate arc points for each corner in local coordinates
+        for (const def of cornerDefinitions) {
+            for (let i = 0; i <= segmentsPerCorner; i++) {
+                const t = i / segmentsPerCorner;
+                const angle = def.startAngle + t * (def.endAngle - def.startAngle);
 
-            // Arc start point (offset from corner)
-            const arcStart = this.offsetPoint(corner, prevDir, radius);
-            coordinates.push(arcStart);
+                // Arc point in local coordinates (meters from center)
+                const x = def.arcCenter.x + radius * Math.cos(angle);
+                const y = def.arcCenter.y + radius * Math.sin(angle);
 
-            const arcPoints = this.createArcPoints(corner, arcStart, nextDir, radius, segmentsPerCorner);
-            coordinates.push(...arcPoints);
+                localPoints.push({ x, y });
+            }
         }
 
-        coordinates.push(coordinates[0]);
+        // Project all local points to geographic coordinates with rotation
+        const geoCoordinates = localPoints.map(p =>
+            this.rotateAndTranslate(p.x, p.y, center, bearing)
+        );
+
+        // Close the polygon
+        geoCoordinates.push(geoCoordinates[0]);
 
         return {
             type: 'Polygon',
-            coordinates: [coordinates]
+            coordinates: [geoCoordinates]
         };
-    }
-
-    /**
-     * Helper to normalize direction vector
-     */
-    normalizeDirection(from, to) {
-        const dx = to[0] - from[0];
-        const dy = to[1] - from[1];
-        const length = Math.sqrt(dx * dx + dy * dy);
-        return [dx / length, dy / length];
-    }
-
-    /**
-     * Helper to offset point
-     */
-    offsetPoint(point, direction, distance) {
-        // Convert distance from meters to degrees (approximate)
-        const distInDegrees = distance / 111320;
-        return [
-            point[0] + direction[0] * distInDegrees,
-            point[1] + direction[1] * distInDegrees
-        ];
-    }
-
-    /**
-     * Helper to create arc points for rounded corner
-     */
-    createArcPoints(corner, start, direction, radius, segments) {
-        const points = [];
-        const distInDegrees = radius / 111320;
-
-        for (let i = 1; i <= segments; i++) {
-            const t = i / segments;
-            const angle = t * Math.PI / 2;
-            const x = Math.cos(angle) * distInDegrees;
-            const y = Math.sin(angle) * distInDegrees;
-
-            points.push([
-                start[0] + direction[0] * x,
-                start[1] + direction[1] * y
-            ]);
-        }
-
-        return points;
     }
 
     /**
