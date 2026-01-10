@@ -264,14 +264,14 @@ const config = {
 
   // ===== 3D TILESETS =====
   tilesets: [
-    // ----- Cluster Rio de Janeiro (5 pontos) -----
     {
       url: "/3d/PCL/tileset.json",                     // Caminho para o tileset
       heightOffset: 35,                                // Offset de altura em metros
       id: "PCL",                                       // ID único do tileset
       name: "PCL",                                     // Nome para exibição
+      data_captura: "15/03/2024",                      // Data de captura do modelo (DD/MM/AAAA)
       previewVideo: "/3d/videos/preview.webm",         // Vídeo de preview
-      previewThumbnail: "/3d/videos/thumbnail.jpg",       // Fallback thumbnail
+      previewThumbnail: "/3d/videos/thumbnail.jpg",    // Fallback thumbnail
       locate: {
         lon: -44.47332385414955,                       // Longitude para localizar
         lat: -22.43976556982974,                       // Latitude para localizar

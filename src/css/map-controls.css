@@ -20,6 +20,40 @@
     margin: 0 !important;
 }
 
+/* ===== BOTTOM LEFT CONTROLS POSITIONING ===== */
+.controls-bottom-left {
+    position: fixed !important;
+    bottom: 10px !important;
+    left: 10px !important;
+    z-index: 999 !important;
+    pointer-events: auto !important;
+    margin: 0 !important;
+}
+
+/* ----- Bottom Left Side by Side Positioning ----- */
+.models3d-view-control.controls-bottom-left {
+    left: 10px !important;
+}
+
+.street-view-control.controls-bottom-left {
+    left: 54px !important;
+}
+
+/* ----- Bottom Left Larger Size ----- */
+.controls-bottom-left .mapboxgl-ctrl-group {
+    transform: none !important;
+}
+
+.controls-bottom-left .icon-sig-tool {
+    width: 32px !important;
+    height: 32px !important;
+}
+
+.controls-bottom-left button {
+    width: 40px !important;
+    height: 40px !important;
+}
+
 .los-control.disabled {
     cursor: not-allowed !important;
 }
@@ -61,26 +95,17 @@
     top: 196px !important;
 }
 
-
-.models3d-view-control.controls-column-left {
+/* ----- Terrain Controls Group ----- */
+.terrain-control.controls-column-left {
     top: 230px !important;
 }
 
-.street-view-control.controls-column-left {
+.los-control.controls-column-left {
     top: 264px !important;
 }
 
-/* ----- Terrain Controls Group ----- */
-.terrain-control.controls-column-left {
-    top: 298px !important;
-}
-
-.los-control.controls-column-left {
-    top: 332px !important;
-}
-
 .visibility-control.controls-column-left {
-    top: 366px !important;
+    top: 298px !important;
 }
 
 .terrain-control button:disabled {
@@ -650,6 +675,13 @@
     text-overflow: ellipsis;
 }
 
+.model-preview-date {
+    font-size: 12px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 12px;
+}
+
 .model-preview-button {
     width: 100%;
     padding: 10px 16px;
@@ -681,5 +713,9 @@
 }
 
 .model-preview-content.no-video .model-preview-name {
+    text-align: center;
+}
+
+.model-preview-content.no-video .model-preview-date {
     text-align: center;
 }

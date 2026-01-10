@@ -69,7 +69,7 @@ class Add3DModelsViewerControl {
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group models3d-view-control controls-column-left';
+        this.container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group models3d-view-control controls-bottom-left';
 
         const button = document.createElement('button');
         button.setAttribute("id", "models3d-viewer-tool");
@@ -205,6 +205,7 @@ class Add3DModelsViewerControl {
             properties: {
                 tilesetId: tileset.id,
                 name: tileset.name,
+                dataCaptura: tileset.data_captura || null,
                 previewVideo: tileset.previewVideo || null,
                 previewThumbnail: tileset.previewThumbnail || null
             }
@@ -424,6 +425,7 @@ class Add3DModelsViewerControl {
 
         const coordinates = feature.geometry.coordinates.slice();
         const name = feature.properties.name;
+        const dataCaptura = feature.properties.dataCaptura;
         const previewVideo = feature.properties.previewVideo;
         const previewThumbnail = feature.properties.previewThumbnail;
 
@@ -432,7 +434,7 @@ class Add3DModelsViewerControl {
             coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
         }
 
-        this.createPreviewPopup(coordinates, tilesetId, name, previewVideo, previewThumbnail);
+        this.createPreviewPopup(coordinates, tilesetId, name, dataCaptura, previewVideo, previewThumbnail);
     }
 
     /**
@@ -440,10 +442,11 @@ class Add3DModelsViewerControl {
      * @param {number[]} coordinates - [lng, lat] position
      * @param {string} tilesetId - ID of the tileset
      * @param {string} name - Display name of the model
+     * @param {string|null} dataCaptura - Capture date in DD/MM/YYYY format or null
      * @param {string|null} previewVideo - URL to preview video or null
      * @param {string|null} previewThumbnail - URL to preview thumbnail or null
      */
-    createPreviewPopup(coordinates, tilesetId, name, previewVideo, previewThumbnail) {
+    createPreviewPopup(coordinates, tilesetId, name, dataCaptura, previewVideo, previewThumbnail) {
         // Remove existing popup
         this.removePreviewPopup();
 
@@ -507,6 +510,14 @@ class Add3DModelsViewerControl {
         nameDiv.className = 'model-preview-name';
         nameDiv.textContent = name;
         infoDiv.appendChild(nameDiv);
+
+        // Capture date (only if available)
+        if (dataCaptura) {
+            const dateDiv = document.createElement('div');
+            dateDiv.className = 'model-preview-date';
+            dateDiv.textContent = `Captura: ${dataCaptura}`;
+            infoDiv.appendChild(dateDiv);
+        }
 
         const openButton = document.createElement('button');
         openButton.className = 'model-preview-button';
