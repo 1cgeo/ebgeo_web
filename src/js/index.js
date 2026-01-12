@@ -2,6 +2,7 @@
 import feather from 'feather-icons';
 import './config-loader.js';
 import config from './config.js';
+import { URLRouter } from './url_router.js';
 import { } from './map_sig.js';
 import { cleanup3DFeatures } from './map_3d.js';
 
@@ -11,11 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
         window.performance.mark('app-init');
     }
 
-    const map3dEnabled = config.features?.map_3d ?? true;
-    if (!map3dEnabled) {
-        const btn3d = document.getElementById('3d-button');
-        if (btn3d) btn3d.remove();
-    }
+    // Parse URL parameters early for deep linking
+    URLRouter.parse();
 });
 
 // ===== LOADING SCREEN =====

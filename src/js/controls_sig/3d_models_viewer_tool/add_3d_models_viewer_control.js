@@ -52,6 +52,9 @@ class Add3DModelsViewerControl {
         this.activeVideoElement = null;
         this.currentOpenTilesetId = null;
 
+        // Close button listener tracking
+        this._closeListenerAttached = false;
+
         // Bind methods
         this.handleMarkerClick = this.handleMarkerClick.bind(this);
         this.handleClusterClick = this.handleClusterClick.bind(this);
@@ -103,24 +106,12 @@ class Add3DModelsViewerControl {
      * Activate the 3D models viewer tool
      */
     async activate() {
-        if (this.isActive) {
-            this.toolManager.deactivateCurrentTool();
-            return;
-        }
-
-        // Close Street View if open and deactivate its listeners
-        if (window.streetViewControl?.isOpen) {
-            window.streetViewControl.closeStreetView();
-        }
-        if (window.streetViewControl?.isActive) {
-            window.streetViewControl.deactivate?.();
-        }
 
         this.isActive = true;
         this.changeButtonColor();
 
-        const closeBtn = document.getElementById('close-3d-viewer-button');
-        if (closeBtn) closeBtn.addEventListener('click', this.closeViewer);
+        // Ensure close button listener is registered
+        this._ensureCloseButtonListener();
 
         await this.loadMarkers();
         this.showMarkers();
@@ -135,8 +126,7 @@ class Add3DModelsViewerControl {
         this.removePreviewPopup();
         this.hideMarkers();
 
-        const closeBtn = document.getElementById('close-3d-viewer-button');
-        if (closeBtn) closeBtn.removeEventListener('click', this.closeViewer);
+        // Note: Close button listener is kept attached (permanent registration)
 
         const map3dContainer = document.getElementById('map-3d-container');
         if (map3dContainer && map3dContainer.style.display !== 'none') {
@@ -619,10 +609,18 @@ class Add3DModelsViewerControl {
             this.setFullMap(false);
 
             const closeBtn = document.getElementById('close-3d-viewer-button');
-            if (closeBtn) closeBtn.style.display = 'flex';
+            if (closeBtn) {
+                closeBtn.style.display = 'flex';
+                // Ensure close button listener is registered (needed for deep link opening)
+                this._ensureCloseButtonListener();
+            }
 
             const map3dModule = await import('../../map_3d.js');
             await map3dModule.openViewerWithTileset(tilesetId);
+
+            // Update URL for deep linking / sharing
+            const { URLRouter } = await import('../../url_router.js');
+            URLRouter.setModel(tilesetId);
 
         } catch (error) {
             console.error('Error opening 3D viewer:', error);
@@ -630,6 +628,30 @@ class Add3DModelsViewerControl {
             const closeBtn = document.getElementById('close-3d-viewer-button');
             if (closeBtn) closeBtn.style.display = 'none';
         }
+    }
+
+    /**
+     * Ensures close button has event listener attached.
+     * Prevents duplicate listeners by tracking registration state.
+     * @private
+     */
+    _ensureCloseButtonListener() {
+        const closeBtn = document.getElementById('close-3d-viewer-button');
+        if (!closeBtn || this._closeListenerAttached) return;
+
+        closeBtn.addEventListener('click', this._handleCloseButtonClick.bind(this));
+        this._closeListenerAttached = true;
+    }
+
+    /**
+     * Handle close button click with preventDefault to avoid hash in URL.
+     * @param {Event} e - Click event
+     * @private
+     */
+    _handleCloseButtonClick(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.closeViewer();
     }
 
     /**
@@ -643,6 +665,11 @@ class Add3DModelsViewerControl {
             this.setFullMap(true);
             const closeBtn = document.getElementById('close-3d-viewer-button');
             if (closeBtn) closeBtn.style.display = 'none';
+
+            // Clear URL param when closing viewer
+            const { URLRouter } = await import('../../url_router.js');
+            URLRouter.clearModel();
+
         } catch (error) {
             console.error('Error closing 3D viewer:', error);
         }

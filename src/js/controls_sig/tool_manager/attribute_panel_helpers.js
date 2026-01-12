@@ -985,7 +985,10 @@ export function createCoordinateEditor(feature, uiManager, onCoordinateChange, d
         font-family: monospace;
         cursor: text;
     `;
-    coordsText.value = formatCoordinates(lat, lng, currentFormat);
+    coordsText.value = 'Carregando...';
+    formatCoordinates(lat, lng, currentFormat).then(formatted => {
+        coordsText.value = formatted;
+    });
 
     const editButton = document.createElement('button');
     editButton.className = 'tool-button';
@@ -1005,7 +1008,9 @@ export function createCoordinateEditor(feature, uiManager, onCoordinateChange, d
     };
 
     container.updateCoordinates = (newLat, newLng) => {
-        coordsText.value = formatCoordinates(newLat, newLng, currentFormat);
+        formatCoordinates(newLat, newLng, currentFormat).then(formatted => {
+            coordsText.value = formatted;
+        });
     };
     return container;
 }
@@ -1089,7 +1094,10 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.value = formatCoordinates(currentLat, currentLng, currentFormat);
+    input.value = 'Carregando...';
+    formatCoordinates(currentLat, currentLng, currentFormat).then(formatted => {
+        input.value = formatted;
+    });
     input.placeholder = getPlaceholderForFormat(currentFormat);
     input.style.cssText = `
         width: 100%;
@@ -1110,7 +1118,10 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
     formatSelect.onchange = () => {
         const newFormat = formatSelect.value;
         input.placeholder = getPlaceholderForFormat(newFormat);
-        input.value = formatCoordinates(currentLat, currentLng, newFormat);
+        input.value = 'Carregando...';
+        formatCoordinates(currentLat, currentLng, newFormat).then(formatted => {
+            input.value = formatted;
+        });
         validationMsg.textContent = '';
     };
 
@@ -1146,8 +1157,8 @@ function openCoordinateEditModal(currentLat, currentLng, currentFormat, onConfir
         font-size: 13px;
         font-weight: 500;
     `;
-    confirmButton.onclick = () => {
-        const coords = parseCoordinates(input.value.trim(), formatSelect.value);
+    confirmButton.onclick = async () => {
+        const coords = await parseCoordinates(input.value.trim(), formatSelect.value);
         if (coords) {
             onConfirm(coords.lat, coords.lng);
             closeModal();

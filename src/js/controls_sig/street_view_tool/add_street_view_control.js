@@ -6,7 +6,8 @@ import config from '../../config.js';
 
 class AddStreetViewControl {
 
-    constructor() {
+    constructor(toolManager) {
+        this.toolManager = toolManager;
         this.queryMobile = window.matchMedia("(max-width: 650px)")
         this.isActive = false;
         this.IMAGES_LOCATION = "./street_view/IMG"
@@ -327,7 +328,7 @@ class AddStreetViewControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.title = 'Adicionar imagens panorâmicas';
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
-        button.onclick = () => this.toggleStreetView();
+        button.onclick = () => this.toolManager.setActiveTool(this);
 
         this.container.appendChild(button);
 
@@ -434,34 +435,20 @@ class AddStreetViewControl {
             return false;
         }
 
-        if (this.isActive) {
-            this.deactivate();
-            return
-        }
-
-        // Deactivate other tools to prevent conflicts
-        if (window.toolManager?.activeTool) {
-            window.toolManager.deactivateCurrentTool();
-        }
-        if (window.modelsViewerControl?.isActive) {
-            window.modelsViewerControl.deactivate?.();
-        }
-
         const closeBtn = document.getElementById('close-street-view-button');
         if (closeBtn) closeBtn.addEventListener('click', this.closeStreetView);
         this.isActive = true;
-        const btn = document.getElementById('street-view-tool');
-        if (btn) btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />';
+        this.changeButtonColor();
         await this.loadData()
         this.showPhotos()
     }
 
+    /**
+     * Toggle Street View tool on/off.
+     * Delegates to toolManager for consistent state management.
+     */
     toggleStreetView() {
-        if (this.isActive) {
-            this.deactivate();
-        } else {
-            this.activate();
-        }
+        this.toolManager.setActiveTool(this);
     }
 
 
@@ -1067,26 +1054,47 @@ class AddStreetViewControl {
 
     showHoverCursor = () => {
         if (!this.isActive) return;
-        this.map.getCanvas().style.cursor = 'pointer';
+        if (this.map?.getCanvas()) {
+            this.map.getCanvas().style.cursor = 'pointer';
+        }
     }
 
     hideHoverCursor = () => {
         if (!this.isActive) return;
-        this.map.getCanvas().style.cursor = '';
+        if (this.map?.getCanvas()) {
+            this.map.getCanvas().style.cursor = '';
+        }
     }
 
     deactivate = () => {
         this.isActive = false;
         this.changeButtonColor()
-        this.map.getCanvas().style.cursor = '';
-        this.hidePhotos()
+
+        // Safe cursor reset with null check
+        if (this.map?.getCanvas()) {
+            this.map.getCanvas().style.cursor = '';
+        }
+
+        // Safe hidePhotos call
+        try {
+            this.hidePhotos()
+        } catch (e) {
+            console.warn('Error hiding photos:', e);
+        }
+
         const closeBtn = document.getElementById('close-street-view-button');
         if (closeBtn) closeBtn.removeEventListener('click', this.closeStreetView);
         if (this.isOpen) {
             this.setFullMap(true);
             this.isOpen = false;
         }
-        this.cleanupThreeJS()
+
+        // Safe cleanup
+        try {
+            this.cleanupThreeJS()
+        } catch (e) {
+            console.warn('Error cleaning up ThreeJS:', e);
+        }
     }
 
     closeStreetView = () => {

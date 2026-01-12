@@ -42,6 +42,7 @@ import SuggestionsModal from './controls_sig/suggestions_modal.js';
 import GridControl from './controls_sig/grid.js';
 import FrameControl from './controls_sig/frame.js';
 import AddCoordinationMeasureControl from './controls_sig/coordination_measure_tool/add_coordination_measure_control.js';
+import { URLRouter } from './url_router.js';
 
 // ===== MAP CREATION AND CONFIGURATION =====
 
@@ -83,6 +84,13 @@ map.on('load', async () => {
         map.setProjection({ type: 'globe' });
     }
     hideLoadingScreen();
+
+    // Execute URL deep linking after map is ready
+    URLRouter.execute({
+        modelsControl: add3DModelsViewerControl,
+        map: map
+    });
+
     // gridControl._initGridLayers();
     // frameControl._initFrameLayers();
 });
@@ -108,7 +116,7 @@ const visibilityControl = new AddVisibilityControl(toolManager);
 const importControl = new AddImportControl(toolManager);
 
 const add3DModelsViewerControl = new Add3DModelsViewerControl(toolManager);
-const addStreetViewControl = new AddStreetViewControl();
+const addStreetViewControl = new AddStreetViewControl(toolManager);
 
 const circleControl = new AddCircleControl(toolManager);
 const rectangleControl = new AddRectangleControl(toolManager);
