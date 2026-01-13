@@ -10,6 +10,7 @@ const config = {
   },
 
   features: {
+    map_3d: true,                 // Habilita/desabilita visualizador 3D
     imagens_panoramicas: true,    // Habilita/desabilita street view control
     vector_info: true,           // Habilita/desabilita vector info control
     grid: false,               // Habilita/desabilita grid
@@ -205,21 +206,12 @@ const config = {
 
   // ===== 3D MAP CONFIGURATION (CESIUM) =====
   map3d: {
+    // Bounds define a visao inicial padrao do Cesium antes de navegar para um tileset
     bounds: {
-      west: -44.449656,      // Longitude oeste
-      south: -22.455922,     // Latitude sul
-      east: -44.449654,      // Longitude leste
-      north: -22.455920      // Latitude norte
-    },
-
-    // ----- Initial Camera Position -----
-    initialCamera: {
-      longitude: -44.4481491,     // Longitude inicial
-      latitude: -22.4546061,      // Latitude inicial
-      height: 424.7,              // Altura em metros
-      heading: 164,               // Direção da câmera (0-360 graus)
-      pitch: -2,                  // Inclinação (-90 a 90 graus)
-      roll: -1                    // Rotação (-180 a 180 graus)
+      west: -58.1,      // Longitude oeste
+      south: -33.8,     // Latitude sul
+      east: -48.0,      // Longitude leste
+      north: -22.5      // Latitude norte
     },
 
     // ----- Viewer UI Settings -----

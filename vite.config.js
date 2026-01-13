@@ -17,9 +17,9 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true,
-        drop_debugger: true,
-        pure_funcs: ['console.info', 'console.debug', 'console.warn']
+        drop_console: false,
+        drop_debugger: false,
+        passes: 2
       },
       mangle: {
         safari10: true
@@ -151,7 +151,8 @@ export default defineConfig({
 
   // ===== PREVIEW (produção local) =====
   preview: {
-    port: 4173
+    port: 4173,
+    strictPort: false
   },
 
   // ===== RESOLUÇÃO DE MÓDULOS =====
@@ -162,7 +163,8 @@ export default defineConfig({
       '@css': resolve(__dirname, 'src/css'),
       '@controls': resolve(__dirname, 'src/js/controls_sig'),
       '@store': resolve(__dirname, 'src/js/controls_sig/store'),
-      '@utils': resolve(__dirname, 'src/js/controls_sig/utilities')
+      '@utils': resolve(__dirname, 'src/js/controls_sig/utilities'),
+      '@tools': resolve(__dirname, 'src/js/controls_sig/tool_manager')
     }
   },
 
@@ -179,6 +181,10 @@ export default defineConfig({
       'turf',
       'milsymbol',
       'Cesium'
+    ],
+    // Pre-bundle dependências npm para dev mais rápido
+    include: [
+        'feather-icons'
     ]
   },
 
@@ -187,13 +193,24 @@ export default defineConfig({
     // Suporte a browsers antigos
     legacy({
       targets: ['defaults', 'not IE 11'],
-      additionalLegacyPolyfills: ['regenerator-runtime/runtime']
+      additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
+      // Gera chunks modernos E legacy
+      modernPolyfills: true
     })
   ],
 
   // ===== DEFINIÇÕES GLOBAIS =====
   define: {
-    __APP_VERSION__: JSON.stringify(process.env.npm_package_version),
-    __DEV__: JSON.stringify(process.env.NODE_ENV !== 'production')
-  }
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '1.0.0'),
+    __DEV__: JSON.stringify(process.env.NODE_ENV !== 'production'),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString())
+  },
+
+    // ===== ESBUILD OPTIONS =====
+    esbuild: {
+        // Mantém nomes de classes/funções para debug
+        keepNames: true,
+        // Legaliza comentários de licença
+        legalComments: 'none'
+    }
 });

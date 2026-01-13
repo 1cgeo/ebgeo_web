@@ -533,30 +533,15 @@
     ======================================== -->
     <script type="module" src="/src/js/index.js"></script>
 
-    <script>
-        // Remove loading screen quando DOM estiver pronto
-        document.addEventListener('DOMContentLoaded', function () {
-            setTimeout(function () {
-                document.querySelectorAll('.loading-hidden').forEach(function (el) {
-                    el.classList.add('loaded');
-                });
-
-                // Remove loader
-                var loader = document.getElementById('initial-loader');
-                if (loader) {
-                    loader.style.opacity = '0';
-                    setTimeout(function () {
-                        loader.remove();
-                    }, 500);
-                }
-            }, 50);
-        });
-    </script>
 
     <!-- FALLBACK PARA BROWSERS ANTIGOS -->
     <script nomodule>
-        document.getElementById('initial-loader').innerHTML =
-            '<h2>Browser não suportado</h2><p>Por favor, use um browser mais recente.</p>';
+        var loader = document.querySelector('.loading-background');
+        if (loader) {
+            loader.innerHTML = '<div style="color:white;text-align:center;padding:20px;">' +
+                '<h2>Browser não suportado</h2>' +
+                '<p>Por favor, use um browser mais recente.</p></div>';
+        }
     </script>
 </body>
 
