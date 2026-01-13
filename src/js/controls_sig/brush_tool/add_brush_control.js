@@ -25,6 +25,7 @@ class AddBrushControl extends BaseControl {
 
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
+        this._name = 'AddBrushControl';
     }
 
     static DEFAULT_PROPERTIES = {

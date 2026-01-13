@@ -35,6 +35,7 @@ class MouseCoordinatesControl {
 
         this.frameControl = null;
         this.gridControl = null;
+        this._name = 'MouseCoordinatesControl';
     }
 
     onAdd(map) {

@@ -240,7 +240,7 @@ function setupLayerSeparators(mapInstance) {
 
 function setupBrushLayers(features, mapInstance) {
     const brushControl = mapInstance._controls.find(control =>
-        control.constructor.name === 'AddBrushControl'
+        control._name === 'AddBrushControl'
     );
 
     let correctedBrushes = features.brushes;
@@ -522,7 +522,7 @@ function setupOccupiedFrontLayers(features, mapInstance) {
 
 function setupMilitarySymbolsLayers(features, mapInstance) {
     const militarySymbolControl = mapInstance._controls.find(control =>
-        control.constructor.name === 'AddMilitarySymbolControl'
+        control._name === 'AddMilitarySymbolControl'
     );
 
     let correctedSymbols = features.military_symbols;
@@ -567,7 +567,7 @@ function setupMilitarySymbolsLayers(features, mapInstance) {
 
 function setupCoordinationMeasureLayers(features, mapInstance) {
     const coordinationMeasureControl = mapInstance._controls.find(control =>
-        control.constructor.name === 'AddCoordinationMeasureControl'
+        control._name === 'AddCoordinationMeasureControl'
     );
 
     let correctedSymbols = features.coordination_measures || [];
@@ -1433,7 +1433,7 @@ function setupVisibilityLayers(features, mapInstance) {
 
 function setupImageLayers(features, mapInstance) {
     const imageControl = mapInstance._controls.find(control =>
-        control.constructor.name === 'AddImageControl'
+        control._name === 'AddImageControl'
     );
 
     let correctedImages = features.images;
@@ -1785,7 +1785,7 @@ function setupCircleLayers(features, mapInstance) {
 
 function setupTextLayers(features, mapInstance) {
     const textControl = mapInstance._controls.find(control =>
-        control.constructor.name === 'AddTextControl'
+        control._name === 'AddTextControl'
     );
 
     let correctedTexts = features.texts;
@@ -1969,9 +1969,8 @@ function setupAuxiliaryLayers(mapInstance) {
 async function restoreTerrainState(mapInstance) {
     try {
         const terrainControl = mapInstance._controls.find(control =>
-            control.constructor.name === 'TerrainControl'
+            control._name === 'TerrainControl'
         );
-
         if (!terrainControl) {
             return;
         }
@@ -2005,14 +2004,14 @@ function clearAllMeasurements() {
 function restoreMeasurements(features, mapInstance) {
     try {
         const lineControl = mapInstance._controls.find(control =>
-            control.constructor.name === 'AddLineControl'
+            control._name === 'AddLineControl'
         );
         const polygonControl = mapInstance._controls.find(control =>
-            control.constructor.name === 'AddPolygonControl'
+            control._name === 'AddPolygonControl'
         );
 
         const losControl = mapInstance._controls.find(control =>
-            control.constructor.name === 'AddLOSControl'
+            control._name === 'AddLOSControl'
         );
 
         if (lineControl && features.lines) {
@@ -2046,7 +2045,7 @@ function restoreMeasurements(features, mapInstance) {
 function restoreBoundaryDependentFeatures(features, mapInstance) {
     try {
         const boundaryControl = mapInstance._controls.find(control =>
-            control.constructor.name === 'AddBoundaryControl'
+            control._name === 'AddBoundaryControl'
         );
 
         if (!boundaryControl || !features.boundarys?.length) {
@@ -2109,7 +2108,7 @@ async function setupFrameLayers(mapInstance) {
 
     try {
         const mouseCoordinatesControl = mapInstance._controls.find(
-            c => c.constructor.name === 'MouseCoordinatesControl'
+            c => c._name === 'MouseCoordinatesControl'
         );
 
         if (!mouseCoordinatesControl) {
@@ -2149,7 +2148,7 @@ async function setupGridLayers(mapInstance) {
     initGridLayers(mapInstance);
     try {
         const mouseCoordinatesControl = mapInstance._controls.find(
-            c => c.constructor.name === 'MouseCoordinatesControl'
+            c => c._name === 'MouseCoordinatesControl'
         );
 
         if (!mouseCoordinatesControl) {

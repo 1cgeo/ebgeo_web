@@ -32,6 +32,7 @@ class TerrainControl {
         this._map = null;
         this._container = null;
         this._button = null;
+        this._name = 'TerrainControl'
     }
 
     onAdd(map) {

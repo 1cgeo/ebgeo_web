@@ -26,6 +26,7 @@ class AddPolygonControl extends BaseControl {
         this.lastPreviewPosition = null;
         this.geometryDebounceTimer = null;
         this.hatchGenerator = new HatchPatternGenerator();
+        this._name = 'AddPolygonControl';
     }
 
     static DEFAULT_PROPERTIES = {

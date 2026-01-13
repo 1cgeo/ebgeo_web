@@ -26,6 +26,7 @@ class AddLineControl extends BaseControl {
         this.isCalculatingProfile = false;
 
         this.dragRecalculateTimeout = null;
+        this._name = 'AddLineControl';
     }
 
     static DEFAULT_PROPERTIES = {

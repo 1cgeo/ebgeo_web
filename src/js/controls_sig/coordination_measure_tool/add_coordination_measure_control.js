@@ -28,6 +28,7 @@ class AddCoordinationMeasureControl extends BaseControl {
 
     this.zoomRafId = null;
     this.pendingZoomUpdate = false;
+    this._name = 'AddCoordinationMeasureControl';
   }
 
   static DEFAULT_PROPERTIES = {

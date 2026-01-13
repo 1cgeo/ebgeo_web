@@ -20,6 +20,7 @@ class AddImageControl extends BaseControl {
     this.geometry = new AddImageGeometry();
     this.zoomRafId = null;
     this.pendingZoomUpdate = false;
+    this._name = 'AddImageControl';
   }
 
   static DEFAULT_PROPERTIES = {

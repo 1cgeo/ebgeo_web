@@ -20,6 +20,7 @@ class AddLOSControl extends BaseControl {
         this.geometryDebounceTimer = null;
         this.dragRecalculateTimeout = null;
         this.toolManager.losControl = this;
+        this._name = 'AddLOSControl';
     }
 
     static DEFAULT_PROPERTIES = {

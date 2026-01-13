@@ -14,6 +14,7 @@ class AddTextControl extends BaseControl {
 
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
+        this._name = 'AddTextControl';
     }
 
     static DEFAULT_PROPERTIES = {

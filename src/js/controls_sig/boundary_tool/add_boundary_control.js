@@ -37,6 +37,7 @@ class AddBoundaryControl extends BaseControl {
 
         this.clickTimer = null;
         this.lastClickCoords = null;
+        this._name = 'AddBoundaryControl';
     }
 
     static DEFAULT_PROPERTIES = {
