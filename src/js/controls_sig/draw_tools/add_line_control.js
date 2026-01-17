@@ -15,6 +15,7 @@ class AddLineControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;
+        this.activeHandleIndex = null;
 
         this.geometry = new AddLineGeometry();
 
@@ -553,6 +554,7 @@ class AddLineControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;
+        this.activeHandleIndex = null;
         this.clearEditHandles();
         this.removeEditEventListeners();
         this.removeHoverListeners();
@@ -615,7 +617,9 @@ class AddLineControl extends BaseControl {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
             this.activeHandle = handle;
-            this.activeHandleType = handle.properties.handleId;
+            // Extract type and index separately (like boundary tool)
+            this.activeHandleType = handle.properties.handleType;
+            this.activeHandleIndex = handle.properties.index;
             this.map.dragPan.disable();
             this.map.getCanvas().style.cursor = 'grabbing';
             e.preventDefault();
@@ -639,12 +643,15 @@ class AddLineControl extends BaseControl {
      */
     onEditMouseUp = async () => {
         const selectedFeature = this.getSelectedFeature();
-        if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
+        if (this.isDraggingHandle && selectedFeature && this.activeHandleType && this.lastPreviewPosition) {
             try {
-                this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
-
-                const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
-                const result = this.geometry.updateFromHandle(this.activeHandleType, this.lastPreviewPosition, selectedFeature);
+                // Use geometry.updateFromHandle with separate type and index (like boundary tool)
+                const result = this.geometry.updateFromHandle(
+                    this.activeHandleType,
+                    this.lastPreviewPosition,
+                    selectedFeature,
+                    this.activeHandleIndex
+                );
 
                 if (result) {
                     const updatedFeature = {
@@ -687,6 +694,7 @@ class AddLineControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;
+        this.activeHandleIndex = null;
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
@@ -697,10 +705,14 @@ class AddLineControl extends BaseControl {
             return;
         }
 
-        this.updateGeometryFromHandle(this.activeHandleType, newPosition);
-
-        const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
-        const preview = this.geometry.calculatePreview(this.activeHandleType, newPosition, selectedFeature);
+        // Use calculatePreview with separate type and index (like boundary tool)
+        // No mutation of selectedFeature during drag - only visual preview
+        const preview = this.geometry.calculatePreview(
+            this.activeHandleType,
+            newPosition,
+            selectedFeature,
+            this.activeHandleIndex
+        );
 
         if (preview) {
             this.map.getSource('line-feedback').setData({
@@ -717,39 +729,6 @@ class AddLineControl extends BaseControl {
                 features: preview.handles
             });
         }
-    }
-
-    updateGeometryFromHandle = (handleId, newPosition) => {
-        const selectedFeature = this.getSelectedFeature();
-        if (!selectedFeature) return;
-
-        let coords = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
-        if (!coords || coords.length < 2) return;
-
-        coords = [...coords];
-
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            if (handleId.startsWith('vertex-')) {
-                const index = parseInt(handleId.split('-')[1]);
-                if (index >= 0 && index < coords.length) {
-                    coords[index] = newPosition;
-                    selectedFeature.properties.baseCoordinates = coords;
-                }
-            } else if (handleId.startsWith('midpoint-')) {
-                const insertIndex = parseInt(handleId.split('-')[1]) + 1;
-                coords.splice(insertIndex, 0, newPosition);
-                selectedFeature.properties.baseCoordinates = coords;
-
-                if (this.activeHandle && this.activeHandle.properties) {
-                    this.activeHandle.properties.handleType = 'vertex';
-                    this.activeHandle.properties.handleId = `vertex-${insertIndex}`;
-                    this.activeHandleType = `vertex-${insertIndex}`;
-                }
-            }
-
-            selectedFeature.geometry = this.geometry.generate(coords);
-        }, 8);
     }
 
     // ===== HOVER SYSTEM =====

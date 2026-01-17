@@ -119,12 +119,13 @@ class AddLineGeometry extends BaseGeometry {
 
     /**
      * Update line geometry based on handle movement
-     * @param {string} handleType - Type of handle ('vertex-X' or 'midpoint-X')
+     * @param {string} handleType - Type of handle ('vertex' or 'midpoint')
      * @param {Array} newPosition - New handle position [lng, lat]
      * @param {Object} feature - Line feature being edited
+     * @param {number} handleIndex - Index of the handle being moved
      * @returns {Object|null} Updated geometry and base coordinates or null if invalid
      */
-    updateFromHandle(handleType, newPosition, feature) {
+    updateFromHandle(handleType, newPosition, feature, handleIndex = null) {
         const coordinates = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         if (!coordinates) {
             console.error('Cannot update - invalid base coordinates');
@@ -138,12 +139,25 @@ class AddLineGeometry extends BaseGeometry {
 
         const newCoordinates = [...coordinates];
 
-        if (handleType.startsWith('vertex-')) {
+        // Support both formats: 'vertex'/'midpoint' with separate index, or legacy 'vertex-X'/'midpoint-X'
+        if (handleType === 'vertex' && handleIndex !== null) {
+            if (handleIndex >= 0 && handleIndex < newCoordinates.length) {
+                newCoordinates[handleIndex] = newPosition;
+            }
+        } else if (handleType === 'midpoint' && handleIndex !== null) {
+            // For midpoint, index is the segment index, insert at index + 1
+            const insertIndex = handleIndex + 1;
+            if (handleIndex >= 0 && handleIndex < newCoordinates.length - 1) {
+                newCoordinates.splice(insertIndex, 0, newPosition);
+            }
+        } else if (handleType.startsWith('vertex-')) {
+            // Legacy format support
             const index = parseInt(handleType.split('-')[1]);
             if (index >= 0 && index < newCoordinates.length) {
                 newCoordinates[index] = newPosition;
             }
         } else if (handleType.startsWith('midpoint-')) {
+            // Legacy format support
             const segmentIndex = parseInt(handleType.split('-')[1]);
             if (segmentIndex >= 0 && segmentIndex < newCoordinates.length - 1) {
                 const insertIndex = segmentIndex + 1;
@@ -169,10 +183,11 @@ class AddLineGeometry extends BaseGeometry {
      * @param {string} handleType - Type of handle being moved
      * @param {Array} newPosition - New handle position
      * @param {Object} feature - Line feature
+     * @param {number} handleIndex - Index of the handle being moved
      * @returns {Object|null} Preview geometry and handle positions or null if invalid
      */
-    calculatePreview(handleType, newPosition, feature) {
-        const result = this.updateFromHandle(handleType, newPosition, feature);
+    calculatePreview(handleType, newPosition, feature, handleIndex = null) {
+        const result = this.updateFromHandle(handleType, newPosition, feature, handleIndex);
         if (!result) return null;
 
         return {

@@ -536,36 +536,43 @@ class AddOccupiedFrontControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature || !this.activeHandleType) return;
 
-        const coords = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
-        if (!coords || coords.length < 3) return;
-
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
-            const previewCoords = [...coords];
-            if (this.activeHandleType === 'p1') previewCoords[0] = newPosition;
-            else if (this.activeHandleType === 'p2') previewCoords[1] = newPosition;
-            else if (this.activeHandleType === 'p3') previewCoords[2] = newPosition;
+            // Recapture state inside setTimeout to avoid stale closures
+            const currentHandleType = this.activeHandleType;
+            const currentFeature = this.getSelectedFeature();
 
-            const previewGeometry = this.geometry.generate(previewCoords);
-            const previewHandles = this.geometry.createHandles({
-                ...selectedFeature,
-                properties: { ...selectedFeature.properties, baseCoordinates: previewCoords }
-            });
+            if (!currentHandleType || !currentFeature) return;
+
+            const result = this.geometry.updateFromHandle(
+                currentHandleType,
+                newPosition,
+                currentFeature
+            );
+
+            if (!result) return;
+
+            const previewFeature = {
+                ...currentFeature,
+                properties: { ...currentFeature.properties, baseCoordinates: result.baseCoordinates },
+                geometry: result.geometry
+            };
 
             this.map.getSource('occupied-front-feedback').setData({
                 type: 'Feature',
-                geometry: previewGeometry,
+                geometry: result.geometry,
                 properties: {
-                    ...selectedFeature.properties,
+                    ...currentFeature.properties,
                     isSelected: true
                 }
             });
 
+            const previewHandles = this.geometry.createHandles(previewFeature);
             this.map.getSource('occupied-front-edit-handles').setData({
                 type: 'FeatureCollection',
                 features: previewHandles
             });
-        }, 12);
+        }, 8);
     }
 
     // ===== HOVER SYSTEM =====

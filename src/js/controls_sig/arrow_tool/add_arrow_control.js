@@ -18,6 +18,7 @@ class AddArrowControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;
+        this.activeHandleIndex = null;
 
         this.geometry = new AddArrowGeometry();
 
@@ -58,7 +59,7 @@ class AddArrowControl extends BaseControl {
 
     /**
      * Calculate arrow width based on current zoom level
-     * Exponential decay: higher zoom = smaller arrows (Zoom 5 → ~8000m, Zoom 10 → ~500m, Zoom 15 → ~50m)
+     * Exponential decay: higher zoom = smaller arrows (Zoom 5 â†’ ~8000m, Zoom 10 â†’ ~500m, Zoom 15 â†’ ~50m)
      * @param {number} zoom - Map zoom level
      * @returns {number} Width in meters
      */
@@ -378,7 +379,7 @@ class AddArrowControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
 
         if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
-            this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
+            this.updateArrowPreview(this.lastPreviewPosition);
         } else if (this.lastPreviewPoints && this.lastPreviewPoints.length >= 2) {
             const isAirmobile = AddArrowControl.DEFAULT_PROPERTIES.airmobile;
             const debounceTime = isAirmobile ? 12 : 8;
@@ -497,6 +498,7 @@ class AddArrowControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;
+        this.activeHandleIndex = null;
         this.clearEditHandles();
         this.removeEditEventListeners();
         this.removeHoverListeners();
@@ -558,7 +560,9 @@ class AddArrowControl extends BaseControl {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
             this.activeHandle = handle;
-            this.activeHandleType = handle.properties.handleId;
+            // Extract type and index separately (like boundary tool)
+            this.activeHandleType = handle.properties.handleType;
+            this.activeHandleIndex = handle.properties.index !== undefined ? handle.properties.index : null;
             this.map.dragPan.disable();
             this.map.getCanvas().style.cursor = 'grabbing';
             e.preventDefault();
@@ -579,12 +583,13 @@ class AddArrowControl extends BaseControl {
 
     onEditMouseUp = () => {
         const selectedFeature = this.getSelectedFeature();
-        if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
+        if (this.isDraggingHandle && selectedFeature && this.activeHandleType && this.lastPreviewPosition) {
+            // Use geometry.updateFromHandle with separate type and index (like boundary tool)
             const result = this.geometry.updateFromHandle(
                 this.activeHandleType,
                 this.lastPreviewPosition,
                 selectedFeature,
-                this.activeHandle
+                this.activeHandleIndex
             );
 
             if (result) {
@@ -593,10 +598,6 @@ class AddArrowControl extends BaseControl {
                     properties: result.properties,
                     geometry: result.geometry
                 };
-
-                if (result.convertedHandleType && result.convertedHandleType !== this.activeHandleType) {
-                    this.activeHandleType = result.convertedHandleType;
-                }
 
                 this.forceUpdateMainSource(updatedFeature);
                 this.updateSelectionManagerFeature(updatedFeature);
@@ -609,35 +610,43 @@ class AddArrowControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;
+        this.activeHandleIndex = null;
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
 
-    updateGeometryFromHandle = (handleType, newPosition) => {
+    /**
+     * Update arrow preview during handle dragging without mutating the source feature
+     * @param {Array} newPosition - New handle position [lng, lat]
+     */
+    updateArrowPreview = (newPosition) => {
         const selectedFeature = this.getSelectedFeature();
-        if (!selectedFeature) return;
+        if (!selectedFeature || !this.activeHandleType || !this.isDraggingHandle) {
+            return;
+        }
 
         const isAirmobile = selectedFeature.properties.airmobile || false;
         const debounceTime = isAirmobile ? 12 : 8;
 
         clearTimeout(this.geometryDebounceTimer);
         this.geometryDebounceTimer = setTimeout(() => {
-            const result = this.geometry.updateFromHandle(
-                handleType,
+            // Use calculatePreview with separate type and index (like boundary tool)
+            // No mutation of selectedFeature during drag - only visual preview
+            const preview = this.geometry.calculatePreview(
+                this.activeHandleType,
                 newPosition,
                 selectedFeature,
-                this.activeHandle
+                this.activeHandleIndex
             );
 
-            if (result) {
-                Object.assign(selectedFeature.properties, result.properties);
+            if (preview) {
+                this.showEditPreview(preview.geometry);
 
-                if (result.convertedHandleType && result.convertedHandleType !== this.activeHandleType) {
-                    this.activeHandleType = result.convertedHandleType;
-                }
-
-                this.showEditPreview(result.geometry);
-                this.createEditHandlesOnly(selectedFeature);
+                // Update handles based on preview
+                this.map.getSource('arrow-edit-handles').setData({
+                    type: 'FeatureCollection',
+                    features: preview.handles
+                });
             }
         }, debounceTime);
     }
@@ -649,14 +658,6 @@ class AddArrowControl extends BaseControl {
             properties: {
                 isSelected: true
             }
-        });
-    }
-
-    createEditHandlesOnly = (feature) => {
-        const handles = this.geometry.createHandles(feature);
-        this.map.getSource('arrow-edit-handles').setData({
-            type: 'FeatureCollection',
-            features: handles
         });
     }
 

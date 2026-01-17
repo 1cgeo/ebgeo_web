@@ -277,47 +277,6 @@ class AddOccupiedFrontGeometry extends BaseGeometry {
     }
 
     /**
-     * Create geometry for a single arm of the occupied front
-     * @param {Array} startPoint - Origin point (P1)
-     * @param {Array} endPoint - End point (P2 or P3)
-     * @param {number} turnDirection - Curve direction: -1 for right, 1 for left
-     * @returns {Array} Array of line coordinates forming the arm
-     */
-    createRay(startPoint, endPoint, turnDirection) {
-        const rayLines = [];
-        const initialBearing = this.calculateBearing(startPoint, endPoint);
-        const distance = this.calculateDistance(startPoint, endPoint);
-
-        if (distance < 1) return [];
-
-        // 1. Curve start point (60% of the way)
-        const p_turn1 = this.destination(startPoint, distance * 0.6, initialBearing);
-
-        // 2. Curve end point
-        // The curve has a 225 degree angle and length of 10% of total radius
-        const turnBearing = initialBearing + (225 * turnDirection);
-        const turnLength = distance * 0.1;
-        const p_turn2 = this.destination(p_turn1, turnLength, turnBearing);
-
-        // 3. Assemble the 3 line segments of the arm
-        rayLines.push([startPoint, p_turn1]);
-        rayLines.push([p_turn1, p_turn2]);
-        rayLines.push([p_turn2, endPoint]);
-
-        // 4. Arrow head - TWO COMPLETE LINES
-        const headLength = distance * 0.1;
-        const finalBearing = this.calculateBearing(p_turn2, endPoint);
-        const headPoint1 = this.destination(endPoint, headLength, finalBearing + 150);
-        const headPoint2 = this.destination(endPoint, headLength, finalBearing - 150);
-
-        // Two separate lines to form complete arrow
-        rayLines.push([headPoint1, endPoint]);
-        rayLines.push([headPoint2, endPoint]);
-
-        return rayLines;
-    }
-
-    /**
      * Check if base coordinates are valid
      * @param {Array} coords - Base coordinates to check
      * @returns {boolean} True if valid

@@ -129,7 +129,8 @@ class AddPolygonGeometry extends BaseGeometry {
                     role: 'handle',
                     handleType: 'midpoint',
                     handleId: `midpoint-${i}`,
-                    insertIndex: nextIndex, // Where to insert new vertex
+                    index: i, // Segment index for midpoint
+                    insertIndex: nextIndex, // Where to insert new vertex (kept for backward compatibility)
                     featureId: feature.properties.id,
                     mode: 'polygon_editing',
                     meta: 'midpoint',
@@ -143,12 +144,13 @@ class AddPolygonGeometry extends BaseGeometry {
 
     /**
      * Update polygon geometry based on handle movement
-     * @param {string} handleType - Type of handle ('vertex-X' or 'midpoint-X')
+     * @param {string} handleType - Type of handle ('vertex' or 'midpoint')
      * @param {Array} newPosition - New handle position [lng, lat]
      * @param {Object} feature - Polygon feature being edited
+     * @param {number} handleIndex - Index of the handle being moved
      * @returns {Object} Updated geometry and base coordinates
      */
-    updateFromHandle(handleType, newPosition, feature) {
+    updateFromHandle(handleType, newPosition, feature, handleIndex = null) {
         const coordinates = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         if (!coordinates) {
             console.error('Cannot update - invalid base coordinates');
@@ -163,14 +165,23 @@ class AddPolygonGeometry extends BaseGeometry {
 
         const newCoordinates = [...coordinates];
 
-        if (handleType.startsWith('vertex-')) {
-            // Move existing vertex
+        // Support both formats: 'vertex'/'midpoint' with separate index, or legacy 'vertex-X'/'midpoint-X'
+        if (handleType === 'vertex' && handleIndex !== null) {
+            if (handleIndex >= 0 && handleIndex < newCoordinates.length) {
+                newCoordinates[handleIndex] = newPosition;
+            }
+        } else if (handleType === 'midpoint' && handleIndex !== null) {
+            // For polygon, index is the segment index, insert at (index + 1) % length for circular
+            const insertIndex = (handleIndex + 1) % coordinates.length;
+            newCoordinates.splice(insertIndex, 0, newPosition);
+        } else if (handleType.startsWith('vertex-')) {
+            // Legacy format support - move existing vertex
             const index = parseInt(handleType.split('-')[1]);
             if (index >= 0 && index < newCoordinates.length) {
                 newCoordinates[index] = newPosition;
             }
         } else if (handleType.startsWith('midpoint-')) {
-            // Insert new vertex at midpoint
+            // Legacy format support - insert new vertex at midpoint
             const segmentIndex = parseInt(handleType.split('-')[1]);
             const insertIndex = (segmentIndex + 1) % coordinates.length;
             newCoordinates.splice(insertIndex, 0, newPosition);
@@ -200,10 +211,11 @@ class AddPolygonGeometry extends BaseGeometry {
      * @param {string} handleType - Type of handle being moved
      * @param {Array} newPosition - New handle position
      * @param {Object} feature - Polygon feature
+     * @param {number} handleIndex - Index of the handle being moved
      * @returns {Object} Preview geometry and handle positions
      */
-    calculatePreview(handleType, newPosition, feature) {
-        const result = this.updateFromHandle(handleType, newPosition, feature);
+    calculatePreview(handleType, newPosition, feature, handleIndex = null) {
+        const result = this.updateFromHandle(handleType, newPosition, feature, handleIndex);
         if (!result) return null;
 
         return {

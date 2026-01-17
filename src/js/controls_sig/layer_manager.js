@@ -333,14 +333,9 @@ class LayerManager {
      * @param {boolean} locked - Lock state
      * @param {string} mapName - Map name
      * @returns {Object} Updated layer
-     * @throws {Error} If trying to lock the active layer
      */
     setLayerLocked(layerId, locked, mapName = null) {
         const targetMap = mapName || this.memoryStore.currentMap;
-
-        if (locked && this.memoryStore.activeLayerId === layerId) {
-            throw new Error('Cannot lock the active layer.');
-        }
 
         const layer = this.getLayerById(layerId, targetMap);
         if (!layer) {

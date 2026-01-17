@@ -21,9 +21,14 @@ import {
     // Layer imports
     getLayers,
     setMapLayers,
+    // Position and order imports
+    getMapPosition,
+    getMapOrder,
+    setMapOrder,
 } from './store/store.js';
 
 import { IDUtils } from './id_utils.js';
+import JSZip from 'jszip';
 import config from '../config.js';
 import { showToast, showSuccess } from './utilities/toast_service.js';
 import groupManager from './tool_manager/group_manager.js';
@@ -218,26 +223,32 @@ export class ExportImportService {
             const data = {
                 version: SCHEMA_VERSION,
                 currentMap: await getCurrentMapName(),
+                mapOrder: await getMapOrder(),
                 maps: {},
                 colorUsage: {},
                 mapNotes: {},
                 groups: {},
-                layers: {}, // NEW: Add layers to export data
+                layers: {},
             };
 
             // Export map data with optimization
             for (const mapName of mapsToExport) {
                 const mapData = await getCurrentMapFeatures(mapName);
                 if (mapData) {
-                    // Rebuild complete map structure
+                    // Get saved map position
+                    const position = await getMapPosition(mapName);
+
+                    // Rebuild complete map structure with actual position
                     const fullMapData = {
                         baseLayer: await getCurrentBaseLayer(mapName),
-                        hillshadeEnabled: true, // Valor padrão, poderia ser obtido via nova função
-                        analysisLayers: {}, // Valor padrão, poderia ser obtido via nova função
+                        hillshadeEnabled: true,
+                        analysisLayers: {},
                         features: mapData,
-                        zoom: null,
-                        center_lat: null,
-                        center_long: null
+                        zoom: position.zoom,
+                        center_lat: position.center_lat,
+                        center_long: position.center_long,
+                        bearing: position.bearing,
+                        pitch: position.pitch
                     };
 
                     data.maps[mapName] = this.optimizeMapData(fullMapData);
@@ -481,6 +492,11 @@ export class ExportImportService {
 
                 // Import layers directly (normal import)
                 await this.importLayersDirectly(data.layers);
+
+                // Restore map order if available
+                if (data.mapOrder && Array.isArray(data.mapOrder) && data.mapOrder.length > 0) {
+                    await setMapOrder(data.mapOrder);
+                }
 
                 // Load images after processing maps (normal import)
                 await this.loadImagesFromZip(zip);

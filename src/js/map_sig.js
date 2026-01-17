@@ -67,11 +67,6 @@ if (config.map2d.maxBounds) {
     map.setMaxBounds(config.map2d.maxBounds);
 }
 
-map.addControl(new maplibregl.AttributionControl({
-    customAttribution: 'Diretoria de Serviço Geográfico - Exército Brasileiro',
-    compact: true
-}), 'bottom-right');
-
 const analysisLayersManager = new AnalysisLayersManager(map);
 
 const gridControl = new GridControl(map);

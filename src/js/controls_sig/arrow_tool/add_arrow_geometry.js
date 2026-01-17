@@ -267,7 +267,8 @@ class AddArrowGeometry extends BaseGeometry {
                     role: 'handle',
                     handleType: 'midpoint',
                     handleId: `midpoint-${i}`,
-                    insertIndex: i + 1,
+                    index: i, // Segment index for midpoint
+                    insertIndex: i + 1, // Where to insert new vertex (kept for backward compatibility)
                     featureId: feature.properties.id,
                     mode: 'arrow_editing',
                     meta: 'vertex',
@@ -393,13 +394,13 @@ class AddArrowGeometry extends BaseGeometry {
 
     /**
      * Update arrow geometry based on handle movement
-     * @param {string} handleType - Type of handle being moved
+     * @param {string} handleType - Type of handle being moved ('vertex', 'midpoint', 'width', 'headLength', 'airmobile')
      * @param {Array} newPosition - New handle position [lng, lat]
      * @param {Object} feature - Arrow feature being edited
-     * @param {Object} activeHandle - Active handle object for conversion tracking
+     * @param {number} handleIndex - Index of the handle being moved (for vertex/midpoint types)
      * @returns {Object} Updated properties and geometry
      */
-    updateFromHandle(handleType, newPosition, feature, activeHandle = null) {
+    updateFromHandle(handleType, newPosition, feature, handleIndex = null) {
         let coords = this.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         if (coords.length < 2) {
             console.warn('Insufficient coordinates to update geometry:', coords);
@@ -408,24 +409,30 @@ class AddArrowGeometry extends BaseGeometry {
 
         coords = [...coords];
         const updatedProperties = { ...feature.properties };
-        let convertedHandleType = handleType;
 
-        if (handleType.startsWith('vertex-')) {
+        // Support both formats: 'vertex'/'midpoint' with separate index, or legacy 'vertex-X'/'midpoint-X'
+        if (handleType === 'vertex' && handleIndex !== null) {
+            if (handleIndex >= 0 && handleIndex < coords.length) {
+                coords[handleIndex] = newPosition;
+                updatedProperties.baseCoordinates = coords;
+            }
+        } else if (handleType === 'midpoint' && handleIndex !== null) {
+            // For midpoint, index is the segment index, insert at index + 1
+            const insertIndex = handleIndex + 1;
+            if (handleIndex >= 0 && handleIndex < coords.length - 1) {
+                coords.splice(insertIndex, 0, newPosition);
+                updatedProperties.baseCoordinates = coords;
+            }
+        } else if (handleType.startsWith('vertex-')) {
+            // Legacy format support
             const index = parseInt(handleType.split('-')[1]);
             coords[index] = newPosition;
             updatedProperties.baseCoordinates = coords;
         } else if (handleType.startsWith('midpoint-')) {
+            // Legacy format support
             const insertIndex = parseInt(handleType.split('-')[1]) + 1;
             coords.splice(insertIndex, 0, newPosition);
             updatedProperties.baseCoordinates = coords;
-
-            convertedHandleType = `vertex-${insertIndex}`;
-
-            if (activeHandle && activeHandle.properties) {
-                activeHandle.properties.handleType = 'vertex';
-                activeHandle.properties.handleId = convertedHandleType;
-                activeHandle.properties.index = insertIndex;
-            }
         } else if (handleType === 'width') {
             const lastPoint = coords[coords.length - 1];
             const secondLastPoint = coords[coords.length - 2];
@@ -476,8 +483,29 @@ class AddArrowGeometry extends BaseGeometry {
 
         return {
             properties: updatedProperties,
-            geometry: newGeometry,
-            convertedHandleType: convertedHandleType
+            geometry: newGeometry
+        };
+    }
+
+    /**
+     * Calculate preview geometry during handle dragging
+     * @param {string} handleType - Type of handle being moved
+     * @param {Array} newPosition - New handle position
+     * @param {Object} feature - Arrow feature
+     * @param {number} handleIndex - Index of the handle being moved
+     * @returns {Object|null} Preview geometry and handle positions or null if invalid
+     */
+    calculatePreview(handleType, newPosition, feature, handleIndex = null) {
+        const result = this.updateFromHandle(handleType, newPosition, feature, handleIndex);
+        if (!result) return null;
+
+        return {
+            geometry: result.geometry,
+            properties: result.properties,
+            handles: this.createHandles({
+                ...feature,
+                properties: result.properties
+            })
         };
     }
 

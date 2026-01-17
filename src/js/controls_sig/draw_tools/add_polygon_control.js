@@ -16,6 +16,7 @@ class AddPolygonControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandle = null;      // Store complete handle object
         this.activeHandleType = null;  // Handle type string
+        this.activeHandleIndex = null; // Handle index for vertex/midpoint operations
 
         // Geometry handler
         this.geometry = new AddPolygonGeometry();
@@ -489,6 +490,7 @@ class AddPolygonControl extends BaseControl {
         this.isDraggingHandle = false;
         this.activeHandle = null;         // Reset handle object
         this.activeHandleType = null;
+        this.activeHandleIndex = null;
         this.clearEditHandles();
         this.removeEditEventListeners();
         this.removeHoverListeners();
@@ -552,8 +554,10 @@ class AddPolygonControl extends BaseControl {
         if (handleFeatures.length > 0) {
             const handle = handleFeatures[0];
             this.isDraggingHandle = true;
-            this.activeHandle = handle;                           // Store complete handle object
-            this.activeHandleType = handle.properties.handleId;   // Store handleId (like "vertex-0", "midpoint-1")
+            this.activeHandle = handle;
+            // Extract type and index separately (like boundary tool)
+            this.activeHandleType = handle.properties.handleType;
+            this.activeHandleIndex = handle.properties.index;
             this.map.dragPan.disable();
             this.map.getCanvas().style.cursor = 'grabbing';
             e.preventDefault();
@@ -574,11 +578,14 @@ class AddPolygonControl extends BaseControl {
 
     onEditMouseUp = async () => {
         const selectedFeature = this.getSelectedFeature();
-        if (this.isDraggingHandle && selectedFeature && this.activeHandleType) {
-            // Apply geometry changes directly (like Line Tool)
-            this.updateGeometryFromHandle(this.activeHandleType, this.lastPreviewPosition);
-
-            const result = this.geometry.updateFromHandle(this.activeHandleType, this.lastPreviewPosition, selectedFeature);
+        if (this.isDraggingHandle && selectedFeature && this.activeHandleType && this.lastPreviewPosition) {
+            // Use geometry.updateFromHandle with separate type and index (like boundary tool)
+            const result = this.geometry.updateFromHandle(
+                this.activeHandleType,
+                this.lastPreviewPosition,
+                selectedFeature,
+                this.activeHandleIndex
+            );
 
             if (result) {
                 // Create updated feature
@@ -601,8 +608,9 @@ class AddPolygonControl extends BaseControl {
         }
 
         this.isDraggingHandle = false;
-        this.activeHandle = null;         // Reset handle object
+        this.activeHandle = null;
         this.activeHandleType = null;
+        this.activeHandleIndex = null;
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
     }
@@ -613,12 +621,14 @@ class AddPolygonControl extends BaseControl {
             return;
         }
 
-        // Update geometry in feature directly (like Line Tool)
-        this.updateGeometryFromHandle(this.activeHandleType, newPosition);
-
-        // Calculate preview
-        const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
-        const preview = this.geometry.calculatePreview(this.activeHandleType, newPosition, selectedFeature);
+        // Use calculatePreview with separate type and index (like boundary tool)
+        // No mutation of selectedFeature during drag - only visual preview
+        const preview = this.geometry.calculatePreview(
+            this.activeHandleType,
+            newPosition,
+            selectedFeature,
+            this.activeHandleIndex
+        );
 
         if (preview) {
             // Show updated selection
@@ -637,45 +647,6 @@ class AddPolygonControl extends BaseControl {
                 features: preview.handles
             });
         }
-    }
-
-    // Handle conversion logic (like Line Tool)
-    updateGeometryFromHandle = (handleId, newPosition) => {
-        const selectedFeature = this.getSelectedFeature();
-        if (!selectedFeature) return;
-
-        let coords = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
-        if (!coords || coords.length < 3) return;
-
-        coords = [...coords]; // Create copy
-
-        clearTimeout(this.geometryDebounceTimer);
-        this.geometryDebounceTimer = setTimeout(() => {
-            if (handleId.startsWith('vertex-')) {
-                // Move existing vertex
-                const index = parseInt(handleId.split('-')[1]);
-                if (index >= 0 && index < coords.length) {
-                    coords[index] = newPosition;
-                    selectedFeature.properties.baseCoordinates = coords;
-                }
-            } else if (handleId.startsWith('midpoint-')) {
-                // Add new vertex - polygon specific logic for circular array
-                const segmentIndex = parseInt(handleId.split('-')[1]);
-                const insertIndex = (segmentIndex + 1) % coords.length;
-                coords.splice(insertIndex, 0, newPosition);
-                selectedFeature.properties.baseCoordinates = coords;
-
-                // Convert handle from midpoint to vertex
-                if (this.activeHandle && this.activeHandle.properties) {
-                    this.activeHandle.properties.handleType = 'vertex';
-                    this.activeHandle.properties.handleId = `vertex-${insertIndex}`;
-                    this.activeHandleType = `vertex-${insertIndex}`;  // Synchronize
-                }
-            }
-
-            // Update geometry
-            selectedFeature.geometry = this.geometry.generate(coords);
-        }, 8);
     }
 
     // ===== HOVER SYSTEM =====
