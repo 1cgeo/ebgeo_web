@@ -1,4 +1,10 @@
 // Path: js/controls_sig/map_control.js
+
+/**
+ * @fileoverview Map control panel with tabs for maps, features, and PDF export.
+ * Delegates sidebar state (collapsed, activeTab) to StateManager.
+ */
+
 import {
     initializeWithLastActiveMap,
     setCurrentMap,
@@ -12,7 +18,7 @@ import PDFExportTab from './pdf_export_tab.js';
 import FeaturesTab from './features_tab.js';
 import { showToast as toastServiceShow } from './utilities/toast_service.js';
 import { MapNotesManager } from './map_notes_panel.js';
-import { getEventBus } from './services.js';
+import { getEventBus, getStateManager } from './services.js';
 
 class MapControl {
     constructor(baseLayerControl, analysisLayersManager) {
@@ -23,15 +29,48 @@ class MapControl {
         this.mapManager = new MapManager(baseLayerControl, this.selectionManager);
         this.exportImportService = new ExportImportService(baseLayerControl, this, this.mapManager);
 
-        this.isCollapsed = false;
         this.reopenButton = null;
-
-        this.currentTab = 'maps';
         this.pdfExportTab = null;
         this.featuresTab = null;
         this.mapsActionsContainer = null;
         this.mapNotesManager = null;
+
+        /** @type {Array<Function>} Cleanup functions for subscriptions */
+        this._unsubscribers = [];
     }
+
+    // =========================================================================
+    // STATE MANAGER INTEGRATION
+    // =========================================================================
+
+    /**
+     * Get collapsed state from StateManager.
+     * Note: StateManager stores 'expanded', so we invert it.
+     * @returns {boolean}
+     */
+    get isCollapsed() {
+        try {
+            return !getStateManager().get('sidebar.expanded');
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get current tab from StateManager.
+     * @returns {string}
+     */
+    get currentTab() {
+        try {
+            return getStateManager().get('sidebar.activeTab') || 'maps';
+        } catch (e) {
+            return 'maps';
+        }
+    }
+
+    // =========================================================================
+    // SETUP
+    // =========================================================================
 
     setSelectionManager(selectionManager) {
         this.selectionManager = selectionManager;
@@ -202,10 +241,17 @@ class MapControl {
         await this.updateMapList();
     }
 
-    // ===== TAB MANAGEMENT =====
+    // =========================================================================
+    // TAB MANAGEMENT
+    // =========================================================================
 
     switchToTab(tabName) {
-        this.currentTab = tabName;
+        // Sync to StateManager
+        try {
+            getStateManager().setActiveTab(tabName);
+        } catch (e) {
+            // StateManager not available
+        }
 
         const tabButtons = this.container.querySelectorAll('.tab-button');
         tabButtons.forEach(btn => btn.classList.remove('active'));
@@ -263,7 +309,9 @@ class MapControl {
         }
     }
 
-    // ===== PANEL MANAGEMENT =====
+    // =========================================================================
+    // PANEL MANAGEMENT
+    // =========================================================================
 
     collapsePanel(type = 'normal') {
         this.container.classList.add('collapsed');
@@ -273,7 +321,12 @@ class MapControl {
             this.reopenButton.classList.add('show');
         }
 
-        this.isCollapsed = true;
+        // Sync to StateManager (expanded = false)
+        try {
+            getStateManager().set('sidebar.expanded', false);
+        } catch (e) {
+            // StateManager not available
+        }
 
         this.updateVisibilityForCurrentTab();
 
@@ -290,7 +343,13 @@ class MapControl {
         if (this.reopenButton) {
             this.reopenButton.classList.remove('show');
         }
-        this.isCollapsed = false;
+
+        // Sync to StateManager (expanded = true)
+        try {
+            getStateManager().set('sidebar.expanded', true);
+        } catch (e) {
+            // StateManager not available
+        }
 
         this.updateVisibilityForCurrentTab();
 
@@ -369,7 +428,9 @@ class MapControl {
         }
     }
 
-    // ===== INTERFACE UPDATES =====
+    // =========================================================================
+    // INTERFACE UPDATES
+    // =========================================================================
 
     async updateMapList() {
         const mapListData = await this.mapManager.generateMapListData();
@@ -477,7 +538,9 @@ class MapControl {
         return this.analysisLayersManager;
     }
 
-    // ===== MODAL MANAGEMENT =====
+    // =========================================================================
+    // MODAL MANAGEMENT
+    // =========================================================================
 
     async showCombineMapsModal(targetMapName) {
         const { getAllMapNamesStore } = await import('./store/store.js');
@@ -611,7 +674,9 @@ class MapControl {
         });
     }
 
-    // ===== UTILITY METHODS =====
+    // =========================================================================
+    // UTILITY METHODS
+    // =========================================================================
 
     async clearAllData() {
         if (confirm('Tem certeza que deseja limpar todos os dados? Esta ação é irreversível.')) {
@@ -644,7 +709,17 @@ class MapControl {
         return this.mapNotesManager && this.mapNotesManager.isVisible;
     }
 
+    /**
+     * Cleanup resources.
+     */
+    destroy() {
+        this._unsubscribers.forEach(unsub => unsub());
+        this._unsubscribers = [];
+    }
+
     onRemove() {
+        this.destroy();
+
         this.mapManager.closeAllDropdowns(false);
 
         if (this.reopenButton && this.reopenButton.parentNode) {

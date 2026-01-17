@@ -1,34 +1,78 @@
 // Path: js/controls_sig/tool_manager/move_handler.js
 
+/**
+ * @fileoverview Handler for dragging/moving selected features on the map.
+ * Implements tool-centric architecture for feature movement calculations.
+ */
+
+import { getStateManager } from '../services.js';
+
 class MoveHandler {
+    /**
+     * @param {Object} map - MapLibre map instance
+     * @param {Object} selectionManager - Selection manager instance
+     * @param {Object} uiManager - UI manager instance
+     */
     constructor(map, selectionManager, uiManager) {
         this.map = map;
         this.selectionManager = selectionManager;
         this.uiManager = uiManager;
 
-        this.isDragging = false;
+        // Drag state - now delegated to StateManager via getter/setter
         this.selectedFeatures = null;
         this.offsets = null;
         this.initialCoordinates = null;
 
+        // Animation frame management
         this.rafId = null;
         this.pendingUpdate = false;
         this.mouseMoveHandler = null;
         this.mouseUpHandler = null;
 
+        // Cached position objects for performance (avoids object allocation during drag)
         this.cachedPosition = { lng: 0, lat: 0 };
         this.cachedDelta = { dx: 0, dy: 0 };
         this.coordsPool = { lng: 0, lat: 0 };
         this.tempCoords = { lng: 0, lat: 0 };
 
-        this.setupEventListeners();
+        this._setupEventListeners();
     }
 
-    // ===== DYNAMIC SOURCE MANAGEMENT =====
+    // =========================================================================
+    // STATE MANAGER INTEGRATION
+    // =========================================================================
 
     /**
-     * Get valid drag sources from all registered tools
-     * @returns {Array} Array of valid drag source names
+     * Get dragging state from StateManager.
+     * @returns {boolean}
+     */
+    get isDragging() {
+        try {
+            return getStateManager().get('ui.isDragging') || false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * Set dragging state in StateManager.
+     * @param {boolean} value
+     */
+    set isDragging(value) {
+        try {
+            getStateManager().set('ui.isDragging', value);
+        } catch (e) {
+            // StateManager not available
+        }
+    }
+
+    // =========================================================================
+    // DYNAMIC SOURCE MANAGEMENT
+    // =========================================================================
+
+    /**
+     * Get valid drag sources from all registered tools.
+     * @returns {Array<string>} Array of valid drag source names
      */
     getValidDragSources() {
         const sources = new Set();
@@ -42,8 +86,8 @@ class MoveHandler {
     }
 
     /**
-     * Get edit handle sources from all registered tools
-     * @returns {Array} Array of edit handle source names
+     * Get edit handle sources from all registered tools.
+     * @returns {Array<string>} Array of edit handle source names
      */
     getEditHandleSources() {
         const sources = new Set();
@@ -58,17 +102,23 @@ class MoveHandler {
         return Array.from(sources);
     }
 
-    // ===== TOOL-CENTRIC HELPER METHODS =====
+    // =========================================================================
+    // TOOL-CENTRIC HELPER METHODS
+    // =========================================================================
 
     /**
-     * Get control for feature type
+     * Get control for feature type.
+     * @param {string} type
+     * @returns {Object|undefined}
      */
     getControl(type) {
         return this.selectionManager.controls.get(type);
     }
 
     /**
-     * Check if control supports tool-centric interface
+     * Check if control supports tool-centric move interface.
+     * @param {Object} control
+     * @returns {boolean}
      */
     supportsToolCentricInterface(control) {
         return control &&
@@ -76,27 +126,39 @@ class MoveHandler {
             typeof control.updateFeatureForMove === 'function';
     }
 
-    // ===== INITIALIZATION =====
+    // =========================================================================
+    // EVENT HANDLING
+    // =========================================================================
 
-    setupEventListeners() {
-        this.map.on('mousedown', this.onMouseDown.bind(this));
+    /**
+     * Setup map event listeners.
+     * @private
+     */
+    _setupEventListeners() {
+        this.map.on('mousedown', this._onMouseDown.bind(this));
     }
 
-    // ===== EVENT HANDLING =====
+    /**
+     * Handle mouse down event.
+     * @private
+     */
+    _onMouseDown(e) {
+        this._startDrag(e);
 
-    onMouseDown(e) {
-        this.startDrag(e);
+        this._cleanupDragListeners();
 
-        this.cleanupDragListeners();
-
-        this.mouseMoveHandler = this.onMouseMove.bind(this);
-        this.mouseUpHandler = this.onMouseUp.bind(this);
+        this.mouseMoveHandler = this._onMouseMove.bind(this);
+        this.mouseUpHandler = this._onMouseUp.bind(this);
 
         this.map.on('mousemove', this.mouseMoveHandler);
         this.map.once('mouseup', this.mouseUpHandler);
     }
 
-    cleanupDragListeners() {
+    /**
+     * Cleanup drag event listeners.
+     * @private
+     */
+    _cleanupDragListeners() {
         if (this.mouseMoveHandler) {
             this.map.off('mousemove', this.mouseMoveHandler);
             this.mouseMoveHandler = null;
@@ -107,7 +169,11 @@ class MoveHandler {
         }
     }
 
-    startDrag(e) {
+    /**
+     * Start drag operation.
+     * @private
+     */
+    _startDrag(e) {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
         if (allSelectedFeatures.length === 0) return;
 
@@ -117,7 +183,7 @@ class MoveHandler {
             validDragSources.includes(feature.source)
         );
 
-        if (filteredFeatures.length === 0 || this.isClickOnEditHandle(e.point)) {
+        if (filteredFeatures.length === 0 || this._isClickOnEditHandle(e.point)) {
             return;
         }
 
@@ -147,10 +213,11 @@ class MoveHandler {
 
         if (movableFeatures.length === 0) return;
 
+        // Start dragging
         this.isDragging = true;
         this.map.dragPan.disable();
         this.uiManager.setDragging(true);
-        this.setCursorStyle('grabbing');
+        this._setCursorStyle('grabbing');
 
         this.initialCoordinates = e.lngLat;
         this.cachedPosition.lng = e.lngLat.lng;
@@ -159,10 +226,14 @@ class MoveHandler {
         this.cachedDelta.dy = 0;
 
         this.selectedFeatures = movableFeatures;
-        this.offsets = this.calculateOffsetsToolCentric(movableFeatures, this.initialCoordinates);
+        this.offsets = this._calculateOffsetsToolCentric(movableFeatures, this.initialCoordinates);
     }
 
-    isClickOnEditHandle = (point) => {
+    /**
+     * Check if click is on edit handle.
+     * @private
+     */
+    _isClickOnEditHandle(point) {
         const features = this.map.queryRenderedFeatures(point);
         const editHandleSources = this.getEditHandleSources();
 
@@ -172,7 +243,11 @@ class MoveHandler {
         );
     }
 
-    onMouseMove(e) {
+    /**
+     * Handle mouse move during drag.
+     * @private
+     */
+    _onMouseMove(e) {
         if (!this.isDragging) return;
 
         this.cachedPosition.lng = e.lngLat.lng;
@@ -182,11 +257,15 @@ class MoveHandler {
 
         if (!this.pendingUpdate) {
             this.pendingUpdate = true;
-            this.rafId = requestAnimationFrame(this.performDragUpdate.bind(this));
+            this.rafId = requestAnimationFrame(this._performDragUpdate.bind(this));
         }
     }
 
-    performDragUpdate() {
+    /**
+     * Perform drag update in animation frame.
+     * @private
+     */
+    _performDragUpdate() {
         if (!this.isDragging) {
             this.pendingUpdate = false;
             return;
@@ -197,7 +276,11 @@ class MoveHandler {
         this.pendingUpdate = false;
     }
 
-    onMouseUp = async (e) => {
+    /**
+     * Handle mouse up - end drag.
+     * @private
+     */
+    _onMouseUp = async (e) => {
         if (!this.isDragging) return;
 
         if (this.rafId) {
@@ -209,9 +292,9 @@ class MoveHandler {
         this.isDragging = false;
         this.map.dragPan.enable();
         this.uiManager.setDragging(false);
-        this.setCursorStyle('');
+        this._setCursorStyle('');
 
-        this.cleanupDragListeners();
+        this._cleanupDragListeners();
 
         const dx = this.cachedDelta.dx;
         const dy = this.cachedDelta.dy;
@@ -222,17 +305,17 @@ class MoveHandler {
             this.tempCoords.lng = e.lngLat.lng;
             this.tempCoords.lat = e.lngLat.lat;
 
-            const updatedFeatures = this.batchUpdateFeaturesToolCentric(this.selectedFeatures, dx, dy, this.tempCoords);
+            const updatedFeatures = this._batchUpdateFeaturesToolCentric(this.selectedFeatures, dx, dy, this.tempCoords);
 
             this.uiManager.shiftSelectionBoxes(dx, dy, true);
 
-            this.updateSelectionManagerFeatures(updatedFeatures);
+            this._updateSelectionManagerFeatures(updatedFeatures);
 
             await this.selectionManager.updateSelectedFeatures();
 
             this.selectionManager.updateProfile();
-            this.syncEditHandlesForMovedFeatures(updatedFeatures);
-            this.updateMeasurementsForMovedFeatures(updatedFeatures);
+            this._syncEditHandlesForMovedFeatures(updatedFeatures);
+            this._updateMeasurementsForMovedFeatures(updatedFeatures);
 
             this.uiManager.updatePanels();
         }
@@ -242,12 +325,15 @@ class MoveHandler {
         this.initialCoordinates = null;
     }
 
-    // ===== TOOL-CENTRIC FEATURE CALCULATION =====
+    // =========================================================================
+    // TOOL-CENTRIC FEATURE CALCULATION
+    // =========================================================================
 
     /**
-     * Calculate offsets using tool-centric approach
+     * Calculate offsets using tool-centric approach.
+     * @private
      */
-    calculateOffsetsToolCentric(features, referencePoint) {
+    _calculateOffsetsToolCentric(features, referencePoint) {
         const offsets = new Map();
 
         for (const feature of features) {
@@ -274,9 +360,10 @@ class MoveHandler {
     }
 
     /**
-     * Batch update features using tool-centric approach
+     * Batch update features using tool-centric approach.
+     * @private
      */
-    batchUpdateFeaturesToolCentric(features, dx, dy, newPos) {
+    _batchUpdateFeaturesToolCentric(features, dx, dy, newPos) {
         const updatedFeatures = new Array(features.length);
 
         for (let i = 0; i < features.length; i++) {
@@ -306,46 +393,60 @@ class MoveHandler {
         return updatedFeatures;
     }
 
-    // ===== SELECTION MANAGER INTEGRATION =====
+    // =========================================================================
+    // SELECTION MANAGER INTEGRATION
+    // =========================================================================
 
     /**
-     * Update SelectionManager with moved features
+     * Update StateManager with moved features.
+     * @private
      */
-    updateSelectionManagerFeatures(updatedFeatures) {
-        this.selectionManager.selectedFeatures.clear();
+    _updateSelectionManagerFeatures(updatedFeatures) {
+        try {
+            const stateManager = getStateManager();
 
-        for (const feature of updatedFeatures) {
-            const type = feature.properties.source;
-            const featureId = feature.properties.id;
-            if (featureId) {
-                const key = `${type}:${featureId}`;
-                this.selectionManager.selectedFeatures.set(key, { type, feature });
-            }
+            // Clear and re-add with updated features
+            stateManager.batchUpdate(() => {
+                stateManager.clearSelection();
+
+                for (const feature of updatedFeatures) {
+                    const type = feature.properties.source;
+                    const featureId = feature.properties.id;
+                    if (featureId) {
+                        stateManager.addToSelection(type, String(featureId), feature);
+                    }
+                }
+            });
+        } catch (e) {
+            console.warn('Could not update StateManager after move:', e);
         }
     }
 
-    // ===== POST-MOVE UPDATES =====
+    // =========================================================================
+    // POST-MOVE UPDATES
+    // =========================================================================
 
     /**
-     * Update measurements for moved features
+     * Update measurements for moved features.
+     * @private
      */
-    updateMeasurementsForMovedFeatures = (updatedFeatures) => {
+    _updateMeasurementsForMovedFeatures(updatedFeatures) {
         for (const feature of updatedFeatures) {
             const type = feature.properties.source;
 
             if (type === 'line' && feature.properties.measure) {
                 const lineControl = this.getControl('line');
-                if (lineControl && lineControl.updateFeatureMeasurement) {
+                if (lineControl?.updateFeatureMeasurement) {
                     lineControl.updateFeatureMeasurement(feature);
                 }
             } else if (type === 'polygon' && feature.properties.measure) {
                 const polygonControl = this.getControl('polygon');
-                if (polygonControl && polygonControl.updateFeatureMeasurement) {
+                if (polygonControl?.updateFeatureMeasurement) {
                     polygonControl.updateFeatureMeasurement(feature);
                 }
             } else if (type === 'los' && feature.properties.measure) {
                 const losControl = this.getControl('los');
-                if (losControl && losControl.updateFeatureMeasurement) {
+                if (losControl?.updateFeatureMeasurement) {
                     losControl.updateFeatureMeasurement(feature);
                 }
             }
@@ -353,9 +454,10 @@ class MoveHandler {
     }
 
     /**
-     * Sync edit handles using tool-centric approach
+     * Sync edit handles using tool-centric approach.
+     * @private
      */
-    syncEditHandlesForMovedFeatures = (updatedFeatures) => {
+    _syncEditHandlesForMovedFeatures(updatedFeatures) {
         const featuresByType = new Map();
 
         for (const feature of updatedFeatures) {
@@ -377,14 +479,24 @@ class MoveHandler {
         });
     }
 
-    // ===== UTILITY METHODS =====
+    // =========================================================================
+    // UTILITY METHODS
+    // =========================================================================
 
-    setCursorStyle(style) {
+    /**
+     * Set cursor style.
+     * @private
+     */
+    _setCursorStyle(style) {
         this.map.getCanvas().style.cursor = style;
     }
 
+    /**
+     * Cleanup resources.
+     * Call when component is destroyed.
+     */
     destroy() {
-        this.cleanupDragListeners();
+        this._cleanupDragListeners();
 
         if (this.rafId) {
             cancelAnimationFrame(this.rafId);

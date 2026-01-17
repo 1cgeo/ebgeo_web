@@ -16,17 +16,19 @@
  *   initServices();
  *
  *   // Get services anywhere
- *   const { eventBus, groupManager, layerManager } = getServices();
+ *   const { eventBus, stateManager, groupManager, layerManager } = getServices();
  */
 
 import { createEventBus } from './events/event_bus.js';
 import { createGroupManager, groupManagerHolder } from './tool_manager/group_manager.js';
 import { createLayerManager, layerManagerHolder } from './layer_manager.js';
 import { initStoreEvents } from './store/store.js';
+import { createStateManager, getStateManagerInstance } from './state/state_manager.js';
 
 /**
  * @typedef {Object} Services
  * @property {import('./events/event_bus.js').EventBus} eventBus - Application event bus
+ * @property {import('./state/state_manager.js').StateManager} stateManager - Centralized UI state manager
  * @property {import('./tool_manager/group_manager.js').GroupManager} groupManager - Group manager
  * @property {import('./layer_manager.js').LayerManager} layerManager - Layer manager
  */
@@ -48,6 +50,9 @@ export function initServices() {
     // Create EventBus first - it has no dependencies
     const eventBus = createEventBus();
 
+    // Create StateManager - centralized UI state (no dependencies)
+    const stateManager = createStateManager();
+
     // Create managers with EventBus dependency
     const groupManager = createGroupManager(eventBus);
     const layerManager = createLayerManager(eventBus);
@@ -62,13 +67,15 @@ export function initServices() {
     // Freeze services object to prevent modification
     services = Object.freeze({
         eventBus,
+        stateManager,
         groupManager,
         layerManager,
     });
 
-    // Expose eventBus globally for debugging in browser console
+    // Expose services globally for debugging in browser console
     if (typeof window !== 'undefined') {
         window.eventBus = eventBus;
+        window.stateManager = stateManager;
     }
 
     return services;
@@ -94,4 +101,14 @@ export function getServices() {
  */
 export function getEventBus() {
     return getServices().eventBus;
+}
+
+/**
+ * Get StateManager instance.
+ * Convenience function for common use case.
+ * @throws {Error} If services not initialized
+ * @returns {import('./state/state_manager.js').StateManager}
+ */
+export function getStateManager() {
+    return getServices().stateManager;
 }

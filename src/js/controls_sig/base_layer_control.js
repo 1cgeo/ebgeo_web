@@ -1,4 +1,10 @@
 // Path: js/controls_sig/base_layer_control.js
+
+/**
+ * @fileoverview Base layer control for switching map styles.
+ * Delegates current layer state to StateManager.
+ */
+
 import {
     setBaseLayer,
     getCurrentMapName,
@@ -14,7 +20,7 @@ import bdgexLayer from './baselayers/bdgex_layer.js';
 import config from '../config.js';
 import { setupMapFeatures } from './layer_setup.js';
 import { showError } from './utilities/toast_service.js';
-import { getEventBus } from './services.js';
+import { getEventBus, getStateManager } from './services.js';
 
 class BaseLayerControl {
     constructor(uiManager, hillshadeConfig) {
@@ -22,7 +28,6 @@ class BaseLayerControl {
         this.uiManager = uiManager;
         this.hillshadeConfig = hillshadeConfig;
         this.mapControl = null;
-        this.currentLayer = 'carta-topografica';
 
         this.isChanging = false;
         this.changeDebounceTimer = null;
@@ -50,6 +55,38 @@ class BaseLayerControl {
             }
         });
     }
+
+    // =========================================================================
+    // STATE MANAGER INTEGRATION
+    // =========================================================================
+
+    /**
+     * Get current layer from StateManager.
+     * @returns {string}
+     */
+    get currentLayer() {
+        try {
+            return getStateManager().get('baseLayer.activeLayer') || 'carta-topografica';
+        } catch (e) {
+            return 'carta-topografica';
+        }
+    }
+
+    /**
+     * Set current layer in StateManager.
+     * @param {string} value
+     */
+    set currentLayer(value) {
+        try {
+            getStateManager().set('baseLayer.activeLayer', value);
+        } catch (e) {
+            // StateManager not available
+        }
+    }
+
+    // =========================================================================
+    // CONTROL SETUP
+    // =========================================================================
 
     setMapControl(mapControl) {
         this.mapControl = mapControl;
@@ -104,6 +141,10 @@ class BaseLayerControl {
         this.map = null;
     }
 
+    // =========================================================================
+    // LAYER CHANGE HANDLING
+    // =========================================================================
+
     handleLayerChange = async (event) => {
         const layer = event.target.value
         this.syncVisualState(layer);
@@ -125,16 +166,13 @@ class BaseLayerControl {
         const previousLayer = await getCurrentBaseLayer();
 
         try {
-            // Atualizar store
             await setBaseLayer(newLayer);
-
-            // Executar mudança
             await this.switchMap(false);
 
         } catch (error) {
             console.error('Error changing base layer:', error);
 
-            // ROLLBACK: Voltar ao estado anterior
+            // Rollback on error
             setBaseLayer(previousLayer);
             this.syncVisualState(previousLayer);
 
@@ -158,7 +196,7 @@ class BaseLayerControl {
                 const timeout = setTimeout(() => {
                     cleanup();
                     reject(new Error(`Timeout loading style for layer: ${layer}`));
-                }, 10000); // 10s timeout
+                }, 10000);
 
                 const cleanup = () => {
                     clearTimeout(timeout);
@@ -247,6 +285,10 @@ class BaseLayerControl {
             return false;
         }
     }
+
+    // =========================================================================
+    // HILLSHADE
+    // =========================================================================
 
     _updateHillshadeVisibility(currentLayer) {
         if (!this.hillshadeConfig?.enabled || !this.map.getLayer('hillshade')) {

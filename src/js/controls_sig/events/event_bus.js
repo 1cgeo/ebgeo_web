@@ -25,6 +25,58 @@ import { EventEmitter } from './event_emitter.js';
 /** Maximum events to keep in debug log */
 const MAX_EVENT_LOG = 100;
 
+/** Maximum depth for payload cloning to prevent memory issues with nested objects */
+const MAX_CLONE_DEPTH = 3;
+
+/**
+ * Deep clone with depth limit for safe logging.
+ * Prevents memory issues from large nested objects (e.g., GeoJSON coordinates).
+ * @param {*} obj - Object to clone
+ * @param {number} [depth=0] - Current recursion depth
+ * @returns {*} Cloned object or placeholder string
+ * @private
+ */
+function safeClone(obj, depth = 0) {
+    if (depth > MAX_CLONE_DEPTH) {
+        return '[MAX_DEPTH]';
+    }
+
+    if (obj === null || obj === undefined) {
+        return obj;
+    }
+
+    if (typeof obj !== 'object') {
+        return obj;
+    }
+
+    if (obj instanceof Date) {
+        return new Date(obj);
+    }
+
+    if (Array.isArray(obj)) {
+        // Summarize large arrays to prevent logging huge coordinate arrays
+        if (obj.length > 10) {
+            return `[Array(${obj.length})]`;
+        }
+        return obj.map(item => safeClone(item, depth + 1));
+    }
+
+    // Plain object
+    const cloned = {};
+    const keys = Object.keys(obj);
+
+    // Summarize objects with many keys
+    if (keys.length > 20) {
+        return `[Object(${keys.length} keys)]`;
+    }
+
+    for (const key of keys) {
+        cloned[key] = safeClone(obj[key], depth + 1);
+    }
+
+    return cloned;
+}
+
 /**
  * EventBus class.
  * Handles cross-component communication with logging.
@@ -36,7 +88,8 @@ export class EventBus extends EventEmitter {
 
         /**
          * Event log for debugging. Stores recent events with timestamps.
-         * @type {Array<{timestamp: number, event: string, payload: *}>}
+         * Uses safe cloning to prevent memory leaks from large payloads.
+         * @type {Array<{timestamp: number, event: string, payload: *, listenerCount: number}>}
          * @private
          */
         this._eventLog = [];
@@ -47,13 +100,15 @@ export class EventBus extends EventEmitter {
      * @override
      * @param {string} event - Event name (use EventTypes constants)
      * @param {*} [payload] - Event data
+     * @returns {boolean} True if event had listeners
      */
     emit(event, payload) {
-        // Log event for debugging
+        // Log event for debugging with safe cloned payload
         this._eventLog.push({
             timestamp: Date.now(),
             event,
-            payload: payload ? { ...payload } : null,
+            payload: safeClone(payload),
+            listenerCount: this.listenerCount(event),
         });
 
         // Trim log if exceeds max size
@@ -62,24 +117,36 @@ export class EventBus extends EventEmitter {
         }
 
         // Call parent emit (notifies all EventBus listeners)
-        super.emit(event, payload);
+        return super.emit(event, payload);
     }
 
     /**
      * Get recent events from the log.
      * Useful for debugging event flow.
      * @param {number} [count=20] - Number of events to return
-     * @returns {Array<{timestamp: number, event: string, payload: *}>}
+     * @returns {Array<{timestamp: number, event: string, payload: *, listenerCount: number}>}
      */
     getEventLog(count = 20) {
         return this._eventLog.slice(-count);
     }
 
     /**
+     * Get events filtered by type.
+     * @param {string} eventType - Event type to filter by
+     * @param {number} [count=20] - Max events to return
+     * @returns {Array<{timestamp: number, event: string, payload: *, listenerCount: number}>}
+     */
+    getEventLogByType(eventType, count = 20) {
+        return this._eventLog
+            .filter(entry => entry.event === eventType)
+            .slice(-count);
+    }
+
+    /**
      * Clear the event log.
      */
     clearEventLog() {
-        this._eventLog = [];
+        this._eventLog.length = 0;
     }
 
     /**
@@ -87,11 +154,16 @@ export class EventBus extends EventEmitter {
      * @returns {Object} Debug info including listener counts and recent events
      */
     debug() {
+        const listenersByEvent = {};
+        for (const event of this.eventNames()) {
+            listenersByEvent[event] = this.listenerCount(event);
+        }
+
         return {
-            listenerCount: Array.from(this._listeners.values())
-                .reduce((sum, arr) => sum + arr.length, 0),
-            eventNames: this.eventNames(),
-            recentEvents: this.getEventLog(5),
+            totalListeners: this.totalListenerCount(),
+            listenersByEvent,
+            recentEvents: this.getEventLog(10),
+            logSize: this._eventLog.length,
         };
     }
 }

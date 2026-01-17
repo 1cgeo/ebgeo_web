@@ -1261,14 +1261,6 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
 
     if (modified) {
         await updateMapData(targetMap, currentMapData);
-
-        // Emit event for map update via EventBus
-        deps.eventBus.emit(EventTypes.FEATURES_CHANGED, {
-            operation: 'delete',
-            count: deletedCount,
-            mapName: targetMap,
-            layerId
-        });
     }
 
     return modified;

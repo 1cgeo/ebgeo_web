@@ -1,5 +1,10 @@
 // Path: js/controls_sig/tool_manager/clipboard_manager.js
 
+/**
+ * @fileoverview Clipboard manager for copy/paste operations on features.
+ * Delegates clipboard state to StateManager.
+ */
+
 import {
     addFeatures,
     getImage,
@@ -12,24 +17,50 @@ import {
 } from '../store/store.js';
 import { IDUtils } from '../id_utils.js';
 import ToastService from '../utilities/toast_service.js';
+import { getStateManager } from '../services.js';
 
 class ClipboardManager {
     constructor(selectionManager, map) {
         this.selectionManager = selectionManager;
         this.map = map;
 
-        this.clipboard = {
-            features: [],
-            copiedAt: null,
-            sourceMapName: null,
-            pixelOffset: 30
-        };
+        // Pixel offset is local config, not state
+        this._pixelOffset = 30;
     }
 
-    // ===== CORE METHODS =====
+    // =========================================================================
+    // STATE MANAGER INTEGRATION
+    // =========================================================================
 
     /**
-     * Copy selected features to clipboard
+     * Get clipboard data from StateManager.
+     * @returns {Object}
+     */
+    get clipboard() {
+        try {
+            const data = getStateManager().getClipboard();
+            return {
+                features: data.features || [],
+                copiedAt: data.copiedAt,
+                sourceMapName: data.sourceMapName,
+                pixelOffset: this._pixelOffset
+            };
+        } catch (e) {
+            return {
+                features: [],
+                copiedAt: null,
+                sourceMapName: null,
+                pixelOffset: this._pixelOffset
+            };
+        }
+    }
+
+    // =========================================================================
+    // CORE METHODS
+    // =========================================================================
+
+    /**
+     * Copy selected features to clipboard.
      */
     copy() {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
@@ -46,19 +77,21 @@ class ClipboardManager {
             return;
         }
 
-        this.clipboard.features = copyableFeatures.map(feature => ({
+        const features = copyableFeatures.map(feature => ({
             type: feature.properties.source,
             feature: this.cleanFeatureForCopy(feature)
         }));
 
-        this.clipboard.copiedAt = Date.now();
-        this.clipboard.sourceMapName = getCurrentMapNameSync();
+        try {
+            getStateManager().setClipboard(features, getCurrentMapNameSync());
+        } catch (e) {
+            console.warn('StateManager not available for clipboard');
+        }
     }
 
     /**
-     * Paste features from clipboard
-     * - Apply offset only when pasting on the same map
-     * - No offset when pasting on different maps
+     * Paste features from clipboard.
+     * Applies offset only when pasting on the same map.
      */
     async paste() {
         if (!this.hasClipboardData()) {
@@ -68,15 +101,16 @@ class ClipboardManager {
 
         try {
             const currentMapName = getCurrentMapNameSync();
-            const isSameMap = this.clipboard.sourceMapName === currentMapName;
+            const clipboardData = this.clipboard;
+            const isSameMap = clipboardData.sourceMapName === currentMapName;
             const offset = isSameMap ?
-                this.calculatePixelToMetersOffset(this.clipboard.pixelOffset) :
+                this.calculatePixelToMetersOffset(clipboardData.pixelOffset) :
                 { dx: 0, dy: 0 };
 
             const idMapping = new Map();
             const resourceDuplicationTasks = [];
 
-            for (const clipboardItem of this.clipboard.features) {
+            for (const clipboardItem of clipboardData.features) {
                 const { type, feature } = clipboardItem;
                 const oldId = feature.properties.id;
                 const newId = IDUtils.generateUniqueId();
@@ -96,7 +130,7 @@ class ClipboardManager {
 
             const newFeaturesByType = {};
 
-            for (const clipboardItem of this.clipboard.features) {
+            for (const clipboardItem of clipboardData.features) {
                 const { type, feature } = clipboardItem;
                 const oldId = feature.properties.id;
                 const newId = idMapping.get(oldId);
@@ -142,25 +176,36 @@ class ClipboardManager {
     }
 
     /**
-     * Check if clipboard has data
+     * Check if clipboard has data.
+     * @returns {boolean}
      */
     hasClipboardData() {
-        return this.clipboard.features.length > 0;
+        try {
+            return getStateManager().hasClipboardData();
+        } catch (e) {
+            return false;
+        }
     }
 
     /**
-     * Clear clipboard data
+     * Clear clipboard data.
      */
     clearClipboard() {
-        this.clipboard.features = [];
-        this.clipboard.copiedAt = null;
-        this.clipboard.sourceMapName = null;
+        try {
+            getStateManager().clearClipboard();
+        } catch (e) {
+            // StateManager not available
+        }
     }
 
-    // ===== TOOL-CENTRIC FEATURE PROCESSING =====
+    // =========================================================================
+    // TOOL-CENTRIC FEATURE PROCESSING
+    // =========================================================================
 
     /**
-     * Filter features that can be copied using tool-centric approach
+     * Filter features that can be copied using tool-centric approach.
+     * @param {Array<Object>} features
+     * @returns {Array<Object>}
      */
     filterCopiableFeatures(features) {
         return features.filter(feature => {
@@ -180,7 +225,9 @@ class ClipboardManager {
     }
 
     /**
-     * Clean feature for copying using tool-centric approach
+     * Clean feature for copying using tool-centric approach.
+     * @param {Object} feature
+     * @returns {Object|null}
      */
     cleanFeatureForCopy(feature) {
         const control = this.selectionManager.controls.get(feature.properties.source);
@@ -194,7 +241,11 @@ class ClipboardManager {
     }
 
     /**
-     * Prepare feature for pasting using tool-centric approach
+     * Prepare feature for pasting using tool-centric approach.
+     * @param {Object} feature
+     * @param {Object} offset
+     * @param {string} type
+     * @returns {Object|null}
      */
     prepareFeatureForPaste(feature, offset, type) {
         const control = this.selectionManager.controls.get(type);
@@ -207,10 +258,14 @@ class ClipboardManager {
         return null;
     }
 
-    // ===== OFFSET CALCULATION =====
+    // =========================================================================
+    // OFFSET CALCULATION
+    // =========================================================================
 
     /**
-     * Convert pixel offset to geographic coordinate offset
+     * Convert pixel offset to geographic coordinate offset.
+     * @param {number} pixelOffset
+     * @returns {{dx: number, dy: number}}
      */
     calculatePixelToMetersOffset(pixelOffset = 30) {
         const zoom = this.map.getZoom();
@@ -225,10 +280,15 @@ class ClipboardManager {
         };
     }
 
-    // ===== FEATURE NAME GENERATION =====
+    // =========================================================================
+    // FEATURE NAME GENERATION
+    // =========================================================================
 
     /**
-     * Generate unique feature name
+     * Generate unique feature name.
+     * @param {string} originalName
+     * @param {string} featureType
+     * @returns {Promise<string>}
      */
     async generateUniqueFeatureName(originalName, featureType) {
         if (!originalName || !originalName.trim()) {
@@ -249,17 +309,22 @@ class ClipboardManager {
         return `${originalName} - Cópia`;
     }
 
-    // ===== IMAGE RESOURCE MANAGEMENT =====
+    // =========================================================================
+    // IMAGE HANDLING
+    // =========================================================================
 
     /**
-     * Check if feature type has image resources
+     * Check if feature type has image resources.
+     * @param {string} featureType
+     * @returns {boolean}
      */
     hasImageResource(featureType) {
         return hasImageResource(featureType);
     }
 
     /**
-     * Load pasted images into MapLibre for immediate rendering
+     * Load pasted images into MapLibre for immediate rendering.
+     * @param {Object} newFeaturesByType
      */
     async loadPastedImages(newFeaturesByType) {
         const imagePromises = [];
@@ -283,7 +348,8 @@ class ClipboardManager {
     }
 
     /**
-     * Load single image into MapLibre
+     * Load single image into MapLibre.
+     * @param {string} imageId
      */
     async loadSingleImageForPaste(imageId) {
         try {
@@ -328,10 +394,13 @@ class ClipboardManager {
         }
     }
 
-    // ===== MAP SOURCE UPDATES =====
+    // =========================================================================
+    // MAP SOURCE UPDATES
+    // =========================================================================
 
     /**
-     * Update map sources with pasted features
+     * Update map sources with pasted features.
+     * @param {Object} newFeaturesByType
      */
     async updateMapSources(newFeaturesByType) {
         for (const [storageType, features] of Object.entries(newFeaturesByType)) {
@@ -349,7 +418,9 @@ class ClipboardManager {
     }
 
     /**
-     * Update special features using tool-centric approach
+     * Update special features using tool-centric approach.
+     * @param {string} sourceType
+     * @param {Array<Object>} features
      */
     updateSpecialFeaturesToolCentric(sourceType, features) {
         const control = this.selectionManager.controls.get(sourceType);
@@ -366,7 +437,8 @@ class ClipboardManager {
     }
 
     /**
-     * Auto-select pasted features
+     * Auto-select pasted features.
+     * @param {Object} newFeaturesByType
      */
     async autoSelectPastedFeatures(newFeaturesByType) {
         this.selectionManager.deselectAllFeatures();
@@ -387,10 +459,13 @@ class ClipboardManager {
         this.selectionManager.updateUI();
     }
 
-    // ===== UTILITY METHODS =====
+    // =========================================================================
+    // UTILITY METHODS
+    // =========================================================================
 
     /**
-     * Check if pasting on the same map where features were copied
+     * Check if pasting on the same map where features were copied.
+     * @returns {boolean}
      */
     isSameMapPaste() {
         const currentMapName = getCurrentMapNameSync();
@@ -398,21 +473,27 @@ class ClipboardManager {
     }
 
     /**
-     * Get storage type from source type
+     * Get storage type from source type.
+     * @param {string} sourceType
+     * @returns {string}
      */
     getFeatureStorageType(sourceType) {
         return getStorageTypeFromSource(sourceType);
     }
 
     /**
-     * Get source type from storage type (reverse mapping)
+     * Get source type from storage type (reverse mapping).
+     * @param {string} storageType
+     * @returns {string}
      */
     getSourceTypeFromStorage(storageType) {
         return getSourceTypeFromStorage(storageType);
     }
 
     /**
-     * Normalize center coordinates (handle string format)
+     * Normalize center coordinates (handle string format).
+     * @param {*} center
+     * @returns {Array<number>}
      */
     normalizeCenter(center) {
         if (typeof center === 'string') {
@@ -433,7 +514,9 @@ class ClipboardManager {
     }
 
     /**
-     * Normalize coordinates (handle string format)
+     * Normalize coordinates (handle string format).
+     * @param {*} coords
+     * @returns {Array}
      */
     normalizeCoordinates(coords) {
         if (typeof coords === 'string') {
@@ -448,9 +531,12 @@ class ClipboardManager {
     }
 
     /**
-     * Validate if feature can be pasted
+     * Validate if feature can be pasted.
+     * @param {Object} feature
+     * @returns {boolean}
      */
     isValidForPaste(feature) {
+        const BLACKLISTED_TYPES = [];
         return feature &&
             feature.type === 'Feature' &&
             feature.properties &&
@@ -459,28 +545,33 @@ class ClipboardManager {
             !BLACKLISTED_TYPES.includes(feature.properties.source);
     }
 
-    // ===== DEBUG METHODS =====
+    // =========================================================================
+    // DEBUG METHODS
+    // =========================================================================
 
     /**
-     * Get clipboard info for debugging
+     * Get clipboard info for debugging.
+     * @returns {Object}
      */
     getClipboardInfo() {
         const currentMapName = getCurrentMapNameSync();
+        const clipboardData = this.clipboard;
         return {
             hasData: this.hasClipboardData(),
-            featureCount: this.clipboard.features.length,
-            types: this.clipboard.features.map(item => item.type),
-            copiedAt: this.clipboard.copiedAt,
-            sourceMap: this.clipboard.sourceMapName,
+            featureCount: clipboardData.features.length,
+            types: clipboardData.features.map(item => item.type),
+            copiedAt: clipboardData.copiedAt,
+            sourceMap: clipboardData.sourceMapName,
             currentMap: currentMapName,
-            isSameMap: this.clipboard.sourceMapName === currentMapName,
-            willApplyOffset: this.clipboard.sourceMapName === currentMapName,
+            isSameMap: clipboardData.sourceMapName === currentMapName,
+            willApplyOffset: clipboardData.sourceMapName === currentMapName,
             toolCentricStatus: this.getToolCentricStatus()
         };
     }
 
     /**
-     * Get tool-centric implementation status for debugging
+     * Get tool-centric implementation status for debugging.
+     * @returns {Object}
      */
     getToolCentricStatus() {
         const status = {};

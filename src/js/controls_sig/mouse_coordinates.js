@@ -10,6 +10,7 @@ import { getTerrainElevation } from './terrain_control.js';
 import GridControl from './grid.js';
 import FrameControl from './frame.js';
 import config from '../config.js';
+import { getStateManager } from './services.js';
 
 class MouseCoordinatesControl {
     constructor(pointControl, coordinationMeasureControl, militarySymbolControl) {
@@ -18,7 +19,7 @@ class MouseCoordinatesControl {
         this._innerContainer = null;
         this._formatSelector = null;
         this._coordinatesText = null;
-        this._currentFormat = 'latlong';
+        // Note: _currentFormat now delegated to StateManager via getter/setter
         this._formatOptions = COORDINATE_FORMATS;
         this._modal = null;
         this._currentCoordinates = { lat: 0, lng: 0 };
@@ -26,16 +27,177 @@ class MouseCoordinatesControl {
         this._coordinationMeasureControl = coordinationMeasureControl;
         this._militarySymbolControl = militarySymbolControl;
 
-        this._elevationEnabled = false;
+        // Note: _elevationEnabled and _currentElevation now delegated to StateManager
         this._terrainAvailable = false;
         this._elevationButton = null;
-        this._currentElevation = null;
         this._debounceTimer = null;
         this._elevationAbortController = null;
 
         this.frameControl = null;
         this.gridControl = null;
         this._name = 'MouseCoordinatesControl';
+
+        /** @type {Array<Function>} Cleanup functions for StateManager subscriptions */
+        this._unsubscribers = [];
+
+        /** @type {number} Counter to track latest update request and prevent race conditions */
+        this._updateRequestId = 0;
+    }
+
+    // =========================================================================
+    // STATE MANAGER INTEGRATION
+    // =========================================================================
+
+    /**
+     * Get current coordinate format from StateManager.
+     * Falls back to 'latlong' if StateManager unavailable.
+     * @returns {string}
+     */
+    get _currentFormat() {
+        try {
+            return getStateManager().getCoordinateFormat();
+        } catch (e) {
+            return 'latlong';
+        }
+    }
+
+    /**
+     * Set coordinate format in StateManager.
+     * @param {string} value - Format identifier
+     */
+    set _currentFormat(value) {
+        try {
+            getStateManager().setCoordinateFormat(value);
+        } catch (e) {
+            // StateManager not available during early initialization
+        }
+    }
+
+    /**
+     * Get elevation enabled state from StateManager.
+     * @returns {boolean}
+     */
+    get _elevationEnabled() {
+        try {
+            return getStateManager().isElevationEnabled();
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * Set elevation enabled state in StateManager.
+     * @param {boolean} value
+     */
+    set _elevationEnabled(value) {
+        try {
+            getStateManager().setElevationEnabled(value);
+        } catch (e) {
+            // StateManager not available
+        }
+    }
+
+    /**
+     * Get current elevation from StateManager.
+     * @returns {number|null}
+     */
+    get _currentElevation() {
+        try {
+            return getStateManager().getElevation();
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * Set current elevation in StateManager.
+     * @param {number|null} value
+     */
+    set _currentElevation(value) {
+        try {
+            getStateManager().setElevation(value);
+        } catch (e) {
+            // StateManager not available
+        }
+    }
+
+    // =========================================================================
+    // SUBSCRIPTIONS
+    // =========================================================================
+
+    /**
+     * Initialize StateManager subscriptions for reactive UI updates.
+     * Allows other components to change format/elevation and have UI reflect it.
+     * @private
+     */
+    _initSubscriptions() {
+        try {
+            const stateManager = getStateManager();
+
+            // React to format changes from other UI components
+            this._unsubscribers.push(
+                stateManager.subscribe('mouse.format', (format) => {
+                    this._updateFormatUI(format);
+                })
+            );
+
+            // React to elevation toggle from other UI components
+            this._unsubscribers.push(
+                stateManager.subscribe('mouse.elevationEnabled', (enabled) => {
+                    this._updateElevationButtonUI(enabled);
+                })
+            );
+        } catch (e) {
+            // StateManager not available yet - subscriptions will be skipped
+        }
+    }
+
+    /**
+     * Update format selector UI to reflect current format.
+     * @private
+     * @param {string} format - Format identifier
+     */
+    _updateFormatUI(format) {
+        if (!this._formatSelector) return;
+
+        this._formatSelector.querySelectorAll('.coordinates-format-option').forEach(opt => {
+            if (opt.dataset.format === format) {
+                opt.classList.add('active');
+                opt.style.backgroundColor = '#f0f0f0';
+                opt.style.fontWeight = 'bold';
+            } else {
+                opt.classList.remove('active');
+                opt.style.backgroundColor = '';
+                opt.style.fontWeight = '';
+            }
+        });
+
+        // Also update coordinates display if map is available
+        if (this._map) {
+            this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
+        }
+    }
+
+    /**
+     * Update elevation button UI to reflect enabled state.
+     * @private
+     * @param {boolean} enabled
+     */
+    _updateElevationButtonUI(enabled) {
+        if (!this._elevationButton) return;
+
+        if (enabled && this._terrainAvailable) {
+            this._elevationButton.style.backgroundColor = '#4CAF50';
+            this._elevationButton.style.color = 'white';
+        } else {
+            this._elevationButton.style.backgroundColor = '';
+            this._elevationButton.style.color = '';
+        }
+
+        // Update display if enabled state changed
+        if (this._map) {
+            this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
+        }
     }
 
     onAdd(map) {
@@ -155,6 +317,9 @@ class MouseCoordinatesControl {
 
         this._checkTerrainAvailability();
 
+        // Initialize StateManager subscriptions for reactive UI
+        this._initSubscriptions();
+
         this._updateCoordinates(0, 0);
 
         return this._container;
@@ -174,11 +339,14 @@ class MouseCoordinatesControl {
             this._elevationButton.innerHTML = `<img src="./images/elevation_icon.svg" alt="Elevation" width="16" height="16" />`;
             this._elevationButton.title = "Mostrar/ocultar elevação";
             this._elevationButton.disabled = false;
+            // Sync button state with current elevation enabled state
+            this._updateElevationButtonUI(this._elevationEnabled);
         } else {
             this._elevationButton.innerHTML = `<img src="./images/elevation_icon.svg" alt="Elevation" width="16" height="16" style="opacity: 0.3;" />`;
             this._elevationButton.title = "Elevação indisponível (terreno não carregado)";
             this._elevationButton.disabled = true;
 
+            // Disable elevation if terrain becomes unavailable
             if (this._elevationEnabled) {
                 this._elevationEnabled = false;
                 this._currentElevation = null;
@@ -192,16 +360,17 @@ class MouseCoordinatesControl {
             return;
         }
 
-        this._elevationEnabled = !this._elevationEnabled;
+        // Toggle via property (triggers StateManager update)
+        const newEnabled = !this._elevationEnabled;
+        this._elevationEnabled = newEnabled;
 
-        if (this._elevationEnabled) {
-            this._elevationButton.style.backgroundColor = '#4CAF50';
-            this._elevationButton.style.color = 'white';
-        } else {
-            this._elevationButton.style.backgroundColor = '';
-            this._elevationButton.style.color = '';
+        // Clear elevation value when disabling
+        if (!newEnabled) {
             this._currentElevation = null;
         }
+
+        // Immediate UI update for responsive feel
+        this._updateElevationButtonUI(newEnabled);
 
         this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
     }
@@ -298,10 +467,10 @@ class MouseCoordinatesControl {
         const flyButton = document.createElement('button');
         flyButton.textContent = 'Ir para';
         flyButton.classList.add('tool-button', 'pure-material-tool-button-contained');
-        flyButton.addEventListener('click', () => {
+        flyButton.addEventListener('click', async () => {
             const formatId = formatSelect.value;
             const inputValue = input.value.trim();
-            const coordinates = parseCoordinates(inputValue, formatId);
+            const coordinates = await parseCoordinates(inputValue, formatId);
 
             if (coordinates) {
                 this._flyToCoordinates(coordinates.lng, coordinates.lat);
@@ -338,10 +507,10 @@ class MouseCoordinatesControl {
         const createButton = document.createElement('button');
         createButton.textContent = 'Criar';
         createButton.classList.add('tool-button', 'pure-material-tool-button-contained');
-        createButton.addEventListener('click', () => {
+        createButton.addEventListener('click', async () => {
             const formatId = formatSelect.value;
             const inputValue = input.value.trim();
-            const coordinates = parseCoordinates(inputValue, formatId);
+            const coordinates = await parseCoordinates(inputValue, formatId);
 
             if (!coordinates) {
                 validationMessage.textContent = 'Coordenadas inválidas para o formato selecionado';
@@ -472,24 +641,12 @@ class MouseCoordinatesControl {
     _setFormat(formatId) {
         if (this._currentFormat === formatId) return;
 
+        // Setting via property triggers StateManager update
+        // Subscription will handle UI updates via _updateFormatUI
         this._currentFormat = formatId;
 
-        const options = this._formatSelector.querySelectorAll('.coordinates-format-option');
-        options.forEach(option => {
-            if (option.dataset.format === formatId) {
-                option.classList.add('active');
-                option.style.backgroundColor = '#f0f0f0';
-                option.style.fontWeight = 'bold';
-            } else {
-                option.classList.remove('active');
-                option.style.backgroundColor = '';
-                option.style.fontWeight = '';
-            }
-        });
-
-        if (this._map) {
-            this._updateCoordinates(this._currentCoordinates.lat, this._currentCoordinates.lng);
-        }
+        // Immediate UI update for responsive feel (subscription will also fire but is idempotent)
+        this._updateFormatUI(formatId);
     }
 
     async _onMouseMove(e) {
@@ -503,14 +660,27 @@ class MouseCoordinatesControl {
     }
 
     async _updateCoordinates(lat, lng) {
+        // Increment request ID and capture it for this call
+        const requestId = ++this._updateRequestId;
+
+        // Clear immediately - this is synchronous
         this._coordinatesText.innerHTML = '';
 
         try {
             const zoomSpan = document.createElement('span');
             zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
-            this._coordinatesText.appendChild(zoomSpan);
 
+            // Await async operation
             const displayFormat = await getDisplayFormat(lat, lng, this._currentFormat);
+
+            // Check if this is still the latest request (race condition guard)
+            if (requestId !== this._updateRequestId) {
+                return; // Stale request, discard results
+            }
+
+            // Safe to update DOM - this is the latest request
+            this._coordinatesText.innerHTML = '';
+            this._coordinatesText.appendChild(zoomSpan);
 
             displayFormat.parts.forEach(part => {
                 const span = document.createElement('span');
@@ -524,7 +694,14 @@ class MouseCoordinatesControl {
                 this._coordinatesText.appendChild(elevSpan);
             }
         } catch (error) {
+            // Check if this is still the latest request before error handling
+            if (requestId !== this._updateRequestId) {
+                return; // Stale request, discard
+            }
+
             console.error('Error converting coordinates:', error);
+            this._coordinatesText.innerHTML = '';
+
             const zoomSpan = document.createElement('span');
             zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
             this._coordinatesText.appendChild(zoomSpan);
@@ -550,12 +727,26 @@ class MouseCoordinatesControl {
         return this._currentFormat;
     }
 
-    getCurrentCoordinatesText() {
+    /**
+     * Get current coordinates as formatted text string.
+     * @returns {Promise<string>} Formatted coordinate string
+     */
+    async getCurrentCoordinatesText() {
         const { lat, lng } = this._currentCoordinates;
-        return formatCoordinates(lat, lng, this._currentFormat);
+        return await formatCoordinates(lat, lng, this._currentFormat);
     }
 
     onRemove() {
+        // Cleanup StateManager subscriptions
+        this._unsubscribers.forEach(unsub => {
+            try {
+                unsub();
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+        });
+        this._unsubscribers = [];
+
         if (this._debounceTimer) {
             clearTimeout(this._debounceTimer);
         }

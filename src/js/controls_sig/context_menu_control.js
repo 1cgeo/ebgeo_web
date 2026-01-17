@@ -481,7 +481,7 @@ class ContextMenuControl {
         }
     }
 
-    _onCopyCoordinates() {
+    async _onCopyCoordinates() {
         if (!this._lastCoordinates || !this._mouseCoordinatesControl) {
             this._hideMenu();
             return;
@@ -489,7 +489,7 @@ class ContextMenuControl {
 
         const { lat, lng } = this._lastCoordinates;
         const currentFormat = this._mouseCoordinatesControl.getCurrentFormat();
-        const textToCopy = formatCoordinates(lat, lng, currentFormat);
+        const textToCopy = await formatCoordinates(lat, lng, currentFormat);
 
         this._copyToClipboard(textToCopy);
         this._hideMenu();

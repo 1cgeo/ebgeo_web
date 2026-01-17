@@ -1,5 +1,10 @@
 // Path: js/controls_sig/tool_manager/ui_manager.js
 
+/**
+ * @fileoverview UI manager for feature selection, attribute panels, and profile display.
+ * Handles selection highlighting, attribute editing panels, and profile charts.
+ */
+
 import {
     Chart,
     LineController,
@@ -12,6 +17,7 @@ import {
     Legend
 } from 'chart.js';
 import { cleanupFeatureDropdownListeners } from './attribute_panel_helpers.js';
+import { getStateManager } from '../services.js';
 
 // Register Chart.js components (tree-shaking)
 Chart.register(
@@ -26,6 +32,11 @@ Chart.register(
 );
 
 class UIManager {
+    /**
+     * @param {Object} map - MapLibre map instance
+     * @param {Object} selectionManager - Selection manager instance
+     * @param {Object} toolManager - Tool manager instance
+     */
     constructor(map, selectionManager, toolManager) {
         this.map = map;
         this.selectionManager = selectionManager;
@@ -33,16 +44,81 @@ class UIManager {
         this.featureSearchControl = null;
 
         this.selectionBoxes = [];
-        this.isDragging = false;
 
+        // Cache for selection box calculations (performance optimization)
         this.selectionBoxCache = new Map();
         this.geometryHashes = new Map();
         this.rafId = null;
-        this.map.on('zoom', this.handleZoomChange);
+
         this.activeChart = null;
+
+        /** @type {Array<Function>} Cleanup functions for subscriptions */
+        this._unsubscribers = [];
+
+        this._initSubscriptions();
+        this.map.on('zoom', this._handleZoomChange);
     }
 
-    handleZoomChange = () => {
+    // =========================================================================
+    // STATE MANAGER INTEGRATION
+    // =========================================================================
+
+    /**
+     * Initialize StateManager subscriptions.
+     * @private
+     */
+    _initSubscriptions() {
+        try {
+            const stateManager = getStateManager();
+
+            // Subscribe to selection changes for selection box updates only.
+            // Panel updates are handled explicitly by SelectionManager.updateUI()
+            // to avoid unnecessary panel recreation during property edits.
+            this._unsubscribers.push(
+                stateManager.subscribe('selection.features', (features) => {
+                    // Only update selection highlight (boxes), not panels
+                    // Panels are managed explicitly to avoid flicker during edits
+                    this.updateSelectionHighlight();
+                })
+            );
+        } catch (e) {
+            // StateManager not available yet - will work without subscriptions
+        }
+    }
+
+    /**
+     * Get dragging state from StateManager.
+     * @returns {boolean}
+     */
+    get isDragging() {
+        try {
+            return getStateManager().get('ui.isDragging') || false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    /**
+     * Set dragging state in StateManager.
+     * @param {boolean} isDragging
+     */
+    setDragging(isDragging) {
+        try {
+            getStateManager().set('ui.isDragging', isDragging);
+        } catch (e) {
+            // StateManager not available
+        }
+    }
+
+    // =========================================================================
+    // ZOOM HANDLING
+    // =========================================================================
+
+    /**
+     * Handle map zoom changes with debouncing.
+     * @private
+     */
+    _handleZoomChange = () => {
         if (this.rafId) {
             cancelAnimationFrame(this.rafId);
         }
@@ -55,6 +131,15 @@ class UIManager {
         });
     }
 
+    // =========================================================================
+    // CACHE MANAGEMENT
+    // =========================================================================
+
+    /**
+     * Get cache key for feature at current zoom level.
+     * @param {string} featureId
+     * @returns {string}
+     */
     getCacheKey(featureId) {
         const zoom = this.map.getZoom();
         const zoomLevel = Math.round(zoom * 2) / 2;
@@ -69,12 +154,11 @@ class UIManager {
         this.mouseCoordinatesControl = mouseCoordinatesControl;
     }
 
-    setDragging = (isDragging) => {
-        this.isDragging = isDragging;
-    }
-
-    // ===== CACHE MANAGEMENT =====
-
+    /**
+     * Calculate geometry hash for cache invalidation.
+     * @param {Object} feature - GeoJSON feature
+     * @returns {string}
+     */
     calculateGeometryHash(feature) {
         const coords = JSON.stringify(feature.geometry.coordinates);
         const props = JSON.stringify({
@@ -102,6 +186,10 @@ class UIManager {
         return hash.toString();
     }
 
+    /**
+     * Invalidate cache for specific feature.
+     * @param {string} featureId
+     */
     invalidateCache(featureId) {
         if (featureId) {
             const keysToDelete = [];
@@ -115,19 +203,28 @@ class UIManager {
         }
     }
 
+    /**
+     * Invalidate entire selection box cache.
+     */
     invalidateAllCache() {
         this.selectionBoxCache.clear();
         this.geometryHashes.clear();
     }
 
+    /**
+     * Notify geometry change (for cache invalidation).
+     * @param {string} featureId
+     */
     notifyGeometryChange(featureId) {
         this.invalidateCache(featureId);
     }
 
-    // ===== TOOL-CENTRIC SELECTION HIGHLIGHTING =====
+    // =========================================================================
+    // TOOL-CENTRIC SELECTION HIGHLIGHTING
+    // =========================================================================
 
     /**
-     * Main selection highlight update using tool-centric approach
+     * Main selection highlight update using tool-centric approach.
      */
     updateSelectionHighlight = () => {
         if (this.isDragging) return;
@@ -151,24 +248,34 @@ class UIManager {
     }
 
     /**
-     * Group selected features by type for efficient processing
+     * Group selected features by type for efficient processing.
+     * Uses StateManager as source of truth.
+     * @returns {Map<string, Array<Object>>}
      */
     groupSelectedFeaturesByType() {
         const featuresByType = new Map();
 
-        for (const [key, item] of this.selectionManager.selectedFeatures.entries()) {
-            const type = item.type;
-            if (!featuresByType.has(type)) {
-                featuresByType.set(type, []);
+        try {
+            const selectedFeatures = getStateManager().getSelectedFeatures();
+
+            for (const item of selectedFeatures) {
+                if (!featuresByType.has(item.type)) {
+                    featuresByType.set(item.type, []);
+                }
+                featuresByType.get(item.type).push(item.feature);
             }
-            featuresByType.get(type).push(item.feature);
+        } catch (e) {
+            // StateManager not available - return empty map
         }
 
         return featuresByType;
     }
 
     /**
-     * Create selection boxes for features of a specific type using tool-centric approach
+     * Create selection boxes for features of a specific type using tool-centric approach.
+     * @param {string} type - Feature type
+     * @param {Array<Object>} features - GeoJSON features
+     * @returns {Array<Object>}
      */
     createSelectionBoxesForTypeToolCentric(type, features) {
         if (features.length === 0) return [];
@@ -184,16 +291,21 @@ class UIManager {
     }
 
     /**
-     * Check if control supports tool-centric selection box interface
+     * Check if control supports tool-centric selection box interface.
+     * @param {Object} control
+     * @returns {boolean}
      */
     supportsToolCentricSelectionBoxes(control) {
         return control &&
-               typeof control.createSelectionBox === 'function' &&
-               typeof control.getSelectionBoxStrategy === 'function';
+            typeof control.createSelectionBox === 'function' &&
+            typeof control.getSelectionBoxStrategy === 'function';
     }
 
     /**
-     * Create selection boxes using tool-centric approach
+     * Create selection boxes using tool-centric approach with caching.
+     * @param {Array<Object>} features
+     * @param {Object} control
+     * @returns {Array<Object>}
      */
     createSelectionBoxesToolCentric(features, control) {
         const selectionBoxes = [];
@@ -243,7 +355,10 @@ class UIManager {
     }
 
     /**
-     * Expand bbox with padding
+     * Expand bounding box with padding in pixels.
+     * @param {Array<number>} bbox - [minX, minY, maxX, maxY]
+     * @param {number} paddingPixels
+     * @returns {Array<number>}
      */
     expandBboxWithPadding(bbox, paddingPixels) {
         const centerLat = (bbox[1] + bbox[3]) / 2;
@@ -261,8 +376,13 @@ class UIManager {
         ];
     }
 
-    // ===== ATTRIBUTE PANEL MANAGEMENT =====
+    // =========================================================================
+    // ATTRIBUTE PANEL MANAGEMENT
+    // =========================================================================
 
+    /**
+     * Update attribute and profile panels based on selection.
+     */
     updatePanels = () => {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
 
@@ -274,6 +394,9 @@ class UIManager {
         }
     }
 
+    /**
+     * Update only the profile panel.
+     */
     updateProfile = () => {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
 
@@ -284,6 +407,10 @@ class UIManager {
         }
     }
 
+    /**
+     * Create unified attributes panel for selected features.
+     * @param {Array<Object>} selectedFeatures
+     */
     createUnifiedAttributesPanel = (selectedFeatures) => {
         let panel = document.querySelector('.unified-attributes-panel');
         if (panel) panel.remove();
@@ -306,7 +433,10 @@ class UIManager {
     }
 
     /**
-     * Add attributes for type using tool-centric approach
+     * Add attributes for type using tool-centric approach.
+     * @param {HTMLElement} panel
+     * @param {Array<Object>} features
+     * @param {string} type
      */
     addAttributesForType(panel, features, type) {
         const control = this.selectionManager.controls.get(type);
@@ -326,6 +456,10 @@ class UIManager {
         }
     }
 
+    /**
+     * Add delete button to panel.
+     * @param {HTMLElement} panel
+     */
     addDeleteButton(panel) {
         const deleteButton = document.createElement('button');
         deleteButton.classList.add('delete-button', 'pure-material-button-contained');
@@ -334,8 +468,16 @@ class UIManager {
         panel.appendChild(deleteButton);
     }
 
-    // ===== DRAG OPERATIONS =====
+    // =========================================================================
+    // DRAG OPERATIONS
+    // =========================================================================
 
+    /**
+     * Shift selection boxes by delta (for visual feedback during drag).
+     * @param {number} dx - Delta longitude
+     * @param {number} dy - Delta latitude
+     * @param {boolean} [save=false] - Whether to persist the change
+     */
     shiftSelectionBoxes(dx, dy, save = false) {
         const shiftedFeatures = this.selectionBoxes.map(feature => {
             return this.translateFeature(feature, dx, dy);
@@ -354,6 +496,13 @@ class UIManager {
         }
     }
 
+    /**
+     * Translate feature geometry by delta.
+     * @param {Object} feature - GeoJSON feature
+     * @param {number} dx - Delta X
+     * @param {number} dy - Delta Y
+     * @returns {Object} Translated feature
+     */
     translateFeature(feature, dx, dy) {
         const translatedFeature = JSON.parse(JSON.stringify(feature));
 
@@ -389,8 +538,17 @@ class UIManager {
         return translatedFeature;
     }
 
-    // ===== UTILITY METHODS =====
+    // =========================================================================
+    // UTILITY METHODS
+    // =========================================================================
 
+    /**
+     * Calculate expanded dimensions after rotation.
+     * @param {number} originalWidth
+     * @param {number} originalHeight
+     * @param {number} rotationDegrees
+     * @returns {{width: number, height: number}}
+     */
     calculateExpandedDimensions(originalWidth, originalHeight, rotationDegrees) {
         if (rotationDegrees === 0) {
             return { width: originalWidth, height: originalHeight };
@@ -421,6 +579,13 @@ class UIManager {
         };
     }
 
+    /**
+     * Convert pixels to degrees at given latitude and zoom.
+     * @param {number} pixels
+     * @param {number} latitude
+     * @param {number} zoom
+     * @returns {number}
+     */
     pixelsToDegrees = (pixels, latitude, zoom) => {
         const earthCircumference = 40075017;
         const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
@@ -428,10 +593,24 @@ class UIManager {
         return pixels * metersPerPixel * degreesPerMeter;
     }
 
+    /**
+     * Calculate buffer around feature.
+     * @param {Object} feature - GeoJSON feature
+     * @param {number} bufferSize
+     * @returns {Object}
+     */
     calculateBuffer = (feature, bufferSize) => {
         return turf.buffer(feature, bufferSize, { units: 'degrees' });
     }
 
+    /**
+     * Create selection box polygon.
+     * @param {Array<number>} coordinates - [lng, lat]
+     * @param {number} width
+     * @param {number} height
+     * @param {number} rotation
+     * @returns {Object} GeoJSON Polygon geometry
+     */
     createSelectionBox = (coordinates, width, height, rotation) => {
         const radians = rotation * (Math.PI / 180);
         const point = this.map.project(coordinates);
@@ -457,8 +636,14 @@ class UIManager {
         };
     }
 
-    // ===== PROFILE PANEL =====
+    // =========================================================================
+    // PROFILE PANEL
+    // =========================================================================
 
+    /**
+     * Show profile panel for selected features.
+     * @param {Array<Object>} selectedFeatures
+     */
     showProfilePanel(selectedFeatures) {
         if (selectedFeatures.length !== 1) {
             this.hideProfilePanel();
@@ -485,6 +670,11 @@ class UIManager {
         }
     }
 
+    /**
+     * Create elevation profile panel with chart.
+     * @param {string} profileData - JSON string of profile data
+     * @param {boolean} [linkFirstLast=false] - Whether to show line of sight
+     */
     createProfilePanel(profileData, linkFirstLast = false) {
         let panel = document.querySelector('.profile-panel');
         if (!panel) {
@@ -497,7 +687,7 @@ class UIManager {
             try {
                 this.activeChart.destroy();
             } catch (error) {
-                console.warn('Erro ao destruir chart anterior:', error);
+                console.warn('Error destroying previous chart:', error);
             }
             this.activeChart = null;
         }
@@ -576,6 +766,9 @@ class UIManager {
         });
     }
 
+    /**
+     * Hide profile panel.
+     */
     hideProfilePanel() {
         if (this.activeChart) {
             try {
@@ -592,14 +785,21 @@ class UIManager {
         }
     }
 
+    /**
+     * Hide feature search panel.
+     */
     hideFeatureSearchPanel() {
         const panel = document.querySelector('.feature-search-panel');
         if (panel) {
             panel.remove();
-            this.featureSearchControl.removeMarker();
+            this.featureSearchControl?.removeMarker();
         }
     }
 
+    /**
+     * Show feature search result panel.
+     * @param {Object} feature - Search result feature
+     */
     showFeatureSearchPanel(feature) {
         const panel = document.createElement('div');
         panel.className = 'unified-attributes-panel feature-search-panel';
@@ -634,6 +834,10 @@ class UIManager {
         document.body.appendChild(panel);
     }
 
+    /**
+     * Show vector tile info panel.
+     * @param {Object} feature
+     */
     showVectorTileInfoPanel(feature) {
         this.saveChangesAndClosePanel();
 
@@ -643,6 +847,11 @@ class UIManager {
         document.body.appendChild(panel);
     }
 
+    /**
+     * Add vector tile info content to panel.
+     * @param {HTMLElement} panel
+     * @param {Object} feature
+     */
     addVectorTileInfoToPanel(panel, feature) {
         const title = document.createElement('h3');
         let sourceName;
@@ -710,6 +919,9 @@ class UIManager {
         panel.appendChild(closeButton);
     }
 
+    /**
+     * Save changes and close all panels.
+     */
     saveChangesAndClosePanel = () => {
         this.hideFeatureSearchPanel();
         this.hideProfilePanel();
@@ -723,6 +935,28 @@ class UIManager {
             panel.remove();
 
             cleanupFeatureDropdownListeners();
+        }
+    }
+
+    /**
+     * Cleanup resources.
+     * Call when component is destroyed.
+     */
+    destroy() {
+        this._unsubscribers.forEach(unsub => unsub());
+        this._unsubscribers = [];
+
+        if (this.rafId) {
+            cancelAnimationFrame(this.rafId);
+        }
+
+        if (this.activeChart) {
+            try {
+                this.activeChart.destroy();
+            } catch (e) {
+                // Ignore
+            }
+            this.activeChart = null;
         }
     }
 }

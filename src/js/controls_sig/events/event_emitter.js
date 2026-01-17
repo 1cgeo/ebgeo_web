@@ -8,7 +8,11 @@
  * - Unsubscribe function returned from on() enables clean component cleanup
  * - Error isolation prevents one failing handler from breaking event propagation
  * - FIFO execution order preserves registration sequence
+ * - Default timeout on waitFor() prevents memory leaks from forgotten promises
  */
+
+/** Default timeout for waitFor() to prevent memory leaks from unresolved promises */
+const DEFAULT_WAIT_TIMEOUT_MS = 30000;
 
 /**
  * Base EventEmitter class.
@@ -60,6 +64,10 @@ export class EventEmitter {
             throw new TypeError('EventEmitter.on: callback must be a function');
         }
 
+        if (typeof event !== 'string' || event.trim() === '') {
+            throw new TypeError('EventEmitter.on: event must be a non-empty string');
+        }
+
         if (!this._listeners.has(event)) {
             this._listeners.set(event, []);
         }
@@ -90,19 +98,27 @@ export class EventEmitter {
      * Remove a specific event listener.
      * @param {string} event - Event name
      * @param {Function} callback - The exact callback reference to remove
+     * @returns {boolean} True if listener was found and removed
      */
     off(event, callback) {
         const listeners = this._listeners.get(event);
-        if (!listeners) return;
+        if (!listeners) return false;
 
         const index = listeners.findIndex(l => l.callback === callback);
         if (index !== -1) {
             listeners.splice(index, 1);
 
+            // Cleanup empty arrays to prevent unbounded Map growth
+            if (listeners.length === 0) {
+                this._listeners.delete(event);
+            }
+
             if (this._debugMode) {
                 console.log(`[EventEmitter] Removed listener for "${event}"`);
             }
+            return true;
         }
+        return false;
     }
 
     /**
@@ -123,6 +139,7 @@ export class EventEmitter {
      * Errors in one listener do not prevent other listeners from being called.
      * @param {string} event - Event name
      * @param {*} [payload] - Event data passed to listeners
+     * @returns {boolean} True if event had listeners
      */
     emit(event, payload) {
         if (this._debugMode) {
@@ -130,7 +147,7 @@ export class EventEmitter {
         }
 
         const listeners = this._listeners.get(event);
-        if (!listeners || listeners.length === 0) return;
+        if (!listeners || listeners.length === 0) return false;
 
         // Copy array to avoid issues if listeners modify the array during iteration
         const listenersCopy = [...listeners];
@@ -153,35 +170,53 @@ export class EventEmitter {
         for (const listener of toRemove) {
             this.off(event, listener.callback);
         }
+
+        return true;
     }
 
     /**
      * Wait for an event using Promise.
      * Useful for async/await patterns.
      * @param {string} event - Event name
-     * @param {number} [timeout] - Timeout in milliseconds (optional)
+     * @param {number} [timeout=30000] - Timeout in ms. Defaults to 30s to prevent memory leaks.
      * @returns {Promise<*>} Resolves with event payload
      * @throws {Error} If timeout is reached
      *
      * @example
      * const payload = await emitter.waitFor('ready', 5000);
      */
-    waitFor(event, timeout) {
+    waitFor(event, timeout = DEFAULT_WAIT_TIMEOUT_MS) {
         return new Promise((resolve, reject) => {
-            let timeoutId;
+            let timeoutId = null;
+            let unsubscribe = null;
 
-            const unsubscribe = this.once(event, (payload) => {
-                if (timeoutId) clearTimeout(timeoutId);
+            const cleanup = () => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+            };
+
+            unsubscribe = this.once(event, (payload) => {
+                cleanup();
                 resolve(payload);
             });
 
-            if (timeout) {
-                timeoutId = setTimeout(() => {
-                    unsubscribe();
-                    reject(new Error(`Timeout waiting for event "${event}"`));
-                }, timeout);
-            }
+            timeoutId = setTimeout(() => {
+                unsubscribe();
+                reject(new Error(`Timeout waiting for event "${event}" after ${timeout}ms`));
+            }, timeout);
         });
+    }
+
+    /**
+     * Check if there are listeners for an event.
+     * @param {string} event - Event name
+     * @returns {boolean} True if event has listeners
+     */
+    hasListeners(event) {
+        const listeners = this._listeners.get(event);
+        return listeners !== undefined && listeners.length > 0;
     }
 
     /**
@@ -200,5 +235,17 @@ export class EventEmitter {
      */
     eventNames() {
         return Array.from(this._listeners.keys());
+    }
+
+    /**
+     * Get total listener count across all events.
+     * @returns {number} Total listener count
+     */
+    totalListenerCount() {
+        let total = 0;
+        for (const listeners of this._listeners.values()) {
+            total += listeners.length;
+        }
+        return total;
     }
 }

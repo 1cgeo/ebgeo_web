@@ -28,6 +28,7 @@ import {
 import { FeatureNavigationUtils } from "./utilities/feature_navigation_utils.js";
 import config from "../config.js";
 import { EventTypes } from './events/event_types.js';
+import { getStateManager } from './services.js';
 
 class FeaturesTab {
   /**
@@ -62,8 +63,8 @@ class FeaturesTab {
     this._sortableInstance = null;
 
     // Expansion state cache to preserve during re-renders
-    this._collapsedLayers = new Set();
-    this._collapsedGroups = new Set();
+    // Collapsed state delegated to StateManager
+    // this._collapsedGroups = new Set(); // Delegated to StateManager
 
     // EventBus unsubscribe functions for cleanup
     this._unsubscribers = [];
@@ -1235,7 +1236,7 @@ class FeaturesTab {
       featuresList.appendChild(layerContainer);
 
       // Restore layer collapse state
-      if (this._collapsedLayers.has(layerInfo.layer.id)) {
+      if (this._isLayerCollapsed(layerInfo.layer.id)) {
         const content = layerContainer.querySelector(".layer-content");
         const expandIcon = layerContainer.querySelector(".layer-expand-icon");
         if (content) content.classList.add("collapsed");
@@ -1244,7 +1245,7 @@ class FeaturesTab {
     });
 
     // Restore group collapse states
-    this._collapsedGroups.forEach(groupId => {
+    this._getCollapsedGroups().forEach(groupId => {
       const groupContainer = featuresList.querySelector(`[data-group-id="${groupId}"]`);
       if (groupContainer) {
         const featureList = groupContainer.querySelector(".group-features-list");
@@ -1524,11 +1525,11 @@ class FeaturesTab {
     if (content.classList.contains("collapsed")) {
       content.classList.remove("collapsed");
       expandIcon.classList.remove("collapsed");
-      this._collapsedLayers.delete(layerId);
+      this._setLayerCollapsed(layerId, false);
     } else {
       content.classList.add("collapsed");
       expandIcon.classList.add("collapsed");
-      this._collapsedLayers.add(layerId);
+      this._setLayerCollapsed(layerId, true);
     }
   }
 
@@ -1797,13 +1798,13 @@ class FeaturesTab {
       expandIcon.classList.remove("expanded");
       expandIcon.classList.add("collapsed");
       // Keep same EXPAND icon - rotation is done via CSS
-      this._collapsedGroups.add(groupId);
+      this._setGroupCollapsed(groupId, true);
     } else {
       // Expand: add expanded, remove collapsed
       featuresList.classList.add("expanded");
       expandIcon.classList.remove("collapsed");
       expandIcon.classList.add("expanded");
-      this._collapsedGroups.delete(groupId);
+      this._setGroupCollapsed(groupId, false);
     }
   }
 
@@ -2586,6 +2587,74 @@ class FeaturesTab {
     if (checkbox) {
       checkbox.checked = enabled;
       this.applyHillshadeState(enabled);
+    }
+  }
+
+  // =========================================================================
+  // STATE MANAGER INTEGRATION - Collapsed State
+  // =========================================================================
+
+  /**
+   * Check if a layer is collapsed.
+   * @param {string} layerId
+   * @returns {boolean}
+   */
+  _isLayerCollapsed(layerId) {
+    try {
+      return getStateManager().isLayerCollapsed(layerId);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Set layer collapsed state.
+   * @param {string} layerId
+   * @param {boolean} collapsed
+   */
+  _setLayerCollapsed(layerId, collapsed) {
+    try {
+      getStateManager().toggleLayerCollapsed(layerId, collapsed);
+    } catch (e) {
+      // StateManager not available
+    }
+  }
+
+  /**
+   * Check if a group is collapsed.
+   * @param {string} groupId
+   * @returns {boolean}
+   */
+  _isGroupCollapsed(groupId) {
+    try {
+      return getStateManager().isGroupCollapsed(groupId);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Set group collapsed state.
+   * @param {string} groupId
+   * @param {boolean} collapsed
+   */
+  _setGroupCollapsed(groupId, collapsed) {
+    try {
+      getStateManager().toggleGroupCollapsed(groupId, collapsed);
+    } catch (e) {
+      // StateManager not available
+    }
+  }
+
+  /**
+   * Get all collapsed group IDs.
+   * @returns {Array<string>}
+   */
+  _getCollapsedGroups() {
+    try {
+      return getStateManager().get('sidebar.collapsedGroups') || [];
+    } catch (e) {
+      return [];
     }
   }
 }
