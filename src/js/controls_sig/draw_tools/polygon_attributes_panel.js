@@ -13,6 +13,7 @@ import {
     getCommonConfig
 } from '../tool_manager/attribute_panel_helpers.js';
 import { openHatchConfigModal } from '../tool_manager/hatch_config_modal.js';
+import { wrapPanelWithTabs } from '../user_data/user_data_panel.js';
 
 /**
  * Add polygon attributes to the attributes panel
@@ -143,4 +144,16 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     });
 
     panel.appendChild(buttons);
+
+    // User Data integration - only for single feature selection
+    if (selectedFeatures.length === 1) {
+        const cleanup = wrapPanelWithTabs(
+            panel,
+            feature.properties.id,
+            'polygon',
+            polygonControl
+        );
+        // Store cleanup for potential lifecycle management
+        panel._userDataCleanup = cleanup;
+    }
 }

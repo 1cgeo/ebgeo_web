@@ -3,9 +3,9 @@
 import localforage from 'localforage';
 import config from '../../config.js';
 
-const SCHEMA_VERSION = '1.5';
+const SCHEMA_VERSION = '1.6';
 const MIN_SCHEMA_VERSION = '1.3';
-const MAX_SCHEMA_VERSION = '1.5';
+const MAX_SCHEMA_VERSION = '1.6';
 
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
@@ -431,6 +431,64 @@ const migrateAllMapsTo15 = async () => {
     }
 };
 
+/**
+ * Migrates a single map to v1.6 (adds attributes:{} and images:[] to features)
+ * @param {string} mapName - Map name
+ * @param {Object} mapData - Map data
+ * @returns {boolean} True if migration was performed
+ */
+const migrateMapTo16 = async (mapName, mapData) => {
+    if (!mapData || !mapData.features) {
+        return false;
+    }
+
+    let modified = false;
+    const featureTypes = Object.keys(mapData.features);
+
+    for (const featureType of featureTypes) {
+        const features = mapData.features[featureType];
+        if (!Array.isArray(features)) continue;
+
+        for (const feature of features) {
+            if (feature.properties) {
+                if (feature.properties.attributes === undefined) {
+                    feature.properties.attributes = {};
+                    modified = true;
+                }
+                if (feature.properties.images === undefined) {
+                    feature.properties.images = [];
+                    modified = true;
+                }
+            }
+        }
+    }
+
+    if (modified) {
+        await mapStore.setItem(mapName, mapData);
+    }
+    return modified;
+};
+
+/**
+ * Migrates all maps to v1.6
+ */
+const migrateAllMapsTo16 = async () => {
+    const mapNames = await getAllMapNames();
+    let migratedCount = 0;
+
+    for (const mapName of mapNames) {
+        const mapData = await mapStore.getItem(mapName);
+        if (mapData) {
+            const wasMigrated = await migrateMapTo16(mapName, mapData);
+            if (wasMigrated) migratedCount++;
+        }
+    }
+
+    if (migratedCount > 0) {
+        console.log(`Migrated ${migratedCount} map(s) to v1.6 (added attributes and images to features)`);
+    }
+};
+
 // ===== INITIALIZATION =====
 
 const initializeRepository = async () => {
@@ -442,9 +500,14 @@ const initializeRepository = async () => {
         if (currentSchemaVersion === '1.3') {
             await migrateAllMapsTo14();
             await migrateAllMapsTo15();
+            await migrateAllMapsTo16();
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         } else if (currentSchemaVersion === '1.4') {
             await migrateAllMapsTo15();
+            await migrateAllMapsTo16();
+            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        } else if (currentSchemaVersion === '1.5') {
+            await migrateAllMapsTo16();
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         } else if (!currentSchemaVersion) {
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);

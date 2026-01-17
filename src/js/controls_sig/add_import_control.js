@@ -8,6 +8,7 @@ import { getTerrainElevation } from './terrain_control.js';
 import { showSuccess } from './utilities/toast_service.js';
 import { EventTypes } from './events/event_types.js';
 import { getEventBus } from './services.js';
+import userDataManager from './user_data/user_data_manager.js';
 
 class AddImportControl {
     static FILE_LIMITS = {
@@ -552,13 +553,22 @@ class AddImportControl {
         const featureId = IDUtils.generateUniqueId();
         const featureName = this.generateImportName(targetType, typeCounters);
 
+        // Extract custom attributes from imported properties (non-system properties)
+        const extractedAttributes = userDataManager.extractAttributesFromImport(
+            feature.properties
+        );
+
         const baseProperties = {
             ...this.getDefaultProperties(targetType),
-            ...feature.properties,
+            // Note: We no longer spread feature.properties here to avoid mixing
+            // imported data with system properties. Custom data goes to 'attributes'.
             id: featureId,
             nome: featureName,
             source: targetType.slice(0, -1),
             layerId: layerId,
+            // User data fields - custom attributes extracted from import, empty images
+            attributes: extractedAttributes,
+            images: [],
         };
 
         switch (targetType) {
