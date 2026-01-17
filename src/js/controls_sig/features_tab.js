@@ -27,14 +27,22 @@ import {
 } from "./store/store.js";
 import { FeatureNavigationUtils } from "./utilities/feature_navigation_utils.js";
 import config from "../config.js";
+import { EventTypes } from './events/event_types.js';
 
 class FeaturesTab {
-  constructor(map, selectionManager = null, analysisLayersManager) {
+  /**
+   * @param {Object} map - MapLibre map instance
+   * @param {Object} selectionManager - Selection manager instance
+   * @param {Object} analysisLayersManager - Analysis layers manager instance
+   * @param {import('./events/event_bus.js').EventBus} eventBus - Event bus instance
+   */
+  constructor(map, selectionManager, analysisLayersManager, eventBus) {
     this.map = map;
     this.selectionManager = selectionManager;
     this.container = null;
 
     this.analysisLayersManager = analysisLayersManager;
+    this._eventBus = eventBus;
 
     this._sourceDataHandler = null;
     this._groupsChangedHandler = null;
@@ -56,6 +64,9 @@ class FeaturesTab {
     // Expansion state cache to preserve during re-renders
     this._collapsedLayers = new Set();
     this._collapsedGroups = new Set();
+
+    // EventBus unsubscribe functions for cleanup
+    this._unsubscribers = [];
 
     this.INLINE_ICONS = {
       EYE_VISIBLE: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -337,10 +348,12 @@ class FeaturesTab {
   }
 
   /**
-   * Emit layers change event
+   * Emit layers change event via EventBus
    */
   emitLayersChanged() {
-    document.dispatchEvent(new CustomEvent('layers-changed'));
+    this._eventBus.emit(EventTypes.LAYERS_CHANGED, {
+      mapName: getCurrentMapNameSync()
+    });
   }
 
   /**
@@ -364,13 +377,13 @@ class FeaturesTab {
         align-items: center;
         transition: all 0.2s;
       }
-      
+
       .layer-add-btn:hover {
         background-color: #e9ecef;
         border-color: #007bff;
         color: #007bff;
       }
-      
+
       /* Container de cada layer na lista */
       .layer-container {
         margin-bottom: 2px;
@@ -379,20 +392,20 @@ class FeaturesTab {
         overflow: hidden;
         background-color: #fff;
       }
-      
+
       .layer-container.layer-active {
         border-color: #28a745;
         border-left: 3px solid #28a745;
       }
-      
+
       .layer-container.layer-hidden {
         opacity: 0.6;
       }
-      
+
       .layer-container.layer-locked {
         background-color: #fffbf0;
       }
-      
+
       /* Header da layer */
       .layer-header {
         display: flex;
@@ -403,37 +416,37 @@ class FeaturesTab {
         user-select: none;
         gap: 4px;
       }
-      
+
       .layer-header:hover {
         background-color: #e9ecef;
       }
-      
+
       .layer-header.active {
         background-color: #d4edda;
       }
-      
+
       .layer-radio {
         margin: 0;
         cursor: pointer;
       }
-      
+
       .layer-expand-icon {
         color: #666;
         display: flex;
         align-items: center;
         transition: transform 0.2s ease;
       }
-      
+
       .layer-expand-icon.collapsed {
         transform: rotate(-90deg);
       }
-      
+
       .layer-icon {
         color: #666;
         display: flex;
         align-items: center;
       }
-      
+
       .layer-name {
         flex: 1;
         font-size: 13px;
@@ -445,7 +458,7 @@ class FeaturesTab {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      
+
       .layer-count {
         font-size: 11px;
         color: #666;
@@ -454,13 +467,13 @@ class FeaturesTab {
         border-radius: 10px;
         margin-right: 4px;
       }
-      
+
       .layer-controls {
         display: flex;
         align-items: center;
         gap: 2px;
       }
-      
+
       .layer-controls button {
         background: none;
         border: none;
@@ -472,37 +485,37 @@ class FeaturesTab {
         align-items: center;
         transition: all 0.2s;
       }
-      
+
       .layer-controls button:hover:not(:disabled) {
         background-color: #fff;
         color: #007bff;
       }
-      
+
       .layer-controls button:disabled {
         cursor: not-allowed;
         opacity: 0.3;
       }
-      
+
       .layer-delete-btn:hover:not(:disabled) {
         color: #dc3545 !important;
       }
-      
+
       /* Layer content (features and groups) */
       .layer-content {
         padding: 4px 4px 4px 16px;
         background-color: #fff;
       }
-      
+
       .layer-content.collapsed {
         display: none;
       }
-      
+
       /* Indicador de grupo split (cross-layer) */
       .group-split-indicator {
         color: #fd7e14;
         font-style: italic;
       }
-      
+
       /* Drag handle for layer reordering */
       .layer-drag-handle {
         display: flex;
@@ -516,26 +529,26 @@ class FeaturesTab {
         transition: color 0.2s ease;
         padding: 0 2px;
       }
-      
+
       .layer-drag-handle:hover {
         color: #007bff;
       }
-      
+
       .layer-drag-handle:active {
         cursor: grabbing;
       }
-      
+
       /* Estados do Sortable para layers */
       .layer-sortable-ghost {
         opacity: 0.4;
         background-color: rgba(0, 123, 255, 0.1) !important;
       }
-      
+
       .layer-sortable-chosen {
         background-color: rgba(0, 123, 255, 0.15) !important;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
       }
-      
+
       .layer-sortable-drag {
         opacity: 1 !important;
         background-color: white !important;
@@ -561,7 +574,7 @@ class FeaturesTab {
                     background-color: #f8f9fa;
                     overflow: hidden;
                 }
-                
+
                 .group-header {
                     display: flex;
                     align-items: center;
@@ -571,45 +584,45 @@ class FeaturesTab {
                     cursor: pointer;
                     user-select: none;
                 }
-                
+
                 .group-header:hover {
                     background-color: #e9ecef;
                 }
-                
+
                 .group-header.group-hidden {
                     opacity: 0.6;
                 }
-                
+
                 .group-header.group-locked {
                     background-color: #ffeaa7;
                 }
-                
+
                 .group-expand-icon {
                     margin-right: 8px;
                     color: #666;
                     transition: transform 0.2s ease;
                 }
-                
+
                 .group-expand-icon.expanded {
                     transform: rotate(0deg);
                 }
-                
+
                 .group-expand-icon.collapsed {
                     transform: rotate(-90deg);
                 }
-                
+
                 .group-icon {
                     margin-right: 8px;
                     color: #007bff;
                 }
-                
+
                 .group-name {
                     flex: 1;
                     font-weight: 500;
                     font-size: 14px;
                     color: #333;
                 }
-                
+
                 .group-count {
                     margin-left: 8px;
                     font-size: 12px;
@@ -618,14 +631,14 @@ class FeaturesTab {
                     padding: 2px 6px;
                     border-radius: 10px;
                 }
-                
+
                 .group-controls {
                     display: flex;
                     align-items: center;
                     gap: 4px;
                     margin-left: 8px;
                 }
-                
+
                 .group-controls button {
                     background: none;
                     border: none;
@@ -638,27 +651,27 @@ class FeaturesTab {
                     align-items: center;
                     justify-content: center;
                 }
-                
+
                 .group-controls button:hover {
                     background-color: #ffffff;
                     color: #007bff;
                 }
-                
+
                 .group-controls .lock-toggle svg {
                     color: #dc3545;
                 }
-                
+
                 .group-features-list {
                     max-height: 0;
                     overflow: hidden;
                     transition: max-height 0.3s ease;
                     background-color: #ffffff;
                 }
-                
+
                 .group-features-list.expanded {
                     max-height: 500px;
                 }
-                
+
                 .group-feature-item {
                     display: flex;
                     align-items: center;
@@ -666,37 +679,37 @@ class FeaturesTab {
                     border-bottom: 1px solid #f0f0f0;
                     background-color: #ffffff;
                 }
-                
+
                 .group-feature-item:last-child {
                     border-bottom: none;
                 }
-                
+
                 .group-feature-item:hover {
                     background-color: #f8f9fa;
                 }
-                
+
                 .group-feature-item.feature-hidden {
                     opacity: 0.5;
                 }
-                
+
                 .group-feature-main {
                     display: flex;
                     align-items: center;
                     flex: 1;
                     cursor: pointer;
                 }
-                
+
                 .group-feature-type-icon {
                     width: 16px;
                     height: 16px;
                     margin-right: 8px;
                 }
-                
+
                 .group-feature-name {
                     font-size: 13px;
                     color: #555;
                 }
-                
+
                 .feature-item {
                     display: flex;
                     align-items: center;
@@ -706,43 +719,43 @@ class FeaturesTab {
                     background-color: #ffffff;
                     transition: background-color 0.2s ease;
                 }
-                
+
                 .feature-item:hover {
                     background-color: #f8f9fa;
                 }
-                
+
                 .feature-item.feature-hidden {
                     opacity: 0.5;
                 }
-                
+
                 .feature-item.feature-locked {
                     background-color: #ffeaa7;
                 }
-                
+
                 .feature-main {
                     display: flex;
                     align-items: center;
                     flex: 1;
                     cursor: pointer;
                 }
-                
+
                 .feature-type-icon {
                     width: 16px;
                     height: 16px;
                     margin-right: 8px;
                 }
-                
+
                 .feature-name {
                     font-size: 14px;
                     color: #333;
                 }
-                
+
                 .feature-controls {
                     display: flex;
                     align-items: center;
                     gap: 4px;
                 }
-                
+
                 .feature-controls button {
                     background: none;
                     border: none;
@@ -755,12 +768,12 @@ class FeaturesTab {
                     align-items: center;
                     justify-content: center;
                 }
-                
+
                 .feature-controls button:hover {
                     background-color: #e9ecef;
                     color: #007bff;
                 }
-                
+
                 .feature-controls .lock-toggle svg {
                     color: #dc3545;
                 }
@@ -785,7 +798,7 @@ class FeaturesTab {
                     text-transform: uppercase;
                     letter-spacing: 0.5px;
                 }
-                
+
                 .analysis-layer-item {
                     display: flex;
                     align-items: center;
@@ -793,7 +806,7 @@ class FeaturesTab {
                     padding: 4px 12px 4px 24px;
                     gap: 8px;
                 }
-                
+
                 .analysis-layer-label {
                     display: flex;
                     align-items: center;
@@ -801,11 +814,11 @@ class FeaturesTab {
                     cursor: pointer;
                     flex: 1;
                 }
-                
+
                 .analysis-layer-label input {
                     margin-right: 6px;
                 }
-                
+
                 .analysis-layer-zoom {
                     background: none;
                     border: none;
@@ -820,12 +833,12 @@ class FeaturesTab {
                     min-width: 22px;
                     height: 22px;
                 }
-                
+
                 .analysis-layer-zoom:hover {
                     color: #007bff;
                     background-color: #f8f9fa;
                 }
-                
+
                 .analysis-layer-zoom:active {
                     transform: scale(0.95);
                 }
@@ -854,7 +867,7 @@ class FeaturesTab {
 
     hillshadeContainer.innerHTML = `
             <label style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
-                <input type="checkbox" id="hillshade-toggle" style="margin-right: 6px;"> 
+                <input type="checkbox" id="hillshade-toggle" style="margin-right: 6px;">
                 Sombreamento
             </label>
         `;
@@ -1020,7 +1033,7 @@ class FeaturesTab {
                 padding: 40px 20px;
                 background-color: #ffffff;
             }
-            
+
             .spinner {
                 width: 24px;
                 height: 24px;
@@ -1030,13 +1043,13 @@ class FeaturesTab {
                 animation: spin 1s linear infinite;
                 margin-bottom: 12px;
             }
-            
+
             .loading-text {
                 color: #666;
                 font-size: 14px;
                 font-weight: 500;
             }
-            
+
             @keyframes spin {
                 0% { transform: rotate(0deg); }
                 100% { transform: rotate(360deg); }
@@ -2417,13 +2430,17 @@ class FeaturesTab {
     this.map.on('sourcedata', this._sourceDataHandler);
 
     this._groupsChangedHandler = () => this._scheduleRefresh();
-    document.addEventListener('groups-changed', this._groupsChangedHandler);
+    this._unsubscribers.push(
+      this._eventBus.on(EventTypes.GROUPS_CHANGED, this._groupsChangedHandler)
+    );
 
     this._layersChangedHandler = () => {
       if (this._suppressLayersChangedRefresh) return;
       this._scheduleRefresh();
     };
-    document.addEventListener('layers-changed', this._layersChangedHandler);
+    this._unsubscribers.push(
+      this._eventBus.on(EventTypes.LAYERS_CHANGED, this._layersChangedHandler)
+    );
   }
 
   _removeEventListeners() {
@@ -2431,15 +2448,13 @@ class FeaturesTab {
       this.map.off('sourcedata', this._sourceDataHandler);
       this._sourceDataHandler = null;
     }
-    if (this._groupsChangedHandler) {
-      document.removeEventListener('groups-changed', this._groupsChangedHandler);
-      this._groupsChangedHandler = null;
-    }
-    // Remove layer listener
-    if (this._layersChangedHandler) {
-      document.removeEventListener('layers-changed', this._layersChangedHandler);
-      this._layersChangedHandler = null;
-    }
+
+    // Cleanup EventBus subscriptions
+    this._unsubscribers.forEach(unsub => unsub());
+    this._unsubscribers = [];
+
+    this._groupsChangedHandler = null;
+    this._layersChangedHandler = null;
   }
 
   _handleSourceData(e) {

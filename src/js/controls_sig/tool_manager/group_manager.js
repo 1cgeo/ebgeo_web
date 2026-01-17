@@ -2,14 +2,19 @@
 
 import { memoryStore, setMapGroups, getMapGroups } from '../store/repository.js';
 import { IDUtils } from '../id_utils.js';
+import { EventTypes } from '../events/event_types.js';
 
 /**
  * Central manager for feature groups
  * Maintains memory cache for synchronous queries and persists to IndexedDB
  */
 class GroupManager {
-    constructor() {
+    /**
+     * @param {import('../events/event_bus.js').EventBus} eventBus - Event bus for notifications
+     */
+    constructor(eventBus) {
         this.memoryStore = memoryStore;
+        this._eventBus = eventBus;
     }
 
     // ===== MAIN OPERATIONS =====
@@ -418,8 +423,14 @@ class GroupManager {
 
     // ===== PRIVATE METHODS =====
 
+    /**
+     * Emit groups changed event via EventBus
+     * @private
+     */
     _notifyGroupsChanged() {
-        document.dispatchEvent(new CustomEvent('groups-changed'));
+        this._eventBus.emit(EventTypes.GROUPS_CHANGED, {
+            mapName: this.memoryStore.currentMap
+        });
     }
 
     /**
@@ -472,6 +483,44 @@ class GroupManager {
     }
 }
 
-const groupManagerInstance = new GroupManager();
+/**
+ * Factory function to create GroupManager instance.
+ * @param {import('../events/event_bus.js').EventBus} eventBus - Event bus for notifications
+ * @returns {GroupManager} New GroupManager instance
+ */
+export function createGroupManager(eventBus) {
+    return new GroupManager(eventBus);
+}
 
-export default groupManagerInstance;
+/**
+ * Module-level instance holder for backward compatibility.
+ * Set by services.js after initialization.
+ * @type {{instance: GroupManager|null}}
+ */
+export const groupManagerHolder = { instance: null };
+
+/**
+ * Proxy for backward compatibility with default import.
+ * Delegates all property access/calls to the initialized instance.
+ * @type {GroupManager}
+ */
+const groupManagerProxy = new Proxy({}, {
+    get(target, prop) {
+        if (!groupManagerHolder.instance) {
+            throw new Error('GroupManager not initialized. Ensure initServices() is called first.');
+        }
+        const value = groupManagerHolder.instance[prop];
+        // Bind methods to the instance
+        return typeof value === 'function' ? value.bind(groupManagerHolder.instance) : value;
+    },
+    set(target, prop, value) {
+        if (!groupManagerHolder.instance) {
+            throw new Error('GroupManager not initialized. Ensure initServices() is called first.');
+        }
+        groupManagerHolder.instance[prop] = value;
+        return true;
+    }
+});
+
+export default groupManagerProxy;
+export { GroupManager };

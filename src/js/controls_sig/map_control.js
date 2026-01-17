@@ -12,6 +12,7 @@ import PDFExportTab from './pdf_export_tab.js';
 import FeaturesTab from './features_tab.js';
 import { showToast as toastServiceShow } from './utilities/toast_service.js';
 import { MapNotesManager } from './map_notes_panel.js';
+import { getEventBus } from './services.js';
 
 class MapControl {
     constructor(baseLayerControl, analysisLayersManager) {
@@ -50,7 +51,7 @@ class MapControl {
         this.mapManager.setMap(map);
         this.pdfExportTab = new PDFExportTab(map);
 
-        this.featuresTab = new FeaturesTab(map, this.selectionManager, this.analysisLayersManager);
+        this.featuresTab = new FeaturesTab(map, this.selectionManager, this.analysisLayersManager, getEventBus());
 
         this.mapNotesManager = new MapNotesManager(this, this.mapManager);
         this.mapNotesManager.createPanels();

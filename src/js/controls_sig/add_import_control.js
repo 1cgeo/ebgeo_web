@@ -2,10 +2,12 @@
 import JSZip from 'jszip';
 import * as toGeoJSON from '@tmcw/togeojson';
 import shp from 'shpjs';
-import { addFeatures, createLayerForImport, getLayers } from './store/store.js';
+import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync } from './store/store.js';
 import { IDUtils } from './id_utils.js';
 import { getTerrainElevation } from './terrain_control.js';
 import { showSuccess } from './utilities/toast_service.js';
+import { EventTypes } from './events/event_types.js';
+import { getEventBus } from './services.js';
 
 class AddImportControl {
     static FILE_LIMITS = {
@@ -648,7 +650,10 @@ class AddImportControl {
 
         const totalCount = await this.saveAndUpdateMap(featuresByType);
 
-        document.dispatchEvent(new CustomEvent('layers-changed'));
+        // Emit layers-changed event via EventBus
+        getEventBus().emit(EventTypes.LAYERS_CHANGED, {
+            mapName: getCurrentMapNameSync()
+        });
 
         if (totalCount > 0) {
             this.zoomToAllImportedFeatures(featuresByType);

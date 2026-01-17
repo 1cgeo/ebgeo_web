@@ -4,6 +4,7 @@ import { HatchPatternGenerator } from './tool_manager/hatch_pattern_generator.js
 import { initFrameLayers } from './frameLayersConfig.js';
 import { GRID_LAYERS, initGridLayers } from './gridLayersConfig.js';
 import config from '../config.js';
+import { EventTypes } from './events/event_types.js';
 
 // ============================================================
 // LAYER VISIBILITY FILTER SYSTEM
@@ -131,14 +132,20 @@ function updateAllLayerFilters(mapInstance) {
     });
 }
 
-function setupLayerVisibilityListener(mapInstance) {
+/**
+ * Setup listener for layer visibility changes via EventBus
+ * @param {Object} mapInstance - MapLibre map instance
+ * @param {import('./events/event_bus.js').EventBus} eventBus - Event bus instance
+ * @returns {Function} Unsubscribe function
+ */
+function setupLayerVisibilityListener(mapInstance, eventBus) {
     const handler = () => {
         // Invalidate cache before updating to ensure changes are applied
         invalidateFilterCache();
         updateAllLayerFilters(mapInstance);
     };
-    document.addEventListener('layers-changed', handler);
-    return () => document.removeEventListener('layers-changed', handler);
+    // Subscribe to EventBus and return unsubscribe function directly
+    return eventBus.on(EventTypes.LAYERS_CHANGED, handler);
 }
 
 function invalidateFilterCache() {
@@ -149,7 +156,13 @@ function invalidateFilterCache() {
 // ORIGINAL LAYER SETUP CODE
 // ============================================================
 
-export async function setupMapFeatures(mapInstance, analysisLayersManager) {
+/**
+ * Setup all map feature layers and visibility system
+ * @param {Object} mapInstance - MapLibre map instance
+ * @param {Object} analysisLayersManager - Analysis layers manager
+ * @param {import('./events/event_bus.js').EventBus} eventBus - Event bus instance
+ */
+export async function setupMapFeatures(mapInstance, analysisLayersManager, eventBus) {
     try {
         invalidateFilterCache();
 
@@ -189,8 +202,8 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager) {
             setupFrameLayers(mapInstance);
         }
 
-        // Setup layer visibility system
-        setupLayerVisibilityListener(mapInstance);
+        // Setup layer visibility system with EventBus
+        setupLayerVisibilityListener(mapInstance, eventBus);
         updateAllLayerFilters(mapInstance);
 
         requestAnimationFrame(() => {
@@ -1971,6 +1984,7 @@ async function restoreTerrainState(mapInstance) {
         const terrainControl = mapInstance._controls.find(control =>
             control._name === 'TerrainControl'
         );
+
         if (!terrainControl) {
             return;
         }

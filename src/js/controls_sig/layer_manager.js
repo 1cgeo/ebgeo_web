@@ -9,6 +9,7 @@ import {
     getDefaultLayer
 } from './store/repository.js';
 import { IDUtils } from './id_utils.js';
+import { EventTypes } from './events/event_types.js';
 
 /**
  * Central layer manager
@@ -18,8 +19,12 @@ import { IDUtils } from './id_utils.js';
  * - Events to notify changes
  */
 class LayerManager {
-    constructor() {
+    /**
+     * @param {import('./events/event_bus.js').EventBus} eventBus - Event bus for notifications
+     */
+    constructor(eventBus) {
         this.memoryStore = memoryStore;
+        this._eventBus = eventBus;
     }
 
     // ===== SYNCHRONOUS READ OPERATIONS =====
@@ -477,11 +482,13 @@ class LayerManager {
     // ===== PRIVATE METHODS =====
 
     /**
-     * Emit layers-changed event
+     * Emit layers-changed event via EventBus
      * @private
      */
     _notifyLayersChanged() {
-        document.dispatchEvent(new CustomEvent('layers-changed'));
+        this._eventBus.emit(EventTypes.LAYERS_CHANGED, {
+            mapName: this.memoryStore.currentMap
+        });
     }
 
     /**
@@ -543,7 +550,44 @@ class LayerManager {
     }
 }
 
-// Singleton instance
-const layerManager = new LayerManager();
+/**
+ * Factory function to create LayerManager instance.
+ * @param {import('./events/event_bus.js').EventBus} eventBus - Event bus for notifications
+ * @returns {LayerManager} New LayerManager instance
+ */
+export function createLayerManager(eventBus) {
+    return new LayerManager(eventBus);
+}
 
-export default layerManager;
+/**
+ * Module-level instance holder for backward compatibility.
+ * Set by services.js after initialization.
+ * @type {{instance: LayerManager|null}}
+ */
+export const layerManagerHolder = { instance: null };
+
+/**
+ * Proxy for backward compatibility with default import.
+ * Delegates all property access/calls to the initialized instance.
+ * @type {LayerManager}
+ */
+const layerManagerProxy = new Proxy({}, {
+    get(target, prop) {
+        if (!layerManagerHolder.instance) {
+            throw new Error('LayerManager not initialized. Ensure initServices() is called first.');
+        }
+        const value = layerManagerHolder.instance[prop];
+        // Bind methods to the instance
+        return typeof value === 'function' ? value.bind(layerManagerHolder.instance) : value;
+    },
+    set(target, prop, value) {
+        if (!layerManagerHolder.instance) {
+            throw new Error('LayerManager not initialized. Ensure initServices() is called first.');
+        }
+        layerManagerHolder.instance[prop] = value;
+        return true;
+    }
+});
+
+export default layerManagerProxy;
+export { LayerManager };

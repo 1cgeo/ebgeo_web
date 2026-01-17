@@ -8,8 +8,11 @@ import {
     ungroupFeatures,
     getLayers,
     moveFeaturesToLayer,
-    getActiveLayerIdSync
+    getActiveLayerIdSync,
+    getCurrentMapNameSync
 } from './store/store.js';
+import { EventTypes } from './events/event_types.js';
+import { getEventBus } from './services.js';
 
 class ContextMenuControl {
     constructor(mouseCoordinatesControl, toolManager, selectionManager) {
@@ -266,7 +269,10 @@ class ContextMenuControl {
 
             showSuccess(`${features.length} feição(ões) movida(s) para "${targetLayerName}"`);
 
-            document.dispatchEvent(new CustomEvent('layers-changed'));
+            // Emit layers-changed event via EventBus
+            getEventBus().emit(EventTypes.LAYERS_CHANGED, {
+                mapName: getCurrentMapNameSync()
+            });
         } catch (error) {
             console.error('Error moving features:', error);
             alert('Erro ao mover feições: ' + error.message);

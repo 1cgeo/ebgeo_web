@@ -41,8 +41,35 @@ import {
 
 import mapManager from './map-manager.js';
 import config from '../../config.js';
-import groupManager from '../tool_manager/group_manager.js';
-import layerManager from '../layer_manager.js';
+import { EventTypes } from '../events/event_types.js';
+
+// ===== DEPENDENCY INJECTION =====
+
+/**
+ * Module-level dependencies injected via initStoreEvents()
+ * @type {{eventBus: import('../events/event_bus.js').EventBus|null, groupManager: import('../tool_manager/group_manager.js').GroupManager|null, layerManager: import('../layer_manager.js').LayerManager|null}}
+ */
+const deps = {
+    eventBus: null,
+    groupManager: null,
+    layerManager: null,
+};
+
+/**
+ * Initialize store module with dependencies.
+ * Must be called once at application startup.
+ * @param {import('../events/event_bus.js').EventBus} eventBus - Event bus instance
+ * @param {import('../tool_manager/group_manager.js').GroupManager} groupManager - Group manager instance
+ * @param {import('../layer_manager.js').LayerManager} layerManager - Layer manager instance
+ */
+export function initStoreEvents(eventBus, groupManager, layerManager) {
+    if (deps.eventBus !== null) {
+        throw new Error('Store events already initialized');
+    }
+    deps.eventBus = eventBus;
+    deps.groupManager = groupManager;
+    deps.layerManager = layerManager;
+}
 
 // ===== CENTRALIZED FEATURE TYPE MAPPINGS =====
 
@@ -238,43 +265,43 @@ export const getGridStyle = async (mapName) => {
 // ===== GROUP MANAGEMENT =====
 
 export const createGroup = (features, mapName = null) => {
-    return groupManager.createGroup(features, mapName);
+    return deps.groupManager.createGroup(features, mapName);
 };
 
 export const combineGroups = (groupIds, selectedFeatures = [], mapName = null) => {
-    return groupManager.combineGroups(groupIds, selectedFeatures, mapName);
+    return deps.groupManager.combineGroups(groupIds, selectedFeatures, mapName);
 };
 
 export const ungroupFeatures = (groupId, mapName = null) => {
-    return groupManager.ungroupFeatures(groupId, mapName);
+    return deps.groupManager.ungroupFeatures(groupId, mapName);
 };
 
 export const updateGroupProperty = (groupId, property, value, mapName = null) => {
-    return groupManager.updateGroupProperty(groupId, property, value, mapName);
+    return deps.groupManager.updateGroupProperty(groupId, property, value, mapName);
 };
 
 export const getFeatureGroup = (type, featureId, mapName = null) => {
-    return groupManager.getFeatureGroup(type, featureId, mapName);
+    return deps.groupManager.getFeatureGroup(type, featureId, mapName);
 };
 
 export const isFeatureGrouped = (type, featureId, mapName = null) => {
-    return groupManager.isFeatureGrouped(type, featureId, mapName);
+    return deps.groupManager.isFeatureGrouped(type, featureId, mapName);
 };
 
 export const getMapGroups = (mapName = null) => {
-    return groupManager.getMapGroups(mapName);
+    return deps.groupManager.getMapGroups(mapName);
 };
 
 export const getGroupById = (groupId, mapName = null) => {
-    return groupManager.getGroupById(groupId, mapName);
+    return deps.groupManager.getGroupById(groupId, mapName);
 };
 
 export const getGroupFeatures = (groupId, mapName = null) => {
-    return groupManager.getGroupFeatures(groupId, mapName);
+    return deps.groupManager.getGroupFeatures(groupId, mapName);
 };
 
 export const removeFeatureFromAllGroups = (type, featureId, mapName = null) => {
-    return groupManager.removeFeatureFromAllGroups(type, featureId, mapName);
+    return deps.groupManager.removeFeatureFromAllGroups(type, featureId, mapName);
 };
 
 // ===== INITIALIZATION =====
@@ -283,10 +310,10 @@ export const initializeWithLastActiveMap = async () => {
     const lastActiveMap = await initializeRepository();
     await mapManager.setCurrentMap(lastActiveMap);
     await mapManager.initializeProjectColorCache();
-    await groupManager.loadGroupsToMemory(lastActiveMap);
+    await deps.groupManager.loadGroupsToMemory(lastActiveMap);
 
     // Load layers to memory via LayerManager
-    await layerManager.loadLayersToMemory(lastActiveMap);
+    await deps.layerManager.loadLayersToMemory(lastActiveMap);
 
     return lastActiveMap;
 };
@@ -352,7 +379,7 @@ export const removeMap = async (mapName) => {
 
     await deleteMapData(mapName);
     await mapManager.removeMapFromMemory(mapName);
-    await groupManager.clearMapGroups(mapName);
+    await deps.groupManager.clearMapGroups(mapName);
 
     if (isCurrentMap) {
         if (remainingMaps.length > 0) {
@@ -377,14 +404,14 @@ export const renameMap = async (oldName, newName) => {
     mapManager.renameMapInMemory(oldName, newName);
 
     if (mapManager.getCurrentMapName() === newName) {
-        await groupManager.loadGroupsToMemory(newName);
+        await deps.groupManager.loadGroupsToMemory(newName);
     }
 };
 
 export const setCurrentMap = async (mapName) => {
     await mapManager.setCurrentMap(mapName);
-    await groupManager.loadGroupsToMemory(mapName);
-    await layerManager.loadLayersToMemory(mapName);
+    await deps.groupManager.loadGroupsToMemory(mapName);
+    await deps.layerManager.loadLayersToMemory(mapName);
 };
 
 export const getCurrentMapName = async () => {
@@ -1009,12 +1036,12 @@ export const clearAllDataStore = async () => {
     await mapManager.clearAllColorCaches();
 
     // Reset layer cache via manager
-    layerManager.clearLayersCache();
+    deps.layerManager.clearLayersCache();
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
 
-    // Emit layers-changed event
-    document.dispatchEvent(new CustomEvent('layers-changed'));
+    // Emit layers-changed event via EventBus
+    deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 };
 
 // ===== LAYER MANAGEMENT (delegates to LayerManager) =====
@@ -1025,7 +1052,7 @@ export const clearAllDataStore = async () => {
  * @returns {Array} Array of layers
  */
 export const getLayers = (mapName = null) => {
-    return layerManager.getLayers(mapName);
+    return deps.layerManager.getLayers(mapName);
 };
 
 /**
@@ -1035,7 +1062,7 @@ export const getLayers = (mapName = null) => {
  * @returns {Object|null} Layer or null
  */
 export const getLayerById = (layerId, mapName = null) => {
-    return layerManager.getLayerById(layerId, mapName);
+    return deps.layerManager.getLayerById(layerId, mapName);
 };
 
 /**
@@ -1043,7 +1070,7 @@ export const getLayerById = (layerId, mapName = null) => {
  * @returns {string} Active layer ID
  */
 export const getActiveLayerIdSync = () => {
-    return layerManager.getActiveLayerIdSync();
+    return deps.layerManager.getActiveLayerIdSync();
 };
 
 /**
@@ -1052,7 +1079,7 @@ export const getActiveLayerIdSync = () => {
  * @returns {Promise<string>} Active layer ID
  */
 export const getActiveLayerId = async (mapName = null) => {
-    return layerManager.getActiveLayerIdSync();
+    return deps.layerManager.getActiveLayerIdSync();
 };
 
 /**
@@ -1061,7 +1088,7 @@ export const getActiveLayerId = async (mapName = null) => {
  * @returns {Array} Array of visible layer IDs
  */
 export const getVisibleLayerIds = (mapName = null) => {
-    return layerManager.getVisibleLayerIds(mapName);
+    return deps.layerManager.getVisibleLayerIds(mapName);
 };
 
 /**
@@ -1071,7 +1098,7 @@ export const getVisibleLayerIds = (mapName = null) => {
  * @returns {Object} Created layer
  */
 export const createLayer = (name = 'Nova Camada', mapName = null) => {
-    return layerManager.createLayer(name, mapName);
+    return deps.layerManager.createLayer(name, mapName);
 };
 
 /**
@@ -1080,8 +1107,8 @@ export const createLayer = (name = 'Nova Camada', mapName = null) => {
  * @param {string} mapName - Map name
  * @returns {Object} Created layer
  */
-export const createLayerForImport = (name = 'Importação', mapName = null) => {
-    return layerManager.createLayerForImport(name, mapName);
+export const createLayerForImport = (name = 'ImportaÃ§Ã£o', mapName = null) => {
+    return deps.layerManager.createLayerForImport(name, mapName);
 };
 
 /**
@@ -1094,7 +1121,7 @@ export const deleteLayer = async (layerId, mapName = null) => {
     // First delete features from the layer
     await deleteLayerFeatures(layerId, mapName);
     // Then delete the layer itself
-    return layerManager.deleteLayer(layerId, mapName);
+    return deps.layerManager.deleteLayer(layerId, mapName);
 };
 
 /**
@@ -1105,7 +1132,7 @@ export const deleteLayer = async (layerId, mapName = null) => {
  * @returns {Object} Renamed layer
  */
 export const renameLayer = (layerId, newName, mapName = null) => {
-    return layerManager.renameLayer(layerId, newName, mapName);
+    return deps.layerManager.renameLayer(layerId, newName, mapName);
 };
 
 /**
@@ -1115,7 +1142,7 @@ export const renameLayer = (layerId, newName, mapName = null) => {
  * @returns {Object} Activated layer
  */
 export const setActiveLayer = (layerId, mapName = null) => {
-    return layerManager.setActiveLayer(layerId, mapName);
+    return deps.layerManager.setActiveLayer(layerId, mapName);
 };
 
 /**
@@ -1124,7 +1151,7 @@ export const setActiveLayer = (layerId, mapName = null) => {
  * @param {string} layerId - Layer ID
  */
 export const setActiveLayerId = async (mapName, layerId) => {
-    return layerManager.setActiveLayer(layerId, mapName);
+    return deps.layerManager.setActiveLayer(layerId, mapName);
 };
 
 /**
@@ -1135,7 +1162,7 @@ export const setActiveLayerId = async (mapName, layerId) => {
  * @returns {Object} Updated layer
  */
 export const setLayerVisibility = (layerId, visible, mapName = null) => {
-    return layerManager.setLayerVisibility(layerId, visible, mapName);
+    return deps.layerManager.setLayerVisibility(layerId, visible, mapName);
 };
 
 /**
@@ -1146,7 +1173,7 @@ export const setLayerVisibility = (layerId, visible, mapName = null) => {
  * @returns {Object} Updated layer
  */
 export const setLayerLocked = (layerId, locked, mapName = null) => {
-    return layerManager.setLayerLocked(layerId, locked, mapName);
+    return deps.layerManager.setLayerLocked(layerId, locked, mapName);
 };
 
 /**
@@ -1155,7 +1182,7 @@ export const setLayerLocked = (layerId, locked, mapName = null) => {
  * @param {string} mapName - Map name
  */
 export const reorderLayers = (orderedLayerIds, mapName = null) => {
-    return layerManager.reorderLayers(orderedLayerIds, mapName);
+    return deps.layerManager.reorderLayers(orderedLayerIds, mapName);
 };
 
 /**
@@ -1163,14 +1190,14 @@ export const reorderLayers = (orderedLayerIds, mapName = null) => {
  * @param {string} mapName - Map name
  */
 export const loadLayersToMemory = async (mapName) => {
-    return layerManager.loadLayersToMemory(mapName);
+    return deps.layerManager.loadLayersToMemory(mapName);
 };
 
 /**
  * Clear layers cache
  */
 export const clearLayersCache = () => {
-    layerManager.clearLayersCache();
+    deps.layerManager.clearLayersCache();
 };
 
 /**
@@ -1188,8 +1215,8 @@ export const setMapLayers = async (mapName, layersData) => {
 
     // Reload to memory if current map
     if (mapName === getCurrentMapNameSync()) {
-        await layerManager.loadLayersToMemory(mapName);
-        document.dispatchEvent(new CustomEvent('layers-changed'));
+        await deps.layerManager.loadLayersToMemory(mapName);
+        deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName });
     }
 };
 
@@ -1205,6 +1232,7 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
     const targetMap = mapName || getCurrentMapNameSync();
     const currentMapData = await getMapData(targetMap);
     let modified = false;
+    let deletedCount = 0;
 
     for (const storageType of getAllStorageTypes()) {
         const typeFeatures = currentMapData.features[storageType] || [];
@@ -1217,25 +1245,30 @@ export const deleteLayerFeatures = async (layerId, mapName = null) => {
                 // Remove from groups
                 const featureId = feature.properties?.id;
                 if (featureId) {
-                    groupManager.removeFeatureFromAllGroups(storageType, featureId, targetMap);
+                    deps.groupManager.removeFeatureFromAllGroups(storageType, featureId, targetMap);
                 }
                 return false; // Remove
             }
             return true; // Keep
         });
 
-        if (currentMapData.features[storageType].length !== initialLength) {
+        const countRemoved = initialLength - currentMapData.features[storageType].length;
+        if (countRemoved > 0) {
             modified = true;
+            deletedCount += countRemoved;
         }
     }
 
     if (modified) {
         await updateMapData(targetMap, currentMapData);
 
-        // Emit event for map update
-        document.dispatchEvent(new CustomEvent('features-changed', {
-            detail: { mapName: targetMap, action: 'delete-layer-features', layerId }
-        }));
+        // Emit event for map update via EventBus
+        deps.eventBus.emit(EventTypes.FEATURES_CHANGED, {
+            operation: 'delete',
+            count: deletedCount,
+            mapName: targetMap,
+            layerId
+        });
     }
 
     return modified;
@@ -1306,7 +1339,7 @@ export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = 
 
     if (modified) {
         await updateMapData(targetMap, currentMapData);
-        document.dispatchEvent(new CustomEvent('layers-changed'));
+        deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: targetMap });
     }
 };
 
@@ -1318,7 +1351,7 @@ export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = 
  * @returns {boolean} True if visible
  */
 export const isFeatureEffectivelyVisible = (feature) => {
-    return layerManager.isFeatureEffectivelyVisible(feature);
+    return deps.layerManager.isFeatureEffectivelyVisible(feature);
 };
 
 /**
@@ -1330,13 +1363,13 @@ export const isFeatureEffectivelyLocked = (feature) => {
     if (!feature || !feature.properties) return false;
 
     // 1. Layer lock (via manager)
-    if (layerManager.isFeatureEffectivelyLocked(feature)) return true;
+    if (deps.layerManager.isFeatureEffectivelyLocked(feature)) return true;
 
     // 2. Group lock
     const featureId = feature.properties.id;
     const sourceType = feature.properties.source;
     if (featureId && sourceType) {
-        const group = groupManager.getFeatureGroup(sourceType, featureId);
+        const group = deps.groupManager.getFeatureGroup(sourceType, featureId);
         if (group && group.locked === true) return true;
     }
 

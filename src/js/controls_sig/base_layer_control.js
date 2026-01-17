@@ -14,6 +14,7 @@ import bdgexLayer from './baselayers/bdgex_layer.js';
 import config from '../config.js';
 import { setupMapFeatures } from './layer_setup.js';
 import { showError } from './utilities/toast_service.js';
+import { getEventBus } from './services.js';
 
 class BaseLayerControl {
     constructor(uiManager, hillshadeConfig) {
@@ -214,7 +215,7 @@ class BaseLayerControl {
         await this.switchLayer(baseLayer);
 
         const analysisLayersManager = this.mapControl.getAnalysisLayersManager();
-        await setupMapFeatures(this.map, analysisLayersManager);
+        await setupMapFeatures(this.map, analysisLayersManager, getEventBus());
 
         if(applyPosition){
             await this.applyMapSavedPosition(currentMapName);
