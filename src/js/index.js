@@ -4,7 +4,7 @@ import './config-loader.js';
 import config from './config.js';
 import { URLRouter } from './url_router.js';
 import { } from './map_sig.js';
-import { cleanup3DFeatures } from './map_3d.js';
+import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', () => {

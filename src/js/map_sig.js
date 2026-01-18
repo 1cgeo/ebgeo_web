@@ -1,53 +1,57 @@
 // Path: js/map_sig.js
-import { initServices } from './controls_sig/services.js';
+import { initServices } from './store';
 
 // Initialize all application services before any component is created
 initServices();
 
-import BaseLayerControl from './controls_sig/base_layer_control.js';
-import AddTextControl from './controls_sig/text_tool/add_text_control.js';
-import AddImageControl from './controls_sig/image_tool/add_image_control.js';
-import AddLOSControl from './controls_sig/los_tool/add_los_control.js';
-import AddVisibilityControl from './controls_sig/visibility_tool/add_visibility_control.js';
-import AddImportControl from './controls_sig/add_import_control.js';
-import ToolManager from './controls_sig/tool_manager/tool_manager.js';
-import SelectionManager from './controls_sig/tool_manager/selection_manager.js';
-import UIManager from './controls_sig/tool_manager/ui_manager.js';
-import MoveHandler from './controls_sig/tool_manager/move_handler.js';
-import MapControl from './controls_sig/map_control.js';
-import AddStreetViewControl from './controls_sig/street_view_tool/add_street_view_control.js';
-import Add3DModelsViewerControl from './controls_sig/3d_models_viewer_tool/add_3d_models_viewer_control.js';
-import VectorTileInfoControl from './controls_sig/vector_info_control.js';
-import FeatureSearchControl from './controls_sig/feature_search_control.js';
-import ScreenshotControl from './controls_sig/screenshot_control.js';
-import MouseCoordinatesControl from './controls_sig/mouse_coordinates.js';
-import AddCircleControl from './controls_sig/circle_tool/add_circle_control.js';
-import AddEllipseControl from './controls_sig/ellipse_tool/add_ellipse_control.js';
-import AddArrowControl from './controls_sig/arrow_tool/add_arrow_control.js';
-import AddBoundaryControl from './controls_sig/boundary_tool/add_boundary_control.js';
-import AddOccupiedFrontControl from './controls_sig/occupied_front_tool/add_occupied_front_control.js';
-import AddMilitarySymbolControl from './controls_sig/military_symbol_tool/add_military_symbol_control.js';
-import TerrainControl from './controls_sig/terrain_control.js';
-import AnalysisLayersManager from './controls_sig/analysis_layers_manager.js';
+import { BaseLayerControl } from './baselayers';
+import { AddImportControl, ScreenshotControl, DragDropHandler } from './import_export';
+import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager } from './tool_manager';
+import { MapControl, DragRotateHandler } from './map';
+import { AddStreetViewControl } from './street_view_tool';
+import { Add3DModelsViewerControl } from './3d_models_viewer_tool';
+import { VectorTileInfoControl } from './vector_info';
+import { FeatureSearchControl } from './search';
+import { MouseCoordinatesControl } from './coordinates';
+import { TerrainControl, AnalysisLayersManager } from './terrain';
 import config from './config.js';
-import AddRectangleControl from './controls_sig/rectangle_tool/add_rectangle_control.js';
-import AddBrushControl from './controls_sig/brush_tool/add_brush_control.js';
-import AddPointControl from './controls_sig/draw_tools/add_point_control.js';
-import AddLineControl from './controls_sig/draw_tools/add_line_control.js';
-import AddPolygonControl from './controls_sig/draw_tools/add_polygon_control.js';
-import baseStyle from './controls_sig/baselayers/carta_topografica.js';
+import baseStyle from './baselayers/carta_topografica.js';
 import { hideLoadingScreen } from './index.js';
-import DragDropHandler from './controls_sig/drag_drop_handler.js';
-import ContextMenuControl from './controls_sig/context_menu_control.js';
-import DragRotateHandler from './controls_sig/drag_rotate_handler.js';
-import ClipboardManager from './controls_sig/tool_manager/clipboard_manager.js';
-import RectangleSelectionControl from './controls_sig/selection_tools/rectangle_selection_control.js';
-import KeyboardShortcuts from './controls_sig/keyboard_shortcuts.js';
-import SuggestionsModal from './controls_sig/suggestions_modal.js';
-import GridControl from './controls_sig/grid.js';
-import FrameControl from './controls_sig/frame.js';
-import AddCoordinationMeasureControl from './controls_sig/coordination_measure_tool/add_coordination_measure_control.js';
+import { ContextMenuControl } from './context-menu';
+import { RectangleSelectionControl } from './selection_tools';
+import { KeyboardShortcuts } from './keyboard';
+import { SuggestionsModal } from './ui';
+import { GridControl } from './grid';
+import { FrameControl } from './frame';
 import { URLRouter } from './url_router.js';
+
+// Draw tools
+import {
+    AddPointControl,
+    AddLineControl,
+    AddPolygonControl,
+    AddRectangleControl,
+    AddCircleControl,
+    AddEllipseControl,
+    AddTextControl,
+    AddImageControl,
+    AddBrushControl
+} from './draw_tools/index.js';
+
+// Military tools
+import {
+    AddMilitarySymbolControl,
+    AddCoordinationMeasureControl,
+    AddArrowControl,
+    AddBoundaryControl,
+    AddOccupiedFrontControl
+} from './military_tools/index.js';
+
+// Analysis tools
+import {
+    AddLOSControl,
+    AddVisibilityControl
+} from './analysis_tools/index.js';
 
 // ===== MAP CREATION AND CONFIGURATION =====
 

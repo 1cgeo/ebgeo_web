@@ -35,82 +35,36 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html')
       },
       output: {
-        // Chunks por funcionalidade
-        manualChunks: {
+        // Chunks por funcionalidade (baseado em path matching)
+        manualChunks(id) {
           // Separar código do 3D (lazy load)
-          'cesium-integration': [
-            './src/js/map_3d.js',
-            './src/js/control_3d/mouse_coordinates_3d.js',
-            './src/js/control_3d/screenshot_tool.js',
-            './src/js/control_3d/viewshed.js'
-          ],
+          if (id.includes('3d_models_viewer_tool')) {
+            return 'cesium-integration';
+          }
           // Separar ferramentas militares (grandes)
-          'military-tools': [
-            './src/js/controls_sig/military_symbol_tool/add_military_symbol_control.js',
-            './src/js/controls_sig/military_symbol_tool/military_symbol_generator.js',
-            './src/js/controls_sig/military_symbol_tool/brazilian_extension_catalog.js'
-          ],
-          // Store e utilities
-          'core': [
-            './src/js/controls_sig/store/store.js',
-            './src/js/controls_sig/store/repository.js',
-            './src/js/controls_sig/store/map-manager.js'
-          ],
+          if (id.includes('military_tools')) {
+            return 'military-tools';
+          }
           // Ferramentas de análise (LOS e visibilidade)
-          'analysis-tools': [
-            './src/js/controls_sig/los_tool/add_los_control.js',
-            './src/js/controls_sig/los_tool/add_los_geometry.js',
-            './src/js/controls_sig/los_tool/los_attributes_panel.js',
-            './src/js/controls_sig/visibility_tool/add_visibility_control.js',
-            './src/js/controls_sig/visibility_tool/add_visibility_geometry.js',
-            './src/js/controls_sig/visibility_tool/visibility_attributes_panel.js'
-          ],
-          // Ferramentas de medidas de coordenação
-          'coordination-tools': [
-            './src/js/controls_sig/coordination_measure_tool/add_coordination_measure_control.js',
-            './src/js/controls_sig/coordination_measure_tool/add_coordination_measure_geometry.js',
-            './src/js/controls_sig/coordination_measure_tool/coordination_measure_attributes_panel.js',
-            './src/js/controls_sig/coordination_measure_tool/coordination_measure_generator.js',
-            './src/js/controls_sig/coordination_measure_tool/coordination_points_catalog.js',
-            './src/js/controls_sig/coordination_measure_tool/coordination_measure_constants.js'
-          ],
-          // Ferramentas de desenho táticas
-          'tactical-tools': [
-            './src/js/controls_sig/boundary_tool/add_boundary_control.js',
-            './src/js/controls_sig/boundary_tool/add_boundary_geometry.js',
-            './src/js/controls_sig/boundary_tool/boundary_attributes_panel.js',
-            './src/js/controls_sig/occupied_front_tool/add_occupied_front_control.js',
-            './src/js/controls_sig/occupied_front_tool/add_occupied_front_geometry.js',
-            './src/js/controls_sig/occupied_front_tool/occupied_front_attributes_panel.js',
-            './src/js/controls_sig/arrow_tool/add_arrow_control.js',
-            './src/js/controls_sig/arrow_tool/add_arrow_geometry.js',
-            './src/js/controls_sig/arrow_tool/arrow_attributes_panel.js'
-          ],
-          // Ferramentas de formas geométricas
-          'shape-tools': [
-            './src/js/controls_sig/circle_tool/add_circle_control.js',
-            './src/js/controls_sig/circle_tool/add_circle_geometry.js',
-            './src/js/controls_sig/circle_tool/circle_attributes_panel.js',
-            './src/js/controls_sig/ellipse_tool/add_ellipse_control.js',
-            './src/js/controls_sig/ellipse_tool/add_ellipse_geometry.js',
-            './src/js/controls_sig/ellipse_tool/ellipse_attributes_panel.js',
-            './src/js/controls_sig/rectangle_tool/add_rectangle_control.js',
-            './src/js/controls_sig/rectangle_tool/add_rectangle_geometry.js',
-            './src/js/controls_sig/rectangle_tool/rectangle_attributes_panel.js',
-            './src/js/controls_sig/brush_tool/add_brush_control.js',
-            './src/js/controls_sig/brush_tool/add_brush_geometry.js',
-            './src/js/controls_sig/brush_tool/brush_attributes_panel.js'
-          ],
-          // Ferramentas de import/export (carregadas sob demanda)
-          'import-export': [
-            './src/js/controls_sig/add_import_control.js',
-            './src/js/controls_sig/export_import_service.js',
-            './src/js/controls_sig/pdf_export_tab.js'
-          ],
-          // Street view (Three.js - carregado sob demanda)
-          'street-view': [
-            './src/js/controls_sig/street_view_tool/add_street_view_control.js'
-          ]
+          if (id.includes('analysis_tools')) {
+            return 'analysis-tools';
+          }
+          // Ferramentas de desenho
+          if (id.includes('draw_tools')) {
+            return 'draw-tools';
+          }
+          // Ferramentas de import/export
+          if (id.includes('import_export')) {
+            return 'import-export';
+          }
+          // Street view (Three.js)
+          if (id.includes('street_view_tool')) {
+            return 'street-view';
+          }
+          // Store e state management
+          if (id.includes('src/js/store/')) {
+            return 'core';
+          }
         },
         // Nomes dos arquivos
         entryFileNames: 'assets/[name]-[hash].js',
@@ -123,8 +77,8 @@ export default defineConfig({
       ]
     },
 
-    // Source maps apenas em desenvolvimento
-    sourcemap: false,
+    // Source maps: 'hidden' gera mapas sem expor ao público
+    sourcemap: 'hidden',
 
     // Tamanho máximo de chunk antes de warning
     chunkSizeWarningLimit: 1000
@@ -161,10 +115,9 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
       '@js': resolve(__dirname, 'src/js'),
       '@css': resolve(__dirname, 'src/css'),
-      '@controls': resolve(__dirname, 'src/js/controls_sig'),
-      '@store': resolve(__dirname, 'src/js/controls_sig/store'),
-      '@utils': resolve(__dirname, 'src/js/controls_sig/utilities'),
-      '@tools': resolve(__dirname, 'src/js/controls_sig/tool_manager')
+      '@store': resolve(__dirname, 'src/js/store'),
+      '@utils': resolve(__dirname, 'src/js/utilities'),
+      '@tools': resolve(__dirname, 'src/js/tool_manager')
     }
   },
 
@@ -177,14 +130,14 @@ export default defineConfig({
   optimizeDeps: {
     // Excluir vendors globais (carregados via script tags)
     exclude: [
-      'maplibregl',
-      'turf',
+      'maplibre-gl',
+      '@turf/turf',
       'milsymbol',
-      'Cesium'
+      'cesium'
     ],
     // Pre-bundle dependências npm para dev mais rápido
     include: [
-        'feather-icons'
+      'feather-icons'
     ]
   },
 
@@ -194,8 +147,8 @@ export default defineConfig({
     legacy({
       targets: ['defaults', 'not IE 11'],
       additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
-      // Gera chunks modernos E legacy
-      modernPolyfills: true
+      // Não incluir polyfills no bundle moderno
+      modernPolyfills: false
     })
   ],
 
