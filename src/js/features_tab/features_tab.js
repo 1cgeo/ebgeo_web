@@ -748,5 +748,3 @@ export class FeaturesTab {
         }, REFRESH_DEBOUNCE_MS);
     }
 }
-
-export default FeaturesTab;

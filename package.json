@@ -20,10 +20,8 @@
   "dependencies": {
     "@tmcw/togeojson": "^7.1.2",
     "chart.js": "^4.5.1",
-    "compression": "^1.8.1",
     "feather-icons": "^4.29.2",
     "jszip": "^3.10.1",
-    "knip": "^5.70.2",
     "localforage": "^1.10.0",
     "mgrs": "^2.1.0",
     "proj4": "^2.20.2",
@@ -37,9 +35,11 @@
     "@vitejs/plugin-legacy": "^5.4.0",
     "eslint": "^9.17.0",
     "globals": "^15.14.0",
+    "knip": "^5.40.0",
     "stylelint": "^16.12.0",
     "stylelint-config-standard": "^36.0.1",
     "terser": "^5.31.0",
+    "typescript": "^5.5.4",
     "vite": "^5.4.0"
   },
   "author": "1º Centro de Geoinformação",

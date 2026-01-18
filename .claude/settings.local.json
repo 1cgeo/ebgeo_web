@@ -44,7 +44,11 @@
       "Bash(test:*)",
       "Bash(for dir in events state selection_tools street_view_tool utilities tool_manager)",
       "Bash(do test -f \"C:\\\\Users\\\\diniz\\\\OneDrive\\\\Desktop\\\\Desenvolvimento\\\\ebgeo_web\\\\src\\\\js$dir\\\\index.js\")",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(npm run knip:*)",
+      "Bash(npm view:*)",
+      "Bash(node -e:*)",
+      "Bash(npm uninstall:*)"
     ],
     "deny": [],
     "ask": []
