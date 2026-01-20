@@ -6,7 +6,8 @@ const config = {
   // ===== APPLICATION SETTINGS =====
   app: {
     title: "EBGeo",        // Título exibido na interface
-    subtitle: ""            // Subtítulo da aplicação
+    subtitle: "",          // Subtítulo da aplicação
+    tutorialUrl: './docs/doc.html'  // URL do tutorial (abre em nova janela)
   },
 
   features: {

@@ -1,0 +1,79 @@
+/* Path: src/css/chips.css */
+
+/**
+ * @fileoverview Chips component styles.
+ * Quick action buttons below the search bar.
+ */
+
+/* =========================================================================
+   CHIPS CONTAINER
+   ========================================================================= */
+
+.chips-container {
+    position: fixed;
+    top: calc(var(--space-3) + var(--search-bar-height) + var(--space-1));
+    z-index: var(--z-search);
+    display: flex;
+    gap: var(--space-2);
+    transition: left var(--transition-panel);
+}
+
+/* Position when sidebar collapsed (default) */
+.chips-container[data-sidebar-state="collapsed"],
+.chips-container:not([data-sidebar-state]) {
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+}
+
+/* Position when sidebar expanded */
+.chips-container[data-sidebar-state="expanded"] {
+    left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width) + var(--space-5));
+}
+
+/* =========================================================================
+   CHIP BUTTON
+   ========================================================================= */
+
+.chip-btn {
+    height: var(--chip-height);
+    padding: 0 var(--space-3);
+    background: white;
+    border: none;
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-control);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+    transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+    white-space: nowrap;
+}
+
+.chip-btn:hover {
+    background: var(--gray-50);
+    box-shadow: var(--shadow-md);
+}
+
+.chip-btn:active {
+    transform: scale(0.98);
+}
+
+.chip-btn svg {
+    width: 16px;
+    height: 16px;
+    color: var(--gray-500);
+    flex-shrink: 0;
+}
+
+/* =========================================================================
+   RESPONSIVE
+   ========================================================================= */
+
+/* Hide on small screens */
+@media (width <= 768px) {
+    .chips-container {
+        display: none;
+    }
+}

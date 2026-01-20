@@ -11,6 +11,8 @@
  * - Throttled mouse updates to prevent UI thrashing
  */
 
+import { EventTypes } from '../events';
+
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
@@ -153,8 +155,8 @@ const MOUSE_THROTTLE_MS = 16;
  */
 const DEFAULT_STATE = Object.freeze({
     sidebar: {
-        expanded: true,
-        activeTab: 'maps',          // 'maps' | 'features' | 'pdf'
+        expanded: false,            // UI Redesign: starts collapsed
+        activeTab: null,            // 'mapas' | 'camadas' | 'importar' | 'exportar' | null
         width: 320,
         collapsedLayers: [],        // Array<string> layer IDs that are collapsed
         collapsedGroups: [],        // Array<string> group IDs that are collapsed
@@ -193,6 +195,9 @@ const DEFAULT_STATE = Object.freeze({
     ui: {
         isDragging: false,
         isResizing: false,
+        featurePanelOpen: false,                // UI Redesign: feature attributes panel state
+        activeToolbarGroup: null,               // UI Redesign: 'draw' | 'military' | 'analysis' | null
+        baseLayerSelectorOpen: false,           // UI Redesign: base layer selector expanded state
     },
     clipboard: {
         features: [],               // Array<{type: string, feature: GeoJSON}>
@@ -235,6 +240,18 @@ class StateManager {
         this._pendingMousePath = null;
         /** @private @type {*} */
         this._pendingMouseValue = null;
+
+        /** @private @type {import('../events/event_bus.js').EventBus|null} */
+        this._eventBus = null;
+    }
+
+    /**
+     * Set the EventBus reference for emitting UI events.
+     * Called by services.js during initialization.
+     * @param {import('../events/event_bus.js').EventBus} eventBus
+     */
+    setEventBus(eventBus) {
+        this._eventBus = eventBus;
     }
 
     // ========================================================================
@@ -791,6 +808,242 @@ class StateManager {
      */
     getElevation() {
         return this.get('mouse.elevation');
+    }
+
+    // ========================================================================
+    // UI COORDINATION METHODS (Mutual Exclusivity)
+    // ========================================================================
+
+    /**
+     * Expand sidebar and collapse feature panel (mutual exclusivity).
+     * @param {string} tab - Tab to activate: 'mapas' | 'camadas' | 'importar' | 'exportar'
+     */
+    expandSidebar(tab) {
+        // Close feature panel first (mutual exclusivity)
+        if (this.get('ui.featurePanelOpen')) {
+            this.set('ui.featurePanelOpen', false);
+            this._emitEvent(EventTypes.FEATURE_PANEL_CLOSED, {});
+        }
+
+        // Close toolbar popups
+        if (this.get('ui.activeToolbarGroup')) {
+            const group = this.get('ui.activeToolbarGroup');
+            this.set('ui.activeToolbarGroup', null);
+            this._emitEvent(EventTypes.TOOLBAR_GROUP_CLOSED, { group });
+        }
+
+        // Expand sidebar
+        const previousTab = this.get('sidebar.activeTab');
+        this.set('sidebar.expanded', true);
+        this.set('sidebar.activeTab', tab);
+
+        this._emitEvent(EventTypes.SIDEBAR_EXPANDED, { tab });
+        this._emitEvent(EventTypes.SIDEBAR_TAB_CHANGED, {
+            previousTab,
+            currentTab: tab
+        });
+        this._emitLayoutChanged();
+    }
+
+    /**
+     * Collapse sidebar.
+     */
+    collapseSidebar() {
+        const previousTab = this.get('sidebar.activeTab');
+        this.set('sidebar.expanded', false);
+        this.set('sidebar.activeTab', null);
+
+        this._emitEvent(EventTypes.SIDEBAR_COLLAPSED, {});
+        if (previousTab) {
+            this._emitEvent(EventTypes.SIDEBAR_TAB_CHANGED, {
+                previousTab,
+                currentTab: null
+            });
+        }
+        this._emitLayoutChanged();
+    }
+
+    /**
+     * Toggle sidebar tab - if clicking same tab while expanded, collapse.
+     * @param {string} tab - Tab to toggle
+     */
+    toggleSidebarTab(tab) {
+        const isExpanded = this.get('sidebar.expanded');
+        const activeTab = this.get('sidebar.activeTab');
+
+        if (isExpanded && activeTab === tab) {
+            this.collapseSidebar();
+        } else {
+            this.expandSidebar(tab);
+        }
+    }
+
+    /**
+     * Open feature panel and collapse sidebar (mutual exclusivity).
+     * @param {string} featureId - ID of the feature being edited
+     * @param {string} featureType - Type of the feature
+     */
+    openFeaturePanel(featureId, featureType) {
+        // Collapse sidebar first (mutual exclusivity)
+        if (this.get('sidebar.expanded')) {
+            this.collapseSidebar();
+        }
+
+        // Close toolbar popups
+        if (this.get('ui.activeToolbarGroup')) {
+            const group = this.get('ui.activeToolbarGroup');
+            this.set('ui.activeToolbarGroup', null);
+            this._emitEvent(EventTypes.TOOLBAR_GROUP_CLOSED, { group });
+        }
+
+        // Open feature panel
+        this.set('ui.featurePanelOpen', true);
+        this._emitEvent(EventTypes.FEATURE_PANEL_OPENED, { featureId, featureType });
+        this._emitLayoutChanged();
+    }
+
+    /**
+     * Close feature panel.
+     */
+    closeFeaturePanel() {
+        if (this.get('ui.featurePanelOpen')) {
+            this.set('ui.featurePanelOpen', false);
+            this._emitEvent(EventTypes.FEATURE_PANEL_CLOSED, {});
+            this._emitLayoutChanged();
+        }
+    }
+
+    /**
+     * Open toolbar group popup.
+     * @param {string} group - Group name: 'draw' | 'military' | 'analysis'
+     */
+    openToolbarGroup(group) {
+        const previousGroup = this.get('ui.activeToolbarGroup');
+
+        if (previousGroup && previousGroup !== group) {
+            this._emitEvent(EventTypes.TOOLBAR_GROUP_CLOSED, { group: previousGroup });
+        }
+
+        this.set('ui.activeToolbarGroup', group);
+        this._emitEvent(EventTypes.TOOLBAR_GROUP_OPENED, { group });
+    }
+
+    /**
+     * Close toolbar group popup.
+     */
+    closeToolbarGroup() {
+        const group = this.get('ui.activeToolbarGroup');
+        if (group) {
+            this.set('ui.activeToolbarGroup', null);
+            this._emitEvent(EventTypes.TOOLBAR_GROUP_CLOSED, { group });
+        }
+    }
+
+    /**
+     * Toggle toolbar group - if clicking same group while open, close it.
+     * @param {string} group - Group name
+     */
+    toggleToolbarGroup(group) {
+        const activeGroup = this.get('ui.activeToolbarGroup');
+        if (activeGroup === group) {
+            this.closeToolbarGroup();
+        } else {
+            this.openToolbarGroup(group);
+        }
+    }
+
+    /**
+     * Open base layer selector.
+     */
+    openBaseLayerSelector() {
+        this.set('ui.baseLayerSelectorOpen', true);
+        this._emitEvent(EventTypes.BASE_LAYER_SELECTOR_OPENED, {});
+    }
+
+    /**
+     * Close base layer selector.
+     */
+    closeBaseLayerSelector() {
+        if (this.get('ui.baseLayerSelectorOpen')) {
+            this.set('ui.baseLayerSelectorOpen', false);
+            this._emitEvent(EventTypes.BASE_LAYER_SELECTOR_CLOSED, {});
+        }
+    }
+
+    /**
+     * Toggle base layer selector.
+     */
+    toggleBaseLayerSelector() {
+        if (this.get('ui.baseLayerSelectorOpen')) {
+            this.closeBaseLayerSelector();
+        } else {
+            this.openBaseLayerSelector();
+        }
+    }
+
+    /**
+     * Close all popups and panels.
+     */
+    closeAllPopups() {
+        this.batchUpdate(() => {
+            if (this.get('sidebar.expanded')) {
+                this.collapseSidebar();
+            }
+            this.closeFeaturePanel();
+            this.closeToolbarGroup();
+            this.closeBaseLayerSelector();
+        });
+        this._emitEvent(EventTypes.UI_CLOSE_ALL_POPUPS, {});
+    }
+
+    /**
+     * Calculate and emit current layout state.
+     * @private
+     */
+    _emitLayoutChanged() {
+        const sidebarExpanded = this.get('sidebar.expanded');
+        const featurePanelOpen = this.get('ui.featurePanelOpen');
+
+        // Calculate content offset
+        // Sidebar collapsed: 56px, Sidebar expanded: 56px + 320px = 376px
+        // Feature panel: 56px + 320px = 376px (same as expanded sidebar)
+        let contentLeftOffset = 56; // Collapsed sidebar width
+
+        if (sidebarExpanded || featurePanelOpen) {
+            contentLeftOffset = 376; // 56 + 320
+        }
+
+        this._emitEvent(EventTypes.UI_LAYOUT_CHANGED, {
+            sidebarExpanded,
+            featurePanelOpen,
+            contentLeftOffset
+        });
+    }
+
+    /**
+     * Get current content left offset.
+     * @returns {number} Pixels from left edge
+     */
+    getContentLeftOffset() {
+        const sidebarExpanded = this.get('sidebar.expanded');
+        const featurePanelOpen = this.get('ui.featurePanelOpen');
+
+        if (sidebarExpanded || featurePanelOpen) {
+            return 376;
+        }
+        return 56;
+    }
+
+    /**
+     * Emit event via EventBus if available.
+     * @private
+     * @param {string} eventType - Event type constant
+     * @param {Object} payload - Event payload
+     */
+    _emitEvent(eventType, payload) {
+        if (this._eventBus) {
+            this._eventBus.emit(eventType, payload);
+        }
     }
 
     // ========================================================================

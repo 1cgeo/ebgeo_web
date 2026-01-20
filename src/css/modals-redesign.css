@@ -1,0 +1,431 @@
+/* Path: src/css/modals-redesign.css */
+
+/**
+ * @fileoverview Modal styles for shortcuts and info modals.
+ * Modern, accessible modal design matching new design system.
+ */
+
+/* =========================================================================
+   MODAL OVERLAY
+   ========================================================================= */
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    opacity: 0;
+    visibility: hidden;
+    transition: all var(--transition-normal);
+}
+
+.modal-overlay[data-visible="true"] {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* =========================================================================
+   MODAL CONTAINER
+   ========================================================================= */
+
+.modal-container {
+    background: white;
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    max-width: 600px;
+    width: 100%;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(20px) scale(0.98);
+    transition: transform var(--transition-normal);
+    overflow: hidden;
+}
+
+.modal-overlay[data-visible="true"] .modal-container {
+    transform: translateY(0) scale(1);
+}
+
+/* Specific widths for different modal types */
+.shortcuts-modal-container {
+    max-width: 700px;
+}
+
+.info-modal-container {
+    max-width: 550px;
+}
+
+/* =========================================================================
+   MODAL HEADER
+   ========================================================================= */
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    background: var(--sidebar-bg, #15803d);
+    color: white;
+    flex-shrink: 0;
+}
+
+.modal-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.modal-title-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.9;
+}
+
+.modal-title-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.modal-title {
+    margin: 0;
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-semibold);
+}
+
+.modal-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-full);
+    color: rgba(255, 255, 255, 0.8);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.modal-close-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+}
+
+.modal-close-btn svg {
+    width: 24px;
+    height: 24px;
+}
+
+/* =========================================================================
+   MODAL BODY
+   ========================================================================= */
+
+.modal-body {
+    padding: var(--space-5);
+    overflow-y: auto;
+    flex-grow: 1;
+}
+
+/* =========================================================================
+   SHORTCUTS MODAL SPECIFIC
+   ========================================================================= */
+
+.shortcuts-sections {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+.shortcuts-section {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.shortcuts-section-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-50);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.shortcuts-section-icon {
+    display: flex;
+    align-items: center;
+    color: var(--primary);
+}
+
+.shortcuts-section-title {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+}
+
+.shortcuts-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.shortcut-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.shortcut-item:last-child {
+    border-bottom: none;
+}
+
+.shortcut-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 100px;
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    font-size: var(--font-size-sm);
+}
+
+.shortcut-key span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 8px;
+    background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-700);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.key-separator {
+    color: var(--gray-400);
+    font-weight: normal;
+    padding: 0 2px;
+}
+
+.shortcut-description {
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+}
+
+/* =========================================================================
+   INFO MODAL SPECIFIC
+   ========================================================================= */
+
+.info-sections {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+.info-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.info-section-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--primary);
+}
+
+.info-section-header h3 {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+}
+
+.info-description {
+    margin: 0;
+    color: var(--gray-600);
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+}
+
+/* CGEO Cards */
+.cgeo-cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.cgeo-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+    background: var(--gray-50);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+}
+
+.cgeo-card:hover {
+    background: white;
+    border-color: var(--primary-200);
+    box-shadow: var(--shadow-sm);
+}
+
+.cgeo-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.cgeo-name {
+    font-weight: var(--font-weight-semibold);
+    color: var(--primary);
+}
+
+.cgeo-card svg {
+    color: var(--gray-400);
+}
+
+.cgeo-card:hover svg {
+    color: var(--primary);
+}
+
+.cgeo-region {
+    font-size: var(--font-size-sm);
+    color: var(--gray-500);
+}
+
+/* Email Box */
+.email-box {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--primary-50);
+    border: 1px solid var(--primary-200);
+    border-radius: var(--radius-md);
+}
+
+.email-link {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: var(--font-weight-medium);
+    flex-grow: 1;
+}
+
+.email-link:hover {
+    text-decoration: underline;
+}
+
+.copy-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: white;
+    border: 1px solid var(--primary-200);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--primary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.copy-btn:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.copy-btn.copied {
+    background: var(--color-success);
+    color: white;
+    border-color: var(--color-success);
+}
+
+/* =========================================================================
+   RESPONSIVE
+   ========================================================================= */
+
+@media (width <= 640px) {
+    .modal-overlay {
+        padding: 0;
+        align-items: flex-end;
+    }
+
+    .modal-container {
+        max-width: 100%;
+        max-height: 90vh;
+        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    }
+
+    .shortcuts-modal-container,
+    .info-modal-container {
+        max-width: 100%;
+    }
+
+    .modal-header {
+        padding: var(--space-4);
+    }
+
+    .modal-title {
+        font-size: var(--font-size-lg);
+    }
+
+    .modal-body {
+        padding: var(--space-4);
+    }
+
+    .shortcut-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-2);
+    }
+
+    .shortcut-key {
+        min-width: auto;
+    }
+
+    .email-box {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .copy-btn {
+        justify-content: center;
+    }
+}
+
+/* =========================================================================
+   LEGACY MODAL BACKDROP (for compatibility)
+   ========================================================================= */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: var(--z-modal-backdrop);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition-normal), visibility var(--transition-normal);
+}
+
+.modal-backdrop[data-visible="true"] {
+    opacity: 1;
+    visibility: visible;
+}

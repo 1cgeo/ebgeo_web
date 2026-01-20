@@ -38,8 +38,17 @@ class ScreenshotControl {
 
     takeScreenshot() {
         try {
-            const button = this.container.querySelector('button');
-            button.disabled = true;
+            // Get button if container exists (may be null when called externally)
+            const button = this.container?.querySelector('button');
+            if (button) {
+                button.disabled = true;
+            }
+
+            if (!this.map) {
+                console.error('Map not available for screenshot');
+                alert('Mapa não disponível para captura');
+                return;
+            }
 
             if (this.map.loaded()) {
                 this.captureMapCanvas();
@@ -49,15 +58,19 @@ class ScreenshotControl {
                 });
             }
 
-            setTimeout(() => {
-                button.disabled = false;
-            }, 1000);
+            if (button) {
+                setTimeout(() => {
+                    button.disabled = false;
+                }, 1000);
+            }
 
         } catch (error) {
             console.error('Error capturing screenshot:', error);
             alert('Não foi possível capturar o screenshot');
-            const button = this.container.querySelector('button');
-            button.disabled = false;
+            const button = this.container?.querySelector('button');
+            if (button) {
+                button.disabled = false;
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 // Path: js/map_sig.js
-import { initServices } from './store';
+import { initServices, getEventBus, getStateManager } from './store';
 
 // Initialize all application services before any component is created
 initServices();
@@ -11,9 +11,12 @@ import { MapControl, DragRotateHandler } from './map';
 import { AddStreetViewControl } from './street_view_tool';
 import { Add3DModelsViewerControl } from './3d_models_viewer_tool';
 import { VectorTileInfoControl } from './vector_info';
-import { FeatureSearchControl } from './search';
+import { FeatureSearchControl, SearchBarComponent } from './search';
+import { ChipsComponent, SidebarControl } from './sidebar';
+import { BaseLayerSelectorControl } from './base-layer-selector';
 import { MouseCoordinatesControl } from './coordinates';
 import { TerrainControl, AnalysisLayersManager } from './terrain';
+import { BottomControlsControl } from './bottom-controls';
 import config from './config.js';
 import baseStyle from './baselayers/carta_topografica.js';
 import { hideLoadingScreen } from './index.js';
@@ -24,6 +27,7 @@ import { SuggestionsModal } from './ui';
 import { GridControl } from './grid';
 import { FrameControl } from './frame';
 import { URLRouter } from './url_router.js';
+import { ToolbarControl, ActiveToolChip } from './toolbar';
 
 // Draw tools
 import {
@@ -238,40 +242,166 @@ keyboardShortcuts.initModal();
 const suggestionsModal = new SuggestionsModal();
 suggestionsModal.init();
 
-// ===== ADD CONTROLS TO MAP =====
+// ===== ADD CONTROLS TO MAP (MUST BE FIRST - creates dependencies) =====
+// MapControl.onAdd() creates featuresTab and pdfExportTab, so it must run
+// before we create SidebarControl which depends on these
 map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
 mapControl.loadMenu();
+
+// ===== EXTRACT DEPENDENCIES FROM MAP CONTROL =====
+// These are created inside MapControl's onAdd() method and must be extracted
+// AFTER mapControl is added to the map
+const featuresTab = mapControl.featuresTab;
+const pdfExportTab = mapControl.pdfExportTab;
+const exportImportService = mapControl.exportImportService;
+const mapManager = mapControl.mapManager;
+
+// ===== CHIPS COMPONENT (Quick Actions) =====
+
+const chipsComponent = new ChipsComponent({
+    stateManager: getStateManager(),
+    eventBus: getEventBus(),
+    keyboardShortcuts: keyboardShortcuts,
+    suggestionsModal: suggestionsModal
+});
+chipsComponent.init(document.body);
+
+// ===== SIDEBAR CONTROL (New UI) =====
+
+const sidebarControl = new SidebarControl({
+    stateManager: getStateManager(),
+    eventBus: getEventBus(),
+    mapManager: mapManager,
+    featuresTab: featuresTab,
+    exportImportService: exportImportService,
+    pdfExportTab: pdfExportTab,
+    baseLayerControl: baseLayerControl,
+    importControl: importControl,
+    screenshotControl: screenshotControl,
+    selectionManager: selectionManager,
+    uiManager: uiManager,
+});
+sidebarControl.init(document.body);
+
+// ===== TOOLBAR CONTROL (Reorganized tool groups) =====
+
+const toolbarControl = new ToolbarControl({
+    toolManager: toolManager,
+    controls: {
+        rectangleSelectionControl,
+        pointControl,
+        lineControl,
+        polygonControl,
+        rectangleControl,
+        circleControl,
+        ellipseControl,
+        textControl,
+        imageControl,
+        brushControl,
+        militarySymbolControl,
+        coordinationMeasureControl,
+        arrowControl,
+        boundaryControl,
+        occupiedFrontControl,
+        losControl,
+        visibilityControl,
+        vectorTileInfoControl,
+    },
+    eventBus: getEventBus(),
+    stateManager: getStateManager(),
+    map: map,
+});
+toolbarControl.init(document.body);
+
+// ===== ACTIVE TOOL CHIP (Central indicator) =====
+
+const activeToolChip = new ActiveToolChip({
+    stateManager: getStateManager(),
+    eventBus: getEventBus(),
+    toolManager: toolManager,
+});
+activeToolChip.init(document.body);
 
 map.addControl(mouseCoordinatesControl, 'bottom-right');
 
 map.addControl(contextMenuControl, 'top-left');
 
-map.addControl(featureSearchControl, 'top-right');
-map.addControl(importControl, 'top-right');
-map.addControl(screenshotControl, 'top-right');
-map.addControl(vectorTileInfoControl, 'top-right');
-map.addControl(rectangleSelectionControl, 'top-right');
+// ===== SEARCH BAR (Redesigned - Google Maps style) =====
+// Note: FeatureSearchControl is no longer added to map as its UI is replaced
+// by the new SearchBarComponent which has its own search functionality
+const searchBarComponent = new SearchBarComponent({
+    stateManager: getStateManager(),
+    eventBus: getEventBus(),
+    map: map,
+    uiManager: uiManager,
+});
+searchBarComponent.init(document.body);
+
+// NOTE: Import and Screenshot moved to sidebar tabs per Phase 7 spec
+// map.addControl(importControl, 'top-right');
+// map.addControl(screenshotControl, 'top-right');
+
+// NOTE: These controls below are now managed by ToolbarControl
+// They remain instantiated for keyboard shortcuts and internal functionality
+// but their toolbar buttons are now rendered by the new toolbar component
+
+// NOTE: Standalone controls (streetView, 3DModels, terrain) are now managed by BottomControlsControl
+// They still need to be added to the map for their functionality (sources, layers, etc.)
+// but their buttons are hidden via CSS since BottomControlsControl provides the toggle UI
 map.addControl(addStreetViewControl, 'top-right');
 map.addControl(add3DModelsViewerControl, 'top-right');
 map.addControl(terrainControl, 'top-right');
-map.addControl(losControl, 'top-right');
-map.addControl(visibilityControl, 'top-right');
 
-map.addControl(pointControl, 'top-right');
-map.addControl(lineControl, 'top-right');
-map.addControl(polygonControl, 'top-right');
-map.addControl(textControl, 'top-right');
-map.addControl(imageControl, 'top-right');
-map.addControl(rectangleControl, 'top-right');
-map.addControl(circleControl, 'top-right');
-map.addControl(ellipseControl, 'top-right');
-map.addControl(brushControl, 'top-right');
-map.addControl(arrowControl, 'top-right');
-map.addControl(boundaryControl, 'top-right');
-map.addControl(occupiedFrontControl, 'top-right');
-map.addControl(militarySymbolControl, 'top-right');
-map.addControl(coordinationMeasureControl, 'top-right');
+// ===== BOTTOM CONTROLS (Feature toggles + Navigation) =====
+const bottomControlsControl = new BottomControlsControl({
+    map: map,
+    toolManager: toolManager,
+    eventBus: getEventBus(),
+    terrainControl: terrainControl,
+    modelsViewerControl: add3DModelsViewerControl,
+    streetViewControl: addStreetViewControl,
+});
+bottomControlsControl.init(document.body);
+
+// ===== BASE LAYER SELECTOR (Thumbnail-based layer switcher) =====
+const baseLayerSelectorControl = new BaseLayerSelectorControl({
+    baseLayerControl: baseLayerControl,
+    eventBus: getEventBus(),
+    stateManager: getStateManager(),
+});
+baseLayerSelectorControl.init(document.body);
+
+// ===== INITIALIZE MAP REFERENCE FOR TOOLBAR-MANAGED CONTROLS =====
+// These controls are not added to the map via addControl() anymore,
+// but they still need the map reference for their functionality.
+// We manually set the map property since onAdd() is not called.
+const toolbarManagedControls = [
+    pointControl,
+    lineControl,
+    polygonControl,
+    textControl,
+    imageControl,
+    circleControl,
+    rectangleControl,
+    ellipseControl,
+    brushControl,
+    arrowControl,
+    boundaryControl,
+    occupiedFrontControl,
+    militarySymbolControl,
+    coordinationMeasureControl,
+    losControl,
+    visibilityControl,
+    vectorTileInfoControl,
+    rectangleSelectionControl,
+];
+
+toolbarManagedControls.forEach(control => {
+    if (control && !control.map) {
+        control.map = map;
+    }
+});
 
 // ===== GLOBAL ERROR HANDLING =====
 
@@ -291,4 +421,11 @@ window.modelsViewerControl = add3DModelsViewerControl;
 window.addEventListener('beforeunload', () => {
     keyboardShortcuts.destroy();
     suggestionsModal.destroy();
+    chipsComponent.destroy();
+    sidebarControl.destroy();
+    toolbarControl.destroy();
+    activeToolChip.destroy();
+    searchBarComponent.destroy();
+    bottomControlsControl.destroy();
+    baseLayerSelectorControl.destroy();
 });

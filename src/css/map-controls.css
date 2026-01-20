@@ -740,3 +740,140 @@
 .model-preview-content.no-video .model-preview-date {
     text-align: center;
 }
+
+/* =========================================================================
+   HIDE OLD STANDALONE CONTROLS (UI REDESIGN)
+   These controls are now managed by the new UI components.
+   They still need to be added to the map for functionality, but their
+   buttons are hidden since new components provide the UI.
+   ========================================================================= */
+
+/* ----- Controls managed by BottomControlsControl ----- */
+
+/* Hide old terrain control button */
+.terrain-control.controls-column-left {
+    display: none !important;
+}
+
+/* Hide old 3D models viewer control button */
+.models3d-view-control.controls-bottom-left {
+    display: none !important;
+}
+
+/* Hide old street view control button */
+.street-view-control.controls-bottom-left {
+    display: none !important;
+}
+
+/* ----- Drawing tools managed by ToolbarControl ----- */
+
+/* Hide old drawing tool buttons (now in toolbar popup) */
+.point-control.controls-column-right,
+.line-control.controls-column-right,
+.polygon-control.controls-column-right,
+.text-control.controls-column-right,
+.image-control.controls-column-right,
+.rectangle-control.controls-column-right,
+.circle-control.controls-column-right,
+.ellipse-control.controls-column-right,
+.brush-control.controls-column-right {
+    display: none !important;
+}
+
+/* ----- Military tools managed by ToolbarControl ----- */
+
+/* Hide old military tool buttons (now in toolbar popup) */
+.arrow-control.controls-column-right,
+.boundary-control.controls-column-right,
+.occupied-front-control.controls-column-right,
+.military-symbol-control.controls-column-right,
+.coordination-measure-control.controls-column-right {
+    display: none !important;
+}
+
+/* ----- Analysis tools managed by ToolbarControl ----- */
+
+/* Hide old analysis tool buttons (now in toolbar popup) */
+.los-control.controls-column-left,
+.visibility-control.controls-column-left {
+    display: none !important;
+}
+
+/* ----- Import/Export managed by Sidebar ----- */
+
+/* Hide old import control button (now in sidebar Import tab) */
+.import-control.controls-column-left {
+    display: none !important;
+}
+
+/* Hide old screenshot control button (now in sidebar Export tab) */
+.screenshot-control.controls-column-left {
+    display: none !important;
+}
+
+/* ----- Other controls managed by ToolbarControl ----- */
+
+/* Hide old vector info control button (now standalone in toolbar) */
+.vector-info-control.controls-column-left {
+    display: none !important;
+}
+
+/* Hide old rectangle selection control button (now standalone in toolbar) */
+.rectangle-selection-control.controls-column-left {
+    display: none !important;
+}
+
+/* =========================================================================
+   PHASE 2: LEGACY MAP PANEL HIDING
+   The new SidebarControl replaces the old MapControl panel completely.
+   These rules hide the legacy elements without breaking internal functionality.
+   ========================================================================= */
+
+/* === LEGACY MAP PANEL === */
+.list-map-container,
+#map-list {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+/* Reopen panel button (old collapsed state toggle) */
+.reopen-panel-btn,
+.reopen-button {
+    display: none !important;
+}
+
+/* Header of the old panel */
+#header-map-list {
+    display: none !important;
+}
+
+/* Old tab selector (Mapas/Camadas/Exportar) */
+.list-map-container .tab-selector,
+#map-list .tab-selector {
+    display: none !important;
+}
+
+/* Old tab content area */
+.list-map-container .tab-content-area,
+#map-list .tab-content-area {
+    display: none !important;
+}
+
+/* Old collapse button */
+.collapse-button,
+#collapse-panel-btn {
+    display: none !important;
+}
+
+/* Old maps actions container */
+.maps-actions-container,
+#maps-actions-container {
+    display: none !important;
+}
+
+/* === CLEANUP EMPTY CONTROL GROUPS === */
+.maplibregl-ctrl-top-right .maplibregl-ctrl-group:empty,
+.maplibregl-ctrl-top-left .maplibregl-ctrl-group:empty {
+    display: none !important;
+}

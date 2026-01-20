@@ -1,5 +1,23 @@
 /* Path: css/style.css */
 
+/* =========================================================================
+   CSS IMPORTS - UI REDESIGN (Design System Foundation)
+   ========================================================================= */
+
+@import url('./design-tokens.css');
+@import url('./sidebar.css');
+@import url('./search-bar.css');
+@import url('./chips.css');
+@import url('./toolbar-groups.css');
+@import url('./bottom-controls.css');
+@import url('./base-layer-selector.css');
+@import url('./modals-redesign.css');
+@import url('./active-tool-chip.css');
+
+/* =========================================================================
+   EXISTING CSS IMPORTS
+   ========================================================================= */
+
 /* ===== 1. SHARED BASE ===== */
 @import url('./base.css');
 

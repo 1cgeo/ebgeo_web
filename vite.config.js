@@ -65,6 +65,14 @@ export default defineConfig({
           if (id.includes('src/js/store/')) {
             return 'core';
           }
+          // UI Redesign components (sidebar, toolbar, modals, etc.)
+          if (id.includes('src/js/sidebar/') ||
+              id.includes('src/js/toolbar/') ||
+              id.includes('src/js/bottom-controls/') ||
+              id.includes('src/js/base-layer-selector/') ||
+              id.includes('src/js/modals/')) {
+            return 'ui-components';
+          }
         },
         // Nomes dos arquivos
         entryFileNames: 'assets/[name]-[hash].js',
@@ -117,7 +125,9 @@ export default defineConfig({
       '@css': resolve(__dirname, 'src/css'),
       '@store': resolve(__dirname, 'src/js/store'),
       '@utils': resolve(__dirname, 'src/js/utilities'),
-      '@tools': resolve(__dirname, 'src/js/tool_manager')
+      '@tools': resolve(__dirname, 'src/js/tool_manager'),
+      '@toolbar': resolve(__dirname, 'src/js/toolbar'),
+      '@modals': resolve(__dirname, 'src/js/modals')
     }
   },
 

@@ -50,8 +50,10 @@ export function initServices() {
     // Create EventBus first - it has no dependencies
     const eventBus = createEventBus();
 
-    // Create StateManager - centralized UI state (no dependencies)
+    // Create StateManager - centralized UI state
     const stateManager = createStateManager();
+    // Wire EventBus to StateManager for UI coordination events
+    stateManager.setEventBus(eventBus);
 
     // Create managers with EventBus dependency
     const groupManager = createGroupManager(eventBus);

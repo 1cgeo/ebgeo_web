@@ -1,0 +1,214 @@
+/* Path: src/css/toolbar-groups.css */
+
+/**
+ * @fileoverview Toolbar styles with collapsible groups.
+ * Drawing, Military, and Analysis tool groups.
+ */
+
+/* =========================================================================
+   TOOLBAR CONTAINER
+   ========================================================================= */
+
+.toolbar-container {
+    position: fixed;
+    top: 80px;
+    right: var(--space-4);
+    z-index: var(--z-toolbar);  /* 20 - Below 3D viewer (100) */
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+/* =========================================================================
+   TOOLBAR GROUP
+   ========================================================================= */
+
+.toolbar-group {
+    position: relative;
+}
+
+.toolbar-group-btn {
+    width: var(--toolbar-button-size);
+    height: var(--toolbar-button-size);
+    border: none;
+    background: white;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-control);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-600);
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.toolbar-group-btn:hover {
+    background: var(--gray-50);
+}
+
+.toolbar-group-btn[data-active="true"] {
+    background: var(--primary);
+    color: white;
+}
+
+.toolbar-group-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* =========================================================================
+   TOOLBAR POPUP (Grid/List)
+   ========================================================================= */
+
+.toolbar-popup {
+    position: absolute;
+    top: 0;
+    right: calc(100% + var(--space-3));
+    background: white;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    padding: var(--space-2);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(10px);
+    transition: opacity var(--transition-normal), transform var(--transition-normal), visibility var(--transition-normal);
+}
+
+.toolbar-popup[data-visible="true"] {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+}
+
+/* Grid Layout (Drawing tools - 3x3) */
+.toolbar-popup-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-1);
+}
+
+/* List Layout (Military/Analysis tools) */
+.toolbar-popup-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 180px;
+}
+
+/* =========================================================================
+   TOOLBAR TOOL BUTTON
+   ========================================================================= */
+
+.toolbar-tool-btn {
+    padding: var(--space-2);
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--gray-700);
+    transition: background var(--transition-fast);
+    white-space: nowrap;
+}
+
+.toolbar-tool-btn:hover {
+    background: var(--gray-100);
+}
+
+.toolbar-tool-btn[data-active="true"] {
+    background: var(--primary-100);
+    color: var(--primary);
+}
+
+.toolbar-tool-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+/* Grid item (icon only with tooltip) */
+.toolbar-popup-grid .toolbar-tool-btn {
+    width: var(--toolbar-button-size);
+    height: var(--toolbar-button-size);
+    justify-content: center;
+    position: relative;
+}
+
+
+/* List item (icon + label) */
+.toolbar-popup-list .toolbar-tool-btn {
+    width: 100%;
+    justify-content: flex-start;
+}
+
+.toolbar-popup-list .toolbar-tool-btn .tool-shortcut {
+    margin-left: auto;
+    font-size: var(--font-size-xs);
+    color: var(--gray-400);
+    font-family: monospace;
+}
+
+/* =========================================================================
+   TOOLBAR SEPARATOR
+   ========================================================================= */
+
+.toolbar-separator {
+    height: 1px;
+    background: var(--gray-200);
+    margin: var(--space-2) 0;
+}
+
+/* =========================================================================
+   STANDALONE TOOL BUTTON
+   ========================================================================= */
+
+.toolbar-standalone-btn {
+    width: var(--toolbar-button-size);
+    height: var(--toolbar-button-size);
+    border: none;
+    background: white;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-control);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-600);
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.toolbar-standalone-btn:hover {
+    background: var(--gray-50);
+}
+
+.toolbar-standalone-btn[data-active="true"] {
+    background: var(--primary);
+    color: white;
+}
+
+.toolbar-standalone-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* =========================================================================
+   DISABLED STATE (Terrain-dependent tools)
+   ========================================================================= */
+
+.toolbar-tool-btn.disabled,
+.toolbar-tool-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.toolbar-tool-btn.disabled:hover,
+.toolbar-tool-btn:disabled:hover {
+    background: transparent;
+}
+
+.toolbar-popup-list .toolbar-tool-btn.disabled:hover,
+.toolbar-popup-list .toolbar-tool-btn:disabled:hover {
+    background: transparent;
+}

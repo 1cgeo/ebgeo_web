@@ -1,0 +1,326 @@
+/* Path: src/css/bottom-controls.css */
+
+/**
+ * @fileoverview Bottom controls styles.
+ * Feature toggles (left) and navigation controls (right).
+ */
+
+/* =========================================================================
+   BOTTOM RIGHT - FEATURE TOGGLES (Modelos 3D, Imagens 360°, Terreno)
+   Positioned to the left of navigation controls
+   ========================================================================= */
+
+.bottom-controls-left {
+    position: fixed;
+    bottom: var(--space-6);
+    right: calc(var(--control-button-size) + var(--space-4) + var(--space-3));
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    z-index: var(--z-controls);
+    transition: right var(--transition-panel);
+}
+
+/* =========================================================================
+   FEATURE TOGGLE BUTTON
+   ========================================================================= */
+
+.feature-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--control-button-size);
+    padding: 0 var(--space-3);
+    background: white;
+    border: none;
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-control);
+    cursor: pointer;
+    font-family: var(--font-family-base);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+    width: 135px;
+}
+
+.feature-toggle-btn:hover:not(:disabled) {
+    background: var(--gray-50);
+    box-shadow: var(--shadow-md);
+}
+
+.feature-toggle-btn:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
+/* Active state */
+.feature-toggle-btn[data-active="true"] {
+    background: var(--primary);
+    color: white;
+}
+
+.feature-toggle-btn[data-active="true"]:hover {
+    background: var(--primary-hover);
+}
+
+/* Disabled state */
+.feature-toggle-btn:disabled,
+.feature-toggle-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.feature-toggle-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+.feature-toggle-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.feature-toggle-label {
+    line-height: 1;
+    flex: 1;
+    text-align: center;
+}
+
+/* =========================================================================
+   BOTTOM RIGHT - NAVIGATION CONTROLS
+   ========================================================================= */
+
+.bottom-controls-right {
+    position: fixed;
+    bottom: var(--space-6);
+    right: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    z-index: var(--z-controls);
+}
+
+/* =========================================================================
+   NAVIGATION BUTTON
+   ========================================================================= */
+
+.nav-btn {
+    width: var(--control-button-size);
+    height: var(--control-button-size);
+    background: white;
+    border: none;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-control);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-700);
+    transition: all var(--transition-fast);
+}
+
+.nav-btn:hover {
+    background: var(--gray-50);
+    box-shadow: var(--shadow-md);
+}
+
+.nav-btn:active {
+    transform: scale(0.95);
+}
+
+.nav-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Active state (for fullscreen) */
+.nav-btn[data-active="true"] {
+    background: var(--primary-100);
+    color: var(--primary);
+}
+
+/* Nav button group (zoom +/-) */
+.nav-btn-group {
+    display: flex;
+    flex-direction: column;
+    background: white;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-control);
+    overflow: hidden;
+}
+
+.nav-btn-group .nav-btn {
+    box-shadow: none;
+    border-radius: 0;
+}
+
+.nav-btn-group .nav-btn:first-child {
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.nav-btn-group .nav-btn:last-child {
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.nav-btn-group .nav-btn + .nav-btn {
+    border-top: 1px solid var(--border-color);
+}
+
+/* =========================================================================
+   CONTROL BUTTON (Square) - Legacy support
+   ========================================================================= */
+
+.control-btn {
+    width: var(--control-button-size);
+    height: var(--control-button-size);
+    border: none;
+    background: white;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-control);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-600);
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.control-btn:hover {
+    background: var(--gray-50);
+}
+
+.control-btn[data-active="true"] {
+    background: var(--primary);
+    color: white;
+}
+
+.control-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* Compass specific styles */
+.control-btn.compass-btn {
+    position: relative;
+}
+
+.control-btn.compass-btn svg {
+    transition: transform var(--transition-normal);
+}
+
+/* =========================================================================
+   ZOOM CONTROLS - Legacy support
+   ========================================================================= */
+
+.zoom-controls {
+    display: flex;
+    flex-direction: column;
+    background: white;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-control);
+    overflow: hidden;
+}
+
+.zoom-btn {
+    width: var(--control-button-size);
+    height: var(--control-button-size);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-600);
+    transition: background var(--transition-fast);
+}
+
+.zoom-btn:hover {
+    background: var(--gray-100);
+}
+
+.zoom-btn:active {
+    background: var(--gray-200);
+}
+
+.zoom-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+.zoom-divider {
+    height: 1px;
+    background: var(--gray-200);
+}
+
+/* =========================================================================
+   TOGGLE BUTTON (Wide) - Legacy support
+   ========================================================================= */
+
+.toggle-btn-wide {
+    width: var(--toggle-button-width);
+    height: var(--control-button-size);
+    padding: 0 var(--space-3);
+    border: none;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-control);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.toggle-btn-wide[data-active="false"] {
+    background: white;
+    color: var(--gray-600);
+}
+
+.toggle-btn-wide[data-active="false"]:hover {
+    background: var(--gray-50);
+}
+
+.toggle-btn-wide[data-active="true"] {
+    background: var(--primary);
+    color: white;
+}
+
+.toggle-btn-wide[data-active="true"]:hover {
+    background: var(--primary-hover);
+}
+
+.toggle-btn-wide svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+/* =========================================================================
+   RESPONSIVE
+   ========================================================================= */
+
+@media (width <= 768px) {
+    /* Hide labels on mobile */
+    .feature-toggle-label {
+        display: none;
+    }
+
+    .feature-toggle-btn {
+        width: var(--control-button-size);
+        height: var(--control-button-size);
+        padding: 0;
+        border-radius: var(--radius-md);
+        justify-content: center;
+    }
+
+    .bottom-controls-left {
+        right: calc(var(--control-button-size) + var(--space-4) + var(--space-2));
+    }
+}

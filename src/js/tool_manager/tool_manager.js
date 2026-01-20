@@ -13,6 +13,50 @@ class ToolManager {
         this.activeTool = null;
         this.selectionManager = null;
         this.uiManager = null;
+
+        /** @type {Map<string, Set<Function>>} Event listeners */
+        this._listeners = new Map();
+    }
+
+    /**
+     * Register an event listener.
+     * @param {string} event - Event name ('toolActivated' | 'toolDeactivated')
+     * @param {Function} callback - Callback function
+     */
+    on(event, callback) {
+        if (!this._listeners.has(event)) {
+            this._listeners.set(event, new Set());
+        }
+        this._listeners.get(event).add(callback);
+    }
+
+    /**
+     * Remove an event listener.
+     * @param {string} event - Event name
+     * @param {Function} callback - Callback function
+     */
+    off(event, callback) {
+        if (this._listeners.has(event)) {
+            this._listeners.get(event).delete(callback);
+        }
+    }
+
+    /**
+     * Emit an event to all listeners.
+     * @private
+     * @param {string} event - Event name
+     * @param {*} data - Event data
+     */
+    _emit(event, data) {
+        if (this._listeners.has(event)) {
+            this._listeners.get(event).forEach(callback => {
+                try {
+                    callback(data);
+                } catch (e) {
+                    console.error(`Error in ToolManager event listener for '${event}':`, e);
+                }
+            });
+        }
     }
 
     /**
@@ -49,12 +93,17 @@ class ToolManager {
 
         // Deactivate previous tool
         if (this.activeTool) {
+            const previousTool = this.activeTool;
             this.activeTool.deactivate();
+            this._emit('toolDeactivated', previousTool);
         }
 
         // Activate new tool
         this.activeTool = tool;
         tool.activate();
+
+        // Emit activation event
+        this._emit('toolActivated', tool);
 
         // Sync to StateManager for reactive UI updates
         this._syncToStateManager(tool);
@@ -68,8 +117,12 @@ class ToolManager {
      */
     deactivateCurrentTool() {
         if (this.activeTool) {
+            const previousTool = this.activeTool;
             this.activeTool.deactivate();
             this.activeTool = null;
+
+            // Emit deactivation event
+            this._emit('toolDeactivated', previousTool);
 
             // Sync to StateManager
             this._syncToStateManager(null);

@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview Barrel file for utilities module.
- * Exports ID utilities, coordinate converter, feature navigation, and toast service.
+ * Exports ID utilities, coordinate converter, feature navigation, toast service, and event cleanup.
  */
 
 // ID utilities
@@ -30,3 +30,14 @@ export {
     showWarning,
     clearAllToasts
 } from './toast_service.js';
+
+// Event cleanup utilities
+export {
+    setupCleanup,
+    subscribe,
+    addDomListener,
+    trackTimer,
+    cleanup,
+    removeElement,
+    EventCleanupMixin
+} from './event-cleanup.js';

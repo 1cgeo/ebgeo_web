@@ -6,3 +6,4 @@
  */
 
 export { default as FeatureSearchControl } from './feature-search.control.js';
+export { SearchBarComponent } from './search-bar.component.js';

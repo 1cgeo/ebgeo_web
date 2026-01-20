@@ -17,9 +17,9 @@ import {
     Legend
 } from 'chart.js';
 import { cleanupFeatureDropdownListeners } from './helpers';
-import { getStateManager } from '../store';
-import { createTabbedAttributePanel, injectTabbedPanelStyles } from './tabbed_attribute_panel.js';
-import { renderAttributesContent, renderImagesContent } from '../user_data';
+import { getStateManager, getEventBus } from '../store';
+import { injectTabbedPanelStyles } from './tabbed_attribute_panel.js';
+import { EventTypes } from '../events/event_types.js';
 
 // Register Chart.js components (tree-shaking)
 Chart.register(
@@ -387,15 +387,42 @@ class UIManager {
 
     /**
      * Update attribute and profile panels based on selection.
+     * Now delegates to sidebar feature panel via StateManager.
      */
     updatePanels = () => {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
 
         if (allSelectedFeatures.length > 0) {
-            this.createUnifiedAttributesPanel(allSelectedFeatures);
+            // Remove any legacy floating panel
+            this.removeExistingPanel();
+
+            // Show profile panel if needed
             this.showProfilePanel(allSelectedFeatures);
+
+            // Notify StateManager to show feature panel in sidebar
+            this._notifyFeaturePanelOpened(allSelectedFeatures[0]);
         } else {
             this.saveChangesAndClosePanel();
+        }
+    }
+
+    /**
+     * Notify StateManager that a feature panel should be opened.
+     * The sidebar will handle rendering the feature attributes.
+     * @private
+     * @param {Object} feature - The selected feature
+     */
+    _notifyFeaturePanelOpened(feature) {
+        try {
+            const stateManager = getStateManager();
+            const featureId = feature?.properties?.id;
+            const featureType = feature?.properties?.source;
+
+            if (featureId && featureType) {
+                stateManager.openFeaturePanel(featureId, featureType);
+            }
+        } catch (_e) {
+            // StateManager not available - UI will work without layout coordination
         }
     }
 
@@ -413,7 +440,7 @@ class UIManager {
     }
 
     /**
-     * Remove existing panel and cleanup resources.
+     * Remove existing legacy floating panel and cleanup resources.
      * @private
      */
     removeExistingPanel() {
@@ -434,63 +461,15 @@ class UIManager {
 
     /**
      * Create unified attributes panel for selected features.
-     * Uses tabbed interface for single selection.
-     * @param {Array<Object>} selectedFeatures
+     * DEPRECATED: Now handled by sidebar feature panel.
+     * This method is kept for API compatibility but no longer creates the floating panel.
+     * The sidebar handles feature panel rendering via StateManager events.
+     * @param {Array<Object>} _selectedFeatures - Unused, kept for API compatibility
      */
-    createUnifiedAttributesPanel = (selectedFeatures) => {
+    createUnifiedAttributesPanel = (_selectedFeatures) => {
+        // Panel creation is now handled by SidebarControl via StateManager events
+        // Just ensure any legacy floating panel is removed
         this.removeExistingPanel();
-
-        if (!selectedFeatures || selectedFeatures.length === 0) return;
-
-        const featureTypes = new Set(selectedFeatures.map(f => f.properties.source));
-        if (featureTypes.size !== 1) return;
-
-        const featureType = featureTypes.values().next().value;
-        const feature = selectedFeatures[0];
-        const control = this.selectionManager.controls.get(featureType);
-
-        if (!control) {
-            console.warn(`Control not found for type: ${featureType}`);
-            return;
-        }
-
-        const isSingleSelection = selectedFeatures.length === 1;
-
-        // Criar painel com tabs
-        const tabbedPanel = createTabbedAttributePanel(
-            {
-                featureId: feature.properties.id,
-                featureType: featureType,
-                control: control,
-                singleSelection: isSingleSelection
-            },
-            renderAttributesContent,
-            renderImagesContent
-        );
-
-        const panel = document.createElement('div');
-        panel.id = 'attributes-panel';
-        panel.className = 'unified-attributes-panel';
-        panel._tabbedPanelCleanup = tabbedPanel.cleanup;
-
-        // Tool preenche APENAS a tab de propriedades
-        if (control.hasAttributePanel && control.hasAttributePanel()) {
-            try {
-                control.createAttributePanel(
-                    tabbedPanel.propertiesTab,
-                    selectedFeatures,
-                    this.selectionManager,
-                    this
-                );
-            } catch (error) {
-                console.error(`Error creating attribute panel for ${featureType}:`, error);
-            }
-        }
-
-        panel.appendChild(tabbedPanel.container);
-        this.addDeleteButton(panel);
-        document.body.appendChild(panel);
-        panel.style.display = 'flex';
     }
 
     /**
@@ -873,15 +852,40 @@ class UIManager {
 
     /**
      * Show vector tile info panel.
+     * Emits event for sidebar to handle display.
      * @param {Object} feature
      */
     showVectorTileInfoPanel(feature) {
         this.saveChangesAndClosePanel();
 
-        const panel = document.createElement('div');
-        panel.className = 'vector-tile-info-panel unified-attributes-panel';
-        this.addVectorTileInfoToPanel(panel, feature);
-        document.body.appendChild(panel);
+        // Get the display title
+        const originalLayerName = feature.sourceLayer;
+        let sourceName;
+
+        if (originalLayerName.startsWith('situacao')) {
+            sourceName = originalLayerName
+                .replace('situacao', 'produtos')
+                .replace(/_(10|25|50|100|250)k/, ' (1:$1.000)');
+        } else {
+            sourceName = originalLayerName
+                .replace(/_10k|_25k|_50k|_100k|_250k/g, '')
+                .replace('edgv_', '');
+        }
+
+        // Emit event for sidebar to handle
+        try {
+            const eventBus = getEventBus();
+            eventBus.emit(EventTypes.VECTOR_INFO_PANEL_OPENED, {
+                feature,
+                title: sourceName
+            });
+        } catch (e) {
+            // Fallback to legacy floating panel if event bus not available
+            const panel = document.createElement('div');
+            panel.className = 'vector-tile-info-panel unified-attributes-panel';
+            this.addVectorTileInfoToPanel(panel, feature);
+            document.body.appendChild(panel);
+        }
     }
 
     /**
@@ -963,6 +967,7 @@ class UIManager {
         this.hideFeatureSearchPanel();
         this.hideProfilePanel();
 
+        // Handle legacy floating panel if it exists
         const panel = document.querySelector('.unified-attributes-panel');
         if (panel) {
             const saveButton = panel.querySelector('button[type="submit"]');
@@ -970,8 +975,23 @@ class UIManager {
                 saveButton.click();
             }
             panel.remove();
-
             cleanupFeatureDropdownListeners();
+        }
+
+        // Always notify StateManager to close feature panel in sidebar
+        this._notifyFeaturePanelClosed();
+    }
+
+    /**
+     * Notify StateManager that a feature panel has been closed.
+     * @private
+     */
+    _notifyFeaturePanelClosed() {
+        try {
+            const stateManager = getStateManager();
+            stateManager.closeFeaturePanel();
+        } catch (e) {
+            // StateManager not available
         }
     }
 

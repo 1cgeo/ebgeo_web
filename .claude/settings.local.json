@@ -48,7 +48,10 @@
       "Bash(npm run knip:*)",
       "Bash(npm view:*)",
       "Bash(node -e:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npx stylelint:*)",
+      "Bash(timeout 5 npm run dev:*)"
     ],
     "deny": [],
     "ask": []

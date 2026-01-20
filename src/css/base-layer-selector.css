@@ -1,0 +1,246 @@
+/* Path: src/css/base-layer-selector.css */
+
+/**
+ * @fileoverview Base layer selector styles.
+ * Bottom-left corner map style switcher with thumbnail-based UI.
+ */
+
+/* =========================================================================
+   BASE LAYER SELECTOR CONTAINER
+   ========================================================================= */
+
+.base-layer-selector {
+    position: fixed;
+    bottom: var(--space-6);
+    z-index: var(--z-controls);
+    transition: left var(--transition-panel);
+}
+
+/* Position when sidebar collapsed */
+.base-layer-selector[data-sidebar-state="collapsed"] {
+    left: calc(var(--sidebar-collapsed-width) + var(--space-4));
+}
+
+/* Position when sidebar expanded */
+.base-layer-selector[data-sidebar-state="expanded"] {
+    left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width) + var(--space-5));
+}
+
+/* =========================================================================
+   COLLAPSED STATE (Single Thumbnail)
+   ========================================================================= */
+
+.base-layer-collapsed {
+    width: 80px;
+    cursor: pointer;
+}
+
+.base-layer-thumbnail {
+    width: 80px;
+    height: 80px;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    border: 3px solid white;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    background: linear-gradient(135deg, #f5f5dc 0%, #ddd8c4 100%);
+}
+
+.base-layer-thumbnail:hover {
+    transform: scale(1.05);
+    box-shadow: var(--shadow-xl);
+}
+
+.base-layer-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.base-layer-label {
+    text-align: center;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+    margin-top: var(--space-1);
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+/* Hide collapsed when expanded */
+.base-layer-selector[data-expanded="true"] .base-layer-collapsed {
+    display: none;
+}
+
+/* =========================================================================
+   EXPANDED STATE (Grid of Options)
+   ========================================================================= */
+
+.base-layer-expanded {
+    background: white;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    padding: var(--space-3);
+    display: none;
+    min-width: 180px;
+}
+
+.base-layer-selector[data-expanded="true"] .base-layer-expanded {
+    display: block;
+    animation: slideUpFadeIn var(--transition-fast) ease-out;
+}
+
+@keyframes slideUpFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.base-layer-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-2);
+}
+
+/* Single column for 2 or fewer items */
+.base-layer-grid:has(.base-layer-option:nth-child(2):last-child) {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+/* =========================================================================
+   LAYER OPTION
+   ========================================================================= */
+
+.base-layer-option {
+    cursor: pointer;
+    text-align: center;
+    transition: transform var(--transition-fast);
+}
+
+.base-layer-option:hover {
+    transform: scale(1.02);
+}
+
+.base-layer-option:focus {
+    outline: none;
+}
+
+.base-layer-option:focus .base-layer-option-thumb {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.base-layer-option-thumb {
+    width: 80px;
+    height: 60px;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 2px solid var(--gray-200);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    margin-bottom: var(--space-1);
+    background: linear-gradient(135deg, #ccc 0%, #999 100%);
+}
+
+.base-layer-option:hover .base-layer-option-thumb {
+    border-color: var(--gray-400);
+}
+
+/* Selected state */
+.base-layer-option[data-selected="true"] .base-layer-option-thumb {
+    border-color: var(--primary);
+    border-width: 3px;
+    box-shadow: 0 0 0 2px var(--primary-100);
+}
+
+.base-layer-option-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.base-layer-option-name {
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    line-height: 1.2;
+}
+
+.base-layer-option[data-selected="true"] .base-layer-option-name {
+    color: var(--primary);
+    font-weight: var(--font-weight-medium);
+}
+
+/* =========================================================================
+   HIDE OLD BASE LAYER CONTROL
+   ========================================================================= */
+
+/* Hide the old MapLibre control-based selector */
+.base-layer-control.mapboxgl-ctrl {
+    display: none !important;
+}
+
+/* =========================================================================
+   RESPONSIVE
+   ========================================================================= */
+
+@media (width <= 768px) {
+    .base-layer-selector {
+        left: var(--space-4) !important;
+        bottom: var(--space-4);
+    }
+
+    .base-layer-thumbnail {
+        width: 64px;
+        height: 64px;
+    }
+
+    .base-layer-collapsed {
+        width: 64px;
+    }
+
+    .base-layer-expanded {
+        min-width: 150px;
+    }
+
+    .base-layer-option-thumb {
+        width: 64px;
+        height: 48px;
+    }
+
+    .base-layer-grid {
+        gap: var(--space-1);
+    }
+}
+
+@media (width <= 480px) {
+    .base-layer-selector {
+        bottom: var(--space-3);
+    }
+
+    .base-layer-thumbnail {
+        width: 56px;
+        height: 56px;
+        border-width: 2px;
+    }
+
+    .base-layer-collapsed {
+        width: 56px;
+    }
+
+    .base-layer-label {
+        display: none;
+    }
+
+    .base-layer-option-thumb {
+        width: 56px;
+        height: 42px;
+    }
+
+    .base-layer-option-name {
+        font-size: 10px;
+    }
+}

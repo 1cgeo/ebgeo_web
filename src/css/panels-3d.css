@@ -3,14 +3,30 @@
 /* ===== 3D MAIN CONTAINER ===== */
 #map-3d-container {
     display: none;
-    position: relative;
-    width: 100%;
-    height: 100%;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
     overflow: hidden;
+    z-index: var(--z-3d-viewer, 100);
+    background: #000;
+}
+
+/* Ensure z-index when visible */
+#map-3d-container[style*="display: block"],
+#map-3d-container[style*="display:block"],
+#map-3d-container.active,
+#map-3d-container.visible {
+    z-index: var(--z-3d-viewer, 100) !important;
 }
 
 #map-3d {
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
     overflow: hidden;
@@ -23,7 +39,7 @@
     display: flex !important;
     flex-direction: column !important;
     top: 20px !important;
-    left: 1px !important;
+    left: 20px !important;
     background-color: rgba(255, 255, 255, 0.95) !important;
     background: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(8px) !important;
@@ -31,7 +47,7 @@
     border-radius: 8px !important;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
-    z-index: 100 !important;
+    z-index: var(--z-3d-controls, 110) !important;
     gap: 20px !important;
     transition: all 0.3s ease !important;
 }
@@ -304,16 +320,14 @@
 }
 
 /* ===== Z-INDEX MANAGEMENT ===== */
-#map-3d-container {
-    z-index: 1;
-}
+/* Note: Main z-index for #map-3d-container is set in the container definition above */
 
 #map-3d-tool-bar {
-    z-index: 100;
+    z-index: var(--z-3d-controls, 110);
 }
 
 .panel-icon-float {
-    z-index: 100;
+    z-index: var(--z-3d-controls, 110);
 }
 
 .button-tool-3d::after {
@@ -341,7 +355,7 @@
     border-radius: 50%;
     text-align: center;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    z-index: 10000;
+    z-index: var(--z-3d-controls, 110);
     display: none;
     align-items: center;
     justify-content: center;
