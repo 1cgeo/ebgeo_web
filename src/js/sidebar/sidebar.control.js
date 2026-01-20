@@ -168,6 +168,10 @@ export class SidebarControl {
         // Listen for layer changes to update recent maps
         subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED,
             () => this._updateRecentMaps());
+
+        // Listen for map notes requests
+        subscribe(this, this._eventBus, EventTypes.MAP_NOTES_REQUESTED,
+            (payload) => this._onMapNotesRequested(payload));
     }
 
     /**
@@ -216,11 +220,21 @@ export class SidebarControl {
      * @private
      */
     _handleFeaturePanelClose() {
-        // Clear selection when closing feature panel
-        if (this._selectionManager) {
+        // Check if we're closing the notes panel
+        const featureType = this._stateManager.get('ui.currentFeatureType');
+        const isNotes = featureType === 'notes';
+
+        // Only clear selection if we're not showing notes
+        if (!isNotes && this._selectionManager) {
             this._selectionManager.deselectAllFeatures();
         }
+
         this._stateManager.closeFeaturePanel();
+
+        // If closing notes, return to Maps tab
+        if (isNotes) {
+            this._stateManager.expandSidebar(SIDEBAR_TABS.MAPAS);
+        }
     }
 
     /**
@@ -402,6 +416,132 @@ export class SidebarControl {
 
         // Show in feature panel with title
         this._featurePanel.show(contentWrapper, `Atributos: ${title}`);
+    }
+
+    /**
+     * Called when map notes are requested.
+     * @private
+     * @param {Object} payload - Event payload with mapName
+     */
+    async _onMapNotesRequested(payload) {
+        const { mapName } = payload;
+        if (!mapName) return;
+
+        // Collapse sidebar panel first
+        this._collapsePanel();
+
+        // Use StateManager to properly handle feature panel state
+        this._stateManager.openFeaturePanel(mapName, 'notes');
+
+        // Show notes in feature panel
+        await this._showMapNotesContent(mapName);
+    }
+
+    /**
+     * Shows map notes content in the feature panel.
+     * @private
+     * @param {string} mapName - Map name to show notes for
+     */
+    async _showMapNotesContent(mapName) {
+        // Cleanup previous content
+        this._cleanupFeaturePanelContent();
+
+        // Dynamic import to avoid circular dependencies
+        const { getMapNotes, setMapNotes } = await import('../store/index.js');
+
+        // Load notes
+        let notesData;
+        try {
+            const notes = await getMapNotes(mapName);
+            notesData = {
+                title: notes?.title || '',
+                description: notes?.description || ''
+            };
+        } catch (error) {
+            console.error('Error loading notes:', error);
+            notesData = { title: '', description: '' };
+        }
+
+        // Create content wrapper
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'map-notes-sidebar-content';
+
+        // Title section
+        const titleSection = document.createElement('div');
+        titleSection.className = 'map-notes-sidebar-title-section';
+
+        const titleLabel = document.createElement('label');
+        titleLabel.textContent = 'Título';
+        titleLabel.className = 'map-notes-sidebar-label';
+
+        const titleInput = document.createElement('input');
+        titleInput.type = 'text';
+        titleInput.className = 'map-notes-sidebar-title-input';
+        titleInput.placeholder = 'Título da nota...';
+        titleInput.value = notesData.title;
+        titleInput.maxLength = 100;
+
+        titleSection.appendChild(titleLabel);
+        titleSection.appendChild(titleInput);
+
+        // Description section
+        const descSection = document.createElement('div');
+        descSection.className = 'map-notes-sidebar-desc-section';
+
+        const descLabel = document.createElement('label');
+        descLabel.textContent = 'Descrição';
+        descLabel.className = 'map-notes-sidebar-label';
+
+        const descTextarea = document.createElement('textarea');
+        descTextarea.className = 'map-notes-sidebar-desc-input';
+        descTextarea.placeholder = 'Digite a descrição...';
+        descTextarea.value = this._stripHtml(notesData.description);
+        descTextarea.rows = 10;
+
+        descSection.appendChild(descLabel);
+        descSection.appendChild(descTextarea);
+
+        // Save button
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'map-notes-sidebar-save-btn';
+        saveBtn.textContent = 'Salvar Notas';
+        saveBtn.onclick = async () => {
+            try {
+                const notes = {
+                    title: titleInput.value.trim(),
+                    description: descTextarea.value.trim()
+                };
+                await setMapNotes(mapName, notes);
+
+                // Dynamic import for showSuccess
+                const { showSuccess } = await import('../utilities/index.js');
+                showSuccess('Notas salvas com sucesso!');
+            } catch (error) {
+                console.error('Error saving notes:', error);
+                const { showError } = await import('../utilities/index.js');
+                showError('Erro ao salvar notas');
+            }
+        };
+
+        contentWrapper.appendChild(titleSection);
+        contentWrapper.appendChild(descSection);
+        contentWrapper.appendChild(saveBtn);
+
+        // Show in feature panel
+        this._featurePanel.show(contentWrapper, `Notas: ${mapName}`);
+    }
+
+    /**
+     * Strips HTML tags from content for simple text display.
+     * @private
+     * @param {string} html - HTML string
+     * @returns {string} Plain text
+     */
+    _stripHtml(html) {
+        if (!html) return '';
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        return temp.textContent || temp.innerText || '';
     }
 
     /**

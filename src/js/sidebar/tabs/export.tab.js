@@ -318,167 +318,23 @@ export class ExportTab {
      * @private
      */
     async _handleImageExport() {
-        // Check if screenshotControl has a valid map reference
-        if (this._screenshotControl?.map) {
-            try {
-                await this._screenshotControl.takeScreenshot();
-                return;
-            } catch (error) {
-                console.error('Screenshot error:', error);
-                // Fall through to fallback
-            }
-        }
-
-        // Use direct canvas capture (works without control being added to map)
-        this._triggerScreenshotFallback();
-    }
-
-    /**
-     * Fallback screenshot method using canvas.
-     * Uses the same approach as ScreenshotControl for reliability.
-     * @private
-     */
-    _triggerScreenshotFallback() {
-        // Try to get the map instance from the global or window
-        const mapContainer = document.getElementById('map');
-        if (!mapContainer || !window.map) {
-            showError('Mapa não encontrado');
+        if (!this._screenshotControl) {
+            showError('Serviço de captura não disponível');
             return;
         }
 
-        const map = window.map;
-
-        try {
-            // Trigger repaint to ensure canvas is up to date
-            map.triggerRepaint();
-
-            // Wait for next animation frame
-            requestAnimationFrame(() => {
-                try {
-                    const canvas = map.getCanvas();
-
-                    // Try direct dataURL first
-                    try {
-                        const dataURL = canvas.toDataURL('image/png');
-
-                        // Check if the image is not empty
-                        if (dataURL && dataURL.length > 100) {
-                            this._downloadImage(dataURL);
-                            return;
-                        }
-                    } catch (e) {
-                        console.warn('Direct toDataURL failed:', e);
-                    }
-
-                    // Fallback: use offscreen canvas
-                    this._captureWithOffscreenCanvas(canvas, map);
-
-                } catch (error) {
-                    console.error('Screenshot capture error:', error);
-                    showError('Erro ao capturar imagem');
-                }
-            });
-        } catch (error) {
-            console.error('Screenshot fallback error:', error);
-            showError('Erro ao exportar imagem');
+        // Check if screenshotControl has a valid map reference
+        if (!this._screenshotControl.map) {
+            showError('Mapa não disponível para captura');
+            return;
         }
-    }
 
-    /**
-     * Captures using offscreen canvas or temporary map.
-     * @private
-     * @param {HTMLCanvasElement} canvas - Original canvas
-     * @param {Object} map - MapLibre map instance
-     */
-    _captureWithOffscreenCanvas(canvas, map) {
         try {
-            const offscreenCanvas = document.createElement('canvas');
-            offscreenCanvas.width = canvas.width;
-            offscreenCanvas.height = canvas.height;
-
-            const ctx = offscreenCanvas.getContext('2d');
-            ctx.drawImage(canvas, 0, 0);
-
-            // Check if the capture is not empty
-            const imageData = ctx.getImageData(0, 0, 1, 1);
-            const pixel = imageData.data;
-            const isEmpty = pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0;
-
-            if (isEmpty) {
-                // Use temporary map with preserveDrawingBuffer
-                this._captureWithTempMap(map);
-            } else {
-                const dataURL = offscreenCanvas.toDataURL('image/png');
-                this._downloadImage(dataURL);
-            }
+            await this._screenshotControl.takeScreenshot();
         } catch (error) {
-            console.error('Offscreen canvas error:', error);
-            this._captureWithTempMap(map);
-        }
-    }
-
-    /**
-     * Captures using a temporary map with preserveDrawingBuffer enabled.
-     * @private
-     * @param {Object} map - MapLibre map instance
-     */
-    _captureWithTempMap(map) {
-        try {
-            const center = map.getCenter();
-            const zoom = map.getZoom();
-            const bearing = map.getBearing();
-            const pitch = map.getPitch();
-
-            const tempContainer = document.createElement('div');
-            tempContainer.style.cssText = 'position: absolute; left: -9999px; width: ' +
-                map.getCanvas().width + 'px; height: ' + map.getCanvas().height + 'px;';
-            document.body.appendChild(tempContainer);
-
-            const tempMap = new maplibregl.Map({
-                container: tempContainer,
-                style: map.getStyle(),
-                center: center,
-                zoom: zoom,
-                bearing: bearing,
-                pitch: pitch,
-                preserveDrawingBuffer: true,
-                interactive: false,
-                validateStyle: false
-            });
-
-            tempMap.once('idle', () => {
-                setTimeout(() => {
-                    try {
-                        const canvas = tempMap.getCanvas();
-                        const dataURL = canvas.toDataURL('image/png');
-                        this._downloadImage(dataURL);
-                    } catch (error) {
-                        console.error('Temp map capture error:', error);
-                        showError('Erro ao capturar imagem');
-                    } finally {
-                        tempMap.remove();
-                        tempContainer.remove();
-                    }
-                }, 100);
-            });
-
-        } catch (error) {
-            console.error('Temp map creation error:', error);
+            console.error('Screenshot error:', error);
             showError('Erro ao capturar imagem');
         }
-    }
-
-    /**
-     * Downloads an image from dataURL.
-     * @private
-     * @param {string} dataURL - Image data URL
-     */
-    _downloadImage(dataURL) {
-        const link = document.createElement('a');
-        link.download = `ebgeo-map-${new Date().toISOString().slice(0, 10)}.png`;
-        link.href = dataURL;
-        link.click();
-        showSuccess('Imagem exportada com sucesso');
     }
 
     /**

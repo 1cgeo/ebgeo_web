@@ -447,22 +447,13 @@ export class FeaturesTab {
      */
     _createHeader() {
         const header = document.createElement('div');
-        header.className = 'features-tab-header';
-        header.style.cssText = `
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 12px;
-            border-bottom: 1px solid #e0e0e0;
-            background-color: #f8f9fa;
-        `;
+        header.className = 'sidebar-section-header sidebar-section-header-with-action';
 
         const title = document.createElement('span');
         title.textContent = 'Camadas';
-        title.style.cssText = 'font-weight: 500; font-size: 14px;';
 
         const addLayerBtn = document.createElement('button');
-        addLayerBtn.className = 'layer-add-btn';
+        addLayerBtn.className = 'sidebar-section-header-btn';
         addLayerBtn.title = 'Nova camada';
         addLayerBtn.innerHTML = this.INLINE_ICONS.ADD;
         addLayerBtn.onclick = () => this._handleAddLayer();

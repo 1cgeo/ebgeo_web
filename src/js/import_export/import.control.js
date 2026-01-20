@@ -30,6 +30,14 @@ class AddImportControl {
         this.polygonControl = polygonControl;
     }
 
+    /**
+     * Sets the map reference for use outside of toolbar context (e.g., sidebar import tab)
+     * @param {Object} map - MapLibre GL map instance
+     */
+    setMap(map) {
+        this.map = map;
+    }
+
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');
@@ -103,7 +111,10 @@ class AddImportControl {
             alert(`Erro ao importar arquivo: ${error.message}`);
         }
 
-        this.fileInput.value = '';
+        // Only reset file input if it exists (not when called via processFileDirectly)
+        if (this.fileInput) {
+            this.fileInput.value = '';
+        }
         this.toolManager.deactivateCurrentTool();
     }
 
@@ -453,6 +464,11 @@ class AddImportControl {
             polygons: 1
         };
 
+        // If map is not available, return default counters
+        if (!this.map) {
+            return typeCounters;
+        }
+
         const typeMap = {
             'points': 'Ponto',
             'lines': 'Linha',
@@ -516,6 +532,11 @@ class AddImportControl {
      * @returns {Array} Profile data with distance and elevation points
      */
     async calculateProfile(coordinates) {
+        // If map is not available, return empty profile
+        if (!this.map) {
+            return [];
+        }
+
         try {
             const line = turf.lineString(coordinates);
             const length = turf.length(line, { units: 'meters' });
@@ -715,6 +736,11 @@ class AddImportControl {
     }
 
     async updateMapSources(featuresByType) {
+        // If map is not available, skip map source updates
+        if (!this.map) {
+            return;
+        }
+
         for (const [type, features] of Object.entries(featuresByType)) {
             if (features.length === 0) continue;
 
@@ -746,6 +772,11 @@ class AddImportControl {
 
     zoomToFeatures(features) {
         if (features.length === 0) return;
+
+        // If map is not available, skip zoom
+        if (!this.map) {
+            return;
+        }
 
         try {
             const bbox = turf.bbox({

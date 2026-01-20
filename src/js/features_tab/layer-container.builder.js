@@ -99,6 +99,14 @@ export function createLayerContainer(layerInfo, callbacks) {
         content.appendChild(item);
     });
 
+    // Show empty message if no features
+    if (groups.size === 0 && ungrouped.length === 0) {
+        const emptyMessage = document.createElement('div');
+        emptyMessage.className = 'layer-empty-message';
+        emptyMessage.textContent = 'Sem feições';
+        content.appendChild(emptyMessage);
+    }
+
     container.appendChild(content);
     return container;
 }

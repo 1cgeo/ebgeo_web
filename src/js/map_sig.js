@@ -122,6 +122,7 @@ const losControl = new AddLOSControl(toolManager);
 const visibilityControl = new AddVisibilityControl(toolManager);
 
 const importControl = new AddImportControl(toolManager);
+importControl.setMap(map);
 
 const add3DModelsViewerControl = new Add3DModelsViewerControl(toolManager);
 const addStreetViewControl = new AddStreetViewControl(toolManager);
@@ -176,6 +177,7 @@ importControl.setControls(pointControl, lineControl, polygonControl);
 
 const terrainControl = new TerrainControl(config.map2d);
 const screenshotControl = new ScreenshotControl();
+screenshotControl.setMap(map);
 
 const mouseCoordinatesControl = new MouseCoordinatesControl(
     pointControl,

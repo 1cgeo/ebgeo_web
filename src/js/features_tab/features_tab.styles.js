@@ -300,25 +300,6 @@ export function injectLayerStyles() {
     const style = document.createElement('style');
     style.id = 'layer-styles';
     style.textContent = `
-        /* Add layer button in header */
-        .layer-add-btn {
-            background: none;
-            border: 1px solid #ccc;
-            border-radius: 3px;
-            cursor: pointer;
-            padding: 2px 6px;
-            color: #666;
-            display: flex;
-            align-items: center;
-            transition: all 0.2s;
-        }
-
-        .layer-add-btn:hover {
-            background-color: #e9ecef;
-            border-color: #007bff;
-            color: #007bff;
-        }
-
         /* Container de cada layer na lista */
         .layer-container {
             margin-bottom: 2px;
@@ -488,6 +469,15 @@ export function injectLayerStyles() {
             opacity: 1 !important;
             background-color: white !important;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+        }
+
+        /* Empty layer message */
+        .layer-empty-message {
+            padding: 8px 4px;
+            text-align: center;
+            color: #999;
+            font-size: 14px;
+            font-style: italic;
         }
     `;
     document.head.appendChild(style);

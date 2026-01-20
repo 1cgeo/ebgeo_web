@@ -11,6 +11,14 @@ class ScreenshotControl {
         this.container = null;
     }
 
+    /**
+     * Sets the map reference for use outside of toolbar context (e.g., sidebar export tab)
+     * @param {Object} map - MapLibre GL map instance
+     */
+    setMap(map) {
+        this.map = map;
+    }
+
     onAdd(map) {
         this.map = map;
         this.container = document.createElement('div');

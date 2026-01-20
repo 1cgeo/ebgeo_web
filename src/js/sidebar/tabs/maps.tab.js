@@ -23,6 +23,7 @@ import {
     setMapOrder,
     getMapOrder,
     getLayers,
+    hasMapSavedPosition,
 } from '../../store/index.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showSuccess, showError, showWarning } from '../../utilities/index.js';
@@ -35,6 +36,8 @@ const MAPS_ICONS = {
 
     folderOpen: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
 
+    folderPlus: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>`,
+
     save: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
 
     trash2: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`,
@@ -44,6 +47,20 @@ const MAPS_ICONS = {
     mapIcon: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>`,
 
     grip: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>`,
+
+    moreVertical: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>`,
+
+    mapPin: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+
+    fileText: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`,
+
+    merge: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"/><path d="M16 6h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-3"/><line x1="12" y1="2" x2="12" y2="22"/></svg>`,
+
+    move: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>`,
+
+    edit: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+
+    plus: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
 };
 
 /**
@@ -88,10 +105,21 @@ export class MapsTab {
         this._currentMapCard = this._createCurrentMapCard();
         this._container.appendChild(this._currentMapCard);
 
-        // Section header
+        // Section header with new map button
         const sectionHeader = document.createElement('div');
-        sectionHeader.className = 'sidebar-section-header';
-        sectionHeader.textContent = 'Todos os Mapas';
+        sectionHeader.className = 'sidebar-section-header sidebar-section-header-with-action';
+
+        const headerText = document.createElement('span');
+        headerText.textContent = 'Todos os Mapas';
+        sectionHeader.appendChild(headerText);
+
+        const newMapBtn = document.createElement('button');
+        newMapBtn.className = 'sidebar-section-header-btn';
+        newMapBtn.title = 'Novo mapa';
+        newMapBtn.innerHTML = MAPS_ICONS.plus;
+        addDomListener(this, newMapBtn, 'click', () => this._handleNewMap());
+        sectionHeader.appendChild(newMapBtn);
+
         this._container.appendChild(sectionHeader);
 
         // Maps list
@@ -109,7 +137,7 @@ export class MapsTab {
     }
 
     /**
-     * Creates the actions grid (Novo, Abrir, Salvar, Limpar).
+     * Creates the actions grid (Abrir, Importar, Salvar, Limpar Tudo).
      * @private
      * @returns {HTMLElement}
      */
@@ -118,10 +146,10 @@ export class MapsTab {
         grid.className = 'sidebar-actions-grid';
 
         const actions = [
-            { id: 'new', icon: MAPS_ICONS.plusCircle, label: 'Novo', handler: () => this._handleNewMap() },
-            { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Abrir', handler: () => this._handleOpenProject() },
-            { id: 'save', icon: MAPS_ICONS.save, label: 'Salvar', handler: () => this._handleSaveProject() },
-            { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar Tudo', handler: () => this._handleClearAll() },
+            { id: 'open', icon: MAPS_ICONS.folderOpen, label: 'Abrir', handler: () => this._handleOpenProject(), title: 'Abrir projeto (substitui atual)' },
+            { id: 'import', icon: MAPS_ICONS.folderPlus, label: 'Importar', handler: () => this._handleImportAdditive(), title: 'Importar e adicionar ao projeto atual' },
+            { id: 'save', icon: MAPS_ICONS.save, label: 'Salvar', handler: () => this._handleSaveProject(), title: 'Salvar projeto' },
+            { id: 'clear', icon: MAPS_ICONS.trash2, label: 'Limpar Tudo', handler: () => this._handleClearAll(), title: 'Limpar todos os dados' },
         ];
 
         actions.forEach(action => {
@@ -129,6 +157,7 @@ export class MapsTab {
             button.className = 'sidebar-action-btn';
             button.id = `maps-action-${action.id}`;
             button.innerHTML = `${action.icon}<span>${action.label}</span>`;
+            button.title = action.title;
 
             addDomListener(this, button, 'click', action.handler);
             grid.appendChild(button);
@@ -148,17 +177,20 @@ export class MapsTab {
 
         card.innerHTML = `
             <div class="current-map-header">
-                <div class="current-map-icon">
-                    ${MAPS_ICONS.mapIcon}
+                <div class="current-map-badge" id="current-map-badge">
+                    M
                 </div>
                 <div class="current-map-info">
                     <div class="current-map-name">
                         <input type="text" id="current-map-name-input" value="" placeholder="Nome do mapa">
                     </div>
                     <div class="current-map-stats" id="current-map-stats">
-                        0 feicoes - 1 camada
+                        0 feições - 1 camada
                     </div>
                 </div>
+                <button class="current-map-notes-btn" id="current-map-notes-btn" title="Notas do mapa">
+                    ${MAPS_ICONS.fileText}
+                </button>
             </div>
         `;
 
@@ -171,7 +203,24 @@ export class MapsTab {
             }
         });
 
+        // Setup notes button handler
+        const notesBtn = card.querySelector('#current-map-notes-btn');
+        addDomListener(this, notesBtn, 'click', () => this._handleShowCurrentMapNotes());
+
         return card;
+    }
+
+    /**
+     * Handles showing notes for the current map.
+     * @private
+     */
+    async _handleShowCurrentMapNotes() {
+        if (!this._currentMapName) return;
+
+        // Emit event to show notes in sidebar
+        this._eventBus.emit(EventTypes.MAP_NOTES_REQUESTED, {
+            mapName: this._currentMapName
+        });
     }
 
     /**
@@ -212,6 +261,12 @@ export class MapsTab {
             nameInput.value = this._currentMapName;
         }
 
+        // Update badge letter
+        const badgeEl = this._currentMapCard.querySelector('#current-map-badge');
+        if (badgeEl && this._currentMapName) {
+            badgeEl.textContent = this._currentMapName.charAt(0).toUpperCase();
+        }
+
         await this._updateCurrentMapStats();
     }
 
@@ -240,9 +295,9 @@ export class MapsTab {
             const layers = await getLayers();
             layerCount = layers?.length || 1;
 
-            statsEl.textContent = `${featureCount} feicoes - ${layerCount} ${layerCount === 1 ? 'camada' : 'camadas'}`;
+            statsEl.textContent = `${featureCount} feições - ${layerCount} ${layerCount === 1 ? 'camada' : 'camadas'}`;
         } catch (_error) {
-            statsEl.textContent = '0 feicoes - 1 camada';
+            statsEl.textContent = '0 feições - 1 camada';
         }
     }
 
@@ -269,10 +324,12 @@ export class MapsTab {
             }
         });
 
-        sortedMaps.forEach(mapName => {
-            const item = this._createMapListItem(mapName);
+        // Build map data with saved position info
+        for (const mapName of sortedMaps) {
+            const hasSavedPosition = await hasMapSavedPosition(mapName);
+            const item = this._createMapListItem(mapName, hasSavedPosition);
             this._mapsList.appendChild(item);
-        });
+        }
 
         // Initialize sortable
         this._initSortable();
@@ -282,9 +339,10 @@ export class MapsTab {
      * Creates a map list item.
      * @private
      * @param {string} mapName - Map name
+     * @param {boolean} hasSavedPosition - Whether the map has a saved position
      * @returns {HTMLElement}
      */
-    _createMapListItem(mapName) {
+    _createMapListItem(mapName, hasSavedPosition = false) {
         const isSelected = mapName === this._currentMapName;
 
         const item = document.createElement('div');
@@ -292,23 +350,34 @@ export class MapsTab {
         item.dataset.mapName = mapName;
         item.dataset.selected = isSelected.toString();
 
+        // Build position indicator
+        const positionIndicator = hasSavedPosition
+            ? `<span class="map-position-indicator" title="Posicao salva">${MAPS_ICONS.mapPin}</span>`
+            : '';
+
+        // Build meta text
+        const metaText = isSelected ? 'Mapa atual' : '';
+
+        // Get first letter for badge
+        const initial = mapName.charAt(0).toUpperCase();
+
         item.innerHTML = `
             <div class="map-list-drag-handle" title="Arrastar para reordenar">
                 ${MAPS_ICONS.grip}
             </div>
-            <div class="map-list-icon">
-                ${MAPS_ICONS.mapIcon}
+            <div class="map-list-badge ${isSelected ? 'map-list-badge--selected' : ''}">
+                ${initial}
             </div>
             <div class="map-list-info">
-                <div class="map-list-name">${this._escapeHtml(mapName)}</div>
-                <div class="map-list-meta">${isSelected ? 'Mapa atual' : ''}</div>
+                <div class="map-list-name">
+                    ${this._escapeHtml(mapName)}
+                    ${positionIndicator}
+                </div>
+                <div class="map-list-meta">${metaText}</div>
             </div>
             <div class="map-list-actions">
-                <button class="map-list-action-btn copy-btn" title="Duplicar">
-                    ${MAPS_ICONS.copy}
-                </button>
-                <button class="map-list-action-btn delete delete-btn" title="Deletar">
-                    ${SIDEBAR_ICONS.trash}
+                <button class="map-list-action-btn menu-btn" title="Mais opções">
+                    ${MAPS_ICONS.moreVertical}
                 </button>
             </div>
         `;
@@ -320,21 +389,170 @@ export class MapsTab {
             }
         });
 
-        // Duplicate button
-        const copyBtn = item.querySelector('.copy-btn');
-        addDomListener(this, copyBtn, 'click', (e) => {
+        // Menu button
+        const menuBtn = item.querySelector('.menu-btn');
+        addDomListener(this, menuBtn, 'click', (e) => {
             e.stopPropagation();
-            this._handleDuplicateMap(mapName);
-        });
-
-        // Delete button
-        const deleteBtn = item.querySelector('.delete-btn');
-        addDomListener(this, deleteBtn, 'click', (e) => {
-            e.stopPropagation();
-            this._handleDeleteMap(mapName);
+            this._showMapContextMenu(mapName, menuBtn, hasSavedPosition);
         });
 
         return item;
+    }
+
+    /**
+     * Shows the context menu for a map.
+     * @private
+     * @param {string} mapName - Map name
+     * @param {HTMLElement} anchorEl - Element to anchor the menu to
+     * @param {boolean} hasSavedPosition - Whether the map has a saved position
+     */
+    _showMapContextMenu(mapName, anchorEl, hasSavedPosition) {
+        // Close any existing menu
+        this._closeContextMenu();
+
+        const menu = document.createElement('div');
+        menu.className = 'map-context-menu';
+        this._contextMenu = menu;
+
+        const isCurrentMap = mapName === this._currentMapName;
+
+        // Menu items
+        const menuItems = [
+            {
+                icon: MAPS_ICONS.mapPin,
+                label: hasSavedPosition ? 'Atualizar posicao' : 'Salvar posicao',
+                handler: () => this._handleSaveMapPosition(mapName)
+            },
+        ];
+
+        // Add clear position if exists
+        if (hasSavedPosition) {
+            menuItems.push({
+                icon: SIDEBAR_ICONS.trash,
+                label: 'Limpar posicao salva',
+                handler: () => this._handleClearMapPosition(mapName),
+                className: 'menu-item-danger'
+            });
+        }
+
+        // Separator
+        menuItems.push({ separator: true });
+
+        // Duplicate
+        menuItems.push({
+            icon: MAPS_ICONS.copy,
+            label: 'Duplicar',
+            handler: () => this._handleDuplicateMap(mapName)
+        });
+
+        // Rename
+        menuItems.push({
+            icon: MAPS_ICONS.edit,
+            label: 'Renomear',
+            handler: () => this._handleRenameMap(mapName)
+        });
+
+        // Combine maps
+        menuItems.push({
+            icon: MAPS_ICONS.merge,
+            label: 'Puxar outros mapas',
+            handler: () => this._handleCombineMaps(mapName)
+        });
+
+        // Move features (only if not current map)
+        if (!isCurrentMap) {
+            menuItems.push({
+                icon: MAPS_ICONS.move,
+                label: 'Mover feições selecionadas',
+                handler: () => this._handleMoveFeatures(mapName)
+            });
+        }
+
+        // Separator
+        menuItems.push({ separator: true });
+
+        // Delete
+        menuItems.push({
+            icon: SIDEBAR_ICONS.trash,
+            label: 'Deletar',
+            handler: () => this._handleDeleteMap(mapName),
+            className: 'menu-item-danger'
+        });
+
+        // Build menu items
+        menuItems.forEach(item => {
+            if (item.separator) {
+                const sep = document.createElement('div');
+                sep.className = 'map-context-menu-separator';
+                menu.appendChild(sep);
+            } else {
+                const menuItem = document.createElement('button');
+                menuItem.className = `map-context-menu-item ${item.className || ''}`;
+                menuItem.innerHTML = `${item.icon}<span>${item.label}</span>`;
+                addDomListener(this, menuItem, 'click', (e) => {
+                    e.stopPropagation();
+                    this._closeContextMenu();
+                    item.handler();
+                });
+                menu.appendChild(menuItem);
+            }
+        });
+
+        // Position the menu
+        document.body.appendChild(menu);
+        this._positionContextMenu(menu, anchorEl);
+
+        // Close on click outside
+        const closeHandler = (e) => {
+            if (!menu.contains(e.target) && !anchorEl.contains(e.target)) {
+                this._closeContextMenu();
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        setTimeout(() => {
+            document.addEventListener('click', closeHandler);
+        }, 0);
+    }
+
+    /**
+     * Positions the context menu relative to the anchor element.
+     * @private
+     * @param {HTMLElement} menu - Menu element
+     * @param {HTMLElement} anchorEl - Anchor element
+     */
+    _positionContextMenu(menu, anchorEl) {
+        const rect = anchorEl.getBoundingClientRect();
+        const menuRect = menu.getBoundingClientRect();
+        const padding = 8;
+
+        let top = rect.bottom + 4;
+        let left = rect.right - menuRect.width;
+
+        // Adjust if menu goes off screen
+        if (left < padding) {
+            left = rect.left;
+        }
+        if (left + menuRect.width > window.innerWidth - padding) {
+            left = window.innerWidth - menuRect.width - padding;
+        }
+        if (top + menuRect.height > window.innerHeight - padding) {
+            top = rect.top - menuRect.height - 4;
+        }
+
+        menu.style.position = 'fixed';
+        menu.style.top = `${top}px`;
+        menu.style.left = `${left}px`;
+    }
+
+    /**
+     * Closes the context menu.
+     * @private
+     */
+    _closeContextMenu() {
+        if (this._contextMenu) {
+            this._contextMenu.remove();
+            this._contextMenu = null;
+        }
     }
 
     /**
@@ -387,18 +605,36 @@ export class MapsTab {
     }
 
     /**
-     * Handles opening a project file.
+     * Handles opening a project file (replaces current project).
      * @private
      */
     _handleOpenProject() {
         if (this._exportImportService) {
-            // Trigger file input
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
             fileInput.accept = '.ebgeo';
             fileInput.onchange = async (e) => {
                 if (e.target.files[0]) {
                     await this._exportImportService.processFileDirectly(e.target.files[0], false);
+                    this._loadMaps();
+                }
+            };
+            fileInput.click();
+        }
+    }
+
+    /**
+     * Handles importing a project file additively (adds to current project).
+     * @private
+     */
+    _handleImportAdditive() {
+        if (this._exportImportService) {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.ebgeo';
+            fileInput.onchange = async (e) => {
+                if (e.target.files[0]) {
+                    await this._exportImportService.processFileDirectly(e.target.files[0], true);
                     this._loadMaps();
                 }
             };
@@ -425,7 +661,7 @@ export class MapsTab {
             'Tem certeza que deseja limpar TODOS os dados?\n\n' +
             'Esta acao ira:\n' +
             '- Deletar todos os mapas\n' +
-            '- Remover todas as feicoes\n' +
+            '- Remover todas as feições\n' +
             '- Esta acao NAO pode ser desfeita!'
         );
 
@@ -540,6 +776,128 @@ export class MapsTab {
     }
 
     /**
+     * Handles renaming a map via prompt.
+     * @private
+     * @param {string} mapName - Map to rename
+     */
+    async _handleRenameMap(mapName) {
+        const newName = prompt('Novo nome do mapa:', mapName);
+        if (!newName || !newName.trim() || newName.trim() === mapName) return;
+
+        try {
+            const result = await this._mapManager.renameMap(mapName, newName.trim());
+            if (result.success) {
+                showSuccess(result.message);
+                this._loadMaps();
+            } else {
+                showWarning(result.message);
+            }
+        } catch (_error) {
+            showError('Erro ao renomear mapa');
+        }
+    }
+
+    /**
+     * Handles saving the current map position.
+     * @private
+     * @param {string} mapName - Map to save position for
+     */
+    async _handleSaveMapPosition(mapName) {
+        try {
+            const result = await this._mapManager.saveMapPosition(mapName);
+            if (result.success) {
+                showSuccess(result.message);
+                this._loadMaps();
+            } else {
+                showWarning(result.message);
+            }
+        } catch (_error) {
+            showError('Erro ao salvar posicao');
+        }
+    }
+
+    /**
+     * Handles clearing the saved map position.
+     * @private
+     * @param {string} mapName - Map to clear position for
+     */
+    async _handleClearMapPosition(mapName) {
+        const confirmed = confirm(`Limpar a posicao salva do mapa "${mapName}"?`);
+        if (!confirmed) return;
+
+        try {
+            const result = await this._mapManager.clearMapPosition(mapName);
+            if (result.success) {
+                showSuccess(result.message);
+                this._loadMaps();
+            } else {
+                showWarning(result.message);
+            }
+        } catch (_error) {
+            showError('Erro ao limpar posicao');
+        }
+    }
+
+    /**
+     * Handles showing map notes.
+     * @private
+     * @param {string} mapName - Map to show notes for
+     */
+    async _handleShowMapNotes(mapName) {
+        // Access the map notes manager through the mapManager's mapControl reference
+        if (this._mapManager?.mapControl?.mapNotesManager) {
+            await this._mapManager.mapControl.mapNotesManager.showViewPanel(mapName);
+        } else {
+            showWarning('Notas nao disponiveis');
+        }
+    }
+
+    /**
+     * Handles combining maps.
+     * @private
+     * @param {string} targetMapName - Target map to combine into
+     */
+    async _handleCombineMaps(targetMapName) {
+        // Use the modal from map control if available
+        if (this._mapManager?.mapControl?.showCombineMapsModal) {
+            await this._mapManager.mapControl.showCombineMapsModal(targetMapName);
+        } else {
+            showWarning('Funcao de combinar mapas nao disponivel');
+        }
+    }
+
+    /**
+     * Handles moving selected features to another map.
+     * @private
+     * @param {string} targetMapName - Target map to move features to
+     */
+    async _handleMoveFeatures(targetMapName) {
+        // Check if we have a selection manager
+        if (!this._mapManager?.selectionManager) {
+            showWarning('Selecione feições primeiro');
+            return;
+        }
+
+        const selectedFeatures = this._mapManager.selectionManager.getAllSelectedFeatures();
+        if (selectedFeatures.length === 0) {
+            showWarning('Nenhuma feição selecionada');
+            return;
+        }
+
+        try {
+            const result = await this._mapManager.moveFeaturesToMap(selectedFeatures, targetMapName);
+            if (result.success) {
+                showSuccess(result.message);
+                this._loadMaps();
+            } else {
+                showWarning(result.message);
+            }
+        } catch (_error) {
+            showError('Erro ao mover feições');
+        }
+    }
+
+    /**
      * Escapes HTML special characters.
      * @private
      * @param {string} str - String to escape
@@ -570,6 +928,8 @@ export class MapsTab {
      * Destroys the component.
      */
     destroy() {
+        this._closeContextMenu();
+
         if (this._sortableInstance) {
             this._sortableInstance.destroy();
             this._sortableInstance = null;

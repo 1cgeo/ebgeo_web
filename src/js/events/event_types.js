@@ -152,6 +152,15 @@ export const EventTypes = Object.freeze({
      * Emitters: StateManager.closeAllPopups(), Escape key handler
      */
     UI_CLOSE_ALL_POPUPS: 'ui:closeAllPopups',
+
+    // ===== MAP NOTES =====
+    /**
+     * Emitted when map notes are requested to be shown.
+     * Payload: { mapName: string }
+     * Subscribers: SidebarControl
+     * Emitters: MapsTab
+     */
+    MAP_NOTES_REQUESTED: 'mapNotes:requested',
 });
 
 /**

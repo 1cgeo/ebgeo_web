@@ -898,6 +898,7 @@ class StateManager {
 
         // Open feature panel
         this.set('ui.featurePanelOpen', true);
+        this.set('ui.currentFeatureType', featureType);
         this._emitEvent(EventTypes.FEATURE_PANEL_OPENED, { featureId, featureType });
         this._emitLayoutChanged();
     }
@@ -908,6 +909,7 @@ class StateManager {
     closeFeaturePanel() {
         if (this.get('ui.featurePanelOpen')) {
             this.set('ui.featurePanelOpen', false);
+            this.set('ui.currentFeatureType', null);
             this._emitEvent(EventTypes.FEATURE_PANEL_CLOSED, {});
             this._emitLayoutChanged();
         }
