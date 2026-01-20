@@ -14,6 +14,9 @@ class ToolManager {
         this.selectionManager = null;
         this.uiManager = null;
 
+        /** @type {Set<Object>} Active viewer tools (3D, Street View) - can be multiple */
+        this.activeViewers = new Set();
+
         /** @type {Map<string, Set<Function>>} Event listeners */
         this._listeners = new Map();
     }
@@ -135,6 +138,46 @@ class ToolManager {
      */
     hasActiveTool() {
         return this.activeTool !== null;
+    }
+
+    /**
+     * Toggle a viewer tool (3D, Street View).
+     * Viewers can be active simultaneously and don't compete with drawing tools.
+     * @param {Object} viewer - Viewer instance to toggle
+     */
+    toggleViewer(viewer) {
+        if (!viewer) {
+            return;
+        }
+
+        if (this.activeViewers.has(viewer)) {
+            // Deactivate viewer
+            viewer.deactivate();
+            this.activeViewers.delete(viewer);
+            this._emit('viewerDeactivated', viewer);
+        } else {
+            // Activate viewer
+            viewer.activate();
+            this.activeViewers.add(viewer);
+            this._emit('viewerActivated', viewer);
+        }
+    }
+
+    /**
+     * Check if a specific viewer is active.
+     * @param {Object} viewer - Viewer instance to check
+     * @returns {boolean}
+     */
+    isViewerActive(viewer) {
+        return this.activeViewers.has(viewer);
+    }
+
+    /**
+     * Check if any viewer is currently active.
+     * @returns {boolean}
+     */
+    hasActiveViewer() {
+        return this.activeViewers.size > 0;
     }
 
     /**

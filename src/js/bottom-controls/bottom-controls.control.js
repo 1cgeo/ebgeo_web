@@ -193,6 +193,9 @@ export class BottomControlsControl {
         if (this._toolManager?.on) {
             this._toolManager.on('toolActivated', (tool) => this._onToolActivated(tool));
             this._toolManager.on('toolDeactivated', (tool) => this._onToolDeactivated(tool));
+            // Viewer events (3D, Street View) - viewers can be active simultaneously
+            this._toolManager.on('viewerActivated', (viewer) => this._onViewerActivated(viewer));
+            this._toolManager.on('viewerDeactivated', (viewer) => this._onViewerDeactivated(viewer));
         }
     }
 
@@ -266,12 +269,9 @@ export class BottomControlsControl {
     _toggleModels3D(active) {
         if (!this._modelsViewerControl || !this._toolManager) return;
 
-        if (active) {
-            this._toolManager.setActiveTool(this._modelsViewerControl);
-        } else {
-            if (this._modelsViewerControl.isActive) {
-                this._toolManager.deactivateCurrentTool();
-            }
+        // Only toggle if state doesn't match desired state
+        if (active !== this._modelsViewerControl.isActive) {
+            this._toolManager.toggleViewer(this._modelsViewerControl);
         }
     }
 
@@ -283,12 +283,9 @@ export class BottomControlsControl {
     _togglePanorama(active) {
         if (!this._streetViewControl || !this._toolManager) return;
 
-        if (active) {
-            this._toolManager.setActiveTool(this._streetViewControl);
-        } else {
-            if (this._streetViewControl.isActive) {
-                this._toolManager.deactivateCurrentTool();
-            }
+        // Only toggle if state doesn't match desired state
+        if (active !== this._streetViewControl.isActive) {
+            this._toolManager.toggleViewer(this._streetViewControl);
         }
     }
 
@@ -436,6 +433,37 @@ export class BottomControlsControl {
         }
 
         if (tool === this._streetViewControl) {
+            this._featureToggles.get('panorama')?.setActive(false);
+        }
+    }
+
+    /**
+     * Handles viewer activation event (3D, Street View).
+     * Viewers can be active simultaneously.
+     * @private
+     * @param {Object} viewer - Activated viewer
+     */
+    _onViewerActivated(viewer) {
+        if (viewer === this._modelsViewerControl) {
+            this._featureToggles.get('models3d')?.setActive(true);
+        }
+
+        if (viewer === this._streetViewControl) {
+            this._featureToggles.get('panorama')?.setActive(true);
+        }
+    }
+
+    /**
+     * Handles viewer deactivation event (3D, Street View).
+     * @private
+     * @param {Object} viewer - Deactivated viewer
+     */
+    _onViewerDeactivated(viewer) {
+        if (viewer === this._modelsViewerControl) {
+            this._featureToggles.get('models3d')?.setActive(false);
+        }
+
+        if (viewer === this._streetViewControl) {
             this._featureToggles.get('panorama')?.setActive(false);
         }
     }

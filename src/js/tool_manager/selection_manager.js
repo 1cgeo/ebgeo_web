@@ -298,6 +298,25 @@ class SelectionManager {
         if (this.vectorTileInfoControl?.isActive) return;
         if (this.rectangleSelectionControl?.isActive) return;
 
+        // Skip if click is on viewer layers (3D Models, Street View)
+        // These have their own click handlers and should not trigger feature selection
+        const viewerLayers = [
+            // 3D Models Viewer layers
+            '3d-models-clusters', '3d-models-markers',
+            // Street View PMTiles layers
+            'street-view', 'street-view-lines',
+            // Streetview Markers clustering layers
+            'streetview-markers-clusters', 'streetview-markers-pins'
+        ];
+
+        const clickedLayers = this.map.queryRenderedFeatures(e.point)
+            .map(f => f.layer?.id)
+            .filter(Boolean);
+
+        if (clickedLayers.some(layer => viewerLayers.includes(layer))) {
+            return; // Let viewer handlers process the click
+        }
+
         const activeTool = this.getActiveTool();
         if (activeTool) {
             activeTool.handleMapClick(e);

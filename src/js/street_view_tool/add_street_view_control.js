@@ -3,6 +3,7 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { DragControls } from '../../vendor/three/addons/controls/DragControls.js';
 import config from '../config.js';
+import StreetviewMarkers from './streetview_markers.js';
 
 class AddStreetViewControl {
 
@@ -72,6 +73,9 @@ class AddStreetViewControl {
 
         this.nearbyFeaturesCache = new Map();
         this.cacheRadius = 1000;
+
+        // Streetview markers manager (initialized in onAdd)
+        this.streetviewMarkers = null;
 
         if (config.features.imagens_panoramicas){
             this.streetViewPointsLayer= {
@@ -315,6 +319,12 @@ class AddStreetViewControl {
     onAdd(map) {
         this.map = map;
 
+        // Initialize streetview markers manager
+        this.streetviewMarkers = new StreetviewMarkers(map, this);
+
+        // Expose globally for search integration
+        window.streetViewControl = this;
+
         if (typeof PMTiles !== 'undefined' && !this.map._pmtilesRegistered) {
             const protocol = new PMTiles.Protocol();
             maplibregl.addProtocol("pmtiles", protocol.tile);
@@ -328,7 +338,7 @@ class AddStreetViewControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.title = 'Adicionar imagens panorâmicas';
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
-        button.onclick = () => this.toolManager.setActiveTool(this);
+        button.onclick = () => this.toolManager.toggleViewer(this);
 
         this.container.appendChild(button);
 
@@ -441,6 +451,12 @@ class AddStreetViewControl {
         this.changeButtonColor();
         await this.loadData()
         this.showPhotos()
+
+        // Load and show streetview markers
+        if (this.streetviewMarkers) {
+            await this.streetviewMarkers.loadMarkers();
+            this.streetviewMarkers.show();
+        }
     }
 
     /**
@@ -448,7 +464,7 @@ class AddStreetViewControl {
      * Delegates to toolManager for consistent state management.
      */
     toggleStreetView() {
-        this.toolManager.setActiveTool(this);
+        this.toolManager.toggleViewer(this);
     }
 
 
@@ -1082,6 +1098,11 @@ class AddStreetViewControl {
             console.warn('Error hiding photos:', e);
         }
 
+        // Hide streetview markers
+        if (this.streetviewMarkers) {
+            this.streetviewMarkers.hide();
+        }
+
         const closeBtn = document.getElementById('close-street-view-button');
         if (closeBtn) closeBtn.removeEventListener('click', this.closeStreetView);
         if (this.isOpen) {
@@ -1143,6 +1164,20 @@ class AddStreetViewControl {
 
     handleMouseDown(e) {
 
+    }
+
+    /**
+     * Navigate to a specific streetview marker and open its preview popup.
+     * Used by external components like search.
+     * Delegates to the StreetviewMarkers module.
+     * @param {string} markerId - ID of the marker to navigate to
+     * @returns {Promise<boolean>} True if navigation successful
+     */
+    async navigateToStreetViewMarker(markerId) {
+        if (this.streetviewMarkers) {
+            return this.streetviewMarkers.navigateToMarker(markerId);
+        }
+        return false;
     }
 }
 

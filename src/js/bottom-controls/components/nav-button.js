@@ -72,11 +72,15 @@ export class NavButton {
 
     /**
      * Sets rotation transform (for compass).
+     * Rotates only the inner SVG, not the button container.
      * @param {number} degrees - Rotation in degrees
      */
     setRotation(degrees) {
         if (this._button) {
-            this._button.style.transform = `rotate(${degrees}deg)`;
+            const svg = this._button.querySelector('svg');
+            if (svg) {
+                svg.style.transform = `rotate(${degrees}deg)`;
+            }
         }
     }
 

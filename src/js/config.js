@@ -270,6 +270,24 @@ const config = {
         height: 1000                                   // Altura da câmera
       }
     }
+  ],
+
+  // ===== STREETVIEW MARKERS =====
+  // Markers for specific panoramic photo locations
+  // These markers appear on the map when the streetview tool is activated
+  streetViewMarkers: [
+    // Example marker configuration:
+    // {
+    //   id: "exemplo-marker-01",              // Unique ID for the marker
+    //   name: "Ponto de Observação Norte",    // Display name (used in search and labels)
+    //   data_captura: "20/01/2025",           // Capture date in DD/MM/AAAA format
+    //   locate: {
+    //     lon: -44.47332,                     // Longitude
+    //     lat: -22.43976                      // Latitude
+    //   },
+    //   previewThumbnail: "/street_view/thumbnails/obs-01.jpg",  // Thumbnail image URL
+    //   photoName: "IMG_0001"                 // Exact name for loadImageByName()
+    // }
   ]
 };
 
@@ -280,6 +298,12 @@ const config = {
  * @returns {boolean} True if tilesets exist
  */
 config.hasTilesets = () => config.tilesets && config.tilesets.length > 0;
+
+/**
+ * Check if any streetview markers are configured
+ * @returns {boolean} True if streetview markers exist
+ */
+config.hasStreetViewMarkers = () => config.streetViewMarkers && config.streetViewMarkers.length > 0;
 
 /**
  * Validate basemaps configuration - ensures at least one basemap is enabled

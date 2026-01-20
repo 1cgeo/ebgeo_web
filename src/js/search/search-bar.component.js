@@ -34,6 +34,9 @@ const SEARCH_ICONS = {
 
     // 3D Model - same as toolbar/bottom-controls (layers icon)
     model3d: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`,
+
+    // Streetview - camera/panorama icon
+    streetview: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>`,
 };
 
 /**
@@ -42,6 +45,7 @@ const SEARCH_ICONS = {
 const MAX_RESULTS = {
     features: 5,
     models3d: 3,
+    streetview: 3,
     places: 3,
 };
 
@@ -222,7 +226,7 @@ export class SearchBarComponent {
 
     /**
      * Performs the search with progressive results display.
-     * Shows 3D models immediately, then loads API results.
+     * Shows 3D models and Streetview markers immediately, then loads API results.
      * @private
      * @param {string} query - Search query
      */
@@ -231,12 +235,14 @@ export class SearchBarComponent {
         this._isSearching = true;
         this._container.classList.add('searching');
 
-        // Search 3D models immediately (synchronous)
+        // Search 3D models and Streetview markers immediately (synchronous)
         const model3dResults = this._search3DModels(query);
+        const streetviewResults = this._searchStreetViewMarkers(query);
+        const immediateResults = [...model3dResults, ...streetviewResults];
 
-        // Show 3D results immediately if found, otherwise show loading
-        if (model3dResults.length > 0) {
-            this._displayResults(model3dResults, true); // true = still loading
+        // Show immediate results if found, otherwise show loading
+        if (immediateResults.length > 0) {
+            this._displayResults(immediateResults, true); // true = still loading API
         } else {
             this._showLoading();
         }
@@ -263,8 +269,8 @@ export class SearchBarComponent {
         this._isSearching = false;
         this._container.classList.remove('searching');
 
-        // Combine all results: 3D models first, then API
-        const allResults = [...model3dResults, ...apiResults];
+        // Combine all results: 3D + Streetview first, then API
+        const allResults = [...immediateResults, ...apiResults];
 
         if (allResults.length > 0) {
             this._displayResults(allResults, false);
@@ -335,6 +341,31 @@ export class SearchBarComponent {
                 tilesetId: tileset.id,
                 coordinates: tileset.locate ? [tileset.locate.lon, tileset.locate.lat] : null,
                 dataCaptura: tileset.data_captura,
+            }));
+    }
+
+    /**
+     * Searches streetview markers from config.
+     * @private
+     * @param {string} query - Search query
+     * @returns {Array} Search results
+     */
+    _searchStreetViewMarkers(query) {
+        if (!config.streetViewMarkers || config.streetViewMarkers.length === 0) {
+            return [];
+        }
+
+        const normalizedQuery = query.toLowerCase();
+
+        return config.streetViewMarkers
+            .filter(marker => marker.name?.toLowerCase().includes(normalizedQuery))
+            .slice(0, MAX_RESULTS.streetview)
+            .map(marker => ({
+                type: 'streetview-marker',
+                name: marker.name,
+                markerId: marker.id,
+                coordinates: marker.locate ? [marker.locate.lon, marker.locate.lat] : null,
+                dataCaptura: marker.data_captura,
             }));
     }
 
@@ -496,6 +527,14 @@ export class SearchBarComponent {
             return;
         }
 
+        // Handle Streetview marker
+        if (result.type === 'streetview-marker') {
+            if (window.streetViewControl) {
+                window.streetViewControl.navigateToStreetViewMarker(result.markerId);
+            }
+            return;
+        }
+
         // Fly to coordinates
         if (result.coordinates) {
             this._map.flyTo({
@@ -570,6 +609,8 @@ export class SearchBarComponent {
         switch (type) {
             case '3d-model':
                 return SEARCH_ICONS.model3d;
+            case 'streetview-marker':
+                return SEARCH_ICONS.streetview;
             case 'place':
                 return SEARCH_ICONS.place;
             case 'coordinate':

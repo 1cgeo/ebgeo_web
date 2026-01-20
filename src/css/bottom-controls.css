@@ -213,6 +213,13 @@
     transition: transform var(--transition-normal);
 }
 
+/* Compass button - nav-btn variant */
+#nav-btn-compass svg {
+    transition: transform var(--transition-normal);
+    width: 32px;
+    height: 32px;
+}
+
 /* =========================================================================
    ZOOM CONTROLS - Legacy support
    ========================================================================= */

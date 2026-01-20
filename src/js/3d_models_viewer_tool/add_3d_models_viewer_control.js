@@ -79,7 +79,7 @@ class Add3DModelsViewerControl {
         button.className = 'mapbox-gl-draw_ctrl-draw-btn';
         button.title = 'Visualizar modelos 3D';
         button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_3d_black.svg" />';
-        button.onclick = () => this.toolManager.setActiveTool(this);
+        button.onclick = () => this.toolManager.toggleViewer(this);
 
         this.container.appendChild(button);
 
@@ -718,9 +718,9 @@ class Add3DModelsViewerControl {
             return false;
         }
 
-        // Activate tool if not active
+        // Activate viewer if not active
         if (!this.isActive) {
-            await this.toolManager.setActiveTool(this);
+            this.toolManager.toggleViewer(this);
         }
 
         const coordinates = [tileset.locate.lon, tileset.locate.lat];
