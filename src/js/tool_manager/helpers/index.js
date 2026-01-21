@@ -13,23 +13,55 @@ export {
     getCommonConfig
 } from './common-config.helpers.js';
 
-// Slider components
+// Slider components (modern + legacy)
 export {
+    createModernSlider,
+    createModernNumericInput,
     createNumericInput,
     createSliderWithInput
 } from './slider.helpers.js';
 
-// Color picker
+// Color picker (modern + legacy)
 export {
+    createModernColorPicker,
     createColorPicker
 } from './color-picker.helpers.js';
 
-// Form controls
+// Form controls (modern + legacy)
 export {
+    createModernToggle,
+    createModernSelect,
+    createModernTextarea,
+    createModernTabs,
+    createModernInfoBox,
     createCheckbox,
     createAttributeRow,
     createLineStyleSelect
 } from './form-controls.helpers.js';
+
+// Section divider
+export {
+    createSectionDivider
+} from './section-divider.helpers.js';
+
+// Line style selector
+export {
+    createModernLineStyleSelect,
+    getLineDashArray,
+    getLineStyles
+} from './line-style.helpers.js';
+
+// Hatch control
+export {
+    createModernHatchControl,
+    getHatchPatterns
+} from './hatch-control.helpers.js';
+
+// Text alignment
+export {
+    createModernTextAlignment,
+    getAlignments
+} from './text-alignment.helpers.js';
 
 // Coordinate editor
 export {
@@ -44,7 +76,8 @@ export {
     cleanupFeatureDropdownListeners
 } from './feature-header.helpers.js';
 
-// Buttons
+// Buttons (modern + legacy)
 export {
+    createModernButtons,
     createStandardButtons
 } from './buttons.helpers.js';

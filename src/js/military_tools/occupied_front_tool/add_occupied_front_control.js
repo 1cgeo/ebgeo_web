@@ -93,12 +93,12 @@ class AddOccupiedFrontControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'occupied-front-attributes-section';
 
         try {
-            addOccupiedFrontAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addOccupiedFrontAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating occupied front attribute panel:', error);

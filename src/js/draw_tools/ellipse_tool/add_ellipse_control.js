@@ -99,12 +99,12 @@ class AddEllipseControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'ellipse-attributes-section';
 
         try {
-            addEllipseAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addEllipseAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating ellipse attribute panel:', error);

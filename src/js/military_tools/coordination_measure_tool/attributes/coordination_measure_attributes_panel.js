@@ -6,14 +6,13 @@
  */
 
 import {
-    createSliderWithInput,
-    createAttributeRow,
-    createStandardButtons,
+    createModernSlider,
+    createModernButtons,
+    createSectionDivider,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton,
-    createCoordinateEditor,
-    getCommonConfig
-} from '../../../tool_manager';
+    createCoordinateEditor
+} from '../../../tool_manager/helpers/index.js';
 
 import { openPointModal } from './point-selector.modal.js';
 
@@ -25,15 +24,20 @@ import { openPointModal } from './point-selector.modal.js';
  * @param {Object} coordinationMeasureControl - Control instance
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
+ * @param {Object} [options={}] - Additional options
+ * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
 export function addCoordinationMeasureAttributesToPanel(
     panel,
     selectedFeatures,
     coordinationMeasureControl,
     selectionManager,
-    uiManager
+    uiManager,
+    options = {}
 ) {
-    if (!selectedFeatures || selectedFeatures.length === 0) return;
+    if (!selectedFeatures || selectedFeatures.length === 0) {
+        return;
+    }
 
     const feature = selectedFeatures[0];
 
@@ -41,43 +45,51 @@ export function addCoordinationMeasureAttributesToPanel(
         selectedFeatures.map(f => [f.properties.id, { ...f.properties }])
     );
 
-    if (selectedFeatures.length === 1) {
-        const headerComponent = createFeatureHeaderWithOptions(
-            feature.properties.nome,
-            (newName) => {
-                coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                uiManager.updateSelectionHighlight();
-            },
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-        panel.appendChild(headerComponent);
-    } else if (selectedFeatures.length > 1) {
-        const multiSelectHeader = document.createElement('div');
-        multiSelectHeader.className = 'feature-header-with-options';
+    // Only show header if not hidden (for sidebar integration)
+    if (!options.hideHeader) {
+        if (selectedFeatures.length === 1) {
+            const headerComponent = createFeatureHeaderWithOptions(
+                feature.properties.nome,
+                (newName) => {
+                    coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                    uiManager.updateSelectionHighlight();
+                },
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
+            panel.appendChild(headerComponent);
+        } else if (selectedFeatures.length > 1) {
+            const multiSelectHeader = document.createElement('div');
+            multiSelectHeader.className = 'feature-header-with-options';
 
-        const infoText = document.createElement('div');
-        infoText.className = 'feature-name-wrapper';
-        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
-        infoText.textContent = `${selectedFeatures.length} medidas selecionadas`;
+            const infoText = document.createElement('div');
+            infoText.className = 'feature-name-wrapper';
+            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+            infoText.textContent = `${selectedFeatures.length} medidas selecionadas`;
 
-        const optionsButton = createFeatureOptionsButton(
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
+            const optionsButton = createFeatureOptionsButton(
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
 
-        multiSelectHeader.appendChild(infoText);
-        multiSelectHeader.appendChild(optionsButton);
-        panel.appendChild(multiSelectHeader);
+            multiSelectHeader.appendChild(infoText);
+            multiSelectHeader.appendChild(optionsButton);
+            panel.appendChild(multiSelectHeader);
+        }
     }
 
+    // Configure point button (single selection only)
     if (selectedFeatures.length === 1) {
+        const pointButtonContainer = document.createElement('div');
+        pointButtonContainer.className = 'attr-modern-button-row';
+        pointButtonContainer.style.marginBottom = '12px';
+
         const pointButton = document.createElement('button');
-        pointButton.classList.add('tool-button', 'pure-material-button-contained');
-        pointButton.textContent = 'Configurar';
-        pointButton.style.cssText = 'width: 100%; margin-bottom: 15px; padding: 10px;';
+        pointButton.className = 'attr-modern-btn attr-modern-btn-primary';
+        pointButton.textContent = 'Configurar Símbolo';
+        pointButton.style.width = '100%';
         pointButton.onclick = () => openPointModal({
             feature,
             selectedFeatures,
@@ -86,57 +98,67 @@ export function addCoordinationMeasureAttributesToPanel(
             initialPropertiesMap
         });
 
-        panel.appendChild(createAttributeRow('Simbolo:', pointButton));
+        pointButtonContainer.appendChild(pointButton);
+        panel.appendChild(pointButtonContainer);
     }
 
-    const sizeControl = createSliderWithInput(getCommonConfig('size',
-        feature.properties.size || 1.0, {
+    // Size slider
+    panel.appendChild(createModernSlider({
+        label: 'Tamanho',
+        min: 0.5,
+        max: 3,
+        step: 0.1,
+        value: feature.properties.size || 1.0,
+        unit: '',
         onChange: (value) => {
             coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'size', value);
-            uiManager.updateSelectionHighlight();
         }
     }));
 
-    panel.appendChild(createAttributeRow('Tamanho:', sizeControl));
-
-    const createdAtZoomControl = createSliderWithInput({
+    // Reference zoom slider
+    panel.appendChild(createModernSlider({
+        label: 'Zoom de Referência',
         min: 1,
         max: 21,
         step: 0.1,
         value: Math.round(feature.properties.createdAtZoom * 10) / 10,
+        unit: '',
         onChange: (value) => {
             const roundedValue = Math.round(parseFloat(value) * 10) / 10;
             coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
-            uiManager.updateSelectionHighlight();
-        }
-    });
-
-    panel.appendChild(createAttributeRow('Zoom de referencia:', createdAtZoomControl));
-
-    const opacityControl = createSliderWithInput(getCommonConfig('opacity',
-        Math.round((feature.properties.opacity || 1.0) * 100), {
-        onChange: (value) => {
-            coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
-            uiManager.updateSelectionHighlight();
         }
     }));
 
-    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
+    // Opacity slider
+    panel.appendChild(createModernSlider({
+        label: 'Opacidade',
+        min: 0,
+        max: 100,
+        step: 1,
+        value: Math.round((feature.properties.opacity || 1.0) * 100),
+        unit: '%',
+        onChange: (value) => {
+            coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
+        }
+    }));
 
-    const rotationControl = createSliderWithInput({
+    // Rotation slider
+    panel.appendChild(createModernSlider({
+        label: 'Rotação',
         min: -180,
         max: 180,
         step: 15,
         value: feature.properties.rotation || 0,
+        unit: '°',
         onChange: (value) => {
             coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'rotation', value);
-            uiManager.updateSelectionHighlight();
         }
-    });
+    }));
 
-    panel.appendChild(createAttributeRow('Rotacao (°):', rotationControl));
-
+    // Coordinate editor (single selection only)
     if (selectedFeatures.length === 1) {
+        panel.appendChild(createSectionDivider('Localização'));
+
         const coordEditor = createCoordinateEditor(
             feature,
             uiManager,
@@ -164,14 +186,13 @@ export function addCoordinationMeasureAttributesToPanel(
         panel.appendChild(coordEditor);
     }
 
-    const buttons = createStandardButtons({
+    // Action buttons
+    panel.appendChild(createModernButtons({
         selectedFeatures,
         control: coordinationMeasureControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
         onSetDefault: () => coordinationMeasureControl.setDefaultProperties(feature.properties)
-    });
-
-    panel.appendChild(buttons);
+    }));
 }

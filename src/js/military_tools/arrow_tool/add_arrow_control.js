@@ -133,12 +133,12 @@ class AddArrowControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'arrow-attributes-section';
 
         try {
-            addArrowAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addArrowAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating arrow attribute panel:', error);

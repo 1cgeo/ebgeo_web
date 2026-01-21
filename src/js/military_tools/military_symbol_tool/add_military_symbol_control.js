@@ -159,7 +159,7 @@ class AddMilitarySymbolControl extends BaseControl {
     return true;
   }
 
-  createAttributePanel(container, features, selectionManager, uiManager) {
+  createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
     const sectionPanel = document.createElement("div");
     sectionPanel.className = "military-symbol-attributes-section";
 
@@ -169,7 +169,8 @@ class AddMilitarySymbolControl extends BaseControl {
         features,
         this,
         selectionManager,
-        uiManager
+        uiManager,
+        options
       );
       container.appendChild(sectionPanel);
     } catch (error) {

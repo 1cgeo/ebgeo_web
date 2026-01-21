@@ -1,104 +1,126 @@
 // Path: js/draw_tools/image_tool/image_attributes_panel.js
 
 import {
-    createSliderWithInput,
-    createAttributeRow,
-    createStandardButtons,
-    createEditableFeatureName,
+    createModernSlider,
+    createModernButtons,
     createFeatureHeaderWithOptions,
-    createFeatureOptionsButton,
-    getCommonConfig
+    createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';
 
-export function addImageAttributesToPanel(panel, selectedFeatures, imageControl, selectionManager, uiManager) {
-    if (selectedFeatures.length === 0) return;
+/**
+ * Add image attributes to the attributes panel
+ * @param {HTMLElement} panel - Panel container element
+ * @param {Array} selectedFeatures - Array of selected image features
+ * @param {Object} imageControl - Image control instance
+ * @param {Object} selectionManager - Selection manager instance
+ * @param {Object} uiManager - UI manager instance
+ * @param {Object} [options={}] - Additional options
+ * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
+ */
+export function addImageAttributesToPanel(panel, selectedFeatures, imageControl, selectionManager, uiManager, options = {}) {
+    if (selectedFeatures.length === 0) {
+        return;
+    }
 
     const feature = selectedFeatures[0];
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
-    if (selectedFeatures.length === 1) {
-        const headerComponent = createFeatureHeaderWithOptions(
-            feature.properties.nome,
-            (newName) => {
-                imageControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                uiManager.updateSelectionHighlight();
-            },
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-        panel.appendChild(headerComponent);
-    } else if (selectedFeatures.length > 1) {
-        const multiSelectHeader = document.createElement('div');
-        multiSelectHeader.className = 'feature-header-with-options';
 
-        const infoText = document.createElement('div');
-        infoText.className = 'feature-name-wrapper';
-        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
-        infoText.textContent = `${selectedFeatures.length} imagens selecionados`;
+    // Only show header if not hidden (for sidebar integration)
+    if (!options.hideHeader) {
+        if (selectedFeatures.length === 1) {
+            const headerComponent = createFeatureHeaderWithOptions(
+                feature.properties.nome,
+                (newName) => {
+                    imageControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                    uiManager.updateSelectionHighlight();
+                },
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
+            panel.appendChild(headerComponent);
+        } else if (selectedFeatures.length > 1) {
+            const multiSelectHeader = document.createElement('div');
+            multiSelectHeader.className = 'feature-header-with-options';
 
-        const optionsButton = createFeatureOptionsButton(
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
+            const infoText = document.createElement('div');
+            infoText.className = 'feature-name-wrapper';
+            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+            infoText.textContent = `${selectedFeatures.length} imagens selecionadas`;
 
-        multiSelectHeader.appendChild(infoText);
-        multiSelectHeader.appendChild(optionsButton);
-        panel.appendChild(multiSelectHeader);
+            const optionsButton = createFeatureOptionsButton(
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
+
+            multiSelectHeader.appendChild(infoText);
+            multiSelectHeader.appendChild(optionsButton);
+            panel.appendChild(multiSelectHeader);
+        }
     }
 
-    // Size
-    const sizeControl = createSliderWithInput(getCommonConfig('size',
-        feature.properties.size, {
+    // Size slider
+    panel.appendChild(createModernSlider({
+        label: 'Tamanho',
+        min: 10,
+        max: 300,
+        step: 1,
+        value: feature.properties.size || 100,
+        unit: 'px',
         onChange: (value) => {
             imageControl.updateFeaturesProperty(selectedFeatures, 'size', value);
-            uiManager.updateSelectionHighlight();
         }
     }));
 
-    panel.appendChild(createAttributeRow('Tamanho:', sizeControl));
-    const createdAtZoomControl = createSliderWithInput({
+    // Reference zoom slider
+    panel.appendChild(createModernSlider({
+        label: 'Zoom de Referência',
         min: 1,
         max: 21,
         step: 0.1,
         value: Math.round(feature.properties.createdAtZoom * 10) / 10,
+        unit: '',
         onChange: (value) => {
             const roundedValue = Math.round(parseFloat(value) * 10) / 10;
             imageControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
-            uiManager.updateSelectionHighlight();
         }
-    });
+    }));
 
-    panel.appendChild(createAttributeRow('Zoom de referência:', createdAtZoomControl));
-    const rotationControl = createSliderWithInput(getCommonConfig('rotation',
-        feature.properties.rotation || 0, {
+    // Rotation slider
+    panel.appendChild(createModernSlider({
+        label: 'Rotação',
+        min: 0,
+        max: 360,
+        step: 1,
+        value: feature.properties.rotation || 0,
+        unit: '°',
         onChange: (value) => {
             imageControl.updateFeaturesProperty(selectedFeatures, 'rotation', value);
-            uiManager.updateSelectionHighlight();
         }
     }));
 
-    panel.appendChild(createAttributeRow('Rotação:', rotationControl));
-
-    const opacityControl = createSliderWithInput(getCommonConfig('opacity',
-        Math.round(feature.properties.opacity * 100), {
+    // Opacity slider
+    panel.appendChild(createModernSlider({
+        label: 'Opacidade',
+        min: 0,
+        max: 100,
+        step: 1,
+        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 1) * 100),
+        unit: '%',
         onChange: (value) => {
             imageControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
-            uiManager.updateSelectionHighlight();
         }
     }));
 
-    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
-
-    const buttons = createStandardButtons({
+    // Action buttons (no set default for images)
+    panel.appendChild(createModernButtons({
         selectedFeatures,
         control: imageControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: false,
         onSetDefault: null
-    });
-
-    panel.appendChild(buttons);
+    }));
 }

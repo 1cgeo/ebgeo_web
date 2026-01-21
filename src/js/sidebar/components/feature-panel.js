@@ -2,7 +2,14 @@
 
 /**
  * @fileoverview Feature attributes panel component for sidebar.
- * Displays feature properties, style, and images when a feature is selected.
+ * Displays feature properties, style, images, and location when a feature is selected.
+ * Follows the new Google Maps-inspired design with sections:
+ * - Header
+ * - Identification (icon, name, type, layer)
+ * - Photo Gallery
+ * - Tabs (Estilo / Atributos)
+ * - Location
+ * - Delete button
  */
 
 import { SIDEBAR_ICONS } from '../sidebar.constants.js';
@@ -28,6 +35,7 @@ export class FeaturePanel {
         this._headerTitle = null;
         this._contentContainer = null;
         this._currentContent = null;
+        this._cleanupFunctions = [];
 
         setupCleanup(this);
     }
@@ -45,16 +53,16 @@ export class FeaturePanel {
         const header = this._createHeader();
         this._container.appendChild(header);
 
-        // Content container
+        // Content container (scrollable)
         this._contentContainer = document.createElement('div');
-        this._contentContainer.className = 'sidebar-panel-content feature-panel-content';
+        this._contentContainer.className = 'feature-panel-content';
         this._container.appendChild(this._contentContainer);
 
         return this._container;
     }
 
     /**
-     * Creates the panel header.
+     * Creates the panel header following the standard sidebar pattern.
      * @private
      * @returns {HTMLElement}
      */
@@ -62,21 +70,25 @@ export class FeaturePanel {
         const header = document.createElement('div');
         header.className = 'sidebar-panel-header';
 
-        // Title
+        // Title with icon (same pattern as sidebar-panel.js)
         this._headerTitle = document.createElement('div');
         this._headerTitle.className = 'sidebar-panel-title';
+
+        // Feature icon SVG
+        const featureIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+
         this._headerTitle.innerHTML = `
-            ${SIDEBAR_ICONS.map}
-            <span>Detalhes da Feição</span>
+            ${featureIcon}
+            <span>EBGeo - Feição</span>
         `;
         header.appendChild(this._headerTitle);
 
-        // Close button
+        // Close button (chevron left, same as sidebar-panel.js)
         const closeBtn = document.createElement('button');
         closeBtn.className = 'sidebar-panel-close';
         closeBtn.setAttribute('aria-label', 'Fechar painel');
         closeBtn.title = 'Fechar';
-        closeBtn.innerHTML = SIDEBAR_ICONS.close;
+        closeBtn.innerHTML = SIDEBAR_ICONS.chevronLeft;
 
         const handleClose = () => {
             if (this._onClose) {
@@ -92,23 +104,11 @@ export class FeaturePanel {
 
     /**
      * Shows the feature panel with content.
-     * @param {HTMLElement} contentElement - The attribute panel content
-     * @param {string} featureName - Name of the feature for the title
+     * @param {HTMLElement} contentElement - The panel content
      */
-    show(contentElement, featureName) {
-        // Update header title
-        if (this._headerTitle) {
-            const displayName = featureName || 'Feição';
-            this._headerTitle.innerHTML = `
-                ${SIDEBAR_ICONS.map}
-                <span>${displayName}</span>
-            `;
-        }
-
+    show(contentElement) {
         // Clear previous content
-        if (this._currentContent && this._currentContent.parentNode) {
-            this._contentContainer.removeChild(this._currentContent);
-        }
+        this._clearContent();
 
         // Set new content
         this._currentContent = contentElement;
@@ -121,6 +121,38 @@ export class FeaturePanel {
     }
 
     /**
+     * Clears current content and runs cleanup functions.
+     * @private
+     */
+    _clearContent() {
+        // Run cleanup functions
+        this._cleanupFunctions.forEach(fn => {
+            try {
+                fn();
+            } catch (e) {
+                console.warn('Error in cleanup function:', e);
+            }
+        });
+        this._cleanupFunctions = [];
+
+        // Remove content
+        if (this._currentContent && this._currentContent.parentNode) {
+            this._contentContainer.removeChild(this._currentContent);
+        }
+        this._currentContent = null;
+    }
+
+    /**
+     * Registers a cleanup function to be called when content is cleared.
+     * @param {Function} cleanupFn - Cleanup function
+     */
+    registerCleanup(cleanupFn) {
+        if (typeof cleanupFn === 'function') {
+            this._cleanupFunctions.push(cleanupFn);
+        }
+    }
+
+    /**
      * Hides the feature panel.
      */
     hide() {
@@ -128,11 +160,8 @@ export class FeaturePanel {
 
         // Clear content after animation
         setTimeout(() => {
-            if (this._container.dataset.expanded === 'false' && this._currentContent) {
-                if (this._currentContent.parentNode === this._contentContainer) {
-                    this._contentContainer.removeChild(this._currentContent);
-                }
-                this._currentContent = null;
+            if (this._container.dataset.expanded === 'false') {
+                this._clearContent();
             }
         }, 300);
     }
@@ -144,12 +173,8 @@ export class FeaturePanel {
     updateContent(contentElement) {
         if (!this.isExpanded()) return;
 
-        // Clear previous content
-        if (this._currentContent && this._currentContent.parentNode) {
-            this._contentContainer.removeChild(this._currentContent);
-        }
+        this._clearContent();
 
-        // Set new content
         this._currentContent = contentElement;
         if (contentElement) {
             this._contentContainer.appendChild(contentElement);
@@ -184,6 +209,7 @@ export class FeaturePanel {
      * Destroys the component.
      */
     destroy() {
+        this._clearContent();
         cleanup(this);
         removeElement(this._container);
         this._container = null;

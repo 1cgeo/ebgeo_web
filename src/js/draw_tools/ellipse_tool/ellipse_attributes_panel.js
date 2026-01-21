@@ -1,130 +1,156 @@
 // Path: js/draw_tools/ellipse_tool/ellipse_attributes_panel.js
 
 import {
-    createSliderWithInput,
-    createColorPicker,
-    createCheckbox,
-    createAttributeRow,
-    createStandardButtons,
-    createEditableFeatureName,
+    createModernSlider,
+    createModernColorPicker,
+    createModernLineStyleSelect,
+    createModernHatchControl,
+    createModernButtons,
+    createSectionDivider,
     createFeatureHeaderWithOptions,
-    createFeatureOptionsButton,
-    createLineStyleSelect,
-    getCommonConfig,
-    openHatchConfigModal
-} from '../../tool_manager';
+    createFeatureOptionsButton
+} from '../../tool_manager/helpers/index.js';
 
-export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseControl, selectionManager, uiManager) {
-    if (selectedFeatures.length === 0) return;
+/**
+ * Add ellipse attributes to the attributes panel
+ * @param {HTMLElement} panel - Panel container element
+ * @param {Array} selectedFeatures - Array of selected ellipse features
+ * @param {Object} ellipseControl - Ellipse control instance
+ * @param {Object} selectionManager - Selection manager instance
+ * @param {Object} uiManager - UI manager instance
+ * @param {Object} [options={}] - Additional options
+ * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
+ */
+export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseControl, selectionManager, uiManager, options = {}) {
+    if (selectedFeatures.length === 0) {
+        return;
+    }
 
     const feature = selectedFeatures[0];
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    if (selectedFeatures.length === 1) {
-        const headerComponent = createFeatureHeaderWithOptions(
-            feature.properties.nome,
-            (newName) => {
-                ellipseControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                uiManager.updateSelectionHighlight();
-            },
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-        panel.appendChild(headerComponent);
-    } else if (selectedFeatures.length > 1) {
-        const multiSelectHeader = document.createElement('div');
-        multiSelectHeader.className = 'feature-header-with-options';
+    // Only show header if not hidden (for sidebar integration)
+    if (!options.hideHeader) {
+        if (selectedFeatures.length === 1) {
+            const headerComponent = createFeatureHeaderWithOptions(
+                feature.properties.nome,
+                (newName) => {
+                    ellipseControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                    uiManager.updateSelectionHighlight();
+                },
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
+            panel.appendChild(headerComponent);
+        } else if (selectedFeatures.length > 1) {
+            const multiSelectHeader = document.createElement('div');
+            multiSelectHeader.className = 'feature-header-with-options';
 
-        const infoText = document.createElement('div');
-        infoText.className = 'feature-name-wrapper';
-        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
-        infoText.textContent = `${selectedFeatures.length} elipses selecionados`;
+            const infoText = document.createElement('div');
+            infoText.className = 'feature-name-wrapper';
+            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+            infoText.textContent = `${selectedFeatures.length} elipses selecionadas`;
 
-        const optionsButton = createFeatureOptionsButton(
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
+            const optionsButton = createFeatureOptionsButton(
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
 
-        multiSelectHeader.appendChild(infoText);
-        multiSelectHeader.appendChild(optionsButton);
-        panel.appendChild(multiSelectHeader);
+            multiSelectHeader.appendChild(infoText);
+            multiSelectHeader.appendChild(optionsButton);
+            panel.appendChild(multiSelectHeader);
+        }
     }
 
-    const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
-        ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
-        uiManager.updateSelectionHighlight();
-    }, 'Cor da linha da elipse');
-
-    panel.appendChild(createAttributeRow('Linha:', lineColorInput));
-
-    const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
-        ellipseControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
-        uiManager.updateSelectionHighlight();
-    }, 'Cor do preenchimento da elipse');
-
-    panel.appendChild(createAttributeRow('Preenchimento:', fillColorInput));
-
-    const opacityControl = createSliderWithInput(getCommonConfig('complete_opacity',
-        Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100), {
-        onChange: (value) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
-            uiManager.updateSelectionHighlight();
+    // Fill color picker
+    panel.appendChild(createModernColorPicker({
+        label: 'Preenchimento',
+        value: feature.properties.fillColor,
+        onChange: (color) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
         }
     }));
 
-    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
-
-    const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
-        feature.properties.lineWidth || 2, {
-        onChange: (value) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
-            uiManager.updateSelectionHighlight();
+    // Line color picker
+    panel.appendChild(createModernColorPicker({
+        label: 'Borda',
+        value: feature.properties.lineColor,
+        onChange: (color) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
         }
     }));
 
-    panel.appendChild(createAttributeRow('Largura (px):', lineWidthControl));
+    // Opacity slider
+    panel.appendChild(createModernSlider({
+        label: 'Opacidade do Preenchimento',
+        min: 0,
+        max: 100,
+        step: 1,
+        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
+        unit: '%',
+        onChange: (newValue) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
+        }
+    }));
 
-    const lineStyleSelect = createLineStyleSelect(
-        feature.properties.lineStyle || 'solid',
-        (newValue) => {
+    // Border width slider
+    panel.appendChild(createModernSlider({
+        label: 'Espessura da Borda',
+        min: 1,
+        max: 10,
+        step: 1,
+        value: feature.properties.lineWidth || 2,
+        unit: 'px',
+        onChange: (newValue) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
+        }
+    }));
+
+    // Line style selector
+    panel.appendChild(createModernLineStyleSelect({
+        value: feature.properties.lineStyle || 'solid',
+        onChange: (newValue) => {
             ellipseControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
         }
-    );
-    panel.appendChild(createAttributeRow('Estilo da linha:', lineStyleSelect));
+    }));
 
-    const hatchContainer = document.createElement('div');
-    hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+    // Fill section
+    panel.appendChild(createSectionDivider('Preenchimento'));
 
-    const hatchCheckbox = createCheckbox(
-        feature.properties.hatchEnabled === true,
-        (e) => {
-            ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchEnabled', e.target.checked);
+    // Hatch control
+    panel.appendChild(createModernHatchControl({
+        enabled: feature.properties.hatchEnabled === true,
+        onToggle: (enabled) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchEnabled', enabled);
+        },
+        hatchType: feature.properties.hatchType || 'diagonal-right',
+        onTypeChange: (type) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchType', type);
+        },
+        hatchColor: feature.properties.hatchColor || '#000000',
+        onColorChange: (color) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchColor', color);
+        },
+        hatchSpacing: feature.properties.hatchSpacing || 8,
+        onSpacingChange: (spacing) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
+        },
+        hatchLineWidth: feature.properties.hatchLineWidth || 2,
+        onLineWidthChange: (width) => {
+            ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
         }
-    );
+    }));
 
-    const hatchConfigButton = document.createElement('button');
-    hatchConfigButton.textContent = '⚙️ Configurar';
-    hatchConfigButton.className = 'tool-button pure-material-tool-button-outlined';
-    hatchConfigButton.style.cssText = 'padding: 4px 8px; font-size: 12px;';
-    hatchConfigButton.onclick = () => {
-        openHatchConfigModal(feature, selectedFeatures, ellipseControl);
-    };
-
-    hatchContainer.appendChild(hatchCheckbox);
-    hatchContainer.appendChild(hatchConfigButton);
-    panel.appendChild(createAttributeRow('Hachura:', hatchContainer));
-
-    const buttons = createStandardButtons({
+    // Action buttons
+    panel.appendChild(createModernButtons({
         selectedFeatures,
         control: ellipseControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
         onSetDefault: () => ellipseControl.setDefaultProperties(feature.properties)
-    });
-
-    panel.appendChild(buttons);
+    }));
 }

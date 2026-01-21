@@ -1,16 +1,14 @@
 // Path: js/draw_tools/line_tool/line_attributes_panel.js
 
 import {
-    createSliderWithInput,
-    createColorPicker,
-    createCheckbox,
-    createAttributeRow,
-    createStandardButtons,
-    createEditableFeatureName,
+    createModernSlider,
+    createModernColorPicker,
+    createModernToggle,
+    createModernLineStyleSelect,
+    createModernButtons,
+    createSectionDivider,
     createFeatureHeaderWithOptions,
-    createFeatureOptionsButton,
-    createLineStyleSelect,
-    getCommonConfig
+    createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -20,8 +18,10 @@ import {
  * @param {Object} lineControl - Line control instance
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
+ * @param {Object} [options={}] - Additional options
+ * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
-export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, selectionManager, uiManager) {
+export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, selectionManager, uiManager, options = {}) {
     if (selectedFeatures.length === 0) {
         return;
     }
@@ -30,99 +30,116 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    if (selectedFeatures.length === 1) {
-        const headerComponent = createFeatureHeaderWithOptions(
-            feature.properties.nome,
-            (newName) => {
-                lineControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                uiManager.updateSelectionHighlight();
-            },
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-        panel.appendChild(headerComponent);
-    } else if (selectedFeatures.length > 1) {
-        const multiSelectHeader = document.createElement('div');
-        multiSelectHeader.className = 'feature-header-with-options';
+    if (!options.hideHeader) {
+        if (selectedFeatures.length === 1) {
+            const headerComponent = createFeatureHeaderWithOptions(
+                feature.properties.nome,
+                (newName) => {
+                    lineControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                    uiManager.updateSelectionHighlight();
+                },
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
+            panel.appendChild(headerComponent);
+        } else if (selectedFeatures.length > 1) {
+            const multiSelectHeader = document.createElement('div');
+            multiSelectHeader.className = 'feature-header-with-options';
 
-        const infoText = document.createElement('div');
-        infoText.className = 'feature-name-wrapper';
-        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
-        infoText.textContent = `${selectedFeatures.length} linhas selecionados`;
+            const infoText = document.createElement('div');
+            infoText.className = 'feature-name-wrapper';
+            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+            infoText.textContent = `${selectedFeatures.length} linhas selecionadas`;
 
-        const optionsButton = createFeatureOptionsButton(
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
+            const optionsButton = createFeatureOptionsButton(
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
 
-        multiSelectHeader.appendChild(infoText);
-        multiSelectHeader.appendChild(optionsButton);
-        panel.appendChild(multiSelectHeader);
+            multiSelectHeader.appendChild(infoText);
+            multiSelectHeader.appendChild(optionsButton);
+            panel.appendChild(multiSelectHeader);
+        }
     }
 
-    const colorInput = createColorPicker(feature.properties.color, (e) => {
-        lineControl.updateFeaturesProperty(selectedFeatures, 'color', e.target.value);
-    });
-    panel.appendChild(createAttributeRow('Cor:', colorInput));
+    // Color picker
+    panel.appendChild(createModernColorPicker({
+        label: 'Cor',
+        value: feature.properties.color,
+        onChange: (color) => {
+            lineControl.updateFeaturesProperty(selectedFeatures, 'color', color);
+        }
+    }));
 
-    const sizeSlider = createSliderWithInput({
+    // Width slider
+    panel.appendChild(createModernSlider({
+        label: 'Espessura',
         min: 1,
         max: 15,
         step: 1,
         value: feature.properties.size || 7,
+        unit: 'px',
         onChange: (newValue) => {
             lineControl.updateFeaturesProperty(selectedFeatures, 'size', newValue);
         }
-    });
-    panel.appendChild(createAttributeRow('Largura:', sizeSlider));
+    }));
 
-    const lineStyleSelect = createLineStyleSelect(
-        feature.properties.lineStyle || 'solid',
-        (newValue) => {
+    // Line style selector
+    panel.appendChild(createModernLineStyleSelect({
+        value: feature.properties.lineStyle || 'solid',
+        onChange: (newValue) => {
             lineControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
         }
-    );
-    panel.appendChild(createAttributeRow('Estilo da linha:', lineStyleSelect));
+    }));
 
-    const opacitySlider = createSliderWithInput(getCommonConfig('opacity',
-        Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100), {
+    // Opacity slider
+    panel.appendChild(createModernSlider({
+        label: 'Opacidade',
+        min: 0,
+        max: 100,
+        step: 1,
+        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
+        unit: '%',
         onChange: (newValue) => {
             lineControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
         }
     }));
-    panel.appendChild(createAttributeRow('Opacidade:', opacitySlider));
 
-    const measureCheckbox = createCheckbox(
-        feature.properties.measure === true,
-        (e) => {
-            lineControl.updateFeaturesProperty(selectedFeatures, 'measure', e.target.checked);
+    // Options section
+    panel.appendChild(createSectionDivider('Opções'));
+
+    // Measure toggle
+    panel.appendChild(createModernToggle({
+        label: 'Mostrar medição',
+        checked: feature.properties.measure === true,
+        onChange: (checked) => {
+            lineControl.updateFeaturesProperty(selectedFeatures, 'measure', checked);
         }
-    );
-    panel.appendChild(createAttributeRow('Medir:', measureCheckbox));
+    }));
 
+    // Profile toggle (single selection only)
     if (selectedFeatures.length === 1) {
-        const profileCheckbox = createCheckbox(
-            feature.properties.profile === true,
-            (e) => {
-                lineControl.updateFeaturesProperty(selectedFeatures, 'profile', e.target.checked);
-                if (e.target.checked) {
+        panel.appendChild(createModernToggle({
+            label: 'Perfil do terreno',
+            checked: feature.properties.profile === true,
+            onChange: (checked) => {
+                lineControl.updateFeaturesProperty(selectedFeatures, 'profile', checked);
+                if (checked) {
                     selectionManager.updateProfile();
                 }
             }
-        );
-        panel.appendChild(createAttributeRow('Perfil do terreno:', profileCheckbox));
+        }));
     }
 
-    const buttons = createStandardButtons({
+    // Action buttons
+    panel.appendChild(createModernButtons({
         selectedFeatures,
         control: lineControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
         onSetDefault: () => lineControl.setDefaultProperties(feature.properties)
-    });
-
-    panel.appendChild(buttons);
+    }));
 }

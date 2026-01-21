@@ -625,3 +625,976 @@
     color: #999;
     background-color: transparent;
 }
+
+/* ===== MODERN COMPONENTS ===== */
+
+/* ----- Section Divider ----- */
+.attr-section-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0;
+    width: 100%;
+}
+
+.attr-section-divider-line {
+    flex: 1;
+    height: 1px;
+    background-color: #e5e7eb;
+}
+
+.attr-section-divider-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+/* ----- Modern Slider ----- */
+.attr-modern-slider {
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.attr-modern-slider-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.attr-modern-slider-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.attr-modern-slider-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.attr-modern-slider-input {
+    width: 56px !important;
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 4px !important;
+    text-align: right !important;
+    outline: none !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+
+.attr-modern-slider-input:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1) !important;
+}
+
+.attr-modern-slider-unit {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.attr-modern-slider-track {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: #e5e7eb;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    outline: none;
+}
+
+.attr-modern-slider-track::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--primary-color);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s, background-color 0.2s;
+}
+
+.attr-modern-slider-track::-webkit-slider-thumb:hover {
+    background: var(--primary-dark);
+    transform: scale(1.1);
+}
+
+.attr-modern-slider-track::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    background: var(--primary-color);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s, background-color 0.2s;
+}
+
+.attr-modern-slider-track::-moz-range-thumb:hover {
+    background: var(--primary-dark);
+    transform: scale(1.1);
+}
+
+/* ----- Modern Color Picker ----- */
+.attr-modern-color-picker {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.attr-modern-color-picker-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.attr-modern-color-picker-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.attr-modern-color-picker-trigger:hover {
+    border-color: #d1d5db;
+}
+
+.attr-modern-color-picker-trigger:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1);
+}
+
+.attr-modern-color-preview {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.attr-modern-color-hex {
+    font-size: 12px;
+    color: #6b7280;
+    font-family: monospace;
+    text-transform: uppercase;
+    width: 64px;
+}
+
+.attr-modern-color-chevron {
+    width: 12px;
+    height: 12px;
+    color: #9ca3af;
+}
+
+/* Color Picker Dropdown */
+.attr-modern-color-dropdown {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 8px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    border: 1px solid #e5e7eb;
+    padding: 12px;
+    z-index: 1000;
+    width: 256px;
+    animation: colorDropdownFadeIn 0.15s ease-out;
+}
+
+@keyframes colorDropdownFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.attr-modern-color-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+
+.attr-modern-color-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.attr-modern-color-swatch {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.attr-modern-color-swatch:hover {
+    transform: scale(1.1);
+    border-color: rgba(0, 0, 0, 0.2);
+}
+
+.attr-modern-color-swatch.selected {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.2);
+}
+
+.attr-modern-color-swatch-check {
+    width: 16px;
+    height: 16px;
+}
+
+.attr-modern-color-custom {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid #f3f4f6;
+}
+
+.attr-modern-color-native {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+}
+
+.attr-modern-color-text-input {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    font-family: monospace;
+    text-transform: uppercase;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.attr-modern-color-text-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1);
+}
+
+/* ----- Modern Toggle ----- */
+.attr-modern-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.attr-modern-toggle-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.attr-modern-toggle-switch {
+    position: relative;
+    width: 40px;
+    height: 20px;
+    background: #d1d5db;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.attr-modern-toggle-switch.active {
+    background: var(--primary-color);
+}
+
+.attr-modern-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s;
+}
+
+.attr-modern-toggle-switch.active .attr-modern-toggle-thumb {
+    transform: translateX(20px);
+}
+
+/* ----- Modern Line Style Select ----- */
+.attr-modern-line-style {
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.attr-modern-line-style-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.attr-modern-line-style-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.attr-modern-line-style-btn {
+    flex: 1;
+    padding: 8px 4px;
+    border-radius: 8px;
+    border: 2px solid #e5e7eb;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+}
+
+.attr-modern-line-style-btn:hover {
+    border-color: #d1d5db;
+}
+
+.attr-modern-line-style-btn.selected {
+    border-color: var(--primary-color);
+    background: rgba(80, 141, 78, 0.05);
+}
+
+.attr-modern-line-style-btn svg {
+    color: #6b7280;
+}
+
+.attr-modern-line-style-btn.selected svg {
+    color: var(--primary-color);
+}
+
+.attr-modern-line-style-others {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 2px solid #e5e7eb;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 500;
+    color: #6b7280;
+    white-space: nowrap;
+}
+
+.attr-modern-line-style-others:hover {
+    border-color: #d1d5db;
+}
+
+.attr-modern-line-style-others.selected {
+    border-color: var(--primary-color);
+    background: rgba(80, 141, 78, 0.05);
+    color: var(--primary-color);
+}
+
+.attr-modern-line-style-dropdown {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 8px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    border: 1px solid #e5e7eb;
+    padding: 8px;
+    z-index: 1000;
+    width: 192px;
+    animation: lineStyleDropdownFadeIn 0.15s ease-out;
+}
+
+@keyframes lineStyleDropdownFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.attr-modern-line-style-option {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: background-color 0.15s;
+    color: #4b5563;
+}
+
+.attr-modern-line-style-option:hover {
+    background: #f9fafb;
+}
+
+.attr-modern-line-style-option.selected {
+    background: rgba(80, 141, 78, 0.05);
+    color: var(--primary-color);
+}
+
+.attr-modern-line-style-option-preview {
+    flex: 1;
+}
+
+.attr-modern-line-style-option-label {
+    font-size: 10px;
+    color: #6b7280;
+    white-space: nowrap;
+}
+
+.attr-modern-line-style-option-check {
+    width: 16px;
+    height: 16px;
+    color: var(--primary-color);
+}
+
+.attr-modern-line-style-current {
+    font-size: 10px;
+    color: #9ca3af;
+    margin-top: 4px;
+    text-align: center;
+}
+
+/* ----- Modern Hatch Control ----- */
+.attr-modern-hatch {
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.attr-modern-hatch-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.attr-modern-hatch-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.attr-modern-hatch-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.attr-modern-hatch-btn {
+    padding: 6px;
+    border-radius: 8px;
+    border: 2px solid #e5e7eb;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+}
+
+.attr-modern-hatch-btn:hover {
+    border-color: #d1d5db;
+}
+
+.attr-modern-hatch-btn.selected {
+    border-color: var(--primary-color);
+    background: rgba(80, 141, 78, 0.05);
+}
+
+.attr-modern-hatch-preview {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+}
+
+.attr-modern-hatch-config-btn {
+    width: 100%;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #6b7280;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.attr-modern-hatch-config-btn:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+}
+
+.attr-modern-hatch-config-btn svg {
+    width: 12px;
+    height: 12px;
+}
+
+.attr-modern-hatch-config-panel {
+    margin-top: 8px;
+    padding: 12px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e5e7eb;
+    animation: hatchConfigFadeIn 0.15s ease-out;
+}
+
+@keyframes hatchConfigFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.attr-modern-hatch-config-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+}
+
+.attr-modern-hatch-config-row {
+    margin-bottom: 12px;
+}
+
+.attr-modern-hatch-config-row:last-child {
+    margin-bottom: 0;
+}
+
+.attr-modern-hatch-config-label {
+    font-size: 10px;
+    color: #6b7280;
+    margin-bottom: 4px;
+    display: block;
+}
+
+.attr-modern-hatch-config-color {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.attr-modern-hatch-config-color input[type="color"] {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+}
+
+.attr-modern-hatch-config-color span {
+    font-size: 12px;
+    font-family: monospace;
+    color: #6b7280;
+}
+
+.attr-modern-hatch-config-slider {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: #e5e7eb;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    outline: none;
+}
+
+.attr-modern-hatch-config-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--primary-color);
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.attr-modern-hatch-config-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: var(--primary-color);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+}
+
+/* ----- Modern Text Alignment ----- */
+.attr-modern-alignment {
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.attr-modern-alignment-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.attr-modern-alignment-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.attr-modern-alignment-btn {
+    flex: 1;
+    padding: 8px;
+    border-radius: 8px;
+    border: 2px solid #e5e7eb;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.attr-modern-alignment-btn:hover {
+    border-color: #d1d5db;
+}
+
+.attr-modern-alignment-btn.selected {
+    border-color: var(--primary-color);
+    background: rgba(80, 141, 78, 0.05);
+}
+
+.attr-modern-alignment-btn svg {
+    width: 16px;
+    height: 16px;
+    color: #6b7280;
+}
+
+.attr-modern-alignment-btn.selected svg {
+    color: var(--primary-color);
+}
+
+/* ----- Modern Action Buttons ----- */
+.attr-modern-buttons {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid #f3f4f6;
+}
+
+.attr-modern-buttons-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.attr-modern-btn-save {
+    flex: 1;
+    padding: 8px 16px;
+    background: var(--primary-color);
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin: 0 !important;
+}
+
+.attr-modern-btn-save:hover {
+    background: var(--primary-dark);
+}
+
+.attr-modern-btn-discard {
+    flex: 1;
+    padding: 8px 16px;
+    background: white;
+    color: #374151;
+    font-size: 14px;
+    font-weight: 500;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+    margin: 0 !important;
+}
+
+.attr-modern-btn-discard:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
+}
+
+.attr-modern-btn-default {
+    width: 100%;
+    padding: 8px 16px;
+    background: white;
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+    margin: 0 !important;
+}
+
+.attr-modern-btn-default:hover {
+    background: #f9fafb;
+    border-color: var(--primary-light);
+    color: var(--primary-color);
+}
+
+/* ----- Modern Tabs ----- */
+.attr-modern-tabs {
+    display: flex;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 16px;
+    margin-left: -12px;
+    margin-right: -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+.attr-modern-tab {
+    flex: 1;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #6b7280;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    margin: 0 !important;
+}
+
+.attr-modern-tab:hover {
+    color: #374151;
+}
+
+.attr-modern-tab.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+/* ----- Modern Numeric Input ----- */
+.attr-modern-numeric {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.attr-modern-numeric-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.attr-modern-numeric-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.attr-modern-numeric-input {
+    width: 80px !important;
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 8px !important;
+    text-align: right !important;
+    outline: none !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+
+.attr-modern-numeric-input:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1) !important;
+}
+
+.attr-modern-numeric-unit {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+/* ----- Modern Select ----- */
+.attr-modern-select {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.attr-modern-select-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.attr-modern-select-input {
+    padding: 6px 12px;
+    font-size: 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.attr-modern-select-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1);
+}
+
+/* ----- Modern Info Box ----- */
+.attr-modern-info-box {
+    padding: 12px;
+    background: #f9fafb;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.attr-modern-info-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+
+.attr-modern-info-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.attr-modern-info-row:last-child {
+    margin-bottom: 0;
+}
+
+.attr-modern-info-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+}
+
+.attr-modern-info-text {
+    font-size: 12px;
+    color: #4b5563;
+}
+
+/* ----- Modern Textarea ----- */
+.attr-modern-textarea {
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+.attr-modern-textarea-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+    margin-bottom: 6px;
+    display: block;
+}
+
+.attr-modern-textarea-input {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box;
+}
+
+.attr-modern-textarea-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1);
+}
+
+/* ----- Modern Image Preview ----- */
+.attr-modern-image-preview {
+    margin-bottom: 16px;
+    aspect-ratio: 16/9;
+    background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.attr-modern-image-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.attr-modern-image-preview svg {
+    width: 48px;
+    height: 48px;
+    color: #9ca3af;
+}

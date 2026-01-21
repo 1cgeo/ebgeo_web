@@ -702,5 +702,3 @@ export class SearchBarComponent {
         this._container = null;
     }
 }
-
-export default SearchBarComponent;

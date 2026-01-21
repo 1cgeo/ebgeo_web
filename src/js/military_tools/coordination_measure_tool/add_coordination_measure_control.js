@@ -136,7 +136,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     return true;
   }
 
-  createAttributePanel(container, features, selectionManager, uiManager) {
+  createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
     const sectionPanel = document.createElement("div");
     sectionPanel.className = "coordination-measure-attributes-section";
 
@@ -146,7 +146,8 @@ class AddCoordinationMeasureControl extends BaseControl {
         features,
         this,
         selectionManager,
-        uiManager
+        uiManager,
+        options
       );
       container.appendChild(sectionPanel);
     } catch (error) {

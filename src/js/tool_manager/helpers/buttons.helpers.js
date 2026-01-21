@@ -15,7 +15,73 @@
  */
 
 /**
+ * Creates modern standardized Save/Discard/Set Default buttons.
+ *
+ * @param {StandardButtonsConfig} config - Button configuration
+ * @returns {HTMLElement} Buttons container element
+ */
+export function createModernButtons(config) {
+    const {
+        selectedFeatures,
+        control,
+        selectionManager,
+        initialPropertiesMap,
+        hasSetDefault = false,
+        onSetDefault = null
+    } = config;
+
+    const container = document.createElement('div');
+    container.className = 'attr-modern-buttons';
+
+    // First row: Save + Discard
+    const row = document.createElement('div');
+    row.className = 'attr-modern-buttons-row';
+
+    const saveButton = document.createElement('button');
+    saveButton.textContent = 'Salvar';
+    saveButton.className = 'attr-modern-btn-save';
+    saveButton.type = 'submit';
+    saveButton.addEventListener('click', () => {
+        control.saveFeatures(selectedFeatures, initialPropertiesMap);
+        selectionManager.deselectAllFeatures();
+    });
+    row.appendChild(saveButton);
+
+    const discardButton = document.createElement('button');
+    discardButton.textContent = 'Descartar';
+    discardButton.className = 'attr-modern-btn-discard';
+    discardButton.type = 'button';
+    discardButton.addEventListener('click', () => {
+        control.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
+        selectionManager.deselectAllFeatures();
+    });
+    row.appendChild(discardButton);
+
+    container.appendChild(row);
+
+    // Second row: Set as default (optional)
+    if (hasSetDefault && onSetDefault) {
+        const defaultButton = document.createElement('button');
+        defaultButton.textContent = 'Definir como padrão';
+        defaultButton.className = 'attr-modern-btn-default';
+        defaultButton.type = 'button';
+        defaultButton.addEventListener('click', () => {
+            onSetDefault();
+            selectionManager.deselectAllFeatures();
+        });
+        container.appendChild(defaultButton);
+    }
+
+    return container;
+}
+
+// ============================================================================
+// LEGACY API - Maintain backward compatibility
+// ============================================================================
+
+/**
  * Creates standardized Save/Discard/Set Default buttons.
+ * @deprecated Use createModernButtons instead
  *
  * @param {StandardButtonsConfig} config - Button configuration
  * @returns {HTMLElement} Buttons container element

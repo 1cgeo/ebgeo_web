@@ -106,12 +106,12 @@ class AddVisibilityControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'visibility-attributes-section';
 
         try {
-            addVisibilityAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addVisibilityAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating visibility attribute panel:', error);

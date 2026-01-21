@@ -21,9 +21,14 @@ import {
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';
-import { createTabbedAttributePanel, injectTabbedPanelStyles } from '../tool_manager/tabbed_attribute_panel.js';
+import { injectTabbedPanelStyles } from '../tool_manager/tabbed_attribute_panel.js';
 import { renderAttributesContent } from '../user_data/attributes_tab_renderer.js';
-import { renderImagesContent } from '../user_data/images_tab_renderer.js';
+
+// New feature panel components
+import { createFeatureIdentification, createMultiSelectionHeader } from './components/feature-identification.js';
+import { createPhotoGallery } from './components/feature-photo-gallery.js';
+import { createFeatureTabs } from './components/feature-tabs.js';
+import { createLocationSection } from './components/feature-location-section.js';
 
 /**
  * Main sidebar controller class.
@@ -550,7 +555,7 @@ export class SidebarControl {
      * @param {string} featureId - Feature ID
      * @param {string} featureType - Feature type (source)
      */
-    _showFeatureContent(featureId, featureType) {
+    async _showFeatureContent(featureId, featureType) {
         // Cleanup previous content
         this._cleanupFeaturePanelContent();
 
@@ -558,33 +563,36 @@ export class SidebarControl {
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'feature-panel-wrapper';
 
-        // Create attribute content using the existing system
+        // Create attribute content using the new system
         if (this._uiManager && this._selectionManager) {
             const selectedFeatures = this._selectionManager.getAllSelectedFeatures();
 
             if (selectedFeatures.length > 0) {
-                const content = this._createFeaturePanelContent(selectedFeatures, featureType);
+                const content = await this._createFeaturePanelContent(selectedFeatures, featureType);
                 if (content) {
                     contentWrapper.appendChild(content);
                 }
             }
         }
 
-        // Get feature name for title
-        const featureName = this._getFeatureName(featureId, featureType);
-
-        // Show in feature panel
-        this._featurePanel.show(contentWrapper, featureName);
+        // Show in feature panel with fixed title
+        this._featurePanel.show(contentWrapper, 'Detalhes da Feição');
     }
 
     /**
      * Creates feature panel content for selected features.
+     * Uses the new component-based structure:
+     * - Identification section
+     * - Photo gallery
+     * - Tabs (Estilo / Atributos)
+     * - Location section
+     * - Delete button
      * @private
      * @param {Array<Object>} selectedFeatures - Selected features
      * @param {string} featureType - Feature type
-     * @returns {HTMLElement|null}
+     * @returns {Promise<HTMLElement|null>}
      */
-    _createFeaturePanelContent(selectedFeatures, featureType) {
+    async _createFeaturePanelContent(selectedFeatures, featureType) {
         if (!selectedFeatures || selectedFeatures.length === 0) return null;
 
         const control = this._selectionManager?.controls.get(featureType);
@@ -593,52 +601,112 @@ export class SidebarControl {
             return null;
         }
 
-        const featureId = selectedFeatures[0]?.properties?.id;
+        const feature = selectedFeatures[0];
+        const featureId = feature?.properties?.id;
         const isSingleSelection = selectedFeatures.length === 1;
 
-        // Create tabbed panel with all three tabs
-        const tabbedPanel = createTabbedAttributePanel(
-            {
+        // Main container
+        const container = document.createElement('div');
+        container.className = 'feature-panel-sections';
+
+        // Array to store cleanup functions
+        const cleanupFunctions = [];
+
+        // 1. Identification section
+        let identificationSection;
+        if (isSingleSelection) {
+            identificationSection = await createFeatureIdentification({
+                feature,
+                featureType,
+                selectedFeatures,
+                selectionManager: this._selectionManager,
+                uiManager: this._uiManager,
+                onNameChange: (newName) => {
+                    control.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                    this._uiManager?.updateSelectionHighlight();
+                }
+            });
+        } else {
+            identificationSection = createMultiSelectionHeader({
+                selectedFeatures,
+                featureType,
+                selectionManager: this._selectionManager,
+                uiManager: this._uiManager
+            });
+        }
+        container.appendChild(identificationSection);
+
+        // 2. Photo gallery (only for single selection)
+        if (isSingleSelection) {
+            const photoGallery = await createPhotoGallery({
                 featureId,
                 featureType,
-                control,
-                singleSelection: isSingleSelection
-            },
-            renderAttributesContent,
-            renderImagesContent
-        );
+                compact: true
+            });
+            container.appendChild(photoGallery.element);
+            cleanupFunctions.push(photoGallery.cleanup);
+        }
 
-        // Create the attribute panel content using the control in the properties tab
+        // 3. Tabs (Estilo / Atributos)
+        const featureTabs = createFeatureTabs({
+            featureId,
+            featureType,
+            singleSelection: isSingleSelection
+        });
+        container.appendChild(featureTabs.container);
+        cleanupFunctions.push(featureTabs.cleanup);
+
+        // Inject tool-specific style controls into the Style tab
         if (control.hasAttributePanel && control.hasAttributePanel()) {
             try {
                 control.createAttributePanel(
-                    tabbedPanel.propertiesTab,
+                    featureTabs.styleTab,
                     selectedFeatures,
                     this._selectionManager,
-                    this._uiManager
+                    this._uiManager,
+                    { hideHeader: true }
                 );
             } catch (error) {
                 console.error(`Error creating attribute panel for ${featureType}:`, error);
             }
         }
 
-        // Create wrapper with tabbed panel and delete button
-        const container = document.createElement('div');
-        container.className = 'sidebar-feature-content';
-        container.appendChild(tabbedPanel.container);
+        // 4. Location section (only for single selection)
+        if (isSingleSelection && this._mapManager?.map) {
+            const locationSection = await createLocationSection({
+                feature,
+                map: this._mapManager.map
+            });
+            container.appendChild(locationSection);
+        }
 
-        // Add delete button
+        // 5. Delete button
+        const deleteSection = document.createElement('div');
+        deleteSection.className = 'feature-panel-delete-section';
+
         const deleteButton = document.createElement('button');
-        deleteButton.className = 'sidebar-delete-button';
-        deleteButton.textContent = 'Deletar';
+        deleteButton.className = 'feature-panel-delete-btn';
+        deleteButton.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Deletar
+        `;
         deleteButton.onclick = () => {
-            this._selectionManager?.deleteSelectedFeatures();
+            if (confirm('Deseja realmente deletar esta feição?')) {
+                this._selectionManager?.deleteSelectedFeatures();
+            }
         };
-        container.appendChild(deleteButton);
+        deleteSection.appendChild(deleteButton);
+        container.appendChild(deleteSection);
 
         // Store cleanup function
         this._currentFeaturePanelCleanup = () => {
-            tabbedPanel.cleanup();
+            cleanupFunctions.forEach(fn => {
+                try {
+                    fn();
+                } catch (e) {
+                    console.warn('Cleanup error:', e);
+                }
+            });
         };
 
         return container;

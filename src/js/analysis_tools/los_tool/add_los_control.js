@@ -94,12 +94,12 @@ class AddLOSControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'los-attributes-section';
 
         try {
-            addLOSAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addLOSAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating LOS attribute panel:', error);

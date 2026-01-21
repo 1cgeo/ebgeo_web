@@ -52,7 +52,7 @@ const deps = {
  *
  * @param {import('../events/event_bus.js').EventBus} eventBus - Event bus instance
  * @param {import('../tool_manager/group_manager.js').GroupManager} groupManager - Group manager instance
- * @param {import('../layer_manager.js').LayerManager} layerManager - Layer manager instance
+ * @param {import('../layers/layer.manager.js').LayerManager} layerManager - Layer manager instance
  */
 export function initStoreEvents(eventBus, groupManager, layerManager) {
     if (deps.eventBus !== null) {

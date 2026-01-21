@@ -106,12 +106,12 @@ class AddBrushControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'brush-attributes-section';
 
         try {
-            addBrushAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addBrushAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating brush attribute panel:', error);

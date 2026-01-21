@@ -5,7 +5,232 @@
  */
 
 /**
+ * Creates a modern toggle switch.
+ *
+ * @param {Object} config - Configuration object
+ * @param {string} config.label - Label text
+ * @param {boolean} config.checked - Initial checked state
+ * @param {Function} config.onChange - Callback when toggle changes (receives boolean)
+ * @returns {HTMLElement} Toggle container element
+ */
+export function createModernToggle(config) {
+    const { label, checked, onChange } = config;
+
+    const container = document.createElement('div');
+    container.className = 'attr-modern-toggle';
+
+    const labelEl = document.createElement('label');
+    labelEl.className = 'attr-modern-toggle-label';
+    labelEl.textContent = label;
+    container.appendChild(labelEl);
+
+    const toggle = document.createElement('div');
+    toggle.className = 'attr-modern-toggle-switch';
+    if (checked) {
+        toggle.classList.add('active');
+    }
+
+    const thumb = document.createElement('div');
+    thumb.className = 'attr-modern-toggle-thumb';
+    toggle.appendChild(thumb);
+
+    toggle.addEventListener('click', () => {
+        const newState = !toggle.classList.contains('active');
+        toggle.classList.toggle('active', newState);
+        onChange(newState);
+    });
+
+    container.appendChild(toggle);
+
+    // Add method to programmatically set state
+    container.setChecked = (isChecked) => {
+        toggle.classList.toggle('active', isChecked);
+    };
+
+    return container;
+}
+
+/**
+ * Creates a modern select dropdown.
+ *
+ * @param {Object} config - Configuration object
+ * @param {string} config.label - Label text
+ * @param {string} config.value - Currently selected value
+ * @param {Function} config.onChange - Callback when selection changes (receives value string)
+ * @param {Array<{value: string, label: string}>} config.options - Select options
+ * @returns {HTMLElement} Select container element
+ */
+export function createModernSelect(config) {
+    const { label, value, onChange, options } = config;
+
+    const container = document.createElement('div');
+    container.className = 'attr-modern-select';
+
+    const labelEl = document.createElement('label');
+    labelEl.className = 'attr-modern-select-label';
+    labelEl.textContent = label;
+    container.appendChild(labelEl);
+
+    const select = document.createElement('select');
+    select.className = 'attr-modern-select-input';
+
+    options.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        option.selected = opt.value === value;
+        select.appendChild(option);
+    });
+
+    select.addEventListener('change', (e) => {
+        onChange(e.target.value);
+    });
+
+    container.appendChild(select);
+
+    return container;
+}
+
+/**
+ * Creates a modern textarea input.
+ *
+ * @param {Object} config - Configuration object
+ * @param {string} [config.label] - Label text (optional)
+ * @param {string} config.value - Initial text value
+ * @param {Function} config.onChange - Callback when text changes (receives text string)
+ * @param {number} [config.rows=3] - Number of rows
+ * @param {string} [config.placeholder=''] - Placeholder text
+ * @returns {HTMLElement} Textarea container element
+ */
+export function createModernTextarea(config) {
+    const { label, value, onChange, rows = 3, placeholder = '' } = config;
+
+    const container = document.createElement('div');
+    container.className = 'attr-modern-textarea';
+
+    if (label) {
+        const labelEl = document.createElement('label');
+        labelEl.className = 'attr-modern-textarea-label';
+        labelEl.textContent = label;
+        container.appendChild(labelEl);
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'attr-modern-textarea-input';
+    textarea.value = value || '';
+    textarea.rows = rows;
+    textarea.placeholder = placeholder;
+
+    textarea.addEventListener('input', (e) => {
+        onChange(e.target.value);
+    });
+
+    container.appendChild(textarea);
+
+    // Add method to get textarea element for external manipulation
+    container.getTextarea = () => textarea;
+
+    return container;
+}
+
+/**
+ * Creates modern tabs navigation.
+ *
+ * @param {Object} config - Configuration object
+ * @param {Array<{id: string, label: string}>} config.tabs - Tab definitions
+ * @param {string} config.activeTab - Initially active tab ID
+ * @param {Function} config.onTabChange - Callback when tab changes (receives tab ID)
+ * @returns {HTMLElement} Tabs container element
+ */
+export function createModernTabs(config) {
+    const { tabs, activeTab, onTabChange } = config;
+
+    const container = document.createElement('div');
+    container.className = 'attr-modern-tabs';
+
+    tabs.forEach(tab => {
+        const tabBtn = document.createElement('button');
+        tabBtn.type = 'button';
+        tabBtn.className = 'attr-modern-tab';
+        tabBtn.dataset.tabId = tab.id;
+        tabBtn.textContent = tab.label;
+
+        if (tab.id === activeTab) {
+            tabBtn.classList.add('active');
+        }
+
+        tabBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Update active tab
+            container.querySelectorAll('.attr-modern-tab').forEach(t => {
+                t.classList.toggle('active', t.dataset.tabId === tab.id);
+            });
+            onTabChange(tab.id);
+        });
+
+        container.appendChild(tabBtn);
+    });
+
+    // Add method to programmatically change tab
+    container.setActiveTab = (tabId) => {
+        container.querySelectorAll('.attr-modern-tab').forEach(t => {
+            t.classList.toggle('active', t.dataset.tabId === tabId);
+        });
+    };
+
+    return container;
+}
+
+/**
+ * Creates a modern info box for displaying read-only information.
+ *
+ * @param {Object} config - Configuration object
+ * @param {string} [config.title] - Optional title
+ * @param {Array<{color?: string, text: string}>} config.rows - Info rows
+ * @returns {HTMLElement} Info box container element
+ */
+export function createModernInfoBox(config) {
+    const { title, rows } = config;
+
+    const container = document.createElement('div');
+    container.className = 'attr-modern-info-box';
+
+    if (title) {
+        const titleEl = document.createElement('div');
+        titleEl.className = 'attr-modern-info-title';
+        titleEl.textContent = title;
+        container.appendChild(titleEl);
+    }
+
+    rows.forEach(row => {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'attr-modern-info-row';
+
+        if (row.color) {
+            const colorEl = document.createElement('div');
+            colorEl.className = 'attr-modern-info-color';
+            colorEl.style.backgroundColor = row.color;
+            rowEl.appendChild(colorEl);
+        }
+
+        const textEl = document.createElement('span');
+        textEl.className = 'attr-modern-info-text';
+        textEl.textContent = row.text;
+        rowEl.appendChild(textEl);
+
+        container.appendChild(rowEl);
+    });
+
+    return container;
+}
+
+// ============================================================================
+// LEGACY API - Maintain backward compatibility
+// ============================================================================
+
+/**
  * Creates a standardized toggle checkbox.
+ * @deprecated Use createModernToggle instead
  *
  * @param {boolean} checked - Initial checked state
  * @param {Function} onChange - Callback when checkbox changes
@@ -31,6 +256,7 @@ export function createCheckbox(checked, onChange) {
 
 /**
  * Creates a line style select with visual preview patterns.
+ * @deprecated Use createModernLineStyleSelect from line-style.helpers.js instead
  *
  * @param {string} currentValue - Currently selected line style
  * @param {Function} onChange - Callback when selection changes

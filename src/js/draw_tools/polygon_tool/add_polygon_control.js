@@ -107,12 +107,12 @@ class AddPolygonControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'polygon-attributes-section';
 
         try {
-            addPolygonAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addPolygonAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating polygon attribute panel:', error);

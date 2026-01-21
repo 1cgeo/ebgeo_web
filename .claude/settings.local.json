@@ -51,7 +51,9 @@
       "Bash(npm uninstall:*)",
       "Bash(npm run lint:*)",
       "Bash(npx stylelint:*)",
-      "Bash(timeout 5 npm run dev:*)"
+      "Bash(timeout 5 npm run dev:*)",
+      "Bash(timeout 10 npm run dev:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

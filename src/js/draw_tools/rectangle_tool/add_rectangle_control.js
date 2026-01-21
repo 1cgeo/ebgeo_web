@@ -106,12 +106,12 @@ class AddRectangleControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'rectangle-attributes-section';
 
         try {
-            addRectangleAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addRectangleAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating rectangle attribute panel:', error);

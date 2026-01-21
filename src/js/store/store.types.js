@@ -120,7 +120,7 @@
  * @typedef {Object} StoreDependencies
  * @property {import('../events/event_bus.js').EventBus|null} eventBus - Event bus instance
  * @property {import('../tool_manager/group_manager.js').GroupManager|null} groupManager - Group manager instance
- * @property {import('../layer_manager.js').LayerManager|null} layerManager - Layer manager instance
+ * @property {import('../layers/layer.manager.js').LayerManager|null} layerManager - Layer manager instance
  */
 
 /**

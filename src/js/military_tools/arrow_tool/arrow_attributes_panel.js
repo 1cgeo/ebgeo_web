@@ -1,15 +1,14 @@
 // Path: js/military_tools/arrow_tool/arrow_attributes_panel.js
 
 import {
-    createSliderWithInput,
-    createNumericInput,
-    createColorPicker,
-    createCheckbox,
-    createAttributeRow,
-    createStandardButtons,
+    createModernSlider,
+    createModernNumericInput,
+    createModernColorPicker,
+    createModernToggle,
+    createModernButtons,
+    createSectionDivider,
     createFeatureHeaderWithOptions,
-    createFeatureOptionsButton,
-    getCommonConfig
+    createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -19,123 +18,146 @@ import {
  * @param {Object} arrowControl - Arrow control instance
  * @param {Object} selectionManager - Selection manager instance
  * @param {Object} uiManager - UI manager instance
+ * @param {Object} [options={}] - Additional options
+ * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
  */
-export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl, selectionManager, uiManager) {
-    if (selectedFeatures.length === 0) return;
+export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl, selectionManager, uiManager, options = {}) {
+    if (selectedFeatures.length === 0) {
+        return;
+    }
 
     const feature = selectedFeatures[0];
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    if (selectedFeatures.length === 1) {
-        const headerComponent = createFeatureHeaderWithOptions(
-            feature.properties.nome,
-            (newName) => {
-                arrowControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                uiManager.updateSelectionHighlight();
-            },
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-        panel.appendChild(headerComponent);
-    } else if (selectedFeatures.length > 1) {
-        const multiSelectHeader = document.createElement('div');
-        multiSelectHeader.className = 'feature-header-with-options';
+    // Only show header if not hidden (for sidebar integration)
+    if (!options.hideHeader) {
+        if (selectedFeatures.length === 1) {
+            const headerComponent = createFeatureHeaderWithOptions(
+                feature.properties.nome,
+                (newName) => {
+                    arrowControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                    uiManager.updateSelectionHighlight();
+                },
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
+            panel.appendChild(headerComponent);
+        } else if (selectedFeatures.length > 1) {
+            const multiSelectHeader = document.createElement('div');
+            multiSelectHeader.className = 'feature-header-with-options';
 
-        const infoText = document.createElement('div');
-        infoText.className = 'feature-name-wrapper';
-        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
-        infoText.textContent = `${selectedFeatures.length} setas selecionados`;
+            const infoText = document.createElement('div');
+            infoText.className = 'feature-name-wrapper';
+            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+            infoText.textContent = `${selectedFeatures.length} setas selecionadas`;
 
-        const optionsButton = createFeatureOptionsButton(
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
+            const optionsButton = createFeatureOptionsButton(
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
 
-        multiSelectHeader.appendChild(infoText);
-        multiSelectHeader.appendChild(optionsButton);
-        panel.appendChild(multiSelectHeader);
+            multiSelectHeader.appendChild(infoText);
+            multiSelectHeader.appendChild(optionsButton);
+            panel.appendChild(multiSelectHeader);
+        }
     }
 
-    const widthInput = createNumericInput({
-        min: 10,
-        max: 10000,
-        step: 1,
-        value: Math.round(feature.properties.width || 500),
-        suffix: ' m',
-        onChange: (value) => {
-            arrowControl.updateFeaturesProperty(selectedFeatures, 'width', value);
-            uiManager.updateSelectionHighlight();
+    // Fill color picker
+    panel.appendChild(createModernColorPicker({
+        label: 'Preenchimento',
+        value: feature.properties.fillColor,
+        onChange: (color) => {
+            arrowControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
         }
-    });
+    }));
 
-    panel.appendChild(createAttributeRow('Largura:', widthInput));
+    // Line color picker
+    panel.appendChild(createModernColorPicker({
+        label: 'Borda',
+        value: feature.properties.lineColor,
+        onChange: (color) => {
+            arrowControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
+        }
+    }));
 
-    const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
-        arrowControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
-        uiManager.updateSelectionHighlight();
-    }, 'Cor de preenchimento da seta');
-
-    panel.appendChild(createAttributeRow('Preenchimento:', fillColorInput));
-
-    const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
-        arrowControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
-        uiManager.updateSelectionHighlight();
-    }, 'Cor da borda da seta');
-
-    panel.appendChild(createAttributeRow('Borda:', lineColorInput));
-
+    // Helper function for default values
     const setDefaultIfMissing = (value, defaultValue) => {
         return (value !== null && value !== undefined) ? value : defaultValue;
     };
 
-    const fillOpacityControl = createSliderWithInput({
+    // Fill opacity slider
+    panel.appendChild(createModernSlider({
+        label: 'Opacidade do Preenchimento',
         min: 0,
         max: 100,
         step: 1,
         value: Math.round(setDefaultIfMissing(feature.properties.fillOpacity, 0.8) * 100),
+        unit: '%',
         onChange: (value) => {
             arrowControl.updateFeaturesProperty(selectedFeatures, 'fillOpacity', value / 100);
-            uiManager.updateSelectionHighlight();
-        }
-    });
-
-    panel.appendChild(createAttributeRow('Opacidade do preenchimento:', fillOpacityControl));
-
-    const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
-        feature.properties.lineWidth || 3, {
-        onChange: (value) => {
-            arrowControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
-            uiManager.updateSelectionHighlight();
         }
     }));
 
-    panel.appendChild(createAttributeRow('Largura da borda (px):', lineWidthControl));
+    // Line width slider
+    panel.appendChild(createModernSlider({
+        label: 'Espessura da Borda',
+        min: 1,
+        max: 10,
+        step: 1,
+        value: feature.properties.lineWidth || 3,
+        unit: 'px',
+        onChange: (value) => {
+            arrowControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
+        }
+    }));
 
-    const airmobileCheckbox = createCheckbox(feature.properties.airmobile || false, (e) => {
-        arrowControl.updateFeaturesProperty(selectedFeatures, 'airmobile', e.target.checked);
-        uiManager.updateSelectionHighlight();
-    });
+    // Geometry section
+    panel.appendChild(createSectionDivider('Geometria'));
 
-    panel.appendChild(createAttributeRow('Aeromóvel / Aeroterrestre:', airmobileCheckbox));
+    // Width input
+    panel.appendChild(createModernNumericInput({
+        label: 'Largura',
+        min: 10,
+        max: 10000,
+        step: 1,
+        value: Math.round(feature.properties.width || 500),
+        unit: 'm',
+        onChange: (value) => {
+            arrowControl.updateFeaturesProperty(selectedFeatures, 'width', value);
+        }
+    }));
 
-    const showArrowHeadCheckbox = createCheckbox(feature.properties.showArrowHead !== false, (e) => {
-        arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', e.target.checked);
-        uiManager.updateSelectionHighlight();
-    });
+    // Options section
+    panel.appendChild(createSectionDivider('Opções'));
 
-    panel.appendChild(createAttributeRow('Seta:', showArrowHeadCheckbox));
+    // Airmobile toggle
+    panel.appendChild(createModernToggle({
+        label: 'Aeromóvel / Aeroterrestre',
+        checked: feature.properties.airmobile || false,
+        onChange: (checked) => {
+            arrowControl.updateFeaturesProperty(selectedFeatures, 'airmobile', checked);
+        }
+    }));
 
-    const buttons = createStandardButtons({
+    // Show arrow head toggle
+    panel.appendChild(createModernToggle({
+        label: 'Mostrar Seta',
+        checked: feature.properties.showArrowHead !== false,
+        onChange: (checked) => {
+            arrowControl.updateFeaturesProperty(selectedFeatures, 'showArrowHead', checked);
+        }
+    }));
+
+    // Action buttons
+    panel.appendChild(createModernButtons({
         selectedFeatures,
         control: arrowControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
         onSetDefault: () => arrowControl.setDefaultProperties(feature.properties)
-    });
-
-    panel.appendChild(buttons);
+    }));
 }

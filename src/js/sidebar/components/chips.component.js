@@ -296,5 +296,3 @@ export class ChipsComponent {
         this._container = null;
     }
 }
-
-export default ChipsComponent;

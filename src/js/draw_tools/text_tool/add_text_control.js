@@ -111,12 +111,12 @@ class AddTextControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'text-attributes-section';
 
         try {
-            addTextAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addTextAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating text attribute panel:', error);

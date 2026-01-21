@@ -1,139 +1,173 @@
 // Path: js/draw_tools/circle_tool/circle_attributes_panel.js
 
 import {
-    createSliderWithInput,
-    createNumericInput,
-    createColorPicker,
-    createCheckbox,
-    createAttributeRow,
-    createStandardButtons,
-    createEditableFeatureName,
+    createModernSlider,
+    createModernNumericInput,
+    createModernColorPicker,
+    createModernLineStyleSelect,
+    createModernHatchControl,
+    createModernButtons,
+    createSectionDivider,
     createFeatureHeaderWithOptions,
-    createFeatureOptionsButton,
-    createLineStyleSelect,
-    getCommonConfig,
-    openHatchConfigModal
-} from '../../tool_manager';
+    createFeatureOptionsButton
+} from '../../tool_manager/helpers/index.js';
 
-export function addCircleAttributesToPanel(panel, selectedFeatures, circleControl, selectionManager, uiManager) {
-    if (selectedFeatures.length === 0) return;
+/**
+ * Add circle attributes to the attributes panel
+ * @param {HTMLElement} panel - Panel container element
+ * @param {Array} selectedFeatures - Array of selected circle features
+ * @param {Object} circleControl - Circle control instance
+ * @param {Object} selectionManager - Selection manager instance
+ * @param {Object} uiManager - UI manager instance
+ * @param {Object} [options={}] - Additional options
+ * @param {boolean} [options.hideHeader=false] - Whether to hide the header section
+ */
+export function addCircleAttributesToPanel(panel, selectedFeatures, circleControl, selectionManager, uiManager, options = {}) {
+    if (selectedFeatures.length === 0) {
+        return;
+    }
 
     const feature = selectedFeatures[0];
 
     const initialPropertiesMap = new Map(selectedFeatures.map(f => [f.properties.id, { ...f.properties }]));
 
-    // Editable feature name for single selection
-    if (selectedFeatures.length === 1) {
-        const headerComponent = createFeatureHeaderWithOptions(
-            feature.properties.nome,
-            (newName) => {
-                circleControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
-                uiManager.updateSelectionHighlight();
-            },
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
-        panel.appendChild(headerComponent);
-    } else if (selectedFeatures.length > 1) {
-        const multiSelectHeader = document.createElement('div');
-        multiSelectHeader.className = 'feature-header-with-options';
+    // Only show header if not hidden (for sidebar integration)
+    if (!options.hideHeader) {
+        if (selectedFeatures.length === 1) {
+            const headerComponent = createFeatureHeaderWithOptions(
+                feature.properties.nome,
+                (newName) => {
+                    circleControl.updateFeaturesProperty(selectedFeatures, 'nome', newName);
+                    uiManager.updateSelectionHighlight();
+                },
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
+            panel.appendChild(headerComponent);
+        } else if (selectedFeatures.length > 1) {
+            const multiSelectHeader = document.createElement('div');
+            multiSelectHeader.className = 'feature-header-with-options';
 
-        const infoText = document.createElement('div');
-        infoText.className = 'feature-name-wrapper';
-        infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
-        infoText.textContent = `${selectedFeatures.length} circles selected`;
+            const infoText = document.createElement('div');
+            infoText.className = 'feature-name-wrapper';
+            infoText.style.cssText = 'font-size: 14px; color: #666; padding: 6px;';
+            infoText.textContent = `${selectedFeatures.length} círculos selecionados`;
 
-        const optionsButton = createFeatureOptionsButton(
-            selectedFeatures,
-            selectionManager,
-            uiManager
-        );
+            const optionsButton = createFeatureOptionsButton(
+                selectedFeatures,
+                selectionManager,
+                uiManager
+            );
 
-        multiSelectHeader.appendChild(infoText);
-        multiSelectHeader.appendChild(optionsButton);
-        panel.appendChild(multiSelectHeader);
+            multiSelectHeader.appendChild(infoText);
+            multiSelectHeader.appendChild(optionsButton);
+            panel.appendChild(multiSelectHeader);
+        }
     }
 
-    const lineColorInput = createColorPicker(feature.properties.lineColor, (e) => {
-        circleControl.updateFeaturesProperty(selectedFeatures, 'lineColor', e.target.value);
-        uiManager.updateSelectionHighlight();
-    }, 'Cor da linha do círculo');
-
-    panel.appendChild(createAttributeRow('Linha:', lineColorInput));
-    const fillColorInput = createColorPicker(feature.properties.fillColor, (e) => {
-        circleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', e.target.value);
-        uiManager.updateSelectionHighlight();
-    }, 'Cor do preenchimento do círculo');
-
-    panel.appendChild(createAttributeRow('Preenchimento:', fillColorInput));
-    const opacityControl = createSliderWithInput(getCommonConfig('complete_opacity',
-        Math.round((feature.properties.opacity || 0.7) * 100), {
-        onChange: (value) => {
-            circleControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
-            uiManager.updateSelectionHighlight();
+    // Fill color picker
+    panel.appendChild(createModernColorPicker({
+        label: 'Preenchimento',
+        value: feature.properties.fillColor,
+        onChange: (color) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
         }
     }));
 
-    panel.appendChild(createAttributeRow('Opacidade:', opacityControl));
-    const lineWidthControl = createSliderWithInput(getCommonConfig('lineWidth',
-        feature.properties.lineWidth || 2, {
-        onChange: (value) => {
-            circleControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', value);
-            uiManager.updateSelectionHighlight();
+    // Line color picker
+    panel.appendChild(createModernColorPicker({
+        label: 'Borda',
+        value: feature.properties.lineColor,
+        onChange: (color) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
         }
     }));
 
-    panel.appendChild(createAttributeRow('Largura (px):', lineWidthControl));
-    const lineStyleSelect = createLineStyleSelect(
-        feature.properties.lineStyle || 'solid',
-        (newValue) => {
+    // Opacity slider
+    panel.appendChild(createModernSlider({
+        label: 'Opacidade do Preenchimento',
+        min: 0,
+        max: 100,
+        step: 1,
+        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
+        unit: '%',
+        onChange: (newValue) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
+        }
+    }));
+
+    // Border width slider
+    panel.appendChild(createModernSlider({
+        label: 'Espessura da Borda',
+        min: 1,
+        max: 10,
+        step: 1,
+        value: feature.properties.lineWidth || 2,
+        unit: 'px',
+        onChange: (newValue) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
+        }
+    }));
+
+    // Line style selector
+    panel.appendChild(createModernLineStyleSelect({
+        value: feature.properties.lineStyle || 'solid',
+        onChange: (newValue) => {
             circleControl.updateFeaturesProperty(selectedFeatures, 'lineStyle', newValue);
         }
-    );
-    panel.appendChild(createAttributeRow('Estilo da linha:', lineStyleSelect));
-    const hatchContainer = document.createElement('div');
-    hatchContainer.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+    }));
 
-    const hatchCheckbox = createCheckbox(
-        feature.properties.hatchEnabled === true,
-        (e) => {
-            circleControl.updateFeaturesProperty(selectedFeatures, 'hatchEnabled', e.target.checked);
-        }
-    );
+    // Geometry section
+    panel.appendChild(createSectionDivider('Geometria'));
 
-    const hatchConfigButton = document.createElement('button');
-    hatchConfigButton.textContent = '⚙️ Configurar';
-    hatchConfigButton.className = 'tool-button pure-material-tool-button-outlined';
-    hatchConfigButton.style.cssText = 'padding: 4px 8px; font-size: 12px;';
-    hatchConfigButton.onclick = () => {
-        openHatchConfigModal(feature, selectedFeatures, circleControl);
-    };
-
-    hatchContainer.appendChild(hatchCheckbox);
-    hatchContainer.appendChild(hatchConfigButton);
-    panel.appendChild(createAttributeRow('Hachura:', hatchContainer));
-    const radiusInput = createNumericInput({
+    // Radius input
+    panel.appendChild(createModernNumericInput({
+        label: 'Raio',
         min: 10,
         max: 100000,
         step: 1,
         value: Math.round(feature.properties.radius || 1000),
-        suffix: ' m',
+        unit: 'm',
         onChange: (value) => {
             circleControl.updateFeaturesProperty(selectedFeatures, 'radius', value);
-            uiManager.updateSelectionHighlight();
         }
-    });
+    }));
 
-    panel.appendChild(createAttributeRow('Raio:', radiusInput));
-    const buttons = createStandardButtons({
+    // Fill section
+    panel.appendChild(createSectionDivider('Preenchimento'));
+
+    // Hatch control
+    panel.appendChild(createModernHatchControl({
+        enabled: feature.properties.hatchEnabled === true,
+        onToggle: (enabled) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'hatchEnabled', enabled);
+        },
+        hatchType: feature.properties.hatchType || 'diagonal-right',
+        onTypeChange: (type) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'hatchType', type);
+        },
+        hatchColor: feature.properties.hatchColor || '#000000',
+        onColorChange: (color) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'hatchColor', color);
+        },
+        hatchSpacing: feature.properties.hatchSpacing || 8,
+        onSpacingChange: (spacing) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);
+        },
+        hatchLineWidth: feature.properties.hatchLineWidth || 2,
+        onLineWidthChange: (width) => {
+            circleControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
+        }
+    }));
+
+    // Action buttons
+    panel.appendChild(createModernButtons({
         selectedFeatures,
         control: circleControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
         onSetDefault: () => circleControl.setDefaultProperties(feature.properties)
-    });
-
-    panel.appendChild(buttons);
+    }));
 }

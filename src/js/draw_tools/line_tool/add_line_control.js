@@ -107,12 +107,12 @@ class AddLineControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'line-attributes-section';
 
         try {
-            addLineAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addLineAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating line attribute panel:', error);

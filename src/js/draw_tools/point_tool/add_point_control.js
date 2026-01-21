@@ -84,12 +84,12 @@ class AddPointControl extends BaseControl {
         return true;
     }
 
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(container, features, selectionManager, uiManager, options = {}) {
         const sectionPanel = document.createElement('div');
         sectionPanel.className = 'point-attributes-section';
 
         try {
-            addPointAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager);
+            addPointAttributesToPanel(sectionPanel, features, this, selectionManager, uiManager, options);
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating point attribute panel:', error);

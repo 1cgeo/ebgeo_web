@@ -289,5 +289,3 @@ export class ActiveToolChip {
         this._container = null;
     }
 }
-
-export default ActiveToolChip;
