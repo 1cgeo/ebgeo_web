@@ -53,6 +53,10 @@ export default defineConfig({
           if (id.includes('draw_tools')) {
             return 'draw-tools';
           }
+          // Ferramentas de seleção
+          if (id.includes('selection_tools')) {
+            return 'selection-tools';
+          }
           // Ferramentas de import/export
           if (id.includes('import_export')) {
             return 'import-export';
@@ -61,17 +65,45 @@ export default defineConfig({
           if (id.includes('street_view_tool')) {
             return 'street-view';
           }
+          // Catálogo de dados
+          if (id.includes('src/js/catalog/')) {
+            return 'catalog';
+          }
           // Store e state management
-          if (id.includes('src/js/store/')) {
+          if (id.includes('src/js/store/') || id.includes('src/js/state/')) {
             return 'core';
+          }
+          // Layers e baselayers
+          if (id.includes('src/js/layers/') || id.includes('src/js/baselayers/')) {
+            return 'layers';
+          }
+          // Terreno e análise de relevo
+          if (id.includes('src/js/terrain/')) {
+            return 'terrain';
           }
           // UI Redesign components (sidebar, toolbar, modals, etc.)
           if (id.includes('src/js/sidebar/') ||
               id.includes('src/js/toolbar/') ||
               id.includes('src/js/bottom-controls/') ||
               id.includes('src/js/base-layer-selector/') ||
-              id.includes('src/js/modals/')) {
+              id.includes('src/js/modals/') ||
+              id.includes('src/js/ui/') ||
+              id.includes('src/js/context-menu/')) {
             return 'ui-components';
+          }
+          // Features tab e user data
+          if (id.includes('src/js/features_tab/') || id.includes('src/js/user_data/')) {
+            return 'features';
+          }
+          // Busca e informações de vetores
+          if (id.includes('src/js/search/') || id.includes('src/js/vector_info/')) {
+            return 'search';
+          }
+          // Utilitários de mapa (grid, frame, coordinates)
+          if (id.includes('src/js/grid/') ||
+              id.includes('src/js/frame/') ||
+              id.includes('src/js/coordinates/')) {
+            return 'map-utils';
           }
         },
         // Nomes dos arquivos
@@ -124,10 +156,16 @@ export default defineConfig({
       '@js': resolve(__dirname, 'src/js'),
       '@css': resolve(__dirname, 'src/css'),
       '@store': resolve(__dirname, 'src/js/store'),
+      '@state': resolve(__dirname, 'src/js/state'),
       '@utils': resolve(__dirname, 'src/js/utilities'),
       '@tools': resolve(__dirname, 'src/js/tool_manager'),
       '@toolbar': resolve(__dirname, 'src/js/toolbar'),
-      '@modals': resolve(__dirname, 'src/js/modals')
+      '@modals': resolve(__dirname, 'src/js/modals'),
+      '@sidebar': resolve(__dirname, 'src/js/sidebar'),
+      '@layers': resolve(__dirname, 'src/js/layers'),
+      '@catalog': resolve(__dirname, 'src/js/catalog'),
+      '@ui': resolve(__dirname, 'src/js/ui'),
+      '@events': resolve(__dirname, 'src/js/events')
     }
   },
 
