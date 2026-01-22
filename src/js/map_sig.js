@@ -265,7 +265,9 @@ const chipsComponent = new ChipsComponent({
     stateManager: getStateManager(),
     eventBus: getEventBus(),
     keyboardShortcuts: keyboardShortcuts,
-    suggestionsModal: suggestionsModal
+    suggestionsModal: suggestionsModal,
+    map: map,
+    toolManager: toolManager
 });
 chipsComponent.init(document.body);
 

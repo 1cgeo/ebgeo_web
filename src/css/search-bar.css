@@ -32,7 +32,7 @@
 .search-bar-wrapper {
     display: flex;
     align-items: center;
-    width: 380px;
+    width: var(--search-bar-width);
     background-color: #ffffff !important;
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);

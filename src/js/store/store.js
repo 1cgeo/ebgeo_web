@@ -323,6 +323,23 @@ export {
     hasImage
 } from './settings.operations.js';
 
+// ===== RE-EXPORTS FROM CATALOG OPERATIONS =====
+
+export {
+    getCatalogLayers,
+    addCatalogLayer,
+    removeCatalogLayer,
+    updateCatalogLayer,
+    toggleCatalogLayerVisibility,
+    getCatalogLayerById,
+    hasCatalogLayer,
+    clearCatalogLayers,
+    validateCatalogLayerAvailability,
+    processCatalogLayersOnImport,
+    updateCatalogLayerStatus,
+    revalidateCatalogLayers
+} from './catalog.operations.js';
+
 // ===== LEGACY COMPATIBILITY EXPORTS =====
 
 export { SCHEMA_VERSION, MIN_SCHEMA_VERSION, MAX_SCHEMA_VERSION };

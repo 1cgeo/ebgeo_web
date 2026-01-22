@@ -15,6 +15,7 @@
     z-index: var(--z-search);
     display: flex;
     gap: var(--space-2);
+    width: var(--search-bar-width);
     transition: left var(--transition-panel);
 }
 
@@ -34,15 +35,17 @@
    ========================================================================= */
 
 .chip-btn {
+    flex: 1;
     height: var(--chip-height);
-    padding: 0 var(--space-3);
+    padding: 0 var(--space-2);
     background: white;
     border: none;
     border-radius: var(--radius-full);
     box-shadow: var(--shadow-control);
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    justify-content: center;
+    gap: var(--space-1);
     cursor: pointer;
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);

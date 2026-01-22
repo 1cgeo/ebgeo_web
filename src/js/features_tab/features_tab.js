@@ -7,11 +7,11 @@
 import { FEATURES_TAB_ICONS } from './features_tab.icons.js';
 import { injectAllFeaturesTabStyles } from './features_tab.styles.js';
 import { FEATURE_SOURCES, REFRESH_DEBOUNCE_MS } from './features_tab.constants.js';
-import { createHillshadeControl, loadHillshadeState } from './hillshade.component.js';
 import {
-    createAnalysisLayersContainer,
-    renderAnalysisLayersControl,
-} from './analysis-layers.component.js';
+    createCatalogLayersContainer,
+    renderCatalogLayers,
+    initCatalogLayerListeners,
+} from './catalog-layers.component.js';
 import {
     handleSetActiveLayer,
     handleAddLayer,
@@ -85,6 +85,7 @@ export class FeaturesTab {
         this._sortableInstance = null;
         this._unsubscribers = [];
         this._collapseManager = getCollapseStateManager();
+        this._catalogLayerUnsubscriber = null;
 
         this.INLINE_ICONS = FEATURES_TAB_ICONS;
         this.FEATURE_SOURCES = FEATURE_SOURCES;
@@ -105,13 +106,9 @@ export class FeaturesTab {
         this.container.className = 'features-tab-content';
         this.container.style.display = 'none';
 
-        const hillshadeContainer = createHillshadeControl(this.map);
-        if (hillshadeContainer) {
-            this.container.appendChild(hillshadeContainer);
-        }
-
-        const analysisLayersContainer = createAnalysisLayersContainer();
-        this.container.appendChild(analysisLayersContainer);
+        // Catalog layers container (shows layers added from catalog - analysis section)
+        const catalogLayersContainer = createCatalogLayersContainer();
+        this.container.appendChild(catalogLayersContainer);
 
         const header = this._createHeader();
         this.container.appendChild(header);
@@ -119,6 +116,13 @@ export class FeaturesTab {
         const featuresList = document.createElement('div');
         featuresList.className = 'features-list';
         this.container.appendChild(featuresList);
+
+        // Initialize catalog layer listeners
+        this._catalogLayerUnsubscriber = initCatalogLayerListeners(
+            this.map,
+            this._eventBus,
+            this.analysisLayersManager
+        );
 
         return this.container;
     }
@@ -135,13 +139,11 @@ export class FeaturesTab {
                 this._setupEventListeners();
             }
 
-            const hillshadeContainer = this.container.querySelector('.hillshade-control');
-            if (hillshadeContainer) {
-                await loadHillshadeState(this.container, this.map);
-            }
-
-            await renderAnalysisLayersControl(
-                this.container.querySelector('.analysis-layers-control'),
+            // Render catalog layers from store (analysis section)
+            await renderCatalogLayers(
+                this.container.querySelector('.catalog-layers-section'),
+                this.map,
+                this._eventBus,
                 this.analysisLayersManager
             );
 
@@ -168,6 +170,12 @@ export class FeaturesTab {
         clearTimeout(this._debounceTimer);
         destroySortable(this._sortableInstance);
         this._sortableInstance = null;
+
+        // Cleanup catalog layer listener
+        if (this._catalogLayerUnsubscriber) {
+            this._catalogLayerUnsubscriber();
+            this._catalogLayerUnsubscriber = null;
+        }
     }
 
     /**

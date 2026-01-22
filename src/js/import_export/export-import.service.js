@@ -25,6 +25,8 @@ import {
     getMapPosition,
     getMapOrder,
     setMapOrder,
+    // Catalog imports
+    processCatalogLayersOnImport,
 } from '../store';
 
 import { IDUtils, showToast, showSuccess } from '../utilities';
@@ -35,14 +37,25 @@ import { groupManager } from '../tool_manager';
 /**
  * Normalizes mapData structure to current version
  * Ensures coordination_measures exists (added in v1.4)
+ * Validates catalog layers availability (added for unavailable layer support)
  * @param {Object} mapData - Map data to normalize
- * @returns {Object} Normalized map data
+ * @returns {{ mapData: Object, unavailableCatalogLayersCount: number }} Normalized map data and count of unavailable layers
  */
 const normalizeMapDataForCurrentVersion = (mapData) => {
+    // Ensure coordination_measures exists (v1.4)
     if (!mapData.features.coordination_measures) {
         mapData.features.coordination_measures = [];
     }
-    return mapData;
+
+    // Validate catalog layers availability
+    let unavailableCatalogLayersCount = 0;
+    if (mapData.catalogLayers && mapData.catalogLayers.length > 0) {
+        const { processed, unavailableCount } = processCatalogLayersOnImport(mapData.catalogLayers);
+        mapData.catalogLayers = processed;
+        unavailableCatalogLayersCount = unavailableCount;
+    }
+
+    return { mapData, unavailableCatalogLayersCount };
 };
 
 export class ExportImportService {
@@ -427,6 +440,7 @@ export class ExportImportService {
             await setSchemaVersion(SCHEMA_VERSION);
 
             let importedMapsCount = 0;
+            let totalUnavailableCatalogLayers = 0;
 
             if (isAdditiveImport) {
                 await this.loadImagesFromZip(zip);
@@ -455,7 +469,8 @@ export class ExportImportService {
                     const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
 
                     // Normalizar estrutura para versão atual
-                    normalizeMapDataForCurrentVersion(newMapData);
+                    const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(newMapData);
+                    totalUnavailableCatalogLayers += unavailableCatalogLayersCount;
 
                     // Get original data from file to preserve colors and notes
                     const originalColorUsage = data.colorUsage?.[originalMapName] || null;
@@ -476,7 +491,8 @@ export class ExportImportService {
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     // Normalizar estrutura para versão atual
-                    normalizeMapDataForCurrentVersion(mapData);
+                    const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(mapData);
+                    totalUnavailableCatalogLayers += unavailableCatalogLayersCount;
 
                     const colorUsageData = data.colorUsage?.[mapName] || null;
                     const notesData = data.mapNotes?.[mapName] || null;
@@ -499,6 +515,11 @@ export class ExportImportService {
 
                 // Load images after processing maps (normal import)
                 await this.loadImagesFromZip(zip);
+            }
+
+            // Notify about unavailable catalog layers
+            if (totalUnavailableCatalogLayers > 0) {
+                this._notifyUnavailableCatalogLayers(totalUnavailableCatalogLayers);
             }
 
             const currentBaseLayer = isAdditiveImport ?
@@ -773,6 +794,20 @@ export class ExportImportService {
 
         const message = mapCount === 1 ? `1 mapa ${importType}!` : `${mapCount} mapas ${importType}!`;
         showSuccess(message);
+    }
+
+    /**
+     * Notifies user about unavailable catalog layers during import.
+     * @param {number} count - Number of unavailable catalog layers
+     * @private
+     */
+    _notifyUnavailableCatalogLayers(count) {
+        const layerWord = count === 1 ? 'camada' : 'camadas';
+        showToast(
+            `${count} ${layerWord} do catálogo não ${count === 1 ? 'está' : 'estão'} disponível nesta instância.`,
+            'warning',
+            5000
+        );
     }
 
     /**

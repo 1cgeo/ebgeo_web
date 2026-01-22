@@ -15,11 +15,16 @@ import {
     removeElement
 } from '../../utilities/event-cleanup.js';
 import { ShortcutsModal, InfoModal } from '../../modals/index.js';
+import { CatalogModal } from '../../catalog/catalog.modal.js';
+import { CatalogService } from '../../catalog/catalog.service.js';
+import { CATALOG_CHIP_CONFIG } from '../../catalog/catalog.constants.js';
 
 /**
  * Chip button configurations.
+ * Catalog is added first if there are catalog items available.
  */
 const CHIP_CONFIG = {
+    catalog: CATALOG_CHIP_CONFIG,
     tutorial: {
         id: 'tutorial',
         label: 'Tutorial',
@@ -45,20 +50,25 @@ export class ChipsComponent {
      * @param {Object} dependencies - Required dependencies
      * @param {Object} dependencies.stateManager - StateManager instance
      * @param {Object} dependencies.eventBus - EventBus instance
+     * @param {Object} [dependencies.toolManager] - ToolManager instance (for catalog)
+     * @param {Object} [dependencies.map] - MapLibre map instance (for catalog)
      * @param {Object} [dependencies.keyboardShortcuts] - KeyboardShortcuts instance (for modal) - legacy
      * @param {Object} [dependencies.suggestionsModal] - SuggestionsModal instance (for info modal) - legacy
      */
     constructor(dependencies) {
         this._stateManager = dependencies.stateManager;
         this._eventBus = dependencies.eventBus;
+        this._toolManager = dependencies.toolManager || null;
+        this._map = dependencies.map || null;
         this._keyboardShortcuts = dependencies.keyboardShortcuts || null;
         this._suggestionsModal = dependencies.suggestionsModal || null;
 
         this._container = null;
 
-        // New modal instances
+        // Modal instances
         this._shortcutsModal = null;
         this._infoModal = null;
+        this._catalogModal = null;
 
         setupCleanup(this);
     }
@@ -75,8 +85,12 @@ export class ChipsComponent {
         // Set initial position state
         this._updatePosition();
 
-        // Create chip buttons
-        Object.values(CHIP_CONFIG).forEach(chipConfig => {
+        // Create chip buttons (filter out catalog if no items available)
+        Object.entries(CHIP_CONFIG).forEach(([key, chipConfig]) => {
+            // Only show catalog chip if there are catalog items
+            if (key === 'catalog' && !CatalogService.hasItems()) {
+                return;
+            }
             const chip = this._createChip(chipConfig);
             this._container.appendChild(chip);
         });
@@ -91,7 +105,7 @@ export class ChipsComponent {
     }
 
     /**
-     * Initializes the new modal instances.
+     * Initializes the modal instances.
      * @private
      */
     _initModals() {
@@ -102,6 +116,16 @@ export class ChipsComponent {
         // Create info modal
         this._infoModal = new InfoModal();
         document.body.appendChild(this._infoModal.render());
+
+        // Create catalog modal if there are catalog items
+        if (CatalogService.hasItems()) {
+            this._catalogModal = new CatalogModal({
+                toolManager: this._toolManager,
+                map: this._map,
+                eventBus: this._eventBus
+            });
+            document.body.appendChild(this._catalogModal.render());
+        }
     }
 
     /**
@@ -137,6 +161,8 @@ export class ChipsComponent {
      */
     _getClickHandler(chipId) {
         switch (chipId) {
+            case 'catalog':
+                return () => this._handleCatalogClick();
             case 'tutorial':
                 return () => this._handleTutorialClick();
             case 'info':
@@ -145,6 +171,18 @@ export class ChipsComponent {
                 return () => this._handleShortcutsClick();
             default:
                 return () => {};
+        }
+    }
+
+    /**
+     * Handles Catalog chip click - opens catalog modal.
+     * @private
+     */
+    _handleCatalogClick() {
+        if (this._catalogModal) {
+            this._catalogModal.show();
+        } else {
+            console.warn('Catalog modal not initialized');
         }
     }
 
@@ -278,10 +316,40 @@ export class ChipsComponent {
     }
 
     /**
+     * Gets the catalog modal instance.
+     * @returns {CatalogModal|null}
+     */
+    getCatalogModal() {
+        return this._catalogModal;
+    }
+
+    /**
+     * Sets tool manager instance for catalog modal.
+     * @param {Object} toolManager - ToolManager instance
+     */
+    setToolManager(toolManager) {
+        this._toolManager = toolManager;
+        if (this._catalogModal) {
+            this._catalogModal._toolManager = toolManager;
+        }
+    }
+
+    /**
+     * Sets map instance for catalog modal.
+     * @param {Object} map - MapLibre map instance
+     */
+    setMap(map) {
+        this._map = map;
+        if (this._catalogModal) {
+            this._catalogModal._map = map;
+        }
+    }
+
+    /**
      * Destroys the component.
      */
     destroy() {
-        // Destroy new modals
+        // Destroy modals
         if (this._shortcutsModal) {
             this._shortcutsModal.destroy();
             this._shortcutsModal = null;
@@ -289,6 +357,10 @@ export class ChipsComponent {
         if (this._infoModal) {
             this._infoModal.destroy();
             this._infoModal = null;
+        }
+        if (this._catalogModal) {
+            this._catalogModal.destroy();
+            this._catalogModal = null;
         }
 
         cleanup(this);

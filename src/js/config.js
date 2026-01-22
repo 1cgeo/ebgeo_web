@@ -64,56 +64,82 @@ const config = {
 
   // ===== ANALYSIS LAYERS =====
   analysisLayers: {
-    enabled: false, // Feature flag global
+    enabled: true, // Feature flag global
     layers: [
-      // {
-      //   id: 'trafficability',
-      //   name: 'Trafegabilidade',
-      //   description: 'Análise de trafegabilidade do terreno',
-      //   bounds: [-44.47, -22.46, -44.44, -22.44], // [west, south, east, north]
-      //   defaultVisibility: false,
-      //   opacity: 0.7,
-      //   source: {
-      //     type: 'raster',
-      //     url: 'http://localhost/trafficability/{z}/{x}/{y}',
-      //     tileSize: 256
-      //   },
-      //   paint: {
-      //     'raster-color': [
-      //       'case',
-      //       ['==', ['raster-value'], 0], 'rgba(0,0,0,0)',      // transparente
-      //       ['==', ['raster-value'], 1], 'rgba(255,255,0,0.6)', // amarelo
-      //       ['==', ['raster-value'], 2], 'rgba(255,0,0,0.6)',   // vermelho
-      //       'rgba(0,0,0,0)' // fallback transparente
-      //     ],
-      //     'raster-opacity': 1.0 // controlado via opacity da layer config
-      //   }
-      // }
-      // Futuras layers: slope analysis, flood risk, etc.
-      // {
-      //   id: 'slope_analysis',
-      //   name: 'Análise de Declive',
-      //   description: 'Mapa de declividade do terreno',
-      //   bounds: [-44.47, -22.46, -44.44, -22.44], // [west, south, east, north]
-      //   defaultVisibility: false,
-      //   opacity: 0.6,
-      //   source: {
-      //     type: 'raster',
-      //     url: 'http://localhost/slope/{z}/{x}/{y}',
-      //     tileSize: 256
-      //   },
-      //   paint: {
-      //     'raster-color': [
-      //       'interpolate',
-      //       ['linear'],
-      //       ['raster-value'],
-      //       0, 'rgba(0,255,0,0.5)',    // verde para baixa declividade
-      //       30, 'rgba(255,255,0,0.6)',  // amarelo para média
-      //       60, 'rgba(255,0,0,0.7)'     // vermelho para alta
-      //     ],
-      //     'raster-opacity': 1.0
-      //   }
-      // }
+      {
+        id: 'trafficability',
+        name: 'Trafegabilidade',
+        description: 'Análise de trafegabilidade do terreno baseada em tipo de solo, declividade e cobertura vegetal',
+        thumbnail: null,
+        bounds: [-44.50, -22.50, -44.40, -22.40],
+        defaultVisibility: false,
+        opacity: 0.7,
+        source: {
+          type: 'raster',
+          url: 'http://localhost/trafficability/{z}/{x}/{y}',
+          tileSize: 256
+        },
+        paint: {
+          'raster-color': [
+            'case',
+            ['==', ['raster-value'], 0], 'rgba(0,0,0,0)',
+            ['==', ['raster-value'], 1], 'rgba(255,255,0,0.6)',
+            ['==', ['raster-value'], 2], 'rgba(255,0,0,0.6)',
+            'rgba(0,0,0,0)'
+          ],
+          'raster-opacity': 1.0
+        }
+      },
+      {
+        id: 'slope_analysis',
+        name: 'Análise de Declive',
+        description: 'Mapa de declividade do terreno classificado em faixas de grau',
+        thumbnail: null,
+        bounds: [-44.50, -22.50, -44.40, -22.40],
+        defaultVisibility: false,
+        opacity: 0.6,
+        source: {
+          type: 'raster',
+          url: 'http://localhost/slope/{z}/{x}/{y}',
+          tileSize: 256
+        },
+        paint: {
+          'raster-color': [
+            'interpolate',
+            ['linear'],
+            ['raster-value'],
+            0, 'rgba(0,255,0,0.5)',
+            30, 'rgba(255,255,0,0.6)',
+            60, 'rgba(255,0,0,0.7)'
+          ],
+          'raster-opacity': 1.0
+        }
+      },
+      {
+        id: 'flood_risk',
+        name: 'Risco de Inundação',
+        description: 'Áreas com risco de inundação baseado em modelo hidrológico',
+        thumbnail: null,
+        bounds: [-44.52, -22.48, -44.42, -22.42],
+        defaultVisibility: false,
+        opacity: 0.65,
+        source: {
+          type: 'raster',
+          url: 'http://localhost/flood_risk/{z}/{x}/{y}',
+          tileSize: 256
+        },
+        paint: {
+          'raster-color': [
+            'interpolate',
+            ['linear'],
+            ['raster-value'],
+            0, 'rgba(0,0,255,0.2)',
+            50, 'rgba(0,0,255,0.5)',
+            100, 'rgba(0,0,128,0.8)'
+          ],
+          'raster-opacity': 1.0
+        }
+      }
     ]
   },
 
@@ -167,7 +193,10 @@ const config = {
 
     // ----- Hillshade Layer -----
     hillshade: {
-      enabled: false,
+      enabled: true,
+      name: 'Sombreamento do Relevo',                // Display name for catalog
+      description: 'Visualização de relevo sombreado baseada em modelo digital de elevação',    // Description for catalog
+      thumbnail: null,                               // Optional thumbnail URL for catalog
       layer: {
         id: 'hillshade',                                    // ID da camada (não alterar)
         type: 'hillshade',                                  // Tipo da camada (não alterar)
@@ -257,17 +286,63 @@ const config = {
   // ===== 3D TILESETS =====
   tilesets: [
     {
-      url: "/3d/PCL/tileset.json",                     // Caminho para o tileset
-      heightOffset: 35,                                // Offset de altura em metros
-      id: "PCL",                                       // ID único do tileset
-      name: "PCL",                                     // Nome para exibição
-      data_captura: "15/03/2024",                      // Data de captura do modelo (DD/MM/AAAA)
-      previewVideo: "/3d/videos/preview.webm",         // Vídeo de preview
-      previewThumbnail: "/3d/videos/thumbnail.jpg",    // Fallback thumbnail
+      url: "/3d/PCL/tileset.json",
+      heightOffset: 35,
+      id: "PCL",
+      name: "Posto de Comando Logístico",
+      description: "Modelo 3D do Posto de Comando Logístico capturado por drone",
+      data_captura: "15/03/2024",
+      previewVideo: "/3d/videos/preview.webm",
+      previewThumbnail: "/3d/videos/thumbnail.jpg",
       locate: {
-        lon: -44.47332385414955,                       // Longitude para localizar
-        lat: -22.43976556982974,                       // Latitude para localizar
-        height: 1000                                   // Altura da câmera
+        lon: -44.47332385414955,
+        lat: -22.43976556982974,
+        height: 1000
+      }
+    },
+    {
+      url: "/3d/quartel/tileset.json",
+      heightOffset: 20,
+      id: "quartel_general",
+      name: "Quartel General",
+      description: "Modelo 3D do Quartel General - Edifício principal e anexos",
+      data_captura: "22/04/2024",
+      previewVideo: null,
+      previewThumbnail: "/3d/thumbnails/quartel.jpg",
+      locate: {
+        lon: -44.46125,
+        lat: -22.44512,
+        height: 800
+      }
+    },
+    {
+      url: "/3d/ponte/tileset.json",
+      heightOffset: 5,
+      id: "ponte_rio",
+      name: "Ponte Estratégica Rio Paraíba",
+      description: "Modelo 3D da ponte sobre o Rio Paraíba - Ponto de passagem crítico",
+      data_captura: "08/05/2024",
+      previewVideo: "/3d/videos/ponte_preview.webm",
+      previewThumbnail: "/3d/thumbnails/ponte.jpg",
+      locate: {
+        lon: -44.48901,
+        lat: -22.42188,
+        height: 500
+      }
+    },
+    {
+      url: "/3d/deposito/tileset.json",
+      heightOffset: 15,
+      id: "deposito_municao",
+      name: "Depósito de Suprimentos",
+      description: "Modelo 3D do depósito central de suprimentos classe I e III",
+      data_captura: "30/05/2024",
+      previewVideo: null,
+      previewThumbnail: "/3d/thumbnails/deposito.jpg",
+      locate: {
+        lon: -44.45678,
+        lat: -22.45123,
+        height: 600
       }
     }
   ],
@@ -276,18 +351,78 @@ const config = {
   // Markers for specific panoramic photo locations
   // These markers appear on the map when the streetview tool is activated
   streetViewMarkers: [
-    // Example marker configuration:
-    // {
-    //   id: "exemplo-marker-01",              // Unique ID for the marker
-    //   name: "Ponto de Observação Norte",    // Display name (used in search and labels)
-    //   data_captura: "20/01/2025",           // Capture date in DD/MM/AAAA format
-    //   locate: {
-    //     lon: -44.47332,                     // Longitude
-    //     lat: -22.43976                      // Latitude
-    //   },
-    //   previewThumbnail: "/street_view/thumbnails/obs-01.jpg",  // Thumbnail image URL
-    //   photoName: "IMG_0001"                 // Exact name for loadImageByName()
-    // }
+    {
+      id: "obs-norte-01",
+      name: "Observatório Norte - Ponto Alto",
+      description: "Vista panorâmica 360° do ponto de observação norte com visada para o vale",
+      data_captura: "10/01/2025",
+      locate: {
+        lon: -44.47332,
+        lat: -22.43976
+      },
+      previewThumbnail: "/street_view/thumbnails/obs-norte-01.jpg",
+      photoName: "IMG_0001"
+    },
+    {
+      id: "cruzamento-principal",
+      name: "Cruzamento Principal - Eixo de Progressão",
+      description: "Panorâmica do cruzamento principal na área de operações",
+      data_captura: "12/01/2025",
+      locate: {
+        lon: -44.46850,
+        lat: -22.44200
+      },
+      previewThumbnail: "/street_view/thumbnails/cruzamento.jpg",
+      photoName: "IMG_0015"
+    },
+    {
+      id: "entrada-quartel",
+      name: "Entrada do Quartel",
+      description: "Vista 360° da entrada principal do aquartelamento",
+      data_captura: "15/01/2025",
+      locate: {
+        lon: -44.46125,
+        lat: -22.44512
+      },
+      previewThumbnail: "/street_view/thumbnails/entrada-quartel.jpg",
+      photoName: "IMG_0022"
+    },
+    {
+      id: "ponte-acesso",
+      name: "Ponte de Acesso - Margem Sul",
+      description: "Panorâmica da ponte de acesso vista da margem sul do rio",
+      data_captura: "18/01/2025",
+      locate: {
+        lon: -44.48950,
+        lat: -22.42150
+      },
+      previewThumbnail: "/street_view/thumbnails/ponte-sul.jpg",
+      photoName: "IMG_0030"
+    },
+    {
+      id: "posto-vigilancia-leste",
+      name: "Posto de Vigilância Leste",
+      description: "Vista panorâmica do posto de vigilância setor leste",
+      data_captura: "20/01/2025",
+      locate: {
+        lon: -44.45200,
+        lat: -22.44800
+      },
+      previewThumbnail: "/street_view/thumbnails/posto-leste.jpg",
+      photoName: "IMG_0045"
+    },
+    {
+      id: "area-treinamento",
+      name: "Área de Treinamento - Campo Aberto",
+      description: "Panorâmica 360° da área de treinamento em campo aberto",
+      data_captura: "25/01/2025",
+      locate: {
+        lon: -44.47800,
+        lat: -22.45500
+      },
+      previewThumbnail: "/street_view/thumbnails/treinamento.jpg",
+      photoName: "IMG_0058"
+    }
   ]
 };
 

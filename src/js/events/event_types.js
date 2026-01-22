@@ -161,6 +161,31 @@ export const EventTypes = Object.freeze({
      * Emitters: MapsTab
      */
     MAP_NOTES_REQUESTED: 'mapNotes:requested',
+
+    // ===== CATALOG =====
+    /**
+     * Emitted when a catalog layer should be added to the map.
+     * Payload: { type: string, item: CatalogItem }
+     * Subscribers: catalog-layers.component.js
+     * Emitters: CatalogModal
+     */
+    CATALOG_ADD_LAYER: 'catalog:addLayer',
+
+    /**
+     * Emitted when a catalog layer visibility changes.
+     * Payload: { layerId: string, visible: boolean }
+     * Subscribers: layer_manager.js
+     * Emitters: catalog-layers.component.js
+     */
+    CATALOG_LAYER_VISIBILITY_CHANGED: 'catalog:layerVisibilityChanged',
+
+    /**
+     * Emitted when a catalog layer is removed.
+     * Payload: { layerId: string, type: string }
+     * Subscribers: layer_manager.js
+     * Emitters: catalog-layers.component.js
+     */
+    CATALOG_LAYER_REMOVED: 'catalog:layerRemoved',
 });
 
 /**

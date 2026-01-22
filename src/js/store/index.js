@@ -13,6 +13,7 @@ export * as mapOps from './map.operations.js';
 export * as layerOps from './layer.operations.js';
 export * as groupOps from './group.operations.js';
 export * as settingsOps from './settings.operations.js';
+export * as catalogOps from './catalog.operations.js';
 export * as storeConstants from './store.constants.js';
 
 // Services (dependency injection container)
