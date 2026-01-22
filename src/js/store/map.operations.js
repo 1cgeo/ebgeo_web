@@ -135,6 +135,13 @@ export const removeMap = async (mapName) => {
     await mapManager.removeMapFromMemory(mapName);
     await deps.groupManager.clearMapGroups(mapName);
 
+    // Remove badge color for this map (will be reused for new maps)
+    const colors = await getAppSetting('mapBadgeColors');
+    if (colors && colors[mapName]) {
+        delete colors[mapName];
+        await setAppSetting('mapBadgeColors', colors);
+    }
+
     if (isCurrentMap) {
         if (remainingMaps.length > 0) {
             const newCurrentMap = remainingMaps[0];
@@ -163,6 +170,14 @@ export const removeMap = async (mapName) => {
 export const renameMap = async (oldName, newName) => {
     await renameMapData(oldName, newName);
     mapManager.renameMapInMemory(oldName, newName);
+
+    // Transfer badge color to new name
+    const colors = await getAppSetting('mapBadgeColors');
+    if (colors && colors[oldName]) {
+        colors[newName] = colors[oldName];
+        delete colors[oldName];
+        await setAppSetting('mapBadgeColors', colors);
+    }
 
     if (mapManager.getCurrentMapName() === newName) {
         await deps.groupManager.loadGroupsToMemory(newName);
@@ -369,4 +384,151 @@ export const redoLastAction = async (executeFunctions) => {
  */
 export const getFrequentColors = (limit = 10, scope = 'current') => {
     return mapManager.getFrequentColors(limit, scope);
+};
+
+// ===== MAP BADGE COLORS =====
+
+/**
+ * Color palette for map badges.
+ */
+const MAP_BADGE_COLORS = [
+    '#3b82f6', // blue
+    '#f59e0b', // amber
+    '#f97316', // orange
+    '#10b981', // emerald
+    '#8b5cf6', // violet
+    '#ec4899', // pink
+    '#06b6d4', // cyan
+    '#84cc16', // lime
+    '#ef4444', // red
+    '#6366f1', // indigo
+    '#14b8a6', // teal
+    '#a855f7', // purple
+];
+
+/**
+ * Gets map badge colors from storage.
+ *
+ * @returns {Promise<Object>} Map of mapName -> color
+ */
+export const getMapBadgeColors = async () => {
+    const colors = await getAppSetting('mapBadgeColors');
+    return colors || {};
+};
+
+/**
+ * Sets map badge colors to storage.
+ *
+ * @param {Object} colors - Map of mapName -> color
+ * @returns {Promise<void>}
+ */
+export const setMapBadgeColors = async (colors) => {
+    await setAppSetting('mapBadgeColors', colors);
+};
+
+/**
+ * Gets the badge color for a specific map.
+ * If the map doesn't have a color, assigns one.
+ *
+ * @param {string} mapName - Map name
+ * @returns {Promise<string>} Hex color
+ */
+export const getMapBadgeColor = async (mapName) => {
+    const colors = await getMapBadgeColors();
+
+    if (colors[mapName]) {
+        return colors[mapName];
+    }
+
+    // Assign a new color
+    const usedColors = Object.values(colors);
+    const availableColors = MAP_BADGE_COLORS.filter(c => !usedColors.includes(c));
+
+    // If all colors are used, pick the least used one
+    let newColor;
+    if (availableColors.length > 0) {
+        newColor = availableColors[0];
+    } else {
+        // Count color usage and pick the least used
+        const colorCounts = {};
+        MAP_BADGE_COLORS.forEach(c => colorCounts[c] = 0);
+        usedColors.forEach(c => {
+            if (colorCounts[c] !== undefined) {
+                colorCounts[c]++;
+            }
+        });
+        newColor = MAP_BADGE_COLORS.reduce((min, c) =>
+            colorCounts[c] < colorCounts[min] ? c : min
+        , MAP_BADGE_COLORS[0]);
+    }
+
+    colors[mapName] = newColor;
+    await setMapBadgeColors(colors);
+    return newColor;
+};
+
+/**
+ * Removes the badge color for a map.
+ *
+ * @param {string} mapName - Map name
+ * @returns {Promise<void>}
+ */
+export const removeMapBadgeColor = async (mapName) => {
+    const colors = await getMapBadgeColors();
+    delete colors[mapName];
+    await setMapBadgeColors(colors);
+};
+
+/**
+ * Gets all map badge colors, assigning colors to maps that don't have one.
+ *
+ * @returns {Promise<Object>} Map of mapName -> color
+ */
+export const getAllMapBadgeColors = async () => {
+    const allMaps = await getAllMapNames();
+    const colors = await getMapBadgeColors();
+
+    // Remove colors for maps that no longer exist
+    const existingMapSet = new Set(allMaps);
+    let changed = false;
+    for (const mapName of Object.keys(colors)) {
+        if (!existingMapSet.has(mapName)) {
+            delete colors[mapName];
+            changed = true;
+        }
+    }
+
+    // Assign colors to maps that don't have one
+    const usedColors = new Set(Object.values(colors));
+
+    for (const mapName of allMaps) {
+        if (!colors[mapName]) {
+            // Find an unused color
+            let newColor = MAP_BADGE_COLORS.find(c => !usedColors.has(c));
+
+            if (!newColor) {
+                // All colors used, find least used
+                const colorCounts = {};
+                MAP_BADGE_COLORS.forEach(c => colorCounts[c] = 0);
+                Object.values(colors).forEach(c => {
+                    if (colorCounts[c] !== undefined) {
+                        colorCounts[c]++;
+                    }
+                });
+                newColor = MAP_BADGE_COLORS.reduce((min, c) =>
+                    colorCounts[c] < colorCounts[min] ? c : min
+                , MAP_BADGE_COLORS[0]);
+            }
+
+            colors[mapName] = newColor;
+            usedColors.add(newColor);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        await setMapBadgeColors(colors);
+    }
+
+    return colors;
 };

@@ -104,6 +104,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
     // Show profile toggle (single selection only)
     if (selectedFeatures.length === 1) {
         panel.appendChild(createModernToggle({
+            id: 'profile-toggle',
             label: 'Mostrar Perfil',
             checked: feature.properties.profile || false,
             onChange: (checked) => {

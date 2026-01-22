@@ -478,8 +478,8 @@ class AddArrowControl extends BaseControl {
             this.map.getSource('arrows').setData(data);
 
             this.drawPoints = [];
-            this.toolManager.setActiveTool(null);
-            this.selectionManager.toggleFeatureSelection('arrow', featureId, feature);
+            this.toolManager.deactivateCurrentTool();
+            await this.selectionManager.toggleFeatureSelection('arrow', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
             console.error('Error creating arrow:', error);

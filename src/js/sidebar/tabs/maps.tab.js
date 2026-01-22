@@ -85,6 +85,7 @@ export class MapsTab {
         this._currentMapCard = null;
         this._currentMapName = null;
         this._sortableInstance = null;
+        this._isLoadingMaps = false;
 
         setupCleanup(this);
     }
@@ -236,6 +237,13 @@ export class MapsTab {
      * @private
      */
     async _loadMaps() {
+        // Guard against concurrent calls
+        if (this._isLoadingMaps) {
+            return;
+        }
+
+        this._isLoadingMaps = true;
+
         try {
             const allMapNames = await getAllMapNamesStore();
             this._currentMapName = await getCurrentMapName();
@@ -248,6 +256,8 @@ export class MapsTab {
 
         } catch (_error) {
             console.error('Error loading maps:', _error);
+        } finally {
+            this._isLoadingMaps = false;
         }
     }
 
@@ -593,8 +603,7 @@ export class MapsTab {
             const result = await this._mapManager.createMap(mapName.trim());
             if (result.success) {
                 showSuccess(result.message);
-                this._loadMaps();
-                // Emit event to update recent maps in sidebar
+                // Emit event to update recent maps in sidebar (this also triggers _loadMaps via listener)
                 this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
             } else {
                 showWarning(result.message);
@@ -696,7 +705,8 @@ export class MapsTab {
             const result = await this._mapManager.renameMap(this._currentMapName, newName.trim());
             if (result.success) {
                 showSuccess(result.message);
-                this._loadMaps();
+                // Emit event to update sidebar shortcuts and maps list
+                this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
             } else {
                 showWarning(result.message);
                 // Revert input
@@ -744,7 +754,8 @@ export class MapsTab {
             const result = await this._mapManager.copyMap(mapName, newName.trim());
             if (result.success) {
                 showSuccess(result.message);
-                this._loadMaps();
+                // Emit event to update sidebar shortcuts and maps list
+                this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
             } else {
                 showWarning(result.message);
             }
@@ -766,7 +777,8 @@ export class MapsTab {
             const result = await this._mapManager.deleteMap(mapName);
             if (result.success) {
                 showSuccess(result.message);
-                this._loadMaps();
+                // Emit event to update sidebar shortcuts and maps list
+                this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
             } else {
                 showWarning(result.message);
             }
@@ -788,7 +800,8 @@ export class MapsTab {
             const result = await this._mapManager.renameMap(mapName, newName.trim());
             if (result.success) {
                 showSuccess(result.message);
-                this._loadMaps();
+                // Emit event to update sidebar shortcuts and maps list
+                this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
             } else {
                 showWarning(result.message);
             }

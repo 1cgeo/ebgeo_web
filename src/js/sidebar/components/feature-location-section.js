@@ -10,90 +10,99 @@ import { FeatureNavigationUtils } from '../../utilities/feature_navigation_utils
 
 // turf is loaded globally via script tag
 
+// Feature types that should show coordinates
+const TYPES_WITH_COORDINATES = ['point', 'text', 'coordination_measure', 'image', 'military_symbol', 'circle'];
+
 /**
  * Creates the location section for the feature panel.
  * @param {Object} options - Configuration options
  * @param {Object} options.feature - The selected feature
+ * @param {string} options.featureType - The type of the feature
  * @param {Object} options.map - Map instance for navigation
  * @returns {Promise<HTMLElement>} The location section element
  */
 export async function createLocationSection(options) {
-    const { feature, map } = options;
+    const { feature, featureType, map } = options;
 
     const container = document.createElement('div');
     container.className = 'feature-location-section';
 
-    // Section header
-    const header = document.createElement('div');
-    header.className = 'feature-location-header';
-    header.textContent = 'Localização';
-    container.appendChild(header);
+    // Check if this feature type should show coordinates
+    const showCoordinates = TYPES_WITH_COORDINATES.includes(featureType);
 
-    // Coordinates container
-    const coordsContainer = document.createElement('div');
-    coordsContainer.className = 'feature-location-coords';
+    if (showCoordinates) {
+        // Section header
+        const header = document.createElement('div');
+        header.className = 'feature-location-header';
+        header.textContent = 'Localização';
+        container.appendChild(header);
 
-    // Get center point of feature
-    const center = getFeatureCenter(feature);
+        // Coordinates container
+        const coordsContainer = document.createElement('div');
+        coordsContainer.className = 'feature-location-coords';
 
-    if (center) {
-        const [lng, lat] = center;
+        // Get center point of feature
+        const center = getFeatureCenter(feature);
 
-        // Lat/Lng row
-        const latLngRow = document.createElement('div');
-        latLngRow.className = 'feature-location-row';
+        if (center) {
+            const [lng, lat] = center;
 
-        const latLngIcon = document.createElement('span');
-        latLngIcon.className = 'feature-location-icon';
-        latLngIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>`;
+            // Lat/Lng row
+            const latLngRow = document.createElement('div');
+            latLngRow.className = 'feature-location-row';
 
-        const latLngText = document.createElement('span');
-        latLngText.className = 'feature-location-text';
-        const formattedLatLng = await formatCoordinates(lat, lng, 'latlong');
-        latLngText.textContent = formattedLatLng;
-        latLngText.title = 'Clique para copiar';
-        latLngText.style.cursor = 'pointer';
-        latLngText.addEventListener('click', () => {
-            copyToClipboard(formattedLatLng);
-            showCopyFeedback(latLngText);
-        });
+            const latLngIcon = document.createElement('span');
+            latLngIcon.className = 'feature-location-icon';
+            latLngIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>`;
 
-        latLngRow.appendChild(latLngIcon);
-        latLngRow.appendChild(latLngText);
-        coordsContainer.appendChild(latLngRow);
+            const latLngText = document.createElement('span');
+            latLngText.className = 'feature-location-text';
+            const formattedLatLng = await formatCoordinates(lat, lng, 'latlong');
+            latLngText.textContent = formattedLatLng;
+            latLngText.title = 'Clique para copiar';
+            latLngText.style.cursor = 'pointer';
+            latLngText.addEventListener('click', () => {
+                copyToClipboard(formattedLatLng);
+                showCopyFeedback(latLngText);
+            });
 
-        // UTM row
-        const utmRow = document.createElement('div');
-        utmRow.className = 'feature-location-row';
+            latLngRow.appendChild(latLngIcon);
+            latLngRow.appendChild(latLngText);
+            coordsContainer.appendChild(latLngRow);
 
-        const utmIcon = document.createElement('span');
-        utmIcon.className = 'feature-location-icon';
-        utmIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`;
+            // UTM row
+            const utmRow = document.createElement('div');
+            utmRow.className = 'feature-location-row';
 
-        const utmText = document.createElement('span');
-        utmText.className = 'feature-location-text';
-        const formattedUtm = await formatCoordinates(lat, lng, 'utm_wgs84');
-        utmText.textContent = formattedUtm;
-        utmText.title = 'Clique para copiar';
-        utmText.style.cursor = 'pointer';
-        utmText.addEventListener('click', () => {
-            copyToClipboard(formattedUtm);
-            showCopyFeedback(utmText);
-        });
+            const utmIcon = document.createElement('span');
+            utmIcon.className = 'feature-location-icon';
+            utmIcon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`;
 
-        utmRow.appendChild(utmIcon);
-        utmRow.appendChild(utmText);
-        coordsContainer.appendChild(utmRow);
-    } else {
-        const noCoords = document.createElement('div');
-        noCoords.className = 'feature-location-no-coords';
-        noCoords.textContent = 'Coordenadas indisponíveis';
-        coordsContainer.appendChild(noCoords);
+            const utmText = document.createElement('span');
+            utmText.className = 'feature-location-text';
+            const formattedUtm = await formatCoordinates(lat, lng, 'utm_wgs84');
+            utmText.textContent = formattedUtm;
+            utmText.title = 'Clique para copiar';
+            utmText.style.cursor = 'pointer';
+            utmText.addEventListener('click', () => {
+                copyToClipboard(formattedUtm);
+                showCopyFeedback(utmText);
+            });
+
+            utmRow.appendChild(utmIcon);
+            utmRow.appendChild(utmText);
+            coordsContainer.appendChild(utmRow);
+        } else {
+            const noCoords = document.createElement('div');
+            noCoords.className = 'feature-location-no-coords';
+            noCoords.textContent = 'Coordenadas indisponíveis';
+            coordsContainer.appendChild(noCoords);
+        }
+
+        container.appendChild(coordsContainer);
     }
 
-    container.appendChild(coordsContainer);
-
-    // Center on map button
+    // Center on map button (always shown for all feature types)
     const centerButton = document.createElement('button');
     centerButton.className = 'feature-location-center-btn';
     centerButton.innerHTML = `
@@ -125,6 +134,22 @@ function getFeatureCenter(feature) {
 
     try {
         const geometry = feature.geometry;
+
+        // Check for explicit center in properties (used by circle, ellipse, etc.)
+        if (feature.properties?.center) {
+            let center = feature.properties.center;
+            // Handle string format
+            if (typeof center === 'string') {
+                try {
+                    center = JSON.parse(center);
+                } catch {
+                    return null;
+                }
+            }
+            if (Array.isArray(center) && center.length >= 2) {
+                return center;
+            }
+        }
 
         switch (geometry.type) {
             case 'Point':
@@ -177,10 +202,6 @@ function getFeatureCenter(feature) {
                 return null;
 
             default:
-                // Try to get center from properties if available
-                if (feature.properties?.center) {
-                    return feature.properties.center;
-                }
                 return null;
         }
     } catch (error) {

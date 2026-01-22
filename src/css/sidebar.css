@@ -1022,6 +1022,27 @@
     overflow-x: hidden;
     padding: var(--space-4);
     scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
+}
+
+.feature-panel-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.feature-panel-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.feature-panel-content::-webkit-scrollbar-thumb {
+    background-color: var(--primary);
+    border-radius: 3px;
+    opacity: 0.7;
+}
+
+.feature-panel-content::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-700, #166534);
+    opacity: 1;
 }
 
 /* Feature panel wrapper */
@@ -1371,12 +1392,6 @@
 
 .feature-panel-content .feature-attributes-list {
     margin-bottom: var(--space-2);
-}
-
-.feature-panel-content .feature-attribute-row:hover {
-    margin: 0 calc(var(--space-4) * -1);
-    padding-left: var(--space-4);
-    padding-right: var(--space-4);
 }
 
 .feature-panel-content .feature-attributes-add-btn {
@@ -1993,6 +2008,27 @@ body:has(.sidebar-container) .unified-attributes-panel {
     /* Prevent layout shift when switching tabs - reserve scrollbar space */
     overflow-y: auto;
     scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
+}
+
+.feature-tab-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.feature-tab-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.feature-tab-content::-webkit-scrollbar-thumb {
+    background-color: var(--primary);
+    border-radius: 3px;
+    opacity: 0.7;
+}
+
+.feature-tab-content::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-700, #166534);
+    opacity: 1;
 }
 
 .feature-tab-content.active {

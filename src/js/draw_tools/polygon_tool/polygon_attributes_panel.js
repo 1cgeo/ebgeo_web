@@ -69,18 +69,18 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     // Fill color picker
     panel.appendChild(createModernColorPicker({
         label: 'Preenchimento',
-        value: feature.properties.color,
+        value: feature.properties.fillColor,
         onChange: (color) => {
-            polygonControl.updateFeaturesProperty(selectedFeatures, 'color', color);
+            polygonControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
         }
     }));
 
     // Outline color picker
     panel.appendChild(createModernColorPicker({
         label: 'Borda',
-        value: feature.properties.outlinecolor,
+        value: feature.properties.lineColor,
         onChange: (color) => {
-            polygonControl.updateFeaturesProperty(selectedFeatures, 'outlinecolor', color);
+            polygonControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
         }
     }));
 
@@ -103,10 +103,10 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
         min: 1,
         max: 10,
         step: 1,
-        value: feature.properties.size || 3,
+        value: feature.properties.lineWidth || 2,
         unit: 'px',
         onChange: (newValue) => {
-            polygonControl.updateFeaturesProperty(selectedFeatures, 'size', newValue);
+            polygonControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
         }
     }));
 

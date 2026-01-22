@@ -534,7 +534,7 @@ class AddMilitarySymbolControl extends BaseControl {
       await this.loadSymbolToMap(featureId, result.blob);
 
       // Select the new feature
-      this.selectionManager.toggleFeatureSelection(
+      await this.selectionManager.toggleFeatureSelection(
         "military_symbol",
         featureId,
         feature

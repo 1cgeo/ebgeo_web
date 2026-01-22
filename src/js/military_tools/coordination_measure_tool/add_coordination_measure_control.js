@@ -495,7 +495,7 @@ class AddCoordinationMeasureControl extends BaseControl {
 
       await this.loadSymbolToMap(featureId, result.blob);
 
-      this.selectionManager.toggleFeatureSelection(
+      await this.selectionManager.toggleFeatureSelection(
         "coordination_measure",
         featureId,
         feature

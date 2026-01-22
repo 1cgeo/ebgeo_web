@@ -530,8 +530,8 @@ class AddRectangleControl extends BaseControl {
             this.map.getSource('rectangles').setData(data);
 
             this.drawPoints = [];
-            this.toolManager.setActiveTool(null);
-            this.selectionManager.toggleFeatureSelection('rectangle', featureId, feature);
+            this.toolManager.deactivateCurrentTool();
+            await this.selectionManager.toggleFeatureSelection('rectangle', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
             console.error('Erro ao criar retângulo:', error);

@@ -32,7 +32,8 @@ class TerrainControl {
         this._map = null;
         this._container = null;
         this._button = null;
-        this._name = 'TerrainControl'
+        this._name = 'TerrainControl';
+        this._terrainPitch = 60; // Pitch angle when terrain is active (like Google Maps 3D)
     }
 
     onAdd(map) {
@@ -95,11 +96,21 @@ class TerrainControl {
         }
 
         if (this._map.getTerrain()) {
+            // Deactivating terrain - reset pitch to 0
             this._wasTerrainActive = false;
             this._map.setTerrain(null);
+            this._map.easeTo({
+                pitch: 0,
+                duration: 500
+            });
         } else {
+            // Activating terrain - apply 3D pitch
             this._wasTerrainActive = true;
             this._map.setTerrain(this.terrainConfig);
+            this._map.easeTo({
+                pitch: this._terrainPitch,
+                duration: 500
+            });
         }
     }
 

@@ -709,7 +709,39 @@ class UIManager {
         }
 
         panel.innerHTML = '';
+
+        // Header with title and action buttons
+        const header = document.createElement('div');
+        header.className = 'profile-panel-header';
+
+        const title = document.createElement('h3');
+        title.textContent = linkFirstLast ? 'Linha de Visada' : 'Perfil do Terreno';
+        header.appendChild(title);
+
+        const buttonGroup = document.createElement('div');
+        buttonGroup.className = 'profile-panel-buttons';
+
+        // Save button
+        const saveButton = document.createElement('button');
+        saveButton.className = 'profile-save-button';
+        saveButton.title = 'Salvar como imagem';
+        saveButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+        saveButton.addEventListener('click', () => this._saveChartAsImage(linkFirstLast));
+        buttonGroup.appendChild(saveButton);
+
+        // Close button
+        const closeButton = document.createElement('button');
+        closeButton.className = 'close-button';
+        closeButton.title = 'Fechar';
+        closeButton.innerHTML = '×';
+        closeButton.addEventListener('click', () => this._closeProfileAndUpdateFeature());
+        buttonGroup.appendChild(closeButton);
+
+        header.appendChild(buttonGroup);
+        panel.appendChild(header);
+
         const canvas = document.createElement('canvas');
+        canvas.id = 'profileChart';
         panel.appendChild(canvas);
 
         const profileDataParsed = JSON.parse(profileData);
@@ -720,9 +752,11 @@ class UIManager {
             label: 'Elevação',
             data: elevation,
             borderColor: 'rgb(75, 192, 192)',
-            backgroundColor: 'rgb(75, 192, 192)',
-            fill: false,
-            tension: 0.1
+            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+            fill: true,
+            tension: 0.1,
+            pointRadius: 3,
+            pointHoverRadius: 6
         }];
 
         if (linkFirstLast) {
@@ -750,6 +784,7 @@ class UIManager {
                 data: lineElevations,
                 fill: false,
                 tension: 0.1,
+                pointRadius: 0,
                 segment: {
                     borderColor: ctx => ctx.p0DataIndex < intersectionIndex || intersectionIndex == -1 ? 'rgb(0, 255, 0)' : 'rgb(255, 0, 0)'
                 }
@@ -764,22 +799,114 @@ class UIManager {
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                plugins: {
+                    tooltip: {
+                        enabled: true,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleFont: { size: 12 },
+                        bodyFont: { size: 11 },
+                        padding: 10,
+                        cornerRadius: 4,
+                        callbacks: {
+                            title: (context) => `Distância: ${context[0].label} m`,
+                            label: (context) => {
+                                const value = context.parsed.y;
+                                return `${context.dataset.label}: ${value.toFixed(1)} m`;
+                            }
+                        }
+                    },
+                    legend: {
+                        display: linkFirstLast,
+                        position: 'bottom',
+                        labels: {
+                            boxWidth: 12,
+                            padding: 8,
+                            font: { size: 11 }
+                        }
+                    }
+                },
                 scales: {
                     x: {
                         title: {
                             display: true,
-                            text: 'Distância (m)'
-                        }
+                            text: 'Distância (m)',
+                            font: { size: 11 }
+                        },
+                        ticks: { font: { size: 10 } }
                     },
                     y: {
                         title: {
                             display: true,
-                            text: 'Altitude (m)'
-                        }
+                            text: 'Altitude (m)',
+                            font: { size: 11 }
+                        },
+                        ticks: { font: { size: 10 } }
                     }
                 }
             }
         });
+    }
+
+    /**
+     * Save chart as PNG image with white background.
+     * @param {boolean} isLOS - Whether this is a line of sight profile
+     * @private
+     */
+    _saveChartAsImage(isLOS) {
+        if (!this.activeChart) return;
+
+        const canvas = this.activeChart.canvas;
+        const ctx = canvas.getContext('2d');
+
+        // Create a new canvas with white background
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = canvas.width;
+        tempCanvas.height = canvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // Fill with white background
+        tempCtx.fillStyle = '#ffffff';
+        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+        // Draw the chart on top
+        tempCtx.drawImage(canvas, 0, 0);
+
+        const link = document.createElement('a');
+        link.download = isLOS ? 'linha-de-visada.png' : 'perfil-terreno.png';
+        link.href = tempCanvas.toDataURL('image/png', 1);
+        link.click();
+    }
+
+    /**
+     * Close profile panel and update the feature's profile property to false.
+     * @private
+     */
+    _closeProfileAndUpdateFeature() {
+        const selectedFeatures = this.selectionManager.getAllSelectedFeatures();
+
+        if (selectedFeatures.length === 1) {
+            const feature = selectedFeatures[0];
+            const { source } = feature.properties;
+
+            // Get the appropriate control from selectionManager and update the property
+            const control = this.selectionManager.controls.get(source);
+            if (control && typeof control.updateFeaturesProperty === 'function') {
+                control.updateFeaturesProperty(selectedFeatures, 'profile', false);
+            }
+
+            // Update the toggle in the attribute panel directly
+            const profileToggle = document.getElementById('profile-toggle');
+            if (profileToggle && profileToggle.setChecked) {
+                profileToggle.setChecked(false);
+            }
+        }
+
+        this.hideProfilePanel();
     }
 
     /**

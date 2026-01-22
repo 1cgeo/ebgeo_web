@@ -39,7 +39,7 @@ export function setupPointLayers(features, mapInstance) {
             source: 'points',
             paint: {
                 'circle-radius': ['get', 'size'],
-                'circle-color': ['get', 'color'],
+                'circle-color': ['get', 'fillColor'],
                 'circle-opacity': ['get', 'opacity']
             },
             filter: ['!=', ['get', 'visivel'], false]

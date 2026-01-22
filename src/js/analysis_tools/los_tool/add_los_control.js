@@ -513,7 +513,7 @@ class AddLOSControl extends BaseControl {
             this.map.getSource('processed-los').setData(processedData);
 
             // Select new feature
-            this.selectionManager.toggleFeatureSelection('los', losFeature.properties.id, losFeature);
+            await this.selectionManager.toggleFeatureSelection('los', losFeature.properties.id, losFeature);
             this.selectionManager.updateUI();
 
         } catch (error) {
@@ -799,7 +799,7 @@ class AddLOSControl extends BaseControl {
         this.updateButtonAppearance();
 
         if (this.isActive && !this.geometry.isTerrainAvailable(this.map)) {
-            this.toolManager.setActiveTool(null);
+            this.toolManager.deactivateCurrentTool();
         }
     }
 

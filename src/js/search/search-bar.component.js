@@ -14,6 +14,9 @@ import {
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';
+import { getCurrentMapFeatures } from '../store/feature.operations.js';
+import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '../store/store.constants.js';
+import { FeatureNavigationUtils } from '../utilities/feature_navigation_utils.js';
 
 /**
  * SVG Icons for search bar.
@@ -59,12 +62,14 @@ export class SearchBarComponent {
      * @param {Object} dependencies.eventBus - EventBus instance
      * @param {Object} dependencies.map - MapLibre map instance
      * @param {Object} [dependencies.uiManager] - UIManager instance
+     * @param {Object} [dependencies.selectionManager] - SelectionManager instance
      */
     constructor(dependencies) {
         this._stateManager = dependencies.stateManager;
         this._eventBus = dependencies.eventBus;
         this._map = dependencies.map;
         this._uiManager = dependencies.uiManager;
+        this._selectionManager = dependencies.selectionManager;
 
         this._container = null;
         this._input = null;
@@ -226,7 +231,7 @@ export class SearchBarComponent {
 
     /**
      * Performs the search with progressive results display.
-     * Shows 3D models and Streetview markers immediately, then loads API results.
+     * Shows local features, 3D models and Streetview markers first, then loads API results.
      * @private
      * @param {string} query - Search query
      */
@@ -238,11 +243,21 @@ export class SearchBarComponent {
         // Search 3D models and Streetview markers immediately (synchronous)
         const model3dResults = this._search3DModels(query);
         const streetviewResults = this._searchStreetViewMarkers(query);
-        const immediateResults = [...model3dResults, ...streetviewResults];
 
-        // Show immediate results if found, otherwise show loading
-        if (immediateResults.length > 0) {
-            this._displayResults(immediateResults, true); // true = still loading API
+        // Search local features from store (async but fast)
+        let featureResults = [];
+        try {
+            featureResults = await this._searchLocalFeatures(query);
+        } catch (error) {
+            console.warn('[SearchBar] Local features search failed:', error);
+        }
+
+        // Combine local results: features first, then 3D models, then streetview
+        const localResults = [...featureResults, ...model3dResults, ...streetviewResults];
+
+        // Show local results if found, otherwise show loading
+        if (localResults.length > 0) {
+            this._displayResults(localResults, true); // true = still loading API
         } else {
             this._showLoading();
         }
@@ -269,8 +284,8 @@ export class SearchBarComponent {
         this._isSearching = false;
         this._container.classList.remove('searching');
 
-        // Combine all results: 3D + Streetview first, then API
-        const allResults = [...immediateResults, ...apiResults];
+        // Combine all results: local results first, then API
+        const allResults = [...localResults, ...apiResults];
 
         if (allResults.length > 0) {
             this._displayResults(allResults, false);
@@ -280,43 +295,82 @@ export class SearchBarComponent {
     }
 
     /**
-     * Searches local features on the map.
+     * Searches local features from the store.
      * @private
      * @param {string} query - Search query
-     * @returns {Array} Search results
+     * @returns {Promise<Array>} Search results
      */
-    _searchLocalFeatures(query) {
+    async _searchLocalFeatures(query) {
         const results = [];
         const normalizedQuery = query.toLowerCase();
 
-        // Get features from map sources
-        const sources = ['points', 'lines', 'polygons', 'military_symbols', 'coordination_measures'];
+        try {
+            const allFeatures = await getCurrentMapFeatures();
+            const storageTypes = getAllStorageTypes();
 
-        sources.forEach(sourceName => {
-            try {
-                const source = this._map.getSource(sourceName);
-                if (!source || !source._data) return;
+            for (const storageType of storageTypes) {
+                const features = allFeatures[storageType] || [];
 
-                const features = source._data.features || [];
-                features.forEach(feature => {
-                    const name = feature.properties?.name || feature.properties?.nome || '';
-                    if (name.toLowerCase().includes(normalizedQuery)) {
+                for (const feature of features) {
+                    const matchInfo = this._featureMatchesQuery(feature, normalizedQuery);
+                    if (matchInfo) {
+                        const name = feature.properties?.name || feature.properties?.nome || 'Sem nome';
                         results.push({
                             type: 'feature',
-                            subtype: sourceName,
+                            subtype: storageType,
                             name: name,
-                            layer: this._getLayerDisplayName(sourceName),
+                            layer: getFeatureDisplayNameFromStorage(storageType),
+                            matchedField: matchInfo.field,
                             coordinates: this._getFeatureCenter(feature),
                             feature: feature,
                         });
-                    }
-                });
-            } catch (_e) {
-                // Source may not exist
-            }
-        });
 
-        return results.slice(0, MAX_RESULTS.features);
+                        if (results.length >= MAX_RESULTS.features) {
+                            return results;
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('[SearchBar] Error searching local features:', error);
+        }
+
+        return results;
+    }
+
+    /**
+     * Checks if a feature matches the search query.
+     * @private
+     * @param {Object} feature - GeoJSON feature
+     * @param {string} normalizedQuery - Lowercase search query
+     * @returns {Object|null} Match info with field name, or null if no match
+     */
+    _featureMatchesQuery(feature, normalizedQuery) {
+        const props = feature.properties;
+        if (!props) return null;
+
+        // Check name/nome
+        const name = props.name || props.nome || '';
+        if (name.toLowerCase().includes(normalizedQuery)) {
+            return { field: 'nome' };
+        }
+
+        // Check description/descricao
+        const description = props.description || props.descricao || '';
+        if (description.toLowerCase().includes(normalizedQuery)) {
+            return { field: 'descrição' };
+        }
+
+        // Check attributes object
+        if (props.attributes && typeof props.attributes === 'object') {
+            for (const [key, value] of Object.entries(props.attributes)) {
+                if (value && typeof value === 'string' && value.toLowerCase().includes(normalizedQuery)) {
+                    return { field: `atributo: ${key}` };
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -513,8 +567,7 @@ export class SearchBarComponent {
      */
     _selectResult(result) {
         this._hideResults();
-        this._input.value = result.name;
-        this._clearBtn.style.display = 'flex';
+        this._clearSearchInput();
 
         // Remove existing marker
         this._removeMarker();
@@ -535,7 +588,13 @@ export class SearchBarComponent {
             return;
         }
 
-        // Fly to coordinates
+        // Handle local feature - zoom and select using FeatureNavigationUtils
+        if (result.type === 'feature' && result.feature) {
+            this._selectLocalFeature(result);
+            return;
+        }
+
+        // Handle API results (places) - fly to coordinates and add marker
         if (result.coordinates) {
             this._map.flyTo({
                 center: result.coordinates,
@@ -543,19 +602,58 @@ export class SearchBarComponent {
                 essential: true,
             });
 
-            // Add marker
             this._marker = new maplibregl.Marker()
                 .setLngLat(result.coordinates)
                 .addTo(this._map);
         }
+    }
 
-        // Handle feature selection
-        if (result.type === 'feature' && result.feature) {
-            // Trigger feature selection via UIManager
-            if (this._uiManager) {
-                this._uiManager.showFeatureSearchPanel(result.original || result.feature);
+    /**
+     * Selects a local feature: zoom to it and open attributes panel.
+     * @private
+     * @param {Object} result - Search result with feature data
+     */
+    async _selectLocalFeature(result) {
+        const feature = result.feature;
+        const featureId = feature.properties?.id;
+        const storageType = result.subtype;
+
+        if (!featureId || !storageType || !this._selectionManager) {
+            // Fallback: just zoom to coordinates
+            if (result.coordinates) {
+                this._map.flyTo({
+                    center: result.coordinates,
+                    zoom: 14,
+                    essential: true,
+                });
+            }
+            return;
+        }
+
+        try {
+            await FeatureNavigationUtils.zoomAndSelectFeature(
+                feature,
+                this._map,
+                this._selectionManager,
+                storageType,
+                featureId
+            );
+        } catch (error) {
+            console.warn('[SearchBar] Error selecting feature:', error);
+            // Fallback: just zoom
+            if (result.coordinates) {
+                await FeatureNavigationUtils.zoomToFeature(feature, this._map);
             }
         }
+    }
+
+    /**
+     * Clears the search input text.
+     * @private
+     */
+    _clearSearchInput() {
+        this._input.value = '';
+        this._clearBtn.style.display = 'none';
     }
 
     /**
@@ -623,23 +721,6 @@ export class SearchBarComponent {
             default:
                 return SEARCH_ICONS.feature;
         }
-    }
-
-    /**
-     * Gets display name for layer.
-     * @private
-     * @param {string} sourceName - Source name
-     * @returns {string} Display name
-     */
-    _getLayerDisplayName(sourceName) {
-        const names = {
-            'points': 'Pontos',
-            'lines': 'Linhas',
-            'polygons': 'Poligonos',
-            'military_symbols': 'Simbolos Militares',
-            'coordination_measures': 'Medidas de Coordenacao',
-        };
-        return names[sourceName] || sourceName;
     }
 
     /**

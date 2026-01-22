@@ -53,7 +53,9 @@
       "Bash(npx stylelint:*)",
       "Bash(timeout 5 npm run dev:*)",
       "Bash(timeout 10 npm run dev:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

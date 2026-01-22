@@ -64,12 +64,12 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
         }
     }
 
-    // Color picker
+    // Line color picker
     panel.appendChild(createModernColorPicker({
         label: 'Cor',
-        value: feature.properties.color,
+        value: feature.properties.lineColor,
         onChange: (color) => {
-            lineControl.updateFeaturesProperty(selectedFeatures, 'color', color);
+            lineControl.updateFeaturesProperty(selectedFeatures, 'lineColor', color);
         }
     }));
 
@@ -79,10 +79,10 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
         min: 1,
         max: 15,
         step: 1,
-        value: feature.properties.size || 7,
+        value: feature.properties.lineWidth || 2,
         unit: 'px',
         onChange: (newValue) => {
-            lineControl.updateFeaturesProperty(selectedFeatures, 'size', newValue);
+            lineControl.updateFeaturesProperty(selectedFeatures, 'lineWidth', newValue);
         }
     }));
 
@@ -100,7 +100,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
         min: 0,
         max: 100,
         step: 1,
-        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.7) * 100),
+        value: Math.round((feature.properties.opacity !== undefined ? feature.properties.opacity : 0.5) * 100),
         unit: '%',
         onChange: (newValue) => {
             lineControl.updateFeaturesProperty(selectedFeatures, 'opacity', newValue / 100);
@@ -122,6 +122,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
     // Profile toggle (single selection only)
     if (selectedFeatures.length === 1) {
         panel.appendChild(createModernToggle({
+            id: 'profile-toggle',
             label: 'Perfil do terreno',
             checked: feature.properties.profile === true,
             onChange: (checked) => {

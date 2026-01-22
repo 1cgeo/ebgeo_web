@@ -376,7 +376,7 @@ class AddImageControl extends BaseControl {
 
         await this.loadImageToMap(imageId, blob);
 
-        this.selectionManager.toggleFeatureSelection("image", imageId, feature);
+        await this.selectionManager.toggleFeatureSelection("image", imageId, feature);
         this.selectionManager.updateUI();
       } catch (error) {
         console.error("Error adding image feature:", error);

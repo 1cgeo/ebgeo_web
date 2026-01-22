@@ -656,8 +656,8 @@ class AddImportControl {
             }
         }
 
-        if (totalFeaturesToImport > 100) {
-            throw new Error(`Muitas geometrias para importar: ${totalFeaturesToImport}. Limite máximo: 100 geometrias.`);
+        if (totalFeaturesToImport > 1000) {
+            throw new Error(`Muitas geometrias para importar: ${totalFeaturesToImport}. Limite máximo: 1000 geometrias.`);
         }
 
         if (totalFeaturesToImport === 0) {

@@ -65,9 +65,9 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
     // Color picker
     panel.appendChild(createModernColorPicker({
         label: 'Cor',
-        value: feature.properties.color,
+        value: feature.properties.fillColor,
         onChange: (color) => {
-            pointControl.updateFeaturesProperty(selectedFeatures, 'color', color);
+            pointControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
         }
     }));
 

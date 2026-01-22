@@ -596,14 +596,13 @@ export class SidebarControl {
         if (!selectedFeatures || selectedFeatures.length === 0) return null;
 
         const control = this._selectionManager?.controls.get(featureType);
-        if (!control) {
-            console.warn(`Control not found for type: ${featureType}`);
-            return null;
-        }
-
         const feature = selectedFeatures[0];
         const featureId = feature?.properties?.id;
         const isSingleSelection = selectedFeatures.length === 1;
+
+        // Check if all selected features are the same type
+        const types = new Set(selectedFeatures.map(f => f.properties?.source));
+        const isMixedTypes = types.size > 1;
 
         // Main container
         const container = document.createElement('div');
@@ -615,6 +614,10 @@ export class SidebarControl {
         // 1. Identification section
         let identificationSection;
         if (isSingleSelection) {
+            if (!control) {
+                console.warn(`Control not found for type: ${featureType}`);
+                return null;
+            }
             identificationSection = await createFeatureIdentification({
                 feature,
                 featureType,
@@ -647,27 +650,30 @@ export class SidebarControl {
             cleanupFunctions.push(photoGallery.cleanup);
         }
 
-        // 3. Tabs (Estilo / Atributos)
-        const featureTabs = createFeatureTabs({
-            featureId,
-            featureType,
-            singleSelection: isSingleSelection
-        });
-        container.appendChild(featureTabs.container);
-        cleanupFunctions.push(featureTabs.cleanup);
+        // 3. Tabs (Estilo / Atributos) - only show for single selection or multiple same-type
+        // For mixed types, only show identification and delete button
+        if (!isMixedTypes) {
+            const featureTabs = createFeatureTabs({
+                featureId,
+                featureType,
+                singleSelection: isSingleSelection
+            });
+            container.appendChild(featureTabs.container);
+            cleanupFunctions.push(featureTabs.cleanup);
 
-        // Inject tool-specific style controls into the Style tab
-        if (control.hasAttributePanel && control.hasAttributePanel()) {
-            try {
-                control.createAttributePanel(
-                    featureTabs.styleTab,
-                    selectedFeatures,
-                    this._selectionManager,
-                    this._uiManager,
-                    { hideHeader: true }
-                );
-            } catch (error) {
-                console.error(`Error creating attribute panel for ${featureType}:`, error);
+            // Inject tool-specific style controls into the Style tab
+            if (control && control.hasAttributePanel && control.hasAttributePanel()) {
+                try {
+                    control.createAttributePanel(
+                        featureTabs.styleTab,
+                        selectedFeatures,
+                        this._selectionManager,
+                        this._uiManager,
+                        { hideHeader: true }
+                    );
+                } catch (error) {
+                    console.error(`Error creating attribute panel for ${featureType}:`, error);
+                }
             }
         }
 
@@ -675,6 +681,7 @@ export class SidebarControl {
         if (isSingleSelection && this._mapManager?.map) {
             const locationSection = await createLocationSection({
                 feature,
+                featureType,
                 map: this._mapManager.map
             });
             container.appendChild(locationSection);
@@ -686,12 +693,16 @@ export class SidebarControl {
 
         const deleteButton = document.createElement('button');
         deleteButton.className = 'feature-panel-delete-btn';
+        const deleteLabel = isSingleSelection ? 'Deletar' : `Deletar ${selectedFeatures.length} feições`;
         deleteButton.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Deletar
+            ${deleteLabel}
         `;
+        const confirmMsg = isSingleSelection
+            ? 'Deseja realmente deletar esta feição?'
+            : `Deseja realmente deletar ${selectedFeatures.length} feições?`;
         deleteButton.onclick = () => {
-            if (confirm('Deseja realmente deletar esta feição?')) {
+            if (confirm(confirmMsg)) {
                 this._selectionManager?.deleteSelectedFeatures();
             }
         };
@@ -901,10 +912,11 @@ export class SidebarControl {
     async _updateRecentMaps() {
         try {
             // Dynamic import to avoid circular dependencies
-            const { getAllMapNamesStore, getCurrentMapName, getMapOrder } = await import('../store/index.js');
+            const { getAllMapNamesStore, getCurrentMapName, getMapOrder, getAllMapBadgeColors } = await import('../store/index.js');
             const allMaps = await getAllMapNamesStore();
             const currentMap = await getCurrentMapName();
             const savedOrder = await getMapOrder();
+            const mapColors = await getAllMapBadgeColors();
 
             // Sort maps: use saved order if available, otherwise current map first then alphabetically
             let sortedMaps;
@@ -926,11 +938,12 @@ export class SidebarControl {
                 });
             }
 
-            // Create map objects with isActive flag
+            // Create map objects with isActive flag and persistent color
             const recentMaps = sortedMaps.map(name => ({
                 name,
                 thumbnail: null,
                 isActive: name === currentMap,
+                color: mapColors[name]
             }));
 
             this._collapsedSidebar.updateRecentMaps(recentMaps);

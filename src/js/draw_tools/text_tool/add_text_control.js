@@ -414,7 +414,7 @@ class AddTextControl extends BaseControl {
             data.features.push(feature);
             this.map.getSource('texts').setData(data);
 
-            this.selectionManager.toggleFeatureSelection('text', featureId, feature);
+            await this.selectionManager.toggleFeatureSelection('text', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
             console.error('Error creating text feature:', error);

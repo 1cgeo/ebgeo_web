@@ -263,7 +263,11 @@ export {
     getMapPosition,
     hasMapSavedPosition,
     clearMapPosition,
-    getFrequentColors
+    getFrequentColors,
+    getMapBadgeColors,
+    getMapBadgeColor,
+    getAllMapBadgeColors,
+    removeMapBadgeColor
 } from './map.operations.js';
 
 // ===== RE-EXPORTS FROM LAYER OPERATIONS =====

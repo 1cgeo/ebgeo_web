@@ -67,8 +67,8 @@ export function setupLineLayers(features, mapInstance) {
                 'line-join': 'round'
             },
             paint: {
-                'line-color': ['get', 'color'],
-                'line-width': ['get', 'size'],
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'lineWidth'],
                 'line-opacity': ['get', 'opacity'],
                 'line-dasharray': [
                     'match',

@@ -539,8 +539,6 @@
 
 .feature-attribute-row:hover {
     background: rgba(0, 0, 0, 0.02);
-    margin: 0 -16px;
-    padding: 10px 16px;
 }
 
 .feature-attribute-row.deleting {

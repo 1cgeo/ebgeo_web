@@ -14,10 +14,9 @@ class AddPointControl extends BaseControl {
     }
 
     static DEFAULT_PROPERTIES = {
-        color: '#fbb03b',
+        fillColor: '#3f4fb5',
         size: 10,
         opacity: 1,
-        outlinecolor: '#fbb03b',
         source: 'point',
         nome: '',
         descricao: '',
@@ -287,7 +286,7 @@ class AddPointControl extends BaseControl {
             this.map.getSource('points').setData(data);
 
             this.toolManager.deactivateCurrentTool();
-            this.selectionManager.toggleFeatureSelection('point', featureId, feature);
+            await this.selectionManager.toggleFeatureSelection('point', featureId, feature);
             this.selectionManager.updateUI();
 
             return feature;
@@ -369,10 +368,9 @@ class AddPointControl extends BaseControl {
         if (!initialProperties) return true;
 
         return (
-            feature.properties.color !== initialProperties.color ||
+            feature.properties.fillColor !== initialProperties.fillColor ||
             feature.properties.size !== initialProperties.size ||
             feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.outlinecolor !== initialProperties.outlinecolor ||
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||

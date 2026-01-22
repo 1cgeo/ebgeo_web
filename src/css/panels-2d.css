@@ -77,9 +77,9 @@
 .profile-panel {
     position: fixed;
     bottom: 20px;
-    left: 20px;
+    right: 20px;
     width: 400px;
-    height: 250px;
+    height: 280px;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -87,36 +87,47 @@
     padding: 15px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
     z-index: 100;
-    animation: slideInFromLeft 0.3s ease;
+    animation: slideInFromRight 0.3s ease;
 }
 
-.profile-panel h3 {
-    margin: 0 0 10px 0;
-    color: #333;
-    font-size: 16px;
-    font-weight: 600;
+/* ----- Profile Panel Header ----- */
+.profile-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
     border-bottom: 2px solid var(--primary-color);
-    padding-bottom: 5px;
+}
+
+.profile-panel-header h3 {
+    margin: 0;
+    color: #333;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.profile-panel-buttons {
+    display: flex;
+    gap: 4px;
+    align-items: center;
 }
 
 .profile-panel canvas {
     width: 100% !important;
-    height: calc(100% - 50px) !important;
+    height: calc(100% - 45px) !important;
     border-radius: 4px;
 }
 
-/* ----- Close Button ----- */
-.profile-panel .close-button {
-    position: absolute;
-    top: 8px;
-    right: 8px;
+/* ----- Profile Panel Buttons ----- */
+.profile-panel .close-button,
+.profile-panel .profile-save-button {
     background: none;
     border: none;
-    font-size: 20px;
     cursor: pointer;
     color: #666;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -124,14 +135,59 @@
     transition: all 0.2s ease;
 }
 
-.profile-panel .close-button:hover {
-    background-color: rgba(0, 0, 0, 0.05);
-    color: #333;
-    transform: scale(1.1);
+.profile-panel .close-button {
+    font-size: 20px;
+    line-height: 1;
 }
 
-.profile-panel .close-button:active {
+.profile-panel .profile-save-button svg {
+    width: 16px;
+    height: 16px;
+}
+
+.profile-panel .close-button:hover,
+.profile-panel .profile-save-button:hover {
+    background-color: rgba(0, 0, 0, 0.08);
+    color: #333;
+}
+
+.profile-panel .close-button:hover {
+    background-color: rgba(220, 53, 69, 0.1);
+    color: #dc3545;
+}
+
+.profile-panel .close-button:active,
+.profile-panel .profile-save-button:active {
     transform: scale(0.9);
+}
+
+/* ----- Mobile Responsiveness ----- */
+@media (max-width: 480px) {
+    .profile-panel {
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        width: auto;
+        height: 220px;
+        padding: 12px;
+    }
+
+    .profile-panel-header h3 {
+        font-size: 13px;
+    }
+
+    .profile-panel canvas {
+        height: calc(100% - 40px) !important;
+    }
+}
+
+@media (max-width: 768px) and (min-width: 481px) {
+    .profile-panel {
+        width: 350px;
+        height: 250px;
+        right: 15px;
+        bottom: 15px;
+    }
 }
 
 /* ===== FEATURE SEARCH PANEL ===== */

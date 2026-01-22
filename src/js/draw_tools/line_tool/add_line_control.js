@@ -31,10 +31,9 @@ class AddLineControl extends BaseControl {
     }
 
     static DEFAULT_PROPERTIES = {
-        color: '#fbb03b',
-        size: 7,
+        lineColor: '#3f4fb5',
+        lineWidth: 5,
         opacity: 0.7,
-        outlinecolor: '#fbb03b',
         lineStyle: 'solid',
         measure: false,
         profile: false,
@@ -481,8 +480,8 @@ class AddLineControl extends BaseControl {
             geometry: geometry,
             properties: {
                 isPreview: true,
-                color: AddLineControl.DEFAULT_PROPERTIES.color,
-                size: AddLineControl.DEFAULT_PROPERTIES.size,
+                lineColor: AddLineControl.DEFAULT_PROPERTIES.lineColor,
+                lineWidth: AddLineControl.DEFAULT_PROPERTIES.lineWidth,
                 opacity: 0.7
             }
         });
@@ -532,8 +531,8 @@ class AddLineControl extends BaseControl {
             this.map.getSource('lines').setData(data);
 
             this.drawPoints = [];
-            this.toolManager.setActiveTool(null);
-            this.selectionManager.toggleFeatureSelection('line', featureId, feature);
+            this.toolManager.deactivateCurrentTool();
+            await this.selectionManager.toggleFeatureSelection('line', featureId, feature);
             this.selectionManager.updateUI();
 
             this.updateFeatureMeasurement(feature);
@@ -972,10 +971,9 @@ class AddLineControl extends BaseControl {
         if (!initialProperties) return true;
 
         return (
-            feature.properties.color !== initialProperties.color ||
-            feature.properties.size !== initialProperties.size ||
+            feature.properties.lineColor !== initialProperties.lineColor ||
+            feature.properties.lineWidth !== initialProperties.lineWidth ||
             feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.outlinecolor !== initialProperties.outlinecolor ||
             feature.properties.lineStyle !== initialProperties.lineStyle ||
             feature.properties.measure !== initialProperties.measure ||
             feature.properties.profile !== initialProperties.profile ||

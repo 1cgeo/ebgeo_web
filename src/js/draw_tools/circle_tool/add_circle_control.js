@@ -317,8 +317,8 @@ class AddCircleControl extends BaseControl {
             }
             this.map.getSource('circles').setData(data);
             this.drawPoints = [];
-            this.toolManager.setActiveTool(null);
-            this.selectionManager.toggleFeatureSelection('circle', featureId, feature);
+            this.toolManager.deactivateCurrentTool();
+            await this.selectionManager.toggleFeatureSelection('circle', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
             console.error('Error creating circle:', error);

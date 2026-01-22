@@ -279,6 +279,7 @@ class AddBoundaryControl extends BaseControl {
 
     deactivate = () => {
         this.isActive = false;
+        this.map.off('mousemove', this.handlePreviewMouseMove);
         this.drawPoints = [];
         this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = '';
@@ -375,6 +376,11 @@ class AddBoundaryControl extends BaseControl {
         this.clickTimer = setTimeout(() => {
             this.drawPoints.push(this.lastClickCoords);
             this.lastClickCoords = null;
+
+            // Add mousemove listener when first point is added
+            if (this.drawPoints.length === 1) {
+                this.map.on('mousemove', this.handlePreviewMouseMove);
+            }
         }, 250);
     }
 
@@ -468,6 +474,7 @@ class AddBoundaryControl extends BaseControl {
     }
 
     stopDrawing = () => {
+        this.map.off('mousemove', this.handlePreviewMouseMove);
         this.drawPoints = [];
         this.lastClickCoords = null;
         this.clearPreview();
@@ -521,7 +528,7 @@ class AddBoundaryControl extends BaseControl {
 
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
-            this.selectionManager.toggleFeatureSelection('boundary', featureId, feature);
+            await this.selectionManager.toggleFeatureSelection('boundary', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
             console.error('Error creating boundary:', error);
@@ -982,13 +989,10 @@ class AddBoundaryControl extends BaseControl {
     }
 
     setupBaseEventListeners = () => {
-        this.map.on('click', this.handleMapClick);
-        this.map.on('mousemove', this.handlePreviewMouseMove);
     }
 
     removeAllEventListeners = () => {
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
-        this.map.off('click', this.handleMapClick);
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.removeHoverListeners();

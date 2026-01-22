@@ -504,7 +504,7 @@ class AddVisibilityControl extends BaseControl {
             this.updateProgress(100, 'Concluído!');
             await this.geometry.delay(300);
 
-            this.selectionManager.toggleFeatureSelection('visibility', visibilityFeature.properties.id, visibilityFeature);
+            await this.selectionManager.toggleFeatureSelection('visibility', visibilityFeature.properties.id, visibilityFeature);
             this.selectionManager.updateUI();
 
             this.hideProgressModal();
@@ -919,7 +919,7 @@ class AddVisibilityControl extends BaseControl {
         this.updateButtonAppearance();
 
         if (this.isActive && !this.geometry.isTerrainAvailable(this.map)) {
-            this.toolManager.setActiveTool(null);
+            this.toolManager.deactivateCurrentTool();
         }
     }
 

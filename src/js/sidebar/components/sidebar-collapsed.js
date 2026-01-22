@@ -167,7 +167,7 @@ export class SidebarCollapsed {
      * @param {string} recentMaps[].name - Map name
      * @param {string} [recentMaps[].thumbnail] - Thumbnail URL
      * @param {boolean} [recentMaps[].isActive] - Whether this is the current map
-     * @param {string} [recentMaps[].color] - Color for the map button (optional)
+     * @param {string} [recentMaps[].color] - Color for the map button (persistent)
      */
     updateRecentMaps(recentMaps) {
         const container = this._container?.querySelector('#sidebar-recent-maps');
@@ -178,19 +178,10 @@ export class SidebarCollapsed {
         // Show all maps - container handles overflow with scroll
         const mapsToShow = recentMaps;
 
-        // Extended color palette for maps
-        const colorPalette = [
-            '#3b82f6', // blue
-            '#f59e0b', // amber
-            '#f97316', // orange
-            '#10b981', // emerald
-            '#8b5cf6', // violet
-            '#ec4899', // pink
-            '#06b6d4', // cyan
-            '#84cc16', // lime
-        ];
+        // Fallback color palette (only used if no persistent color is assigned)
+        const fallbackColor = '#3b82f6';
 
-        mapsToShow.forEach((mapInfo, index) => {
+        mapsToShow.forEach((mapInfo) => {
             const button = document.createElement('button');
             button.className = 'recent-map-btn';
             button.title = mapInfo.name;
@@ -204,7 +195,7 @@ export class SidebarCollapsed {
 
             // Get first letter for initial badge
             const initial = mapInfo.name.charAt(0).toUpperCase();
-            const color = mapInfo.color || colorPalette[index % colorPalette.length];
+            const color = mapInfo.color || fallbackColor;
 
             if (mapInfo.thumbnail) {
                 const img = document.createElement('img');

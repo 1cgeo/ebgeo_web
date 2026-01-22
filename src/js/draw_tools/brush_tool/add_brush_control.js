@@ -406,7 +406,7 @@ class AddBrushControl extends BaseControl {
 
             this.points = [];
             this.toolManager.deactivateCurrentTool();
-            this.selectionManager.toggleFeatureSelection('brush', featureId, feature);
+            await this.selectionManager.toggleFeatureSelection('brush', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
             console.error('Erro ao criar pincel:', error);

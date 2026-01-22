@@ -408,8 +408,8 @@ class AddEllipseControl extends BaseControl {
             this.map.getSource('ellipses').setData(data);
 
             this.drawPoints = [];
-            this.toolManager.setActiveTool(null);
-            this.selectionManager.toggleFeatureSelection('ellipse', featureId, feature);
+            this.toolManager.deactivateCurrentTool();
+            await this.selectionManager.toggleFeatureSelection('ellipse', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
             console.error('Error creating ellipse:', error);

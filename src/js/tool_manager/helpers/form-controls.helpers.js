@@ -11,13 +11,15 @@
  * @param {string} config.label - Label text
  * @param {boolean} config.checked - Initial checked state
  * @param {Function} config.onChange - Callback when toggle changes (receives boolean)
+ * @param {string} [config.id] - Optional ID for the toggle container
  * @returns {HTMLElement} Toggle container element
  */
 export function createModernToggle(config) {
-    const { label, checked, onChange } = config;
+    const { label, checked, onChange, id } = config;
 
     const container = document.createElement('div');
     container.className = 'attr-modern-toggle';
+    if (id) container.id = id;
 
     const labelEl = document.createElement('label');
     labelEl.className = 'attr-modern-toggle-label';

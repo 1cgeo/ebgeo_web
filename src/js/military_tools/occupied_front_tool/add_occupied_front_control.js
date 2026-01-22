@@ -398,8 +398,8 @@ class AddOccupiedFrontControl extends BaseControl {
             this.map.getSource('occupied_fronts').setData(data);
 
             this.drawPoints = [];
-            this.toolManager.setActiveTool(null);
-            this.selectionManager.toggleFeatureSelection('occupied_front', featureId, feature);
+            this.toolManager.deactivateCurrentTool();
+            await this.selectionManager.toggleFeatureSelection('occupied_front', featureId, feature);
             this.selectionManager.updateUI();
         } catch (error) {
             console.error('Erro ao criar frente ocupada:', error);

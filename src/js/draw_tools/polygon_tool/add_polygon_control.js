@@ -30,10 +30,10 @@ class AddPolygonControl extends BaseControl {
     }
 
     static DEFAULT_PROPERTIES = {
-        color: '#fbb03b',
-        size: 3,
+        fillColor: '#3f4fb5',
+        lineColor: '#3f4fb5',
+        lineWidth: 2,
         opacity: 0.5,
-        outlinecolor: '#fbb03b',
         lineStyle: 'solid',
         measure: false,
         source: 'polygon',
@@ -397,8 +397,9 @@ class AddPolygonControl extends BaseControl {
             geometry: geometry,
             properties: {
                 isPreview: true,
-                color: AddPolygonControl.DEFAULT_PROPERTIES.color,
-                size: AddPolygonControl.DEFAULT_PROPERTIES.size,
+                fillColor: AddPolygonControl.DEFAULT_PROPERTIES.fillColor,
+                lineColor: AddPolygonControl.DEFAULT_PROPERTIES.lineColor,
+                lineWidth: AddPolygonControl.DEFAULT_PROPERTIES.lineWidth,
                 opacity: 0.3 // Lower opacity for preview
             }
         });
@@ -413,8 +414,8 @@ class AddPolygonControl extends BaseControl {
             },
             properties: {
                 isPreview: true,
-                color: AddPolygonControl.DEFAULT_PROPERTIES.outlinecolor,
-                size: AddPolygonControl.DEFAULT_PROPERTIES.size,
+                lineColor: AddPolygonControl.DEFAULT_PROPERTIES.lineColor,
+                lineWidth: AddPolygonControl.DEFAULT_PROPERTIES.lineWidth,
                 opacity: 0.7
             }
         });
@@ -467,8 +468,8 @@ class AddPolygonControl extends BaseControl {
             this.map.getSource('polygons').setData(data);
 
             this.drawPoints = [];
-            this.toolManager.setActiveTool(null);
-            this.selectionManager.toggleFeatureSelection('polygon', featureId, feature);
+            this.toolManager.deactivateCurrentTool();
+            await this.selectionManager.toggleFeatureSelection('polygon', featureId, feature);
             this.selectionManager.updateUI();
 
             this.updateFeatureMeasurement(feature);
@@ -863,10 +864,10 @@ class AddPolygonControl extends BaseControl {
         if (!initialProperties) return true;
 
         return (
-            feature.properties.color !== initialProperties.color ||
-            feature.properties.size !== initialProperties.size ||
+            feature.properties.fillColor !== initialProperties.fillColor ||
+            feature.properties.lineColor !== initialProperties.lineColor ||
+            feature.properties.lineWidth !== initialProperties.lineWidth ||
             feature.properties.opacity !== initialProperties.opacity ||
-            feature.properties.outlinecolor !== initialProperties.outlinecolor ||
             feature.properties.lineStyle !== initialProperties.lineStyle ||
             feature.properties.measure !== initialProperties.measure ||
             feature.properties.nome !== initialProperties.nome ||

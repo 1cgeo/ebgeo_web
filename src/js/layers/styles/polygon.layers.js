@@ -51,7 +51,7 @@ export function setupPolygonLayers(features, mapInstance) {
             type: 'fill',
             source: 'polygons',
             paint: {
-                'fill-color': ['get', 'color'],
+                'fill-color': ['get', 'fillColor'],
                 'fill-opacity': ['get', 'opacity']
             },
             filter: [
@@ -100,8 +100,8 @@ export function setupPolygonLayers(features, mapInstance) {
             type: 'line',
             source: 'polygons',
             paint: {
-                'line-color': ['get', 'outlinecolor'],
-                'line-width': ['get', 'size'],
+                'line-color': ['get', 'lineColor'],
+                'line-width': ['get', 'lineWidth'],
                 'line-opacity': 1,
                 'line-dasharray': [
                     'match',
