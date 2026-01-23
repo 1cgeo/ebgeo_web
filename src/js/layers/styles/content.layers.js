@@ -4,15 +4,15 @@
  * @fileoverview Content layer styles (text, image, arrow).
  */
 
+import { getControl } from '../../store';
+
 /**
  * Sets up text layers on the map.
  * @param {Object} features - Feature collection with texts
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupTextLayers(features, mapInstance) {
-    const textControl = mapInstance._controls.find(control =>
-        control._name === 'AddTextControl'
-    );
+    const textControl = getControl('AddTextControl');
 
     let correctedTexts = features.texts;
     if (textControl) {
@@ -151,9 +151,7 @@ export function setupTextLayers(features, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupImageLayers(features, mapInstance) {
-    const imageControl = mapInstance._controls.find(control =>
-        control._name === 'AddImageControl'
-    );
+    const imageControl = getControl('AddImageControl');
 
     let correctedImages = features.images;
     if (imageControl) {

@@ -4,6 +4,8 @@
  * @fileoverview Line and brush layer styles for MapLibre.
  */
 
+import { getControl } from '../../store';
+
 /**
  * Sets up line layers on the map.
  * @param {Object} features - Feature collection with lines
@@ -115,9 +117,7 @@ export function setupLineLayers(features, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupBrushLayers(features, mapInstance) {
-    const brushControl = mapInstance._controls.find(control =>
-        control._name === 'AddBrushControl'
-    );
+    const brushControl = getControl('AddBrushControl');
 
     let correctedBrushes = features.brushes;
     if (brushControl) {

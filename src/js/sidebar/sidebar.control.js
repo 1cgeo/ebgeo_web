@@ -222,12 +222,17 @@ export class SidebarControl {
 
     /**
      * Handles feature panel close button click.
+     * Saves changes before closing the panel.
      * @private
      */
     _handleFeaturePanelClose() {
         // Check if we're closing the notes panel
         const featureType = this._stateManager.get('ui.currentFeatureType');
         const isNotes = featureType === 'notes';
+
+        // Save changes before closing (this triggers save button click)
+        // Must happen BEFORE deselecting features
+        this._featurePanel.hide(true);
 
         // Only clear selection if we're not showing notes
         if (!isNotes && this._selectionManager) {
@@ -286,8 +291,8 @@ export class SidebarControl {
      * @param {string} payload.tab - Tab being expanded
      */
     _onSidebarExpanded(payload) {
-        // Hide feature panel when sidebar expands
-        this._featurePanel.hide();
+        // Hide feature panel when sidebar expands, saving any pending changes
+        this._featurePanel.hide(true);
         this._cleanupFeaturePanelContent();
 
         this._expandToTab(payload.tab);
@@ -328,7 +333,8 @@ export class SidebarControl {
      * @private
      */
     _onFeaturePanelClosed() {
-        this._featurePanel.hide();
+        // Hide without saving (save already triggered in _handleFeaturePanelClose)
+        this._featurePanel.hide(false);
         this._cleanupFeaturePanelContent();
     }
 

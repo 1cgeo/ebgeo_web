@@ -126,7 +126,7 @@ export function createFeatureOptionsButton(selectedFeatures, selectionManager, u
     button.className = 'feature-options-button';
     button.title = 'Opções';
 
-    button.innerHTML = `<img src="./images/icon_more_info.svg" alt="Opções" />`;
+    button.innerHTML = `<img src="./images/gear_icon.svg" alt="Opções" />`;
 
     const shouldDisable = shouldDisableOptionsButton(selectedFeatures);
     button.disabled = shouldDisable;

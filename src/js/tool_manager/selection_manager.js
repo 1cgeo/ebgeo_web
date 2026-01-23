@@ -34,6 +34,9 @@ class SelectionManager {
         /** @type {Array<Function>} Cleanup functions for subscriptions */
         this._unsubscribers = [];
 
+        /** @type {boolean} Flag to prevent re-entrancy in deselectAllFeatures */
+        this._isDeselecting = false;
+
         this._setupEventListeners();
     }
 
@@ -190,22 +193,37 @@ class SelectionManager {
 
     /**
      * Deselect all features.
+     * Saves any pending changes before deselecting.
      */
     deselectAllFeatures() {
-        // Notify controls of global deselect
-        this.controls.forEach((control) => {
-            if (control.onGlobalDeselect) {
-                control.onGlobalDeselect();
-            }
-        });
+        // Prevent re-entrancy (saveChangesAndClosePanel may trigger this again)
+        if (this._isDeselecting) {
+            return;
+        }
+        this._isDeselecting = true;
 
         try {
-            getStateManager().clearSelection();
-        } catch (e) {
-            // StateManager not available
-        }
+            // Save any pending changes before deselecting
+            // This triggers the save button click if present in the feature panel
+            this.uiManager?.saveChangesAndClosePanel();
 
-        this.updateUI();
+            // Notify controls of global deselect
+            this.controls.forEach((control) => {
+                if (control.onGlobalDeselect) {
+                    control.onGlobalDeselect();
+                }
+            });
+
+            try {
+                getStateManager().clearSelection();
+            } catch (e) {
+                // StateManager not available
+            }
+
+            this.updateUI();
+        } finally {
+            this._isDeselecting = false;
+        }
     }
 
     /**

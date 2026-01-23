@@ -4,7 +4,7 @@
  * @fileoverview Main layer setup orchestrator for MapLibre.
  */
 
-import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle, getCatalogLayers } from '../store';
+import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle, getCatalogLayers, getControl } from '../store';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { initFrameLayers } from '../frame/index.js';
 import { initGridLayers } from '../grid/index.js';
@@ -200,9 +200,7 @@ async function setImages(features, mapInstance) {
  */
 async function restoreTerrainState(mapInstance) {
     try {
-        const terrainControl = mapInstance._controls.find(control =>
-            control._name === 'TerrainControl'
-        );
+        const terrainControl = getControl('TerrainControl');
 
         if (!terrainControl) {
             return;
@@ -231,9 +229,7 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager) {
             return;
         }
 
-        const terrainControl = mapInstance._controls.find(control =>
-            control._name === 'TerrainControl'
-        );
+        const terrainControl = getControl('TerrainControl');
 
         for (const layer of catalogLayers) {
             // Skip unavailable layers
@@ -286,16 +282,9 @@ function clearAllMeasurements() {
  */
 function restoreMeasurements(features, mapInstance) {
     try {
-        const lineControl = mapInstance._controls.find(control =>
-            control._name === 'AddLineControl'
-        );
-        const polygonControl = mapInstance._controls.find(control =>
-            control._name === 'AddPolygonControl'
-        );
-
-        const losControl = mapInstance._controls.find(control =>
-            control._name === 'AddLOSControl'
-        );
+        const lineControl = getControl('AddLineControl');
+        const polygonControl = getControl('AddPolygonControl');
+        const losControl = getControl('AddLOSControl');
 
         if (lineControl && features.lines) {
             features.lines.forEach(feature => {
@@ -332,9 +321,7 @@ function restoreMeasurements(features, mapInstance) {
  */
 function restoreBoundaryDependentFeatures(features, mapInstance) {
     try {
-        const boundaryControl = mapInstance._controls.find(control =>
-            control._name === 'AddBoundaryControl'
-        );
+        const boundaryControl = getControl('AddBoundaryControl');
 
         if (!boundaryControl || !features.boundarys?.length) {
             return;
@@ -399,9 +386,7 @@ async function setupFrameLayers(mapInstance) {
     initFrameLayers(mapInstance);
 
     try {
-        const mouseCoordinatesControl = mapInstance._controls.find(
-            c => c._name === 'MouseCoordinatesControl'
-        );
+        const mouseCoordinatesControl = getControl('MouseCoordinatesControl');
 
         if (!mouseCoordinatesControl) {
             console.log('Nenhum controle de mouse encontrado');
@@ -443,9 +428,7 @@ async function setupFrameLayers(mapInstance) {
 async function setupGridLayers(mapInstance) {
     initGridLayers(mapInstance);
     try {
-        const mouseCoordinatesControl = mapInstance._controls.find(
-            c => c._name === 'MouseCoordinatesControl'
-        );
+        const mouseCoordinatesControl = getControl('MouseCoordinatesControl');
 
         if (!mouseCoordinatesControl) {
             console.log('Nenhum controle de mouse encontrado');

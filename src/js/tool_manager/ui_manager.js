@@ -1105,6 +1105,12 @@ class UIManager {
             cleanupFeatureDropdownListeners();
         }
 
+        // Handle sidebar feature panel - save before closing
+        const sidebarSaveButton = document.querySelector('.feature-panel .attr-modern-btn-save');
+        if (sidebarSaveButton) {
+            sidebarSaveButton.click();
+        }
+
         // Always notify StateManager to close feature panel in sidebar
         this._notifyFeaturePanelClosed();
     }

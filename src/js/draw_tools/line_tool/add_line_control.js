@@ -851,7 +851,7 @@ class AddLineControl extends BaseControl {
             pointer-events: none;
             user-select: none;
             transform: translate(-50%, -50%);
-            z-index: 1000;
+            z-index: 10;
         `;
 
         return label;

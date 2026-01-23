@@ -55,7 +55,8 @@
       "Bash(timeout 10 npm run dev:*)",
       "Bash(grep:*)",
       "Bash(git stash:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []

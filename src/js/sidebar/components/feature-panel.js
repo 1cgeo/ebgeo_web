@@ -154,8 +154,14 @@ export class FeaturePanel {
 
     /**
      * Hides the feature panel.
+     * @param {boolean} [saveChanges=true] - Whether to save changes before hiding
      */
-    hide() {
+    hide(saveChanges = true) {
+        // Save changes by clicking the save button if present
+        if (saveChanges) {
+            this._triggerSave();
+        }
+
         this._container.dataset.expanded = 'false';
 
         // Clear content after animation
@@ -164,6 +170,20 @@ export class FeaturePanel {
                 this._clearContent();
             }
         }, 300);
+    }
+
+    /**
+     * Triggers the save button click if present in the panel content.
+     * @private
+     */
+    _triggerSave() {
+        if (!this._contentContainer) return;
+
+        // Find and click the save button
+        const saveButton = this._contentContainer.querySelector('.attr-modern-btn-save');
+        if (saveButton) {
+            saveButton.click();
+        }
     }
 
     /**

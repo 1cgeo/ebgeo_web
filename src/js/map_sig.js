@@ -1,5 +1,5 @@
 // Path: js/map_sig.js
-import { initServices, getEventBus, getStateManager } from './store';
+import { initServices, getEventBus, getStateManager, registerControl } from './store';
 
 // Initialize all application services before any component is created
 initServices();
@@ -406,6 +406,32 @@ toolbarManagedControls.forEach(control => {
         control.map = map;
     }
 });
+
+// ===== REGISTER CONTROLS IN CONTROL REGISTRY =====
+// This allows other modules (like layer_setup.js) to access controls by name
+// without using mapInstance._controls.find() which no longer works
+registerControl('AddPointControl', pointControl);
+registerControl('AddLineControl', lineControl);
+registerControl('AddPolygonControl', polygonControl);
+registerControl('AddTextControl', textControl);
+registerControl('AddImageControl', imageControl);
+registerControl('AddLOSControl', losControl);
+registerControl('AddVisibilityControl', visibilityControl);
+registerControl('AddCircleControl', circleControl);
+registerControl('AddRectangleControl', rectangleControl);
+registerControl('AddEllipseControl', ellipseControl);
+registerControl('AddArrowControl', arrowControl);
+registerControl('AddBoundaryControl', boundaryControl);
+registerControl('AddOccupiedFrontControl', occupiedFrontControl);
+registerControl('AddMilitarySymbolControl', militarySymbolControl);
+registerControl('AddBrushControl', brushControl);
+registerControl('AddCoordinationMeasureControl', coordinationMeasureControl);
+registerControl('TerrainControl', terrainControl);
+registerControl('MouseCoordinatesControl', mouseCoordinatesControl);
+registerControl('Add3DModelsViewerControl', add3DModelsViewerControl);
+registerControl('AddStreetViewControl', addStreetViewControl);
+registerControl('RectangleSelectionControl', rectangleSelectionControl);
+registerControl('VectorTileInfoControl', vectorTileInfoControl);
 
 // ===== GLOBAL ERROR HANDLING =====
 

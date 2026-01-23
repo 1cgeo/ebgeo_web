@@ -4,15 +4,15 @@
  * @fileoverview Symbol layer styles (military symbols, coordination measures).
  */
 
+import { getControl } from '../../store';
+
 /**
  * Sets up military symbol layers on the map.
  * @param {Object} features - Feature collection with military symbols
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupMilitarySymbolsLayers(features, mapInstance) {
-    const militarySymbolControl = mapInstance._controls.find(control =>
-        control._name === 'AddMilitarySymbolControl'
-    );
+    const militarySymbolControl = getControl('AddMilitarySymbolControl');
 
     let correctedSymbols = features.military_symbols;
     if (militarySymbolControl) {
@@ -60,9 +60,7 @@ export function setupMilitarySymbolsLayers(features, mapInstance) {
  * @param {Object} mapInstance - MapLibre map instance
  */
 export function setupCoordinationMeasureLayers(features, mapInstance) {
-    const coordinationMeasureControl = mapInstance._controls.find(control =>
-        control._name === 'AddCoordinationMeasureControl'
-    );
+    const coordinationMeasureControl = getControl('AddCoordinationMeasureControl');
 
     let correctedSymbols = features.coordination_measures || [];
     if (coordinationMeasureControl && features.coordination_measures && features.coordination_measures.length > 0) {

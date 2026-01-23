@@ -24,6 +24,15 @@ export {
     getStateManager
 } from './services.js';
 
+// Control Registry (centralized access to tool controls)
+export {
+    registerControl,
+    getControl,
+    hasControl,
+    getControlNames,
+    getControlRegistry
+} from './control.registry.js';
+
 // Repository exports (for internal module usage)
 export {
     memoryStore,
