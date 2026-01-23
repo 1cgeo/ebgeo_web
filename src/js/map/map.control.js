@@ -8,8 +8,11 @@
 import {
     initializeWithLastActiveMap,
     setCurrentMap,
-    getCurrentMapName
+    getCurrentMapName,
+    getAllMapNamesStore
 } from '../store';
+
+import { IDUtils } from '../utilities';
 
 import Sortable from 'sortablejs';
 import MapManager from './map.manager.js';
@@ -207,7 +210,9 @@ class MapControl {
         addButton.title = 'Adicionar novo mapa';
         addButton.onclick = async () => {
             this.deactivateActiveTools();
-            const mapName = await showPrompt("Nome do novo mapa:");
+            const existingMaps = await getAllMapNamesStore();
+            const defaultName = IDUtils.generateUniqueMapName(existingMaps, 'Novo Mapa');
+            const mapName = await showPrompt("Nome do novo mapa:", defaultName);
             if (mapName && mapName.trim()) {
                 const result = await this.mapManager.createMap(mapName.trim());
                 this.showToast(result.message, result.success ? 'success' : 'error');

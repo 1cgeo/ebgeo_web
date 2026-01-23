@@ -353,9 +353,12 @@ class AddBoundaryGeometry extends BaseGeometry {
      */
     generateBoundaryCircles(boundaryFeature) {
         const circles = [];
-        const { echelon, baseCoordinates, symbol_position_ratio, symbol_size } = boundaryFeature.properties;
+        const { echelon, symbol_position_ratio, symbol_size } = boundaryFeature.properties;
 
-        if (!echelon.includes('o') || baseCoordinates.length < 2) {
+        // Normalize baseCoordinates to handle string format from persistence
+        const baseCoordinates = this.normalizeBaseCoordinates(boundaryFeature.properties.baseCoordinates);
+
+        if (!echelon || !echelon.includes('o') || !baseCoordinates || baseCoordinates.length < 2) {
             return circles;
         }
 
@@ -397,9 +400,12 @@ class AddBoundaryGeometry extends BaseGeometry {
      */
     generateBoundaryTexts(boundaryFeature) {
         const textFeatures = [];
-        const { text_top, text_bottom, text_size, baseCoordinates, symbol_position_ratio, symbol_size, text_distance_ratio } = boundaryFeature.properties;
+        const { text_top, text_bottom, text_size, symbol_position_ratio, symbol_size, text_distance_ratio } = boundaryFeature.properties;
 
-        if ((!text_top && !text_bottom) || baseCoordinates.length < 2) {
+        // Normalize baseCoordinates to handle string format from persistence
+        const baseCoordinates = this.normalizeBaseCoordinates(boundaryFeature.properties.baseCoordinates);
+
+        if ((!text_top && !text_bottom) || !baseCoordinates || baseCoordinates.length < 2) {
             return textFeatures;
         }
 

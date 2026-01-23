@@ -26,7 +26,7 @@ import {
     hasMapSavedPosition,
 } from '../../store/index.js';
 import { EventTypes } from '../../events/event_types.js';
-import { showSuccess, showError, showWarning } from '../../utilities/index.js';
+import { showSuccess, showError, showWarning, IDUtils } from '../../utilities/index.js';
 import { showPrompt } from '../../modals/prompt.modal.js';
 
 /**
@@ -597,7 +597,9 @@ export class MapsTab {
      * @private
      */
     async _handleNewMap() {
-        const mapName = await showPrompt('Nome do novo mapa:');
+        const existingMaps = await getAllMapNamesStore();
+        const defaultName = IDUtils.generateUniqueMapName(existingMaps, 'Novo Mapa');
+        const mapName = await showPrompt('Nome do novo mapa:', defaultName);
         if (!mapName || !mapName.trim()) return;
 
         try {
@@ -748,7 +750,9 @@ export class MapsTab {
      * @param {string} mapName - Map to duplicate
      */
     async _handleDuplicateMap(mapName) {
-        const newName = await showPrompt('Nome para o novo mapa:', `${mapName}_copia`);
+        const existingMaps = await getAllMapNamesStore();
+        const defaultName = IDUtils.generateUniqueMapName(existingMaps, `${mapName} (cópia)`);
+        const newName = await showPrompt('Nome para o novo mapa:', defaultName);
         if (!newName || !newName.trim()) return;
 
         try {

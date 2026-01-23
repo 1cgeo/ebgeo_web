@@ -1397,6 +1397,10 @@
 }
 
 /* ----- Modern Tabs ----- */
+.attr-modern-tabs-wrapper {
+    width: 100%;
+}
+
 .attr-modern-tabs {
     display: flex;
     border-bottom: 1px solid #e5e7eb;
@@ -1428,6 +1432,14 @@
 .attr-modern-tab.active {
     color: var(--primary-color);
     border-bottom-color: var(--primary-color);
+}
+
+.attr-modern-tabs-content {
+    width: 100%;
+}
+
+.attr-modern-tab-panel {
+    width: 100%;
 }
 
 /* ----- Modern Numeric Input ----- */

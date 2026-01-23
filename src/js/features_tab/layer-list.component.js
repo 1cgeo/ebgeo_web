@@ -18,6 +18,7 @@ import {
 } from '../store';
 import { EventTypes } from '../events';
 import { showPrompt } from '../modals/prompt.modal.js';
+import { IDUtils } from '../utilities';
 
 /**
  * @typedef {Object} LayerListCallbacks
@@ -311,7 +312,9 @@ async function handleDeleteLayer(layerId, callbacks) {
  * @param {LayerListCallbacks} callbacks - Callback functions
  */
 export async function handleAddLayer(createLayer, callbacks) {
-    const name = await showPrompt('Nome da nova camada:', 'Nova Camada');
+    const existingLayers = getLayers();
+    const defaultName = IDUtils.generateUniqueLayerName(existingLayers, 'Nova Camada');
+    const name = await showPrompt('Nome da nova camada:', defaultName);
     if (!name || !name.trim()) return;
 
     try {

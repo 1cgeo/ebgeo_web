@@ -136,19 +136,34 @@ export function createModernTextarea(config) {
 }
 
 /**
- * Creates modern tabs navigation.
+ * Creates modern tabs navigation with optional content management.
  *
  * @param {Object} config - Configuration object
- * @param {Array<{id: string, label: string}>} config.tabs - Tab definitions
- * @param {string} config.activeTab - Initially active tab ID
- * @param {Function} config.onTabChange - Callback when tab changes (receives tab ID)
- * @returns {HTMLElement} Tabs container element
+ * @param {Array<{id: string, label: string, content?: HTMLElement}>} config.tabs - Tab definitions
+ * @param {string} [config.activeTab] - Initially active tab ID (legacy)
+ * @param {string} [config.defaultTab] - Initially active tab ID (alias for activeTab)
+ * @param {Function} [config.onTabChange] - Callback when tab changes (receives tab ID)
+ * @returns {HTMLElement} Tabs container element (includes content panels if provided)
  */
 export function createModernTabs(config) {
-    const { tabs, activeTab, onTabChange } = config;
+    const { tabs, activeTab, defaultTab, onTabChange } = config;
+    const initialTab = activeTab || defaultTab || (tabs.length > 0 ? tabs[0].id : null);
+    const hasContent = tabs.some(tab => tab.content);
 
-    const container = document.createElement('div');
-    container.className = 'attr-modern-tabs';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'attr-modern-tabs-wrapper';
+
+    const tabsContainer = document.createElement('div');
+    tabsContainer.className = 'attr-modern-tabs';
+
+    // Create content container if tabs have content
+    let contentContainer = null;
+    const contentPanels = new Map();
+
+    if (hasContent) {
+        contentContainer = document.createElement('div');
+        contentContainer.className = 'attr-modern-tabs-content';
+    }
 
     tabs.forEach(tab => {
         const tabBtn = document.createElement('button');
@@ -157,30 +172,66 @@ export function createModernTabs(config) {
         tabBtn.dataset.tabId = tab.id;
         tabBtn.textContent = tab.label;
 
-        if (tab.id === activeTab) {
+        if (tab.id === initialTab) {
             tabBtn.classList.add('active');
+        }
+
+        // Create content panel if content provided
+        if (tab.content && contentContainer) {
+            const panel = document.createElement('div');
+            panel.className = 'attr-modern-tab-panel';
+            panel.dataset.tabId = tab.id;
+            panel.appendChild(tab.content);
+
+            if (tab.id !== initialTab) {
+                panel.style.display = 'none';
+            }
+
+            contentPanels.set(tab.id, panel);
+            contentContainer.appendChild(panel);
         }
 
         tabBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            // Update active tab
-            container.querySelectorAll('.attr-modern-tab').forEach(t => {
+            // Update active tab button
+            tabsContainer.querySelectorAll('.attr-modern-tab').forEach(t => {
                 t.classList.toggle('active', t.dataset.tabId === tab.id);
             });
-            onTabChange(tab.id);
+
+            // Update content panels visibility
+            if (hasContent) {
+                contentPanels.forEach((panel, id) => {
+                    panel.style.display = id === tab.id ? '' : 'none';
+                });
+            }
+
+            if (onTabChange) {
+                onTabChange(tab.id);
+            }
         });
 
-        container.appendChild(tabBtn);
+        tabsContainer.appendChild(tabBtn);
     });
 
+    wrapper.appendChild(tabsContainer);
+
+    if (contentContainer) {
+        wrapper.appendChild(contentContainer);
+    }
+
     // Add method to programmatically change tab
-    container.setActiveTab = (tabId) => {
-        container.querySelectorAll('.attr-modern-tab').forEach(t => {
+    wrapper.setActiveTab = (tabId) => {
+        tabsContainer.querySelectorAll('.attr-modern-tab').forEach(t => {
             t.classList.toggle('active', t.dataset.tabId === tabId);
         });
+        if (hasContent) {
+            contentPanels.forEach((panel, id) => {
+                panel.style.display = id === tabId ? '' : 'none';
+            });
+        }
     };
 
-    return container;
+    return wrapper;
 }
 
 /**

@@ -15,6 +15,82 @@ export class IDUtils {
     }
 
     /**
+     * Generate unique layer name based on existing layers
+     * @param {Array} existingLayers - Array of existing layer objects with 'name' property
+     * @param {string} baseName - Base name for the layer (default: 'Nova Camada')
+     * @returns {string} Unique layer name (e.g., 'Nova Camada #2')
+     */
+    static generateUniqueLayerName(existingLayers = [], baseName = 'Nova Camada') {
+        if (!existingLayers || existingLayers.length === 0) {
+            return baseName;
+        }
+
+        // Extract numbers from existing layer names that match the pattern
+        const pattern = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: #(\\d+))?$`);
+        const usedNumbers = new Set();
+
+        existingLayers.forEach(layer => {
+            const match = layer.name.match(pattern);
+            if (match) {
+                // If match[1] is undefined, it's the base name without number (treat as #1)
+                const num = match[1] ? parseInt(match[1], 10) : 1;
+                usedNumbers.add(num);
+            }
+        });
+
+        // If base name is not used, return it
+        if (!usedNumbers.has(1)) {
+            return baseName;
+        }
+
+        // Find the next available number
+        let nextNumber = 2;
+        while (usedNumbers.has(nextNumber)) {
+            nextNumber++;
+        }
+
+        return `${baseName} #${nextNumber}`;
+    }
+
+    /**
+     * Generate unique map name based on existing maps
+     * @param {Array} existingMapNames - Array of existing map names
+     * @param {string} baseName - Base name for the map (default: 'Novo Mapa')
+     * @returns {string} Unique map name (e.g., 'Novo Mapa #2')
+     */
+    static generateUniqueMapName(existingMapNames = [], baseName = 'Novo Mapa') {
+        if (!existingMapNames || existingMapNames.length === 0) {
+            return baseName;
+        }
+
+        // Extract numbers from existing map names that match the pattern
+        const pattern = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: #(\\d+))?$`);
+        const usedNumbers = new Set();
+
+        existingMapNames.forEach(mapName => {
+            const match = mapName.match(pattern);
+            if (match) {
+                // If match[1] is undefined, it's the base name without number (treat as #1)
+                const num = match[1] ? parseInt(match[1], 10) : 1;
+                usedNumbers.add(num);
+            }
+        });
+
+        // If base name is not used, return it
+        if (!usedNumbers.has(1)) {
+            return baseName;
+        }
+
+        // Find the next available number
+        let nextNumber = 2;
+        while (usedNumbers.has(nextNumber)) {
+            nextNumber++;
+        }
+
+        return `${baseName} #${nextNumber}`;
+    }
+
+    /**
      * Generate feature name based on type and count
      * @param {string} source - Feature source ('circle', 'ellipse', 'arrow', etc.)
      * @param {Object} map - MapLibre map instance

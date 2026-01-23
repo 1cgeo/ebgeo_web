@@ -522,7 +522,9 @@ class MapManager {
             e.stopPropagation();
 
             if (await this.canCreateNewMap()) {
-                const newMapName = await showPrompt("Nome para o novo mapa:");
+                const existingMaps = await getAllMapNamesStore();
+                const defaultName = IDUtils.generateUniqueMapName(existingMaps, `${mapName} (cópia)`);
+                const newMapName = await showPrompt("Nome para o novo mapa:", defaultName);
                 if (newMapName && newMapName.trim()) {
                     const result = await this.copyMap(mapName, newMapName.trim());
                     this.closeAllDropdowns();

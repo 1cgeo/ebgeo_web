@@ -136,7 +136,7 @@ class LayerManager {
 
     /**
      * Create a new layer
-     * @param {string} name - Layer name
+     * @param {string} name - Layer name (if not provided, generates unique default name)
      * @param {string} mapName - Map name (null = current map)
      * @returns {Object} Created layer
      */
@@ -147,9 +147,16 @@ class LayerManager {
         const layerId = IDUtils.generateUniqueId('layer');
         const order = this._getNextLayerOrder(targetMap);
 
+        // Generate unique name if not provided
+        let layerName = name;
+        if (!layerName) {
+            const existingLayers = Array.from(this.memoryStore.layers[targetMap].values());
+            layerName = IDUtils.generateUniqueLayerName(existingLayers, 'Nova Camada');
+        }
+
         const newLayer = {
             id: layerId,
-            name: name || 'Nova Camada',
+            name: layerName,
             visible: true,
             locked: false,
             order: order,
@@ -165,7 +172,7 @@ class LayerManager {
 
     /**
      * Create a new layer for import (no event emission, no active layer change)
-     * @param {string} name - Layer name
+     * @param {string} name - Layer name (if not provided, generates unique default name)
      * @param {string} mapName - Map name
      * @returns {Object} Created layer
      */
@@ -176,9 +183,16 @@ class LayerManager {
         const layerId = IDUtils.generateUniqueId('layer');
         const order = this._getNextLayerOrder(targetMap);
 
+        // Generate unique name if not provided
+        let layerName = name;
+        if (!layerName) {
+            const existingLayers = Array.from(this.memoryStore.layers[targetMap].values());
+            layerName = IDUtils.generateUniqueLayerName(existingLayers, 'Importação');
+        }
+
         const newLayer = {
             id: layerId,
-            name: name || 'Importação',
+            name: layerName,
             visible: true,
             locked: false,
             order: order,
