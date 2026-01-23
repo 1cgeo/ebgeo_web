@@ -267,6 +267,95 @@
 }
 
 /* =========================================================================
+   SEARCH RESULT POPUP (MapLibre Popup)
+   ========================================================================= */
+
+.search-result-popup .maplibregl-popup-content {
+    padding: 0;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    min-width: 220px;
+    max-width: 300px;
+}
+
+.search-result-popup .maplibregl-popup-close-button {
+    font-size: 18px;
+    padding: 4px 8px;
+    color: var(--gray-500);
+}
+
+.search-result-popup .maplibregl-popup-close-button:hover {
+    background: var(--gray-100);
+    color: var(--gray-700);
+}
+
+.search-result-popup-content {
+    padding: var(--space-3);
+}
+
+.search-popup-title {
+    margin: 0 0 var(--space-2) 0;
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--gray-800);
+    padding-right: var(--space-4);
+    line-height: 1.3;
+}
+
+.search-popup-info {
+    list-style: none;
+    margin: 0 0 var(--space-3) 0;
+    padding: 0;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+}
+
+.search-popup-info li {
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.search-popup-info li:last-child {
+    border-bottom: none;
+}
+
+.search-popup-info strong {
+    color: var(--gray-700);
+}
+
+.search-popup-save-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: white;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.search-popup-save-btn:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+}
+
+.search-popup-save-btn:active {
+    transform: translateY(0);
+}
+
+.search-popup-save-btn svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+/* =========================================================================
    HIDE OLD SEARCH CONTROL
    ========================================================================= */
 

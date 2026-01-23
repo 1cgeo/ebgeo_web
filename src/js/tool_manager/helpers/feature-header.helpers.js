@@ -4,7 +4,8 @@
  * @fileoverview Feature header components for attribute panels.
  */
 
-import { getLayers, isFeatureEffectivelyLocked } from '../../store';
+import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature } from '../../store';
+import { IDUtils } from '../../utilities';
 
 /**
  * Creates an editable feature name component.
@@ -236,6 +237,56 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
             });
             dropdown.appendChild(selectTypeInLayerButton);
         }
+    }
+
+    // Add conversion options for line features (single selection only)
+    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'line') {
+        const separator2 = document.createElement('div');
+        separator2.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        dropdown.appendChild(separator2);
+
+        const convertToArrowButton = document.createElement('button');
+        convertToArrowButton.className = 'feature-menu-button';
+        convertToArrowButton.textContent = 'Converter para Seta';
+
+        convertToArrowButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await convertLineToArrow(currentFeature, selectionManager, uiManager);
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(convertToArrowButton);
+
+        const convertToBoundaryButton = document.createElement('button');
+        convertToBoundaryButton.className = 'feature-menu-button';
+        convertToBoundaryButton.textContent = 'Converter para Linha de Limite';
+
+        convertToBoundaryButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await convertLineToBoundary(currentFeature, selectionManager, uiManager);
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(convertToBoundaryButton);
+    }
+
+    // Add reverse option for arrow features (single selection only)
+    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'arrow') {
+        const separator3 = document.createElement('div');
+        separator3.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        dropdown.appendChild(separator3);
+
+        const reverseArrowButton = document.createElement('button');
+        reverseArrowButton.className = 'feature-menu-button';
+        reverseArrowButton.textContent = 'Inverter Seta';
+
+        reverseArrowButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await reverseArrow(currentFeature, selectionManager, uiManager);
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(reverseArrowButton);
     }
 
     document.body.appendChild(dropdown);
@@ -526,6 +577,272 @@ async function selectAllFeaturesOfSameType(selectedFeatures, selectionManager, u
 
     uiManager.updateSelectionHighlight();
     uiManager.updatePanels();
+}
+
+// ===== LINE CONVERSION FUNCTIONS =====
+
+/**
+ * Converts a line feature to an arrow feature.
+ *
+ * @param {Object} lineFeature - Line feature to convert
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ */
+async function convertLineToArrow(lineFeature, selectionManager, uiManager) {
+    try {
+        const map = selectionManager.map;
+        const arrowControl = selectionManager.controls.get('arrow');
+
+        if (!arrowControl) {
+            console.error('Arrow control not found');
+            return;
+        }
+
+        // Get base coordinates from line
+        const baseCoordinates = lineFeature.geometry.coordinates;
+        if (!baseCoordinates || baseCoordinates.length < 2) {
+            console.error('Line does not have enough coordinates');
+            return;
+        }
+
+        // Generate new ID and name for arrow
+        const featureId = IDUtils.generateUniqueId();
+        const featureName = await IDUtils.generateFeatureName('arrow', map);
+
+        // Get default arrow properties
+        const AddArrowControl = arrowControl.constructor;
+        const defaultProps = AddArrowControl.DEFAULT_PROPERTIES || {};
+
+        // Calculate adaptive width based on current zoom
+        const currentZoom = map.getZoom();
+        const adaptiveWidth = arrowControl.calculateWidthForZoom
+            ? arrowControl.calculateWidthForZoom(currentZoom)
+            : 500;
+
+        // Map line properties to arrow properties
+        const arrowProperties = {
+            ...defaultProps,
+            layerId: lineFeature.properties.layerId,
+            width: adaptiveWidth,
+            fillColor: lineFeature.properties.lineColor || defaultProps.fillColor,
+            lineColor: lineFeature.properties.lineColor || defaultProps.lineColor,
+            fillOpacity: lineFeature.properties.opacity || defaultProps.fillOpacity,
+            lineOpacity: lineFeature.properties.opacity || defaultProps.lineOpacity,
+            baseCoordinates: [...baseCoordinates],
+            id: featureId,
+            nome: lineFeature.properties.nome || featureName,
+            descricao: lineFeature.properties.descricao || '',
+            visivel: lineFeature.properties.visivel !== false,
+            bloqueado: lineFeature.properties.bloqueado || false
+        };
+
+        // Generate arrow geometry
+        const arrowGeometry = arrowControl.geometry.generate(baseCoordinates, arrowProperties);
+
+        const arrowFeature = {
+            type: 'Feature',
+            id: Date.now().toString(),
+            properties: arrowProperties,
+            geometry: arrowGeometry
+        };
+
+        // Deselect current line
+        selectionManager.deselectAllFeatures();
+
+        // Remove line from store and map source
+        const lineId = lineFeature.properties.id;
+        await removeFeature('lines', lineId);
+
+        const lineData = await map.getSource('lines').getData();
+        lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
+        map.getSource('lines').setData(lineData);
+
+        // Add arrow to store and map source
+        await addFeature('arrows', arrowFeature);
+
+        const arrowData = await map.getSource('arrows').getData();
+        arrowData.features.push(arrowFeature);
+        map.getSource('arrows').setData(arrowData);
+
+        // Select the new arrow
+        await selectionManager.toggleFeatureSelection('arrow', featureId, arrowFeature);
+
+        uiManager.updateSelectionHighlight();
+        uiManager.updatePanels();
+    } catch (error) {
+        console.error('Error converting line to arrow:', error);
+    }
+}
+
+/**
+ * Converts a line feature to a boundary feature.
+ *
+ * @param {Object} lineFeature - Line feature to convert
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ */
+async function convertLineToBoundary(lineFeature, selectionManager, uiManager) {
+    try {
+        const map = selectionManager.map;
+        const boundaryControl = selectionManager.controls.get('boundary');
+
+        if (!boundaryControl) {
+            console.error('Boundary control not found');
+            return;
+        }
+
+        // Get base coordinates from line
+        const baseCoordinates = lineFeature.geometry.coordinates;
+        if (!baseCoordinates || baseCoordinates.length < 2) {
+            console.error('Line does not have enough coordinates');
+            return;
+        }
+
+        // Generate new ID and name for boundary
+        const featureId = IDUtils.generateUniqueId();
+        const featureName = await IDUtils.generateFeatureName('boundary', map);
+
+        // Get default boundary properties
+        const AddBoundaryControl = boundaryControl.constructor;
+        const defaultProps = AddBoundaryControl.DEFAULT_PROPERTIES || {};
+
+        // Calculate adaptive symbol size based on current zoom
+        const currentZoom = map.getZoom();
+        const adaptiveSymbolSize = boundaryControl.calculateSymbolSizeForZoom
+            ? boundaryControl.calculateSymbolSizeForZoom(currentZoom)
+            : 1;
+
+        // Map line properties to boundary properties
+        const boundaryProperties = {
+            ...defaultProps,
+            layerId: lineFeature.properties.layerId,
+            color: lineFeature.properties.lineColor || defaultProps.color,
+            lineWidth: lineFeature.properties.lineWidth || defaultProps.lineWidth,
+            opacity: lineFeature.properties.opacity || defaultProps.opacity,
+            symbol_size: adaptiveSymbolSize,
+            baseCoordinates: [...baseCoordinates],
+            id: featureId,
+            nome: lineFeature.properties.nome || featureName,
+            descricao: lineFeature.properties.descricao || '',
+            visivel: lineFeature.properties.visivel !== false,
+            bloqueado: lineFeature.properties.bloqueado || false
+        };
+
+        // Generate boundary geometry
+        const boundaryGeometry = boundaryControl.geometry.generate(boundaryProperties);
+
+        const boundaryFeature = {
+            type: 'Feature',
+            id: Date.now().toString(),
+            properties: boundaryProperties,
+            geometry: boundaryGeometry
+        };
+
+        // Deselect current line
+        selectionManager.deselectAllFeatures();
+
+        // Remove line from store and map source
+        const lineId = lineFeature.properties.id;
+        await removeFeature('lines', lineId);
+
+        const lineData = await map.getSource('lines').getData();
+        lineData.features = lineData.features.filter(f => f.properties.id !== lineId);
+        map.getSource('lines').setData(lineData);
+
+        // Add boundary to store and map source
+        await addFeature('boundarys', boundaryFeature);
+
+        const boundaryData = await map.getSource('boundarys').getData();
+        boundaryData.features.push(boundaryFeature);
+        map.getSource('boundarys').setData(boundaryData);
+
+        // Update dependent features (circles and texts)
+        await boundaryControl.updateDependentFeatures(boundaryFeature);
+
+        // Select the new boundary
+        await selectionManager.toggleFeatureSelection('boundary', featureId, boundaryFeature);
+
+        uiManager.updateSelectionHighlight();
+        uiManager.updatePanels();
+    } catch (error) {
+        console.error('Error converting line to boundary:', error);
+    }
+}
+
+/**
+ * Reverses an arrow feature by inverting its base coordinates.
+ *
+ * @param {Object} arrowFeature - Arrow feature to reverse
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ */
+async function reverseArrow(arrowFeature, selectionManager, uiManager) {
+    try {
+        const map = selectionManager.map;
+        const arrowControl = selectionManager.controls.get('arrow');
+
+        if (!arrowControl) {
+            console.error('Arrow control not found');
+            return;
+        }
+
+        // Get base coordinates and reverse them
+        let baseCoordinates = arrowFeature.properties.baseCoordinates;
+        if (typeof baseCoordinates === 'string') {
+            baseCoordinates = JSON.parse(baseCoordinates);
+        }
+
+        if (!baseCoordinates || baseCoordinates.length < 2) {
+            console.error('Arrow does not have enough coordinates');
+            return;
+        }
+
+        // Reverse the coordinates array
+        const reversedCoordinates = [...baseCoordinates].reverse();
+
+        // Update properties with reversed coordinates
+        const updatedProperties = {
+            ...arrowFeature.properties,
+            baseCoordinates: reversedCoordinates
+        };
+
+        // Generate new geometry with reversed coordinates
+        const newGeometry = arrowControl.geometry.generate(reversedCoordinates, updatedProperties);
+
+        const updatedFeature = {
+            ...arrowFeature,
+            properties: updatedProperties,
+            geometry: newGeometry
+        };
+
+        // Update in map source
+        const arrowData = await map.getSource('arrows').getData();
+        const featureIndex = arrowData.features.findIndex(
+            f => f.properties.id === arrowFeature.properties.id
+        );
+
+        if (featureIndex !== -1) {
+            arrowData.features[featureIndex] = updatedFeature;
+            map.getSource('arrows').setData(arrowData);
+        }
+
+        // Update in store
+        const { updateFeature } = await import('../../store');
+        await updateFeature('arrows', updatedFeature);
+
+        // Update selection manager
+        selectionManager.updateSelectedFeature('arrow', updatedFeature.properties.id, updatedFeature);
+
+        // Update edit handles if arrow is selected
+        if (arrowControl.createEditHandles) {
+            arrowControl.createEditHandles(updatedFeature);
+        }
+
+        uiManager.updateSelectionHighlight();
+        uiManager.updatePanels();
+    } catch (error) {
+        console.error('Error reversing arrow:', error);
+    }
 }
 
 // Global listeners state

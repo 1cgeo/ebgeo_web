@@ -27,6 +27,7 @@ import {
 } from '../../store/index.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showSuccess, showError, showWarning } from '../../utilities/index.js';
+import { showPrompt } from '../../modals/prompt.modal.js';
 
 /**
  * Icons specific to maps tab.
@@ -596,7 +597,7 @@ export class MapsTab {
      * @private
      */
     async _handleNewMap() {
-        const mapName = prompt('Nome do novo mapa:');
+        const mapName = await showPrompt('Nome do novo mapa:');
         if (!mapName || !mapName.trim()) return;
 
         try {
@@ -747,7 +748,7 @@ export class MapsTab {
      * @param {string} mapName - Map to duplicate
      */
     async _handleDuplicateMap(mapName) {
-        const newName = prompt('Nome para o novo mapa:', `${mapName}_copia`);
+        const newName = await showPrompt('Nome para o novo mapa:', `${mapName}_copia`);
         if (!newName || !newName.trim()) return;
 
         try {
@@ -793,7 +794,7 @@ export class MapsTab {
      * @param {string} mapName - Map to rename
      */
     async _handleRenameMap(mapName) {
-        const newName = prompt('Novo nome do mapa:', mapName);
+        const newName = await showPrompt('Novo nome do mapa:', mapName);
         if (!newName || !newName.trim() || newName.trim() === mapName) return;
 
         try {

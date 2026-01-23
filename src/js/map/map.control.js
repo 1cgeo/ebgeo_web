@@ -18,6 +18,7 @@ import { FeaturesTab } from '../features_tab';
 import { showToast as toastServiceShow } from '../utilities';
 import { MapNotesManager } from './map-notes.panel.js';
 import { getEventBus, getStateManager } from '../store';
+import { showPrompt } from '../modals/prompt.modal.js';
 
 class MapControl {
     constructor(baseLayerControl, analysisLayersManager) {
@@ -206,7 +207,7 @@ class MapControl {
         addButton.title = 'Adicionar novo mapa';
         addButton.onclick = async () => {
             this.deactivateActiveTools();
-            const mapName = prompt("Nome do novo mapa:");
+            const mapName = await showPrompt("Nome do novo mapa:");
             if (mapName && mapName.trim()) {
                 const result = await this.mapManager.createMap(mapName.trim());
                 this.showToast(result.message, result.success ? 'success' : 'error');
@@ -214,7 +215,7 @@ class MapControl {
                     await this.updateMapList();
                 }
             } else if (mapName !== null) {
-                alert("Nome inválido.");
+                this.showToast("Nome inválido.", 'error');
             }
         };
 

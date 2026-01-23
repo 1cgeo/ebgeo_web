@@ -923,7 +923,7 @@ export class SidebarControl {
             const savedOrder = await getMapOrder();
             const mapColors = await getAllMapBadgeColors();
 
-            // Sort maps: use saved order if available, otherwise current map first then alphabetically
+            // Sort maps: use saved order if available, otherwise maintain existing order
             let sortedMaps;
             if (savedOrder && savedOrder.length > 0) {
                 // Use saved order, filtering only existing maps
@@ -935,12 +935,8 @@ export class SidebarControl {
                     }
                 });
             } else {
-                // Fallback: current map first, then alphabetically
-                sortedMaps = [...allMaps].sort((a, b) => {
-                    if (a === currentMap) return -1;
-                    if (b === currentMap) return 1;
-                    return a.localeCompare(b);
-                });
+                // No saved order - use existing order from store (do not reorder)
+                sortedMaps = allMaps;
             }
 
             // Create map objects with isActive flag and persistent color

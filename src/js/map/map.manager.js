@@ -20,6 +20,7 @@ import {
 
 import { IDUtils, showError, showWarning } from '../utilities';
 import { groupManager } from '../tool_manager';
+import { showPrompt } from '../modals/prompt.modal.js';
 
 class MapManager {
     constructor(baseLayerControl, selectionManager) {
@@ -521,7 +522,7 @@ class MapManager {
             e.stopPropagation();
 
             if (await this.canCreateNewMap()) {
-                const newMapName = prompt("Nome para o novo mapa:");
+                const newMapName = await showPrompt("Nome para o novo mapa:");
                 if (newMapName && newMapName.trim()) {
                     const result = await this.copyMap(mapName, newMapName.trim());
                     this.closeAllDropdowns();
@@ -545,7 +546,7 @@ class MapManager {
             e.preventDefault();
             e.stopPropagation();
 
-            const newMapName = prompt("Novo nome do mapa:");
+            const newMapName = await showPrompt("Novo nome do mapa:");
             if (newMapName && newMapName.trim()) {
                 const result = await this.renameMap(mapName, newMapName.trim());
                 this.closeAllDropdowns();

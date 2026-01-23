@@ -17,6 +17,7 @@ import {
     getCurrentMapNameSync,
 } from '../store';
 import { EventTypes } from '../events';
+import { showPrompt } from '../modals/prompt.modal.js';
 
 /**
  * @typedef {Object} LayerListCallbacks
@@ -310,7 +311,7 @@ async function handleDeleteLayer(layerId, callbacks) {
  * @param {LayerListCallbacks} callbacks - Callback functions
  */
 export async function handleAddLayer(createLayer, callbacks) {
-    const name = prompt('Nome da nova camada:', 'Nova Camada');
+    const name = await showPrompt('Nome da nova camada:', 'Nova Camada');
     if (!name || !name.trim()) return;
 
     try {

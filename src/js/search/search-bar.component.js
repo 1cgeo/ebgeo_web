@@ -15,8 +15,10 @@ import {
     removeElement
 } from '../utilities/event-cleanup.js';
 import { getCurrentMapFeatures } from '../store/feature.operations.js';
+import { addFeature, getActiveLayerIdSync } from '../store/store.js';
 import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '../store/store.constants.js';
 import { FeatureNavigationUtils } from '../utilities/feature_navigation_utils.js';
+import { IDUtils } from '../utilities/id_utils.js';
 
 /**
  * SVG Icons for search bar.
@@ -76,6 +78,8 @@ export class SearchBarComponent {
         this._clearBtn = null;
         this._resultsDropdown = null;
         this._marker = null;
+        this._popup = null;
+        this._currentApiResult = null;
 
         this._debounceTimer = null;
         this._isSearching = false;
@@ -594,7 +598,7 @@ export class SearchBarComponent {
             return;
         }
 
-        // Handle API results (places) - fly to coordinates and add marker
+        // Handle API results (places) - fly to coordinates and add marker with popup
         if (result.coordinates) {
             this._map.flyTo({
                 center: result.coordinates,
@@ -602,9 +606,168 @@ export class SearchBarComponent {
                 essential: true,
             });
 
+            // Store the current API result for later use
+            this._currentApiResult = result;
+
+            // Create popup content with save button
+            const popupContent = this._createApiResultPopup(result);
+
+            // Create popup
+            this._popup = new maplibregl.Popup({
+                closeOnClick: false,
+                closeButton: true,
+                maxWidth: '300px',
+                className: 'search-result-popup'
+            })
+                .setLngLat(result.coordinates)
+                .setDOMContent(popupContent)
+                .addTo(this._map);
+
+            // Create marker
             this._marker = new maplibregl.Marker()
                 .setLngLat(result.coordinates)
+                .setPopup(this._popup)
                 .addTo(this._map);
+
+            // Open popup
+            this._marker.togglePopup();
+        }
+    }
+
+    /**
+     * Creates popup content for API search results.
+     * @private
+     * @param {Object} result - API search result
+     * @returns {HTMLElement} Popup content element
+     */
+    _createApiResultPopup(result) {
+        const container = document.createElement('div');
+        container.className = 'search-result-popup-content';
+
+        // Title
+        const title = document.createElement('h4');
+        title.className = 'search-popup-title';
+        title.textContent = result.name || 'Resultado da Busca';
+        container.appendChild(title);
+
+        // Info list
+        const infoList = document.createElement('ul');
+        infoList.className = 'search-popup-info';
+
+        const original = result.original || {};
+        const infoItems = [
+            { label: 'Classe', value: original.tipo },
+            { label: 'Município', value: original.municipio },
+            { label: 'Estado', value: original.estado },
+            { label: 'Latitude', value: result.coordinates?.[1]?.toFixed(6) },
+            { label: 'Longitude', value: result.coordinates?.[0]?.toFixed(6) }
+        ].filter(item => item.value);
+
+        infoItems.forEach(item => {
+            const li = document.createElement('li');
+            li.innerHTML = `<strong>${item.label}:</strong> ${this._escapeHtml(String(item.value))}`;
+            infoList.appendChild(li);
+        });
+
+        container.appendChild(infoList);
+
+        // Save as feature button
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'search-popup-save-btn';
+        saveBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/>
+                <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            Salvar como Feição
+        `;
+        saveBtn.title = 'Salvar este resultado como uma feição ponto no mapa';
+        saveBtn.onclick = () => this._saveApiResultAsFeature(result);
+
+        container.appendChild(saveBtn);
+
+        return container;
+    }
+
+    /**
+     * Converts an API search result into a point feature and saves it.
+     * @private
+     * @param {Object} result - API search result
+     */
+    async _saveApiResultAsFeature(result) {
+        try {
+            const original = result.original || {};
+            const featureId = IDUtils.generateUniqueId();
+
+            // Build attributes from API result
+            const attributes = {};
+            if (original.tipo) attributes.classe = original.tipo;
+            if (original.municipio) attributes.municipio = original.municipio;
+            if (original.estado) attributes.estado = original.estado;
+
+            // Add any other properties from original that we haven't captured
+            const knownProps = ['nome', 'tipo', 'municipio', 'estado', 'longitude', 'latitude'];
+            Object.keys(original).forEach(key => {
+                if (!knownProps.includes(key) && original[key] !== undefined && original[key] !== null) {
+                    attributes[key] = original[key];
+                }
+            });
+
+            const feature = {
+                type: 'Feature',
+                id: Date.now().toString(),
+                properties: {
+                    id: featureId,
+                    layerId: getActiveLayerIdSync(),
+                    source: 'point',
+                    nome: result.name || 'Ponto de Busca',
+                    descricao: `Importado da busca: ${original.tipo || 'Local'}`,
+                    fillColor: '#e74c3c',
+                    size: 12,
+                    opacity: 1,
+                    visivel: true,
+                    bloqueado: false,
+                    attributes: attributes
+                },
+                geometry: {
+                    type: 'Point',
+                    coordinates: result.coordinates
+                }
+            };
+
+            // Save to store
+            await addFeature('points', feature);
+
+            // Update map source
+            const source = this._map.getSource('points');
+            if (source) {
+                const data = await source.getData();
+                data.features.push(feature);
+                source.setData(data);
+            }
+
+            // Close popup
+            if (this._popup) {
+                this._popup.remove();
+                this._popup = null;
+            }
+
+            // Remove marker
+            this._removeMarker();
+
+            // Select the new feature
+            if (this._selectionManager) {
+                await this._selectionManager.toggleFeatureSelection('point', featureId, feature);
+                this._selectionManager.updateUI();
+            }
+
+            // Clear the current API result
+            this._currentApiResult = null;
+
+        } catch (error) {
+            console.error('[SearchBar] Error saving API result as feature:', error);
+            alert('Erro ao salvar feição. Tente novamente.');
         }
     }
 
@@ -672,14 +835,19 @@ export class SearchBarComponent {
     }
 
     /**
-     * Removes the map marker.
+     * Removes the map marker and popup.
      * @private
      */
     _removeMarker() {
+        if (this._popup) {
+            this._popup.remove();
+            this._popup = null;
+        }
         if (this._marker) {
             this._marker.remove();
             this._marker = null;
         }
+        this._currentApiResult = null;
     }
 
     /**

@@ -429,3 +429,96 @@
     opacity: 1;
     visibility: visible;
 }
+
+/* =========================================================================
+   PROMPT MODAL
+   ========================================================================= */
+
+.prompt-modal-container {
+    max-width: 360px;
+    overflow: hidden;
+}
+
+.prompt-modal-container .modal-header {
+    display: none;
+}
+
+.prompt-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+}
+
+.prompt-modal-title {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-700);
+}
+
+.prompt-modal-input {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-sm);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.prompt-modal-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-100, rgba(21, 128, 61, 0.1));
+}
+
+.prompt-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
+}
+
+.prompt-modal-btn {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.prompt-modal-btn-cancel {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--gray-600);
+}
+
+.prompt-modal-btn-cancel:hover {
+    background: var(--gray-50);
+    border-color: var(--gray-300);
+}
+
+.prompt-modal-btn-confirm {
+    background: var(--primary, #15803d);
+    border: 1px solid var(--primary, #15803d);
+    color: white;
+}
+
+.prompt-modal-btn-confirm:hover {
+    background: var(--primary-600, #166534);
+    border-color: var(--primary-600, #166534);
+}
+
+@media (width <= 640px) {
+    .prompt-modal-overlay {
+        align-items: center;
+        padding: var(--space-4);
+    }
+
+    .prompt-modal-container {
+        max-width: 100%;
+        border-radius: var(--radius-lg);
+    }
+}
