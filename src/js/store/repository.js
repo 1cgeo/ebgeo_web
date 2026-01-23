@@ -35,7 +35,7 @@ const memoryStore = {
  */
 const getEmptyMapData = () => ({
     baseLayer: 'carta-topografica',
-    hillshadeEnabled: true,
+    // hillshadeEnabled removed - hillshade is now managed via catalogLayers
     analysisLayers: {},
     features: {
         polygons: [],

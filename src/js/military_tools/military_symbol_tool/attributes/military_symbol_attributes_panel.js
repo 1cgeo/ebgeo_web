@@ -8,10 +8,8 @@
 import {
     createModernSlider,
     createModernButtons,
-    createSectionDivider,
     createFeatureHeaderWithOptions,
-    createFeatureOptionsButton,
-    createCoordinateEditor
+    createFeatureOptionsButton
 } from '../../../tool_manager/helpers/index.js';
 
 import { openSymbolModal } from './symbol-selector.modal.js';
@@ -145,37 +143,6 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
             militarySymbolControl.updateFeaturesProperty(selectedFeatures, 'rotation', value);
         }
     }));
-
-    // Coordinate editor (single selection only)
-    if (selectedFeatures.length === 1) {
-        panel.appendChild(createSectionDivider('Localização'));
-
-        const coordEditor = createCoordinateEditor(
-            feature,
-            uiManager,
-            async (lat, lng) => {
-                const updatedFeature = {
-                    ...feature,
-                    geometry: {
-                        type: 'Point',
-                        coordinates: [lng, lat]
-                    }
-                };
-
-                await militarySymbolControl.updateFeatures([updatedFeature], true, false);
-
-                uiManager.updateSelectionHighlight();
-
-                if (coordEditor.updateCoordinates) {
-                    coordEditor.updateCoordinates(lat, lng);
-                }
-
-                setTimeout(() => uiManager.updatePanels(), 100);
-            },
-            false
-        );
-        panel.appendChild(coordEditor);
-    }
 
     // Action buttons
     panel.appendChild(createModernButtons({

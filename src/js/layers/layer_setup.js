@@ -4,7 +4,8 @@
  * @fileoverview Main layer setup orchestrator for MapLibre.
  */
 
-import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle } from '../store';
+import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle, getCatalogLayers } from '../store';
+import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { initFrameLayers } from '../frame/index.js';
 import { initGridLayers } from '../grid/index.js';
 import config from '../config.js';
@@ -193,7 +194,8 @@ async function setImages(features, mapInstance) {
 }
 
 /**
- * Restores terrain state (hillshade).
+ * Restores terrain state (terrain 3D sources only, not hillshade).
+ * Hillshade is restored via catalog layers.
  * @param {Object} mapInstance - MapLibre map instance
  */
 async function restoreTerrainState(mapInstance) {
@@ -212,6 +214,48 @@ async function restoreTerrainState(mapInstance) {
 
     } catch (error) {
         console.warn('Error restoring terrain state:', error);
+    }
+}
+
+/**
+ * Restores catalog layers (hillshade, analysis layers) from saved state.
+ * Only activates layers that were explicitly added via the catalog.
+ * @param {Object} mapInstance - MapLibre map instance
+ * @param {Object} analysisLayersManager - Analysis layers manager
+ */
+async function restoreCatalogLayers(mapInstance, analysisLayersManager) {
+    try {
+        const catalogLayers = await getCatalogLayers();
+
+        if (!catalogLayers || catalogLayers.length === 0) {
+            return;
+        }
+
+        const terrainControl = mapInstance._controls.find(control =>
+            control._name === 'TerrainControl'
+        );
+
+        for (const layer of catalogLayers) {
+            // Skip unavailable layers
+            if (layer.status === 'unavailable') {
+                continue;
+            }
+
+            // Only restore if layer was visible
+            if (!layer.visible) {
+                continue;
+            }
+
+            if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
+                if (terrainControl?.setHillshadeVisibility) {
+                    terrainControl.setHillshadeVisibility(true);
+                }
+            } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
+                await analysisLayersManager.toggleLayer(layer.config?.id, true);
+            }
+        }
+    } catch (error) {
+        console.warn('Error restoring catalog layers:', error);
     }
 }
 
@@ -462,6 +506,9 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, event
         await restoreTerrainState(mapInstance);
 
         await analysisLayersManager.setupAnalysisLayers();
+
+        // Restore catalog layers (hillshade, analysis) from saved state
+        await restoreCatalogLayers(mapInstance, analysisLayersManager);
 
         const features = await getCurrentMapFeatures();
         await setImages(features, mapInstance);

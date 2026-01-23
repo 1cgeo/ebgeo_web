@@ -108,6 +108,12 @@ export const clearAllDataStore = async () => {
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
 
+    // Reinitialize with default map and layers
+    const defaultMap = await initializeRepository();
+    await mapManager.setCurrentMap(defaultMap);
+    await deps.groupManager.loadGroupsToMemory(defaultMap);
+    await deps.layerManager.loadLayersToMemory(defaultMap);
+
     deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 };
 

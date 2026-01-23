@@ -5,8 +5,7 @@ import {
     createModernColorPicker,
     createModernButtons,
     createFeatureHeaderWithOptions,
-    createFeatureOptionsButton,
-    createCoordinateEditor
+    createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';
 
 /**
@@ -96,32 +95,6 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
             pointControl.updateFeaturesProperty(selectedFeatures, 'opacity', value / 100);
         }
     }));
-
-    // Coordinate editor (single selection only)
-    if (selectedFeatures.length === 1) {
-        const coordinateEditor = createCoordinateEditor(
-            feature,
-            uiManager,
-            async (lat, lng) => {
-                const updatedFeature = {
-                    ...feature,
-                    geometry: {
-                        type: 'Point',
-                        coordinates: [lng, lat]
-                    }
-                };
-
-                await pointControl.updateFeatures([updatedFeature], true, false);
-
-                uiManager.updateSelectionHighlight();
-
-                if (coordinateEditor.updateCoordinates) {
-                    coordinateEditor.updateCoordinates(lat, lng);
-                }
-            }
-        );
-        panel.appendChild(coordinateEditor);
-    }
 
     // Action buttons
     panel.appendChild(createModernButtons({

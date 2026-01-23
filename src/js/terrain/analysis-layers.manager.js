@@ -1,5 +1,5 @@
 // Path: js/terrain/analysis-layers.manager.js
-import { getMapAnalysisLayersStates, setMapAnalysisLayerState } from '../store';
+// Note: Analysis layer state is now managed via catalogLayers, not separate settings
 import config from '../config.js';
 
 /**
@@ -33,7 +33,8 @@ class AnalysisLayersManager {
 
     /**
      * Initial setup of analysis layers
-     * Adds sources, layers in correct position and restores saved states
+     * Adds sources and layers in correct position with visibility: 'none'.
+     * Layers are only made visible when explicitly added via catalog.
      */
     async setupAnalysisLayers() {
         if (!this.isEnabled()) {
@@ -45,7 +46,9 @@ class AnalysisLayersManager {
                 this.addAnalysisLayer(layerConfig);
             }
 
-            await this.restoreLayersState();
+            // Note: restoreLayersState() is NOT called here anymore.
+            // Analysis layers are restored via restoreCatalogLayers() in layer_setup.js
+            // which only activates layers that were explicitly added via catalog.
 
         } catch (error) {
             console.error('Error setting up analysis layers:', error);
@@ -93,14 +96,15 @@ class AnalysisLayersManager {
     }
 
     /**
-     * Toggles visibility of an analysis layer
+     * Toggles visibility of an analysis layer on the map.
+     * Note: State persistence is handled by catalogLayers, not by this method.
      * @param {string} layerId - Layer ID (without 'analysis-' prefix)
      * @param {boolean} enabled - true to show, false to hide
      */
     async toggleLayer(layerId, enabled) {
         try {
-            await setMapAnalysisLayerState(layerId, enabled);
-
+            // State is managed via catalogLayers (toggleCatalogLayerVisibility)
+            // This method only applies the visual change to the map
             this.applyLayerState(layerId, enabled);
 
         } catch (error) {

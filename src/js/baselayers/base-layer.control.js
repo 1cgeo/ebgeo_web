@@ -215,7 +215,7 @@ class BaseLayerControl {
             await styleLoadPromise;
             this.currentLayer = layer;
         }
-        this._updateHillshadeVisibility(layer);
+        await this._updateHillshadeVisibility(layer);
         this.syncVisualState(layer);
     }
 
@@ -290,15 +290,28 @@ class BaseLayerControl {
     // HILLSHADE
     // =========================================================================
 
-    _updateHillshadeVisibility(currentLayer) {
-        if (!this.hillshadeConfig?.enabled || !this.map.getLayer('hillshade')) {
+    async _updateHillshadeVisibility(currentLayer) {
+        if (!this.hillshadeConfig?.enabled) {
             return;
         }
 
-        const visibility = 'visible';
-
         try {
-            this.map.setLayoutProperty('hillshade', 'visibility', visibility);
+            // Check if hillshade is in catalog layers and visible
+            const { getCatalogLayers } = await import('@store/catalog.operations.js');
+            const { CATALOG_ITEM_TYPES } = await import('../catalog/catalog.constants.js');
+
+            const catalogLayers = await getCatalogLayers();
+            const hillshadeLayer = catalogLayers?.find(l => l.type === CATALOG_ITEM_TYPES.HILLSHADE);
+
+            // Only restore hillshade if it was added via catalog and is visible
+            if (hillshadeLayer && hillshadeLayer.visible && hillshadeLayer.status !== 'unavailable') {
+                const terrainControl = this.map._controls?.find(
+                    (control) => control._name === 'TerrainControl'
+                );
+                if (terrainControl?.setHillshadeVisibility) {
+                    terrainControl.setHillshadeVisibility(true);
+                }
+            }
         } catch (error) {
             console.warn('Could not update hillshade visibility:', error);
         }

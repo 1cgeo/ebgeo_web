@@ -2,10 +2,10 @@
 
 /**
  * @fileoverview Location section component for the feature panel.
- * Displays coordinates in multiple formats and provides navigation.
+ * Displays coordinates in multiple formats and provides navigation and editing.
  */
 
-import { formatCoordinates } from '../../utilities/coordinate_converter.js';
+import { formatCoordinates, parseCoordinates, COORDINATE_FORMATS, getPlaceholderForFormat } from '../../utilities/coordinate_converter.js';
 import { FeatureNavigationUtils } from '../../utilities/feature_navigation_utils.js';
 
 // turf is loaded globally via script tag
@@ -13,16 +13,21 @@ import { FeatureNavigationUtils } from '../../utilities/feature_navigation_utils
 // Feature types that should show coordinates
 const TYPES_WITH_COORDINATES = ['point', 'text', 'coordination_measure', 'image', 'military_symbol', 'circle'];
 
+// Feature types that allow coordinate editing (point-based features and circle center)
+const EDITABLE_COORDINATE_TYPES = ['point', 'coordination_measure', 'military_symbol', 'circle'];
+
 /**
  * Creates the location section for the feature panel.
  * @param {Object} options - Configuration options
  * @param {Object} options.feature - The selected feature
  * @param {string} options.featureType - The type of the feature
  * @param {Object} options.map - Map instance for navigation
+ * @param {Object} [options.control] - Feature control instance for coordinate updates
+ * @param {Object} [options.uiManager] - UI manager instance for coordinate format
  * @returns {Promise<HTMLElement>} The location section element
  */
 export async function createLocationSection(options) {
-    const { feature, featureType, map } = options;
+    const { feature, featureType, map, control, uiManager } = options;
 
     const container = document.createElement('div');
     container.className = 'feature-location-section';
@@ -31,11 +36,35 @@ export async function createLocationSection(options) {
     const showCoordinates = TYPES_WITH_COORDINATES.includes(featureType);
 
     if (showCoordinates) {
-        // Section header
+        // Section header with optional edit button
+        const headerWrapper = document.createElement('div');
+        headerWrapper.className = 'feature-location-header-wrapper';
+
         const header = document.createElement('div');
         header.className = 'feature-location-header';
         header.textContent = 'Localização';
-        container.appendChild(header);
+        headerWrapper.appendChild(header);
+
+        // Add edit button for editable feature types
+        const isEditable = EDITABLE_COORDINATE_TYPES.includes(featureType) && control;
+        if (isEditable) {
+            const editButton = document.createElement('button');
+            editButton.className = 'feature-location-edit-btn';
+            editButton.title = 'Editar coordenadas';
+            editButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+
+            editButton.addEventListener('click', () => {
+                const center = getFeatureCenter(feature);
+                if (center) {
+                    const [lng, lat] = center;
+                    openCoordinateEditModal(lat, lng, feature, featureType, control, uiManager);
+                }
+            });
+
+            headerWrapper.appendChild(editButton);
+        }
+
+        container.appendChild(headerWrapper);
 
         // Coordinates container
         const coordsContainer = document.createElement('div');
@@ -243,4 +272,220 @@ function showCopyFeedback(element) {
         element.textContent = originalText;
         element.classList.remove('copied');
     }, 1500);
+}
+
+/**
+ * Opens coordinate edit modal.
+ * @param {number} currentLat - Current latitude
+ * @param {number} currentLng - Current longitude
+ * @param {Object} feature - The feature to update
+ * @param {string} featureType - The type of the feature
+ * @param {Object} control - The control instance for updating
+ * @param {Object} uiManager - UI manager instance
+ */
+function openCoordinateEditModal(currentLat, currentLng, feature, featureType, control, uiManager) {
+    const mouseCoordinatesControl = uiManager?.mouseCoordinatesControl;
+    const currentFormat = mouseCoordinatesControl?.getCurrentFormat() || 'latlong';
+
+    const modal = document.createElement('div');
+    modal.className = 'coordinate-edit-modal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.3);
+        z-index: 10001;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+
+    const content = document.createElement('div');
+    content.className = 'coordinate-edit-modal-content';
+    content.style.cssText = `
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        padding: 20px;
+        min-width: 320px;
+        max-width: 400px;
+    `;
+
+    const headerEl = document.createElement('div');
+    headerEl.style.cssText = 'margin-bottom: 20px; font-weight: 600; font-size: 16px; color: #333;';
+    headerEl.textContent = 'Editar Coordenadas';
+    content.appendChild(headerEl);
+
+    const formatContainer = document.createElement('div');
+    formatContainer.style.cssText = 'margin-bottom: 15px;';
+
+    const formatLabel = document.createElement('label');
+    formatLabel.textContent = 'Formato:';
+    formatLabel.style.cssText = 'display: block; font-weight: 500; margin-bottom: 5px; font-size: 13px;';
+    formatContainer.appendChild(formatLabel);
+
+    const formatSelect = document.createElement('select');
+    formatSelect.style.cssText = `
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 13px;
+    `;
+
+    COORDINATE_FORMATS.forEach(format => {
+        const option = document.createElement('option');
+        option.value = format.id;
+        option.textContent = format.label;
+        if (format.id === currentFormat) {
+            option.selected = true;
+        }
+        formatSelect.appendChild(option);
+    });
+
+    formatContainer.appendChild(formatSelect);
+    content.appendChild(formatContainer);
+
+    const inputContainer = document.createElement('div');
+    inputContainer.style.cssText = 'margin-bottom: 15px;';
+
+    const inputLabel = document.createElement('label');
+    inputLabel.textContent = 'Coordenadas:';
+    inputLabel.style.cssText = 'display: block; font-weight: 500; margin-bottom: 5px; font-size: 13px;';
+    inputContainer.appendChild(inputLabel);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = 'Carregando...';
+    formatCoordinates(currentLat, currentLng, currentFormat).then(formatted => {
+        input.value = formatted;
+    });
+    input.placeholder = getPlaceholderForFormat(currentFormat);
+    input.style.cssText = `
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 13px;
+        box-sizing: border-box;
+    `;
+    inputContainer.appendChild(input);
+
+    const validationMsg = document.createElement('div');
+    validationMsg.style.cssText = 'color: #dc3545; font-size: 12px; margin-top: 5px; min-height: 18px;';
+    inputContainer.appendChild(validationMsg);
+
+    content.appendChild(inputContainer);
+
+    formatSelect.onchange = () => {
+        const newFormat = formatSelect.value;
+        input.placeholder = getPlaceholderForFormat(newFormat);
+        input.value = 'Carregando...';
+        formatCoordinates(currentLat, currentLng, newFormat).then(formatted => {
+            input.value = formatted;
+        });
+        validationMsg.textContent = '';
+    };
+
+    const closeModal = () => {
+        if (modal && modal.parentNode) {
+            document.removeEventListener('keydown', escapeHandler);
+            modal.parentNode.removeChild(modal);
+        }
+    };
+
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.cssText = 'display: flex; gap: 10px; justify-content: flex-end;';
+
+    const cancelButton = document.createElement('button');
+    cancelButton.textContent = 'Cancelar';
+    cancelButton.className = 'tool-button pure-material-tool-button-contained';
+    cancelButton.style.cssText = `
+        padding: 8px 16px;
+        min-height: 32px;
+        font-size: 13px;
+        font-weight: 500;
+    `;
+    cancelButton.onclick = () => {
+        closeModal();
+    };
+
+    const confirmButton = document.createElement('button');
+    confirmButton.textContent = 'Confirmar';
+    confirmButton.className = 'tool-button pure-material-button-contained';
+    confirmButton.style.cssText = `
+        padding: 8px 16px;
+        min-height: 32px;
+        font-size: 13px;
+        font-weight: 500;
+    `;
+    confirmButton.onclick = async () => {
+        const coords = await parseCoordinates(input.value.trim(), formatSelect.value);
+        if (coords) {
+            let updatedFeature;
+
+            if (featureType === 'circle') {
+                // For circles, update center property and regenerate geometry
+                const newCenter = [coords.lng, coords.lat];
+                const radius = feature.properties.radius;
+
+                // Generate new circle geometry using turf
+                const circleGeometry = turf.circle(newCenter, radius, { units: 'meters', steps: 64 });
+
+                updatedFeature = {
+                    ...feature,
+                    geometry: circleGeometry.geometry,
+                    properties: {
+                        ...feature.properties,
+                        center: newCenter
+                    }
+                };
+            } else {
+                // For point-based features, update geometry coordinates
+                updatedFeature = {
+                    ...feature,
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [coords.lng, coords.lat]
+                    }
+                };
+            }
+
+            await control.updateFeatures([updatedFeature], true, false);
+
+            // Refresh UI
+            if (uiManager) {
+                uiManager.updateSelectionHighlight();
+                setTimeout(() => uiManager.updatePanels(), 100);
+            }
+
+            closeModal();
+        } else {
+            validationMsg.textContent = 'Coordenadas inválidas para o formato selecionado';
+        }
+    };
+
+    buttonContainer.appendChild(cancelButton);
+    buttonContainer.appendChild(confirmButton);
+    content.appendChild(buttonContainer);
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeModal();
+        }
+    });
+
+    const escapeHandler = (e) => {
+        if (e.key === 'Escape') {
+            closeModal();
+        }
+    };
+    document.addEventListener('keydown', escapeHandler);
+
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    setTimeout(() => input.focus(), 100);
 }

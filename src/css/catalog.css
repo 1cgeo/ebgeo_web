@@ -344,18 +344,10 @@
    ========================================================================== */
 
 .catalog-layers-section {
-    border-bottom: 1px solid var(--border-color);
     background: var(--white);
 }
 
-.catalog-layers-section .sidebar-section-header {
-    padding: var(--space-3) var(--space-4);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-semibold);
-    color: var(--gray-700);
-    background: var(--gray-100);
-    border-bottom: 1px solid var(--border-color);
-}
+/* Inherit sidebar-section-header style - no overrides needed */
 
 .catalog-layers-list {
     display: flex;

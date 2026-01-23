@@ -484,9 +484,7 @@ export async function handleCatalogAddLayer(payload, map, eventBus, analysisLaye
         if (terrainControl?.setHillshadeVisibility) {
             terrainControl.setHillshadeVisibility(true);
         }
-        // Also update hillshade state in settings
-        const { setMapHillshadeState } = await import('../store');
-        await setMapHillshadeState(true);
+        // State is now managed via catalogLayers, no separate hillshadeEnabled needed
     } else if (type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
         await analysisLayersManager.toggleLayer(item.originalData.id, true);
     }

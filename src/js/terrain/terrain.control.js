@@ -1,6 +1,6 @@
 // Path: js/terrain/terrain.control.js
 
-import { getMapHillshadeState } from '../store';
+// Hillshade is managed via catalog - no automatic state needed
 
 /**
  * Gets terrain elevation at given coordinates
@@ -73,19 +73,9 @@ class TerrainControl {
             this._map.addSource('terrainSource', this.terrainSourceConfig);
         }
 
-        if (this.hillshadeConfig?.enabled) {
-            if (!this._map.getSource('hillshadeSource')) {
-                this._map.addSource('hillshadeSource', this.hillshadeSourceConfig);
-            }
+        // Hillshade source/layer are only added when explicitly requested via catalog
+        // No automatic initialization here
 
-            try {
-                const hillshadeEnabled = await getMapHillshadeState();
-                this.setHillshadeVisibility(hillshadeEnabled);
-            } catch (error) {
-                console.warn('Error restoring hillshade state:', error);
-                this.setHillshadeVisibility(false);
-            }
-        }
         this._updateTerrainIcon()
     }
 
@@ -144,7 +134,8 @@ class TerrainControl {
     // ===== HILLSHADE VISIBILITY CONTROL =====
 
     /**
-     * Controls hillshade layer visibility
+     * Controls hillshade layer visibility.
+     * Creates source and layer on demand when enabling for the first time.
      * @param {boolean} enabled - true to show, false to hide
      */
     setHillshadeVisibility = (enabled) => {
@@ -152,13 +143,26 @@ class TerrainControl {
             return;
         }
 
-        if (!this._map.getSource('hillshadeSource')) {
-            console.warn('Hillshade source not available');
-            return;
+        // When enabling, ensure source and layer exist
+        if (enabled) {
+            // Add source if needed
+            if (!this._map.getSource('hillshadeSource')) {
+                if (!this.hillshadeSourceConfig) {
+                    console.warn('Hillshade source configuration not available');
+                    return;
+                }
+                this._map.addSource('hillshadeSource', this.hillshadeSourceConfig);
+            }
+
+            // Add layer if needed
+            if (!this._map.getLayer('hillshade')) {
+                this._addHillshadeLayerInCorrectPosition();
+            }
         }
 
-        if (!this._map.getLayer('hillshade')) {
-            this._addHillshadeLayerInCorrectPosition();
+        // If disabling and layer doesn't exist, nothing to do
+        if (!enabled && !this._map.getLayer('hillshade')) {
+            return;
         }
 
         const visibility = enabled ? 'visible' : 'none';

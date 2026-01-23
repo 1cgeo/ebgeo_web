@@ -271,6 +271,9 @@ export class SidebarControl {
             if (this._tabComponents[SIDEBAR_TABS.MAPAS]?.refresh) {
                 this._tabComponents[SIDEBAR_TABS.MAPAS].refresh();
             }
+
+            // Emit LAYERS_CHANGED to refresh FeaturesTab (camadas) if open
+            this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
         } catch (error) {
             console.warn('Failed to switch map:', error);
         }
@@ -682,7 +685,9 @@ export class SidebarControl {
             const locationSection = await createLocationSection({
                 feature,
                 featureType,
-                map: this._mapManager.map
+                map: this._mapManager.map,
+                control,
+                uiManager: this._uiManager
             });
             container.appendChild(locationSection);
         }

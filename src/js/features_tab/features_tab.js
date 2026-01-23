@@ -742,8 +742,16 @@ export class FeaturesTab {
     _scheduleRefresh() {
         if (!this._isVisible) return;
         clearTimeout(this._debounceTimer);
-        this._debounceTimer = setTimeout(() => {
-            this.loadFeatures();
+        this._debounceTimer = setTimeout(async () => {
+            // Re-render catalog layers (analysis section)
+            await renderCatalogLayers(
+                this.container.querySelector('.catalog-layers-section'),
+                this.map,
+                this._eventBus,
+                this.analysisLayersManager
+            );
+            // Re-render features
+            await this.loadFeatures();
         }, REFRESH_DEBOUNCE_MS);
     }
 }
