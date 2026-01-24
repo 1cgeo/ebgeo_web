@@ -38,28 +38,16 @@ class TerrainControl {
 
     onAdd(map) {
         this._map = map;
+        // UI is now handled by BottomControlsControl - return empty container
         this._container = document.createElement('div');
-        this._container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl terrain-control controls-column-left';
-
-        this._button = document.createElement('button');
-        this._button.type = 'button';
-        this._button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        this._button.setAttribute("id", "terrain-tool");
-        this._button.title = 'Ligar/desligar terreno 3D';
-        this._button.onclick = this._toggleTerrain;
-
-        this._container.appendChild(this._button);
-
-        this._map.on('terrain', this._updateTerrainIcon);
-
+        this._container.style.display = 'none';
         return this._container;
     }
 
     onRemove() {
-        if (this._map) {
-            this._map.off('terrain', this._updateTerrainIcon);
+        if (this._container?.parentNode) {
+            this._container.parentNode.removeChild(this._container);
         }
-        this._container.parentNode.removeChild(this._container);
         this._map = undefined;
     }
 
@@ -104,32 +92,6 @@ class TerrainControl {
         }
     }
 
-    _updateTerrainIcon = () => {
-        if (!this._button || !this.terrainSourceConfig) {
-            this._button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_terrain_disabled.svg" alt="TERRAIN DISABLED" />';
-            this._button.disabled = true;
-            this._button.title = 'Terreno não disponível';
-            return;
-        }
-
-        const terrainSourceExists = this._map.getSource('terrainSource') !== undefined;
-        if (!terrainSourceExists) {
-            this._button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_terrain_disabled.svg" alt="TERRAIN DISABLED" />';
-            this._button.disabled = true;
-            this._button.title = 'Terreno não disponível';
-            return;
-        }
-
-        if (this._map.getTerrain()) {
-            this._button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_terrain_active.svg" alt="TERRAIN 3D ON" />';
-            this._button.disabled = false;
-            this._button.title = 'Desligar terreno 3D';
-        } else {
-            this._button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_terrain_black.svg" alt="TERRAIN 3D OFF" />';
-            this._button.disabled = false;
-            this._button.title = 'Ligar terreno 3D';
-        }
-    }
 
     // ===== HILLSHADE VISIBILITY CONTROL =====
 

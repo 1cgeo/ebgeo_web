@@ -66,43 +66,19 @@ class AddImageControl extends BaseControl {
 
   onAdd = (map) => {
     this.map = map;
-    this.container = document.createElement("div");
-    this.container.className =
-      "mapboxgl-ctrl-group mapboxgl-ctrl image-control controls-column-right";
-
-    const button = document.createElement("button");
-    button.className = "mapbox-gl-draw_ctrl-draw-btn";
-    button.setAttribute("id", "photo-tool");
-    button.innerHTML =
-      '<img class="icon-sig-tool" src="./images/icon_photo_black.svg" alt="PHOTO" />';
-    button.title = "Adicionar imagem (I)";
-    button.onclick = () => this.toolManager.setActiveTool(this);
-
-    this.container.appendChild(button);
-    this.setupBaseEventListeners();
     this.setupZoomListener();
-    this.updateButtonAppearance();
-
-    return this.container;
   };
 
   onRemove = () => {
-    try {
-      this.map.off("zoom", this.handleZoomChange);
-      if (this.zoomRafId) {
-        cancelAnimationFrame(this.zoomRafId);
-        this.zoomRafId = null;
-      }
-      this.pendingZoomUpdate = false;
-
-      this.selectionManager.uiManager.removeControl(this.container);
-      this.deactivate();
-      this.removeAllEventListeners();
-      this.map = undefined;
-    } catch (error) {
-      console.error("Error removing AddImageControl:", error);
-      throw error;
+    this.map.off("zoom", this.handleZoomChange);
+    if (this.zoomRafId) {
+      cancelAnimationFrame(this.zoomRafId);
+      this.zoomRafId = null;
     }
+    this.pendingZoomUpdate = false;
+    this.deactivate();
+    this.removeAllEventListeners();
+    this.map = undefined;
   };
 
   // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -250,22 +226,12 @@ class AddImageControl extends BaseControl {
   activate = () => {
     this.isActive = true;
     this.map.getCanvas().style.cursor = "crosshair";
-    this.updateButtonAppearance();
   };
 
   deactivate = () => {
     this.isActive = false;
     this.map.getCanvas().style.cursor = "";
-    this.updateButtonAppearance();
     this.deselectFeature();
-  };
-
-  updateButtonAppearance = () => {
-    const iconSrc = this.isActive
-      ? "./images/icon_photo_red.svg"
-      : "./images/icon_photo_black.svg";
-    const btn = document.getElementById('photo-tool');
-    if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="PHOTO" />`;
   };
 
   // ===== SELECTION SYSTEM INTEGRATION =====

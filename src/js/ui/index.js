@@ -2,7 +2,5 @@
 
 /**
  * @fileoverview Public API for UI module.
- * Provides general UI components like modals.
+ * Provides general UI components.
  */
-
-export { default as SuggestionsModal } from './suggestions.modal.js';

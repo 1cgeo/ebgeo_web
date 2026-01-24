@@ -25,10 +25,7 @@
 /* ===== 2. COORDINATES SYSTEM ===== */
 @import url('./coordinates.css');
 
-/* ===== 3. TOP BAR ===== */
-@import url('./topbar.css');
-
-/* ===== 4. MAP LIST ===== */
+/* ===== 3. MAP LIST ===== */
 @import url('./map-list.css');
 
 /* ===== 5. MAP CONTROLS ===== */

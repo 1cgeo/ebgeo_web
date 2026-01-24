@@ -112,45 +112,20 @@ class AddMilitarySymbolControl extends BaseControl {
 
   onAdd = (map) => {
     this.map = map;
-    this.container = document.createElement("div");
-    this.container.className =
-      "mapboxgl-ctrl-group mapboxgl-ctrl military-symbol-control controls-column-right";
-
-    const button = document.createElement("button");
-    button.className = "mapbox-gl-draw_ctrl-draw-btn";
-    button.setAttribute("id", "military-symbol-tool");
-    button.innerHTML =
-      '<img class="icon-military-tool" src="./images/icon_military_black.svg" alt="MILITARY" />';
-    button.title = "Adicionar símbolo militar (M)";
-    button.onclick = () => this.toolManager.setActiveTool(this);
-
-    this.container.appendChild(button);
-    this.setupBaseEventListeners();
     this.setupZoomListener();
-    this.updateButtonAppearance();
-
-    return this.container;
   };
 
   onRemove = () => {
-    try {
-      this.map.off("zoom", this.handleZoomChange);
-      if (this.zoomRafId) {
-        cancelAnimationFrame(this.zoomRafId);
-        this.zoomRafId = null;
-      }
-      this.pendingZoomUpdate = false;
-
-      this.cancelPendingSymbolUpdates();
-
-      this.selectionManager.uiManager.removeControl(this.container);
-      this.deactivate();
-      this.removeAllEventListeners();
-      this.map = undefined;
-    } catch (error) {
-      console.error("Error removing AddMilitarySymbolControl:", error);
-      throw error;
+    this.map.off("zoom", this.handleZoomChange);
+    if (this.zoomRafId) {
+      cancelAnimationFrame(this.zoomRafId);
+      this.zoomRafId = null;
     }
+    this.pendingZoomUpdate = false;
+    this.cancelPendingSymbolUpdates();
+    this.deactivate();
+    this.removeAllEventListeners();
+    this.map = undefined;
   };
 
   // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -302,23 +277,13 @@ class AddMilitarySymbolControl extends BaseControl {
   activate = () => {
     this.isActive = true;
     this.map.getCanvas().style.cursor = "crosshair";
-    this.updateButtonAppearance();
   };
 
   deactivate = () => {
     this.isActive = false;
     this.map.getCanvas().style.cursor = "";
-    this.updateButtonAppearance();
     this.deselectFeature();
     this.cancelPendingSymbolUpdates();
-  };
-
-  updateButtonAppearance = () => {
-    const iconSrc = this.isActive
-      ? "./images/icon_military_red.svg"
-      : "./images/icon_military_black.svg";
-    const btn = document.getElementById('military-symbol-tool');
-    if (btn) btn.innerHTML = `<img class="icon-military-tool" src="${iconSrc}" alt="MILITARY" />`;
   };
 
   // ===== SELECTION SYSTEM INTEGRATION =====

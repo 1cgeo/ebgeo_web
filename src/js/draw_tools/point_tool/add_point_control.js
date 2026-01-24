@@ -48,33 +48,12 @@ class AddPointControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl point-control controls-column-right';
-
-        const button = document.createElement('button');
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.setAttribute("id", "point-tool");
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_point_black.svg" alt="POINT" />';
-        button.title = 'Adicionar ponto (P)';
-        button.onclick = () => this.toolManager.setActiveTool(this);
-
-        this.container.appendChild(button);
-        this.setupBaseEventListeners();
-        this.updateButtonAppearance();
-
-        return this.container;
     }
 
     onRemove = () => {
-        try {
-            this.selectionManager.uiManager.removeControl(this.container);
-            this.deactivate();
-            this.removeAllEventListeners();
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing AddPointControl:', error);
-            throw error;
-        }
+        this.deactivate();
+        this.removeAllEventListeners();
+        this.map = undefined;
     }
 
     // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -197,21 +176,11 @@ class AddPointControl extends BaseControl {
     activate = () => {
         this.isActive = true;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.updateButtonAppearance();
     }
 
     deactivate = () => {
         this.isActive = false;
         this.map.getCanvas().style.cursor = '';
-        this.updateButtonAppearance();
-    }
-
-    updateButtonAppearance = () => {
-        const iconSrc = this.isActive ?
-            './images/icon_point_red.svg' :
-            './images/icon_point_black.svg';
-        const btn = document.getElementById('point-tool');
-        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="POINT" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

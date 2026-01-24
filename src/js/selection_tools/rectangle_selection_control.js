@@ -22,31 +22,11 @@ class RectangleSelectionControl {
 
     onAdd = (map) => {
         this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl rectangle-selection-control controls-column-left';
-
-        const button = document.createElement('button');
-        button.setAttribute("id", "rectangle-selection-tool");
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.title = 'Seleção por área (Q)';
-        button.innerHTML = this.getInactiveSVG();
-        button.onclick = () => this.toolManager.setActiveTool(this);
-
-        this.container.appendChild(button);
-        this.updateButtonAppearance();
-
-        return this.container;
     }
 
     onRemove = () => {
-        try {
-            this.selectionManager.uiManager.removeControl(this.container);
-            this.deactivate();
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing RectangleSelectionControl:', error);
-            throw error;
-        }
+        this.deactivate();
+        this.map = undefined;
     }
 
     // ===== TOOL ACTIVATION/DEACTIVATION =====
@@ -55,7 +35,6 @@ class RectangleSelectionControl {
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.updateButtonAppearance();
         this.map.on('click', this.handleMapClick);
     }
 
@@ -64,33 +43,9 @@ class RectangleSelectionControl {
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
         this.map.off('mousemove', this.handlePreviewMouseMove);
-        this.updateButtonAppearance();
         this.clearPreview();
         this.cancelPendingUpdates();
         this.map.off('click', this.handleMapClick);
-    }
-
-    updateButtonAppearance = () => {
-        const button = document.getElementById('rectangle-selection-tool');
-        if (button) {
-            button.innerHTML = this.isActive ? this.getActiveSVG() : this.getInactiveSVG();
-        }
-    }
-
-    // ===== SVG ICONS =====
-
-    getInactiveSVG = () => {
-        return `<svg viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2" style="width: 26px; height: 26px;">
-            <rect x="3" y="3" width="18" height="14" rx="2" stroke-dasharray="3,2"/>
-            <circle cx="7" cy="19" r="1" fill="#000000"/>
-        </svg>`;
-    }
-
-    getActiveSVG = () => {
-        return `<svg viewBox="0 0 24 24" fill="none" stroke="#ff0000" stroke-width="2" style="width: 26px; height: 26px;">
-            <rect x="3" y="3" width="18" height="14" rx="2" stroke-dasharray="3,2"/>
-            <circle cx="7" cy="19" r="1" fill="#ff0000"/>
-        </svg>`;
     }
 
     // ===== TWO-CLICK SELECTION LOGIC =====

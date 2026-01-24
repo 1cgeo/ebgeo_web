@@ -23,7 +23,6 @@ import { hideLoadingScreen } from './index.js';
 import { ContextMenuControl } from './context-menu';
 import { RectangleSelectionControl } from './selection_tools';
 import { KeyboardShortcuts } from './keyboard';
-import { SuggestionsModal } from './ui';
 import { GridControl } from './grid';
 import { FrameControl } from './frame';
 import { URLRouter } from './url_router.js';
@@ -239,10 +238,6 @@ const keyboardShortcuts = new KeyboardShortcuts({
 });
 
 keyboardShortcuts.enable();
-keyboardShortcuts.initModal();
-
-const suggestionsModal = new SuggestionsModal();
-suggestionsModal.init();
 
 // ===== ADD CONTROLS TO MAP (MUST BE FIRST - creates dependencies) =====
 // MapControl.onAdd() creates featuresTab and pdfExportTab, so it must run
@@ -264,8 +259,6 @@ const mapManager = mapControl.mapManager;
 const chipsComponent = new ChipsComponent({
     stateManager: getStateManager(),
     eventBus: getEventBus(),
-    keyboardShortcuts: keyboardShortcuts,
-    suggestionsModal: suggestionsModal,
     map: map,
     toolManager: toolManager
 });
@@ -450,7 +443,6 @@ window.modelsViewerControl = add3DModelsViewerControl;
 
 window.addEventListener('beforeunload', () => {
     keyboardShortcuts.destroy();
-    suggestionsModal.destroy();
     chipsComponent.destroy();
     sidebarControl.destroy();
     toolbarControl.destroy();

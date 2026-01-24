@@ -64,40 +64,19 @@ class AddBrushControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl brush-control controls-column-right';
-
-        const button = document.createElement('button');
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.setAttribute("id", "brush-tool");
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_brush_black.svg" alt="BRUSH" />';
-        button.title = 'Ferramenta Pincel (B)';
-        button.onclick = () => this.toolManager.setActiveTool(this);
-
-        this.container.appendChild(button);
-        this.setupBaseEventListeners();
-        this.updateButtonAppearance();
         this.setupZoomListener();
-
-        return this.container;
     }
 
     onRemove = () => {
-        try {
-            this.selectionManager.uiManager.removeControl(this.container);
-            this.map.off('zoom', this.handleZoomChange);
-            if (this.zoomRafId) {
-                cancelAnimationFrame(this.zoomRafId);
-                this.zoomRafId = null;
-            }
-            this.pendingZoomUpdate = false;
-            this.deactivate();
-            this.removeAllEventListeners();
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing AddBrushControl:', error);
-            throw error;
+        this.map.off('zoom', this.handleZoomChange);
+        if (this.zoomRafId) {
+            cancelAnimationFrame(this.zoomRafId);
+            this.zoomRafId = null;
         }
+        this.pendingZoomUpdate = false;
+        this.deactivate();
+        this.removeAllEventListeners();
+        this.map = undefined;
     }
 
     // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -220,7 +199,6 @@ class AddBrushControl extends BaseControl {
         this.isDrawing = false;
         this.points = [];
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.updateButtonAppearance();
         this.setupDrawingEventListeners();
     }
 
@@ -228,17 +206,8 @@ class AddBrushControl extends BaseControl {
         this.isActive = false;
         this.finishDrawing();
         this.map.getCanvas().style.cursor = '';
-        this.updateButtonAppearance();
         this.removeDrawingEventListeners();
         this.clearPreview();
-    }
-
-    updateButtonAppearance = () => {
-        const iconSrc = this.isActive ?
-            './images/icon_brush_red.svg' :
-            './images/icon_brush_black.svg';
-        const btn = document.getElementById('brush-tool');
-        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="BRUSH" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

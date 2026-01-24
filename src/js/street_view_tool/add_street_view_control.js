@@ -330,30 +330,14 @@ class AddStreetViewControl {
             maplibregl.addProtocol("pmtiles", protocol.tile);
             this.map._pmtilesRegistered = true;
         }
+
+        // UI is now handled by BottomControlsControl - return empty container
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl street-view-control controls-bottom-left';
+        this.container.style.display = 'none';
 
-        const button = document.createElement('button');
-        button.setAttribute("id", "street-view-tool");
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.title = 'Adicionar imagens panorâmicas';
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
-        button.onclick = () => this.toolManager.toggleViewer(this);
-
-        this.container.appendChild(button);
-
-        const isEnabled = config.features?.imagens_panoramicas ?? true;
-        if (!isEnabled) {
-            this.container.classList.add('disabled');
-            button.disabled = true;
-        }
-
-        this.changeButtonColor()
-
-        if (config.features.imagens_panoramicas){
+        if (config.features.imagens_panoramicas) {
             this.setupMiniMapWithPMTiles();
         }
-
 
         return this.container;
     }
@@ -412,20 +396,6 @@ class AddStreetViewControl {
         });
     }
 
-    changeButtonColor = () => {
-        const btn = document.getElementById('street-view-tool');
-        if (!btn) return;
-
-        const isEnabled = config.features?.imagens_panoramicas ?? true;
-        if (!isEnabled) {
-            btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_gray.svg" />';
-            return;
-        }
-
-        btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_black.svg" />';
-        if (!this.isActive) return;
-        btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_street_view_red.svg" />';
-    }
 
     reload = async () => {
         if (this.isActive) {
@@ -436,7 +406,9 @@ class AddStreetViewControl {
 
     onRemove() {
         this.cleanupThreeJS();
-        this.container.parentNode.removeChild(this.container);
+        if (this.container?.parentNode) {
+            this.container.parentNode.removeChild(this.container);
+        }
     }
 
     async activate() {
@@ -448,7 +420,6 @@ class AddStreetViewControl {
         const closeBtn = document.getElementById('close-street-view-button');
         if (closeBtn) closeBtn.addEventListener('click', this.closeStreetView);
         this.isActive = true;
-        this.changeButtonColor();
         await this.loadData()
         this.showPhotos()
 
@@ -944,13 +915,11 @@ class AddStreetViewControl {
     }
 
     setFullMap = (full) => {
-        const topBar = document.getElementById('top-bar');
         const mapSig = document.getElementById('map-sig');
         const miniMap = document.getElementById('mini-map-street-view');
         const streetViewContainer = document.getElementById('street-view-container');
         const closeBtn = document.getElementById('close-street-view-button');
 
-        if (topBar) topBar.style.display = full ? 'flex' : 'none';
         if (mapSig) mapSig.style.display = full ? 'block' : 'none';
         if (miniMap) miniMap.style.display = full ? 'none' : 'block';
         if (streetViewContainer) streetViewContainer.style.display = full ? 'none' : 'block';
@@ -1084,7 +1053,6 @@ class AddStreetViewControl {
 
     deactivate = () => {
         this.isActive = false;
-        this.changeButtonColor()
 
         // Safe cursor reset with null check
         if (this.map?.getCanvas()) {

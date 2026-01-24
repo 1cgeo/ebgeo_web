@@ -59,33 +59,13 @@ class AddLOSControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl los-control controls-column-left';
-
-        const button = document.createElement('button');
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.setAttribute("id", "los-tool");
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_los_black.svg" alt="LOS" />';
-        button.title = 'Adicionar linha de visada (O)';
-        button.onclick = () => this.toolManager.setActiveTool(this);
-
-        this.container.appendChild(button);
         this.setupBaseEventListeners();
-        this.updateButtonAppearance();
-
-        return this.container;
     }
 
     onRemove = () => {
-        try {
-            this.selectionManager.uiManager.removeControl(this.container);
-            this.deactivate();
-            this.removeAllEventListeners();
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing AddLOSControl:', error);
-            throw error;
-        }
+        this.deactivate();
+        this.removeAllEventListeners();
+        this.map = undefined;
     }
 
     // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -245,7 +225,6 @@ class AddLOSControl extends BaseControl {
         this.startPoint = null;
         this.endPoint = null;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.updateButtonAppearance();
     }
 
     deactivate = () => {
@@ -254,27 +233,6 @@ class AddLOSControl extends BaseControl {
         this.endPoint = null;
         this.map.getCanvas().style.cursor = '';
         this.clearPreview();
-        this.updateButtonAppearance();
-    }
-
-    updateButtonAppearance = () => {
-        const terrainEnabled = this.geometry.isTerrainAvailable(this.map);
-        const btn = document.getElementById('los-tool');
-        if (!btn) return;
-
-        if (!terrainEnabled) {
-            this.container.classList.add('disabled');
-            this.container.querySelector('button').disabled = true;
-            btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_los_disabled.svg" alt="LOS DISABLED" />';
-        } else {
-            this.container.classList.remove('disabled');
-            this.container.querySelector('button').disabled = false;
-
-            const iconSrc = this.isActive ?
-                './images/icon_los_red.svg' :
-                './images/icon_los_black.svg';
-            btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="LOS" />`;
-        }
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

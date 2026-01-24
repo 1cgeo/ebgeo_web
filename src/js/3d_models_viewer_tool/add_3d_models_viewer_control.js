@@ -71,27 +71,9 @@ class Add3DModelsViewerControl {
      */
     onAdd(map) {
         this.map = map;
+        // UI is now handled by BottomControlsControl - return empty container
         this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group models3d-view-control controls-bottom-left';
-
-        const button = document.createElement('button');
-        button.setAttribute("id", "models3d-viewer-tool");
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.title = 'Visualizar modelos 3D';
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_3d_black.svg" />';
-        button.onclick = () => this.toolManager.toggleViewer(this);
-
-        this.container.appendChild(button);
-
-        const isMap3dEnabled = config.features?.map_3d ?? true;
-        const hasTilesets = config.hasTilesets();
-
-        if (!isMap3dEnabled || !hasTilesets) {
-            this.container.classList.add('disabled');
-            button.disabled = true;
-        }
-
-        this.changeButtonColor();
+        this.container.style.display = 'none';
         return this.container;
     }
 
@@ -99,16 +81,16 @@ class Add3DModelsViewerControl {
      * Called when control is removed from the map
      */
     onRemove() {
-        this.container.parentNode.removeChild(this.container);
+        if (this.container?.parentNode) {
+            this.container.parentNode.removeChild(this.container);
+        }
     }
 
     /**
      * Activate the 3D models viewer tool
      */
     async activate() {
-
         this.isActive = true;
-        this.changeButtonColor();
 
         // Ensure close button listener is registered
         this._ensureCloseButtonListener();
@@ -122,27 +104,13 @@ class Add3DModelsViewerControl {
      */
     deactivate() {
         this.isActive = false;
-        this.changeButtonColor();
         this.removePreviewPopup();
         this.hideMarkers();
-
-        // Note: Close button listener is kept attached (permanent registration)
 
         const map3dContainer = document.getElementById('map-3d-container');
         if (map3dContainer && map3dContainer.style.display !== 'none') {
             this.closeViewer();
         }
-    }
-
-    /**
-     * Update button icon based on active state
-     */
-    changeButtonColor() {
-        const iconSrc = this.isActive
-            ? './images/icon_3d_red.svg'
-            : './images/icon_3d_black.svg';
-        const btn = document.getElementById('models3d-viewer-tool');
-        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" />`;
     }
 
     /**
@@ -680,11 +648,9 @@ class Add3DModelsViewerControl {
      * @param {boolean} full - True for full map, false for split view
      */
     setFullMap(full) {
-        const topBar = document.getElementById('top-bar');
         const mapSig = document.getElementById('map-sig');
         const map3dContainer = document.getElementById('map-3d-container');
 
-        if (topBar) topBar.style.display = full ? 'flex' : 'none';
         if (mapSig) mapSig.style.display = full ? 'block' : 'none';
         if (map3dContainer) map3dContainer.style.display = full ? 'none' : 'block';
     }

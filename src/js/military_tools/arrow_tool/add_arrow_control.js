@@ -98,33 +98,12 @@ class AddArrowControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl arrow-control controls-column-right';
-
-        const button = document.createElement('button');
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.setAttribute("id", "arrow-tool");
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_arrow_black.svg" alt="ARROW" />';
-        button.title = 'Adicionar Seta (S)';
-        button.onclick = () => this.toolManager.setActiveTool(this);
-
-        this.container.appendChild(button);
-        this.setupBaseEventListeners();
-        this.updateButtonAppearance();
-
-        return this.container;
     }
 
     onRemove = () => {
-        try {
-            this.selectionManager.uiManager.removeControl(this.container);
-            this.deactivate();
-            this.removeAllEventListeners();
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing AddArrowControl:', error);
-            throw error;
-        }
+        this.deactivate();
+        this.removeAllEventListeners();
+        this.map = undefined;
     }
 
     // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -250,7 +229,6 @@ class AddArrowControl extends BaseControl {
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
         this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
-        this.updateButtonAppearance();
     }
 
     deactivate = () => {
@@ -258,17 +236,8 @@ class AddArrowControl extends BaseControl {
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
-        this.updateButtonAppearance();
         this.clearPreview();
         this.deselectFeature();
-    }
-
-    updateButtonAppearance = () => {
-        const iconSrc = this.isActive ?
-            './images/icon_arrow_red.svg' :
-            './images/icon_arrow_black.svg';
-        const btn = document.getElementById('arrow-tool');
-        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="ARROW" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

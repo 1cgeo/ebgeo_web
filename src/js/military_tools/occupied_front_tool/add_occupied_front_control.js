@@ -58,33 +58,12 @@ class AddOccupiedFrontControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl occupied-front-control controls-column-right';
-
-        const button = document.createElement('button');
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.setAttribute("id", "occupied-front-tool");
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_occupied_front_black.svg" alt="FRENTE OCUPADA" />';
-        button.title = 'Adicionar Frente Ocupada (F)';
-        button.onclick = () => this.toolManager.setActiveTool(this);
-
-        this.container.appendChild(button);
-        this.setupBaseEventListeners();
-        this.updateButtonAppearance();
-
-        return this.container;
     }
 
     onRemove = () => {
-        try {
-            this.selectionManager.uiManager.removeControl(this.container);
-            this.deactivate();
-            this.removeAllEventListeners();
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing AddOccupiedFrontControl:', error);
-            throw error;
-        }
+        this.deactivate();
+        this.removeAllEventListeners();
+        this.map = undefined;
     }
 
     // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -216,24 +195,14 @@ class AddOccupiedFrontControl extends BaseControl {
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.updateButtonAppearance();
     }
 
     deactivate = () => {
         this.isActive = false;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = '';
-        this.updateButtonAppearance();
         this.clearPreview();
         this.deselectFeature();
-    }
-
-    updateButtonAppearance = () => {
-        const iconSrc = this.isActive ?
-            './images/icon_occupied_front_red.svg' :
-            './images/icon_occupied_front_black.svg';
-        const btn = document.getElementById('occupied-front-tool');
-        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="FRENTE OCUPADA" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

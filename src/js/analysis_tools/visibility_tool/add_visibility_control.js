@@ -65,39 +65,19 @@ class AddVisibilityControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl visibility-control controls-column-left';
-
-        const button = document.createElement('button');
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.setAttribute("id", "visibility-tool");
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_visibility_black.svg" alt="VISIBILITY" />';
-        button.title = 'Adicionar análise de visibilidade (V)';
-        button.onclick = () => this.toolManager.setActiveTool(this);
-
-        this.container.appendChild(button);
         this.setupBaseEventListeners();
-        this.updateButtonAppearance();
         this.createProgressModal();
-
-        return this.container;
     }
 
     onRemove = () => {
-        try {
-            this.selectionManager.uiManager.removeControl(this.container);
-            this.deactivate();
-            this.removeAllEventListeners();
+        this.deactivate();
+        this.removeAllEventListeners();
 
-            if (this.progressModal && this.progressModal.parentNode) {
-                this.progressModal.parentNode.removeChild(this.progressModal);
-            }
-
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing AddVisibilityControl:', error);
-            throw error;
+        if (this.progressModal && this.progressModal.parentNode) {
+            this.progressModal.parentNode.removeChild(this.progressModal);
         }
+
+        this.map = undefined;
     }
 
     // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -237,7 +217,6 @@ class AddVisibilityControl extends BaseControl {
         this.isActive = true;
         this.startPoint = null;
         this.map.getCanvas().style.cursor = 'crosshair';
-        this.updateButtonAppearance();
     }
 
     deactivate = () => {
@@ -245,27 +224,6 @@ class AddVisibilityControl extends BaseControl {
         this.startPoint = null;
         this.map.getCanvas().style.cursor = '';
         this.clearPreview();
-        this.updateButtonAppearance();
-    }
-
-    updateButtonAppearance = () => {
-        const terrainEnabled = this.geometry.isTerrainAvailable(this.map);
-        const btn = document.getElementById('visibility-tool');
-        if (!btn) return;
-
-        if (!terrainEnabled) {
-            this.container.classList.add('disabled');
-            this.container.querySelector('button').disabled = true;
-            btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_visibility_disabled.svg" alt="VISIBILITY DISABLED" />';
-        } else {
-            this.container.classList.remove('disabled');
-            this.container.querySelector('button').disabled = false;
-
-            const iconSrc = this.isActive ?
-                './images/icon_visibility_red.svg' :
-                './images/icon_visibility_black.svg';
-            btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="VISIBILITY" />`;
-        }
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

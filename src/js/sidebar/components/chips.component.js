@@ -52,16 +52,12 @@ export class ChipsComponent {
      * @param {Object} dependencies.eventBus - EventBus instance
      * @param {Object} [dependencies.toolManager] - ToolManager instance (for catalog)
      * @param {Object} [dependencies.map] - MapLibre map instance (for catalog)
-     * @param {Object} [dependencies.keyboardShortcuts] - KeyboardShortcuts instance (for modal) - legacy
-     * @param {Object} [dependencies.suggestionsModal] - SuggestionsModal instance (for info modal) - legacy
      */
     constructor(dependencies) {
         this._stateManager = dependencies.stateManager;
         this._eventBus = dependencies.eventBus;
         this._toolManager = dependencies.toolManager || null;
         this._map = dependencies.map || null;
-        this._keyboardShortcuts = dependencies.keyboardShortcuts || null;
-        this._suggestionsModal = dependencies.suggestionsModal || null;
 
         this._container = null;
 
@@ -199,26 +195,14 @@ export class ChipsComponent {
     }
 
     /**
-     * Handles Info chip click - opens suggestions/info modal.
+     * Handles Info chip click - opens info modal.
      * @private
      */
     _handleInfoClick() {
-        // Use new modal if available
         if (this._infoModal) {
             this._infoModal.show();
-        } else if (this._suggestionsModal) {
-            // Legacy fallback
-            this._suggestionsModal.show();
         } else {
-            // Last resort fallback: try to find and show modal directly
-            const modal = document.getElementById('suggestions-modal');
-            if (modal) {
-                modal.style.display = 'block';
-                modal.setAttribute('aria-hidden', 'false');
-                document.body.style.overflow = 'hidden';
-            } else {
-                console.warn('Info modal not found');
-            }
+            console.warn('Info modal not found');
         }
     }
 
@@ -227,22 +211,10 @@ export class ChipsComponent {
      * @private
      */
     _handleShortcutsClick() {
-        // Use new modal if available
         if (this._shortcutsModal) {
             this._shortcutsModal.show();
-        } else if (this._keyboardShortcuts) {
-            // Legacy fallback
-            this._keyboardShortcuts.showModal();
         } else {
-            // Last resort fallback: try to find and show modal directly
-            const modal = document.getElementById('shortcuts-modal');
-            if (modal) {
-                modal.style.display = 'block';
-                modal.setAttribute('aria-hidden', 'false');
-                document.body.style.overflow = 'hidden';
-            } else {
-                console.warn('Shortcuts modal not found');
-            }
+            console.warn('Shortcuts modal not found');
         }
     }
 
@@ -273,22 +245,6 @@ export class ChipsComponent {
 
         this._container.dataset.sidebarState =
             (sidebarExpanded || featurePanelOpen) ? 'expanded' : 'collapsed';
-    }
-
-    /**
-     * Sets keyboard shortcuts instance for modal integration.
-     * @param {Object} keyboardShortcuts - KeyboardShortcuts instance
-     */
-    setKeyboardShortcuts(keyboardShortcuts) {
-        this._keyboardShortcuts = keyboardShortcuts;
-    }
-
-    /**
-     * Sets suggestions modal instance for modal integration.
-     * @param {Object} suggestionsModal - SuggestionsModal instance
-     */
-    setSuggestionsModal(suggestionsModal) {
-        this._suggestionsModal = suggestionsModal;
     }
 
     /**

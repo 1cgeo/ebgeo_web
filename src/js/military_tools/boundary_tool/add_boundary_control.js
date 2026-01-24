@@ -103,33 +103,12 @@ class AddBoundaryControl extends BaseControl {
 
     onAdd = (map) => {
         this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl boundary-control controls-column-right';
-
-        const button = document.createElement('button');
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.setAttribute("id", "boundary-tool");
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_boundary_black.svg" alt="BOUNDARY" />';
-        button.title = 'Adicionar Linha de Limite (D)';
-        button.onclick = () => this.toolManager.setActiveTool(this);
-
-        this.container.appendChild(button);
-        this.setupBaseEventListeners();
-        this.updateButtonAppearance();
-
-        return this.container;
     }
 
     onRemove = () => {
-        try {
-            this.selectionManager.uiManager.removeControl(this.container);
-            this.deactivate();
-            this.removeAllEventListeners();
-            this.map = undefined;
-        } catch (error) {
-            console.error('Error removing AddBoundaryControl:', error);
-            throw error;
-        }
+        this.deactivate();
+        this.removeAllEventListeners();
+        this.map = undefined;
     }
 
     // ===== TOOL-CENTRIC INTERFACE IMPLEMENTATIONS =====
@@ -274,7 +253,6 @@ class AddBoundaryControl extends BaseControl {
         this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = 'crosshair';
         this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
-        this.updateButtonAppearance();
     }
 
     deactivate = () => {
@@ -284,17 +262,8 @@ class AddBoundaryControl extends BaseControl {
         this.lastClickCoords = null;
         this.map.getCanvas().style.cursor = '';
         this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
-        this.updateButtonAppearance();
         this.clearPreview();
         this.deselectFeature();
-    }
-
-    updateButtonAppearance = () => {
-        const iconSrc = this.isActive ?
-            './images/icon_boundary_red.svg' :
-            './images/icon_boundary_black.svg';
-        const btn = document.getElementById('boundary-tool');
-        if (btn) btn.innerHTML = `<img class="icon-sig-tool" src="${iconSrc}" alt="BOUNDARY" />`;
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====

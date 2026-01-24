@@ -23,44 +23,6 @@ class VectorTileInfoControl {
 
     onAdd(map) {
         this.map = map;
-        this.container = document.createElement('div');
-        this.container.className = 'mapboxgl-ctrl-group mapboxgl-ctrl vector-info-control controls-column-left';
-
-        const button = document.createElement('button');
-        button.className = 'mapbox-gl-draw_ctrl-draw-btn';
-        button.setAttribute("id", "vector-tile-info-tool");
-        button.innerHTML = '<img class="icon-sig-tool" src="./images/icon_info_black.svg" alt="INFO" />';
-        button.title = 'Informação da carta (N)';
-        button.onclick = () => this.toolManager.setActiveTool(this);
-
-        this.container.appendChild(button);
-
-        const isEnabled = config.features?.vector_info ?? true;
-        if (!isEnabled) {
-            this.container.classList.add('disabled');
-            button.disabled = true;
-        }
-
-        this.changeButtonColor()
-
-        return this.container;
-    }
-
-    changeButtonColor = () => {
-        const isEnabled = config.features?.vector_info ?? true;
-        const btn = document.getElementById('vector-tile-info-tool');
-        if (!btn) return;
-
-        if (!isEnabled) {
-            setTimeout(() => {
-                btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_info_gray.svg" alt="INFO" />';
-            }, 10);
-            return;
-        }
-
-        btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_info_black.svg" alt="INFO" />';
-        if (!this.isActive) return;
-        btn.innerHTML = '<img class="icon-sig-tool" src="./images/icon_info_red.svg" alt="INFO" />';
     }
 
     onRemove() {
@@ -70,7 +32,6 @@ class VectorTileInfoControl {
             this.map.off('click', this.handleMapClickBound);
         }
 
-        this.container.parentNode.removeChild(this.container);
         this.map = undefined;
     }
 
@@ -95,8 +56,6 @@ class VectorTileInfoControl {
                 this._hideVectorTileSelectionMenu();
             }
         });
-
-        this.changeButtonColor()
     }
 
     deactivate() {
@@ -105,7 +64,6 @@ class VectorTileInfoControl {
 
         this.map.off('click', this.handleMapClickBound);
 
-        this.changeButtonColor()
         this.uiManager.saveChangesAndClosePanel();
     }
 

@@ -53,7 +53,7 @@
 
 /* Specific widths for different modal types */
 .shortcuts-modal-container {
-    max-width: 700px;
+    max-width: 720px;
 }
 
 .info-modal-container {
@@ -138,9 +138,9 @@
    ========================================================================= */
 
 .shortcuts-sections {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-5);
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-4);
 }
 
 .shortcuts-section {
@@ -153,7 +153,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: var(--space-3) var(--space-4);
+    padding: var(--space-2) var(--space-3);
     background: var(--gray-50);
     border-bottom: 1px solid var(--border-color);
 }
@@ -164,9 +164,14 @@
     color: var(--primary);
 }
 
+.shortcuts-section-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
 .shortcuts-section-title {
     margin: 0;
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
     color: var(--gray-800);
 }
@@ -179,8 +184,8 @@
 .shortcut-item {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
-    padding: var(--space-3) var(--space-4);
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--border-color);
 }
 
@@ -192,20 +197,23 @@
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    min-width: 100px;
+    flex-shrink: 0;
     font-family: 'SF Mono', Monaco, Consolas, monospace;
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-xs);
 }
 
 .shortcut-key span {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 4px 8px;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
     background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
     border: 1px solid var(--gray-300);
     border-radius: var(--radius-sm);
     font-weight: var(--font-weight-semibold);
+    font-size: 11px;
     color: var(--gray-700);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
@@ -213,12 +221,33 @@
 .key-separator {
     color: var(--gray-400);
     font-weight: normal;
-    padding: 0 2px;
+    padding: 0 1px;
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    min-width: auto !important;
+    height: auto !important;
+}
+
+.shortcut-tool-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--gray-500);
+}
+
+.shortcut-tool-icon svg {
+    width: 16px;
+    height: 16px;
 }
 
 .shortcut-description {
     color: var(--gray-600);
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* =========================================================================
@@ -386,14 +415,18 @@
         padding: var(--space-4);
     }
 
+    .shortcuts-sections {
+        grid-template-columns: 1fr;
+    }
+
     .shortcut-item {
-        flex-direction: column;
-        align-items: flex-start;
+        flex-direction: row;
+        align-items: center;
         gap: var(--space-2);
     }
 
-    .shortcut-key {
-        min-width: auto;
+    .shortcut-description {
+        white-space: normal;
     }
 
     .email-box {

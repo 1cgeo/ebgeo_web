@@ -6,6 +6,19 @@
  */
 
 import { ModalBase } from './modal.base.js';
+import { TOOLBAR_ICONS } from '../toolbar/toolbar.constants.js';
+
+/**
+ * SVG icons for shortcuts modal categories.
+ * Uses consistent icons from toolbar.
+ */
+const SHORTCUT_ICONS = {
+    system: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M6 8h.001"/><path d="M10 8h.001"/><path d="M14 8h.001"/><path d="M18 8h.001"/><path d="M8 12h.001"/><path d="M12 12h.001"/><path d="M16 12h.001"/><path d="M7 16h10"/></svg>`,
+    draw: TOOLBAR_ICONS.draw,
+    military: TOOLBAR_ICONS.military,
+    analysis: TOOLBAR_ICONS.analysis,
+    other: TOOLBAR_ICONS.featureInfo,
+};
 
 /**
  * Shortcuts data organized by category.
@@ -13,58 +26,57 @@ import { ModalBase } from './modal.base.js';
 const SHORTCUTS_DATA = {
     system: {
         title: 'Sistema',
-        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+        icon: SHORTCUT_ICONS.system,
         shortcuts: [
             { key: 'Delete', description: 'Deletar elementos selecionados' },
-            { key: 'Backspace', description: 'Deletar elementos selecionados' },
             { key: 'Escape', description: 'Desativar ferramenta / desselecionar' },
-            { key: 'Ctrl+Z', description: 'Desfazer ultima acao' },
-            { key: 'Ctrl+Y', description: 'Refazer ultima acao' },
+            { key: 'Ctrl+Z', description: 'Desfazer última ação' },
+            { key: 'Ctrl+Y', description: 'Refazer última ação' },
             { key: 'Ctrl+C', description: 'Copiar elementos selecionados' },
             { key: 'Ctrl+V', description: 'Colar elementos' },
             { key: 'Ctrl+S', description: 'Salvar notas do mapa' },
         ],
     },
     drawing: {
-        title: 'Ferramentas de Desenho',
-        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>`,
+        title: 'Desenho',
+        icon: SHORTCUT_ICONS.draw,
         shortcuts: [
-            { key: 'Q', description: 'Selecao retangular' },
-            { key: 'P', description: 'Ferramenta de ponto' },
-            { key: 'L', description: 'Ferramenta de linha' },
-            { key: 'A', description: 'Ferramenta de poligono' },
-            { key: 'R', description: 'Ferramenta de retangulo' },
-            { key: 'C', description: 'Ferramenta de circulo' },
-            { key: 'E', description: 'Ferramenta de elipse' },
-            { key: 'T', description: 'Ferramenta de texto' },
-            { key: 'I', description: 'Ferramenta de imagem' },
-            { key: 'B', description: 'Ferramenta de pincel' },
+            { key: 'Q', icon: TOOLBAR_ICONS.select, description: 'Seleção retangular' },
+            { key: 'P', icon: TOOLBAR_ICONS.point, description: 'Ponto' },
+            { key: 'L', icon: TOOLBAR_ICONS.line, description: 'Linha' },
+            { key: 'A', icon: TOOLBAR_ICONS.polygon, description: 'Polígono' },
+            { key: 'R', icon: TOOLBAR_ICONS.rectangle, description: 'Retângulo' },
+            { key: 'C', icon: TOOLBAR_ICONS.circle, description: 'Círculo' },
+            { key: 'E', icon: TOOLBAR_ICONS.ellipse, description: 'Elipse' },
+            { key: 'T', icon: TOOLBAR_ICONS.text, description: 'Texto' },
+            { key: 'I', icon: TOOLBAR_ICONS.image, description: 'Imagem' },
+            { key: 'B', icon: TOOLBAR_ICONS.brush, description: 'Pincel' },
         ],
     },
     military: {
-        title: 'Ferramentas Militares',
-        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`,
+        title: 'Militar',
+        icon: SHORTCUT_ICONS.military,
         shortcuts: [
-            { key: 'M', description: 'Simbolo militar' },
-            { key: 'K', description: 'Medidas de coordenacao' },
-            { key: 'S', description: 'Ferramenta de seta' },
-            { key: 'D', description: 'Ferramenta de fronteira' },
-            { key: 'F', description: 'Frente ocupada' },
+            { key: 'M', icon: TOOLBAR_ICONS.militarySymbol, description: 'Símbolo militar' },
+            { key: 'K', icon: TOOLBAR_ICONS.coordination, description: 'Medida de coordenação' },
+            { key: 'S', icon: TOOLBAR_ICONS.arrow, description: 'Seta' },
+            { key: 'D', icon: TOOLBAR_ICONS.boundary, description: 'Linha de limite' },
+            { key: 'F', icon: TOOLBAR_ICONS.occupiedFront, description: 'Frente ocupada' },
         ],
     },
     analysis: {
-        title: 'Analise (requer terreno)',
-        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>`,
+        title: 'Análise (requer terreno)',
+        icon: SHORTCUT_ICONS.analysis,
         shortcuts: [
-            { key: 'V', description: 'Analise de visibilidade' },
-            { key: 'O', description: 'Linha de visada' },
+            { key: 'V', icon: TOOLBAR_ICONS.visibility, description: 'Análise de visibilidade' },
+            { key: 'O', icon: TOOLBAR_ICONS.los, description: 'Linha de visada' },
         ],
     },
     other: {
-        title: 'Outras Ferramentas',
-        icon: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10"/><path d="M1 12h6m6 0h10"/></svg>`,
+        title: 'Outras',
+        icon: SHORTCUT_ICONS.other,
         shortcuts: [
-            { key: 'N', description: 'Informacoes da carta topografica' },
+            { key: 'N', icon: TOOLBAR_ICONS.featureInfo, description: 'Informações da carta' },
         ],
     },
 };
@@ -118,9 +130,11 @@ export class ShortcutsModal extends ModalBase {
             `;
 
             category.shortcuts.forEach(shortcut => {
+                const toolIcon = shortcut.icon ? `<span class="shortcut-tool-icon">${shortcut.icon}</span>` : '';
                 html += `
                     <div class="shortcut-item">
                         <kbd class="shortcut-key">${this._formatKey(shortcut.key)}</kbd>
+                        ${toolIcon}
                         <span class="shortcut-description">${shortcut.description}</span>
                     </div>
                 `;
