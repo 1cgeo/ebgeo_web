@@ -2,6 +2,7 @@
 
 import {
     createModernSlider,
+    createModernToggle,
     createModernButtons,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
@@ -74,8 +75,18 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         }
     }));
 
+    // Zoom correction toggle
+    panel.appendChild(createModernToggle({
+        label: 'Correção de Zoom',
+        checked: feature.properties.zoomCorrectionEnabled !== false,
+        onChange: (enabled) => {
+            imageControl.updateFeaturesProperty(selectedFeatures, 'zoomCorrectionEnabled', enabled);
+            zoomSlider.style.display = enabled ? '' : 'none';
+        }
+    }));
+
     // Reference zoom slider
-    panel.appendChild(createModernSlider({
+    const zoomSlider = createModernSlider({
         label: 'Zoom de Referência',
         min: 1,
         max: 21,
@@ -86,7 +97,13 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
             const roundedValue = Math.round(parseFloat(value) * 10) / 10;
             imageControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
         }
-    }));
+    });
+
+    if (feature.properties.zoomCorrectionEnabled === false) {
+        zoomSlider.style.display = 'none';
+    }
+
+    panel.appendChild(zoomSlider);
 
     // Rotation slider
     panel.appendChild(createModernSlider({

@@ -44,6 +44,7 @@ class AddCoordinationMeasureControl extends BaseControl {
 
     createdAtZoom: 0,
     calculatedSize: 1.0,
+    zoomCorrectionEnabled: true,
     selectionBox: null,
 
     source: "coordination_measure",
@@ -143,6 +144,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       return { geometry: feature.properties.selectionBox };
     }
 
+    const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
     const selectionBox = this.geometry.calculateSelectionBoxGeometry(
       feature.geometry.coordinates,
       feature.properties.width,
@@ -151,7 +153,8 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.rotation,
       feature.properties.createdAtZoom,
       this.selectionManager.uiManager,
-      feature.properties.anchor
+      feature.properties.anchor,
+      effectiveZoom
     );
 
     return { geometry: selectionBox };
@@ -192,6 +195,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       oldCoordinates[1] + offset.dy,
     ];
 
+    const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
       newCoordinates,
       feature.properties.width,
@@ -200,7 +204,8 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.rotation,
       feature.properties.createdAtZoom,
       this.selectionManager.uiManager,
-      feature.properties.anchor
+      feature.properties.anchor,
+      effectiveZoom
     );
 
     return {
@@ -221,6 +226,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   updateFeatureForMove(feature, dx, dy, newCoords) {
     const newCoordinates = [newCoords.lng, newCoords.lat];
 
+    const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
       newCoordinates,
       feature.properties.width,
@@ -229,7 +235,8 @@ class AddCoordinationMeasureControl extends BaseControl {
       feature.properties.rotation,
       feature.properties.createdAtZoom,
       this.selectionManager.uiManager,
-      feature.properties.anchor
+      feature.properties.anchor,
+      effectiveZoom
     );
 
     const updatedFeature = {
@@ -313,6 +320,7 @@ class AddCoordinationMeasureControl extends BaseControl {
         );
 
         if (currentSourceFeature) {
+          const effectiveZoom = currentSourceFeature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
           const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
             currentSourceFeature.geometry.coordinates,
             currentSourceFeature.properties.width,
@@ -321,7 +329,8 @@ class AddCoordinationMeasureControl extends BaseControl {
             currentSourceFeature.properties.rotation,
             currentSourceFeature.properties.createdAtZoom,
             this.selectionManager.uiManager,
-            currentSourceFeature.properties.anchor
+            currentSourceFeature.properties.anchor,
+            effectiveZoom
           );
 
           currentSourceFeature.properties.selectionBox = newSelectionBox;
@@ -565,6 +574,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       if (sourceFeature) {
+        const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
         const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
           sourceFeature.geometry.coordinates,
           result.width,
@@ -573,7 +583,8 @@ class AddCoordinationMeasureControl extends BaseControl {
           feature.properties.rotation,
           feature.properties.createdAtZoom,
           this.selectionManager.uiManager,
-          result.anchor
+          result.anchor,
+          effectiveZoom
         );
 
         feature.properties.selectionBox = newSelectionBox;
@@ -647,6 +658,7 @@ class AddCoordinationMeasureControl extends BaseControl {
       );
 
       if (sourceFeature) {
+        const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
         const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
           sourceFeature.geometry.coordinates,
           result.width,
@@ -655,7 +667,8 @@ class AddCoordinationMeasureControl extends BaseControl {
           feature.properties.rotation,
           feature.properties.createdAtZoom,
           this.selectionManager.uiManager,
-          result.anchor
+          result.anchor,
+          effectiveZoom
         );
 
         feature.properties.selectionBox = newSelectionBox;
@@ -728,6 +741,18 @@ class AddCoordinationMeasureControl extends BaseControl {
 
     const currentZoom = this.map.getZoom();
     return features.map((feature) => {
+      const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
+
+      if (!isEnabled) {
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            calculatedSize: feature.properties.size
+          }
+        };
+      }
+
       const zoomDifference = currentZoom - feature.properties.createdAtZoom;
       const scaleFactor = Math.pow(2, zoomDifference);
       const newCalculatedSize = Math.min(
@@ -756,12 +781,33 @@ class AddCoordinationMeasureControl extends BaseControl {
     let hasChanges = false;
 
     data.features.forEach((feature) => {
-      const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-      const scaleFactor = Math.pow(2, zoomDifference);
-      const newCalculatedSize = Math.min(
-        feature.properties.size * scaleFactor,
-        10
-      );
+      let newCalculatedSize;
+
+      if (feature.properties.zoomCorrectionEnabled === false) {
+        newCalculatedSize = feature.properties.size;
+
+        // Recalculate selection box for features with zoom correction disabled
+        const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+          feature.geometry.coordinates,
+          feature.properties.width,
+          feature.properties.height,
+          feature.properties.size,
+          feature.properties.rotation,
+          feature.properties.createdAtZoom,
+          this.selectionManager.uiManager,
+          feature.properties.anchor,
+          currentZoom
+        );
+        feature.properties.selectionBox = newSelectionBox;
+        hasChanges = true;
+      } else {
+        const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+        const scaleFactor = Math.pow(2, zoomDifference);
+        newCalculatedSize = Math.min(
+          feature.properties.size * scaleFactor,
+          10
+        );
+      }
 
       if (feature.properties.calculatedSize !== newCalculatedSize) {
         feature.properties.calculatedSize = newCalculatedSize;
@@ -771,6 +817,28 @@ class AddCoordinationMeasureControl extends BaseControl {
 
     if (hasChanges) {
       this.map.getSource("coordination_measures").setData(data);
+
+      // Update SelectionManager with fresh features that have updated selectionBox
+      const selectedFeatures = this.getSelectedFeatures();
+      const featuresWithDisabledZoomCorrection = selectedFeatures.filter(
+        f => f.properties.zoomCorrectionEnabled === false
+      );
+      if (featuresWithDisabledZoomCorrection.length > 0) {
+        featuresWithDisabledZoomCorrection.forEach(selectedFeature => {
+          const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
+          if (freshFeature) {
+            this.selectionManager.updateSelectedFeature('coordination_measure', freshFeature.properties.id, freshFeature);
+            // Invalidate cache for this feature
+            if (this.selectionManager.uiManager.invalidateCache) {
+              this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
+            }
+          }
+        });
+        // Update selection highlight
+        if (this.selectionManager.uiManager.updateSelectionHighlight) {
+          this.selectionManager.uiManager.updateSelectionHighlight();
+        }
+      }
     }
 
     this.pendingZoomUpdate = false;
@@ -819,21 +887,36 @@ class AddCoordinationMeasureControl extends BaseControl {
         sourceFeature.properties[property] = value;
         feature.properties[property] = value;
 
-        if (property === "createdAtZoom") {
+        if (property === "zoomCorrectionEnabled") {
+          let newCalculatedSize;
+          if (value === false) {
+            newCalculatedSize = sourceFeature.properties.size;
+          } else {
+            const currentZoom = this.map.getZoom();
+            const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
+          }
+          sourceFeature.properties.calculatedSize = newCalculatedSize;
+          feature.properties.calculatedSize = newCalculatedSize;
+        } else if (property === "createdAtZoom") {
           const roundedValue = Math.round(value * 10) / 10;
           sourceFeature.properties[property] = roundedValue;
           feature.properties[property] = roundedValue;
 
-          const currentZoom = this.map.getZoom();
-          const zoomDifference = currentZoom - roundedValue;
-          const scaleFactor = Math.pow(2, zoomDifference);
+          // Only recalculate if zoom correction is enabled
+          if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
+            const currentZoom = this.map.getZoom();
+            const zoomDifference = currentZoom - roundedValue;
+            const scaleFactor = Math.pow(2, zoomDifference);
 
-          const newCalculatedSize = Math.min(
-            sourceFeature.properties.size * scaleFactor,
-            10
-          );
-          sourceFeature.properties.calculatedSize = newCalculatedSize;
-          feature.properties.calculatedSize = newCalculatedSize;
+            const newCalculatedSize = Math.min(
+              sourceFeature.properties.size * scaleFactor,
+              10
+            );
+            sourceFeature.properties.calculatedSize = newCalculatedSize;
+            feature.properties.calculatedSize = newCalculatedSize;
+          }
         } else {
           const needsRegeneration =
             this.geometry.affectsSIDC(property) ||
@@ -848,23 +931,31 @@ class AddCoordinationMeasureControl extends BaseControl {
             }
           }
 
-          const currentZoom = this.map.getZoom();
-          const zoomDifference =
-            currentZoom - sourceFeature.properties.createdAtZoom;
-          const scaleFactor = Math.pow(2, zoomDifference);
-          sourceFeature.properties.calculatedSize = Math.min(
-            sourceFeature.properties.size * scaleFactor,
-            10
-          );
-          feature.properties.calculatedSize =
-            sourceFeature.properties.calculatedSize;
+          // Recalculate respecting zoom correction toggle
+          if (sourceFeature.properties.zoomCorrectionEnabled === false) {
+            sourceFeature.properties.calculatedSize = sourceFeature.properties.size;
+            feature.properties.calculatedSize = sourceFeature.properties.size;
+          } else {
+            const currentZoom = this.map.getZoom();
+            const zoomDifference =
+              currentZoom - sourceFeature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            sourceFeature.properties.calculatedSize = Math.min(
+              sourceFeature.properties.size * scaleFactor,
+              10
+            );
+            feature.properties.calculatedSize =
+              sourceFeature.properties.calculatedSize;
+          }
         }
 
         if (
           this.geometry.affectsVisuals(property) ||
-          property === "createdAtZoom"
+          property === "createdAtZoom" ||
+          property === "zoomCorrectionEnabled"
         ) {
           const currentCoordinates = sourceFeature.geometry.coordinates;
+          const effectiveZoom = sourceFeature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
           const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
             currentCoordinates,
             sourceFeature.properties.width,
@@ -873,7 +964,8 @@ class AddCoordinationMeasureControl extends BaseControl {
             sourceFeature.properties.rotation,
             sourceFeature.properties.createdAtZoom,
             this.selectionManager.uiManager,
-            sourceFeature.properties.anchor
+            sourceFeature.properties.anchor,
+            effectiveZoom
           );
 
           sourceFeature.properties.selectionBox = newSelectionBox;
@@ -892,7 +984,8 @@ class AddCoordinationMeasureControl extends BaseControl {
     this.updateSelectionManagerFeatures(freshFeatures);
     if (
       this.geometry.affectsVisuals(property) ||
-      property === "createdAtZoom"
+      property === "createdAtZoom" ||
+      property === "zoomCorrectionEnabled"
     ) {
       requestAnimationFrame(() => {
         if (this.selectionManager.uiManager.updateSelectionHighlight) {
@@ -924,14 +1017,19 @@ class AddCoordinationMeasureControl extends BaseControl {
   ) => {
     const zoom = currentZoom || this.map.getZoom();
 
-    const zoomDifference = zoom - feature.properties.createdAtZoom;
-    const scaleFactor = Math.pow(2, zoomDifference);
-    feature.properties.calculatedSize = Math.min(
-      feature.properties.size * scaleFactor,
-      10
-    );
+    if (feature.properties.zoomCorrectionEnabled === false) {
+      feature.properties.calculatedSize = feature.properties.size;
+    } else {
+      const zoomDifference = zoom - feature.properties.createdAtZoom;
+      const scaleFactor = Math.pow(2, zoomDifference);
+      feature.properties.calculatedSize = Math.min(
+        feature.properties.size * scaleFactor,
+        10
+      );
+    }
 
     if (forceRecalculateSelectionBox && !this.isSourceUpdateBlocked()) {
+      const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? zoom : null;
       feature.properties.selectionBox =
         this.geometry.calculateSelectionBoxGeometry(
           feature.geometry.coordinates,
@@ -941,7 +1039,8 @@ class AddCoordinationMeasureControl extends BaseControl {
           feature.properties.rotation,
           feature.properties.createdAtZoom,
           this.selectionManager.uiManager,
-          feature.properties.anchor
+          feature.properties.anchor,
+          effectiveZoom
         );
     }
 

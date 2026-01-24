@@ -3,6 +3,7 @@
 import {
     createModernSlider,
     createModernColorPicker,
+    createModernToggle,
     createModernButtons,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
@@ -84,8 +85,8 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
         }
     }));
 
-    // Reference zoom slider
-    panel.appendChild(createModernSlider({
+    // Reference zoom slider (created first so toggle can reference it)
+    const zoomSlider = createModernSlider({
         label: 'Zoom de Referência',
         min: 1,
         max: 21,
@@ -96,7 +97,24 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
             const roundedValue = Math.round(parseFloat(value) * 10) / 10;
             brushControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
         }
+    });
+
+    if (feature.properties.zoomCorrectionEnabled === false) {
+        zoomSlider.style.display = 'none';
+    }
+
+    // Zoom correction toggle (added to panel first)
+    panel.appendChild(createModernToggle({
+        label: 'Correção de Zoom',
+        checked: feature.properties.zoomCorrectionEnabled !== false,
+        onChange: (enabled) => {
+            brushControl.updateFeaturesProperty(selectedFeatures, 'zoomCorrectionEnabled', enabled);
+            zoomSlider.style.display = enabled ? '' : 'none';
+        }
     }));
+
+    // Now add the zoom slider after the toggle
+    panel.appendChild(zoomSlider);
 
     // Action buttons
     panel.appendChild(createModernButtons({

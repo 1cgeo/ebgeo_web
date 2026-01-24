@@ -62,9 +62,10 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
      * @param {number} createdAtZoom - Zoom level when symbol was created
      * @param {Object} uiManager - UI manager for utility functions
      * @param {string} anchor - Icon anchor position (default: 'center')
+     * @param {number} [effectiveZoom] - Optional zoom to use for calculations (overrides createdAtZoom when zoom correction is disabled)
      * @returns {Object} GeoJSON Polygon geometry for selection box
      */
-    calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager, anchor = 'center') {
+    calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager, anchor = 'center', effectiveZoom = null) {
         const scaledWidth = width * size * 0.5;
         const scaledHeight = height * size * 0.5;
 
@@ -72,15 +73,16 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
         const padding = 5;
 
         const centerLat = coordinates[1];
+        const zoomForCalculation = effectiveZoom !== null ? effectiveZoom : createdAtZoom;
         const widthDegrees = uiManager.pixelsToDegrees(
             expandedDimensions.width + (padding * 2),
             centerLat,
-            createdAtZoom
+            zoomForCalculation
         );
         const heightDegrees = uiManager.pixelsToDegrees(
             expandedDimensions.height + (padding * 2),
             centerLat,
-            createdAtZoom
+            zoomForCalculation
         );
 
         const adjustedCoordinates = [...coordinates];
@@ -89,7 +91,7 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
             const heightOffsetDegrees = uiManager.pixelsToDegrees(
                 scaledHeight / 2,
                 centerLat,
-                createdAtZoom
+                zoomForCalculation
             );
 
             if (anchor.includes('bottom')) {
@@ -144,9 +146,11 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
      * Recalculate selection box for feature
      * @param {Object} feature - Coordination measure feature
      * @param {Object} uiManager - UI manager instance
+     * @param {number} [currentZoom] - Current map zoom (used when zoom correction is disabled)
      * @returns {Object} Updated selection box geometry
      */
-    recalculateSelectionBox(feature, uiManager) {
+    recalculateSelectionBox(feature, uiManager, currentZoom = null) {
+        const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? currentZoom : null;
         return this.calculateSelectionBoxGeometry(
             feature.geometry.coordinates,
             feature.properties.width,
@@ -154,7 +158,9 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
             feature.properties.size,
             feature.properties.rotation,
             feature.properties.createdAtZoom,
-            uiManager
+            uiManager,
+            feature.properties.anchor || 'center',
+            effectiveZoom
         );
     }
 

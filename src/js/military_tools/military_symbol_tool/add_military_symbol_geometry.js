@@ -61,9 +61,10 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      * @param {number} rotation - Rotation in degrees
      * @param {number} createdAtZoom - Zoom level when symbol was created
      * @param {Object} uiManager - UI manager for utility functions
+     * @param {number} [effectiveZoom] - Optional zoom to use for calculations (overrides createdAtZoom when zoom correction is disabled)
      * @returns {Object} GeoJSON Polygon geometry for selection box
      */
-    calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager) {
+    calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager, effectiveZoom = null) {
         const scaledWidth = width * size * 0.5;
         const scaledHeight = height * size * 0.5;
 
@@ -71,15 +72,16 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
         const padding = 5;
 
         const centerLat = coordinates[1];
+        const zoomForCalculation = effectiveZoom !== null ? effectiveZoom : createdAtZoom;
         const widthDegrees = uiManager.pixelsToDegrees(
             expandedDimensions.width + (padding * 2),
             centerLat,
-            createdAtZoom
+            zoomForCalculation
         );
         const heightDegrees = uiManager.pixelsToDegrees(
             expandedDimensions.height + (padding * 2),
             centerLat,
-            createdAtZoom
+            zoomForCalculation
         );
 
         return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
@@ -127,9 +129,11 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      * Recalculate selection box for feature
      * @param {Object} feature - Military symbol feature
      * @param {Object} uiManager - UI manager instance
+     * @param {number} [currentZoom] - Current map zoom (used when zoom correction is disabled)
      * @returns {Object} Updated selection box geometry
      */
-    recalculateSelectionBox(feature, uiManager) {
+    recalculateSelectionBox(feature, uiManager, currentZoom = null) {
+        const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? currentZoom : null;
         return this.calculateSelectionBoxGeometry(
             feature.geometry.coordinates,
             feature.properties.width,
@@ -137,7 +141,8 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
             feature.properties.size,
             feature.properties.rotation,
             feature.properties.createdAtZoom,
-            uiManager
+            uiManager,
+            effectiveZoom
         );
     }
 

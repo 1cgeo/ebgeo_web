@@ -14,6 +14,7 @@ class AddTextControl extends BaseControl {
 
         this.zoomRafId = null;
         this.pendingZoomUpdate = false;
+        this.zoomCorrectionEnabled = true;
         this._name = 'AddTextControl';
     }
 
@@ -36,6 +37,7 @@ class AddTextControl extends BaseControl {
 
         createdAtZoom: 0,
         calculatedSize: 16,
+        zoomCorrectionEnabled: true,
         selectionBox: null,
 
         nome: '',
@@ -114,6 +116,7 @@ class AddTextControl extends BaseControl {
             return { geometry: feature.properties.selectionBox };
         }
 
+        const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
         const selectionBox = this.geometry.calculateSelectionBoxGeometry(
             feature.geometry.coordinates,
             feature.properties.text,
@@ -122,7 +125,8 @@ class AddTextControl extends BaseControl {
             feature.properties.createdAtZoom,
             this.selectionManager.uiManager,
             feature.properties.showBackground,
-            feature.properties.backgroundBorderWidth
+            feature.properties.backgroundBorderWidth,
+            effectiveZoom
         );
 
         return { geometry: selectionBox };
@@ -160,6 +164,7 @@ class AddTextControl extends BaseControl {
         const oldCoordinates = feature.geometry.coordinates;
         const newCoordinates = [oldCoordinates[0] + offset.dx, oldCoordinates[1] + offset.dy];
 
+        const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
         const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
             newCoordinates,
             feature.properties.text,
@@ -168,7 +173,8 @@ class AddTextControl extends BaseControl {
             feature.properties.createdAtZoom,
             this.selectionManager.uiManager,
             feature.properties.showBackground,
-            feature.properties.backgroundBorderWidth
+            feature.properties.backgroundBorderWidth,
+            effectiveZoom
         );
 
         return {
@@ -192,6 +198,7 @@ class AddTextControl extends BaseControl {
     updateFeatureForMove(feature, dx, dy, newCoords) {
         const newCoordinates = [newCoords.lng, newCoords.lat];
 
+        const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
         const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
             newCoordinates,
             feature.properties.text,
@@ -200,7 +207,8 @@ class AddTextControl extends BaseControl {
             feature.properties.createdAtZoom,
             this.selectionManager.uiManager,
             feature.properties.showBackground,
-            feature.properties.backgroundBorderWidth
+            feature.properties.backgroundBorderWidth,
+            effectiveZoom
         );
 
         const updatedFeature = {
@@ -284,6 +292,7 @@ class AddTextControl extends BaseControl {
                 );
 
                 if (currentSourceFeature) {
+                    const effectiveZoom = currentSourceFeature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
                     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
                         currentSourceFeature.geometry.coordinates,
                         currentSourceFeature.properties.text,
@@ -292,7 +301,8 @@ class AddTextControl extends BaseControl {
                         currentSourceFeature.properties.createdAtZoom,
                         this.selectionManager.uiManager,
                         currentSourceFeature.properties.showBackground,
-                        currentSourceFeature.properties.backgroundBorderWidth
+                        currentSourceFeature.properties.backgroundBorderWidth,
+                        effectiveZoom
                     );
 
                     currentSourceFeature.properties.selectionBox = newSelectionBox;
@@ -405,6 +415,18 @@ class AddTextControl extends BaseControl {
     applyZoomCorrections = (features) => {
         const currentZoom = this.map.getZoom();
         return features.map(feature => {
+            const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
+
+            if (!isEnabled) {
+                return {
+                    ...feature,
+                    properties: {
+                        ...feature.properties,
+                        calculatedSize: feature.properties.size
+                    }
+                };
+            }
+
             const zoomDifference = currentZoom - feature.properties.createdAtZoom;
             const scaleFactor = Math.pow(2, zoomDifference);
             const newCalculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
@@ -428,11 +450,33 @@ class AddTextControl extends BaseControl {
         const currentZoom = this.map.getZoom();
         const data = await this.map.getSource('texts').getData();
         let hasChanges = false;
+        let hasSelectionBoxChanges = false;
 
         data.features.forEach(feature => {
-            const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-            const scaleFactor = Math.pow(2, zoomDifference);
-            const newCalculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
+            let newCalculatedSize;
+
+            if (feature.properties.zoomCorrectionEnabled === false) {
+                newCalculatedSize = feature.properties.size;
+
+                // Recalculate selection box for features with zoom correction disabled
+                const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+                    feature.geometry.coordinates,
+                    feature.properties.text,
+                    feature.properties.size,
+                    feature.properties.rotation,
+                    feature.properties.createdAtZoom,
+                    this.selectionManager.uiManager,
+                    feature.properties.showBackground,
+                    feature.properties.backgroundBorderWidth,
+                    currentZoom
+                );
+                feature.properties.selectionBox = newSelectionBox;
+                hasSelectionBoxChanges = true;
+            } else {
+                const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+                const scaleFactor = Math.pow(2, zoomDifference);
+                newCalculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
+            }
 
             if (feature.properties.calculatedSize !== newCalculatedSize) {
                 feature.properties.calculatedSize = newCalculatedSize;
@@ -440,8 +484,32 @@ class AddTextControl extends BaseControl {
             }
         });
 
-        if (hasChanges) {
+        if (hasChanges || hasSelectionBoxChanges) {
             this.map.getSource('texts').setData(data);
+
+            // Update text backgrounds if any selection boxes changed
+            if (hasSelectionBoxChanges) {
+                await this.updateTextBackgroundsSource();
+
+                // Update SelectionManager with fresh features that have updated selectionBox
+                const selectedFeatures = this.getSelectedFeatures();
+                if (selectedFeatures.length > 0) {
+                    selectedFeatures.forEach(selectedFeature => {
+                        const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
+                        if (freshFeature) {
+                            this.selectionManager.updateSelectedFeature('text', freshFeature.properties.id, freshFeature);
+                            // Invalidate cache for this feature
+                            if (this.selectionManager.uiManager.invalidateCache) {
+                                this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
+                            }
+                        }
+                    });
+                    // Update selection highlight
+                    if (this.selectionManager.uiManager.updateSelectionHighlight) {
+                        this.selectionManager.uiManager.updateSelectionHighlight();
+                    }
+                }
+            }
         }
 
         this.pendingZoomUpdate = false;
@@ -527,7 +595,8 @@ class AddTextControl extends BaseControl {
             'backgroundFillColor', 'backgroundFillOpacity',
             'backgroundBorderColor', 'backgroundBorderOpacity',
             'visivel',
-            'createdAtZoom'
+            'createdAtZoom',
+            'zoomCorrectionEnabled'
         ];
         return backgroundAffectingProperties.includes(property);
     }
@@ -543,29 +612,50 @@ class AddTextControl extends BaseControl {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
 
-                if (property === 'createdAtZoom') {
+                if (property === 'zoomCorrectionEnabled') {
+                    let newCalculatedSize;
+                    if (value === false) {
+                        newCalculatedSize = sourceFeature.properties.size;
+                    } else {
+                        const currentZoom = this.map.getZoom();
+                        const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
+                        const scaleFactor = Math.pow(2, zoomDifference);
+                        newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
+                    }
+                    sourceFeature.properties.calculatedSize = newCalculatedSize;
+                    feature.properties.calculatedSize = newCalculatedSize;
+                } else if (property === 'createdAtZoom') {
                     const roundedValue = Math.round(value * 10) / 10;
                     sourceFeature.properties[property] = roundedValue;
                     feature.properties[property] = roundedValue;
 
-                    const currentZoom = this.map.getZoom();
-                    const zoomDifference = currentZoom - roundedValue;
-                    const scaleFactor = Math.pow(2, zoomDifference);
-
-                    const newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
-                    sourceFeature.properties.calculatedSize = newCalculatedSize;
-                    feature.properties.calculatedSize = newCalculatedSize;
+                    // Only recalculate if zoom correction is enabled
+                    if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
+                        const currentZoom = this.map.getZoom();
+                        const zoomDifference = currentZoom - roundedValue;
+                        const scaleFactor = Math.pow(2, zoomDifference);
+                        const newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
+                        sourceFeature.properties.calculatedSize = newCalculatedSize;
+                        feature.properties.calculatedSize = newCalculatedSize;
+                    }
                 } else {
-                    const currentZoom = this.map.getZoom();
-                    const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
-                    const scaleFactor = Math.pow(2, zoomDifference);
-                    sourceFeature.properties.calculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
-                    feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
+                    // For other properties, recalculate only if zoom correction is enabled
+                    if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
+                        const currentZoom = this.map.getZoom();
+                        const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
+                        const scaleFactor = Math.pow(2, zoomDifference);
+                        sourceFeature.properties.calculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 255);
+                        feature.properties.calculatedSize = sourceFeature.properties.calculatedSize;
+                    } else {
+                        sourceFeature.properties.calculatedSize = sourceFeature.properties.size;
+                        feature.properties.calculatedSize = sourceFeature.properties.size;
+                    }
                 }
 
-                const visualProperties = ['text', 'size', 'rotation', 'showBackground', 'backgroundBorderWidth'];
+                const visualProperties = ['text', 'size', 'rotation', 'showBackground', 'backgroundBorderWidth', 'zoomCorrectionEnabled'];
                 if (visualProperties.includes(property) || property === 'createdAtZoom') {
                     const currentCoordinates = sourceFeature.geometry.coordinates;
+                    const effectiveZoom = sourceFeature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
                     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
                         currentCoordinates,
                         sourceFeature.properties.text,
@@ -574,7 +664,8 @@ class AddTextControl extends BaseControl {
                         sourceFeature.properties.createdAtZoom,
                         this.selectionManager.uiManager,
                         sourceFeature.properties.showBackground,
-                        sourceFeature.properties.backgroundBorderWidth
+                        sourceFeature.properties.backgroundBorderWidth,
+                        effectiveZoom
                     );
 
                     sourceFeature.properties.selectionBox = newSelectionBox;
@@ -596,7 +687,7 @@ class AddTextControl extends BaseControl {
 
         this.updateSelectionManagerFeatures(freshFeatures);
 
-        const visualProperties = ['text', 'size', 'rotation', 'showBackground', 'backgroundBorderWidth'];
+        const visualProperties = ['text', 'size', 'rotation', 'showBackground', 'backgroundBorderWidth', 'zoomCorrectionEnabled'];
         if (visualProperties.includes(property) || property === 'createdAtZoom') {
             requestAnimationFrame(() => {
                 if (this.selectionManager.uiManager.updateSelectionHighlight) {
@@ -629,11 +720,16 @@ class AddTextControl extends BaseControl {
     ensureFeatureConsistency = (feature, currentZoom = null, forceRecalculateSelectionBox = false) => {
         const zoom = currentZoom || this.map.getZoom();
 
-        const zoomDifference = zoom - feature.properties.createdAtZoom;
-        const scaleFactor = Math.pow(2, zoomDifference);
-        feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
+        if (feature.properties.zoomCorrectionEnabled === false) {
+            feature.properties.calculatedSize = feature.properties.size;
+        } else {
+            const zoomDifference = zoom - feature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
+        }
 
         if (forceRecalculateSelectionBox && !this.isSourceUpdateBlocked()) {
+            const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? zoom : null;
             feature.properties.selectionBox = this.geometry.calculateSelectionBoxGeometry(
                 feature.geometry.coordinates,
                 feature.properties.text,
@@ -642,7 +738,8 @@ class AddTextControl extends BaseControl {
                 feature.properties.createdAtZoom,
                 this.selectionManager.uiManager,
                 feature.properties.showBackground,
-                feature.properties.backgroundBorderWidth
+                feature.properties.backgroundBorderWidth,
+                effectiveZoom
             );
         }
 

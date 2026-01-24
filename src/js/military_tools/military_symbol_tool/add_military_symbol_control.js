@@ -59,6 +59,7 @@ class AddMilitarySymbolControl extends BaseControl {
     // Zoom-invariant properties
     createdAtZoom: 0,
     calculatedSize: 1.0,
+    zoomCorrectionEnabled: true,
     selectionBox: null, // Pre-calculated GeoJSON Polygon geometry
 
     // Standard properties
@@ -168,6 +169,7 @@ class AddMilitarySymbolControl extends BaseControl {
     }
 
     // Fallback: calculate on demand if missing
+    const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
     const selectionBox = this.geometry.calculateSelectionBoxGeometry(
       feature.geometry.coordinates,
       feature.properties.width,
@@ -175,7 +177,8 @@ class AddMilitarySymbolControl extends BaseControl {
       feature.properties.size,
       feature.properties.rotation,
       feature.properties.createdAtZoom,
-      this.selectionManager.uiManager
+      this.selectionManager.uiManager,
+      effectiveZoom
     );
 
     return { geometry: selectionBox };
@@ -217,6 +220,7 @@ class AddMilitarySymbolControl extends BaseControl {
     ];
 
     // Recalculate selection box for new position
+    const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
       newCoordinates,
       feature.properties.width,
@@ -224,7 +228,8 @@ class AddMilitarySymbolControl extends BaseControl {
       feature.properties.size,
       feature.properties.rotation,
       feature.properties.createdAtZoom,
-      this.selectionManager.uiManager
+      this.selectionManager.uiManager,
+      effectiveZoom
     );
 
     return {
@@ -246,6 +251,7 @@ class AddMilitarySymbolControl extends BaseControl {
     const newCoordinates = [newCoords.lng, newCoords.lat];
 
     // Recalculate selection box for new position
+    const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
     const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
       newCoordinates,
       feature.properties.width,
@@ -253,7 +259,8 @@ class AddMilitarySymbolControl extends BaseControl {
       feature.properties.size,
       feature.properties.rotation,
       feature.properties.createdAtZoom,
-      this.selectionManager.uiManager
+      this.selectionManager.uiManager,
+      effectiveZoom
     );
 
     const updatedFeature = {
@@ -341,6 +348,7 @@ class AddMilitarySymbolControl extends BaseControl {
 
         if (currentSourceFeature) {
           // Recalculate selection box using CURRENT coordinates from map source
+          const effectiveZoom = currentSourceFeature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
           const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
             currentSourceFeature.geometry.coordinates, // Use fresh coordinates from map
             currentSourceFeature.properties.width,
@@ -348,7 +356,8 @@ class AddMilitarySymbolControl extends BaseControl {
             currentSourceFeature.properties.size,
             currentSourceFeature.properties.rotation,
             currentSourceFeature.properties.createdAtZoom,
-            this.selectionManager.uiManager
+            this.selectionManager.uiManager,
+            effectiveZoom
           );
 
           // Update selection box in source feature
@@ -707,6 +716,18 @@ class AddMilitarySymbolControl extends BaseControl {
   applyZoomCorrections = (features) => {
     const currentZoom = this.map.getZoom();
     return features.map((feature) => {
+      const isEnabled = feature.properties.zoomCorrectionEnabled !== false;
+
+      if (!isEnabled) {
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            calculatedSize: feature.properties.size
+          }
+        };
+      }
+
       const zoomDifference = currentZoom - feature.properties.createdAtZoom;
       const scaleFactor = Math.pow(2, zoomDifference);
       const newCalculatedSize = Math.min(
@@ -735,12 +756,32 @@ class AddMilitarySymbolControl extends BaseControl {
     let hasChanges = false;
 
     data.features.forEach((feature) => {
-      const zoomDifference = currentZoom - feature.properties.createdAtZoom;
-      const scaleFactor = Math.pow(2, zoomDifference);
-      const newCalculatedSize = Math.min(
-        feature.properties.size * scaleFactor,
-        10
-      );
+      let newCalculatedSize;
+
+      if (feature.properties.zoomCorrectionEnabled === false) {
+        newCalculatedSize = feature.properties.size;
+
+        // Recalculate selection box for features with zoom correction disabled
+        const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
+          feature.geometry.coordinates,
+          feature.properties.width,
+          feature.properties.height,
+          feature.properties.size,
+          feature.properties.rotation,
+          feature.properties.createdAtZoom,
+          this.selectionManager.uiManager,
+          currentZoom
+        );
+        feature.properties.selectionBox = newSelectionBox;
+        hasChanges = true;
+      } else {
+        const zoomDifference = currentZoom - feature.properties.createdAtZoom;
+        const scaleFactor = Math.pow(2, zoomDifference);
+        newCalculatedSize = Math.min(
+          feature.properties.size * scaleFactor,
+          10
+        );
+      }
 
       if (feature.properties.calculatedSize !== newCalculatedSize) {
         feature.properties.calculatedSize = newCalculatedSize;
@@ -750,6 +791,28 @@ class AddMilitarySymbolControl extends BaseControl {
 
     if (hasChanges) {
       this.map.getSource("military_symbols").setData(data);
+
+      // Update SelectionManager with fresh features that have updated selectionBox
+      const selectedFeatures = this.getSelectedFeatures();
+      const featuresWithDisabledZoomCorrection = selectedFeatures.filter(
+        f => f.properties.zoomCorrectionEnabled === false
+      );
+      if (featuresWithDisabledZoomCorrection.length > 0) {
+        featuresWithDisabledZoomCorrection.forEach(selectedFeature => {
+          const freshFeature = data.features.find(f => f.properties.id === selectedFeature.properties.id);
+          if (freshFeature) {
+            this.selectionManager.updateSelectedFeature('military_symbol', freshFeature.properties.id, freshFeature);
+            // Invalidate cache for this feature
+            if (this.selectionManager.uiManager.invalidateCache) {
+              this.selectionManager.uiManager.invalidateCache(freshFeature.properties.id);
+            }
+          }
+        });
+        // Update selection highlight
+        if (this.selectionManager.uiManager.updateSelectionHighlight) {
+          this.selectionManager.uiManager.updateSelectionHighlight();
+        }
+      }
     }
 
     this.pendingZoomUpdate = false;
@@ -836,22 +899,39 @@ class AddMilitarySymbolControl extends BaseControl {
           }
         }
 
+        // Special handling for zoomCorrectionEnabled
+        if (property === "zoomCorrectionEnabled") {
+          let newCalculatedSize;
+          if (value === false) {
+            newCalculatedSize = sourceFeature.properties.size;
+          } else {
+            const currentZoom = this.map.getZoom();
+            const zoomDifference = currentZoom - sourceFeature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            newCalculatedSize = Math.min(sourceFeature.properties.size * scaleFactor, 10);
+          }
+          sourceFeature.properties.calculatedSize = newCalculatedSize;
+          feature.properties.calculatedSize = newCalculatedSize;
+        }
         // Special handling for createdAtZoom
-        if (property === "createdAtZoom") {
+        else if (property === "createdAtZoom") {
           const roundedValue = Math.round(value * 10) / 10;
           sourceFeature.properties[property] = roundedValue;
           feature.properties[property] = roundedValue;
 
-          const currentZoom = this.map.getZoom();
-          const zoomDifference = currentZoom - roundedValue;
-          const scaleFactor = Math.pow(2, zoomDifference);
+          // Only recalculate if zoom correction is enabled
+          if (sourceFeature.properties.zoomCorrectionEnabled !== false) {
+            const currentZoom = this.map.getZoom();
+            const zoomDifference = currentZoom - roundedValue;
+            const scaleFactor = Math.pow(2, zoomDifference);
 
-          const newCalculatedSize = Math.min(
-            sourceFeature.properties.size * scaleFactor,
-            10
-          );
-          sourceFeature.properties.calculatedSize = newCalculatedSize;
-          feature.properties.calculatedSize = newCalculatedSize;
+            const newCalculatedSize = Math.min(
+              sourceFeature.properties.size * scaleFactor,
+              10
+            );
+            sourceFeature.properties.calculatedSize = newCalculatedSize;
+            feature.properties.calculatedSize = newCalculatedSize;
+          }
         } else {
           const needsRegeneration =
             this.geometry.affectsSIDC(property) ||
@@ -878,25 +958,32 @@ class AddMilitarySymbolControl extends BaseControl {
             }
           }
 
-          // Update calculatedSize for consistency
-          const currentZoom = this.map.getZoom();
-          const zoomDifference =
-            currentZoom - sourceFeature.properties.createdAtZoom;
-          const scaleFactor = Math.pow(2, zoomDifference);
-          sourceFeature.properties.calculatedSize = Math.min(
-            sourceFeature.properties.size * scaleFactor,
-            10
-          );
-          feature.properties.calculatedSize =
-            sourceFeature.properties.calculatedSize;
+          // Update calculatedSize for consistency (respecting zoom correction toggle)
+          if (sourceFeature.properties.zoomCorrectionEnabled === false) {
+            sourceFeature.properties.calculatedSize = sourceFeature.properties.size;
+            feature.properties.calculatedSize = sourceFeature.properties.size;
+          } else {
+            const currentZoom = this.map.getZoom();
+            const zoomDifference =
+              currentZoom - sourceFeature.properties.createdAtZoom;
+            const scaleFactor = Math.pow(2, zoomDifference);
+            sourceFeature.properties.calculatedSize = Math.min(
+              sourceFeature.properties.size * scaleFactor,
+              10
+            );
+            feature.properties.calculatedSize =
+              sourceFeature.properties.calculatedSize;
+          }
         }
 
         // For visual properties, recalculate selection box using CURRENT geometry
         if (
           this.geometry.affectsVisuals(property) ||
-          property === "createdAtZoom"
+          property === "createdAtZoom" ||
+          property === "zoomCorrectionEnabled"
         ) {
           const currentCoordinates = sourceFeature.geometry.coordinates;
+          const effectiveZoom = sourceFeature.properties.zoomCorrectionEnabled === false ? this.map.getZoom() : null;
           const newSelectionBox = this.geometry.calculateSelectionBoxGeometry(
             currentCoordinates,
             sourceFeature.properties.width,
@@ -904,7 +991,8 @@ class AddMilitarySymbolControl extends BaseControl {
             sourceFeature.properties.size,
             sourceFeature.properties.rotation,
             sourceFeature.properties.createdAtZoom,
-            this.selectionManager.uiManager
+            this.selectionManager.uiManager,
+            effectiveZoom
           );
 
           sourceFeature.properties.selectionBox = newSelectionBox;
@@ -923,7 +1011,8 @@ class AddMilitarySymbolControl extends BaseControl {
     this.updateSelectionManagerFeatures(freshFeatures);
     if (
       this.geometry.affectsVisuals(property) ||
-      property === "createdAtZoom"
+      property === "createdAtZoom" ||
+      property === "zoomCorrectionEnabled"
     ) {
       requestAnimationFrame(() => {
         if (this.selectionManager.uiManager.updateSelectionHighlight) {
@@ -955,16 +1044,21 @@ class AddMilitarySymbolControl extends BaseControl {
   ) => {
     const zoom = currentZoom || this.map.getZoom();
 
-    // Always recalculate calculatedSize based on current zoom
-    const zoomDifference = zoom - feature.properties.createdAtZoom;
-    const scaleFactor = Math.pow(2, zoomDifference);
-    feature.properties.calculatedSize = Math.min(
-      feature.properties.size * scaleFactor,
-      10
-    );
+    // Recalculate calculatedSize based on zoom correction setting
+    if (feature.properties.zoomCorrectionEnabled === false) {
+      feature.properties.calculatedSize = feature.properties.size;
+    } else {
+      const zoomDifference = zoom - feature.properties.createdAtZoom;
+      const scaleFactor = Math.pow(2, zoomDifference);
+      feature.properties.calculatedSize = Math.min(
+        feature.properties.size * scaleFactor,
+        10
+      );
+    }
 
     // Only recalculate selection box if explicitly requested and not during drag
     if (forceRecalculateSelectionBox && !this.isSourceUpdateBlocked()) {
+      const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? zoom : null;
       feature.properties.selectionBox =
         this.geometry.calculateSelectionBoxGeometry(
           feature.geometry.coordinates,
@@ -973,7 +1067,8 @@ class AddMilitarySymbolControl extends BaseControl {
           feature.properties.size, // Use original size, not calculatedSize
           feature.properties.rotation,
           feature.properties.createdAtZoom, // CRUCIAL: creation zoom
-          this.selectionManager.uiManager
+          this.selectionManager.uiManager,
+          effectiveZoom
         );
     }
 

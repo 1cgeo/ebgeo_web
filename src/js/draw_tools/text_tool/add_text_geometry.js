@@ -124,9 +124,10 @@ class AddTextGeometry extends BaseGeometry {
      * @param {Object} uiManager - UI manager for utility functions
      * @param {boolean} showBackground - Whether background box is shown
      * @param {number} backgroundBorderWidth - Border width in pixels (if background is shown)
+     * @param {number} [effectiveZoom] - Optional zoom to use for calculations (overrides createdAtZoom when zoom correction is disabled)
      * @returns {Object} GeoJSON Polygon geometry for selection box
      */
-    calculateSelectionBoxGeometry(coordinates, text, size, rotation, createdAtZoom, uiManager, showBackground = false, backgroundBorderWidth = 1) {
+    calculateSelectionBoxGeometry(coordinates, text, size, rotation, createdAtZoom, uiManager, showBackground = false, backgroundBorderWidth = 1, effectiveZoom = null) {
         const { width, height } = this.measureTextSize(text, size, 'Arial');
 
         let padding = 5;
@@ -138,15 +139,16 @@ class AddTextGeometry extends BaseGeometry {
         const expandedDimensions = uiManager.calculateExpandedDimensions(width, height, rotation);
 
         const centerLat = coordinates[1];
+        const zoomForCalculation = effectiveZoom !== null ? effectiveZoom : createdAtZoom;
         const widthDegrees = uiManager.pixelsToDegrees(
             expandedDimensions.width + (padding * 2),
             centerLat,
-            createdAtZoom
+            zoomForCalculation
         );
         const heightDegrees = uiManager.pixelsToDegrees(
             expandedDimensions.height + (padding * 2),
             centerLat,
-            createdAtZoom
+            zoomForCalculation
         );
 
         return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
@@ -194,9 +196,11 @@ class AddTextGeometry extends BaseGeometry {
      * Recalculate selection box for feature
      * @param {Object} feature - Text feature
      * @param {Object} uiManager - UI manager instance
+     * @param {number} [currentZoom] - Current map zoom (used when zoom correction is disabled)
      * @returns {Object} Updated selection box geometry
      */
-    recalculateSelectionBox(feature, uiManager) {
+    recalculateSelectionBox(feature, uiManager, currentZoom = null) {
+        const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? currentZoom : null;
         return this.calculateSelectionBoxGeometry(
             feature.geometry.coordinates,
             feature.properties.text,
@@ -205,7 +209,8 @@ class AddTextGeometry extends BaseGeometry {
             feature.properties.createdAtZoom,
             uiManager,
             feature.properties.showBackground,
-            feature.properties.backgroundBorderWidth
+            feature.properties.backgroundBorderWidth,
+            effectiveZoom
         );
     }
 

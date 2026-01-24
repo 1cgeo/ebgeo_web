@@ -7,6 +7,7 @@
 
 import {
     createModernSlider,
+    createModernToggle,
     createModernButtons,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
@@ -113,8 +114,18 @@ export function addCoordinationMeasureAttributesToPanel(
         }
     }));
 
+    // Zoom correction toggle
+    panel.appendChild(createModernToggle({
+        label: 'Correção de Zoom',
+        checked: feature.properties.zoomCorrectionEnabled !== false,
+        onChange: (enabled) => {
+            coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'zoomCorrectionEnabled', enabled);
+            zoomSlider.style.display = enabled ? '' : 'none';
+        }
+    }));
+
     // Reference zoom slider
-    panel.appendChild(createModernSlider({
+    const zoomSlider = createModernSlider({
         label: 'Zoom de Referência',
         min: 1,
         max: 21,
@@ -125,7 +136,13 @@ export function addCoordinationMeasureAttributesToPanel(
             const roundedValue = Math.round(parseFloat(value) * 10) / 10;
             coordinationMeasureControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
         }
-    }));
+    });
+
+    if (feature.properties.zoomCorrectionEnabled === false) {
+        zoomSlider.style.display = 'none';
+    }
+
+    panel.appendChild(zoomSlider);
 
     // Opacity slider
     panel.appendChild(createModernSlider({

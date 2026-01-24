@@ -99,9 +99,10 @@ class AddImageGeometry extends BaseGeometry {
      * @param {number} rotation - Rotation in degrees
      * @param {number} createdAtZoom - Zoom level when image was created
      * @param {Object} uiManager - UI manager for utility functions
+     * @param {number} [effectiveZoom] - Optional zoom to use for calculations (overrides createdAtZoom when zoom correction is disabled)
      * @returns {Object} GeoJSON Polygon geometry for selection box
      */
-    calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager) {
+    calculateSelectionBoxGeometry(coordinates, width, height, size, rotation, createdAtZoom, uiManager, effectiveZoom = null) {
         const scaledWidth = width * size * 0.625;
         const scaledHeight = height * size * 0.625;
 
@@ -109,15 +110,16 @@ class AddImageGeometry extends BaseGeometry {
         const padding = 5;
 
         const centerLat = coordinates[1];
+        const zoomForCalculation = effectiveZoom !== null ? effectiveZoom : createdAtZoom;
         const widthDegrees = uiManager.pixelsToDegrees(
             expandedDimensions.width + (padding * 2),
             centerLat,
-            createdAtZoom
+            zoomForCalculation
         );
         const heightDegrees = uiManager.pixelsToDegrees(
             expandedDimensions.height + (padding * 2),
             centerLat,
-            createdAtZoom
+            zoomForCalculation
         );
 
         return this.createSelectionBoxFromDegrees(coordinates, widthDegrees, heightDegrees);
@@ -165,9 +167,11 @@ class AddImageGeometry extends BaseGeometry {
      * Recalculate selection box for feature
      * @param {Object} feature - Image feature
      * @param {Object} uiManager - UI manager instance
+     * @param {number} [currentZoom] - Current map zoom (used when zoom correction is disabled)
      * @returns {Object} Updated selection box geometry
      */
-    recalculateSelectionBox(feature, uiManager) {
+    recalculateSelectionBox(feature, uiManager, currentZoom = null) {
+        const effectiveZoom = feature.properties.zoomCorrectionEnabled === false ? currentZoom : null;
         return this.calculateSelectionBoxGeometry(
             feature.geometry.coordinates,
             feature.properties.width,
@@ -175,7 +179,8 @@ class AddImageGeometry extends BaseGeometry {
             feature.properties.size,
             feature.properties.rotation,
             feature.properties.createdAtZoom,
-            uiManager
+            uiManager,
+            effectiveZoom
         );
     }
 

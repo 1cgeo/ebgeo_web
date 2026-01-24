@@ -134,8 +134,18 @@ function buildTextTabContent(container, feature, selectedFeatures, textControl, 
         }
     }));
 
+    // Zoom correction toggle
+    container.appendChild(createModernToggle({
+        label: 'Correção de Zoom',
+        checked: feature.properties.zoomCorrectionEnabled !== false,
+        onChange: (enabled) => {
+            textControl.updateFeaturesProperty(selectedFeatures, 'zoomCorrectionEnabled', enabled);
+            zoomSlider.style.display = enabled ? '' : 'none';
+        }
+    }));
+
     // Reference zoom slider
-    container.appendChild(createModernSlider({
+    const zoomSlider = createModernSlider({
         label: 'Zoom de Referência',
         min: 1,
         max: 21,
@@ -146,7 +156,13 @@ function buildTextTabContent(container, feature, selectedFeatures, textControl, 
             const roundedValue = Math.round(parseFloat(value) * 10) / 10;
             textControl.updateFeaturesProperty(selectedFeatures, 'createdAtZoom', roundedValue);
         }
-    }));
+    });
+
+    if (feature.properties.zoomCorrectionEnabled === false) {
+        zoomSlider.style.display = 'none';
+    }
+
+    container.appendChild(zoomSlider);
 
     // Text color picker
     container.appendChild(createModernColorPicker({
