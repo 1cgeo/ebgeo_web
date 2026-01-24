@@ -774,6 +774,28 @@ class AddBoundaryGeometry extends BaseGeometry {
             !isNaN(coord[1])
         );
     }
+
+    /**
+     * Remove vertex at specific index
+     * @param {Array} coordinates - Current coordinates
+     * @param {number} index - Index to remove
+     * @returns {Array|null} New coordinates or null if invalid
+     */
+    removeVertexAtIndex(coordinates, index) {
+        if (!coordinates || index < 0 || index >= coordinates.length) {
+            return null;
+        }
+
+        const newCoordinates = [...coordinates];
+        newCoordinates.splice(index, 1);
+
+        // Boundaries must have at least 2 vertices
+        if (newCoordinates.length < 2) {
+            return null;
+        }
+
+        return newCoordinates;
+    }
 }
 
 export default AddBoundaryGeometry;

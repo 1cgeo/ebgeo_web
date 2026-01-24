@@ -541,6 +541,7 @@ class AddBoundaryControl extends BaseControl {
         this.createEditHandles(feature);
         this.setupEditEventListeners();
         this.setupHoverListeners();
+        this.setupEditRightClickListener();
     }
 
     deselectFeature = () => {
@@ -550,6 +551,7 @@ class AddBoundaryControl extends BaseControl {
         this.clearEditHandles();
         this.removeEditEventListeners();
         this.removeHoverListeners();
+        this.removeEditRightClickListener();
         this.cancelPendingUpdates();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
@@ -595,6 +597,9 @@ class AddBoundaryControl extends BaseControl {
     }
 
     onEditMouseDown = (e) => {
+        // Ignore right-click (button 2) - handled by handleEditRightClick
+        if (e.originalEvent && e.originalEvent.button === 2) return;
+
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
@@ -708,6 +713,137 @@ class AddBoundaryControl extends BaseControl {
 
     removeHoverListeners = () => {
         this.map.off('mousemove', this.onHoverMove);
+    }
+
+    // ===== EDIT MODE RIGHT-CLICK (VERTEX REMOVAL) =====
+
+    setupEditRightClickListener = () => {
+        // Use capture phase to intercept before context menu control
+        this.map.getCanvas().addEventListener('contextmenu', this.handleEditRightClick, true);
+    }
+
+    removeEditRightClickListener = () => {
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleEditRightClick, true);
+    }
+
+    /**
+     * Handle right-click during edit mode to remove vertices
+     * @param {MouseEvent} e - Right-click event
+     */
+    handleEditRightClick = async (e) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature) return;
+
+        // Get the point from mouse coordinates
+        const point = [e.offsetX, e.offsetY];
+
+        // Query for vertex handles at click point
+        const handleFeatures = this.map.queryRenderedFeatures(point, {
+            layers: ['boundary-handles-layer']
+        });
+
+        // Find if we clicked on a vertex handle (not midpoint or other handle types)
+        // Boundary uses 'type' property instead of 'handleType'
+        const vertexHandle = handleFeatures.find(f =>
+            f.properties.type === 'vertex' &&
+            f.properties.user_isEditingHandle
+        );
+
+        if (!vertexHandle) return;
+
+        // Prevent context menu from appearing - must be done before any async operation
+        e.preventDefault();
+        e.stopPropagation();
+
+        const vertexIndex = vertexHandle.properties.index;
+        const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
+
+        // Check if we can remove (boundaries must have more than 2 vertices)
+        if (!coordinates || coordinates.length <= 2) {
+            this.showVertexRemovalWarning();
+            return;
+        }
+
+        // Remove the vertex
+        const newCoordinates = this.geometry.removeVertexAtIndex(coordinates, vertexIndex);
+        if (!newCoordinates) {
+            return;
+        }
+
+        // Update the feature
+        const updatedProperties = {
+            ...selectedFeature.properties,
+            baseCoordinates: newCoordinates
+        };
+
+        const updatedFeature = {
+            ...selectedFeature,
+            properties: updatedProperties,
+            geometry: this.geometry.generate(updatedProperties)
+        };
+
+        // Apply updates
+        await this.forceUpdateMainSource(updatedFeature);
+        this.updateSelectionManagerFeature(updatedFeature);
+        await this.updateDependentFeatures(updatedFeature);
+        this.createEditHandles(updatedFeature);
+        this.updateUIAfterEdit();
+        this.saveFeatureChanges(updatedFeature);
+    }
+
+    /**
+     * Show warning when vertex cannot be removed
+     */
+    showVertexRemovalWarning() {
+        // Remove existing warning if any
+        const existingWarning = document.querySelector('.vertex-removal-warning');
+        if (existingWarning) {
+            existingWarning.remove();
+        }
+
+        const warning = document.createElement('div');
+        warning.className = 'vertex-removal-warning';
+        warning.textContent = 'Linha de limite deve ter no mínimo 2 vértices';
+        warning.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #f44336;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+            animation: fadeInOut 2s ease-in-out forwards;
+        `;
+
+        // Add animation style if not exists
+        if (!document.querySelector('#vertex-warning-style')) {
+            const style = document.createElement('style');
+            style.id = 'vertex-warning-style';
+            style.textContent = `
+                @keyframes fadeInOut {
+                    0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+                    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                    85% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                    100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        document.body.appendChild(warning);
+
+        // Remove after animation
+        setTimeout(() => {
+            if (warning.parentNode) {
+                warning.remove();
+            }
+        }, 2000);
     }
 
     onHoverMove = (e) => {
@@ -996,6 +1132,7 @@ class AddBoundaryControl extends BaseControl {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.removeHoverListeners();
+        this.removeEditRightClickListener();
         this.cancelPendingUpdates();
     }
 }

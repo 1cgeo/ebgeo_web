@@ -30,7 +30,7 @@ export class CatalogModal extends ModalBase {
     constructor(dependencies) {
         super({
             id: 'catalog-modal',
-            title: 'Catalogo',
+            title: 'Catálogo',
             icon: CATALOG_MODAL_ICON
         });
 

@@ -6,14 +6,14 @@ const config = {
   // ===== APPLICATION SETTINGS =====
   app: {
     title: "EBGeo",        // Título exibido na interface
-    subtitle: "",          // Subtítulo da aplicação
+    subtitle: "",          // Subtítulo da aplicação #DEPRECATED
     tutorialUrl: './docs/doc.html'  // URL do tutorial (abre em nova janela)
   },
 
   features: {
     map_3d: true,                 // Habilita/desabilita visualizador 3D
     imagens_panoramicas: true,    // Habilita/desabilita street view control
-    vector_info: true,           // Habilita/desabilita vector info control
+    vector_info: false,           // Habilita/desabilita vector info control
     grid: false,               // Habilita/desabilita grid
     frame: false,               // Habilita/desabilita moldura
   },
@@ -154,7 +154,7 @@ const config = {
     maxPitch: 65,            // Inclinação máxima da câmera (0-60 graus)
 
     // Modo Globo
-    globe_projection:false,
+    globe_projection:true,
 
     // Configurações avançadas de carregamento de tiles
     sourceTileLodParams: [5, 6.0],  // [threshold, factor] para otimização de tiles

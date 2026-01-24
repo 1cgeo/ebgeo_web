@@ -599,6 +599,28 @@ class AddArrowGeometry extends BaseGeometry {
             return [0, 0, 0, 0];
         }
     }
+
+    /**
+     * Remove vertex at specific index
+     * @param {Array} coordinates - Current coordinates
+     * @param {number} index - Index to remove
+     * @returns {Array|null} New coordinates or null if invalid
+     */
+    removeVertexAtIndex(coordinates, index) {
+        if (!coordinates || index < 0 || index >= coordinates.length) {
+            return null;
+        }
+
+        const newCoordinates = [...coordinates];
+        newCoordinates.splice(index, 1);
+
+        // Arrows must have at least 2 vertices
+        if (newCoordinates.length < 2) {
+            return null;
+        }
+
+        return newCoordinates;
+    }
 }
 
 export default AddArrowGeometry;
