@@ -2,6 +2,7 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
+import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addRectangleAttributesToPanel } from './rectangle_attributes_panel.js';
 import AddRectangleGeometry from './add_rectangle_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
@@ -25,6 +26,14 @@ class AddRectangleControl extends BaseControl {
         // Track current mouse position for accurate capture
         this.currentMousePosition = null;
         this.hatchGenerator = new HatchPatternGenerator();
+
+        // Pointer event state for edit handles
+        this._activePointerId = null;
+
+        // Bind pointer event handlers
+        this._onEditPointerDown = this._onEditPointerDown.bind(this);
+        this._onEditPointerMove = this._onEditPointerMove.bind(this);
+        this._onEditPointerUp = this._onEditPointerUp.bind(this);
     }
 
     static DEFAULT_PROPERTIES = {
@@ -565,22 +574,38 @@ class AddRectangleControl extends BaseControl {
     }
 
     setupEditEventListeners = () => {
-        this.map.on('mousedown', this.onEditMouseDown);
-        this.map.on('mousemove', this.onEditMouseMove);
-        this.map.on('mouseup', this.onEditMouseUp);
+        const canvas = this.map.getCanvasContainer();
+        canvas.addEventListener('pointerdown', this._onEditPointerDown);
     }
 
     removeEditEventListeners = () => {
-        this.map.off('mousedown', this.onEditMouseDown);
-        this.map.off('mousemove', this.onEditMouseMove);
-        this.map.off('mouseup', this.onEditMouseUp);
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('pointerdown', this._onEditPointerDown);
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
+
+        // Release any captured pointer
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
     }
 
-    onEditMouseDown = (e) => {
+    _onEditPointerDown(e) {
+        if (!e.isPrimary) return; // Only handle primary pointer
+
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const handleFeatures = this.map.queryRenderedFeatures(e.point, {
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+
+        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
             layers: ['rectangle-edit-handles-layer']
         });
 
@@ -593,7 +618,18 @@ class AddRectangleControl extends BaseControl {
             const cursor = this.getCursorForHandleType(this.activeHandleType);
             this.map.getCanvas().style.cursor = cursor;
 
-            this.currentMousePosition = [e.lngLat.lng, e.lngLat.lat];
+            const lngLat = this.map.unproject([point.x, point.y]);
+            this.currentMousePosition = [lngLat.lng, lngLat.lat];
+
+            // Capture pointer for reliable tracking
+            this._activePointerId = e.pointerId;
+            canvas.setPointerCapture(e.pointerId);
+
+            // Add move/up listeners only when dragging starts
+            canvas.addEventListener('pointermove', this._onEditPointerMove);
+            canvas.addEventListener('pointerup', this._onEditPointerUp);
+            canvas.addEventListener('pointercancel', this._onEditPointerUp);
+
             e.preventDefault();
         }
     }
@@ -616,11 +652,17 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
-    onEditMouseMove = (e) => {
+    _onEditPointerMove(e) {
+        if (!e.isPrimary) return;
+
         const selectedFeature = this.getSelectedFeature();
         if (!this.isDraggingHandle || !selectedFeature) return;
 
-        this.currentMousePosition = [e.lngLat.lng, e.lngLat.lat];
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+        const lngLat = this.map.unproject([point.x, point.y]);
+
+        this.currentMousePosition = [lngLat.lng, lngLat.lat];
         this.lastPreviewPosition = this.currentMousePosition;
 
         if (!this.pendingPreviewUpdate) {
@@ -629,10 +671,27 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
-    onEditMouseUp = async (e) => {
+    _onEditPointerUp = async (e) => {
+        const canvas = this.map.getCanvasContainer();
+
+        // Remove move/up listeners
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
+
+        // Release pointer capture
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
+
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature) {
-            const finalMousePosition = [e.lngLat.lng, e.lngLat.lat];
+            const finalMousePosition = this.currentMousePosition;
 
             if (finalMousePosition && this.activeHandleType) {
                 const result = this.geometry.updateFromHandle(

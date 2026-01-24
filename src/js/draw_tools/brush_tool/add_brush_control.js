@@ -2,6 +2,7 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
+import { getPointerPosition, preventDefaultGestures, restoreDefaultGestures } from '../../utilities/pointer-utils';
 import { addBrushAttributesToPanel } from './brush_attributes_panel.js';
 import AddBrushGeometry from './add_brush_geometry.js';
 import { BaseControl } from '../../tool_manager';
@@ -27,6 +28,15 @@ class AddBrushControl extends BaseControl {
         this.pendingZoomUpdate = false;
         this.zoomCorrectionEnabled = true;
         this._name = 'AddBrushControl';
+
+        // Pointer event state
+        this._activePointerId = null;
+
+        // Bind pointer event handlers
+        this._onPointerDown = this._onPointerDown.bind(this);
+        this._onPointerMove = this._onPointerMove.bind(this);
+        this._onPointerUp = this._onPointerUp.bind(this);
+        this._onPointerLeave = this._onPointerLeave.bind(this);
     }
 
     static DEFAULT_PROPERTIES = {
@@ -239,41 +249,90 @@ class AddBrushControl extends BaseControl {
     handleMapClick = (e) => {
     }
 
+    /**
+     * Setup drawing event listeners using pointer events for unified mouse/touch
+     */
     setupDrawingEventListeners = () => {
-        this.map.on('mousedown', this.onMouseDown);
-        this.map.on('mousemove', this.onMouseMove);
-        this.map.on('mouseup', this.onMouseUp);
-        this.map.getCanvas().addEventListener('mouseleave', this.onMouseLeave);
+        const canvas = this.map.getCanvasContainer();
+
+        // Prevent default touch gestures during drawing
+        preventDefaultGestures(canvas);
+
+        canvas.addEventListener('pointerdown', this._onPointerDown);
+        canvas.addEventListener('pointermove', this._onPointerMove);
+        canvas.addEventListener('pointerup', this._onPointerUp);
+        canvas.addEventListener('pointerleave', this._onPointerLeave);
+        canvas.addEventListener('pointercancel', this._onPointerUp);
     }
 
+    /**
+     * Remove drawing event listeners
+     */
     removeDrawingEventListeners = () => {
-        this.map.off('mousedown', this.onMouseDown);
-        this.map.off('mousemove', this.onMouseMove);
-        this.map.off('mouseup', this.onMouseUp);
-        this.map.getCanvas().removeEventListener('mouseleave', this.onMouseLeave);
+        const canvas = this.map.getCanvasContainer();
+
+        restoreDefaultGestures(canvas);
+
+        canvas.removeEventListener('pointerdown', this._onPointerDown);
+        canvas.removeEventListener('pointermove', this._onPointerMove);
+        canvas.removeEventListener('pointerup', this._onPointerUp);
+        canvas.removeEventListener('pointerleave', this._onPointerLeave);
+        canvas.removeEventListener('pointercancel', this._onPointerUp);
+
+        // Release any captured pointer
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
     }
 
-    onMouseDown = (e) => {
+    /**
+     * Handle pointer down - start drawing
+     * @param {PointerEvent} e
+     */
+    _onPointerDown(e) {
         if (!this.isActive) return;
+        if (!e.isPrimary) return; // Only handle primary pointer
+
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+        const lngLat = this.map.unproject([point.x, point.y]);
 
         this.isDrawing = true;
-        this.points = [[e.lngLat.lng, e.lngLat.lat]];
-        this.lastPixelPoint = e.point;
+        this.points = [[lngLat.lng, lngLat.lat]];
+        this.lastPixelPoint = point;
         this.map.dragPan.disable();
         this.map.getCanvas().style.cursor = 'crosshair';
+
+        // Capture pointer for reliable tracking
+        this._activePointerId = e.pointerId;
+        canvas.setPointerCapture(e.pointerId);
 
         e.preventDefault();
     }
 
-    onMouseMove = (e) => {
+    /**
+     * Handle pointer move - add points while drawing
+     * @param {PointerEvent} e
+     */
+    _onPointerMove(e) {
         if (!this.isActive || !this.isDrawing) return;
+        if (!e.isPrimary) return;
 
-        if (!this.geometry.isPixelDistanceSufficient(this.lastPixelPoint, e.point)) {
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+
+        if (!this.geometry.isPixelDistanceSufficient(this.lastPixelPoint, point)) {
             return;
         }
 
-        this.points.push([e.lngLat.lng, e.lngLat.lat]);
-        this.lastPixelPoint = e.point;
+        const lngLat = this.map.unproject([point.x, point.y]);
+        this.points.push([lngLat.lng, lngLat.lat]);
+        this.lastPixelPoint = point;
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
@@ -281,13 +340,32 @@ class AddBrushControl extends BaseControl {
         }
     }
 
-    onMouseUp = (e) => {
+    /**
+     * Handle pointer up - finish drawing
+     * @param {PointerEvent} e
+     */
+    _onPointerUp(e) {
         if (!this.isActive || !this.isDrawing) return;
+
+        // Release pointer capture
+        if (this._activePointerId !== null) {
+            const canvas = this.map.getCanvasContainer();
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
 
         this.finishDrawing();
     }
 
-    onMouseLeave = () => {
+    /**
+     * Handle pointer leave - finish drawing if active
+     * @param {PointerEvent} e
+     */
+    _onPointerLeave(e) {
         if (this.isDrawing) {
             this.finishDrawing();
         }

@@ -2,6 +2,7 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
+import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
 import AddEllipseGeometry from './add_ellipse_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
@@ -20,6 +21,14 @@ class AddEllipseControl extends BaseControl {
         this.lastPreviewCenter = null;
         this.geometryDebounceTimer = null;
         this.hatchGenerator = new HatchPatternGenerator();
+
+        // Pointer event state for edit handles
+        this._activePointerId = null;
+
+        // Bind pointer event handlers
+        this._onEditPointerDown = this._onEditPointerDown.bind(this);
+        this._onEditPointerMove = this._onEditPointerMove.bind(this);
+        this._onEditPointerUp = this._onEditPointerUp.bind(this);
     }
 
     static DEFAULT_PROPERTIES = {
@@ -435,22 +444,38 @@ class AddEllipseControl extends BaseControl {
     }
 
     setupEditEventListeners = () => {
-        this.map.on('mousedown', this.onEditMouseDown);
-        this.map.on('mousemove', this.onEditMouseMove);
-        this.map.on('mouseup', this.onEditMouseUp);
+        const canvas = this.map.getCanvasContainer();
+        canvas.addEventListener('pointerdown', this._onEditPointerDown);
     }
 
     removeEditEventListeners = () => {
-        this.map.off('mousedown', this.onEditMouseDown);
-        this.map.off('mousemove', this.onEditMouseMove);
-        this.map.off('mouseup', this.onEditMouseUp);
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('pointerdown', this._onEditPointerDown);
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
+
+        // Release any captured pointer
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
     }
 
-    onEditMouseDown = (e) => {
+    _onEditPointerDown(e) {
+        if (!e.isPrimary) return; // Only handle primary pointer
+
         const selectedFeature = this.getSelectedFeature();
         if (!selectedFeature) return;
 
-        const handleFeatures = this.map.queryRenderedFeatures(e.point, {
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+
+        const handleFeatures = this.map.queryRenderedFeatures([point.x, point.y], {
             layers: ['ellipse-edit-handles-layer']
         });
 
@@ -462,6 +487,16 @@ class AddEllipseControl extends BaseControl {
 
             const cursor = this.getCursorForHandleType(this.activeHandleType);
             this.map.getCanvas().style.cursor = cursor;
+
+            // Capture pointer for reliable tracking
+            this._activePointerId = e.pointerId;
+            canvas.setPointerCapture(e.pointerId);
+
+            // Add move/up listeners only when dragging starts
+            canvas.addEventListener('pointermove', this._onEditPointerMove);
+            canvas.addEventListener('pointerup', this._onEditPointerUp);
+            canvas.addEventListener('pointercancel', this._onEditPointerUp);
+
             e.preventDefault();
         }
     }
@@ -484,11 +519,17 @@ class AddEllipseControl extends BaseControl {
         }
     }
 
-    onEditMouseMove = (e) => {
+    _onEditPointerMove(e) {
+        if (!e.isPrimary) return;
+
         const selectedFeature = this.getSelectedFeature();
         if (!this.isDraggingHandle || !selectedFeature) return;
 
-        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+        const canvas = this.map.getCanvasContainer();
+        const point = getPointerPosition(e, canvas);
+        const lngLat = this.map.unproject([point.x, point.y]);
+
+        this.lastPreviewPosition = [lngLat.lng, lngLat.lat];
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
@@ -496,7 +537,24 @@ class AddEllipseControl extends BaseControl {
         }
     }
 
-    onEditMouseUp = () => {
+    _onEditPointerUp(e) {
+        const canvas = this.map.getCanvasContainer();
+
+        // Remove move/up listeners
+        canvas.removeEventListener('pointermove', this._onEditPointerMove);
+        canvas.removeEventListener('pointerup', this._onEditPointerUp);
+        canvas.removeEventListener('pointercancel', this._onEditPointerUp);
+
+        // Release pointer capture
+        if (this._activePointerId !== null) {
+            try {
+                canvas.releasePointerCapture(this._activePointerId);
+            } catch (err) {
+                // Pointer may have already been released
+            }
+            this._activePointerId = null;
+        }
+
         const selectedFeature = this.getSelectedFeature();
         if (this.isDraggingHandle && selectedFeature) {
             const result = this.geometry.updateFromHandle(this.activeHandleType, this.lastPreviewPosition, selectedFeature);

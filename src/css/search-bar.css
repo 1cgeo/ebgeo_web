@@ -45,13 +45,6 @@
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
-/* Responsive width */
-@media (max-width: 768px) {
-    .search-bar-wrapper {
-        width: 260px;
-    }
-}
-
 .search-bar-container.focused .search-bar-wrapper {
     box-shadow: var(--shadow-lg), 0 0 0 2px var(--primary);
 }
@@ -458,4 +451,123 @@
 .feature-search-control,
 .search-container#search-container-wrapper {
     display: none !important;
+}
+
+/* =========================================================================
+   TABLET RESPONSIVE ADJUSTMENTS
+   ========================================================================= */
+
+/* Touch device optimizations */
+@media (pointer: coarse) {
+    /* Prevent iOS zoom on input focus - must be 16px or larger */
+    .search-bar-input {
+        font-size: 16px;
+    }
+
+    /* Slightly larger clear button for easier touch */
+    .search-bar-clear {
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    /* Result items taller */
+    .search-result-item {
+        min-height: 56px;
+        padding: var(--space-4);
+    }
+
+    /* Better active state */
+    .search-result-item:active {
+        background: var(--gray-100);
+    }
+
+    /* Result icons larger */
+    .search-result-icon {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        min-height: 40px;
+    }
+
+    .search-result-icon svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* Save button larger */
+    .search-popup-save-btn,
+    .search-result-save-btn {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Better scrolling for results */
+    .search-bar-results {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+}
+
+/* Tablet breakpoint */
+@media (width <= 1024px) {
+    /* Keep search bar same width as desktop, it will fit */
+    .search-bar-wrapper {
+        width: var(--search-bar-width);
+        max-width: calc(100vw - var(--sidebar-collapsed-width) - var(--space-8) - 60px);
+    }
+
+    /* Adjust position for tablet sidebar */
+    .search-bar-container[data-sidebar-state="expanded"] {
+        left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width-tablet, 340px) + var(--space-4));
+    }
+
+    /* Results dropdown slightly shorter */
+    .search-bar-results {
+        max-height: 350px;
+    }
+}
+
+/* Small tablet breakpoint */
+@media (width <= 768px) {
+    /* Position closer to sidebar */
+    .search-bar-container[data-sidebar-state="collapsed"],
+    .search-bar-container:not([data-sidebar-state]) {
+        left: calc(var(--sidebar-collapsed-width) + var(--space-3));
+    }
+
+    .search-bar-container[data-sidebar-state="expanded"] {
+        left: calc(var(--sidebar-collapsed-width) + min(100vw - var(--sidebar-collapsed-width), 400px) + var(--space-3));
+    }
+
+    /* Constrain width more on small tablets */
+    .search-bar-wrapper {
+        max-width: calc(100vw - var(--sidebar-collapsed-width) - var(--space-6) - 60px);
+    }
+
+    /* Results take more width */
+    .search-bar-results {
+        width: calc(100vw - var(--sidebar-collapsed-width) - var(--space-6));
+        max-width: 400px;
+    }
+
+    /* Popup content smaller */
+    .search-result-popup .maplibregl-popup-content {
+        min-width: 200px;
+        max-width: 280px;
+    }
+}
+
+/* Landscape mode */
+@media (orientation: landscape) and (width <= 1024px) {
+    /* Results shorter in landscape */
+    .search-bar-results {
+        max-height: 280px;
+    }
+}
+
+@media (orientation: landscape) and (width <= 768px) {
+    /* Very short results in small landscape */
+    .search-bar-results {
+        max-height: 200px;
+    }
 }

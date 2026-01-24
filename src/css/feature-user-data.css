@@ -470,35 +470,6 @@
     margin-bottom: 12px;
 }
 
-/* ===== RESPONSIVE ADJUSTMENTS ===== */
-
-@media (max-width: 400px) {
-    .user-data-tab-btn {
-        padding: 8px 6px;
-        font-size: 12px;
-    }
-
-    .user-data-add-form {
-        flex-direction: column;
-    }
-
-    .user-data-add-form button {
-        width: 100%;
-    }
-
-    .user-data-gallery {
-        grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-    }
-
-    .user-data-viewer-actions {
-        flex-wrap: wrap;
-    }
-
-    .user-data-viewer-btn {
-        padding: 6px 10px;
-        font-size: 12px;
-    }
-}
 
 /* =========================================================================
    NEW FEATURE ATTRIBUTES TAB - Google Maps Inspired Design
@@ -823,32 +794,3 @@
     }
 }
 
-/* Responsive */
-@media (max-width: 400px) {
-    .feature-attribute-row {
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-
-    .feature-attribute-key-container {
-        min-width: 100%;
-        max-width: 100%;
-    }
-
-    .feature-attribute-value-container {
-        text-align: left;
-        width: 100%;
-    }
-
-    .feature-attribute-value {
-        text-align: left;
-    }
-
-    .feature-attribute-value-input {
-        text-align: left;
-    }
-
-    .feature-attribute-delete {
-        opacity: 1;
-    }
-}

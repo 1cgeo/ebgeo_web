@@ -71,12 +71,90 @@
 }
 
 /* =========================================================================
-   RESPONSIVE
+   TABLET RESPONSIVE ADJUSTMENTS
    ========================================================================= */
 
-/* Hide on small screens */
-@media (width <= 768px) {
+/* Touch device optimizations */
+@media (pointer: coarse) {
+    /* Taller chips for touch */
+    .chip-btn {
+        min-height: var(--touch-target-min, 44px);
+        padding: 0 var(--space-3);
+    }
+
+    /* Larger icons */
+    .chip-btn svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    /* Better active state */
+    .chip-btn:active {
+        transform: scale(0.95);
+        background: var(--gray-100);
+    }
+
+    /* Remove sticky hover */
+    .chip-btn:hover {
+        background: white;
+        box-shadow: var(--shadow-control);
+    }
+}
+
+/* Tablet breakpoint */
+@media (width <= 1024px) {
+    /* Match search bar width - icon only chips */
     .chips-container {
+        width: auto;
+        gap: var(--space-2);
+    }
+
+    /* Adjust position for tablet sidebar */
+    .chips-container[data-sidebar-state="expanded"] {
+        left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width-tablet, 340px) + var(--space-4));
+    }
+
+    /* Icon-only chips when search bar narrows */
+    .chip-btn {
+        flex: none;
+        width: var(--touch-target-min, 44px);
+        height: var(--touch-target-min, 44px);
+        padding: 0;
+        border-radius: var(--radius-md);
+    }
+
+    .chip-btn span {
         display: none;
+    }
+
+    .chip-btn svg {
+        width: 20px;
+        height: 20px;
+    }
+}
+
+/* Small tablet breakpoint */
+@media (width <= 768px) {
+    /* Smaller gap */
+    .chips-container {
+        gap: var(--space-1);
+    }
+
+    /* Position closer to sidebar */
+    .chips-container[data-sidebar-state="collapsed"],
+    .chips-container:not([data-sidebar-state]) {
+        left: calc(var(--sidebar-collapsed-width) + var(--space-3));
+    }
+
+    .chips-container[data-sidebar-state="expanded"] {
+        left: calc(var(--sidebar-collapsed-width) + min(100vw - var(--sidebar-collapsed-width), 400px) + var(--space-3));
+    }
+}
+
+/* Landscape mode */
+@media (orientation: landscape) and (width <= 768px) {
+    /* Keep icon-only chips in landscape too */
+    .chips-container {
+        gap: var(--space-2);
     }
 }

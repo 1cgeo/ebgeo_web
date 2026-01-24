@@ -383,59 +383,197 @@
 }
 
 /* =========================================================================
-   RESPONSIVE
+   TABLET RESPONSIVE ADJUSTMENTS
    ========================================================================= */
 
-@media (width <= 640px) {
-    .modal-overlay {
-        padding: 0;
-        align-items: flex-end;
+/* Touch device optimizations */
+@media (pointer: coarse) {
+    /* Larger close button for touch */
+    .modal-close-btn {
+        width: var(--touch-target-min, 44px);
+        height: var(--touch-target-min, 44px);
     }
 
-    .modal-container {
-        max-width: 100%;
-        max-height: 90vh;
-        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    .modal-close-btn svg {
+        width: 26px;
+        height: 26px;
     }
 
-    .shortcuts-modal-container,
-    .info-modal-container {
-        max-width: 100%;
+    /* Better touch feedback */
+    .modal-close-btn:active {
+        transform: scale(0.92);
+        background: rgba(255, 255, 255, 0.25);
     }
 
-    .modal-header {
+    /* Shortcut items taller */
+    .shortcut-item {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* CGEO cards taller */
+    .cgeo-card {
+        min-height: 56px;
         padding: var(--space-4);
     }
 
-    .modal-title {
-        font-size: var(--font-size-lg);
+    /* Copy button larger */
+    .copy-btn {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-3) var(--space-4);
     }
 
+    /* Prompt modal buttons */
+    .prompt-modal-btn {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Scrolling optimization for modal body */
+    .modal-body {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+}
+
+/* Tablet breakpoint */
+@media (width <= 1024px) {
+    /* Modal sizing */
+    .modal-container {
+        max-width: 90vw;
+        max-height: 90vh;
+    }
+
+    .shortcuts-modal-container {
+        max-width: 95vw;
+    }
+
+    .info-modal-container {
+        max-width: 90vw;
+    }
+
+    /* Shortcuts single column */
+    .shortcuts-sections {
+        grid-template-columns: 1fr;
+        gap: var(--space-3);
+    }
+
+    /* Modal body padding reduced */
     .modal-body {
         padding: var(--space-4);
     }
 
-    .shortcuts-sections {
-        grid-template-columns: 1fr;
+    /* Header padding reduced */
+    .modal-header {
+        padding: var(--space-3) var(--space-4);
+    }
+}
+
+/* Small tablet breakpoint */
+@media (width <= 768px) {
+    /* Full screen modals */
+    .modal-container {
+        max-width: 100vw;
+        max-height: 100vh;
+        height: 100vh;
+        width: 100vw;
+        border-radius: 0;
+        margin: 0;
     }
 
-    .shortcut-item {
-        flex-direction: row;
-        align-items: center;
-        gap: var(--space-2);
+    .modal-overlay {
+        padding: 0;
     }
 
-    .shortcut-description {
-        white-space: normal;
+    /* Shortcuts and info modals full screen */
+    .shortcuts-modal-container,
+    .info-modal-container {
+        max-width: 100vw;
+        height: 100vh;
+        border-radius: 0;
     }
 
+    /* Prompt modal stays floating */
+    .prompt-modal-container {
+        max-width: 90vw;
+        height: auto;
+        border-radius: var(--radius-xl);
+    }
+
+    /* Modal title smaller */
+    .modal-title {
+        font-size: var(--font-size-lg);
+    }
+
+    /* Shortcuts key badges smaller */
+    .shortcut-key span {
+        min-width: 20px;
+        height: 20px;
+        font-size: 10px;
+        padding: 0 4px;
+    }
+
+    /* CGEO cards stack better */
+    .cgeo-cards {
+        gap: var(--space-3);
+    }
+
+    /* Email box wraps */
     .email-box {
         flex-direction: column;
         align-items: stretch;
+        gap: var(--space-3);
+    }
+
+    .email-display {
+        justify-content: center;
     }
 
     .copy-btn {
         justify-content: center;
+    }
+
+    /* Modal body scrolling */
+    .modal-body {
+        padding: var(--space-3);
+        padding-bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
+    }
+}
+
+/* Landscape mode */
+@media (orientation: landscape) and (width <= 1024px) {
+    /* Modal not full height in landscape */
+    .modal-container {
+        max-height: 95vh;
+        height: auto;
+        border-radius: var(--radius-xl);
+    }
+
+    .shortcuts-modal-container,
+    .info-modal-container {
+        height: auto;
+        border-radius: var(--radius-xl);
+    }
+
+    .modal-overlay {
+        padding: var(--space-4);
+    }
+
+    /* Shortcuts back to 2 columns in landscape if space */
+    .shortcuts-sections {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (orientation: landscape) and (width <= 768px) {
+    /* Keep modals contained in small landscape */
+    .modal-container {
+        max-height: 90vh;
+    }
+
+    /* Shortcuts single column in small landscape */
+    .shortcuts-sections {
+        grid-template-columns: 1fr;
     }
 }
 
@@ -539,14 +677,4 @@
     border-color: var(--primary-600, #166534);
 }
 
-@media (width <= 640px) {
-    .prompt-modal-overlay {
-        align-items: center;
-        padding: var(--space-4);
-    }
-
-    .prompt-modal-container {
-        max-width: 100%;
-        border-radius: var(--radius-lg);
-    }
-}
+/* Mobile prompt modal styles removed - to be redesigned */

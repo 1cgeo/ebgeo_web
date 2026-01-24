@@ -33,29 +33,12 @@
     overflow-y: auto;
 }
 
-.unified-attributes-panel-mobile {
-    min-width: 300px;
-    position: absolute;
-    bottom: 10px;
-    right: 10px;
-    padding: 10px;
-    background-color: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-    z-index: 100;
-    max-height: calc(100vh - 80px);
-    overflow-y: auto;
-}
-
 #attributes-panel {
     bottom: 50px;
 }
 
 /* ===== TITLES AND HEADERS ===== */
-.unified-attributes-panel h3,
-.unified-attributes-panel-mobile h3 {
+.unified-attributes-panel h3 {
     margin: 0 0 12px 0;
     color: #333;
     font-size: 15px;
@@ -195,8 +178,7 @@
 }
 
 /* ===== LABELS AND BASIC INPUTS ===== */
-.unified-attributes-panel label,
-.unified-attributes-panel-mobile label {
+.unified-attributes-panel label {
     display: block;
     font-weight: 500;
     color: #333;
@@ -207,11 +189,7 @@
 .unified-attributes-panel input[type="text"],
 .unified-attributes-panel input[type="number"],
 .unified-attributes-panel textarea,
-.unified-attributes-panel select,
-.unified-attributes-panel-mobile input[type="text"],
-.unified-attributes-panel-mobile input[type="number"],
-.unified-attributes-panel-mobile textarea,
-.unified-attributes-panel-mobile select {
+.unified-attributes-panel select {
     width: 100%;
     padding: 6px;
     border: 1px solid #ccc;
@@ -223,17 +201,13 @@
 
 .unified-attributes-panel input:focus,
 .unified-attributes-panel textarea:focus,
-.unified-attributes-panel select:focus,
-.unified-attributes-panel-mobile input:focus,
-.unified-attributes-panel-mobile textarea:focus,
-.unified-attributes-panel-mobile select:focus {
+.unified-attributes-panel select:focus {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.1);
 }
 
-.unified-attributes-panel textarea,
-.unified-attributes-panel-mobile textarea {
+.unified-attributes-panel textarea {
     resize: vertical;
     min-height: 60px;
     font-family: inherit;
@@ -363,8 +337,7 @@
 }
 
 /* ===== PANEL BUTTONS ===== */
-.unified-attributes-panel button,
-.unified-attributes-panel-mobile button {
+.unified-attributes-panel button {
     margin-top: 8px;
     margin-right: 6px;
     padding: 7px 14px;
@@ -405,8 +378,7 @@
 
 /* ===== DELETE BUTTON ===== */
 .delete-button,
-.unified-attributes-panel .delete-button,
-.unified-attributes-panel-mobile .delete-button {
+.unified-attributes-panel .delete-button {
     background-color: var(--error-color) !important;
     color: white !important;
     box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2) !important;
@@ -420,16 +392,14 @@
 }
 
 .delete-button:hover,
-.unified-attributes-panel .delete-button:hover,
-.unified-attributes-panel-mobile .delete-button:hover {
+.unified-attributes-panel .delete-button:hover {
     background-color: var(--error-dark) !important;
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3) !important;
 }
 
 .delete-button:active,
-.unified-attributes-panel .delete-button:active,
-.unified-attributes-panel-mobile .delete-button:active {
+.unified-attributes-panel .delete-button:active {
     transform: translateY(0);
     box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2) !important;
 }
@@ -462,26 +432,22 @@
 }
 
 /* ===== SCROLLBAR STYLING ===== */
-.unified-attributes-panel::-webkit-scrollbar,
-.unified-attributes-panel-mobile::-webkit-scrollbar {
+.unified-attributes-panel::-webkit-scrollbar {
     width: 6px;
 }
 
-.unified-attributes-panel::-webkit-scrollbar-track,
-.unified-attributes-panel-mobile::-webkit-scrollbar-track {
+.unified-attributes-panel::-webkit-scrollbar-track {
     background: #f1f1f1;
     border-radius: 3px;
 }
 
-.unified-attributes-panel::-webkit-scrollbar-thumb,
-.unified-attributes-panel-mobile::-webkit-scrollbar-thumb {
+.unified-attributes-panel::-webkit-scrollbar-thumb {
     background: #ccc;
     border-radius: 3px;
     transition: background 0.2s ease;
 }
 
-.unified-attributes-panel::-webkit-scrollbar-thumb:hover,
-.unified-attributes-panel-mobile::-webkit-scrollbar-thumb:hover {
+.unified-attributes-panel::-webkit-scrollbar-thumb:hover {
     background: var(--primary-color);
 }
 

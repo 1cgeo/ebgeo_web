@@ -2373,3 +2373,236 @@ body:has(.sidebar-container) .unified-attributes-panel {
         opacity: 1;
     }
 }
+
+/* =========================================================================
+   TABLET RESPONSIVE ADJUSTMENTS
+   ========================================================================= */
+
+/* Touch device optimizations */
+@media (pointer: coarse) {
+    /* Larger touch targets for sidebar navigation */
+    .sidebar-nav-btn {
+        min-height: 60px;
+        padding: var(--space-3, 12px) var(--space-2, 8px);
+    }
+
+    /* Recent map buttons larger */
+    .recent-map-btn {
+        min-height: 56px;
+        padding: var(--space-3) var(--space-2);
+    }
+
+    .recent-map-badge {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Panel close button larger */
+    .sidebar-panel-close {
+        width: 44px;
+        height: 44px;
+    }
+
+    .sidebar-panel-close svg {
+        width: 22px;
+        height: 22px;
+    }
+
+    /* Action buttons larger */
+    .sidebar-action-btn {
+        min-height: 48px;
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Map list items larger */
+    .map-list-item {
+        min-height: 56px;
+        padding: var(--space-3) var(--space-4);
+    }
+
+    .map-list-action-btn {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Section header button larger */
+    .sidebar-section-header-btn {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Import/Export options larger */
+    .import-option-btn,
+    .export-option-btn {
+        min-height: 64px;
+        padding: var(--space-4) var(--space-5);
+    }
+
+    /* Feature panel buttons */
+    .feature-panel-back-btn,
+    .feature-panel-close-btn {
+        width: 44px;
+        height: 44px;
+    }
+
+    /* Tab buttons larger for touch */
+    .feature-tab-btn {
+        min-height: 48px;
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Photo gallery touch targets */
+    .feature-photo-gallery-delete {
+        width: 32px;
+        height: 32px;
+        opacity: 1; /* Always visible on touch */
+    }
+
+    .feature-photo-gallery-add-btn {
+        min-height: 36px;
+        padding: var(--space-2) var(--space-3);
+    }
+
+    /* Style color buttons larger */
+    .feature-style-color-btn {
+        width: 40px;
+        height: 40px;
+    }
+
+    /* Line width buttons */
+    .feature-style-linewidth-btn {
+        min-height: 44px;
+    }
+
+    /* Location center button */
+    .feature-location-center-btn {
+        min-height: 44px;
+    }
+
+    /* Delete button */
+    .feature-panel-delete-btn {
+        min-height: 48px;
+    }
+
+    /* Context menu items */
+    .map-context-menu-item {
+        min-height: 44px;
+        padding: var(--space-3) var(--space-4);
+    }
+
+    /* Current map notes button */
+    .current-map-notes-btn {
+        width: 44px;
+        height: 44px;
+    }
+}
+
+/* Tablet breakpoint adjustments */
+@media (width <= 1024px) {
+    /* Narrower panel on tablets */
+    .sidebar-panel,
+    .feature-panel {
+        width: var(--sidebar-panel-width-tablet, 340px);
+    }
+
+    /* Reduce content padding */
+    .sidebar-tab-content {
+        padding: var(--space-3);
+    }
+
+    .feature-panel-content {
+        padding: var(--space-3);
+    }
+
+    /* Smaller current map card */
+    .current-map-card {
+        padding: var(--space-3);
+    }
+
+    .current-map-header {
+        gap: var(--space-2);
+    }
+
+    .current-map-badge {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        font-size: 18px;
+    }
+
+    /* Actions grid single column on narrow tablets */
+    .sidebar-actions-grid {
+        grid-template-columns: 1fr;
+        gap: var(--space-2);
+    }
+
+    /* Import options smaller */
+    .import-option-icon,
+    .export-option-icon {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Photo gallery 2 columns */
+    .feature-photo-gallery-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* User data images 2 columns */
+    .feature-panel-content .user-data-images-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* Small tablet / large phone breakpoint */
+@media (width <= 768px) {
+    /* Panel takes more width */
+    .sidebar-panel,
+    .feature-panel {
+        width: min(100vw, 400px);
+    }
+
+    /* Collapsed sidebar stays same */
+    .sidebar-collapsed {
+        width: var(--sidebar-collapsed-width);
+    }
+
+    /* Actions grid single column */
+    .sidebar-actions-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Shortcuts modal - sections stack */
+    .shortcuts-sections {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Landscape mode on tablets */
+@media (orientation: landscape) and (width <= 1024px) {
+    /* Limit panel height in landscape */
+    .sidebar-panel-content,
+    .feature-panel-content {
+        max-height: calc(100vh - 100px);
+    }
+
+    /* Keep gallery at 3 columns in landscape */
+    .feature-photo-gallery-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* Portrait mode specific */
+@media (orientation: portrait) and (width <= 768px) {
+    /* More space for content */
+    .sidebar-panel-content {
+        padding-bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
+    }
+
+    /* Ensure scrolling works well */
+    .sidebar-panel-content,
+    .feature-panel-content {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
+    }
+}

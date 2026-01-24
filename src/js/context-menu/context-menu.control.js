@@ -1,5 +1,6 @@
 // Path: js/context-menu/context-menu.control.js
 import { formatCoordinates, showSuccess } from '../utilities';
+import { createLongPressHandler } from '../utilities/pointer-utils';
 import {
     getFeatureGroup,
     createGroup,
@@ -21,11 +22,13 @@ class ContextMenuControl {
         this._selectionManager = selectionManager;
         this._contextMenu = null;
         this._lastCoordinates = null;
+        this._cleanupLongPress = null;
 
         this._onRightClick = this._onRightClick.bind(this);
         this._onMapClick = this._onMapClick.bind(this);
         this._onDocumentClick = this._onDocumentClick.bind(this);
         this._onCopyCoordinates = this._onCopyCoordinates.bind(this);
+        this._onLongPress = this._onLongPress.bind(this);
     }
 
     onAdd(map) {
@@ -36,7 +39,48 @@ class ContextMenuControl {
         this._map.on('click', this._onMapClick);
         document.addEventListener('click', this._onDocumentClick);
 
+        // Long-press para touch (substitui right-click em dispositivos touch)
+        this._setupLongPress();
+
         return document.createElement('div');
+    }
+
+    /**
+     * Configura long-press para abrir context menu em dispositivos touch
+     */
+    _setupLongPress() {
+        const canvas = this._map.getCanvasContainer();
+
+        this._cleanupLongPress = createLongPressHandler(
+            canvas,
+            this._onLongPress,
+            { duration: 500, moveThreshold: 10 }
+        );
+    }
+
+    /**
+     * Handler para long-press - abre context menu
+     * @param {TouchEvent} e - Evento touch original
+     * @param {Object} position - Posição {x, y} do toque
+     */
+    async _onLongPress(e, position) {
+        // Não abre menu se há ferramenta ativa
+        if (this._toolManager && this._toolManager.hasActiveTool()) {
+            return;
+        }
+
+        // Calcula coordenadas do mapa
+        const rect = this._map.getCanvasContainer().getBoundingClientRect();
+        const point = {
+            x: position.x - rect.left,
+            y: position.y - rect.top
+        };
+        const coordinates = this._map.unproject([point.x, point.y]);
+        this._lastCoordinates = { lat: coordinates.lat, lng: coordinates.lng };
+
+        // Reconstrói e mostra o menu
+        await this._rebuildContextMenu();
+        this._showMenu(position.x, position.y);
     }
 
     onRemove() {
@@ -45,6 +89,12 @@ class ContextMenuControl {
             this._map.off('click', this._onMapClick);
         }
         document.removeEventListener('click', this._onDocumentClick);
+
+        // Cleanup long-press handler
+        if (this._cleanupLongPress) {
+            this._cleanupLongPress();
+            this._cleanupLongPress = null;
+        }
 
         if (this._contextMenu && this._contextMenu.parentNode) {
             this._contextMenu.parentNode.removeChild(this._contextMenu);
@@ -457,21 +507,41 @@ class ContextMenuControl {
     _showMenu(x, y) {
         if (!this._contextMenu) return;
 
-        this._contextMenu.style.left = `${x}px`;
-        this._contextMenu.style.top = `${y}px`;
+        // Reset position first to measure correctly
+        this._contextMenu.style.left = '0px';
+        this._contextMenu.style.top = '0px';
         this._contextMenu.style.display = 'block';
 
         const rect = this._contextMenu.getBoundingClientRect();
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
+        const padding = 8; // Padding from edge
 
-        if (rect.right > windowWidth) {
-            this._contextMenu.style.left = `${x - rect.width}px`;
+        let finalX = x;
+        let finalY = y;
+
+        // Adjust horizontal position if menu would overflow right edge
+        if (x + rect.width > windowWidth - padding) {
+            finalX = Math.max(padding, windowWidth - rect.width - padding);
         }
 
-        if (rect.bottom > windowHeight) {
-            this._contextMenu.style.top = `${y - rect.height}px`;
+        // Adjust vertical position if menu would overflow bottom edge
+        if (y + rect.height > windowHeight - padding) {
+            finalY = Math.max(padding, y - rect.height);
         }
+
+        // Ensure menu doesn't go off-screen on the left
+        if (finalX < padding) {
+            finalX = padding;
+        }
+
+        // Ensure menu doesn't go off-screen on the top
+        if (finalY < padding) {
+            finalY = padding;
+        }
+
+        this._contextMenu.style.left = `${finalX}px`;
+        this._contextMenu.style.top = `${finalY}px`;
     }
 
     _hideMenu() {

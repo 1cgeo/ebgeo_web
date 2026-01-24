@@ -187,63 +187,93 @@
 }
 
 /* =========================================================================
-   RESPONSIVE
+   TABLET RESPONSIVE ADJUSTMENTS
    ========================================================================= */
 
-@media (width <= 768px) {
-    .base-layer-selector {
-        left: var(--space-4) !important;
-        bottom: var(--space-4);
-    }
-
+/* Touch device optimizations */
+@media (pointer: coarse) {
+    /* Larger thumbnail for touch */
     .base-layer-thumbnail {
-        width: 64px;
-        height: 64px;
+        width: 88px;
+        height: 88px;
     }
 
     .base-layer-collapsed {
-        width: 64px;
+        width: 88px;
     }
 
-    .base-layer-expanded {
-        min-width: 150px;
+    /* Better touch feedback */
+    .base-layer-thumbnail:active {
+        transform: scale(0.95);
     }
 
+    /* Larger option thumbnails */
     .base-layer-option-thumb {
-        width: 64px;
-        height: 48px;
+        width: 88px;
+        height: 66px;
     }
 
-    .base-layer-grid {
-        gap: var(--space-1);
+    /* Better active state */
+    .base-layer-option:active {
+        transform: scale(0.95);
+    }
+
+    /* Remove sticky hover */
+    .base-layer-thumbnail:hover,
+    .base-layer-option:hover {
+        transform: none;
     }
 }
 
-@media (width <= 480px) {
-    .base-layer-selector {
-        bottom: var(--space-3);
+/* Tablet breakpoint */
+@media (width <= 1024px) {
+    /* Adjust position for tablet sidebar */
+    .base-layer-selector[data-sidebar-state="expanded"] {
+        left: calc(var(--sidebar-collapsed-width) + var(--sidebar-panel-width-tablet, 340px) + var(--space-4));
     }
 
+    /* Slightly larger expanded panel */
+    .base-layer-expanded {
+        min-width: 200px;
+        padding: var(--space-4);
+    }
+
+    .base-layer-grid {
+        gap: var(--space-3);
+    }
+}
+
+/* Small tablet breakpoint */
+@media (width <= 768px) {
+    /* Position closer to sidebar */
+    .base-layer-selector[data-sidebar-state="collapsed"] {
+        left: calc(var(--sidebar-collapsed-width) + var(--space-3));
+    }
+
+    .base-layer-selector[data-sidebar-state="expanded"] {
+        left: calc(var(--sidebar-collapsed-width) + min(100vw - var(--sidebar-collapsed-width), 400px) + var(--space-3));
+    }
+
+    /* Respect safe area at bottom */
+    .base-layer-selector {
+        bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
+    }
+}
+
+/* Landscape mode */
+@media (orientation: landscape) and (width <= 768px) {
+    /* Keep selector compact in small landscape */
     .base-layer-thumbnail {
-        width: 56px;
-        height: 56px;
-        border-width: 2px;
+        width: 72px;
+        height: 72px;
     }
 
     .base-layer-collapsed {
-        width: 56px;
-    }
-
-    .base-layer-label {
-        display: none;
+        width: 72px;
     }
 
     .base-layer-option-thumb {
-        width: 56px;
-        height: 42px;
-    }
-
-    .base-layer-option-name {
-        font-size: 10px;
+        width: 72px;
+        height: 54px;
     }
 }

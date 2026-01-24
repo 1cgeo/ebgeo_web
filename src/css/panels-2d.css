@@ -190,34 +190,7 @@
     transform: scale(0.9);
 }
 
-/* ----- Mobile Responsiveness ----- */
-@media (max-width: 480px) {
-    .profile-panel {
-        left: 10px;
-        right: 10px;
-        bottom: 10px;
-        width: auto;
-        height: 220px;
-        padding: 12px;
-    }
-
-    .profile-panel-header h3 {
-        font-size: 13px;
-    }
-
-    .profile-panel canvas {
-        height: calc(100% - 40px) !important;
-    }
-}
-
-@media (max-width: 768px) and (min-width: 481px) {
-    .profile-panel {
-        width: 350px;
-        height: 250px;
-        right: 15px;
-        bottom: 15px;
-    }
-}
+/* Mobile/tablet styles removed - to be redesigned */
 
 /* ===== FEATURE SEARCH PANEL ===== */
 .feature-search-panel {

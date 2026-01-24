@@ -18,6 +18,7 @@ import { EventTypes } from '../events/event_types.js';
 import {
     setupCleanup,
     subscribe,
+    addDomListener,
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';

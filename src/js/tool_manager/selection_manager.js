@@ -12,6 +12,7 @@ import {
     isFeatureEffectivelyLocked,
     getStateManager
 } from '../store';
+import { createTwoFingerTapHandler } from '../utilities/pointer-utils';
 
 class SelectionManager {
     /**
@@ -36,6 +37,9 @@ class SelectionManager {
 
         /** @type {boolean} Flag to prevent re-entrancy in deselectAllFeatures */
         this._isDeselecting = false;
+
+        /** @type {Function|null} Cleanup for two-finger tap handler */
+        this._cleanupTwoFingerTap = null;
 
         this._setupEventListeners();
     }
@@ -305,6 +309,55 @@ class SelectionManager {
         this.map.on('zoomstart', () => {
             if (this.contextMenu) this._hideFeatureSelectionMenu();
         });
+
+        // Two-finger tap para multi-select em dispositivos touch
+        this._setupTwoFingerTap();
+    }
+
+    /**
+     * Setup two-finger tap for multi-select (equivalent to Shift+Click)
+     * @private
+     */
+    _setupTwoFingerTap() {
+        const canvas = this.map.getCanvasContainer();
+
+        this._cleanupTwoFingerTap = createTwoFingerTapHandler(
+            canvas,
+            (e, midpoint) => {
+                // Skip if special tools are active
+                if (this.vectorTileInfoControl?.isActive) return;
+                if (this.rectangleSelectionControl?.isActive) return;
+
+                const activeTool = this.getActiveTool();
+                if (activeTool) return;
+
+                // Get canvas-relative coordinates
+                const rect = canvas.getBoundingClientRect();
+                const point = {
+                    x: midpoint.x - rect.left,
+                    y: midpoint.y - rect.top
+                };
+
+                // Query features at the midpoint
+                const clickedFeatures = this.getAllClickedCustomFeatures([point.x, point.y]);
+
+                if (clickedFeatures.length > 0) {
+                    // Simulate shift+click event for multi-select
+                    const fakeEvent = {
+                        point,
+                        lngLat: this.map.unproject([point.x, point.y]),
+                        originalEvent: { shiftKey: true }
+                    };
+
+                    if (clickedFeatures.length === 1) {
+                        this._handleFeatureClick(clickedFeatures[0], fakeEvent);
+                    } else {
+                        this._showFeatureSelectionMenu(clickedFeatures, fakeEvent);
+                    }
+                }
+            },
+            { maxDuration: 300, maxDistance: 20 }
+        );
     }
 
     /**
@@ -880,6 +933,12 @@ class SelectionManager {
         this._unsubscribers.forEach(unsub => unsub());
         this._unsubscribers = [];
         this._hideFeatureSelectionMenu();
+
+        // Cleanup two-finger tap handler
+        if (this._cleanupTwoFingerTap) {
+            this._cleanupTwoFingerTap();
+            this._cleanupTwoFingerTap = null;
+        }
     }
 }
 

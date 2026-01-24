@@ -19,6 +19,31 @@
     --chip-height: 32px;
 
     /* =========================================================================
+       RESPONSIVE / TOUCH
+       ========================================================================= */
+    /* Touch target sizes (Apple HIG: 44px minimum) */
+    --touch-target-min: 44px;
+    --touch-target-comfortable: 48px;
+
+    /* Safe areas for notches and home indicators */
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-area-left: env(safe-area-inset-left, 0px);
+    --safe-area-right: env(safe-area-inset-right, 0px);
+
+    /* Breakpoints (for reference in JS, actual usage via media queries) */
+    --breakpoint-tablet-sm: 600px;
+    --breakpoint-tablet: 768px;
+    --breakpoint-desktop: 1024px;
+
+    /* =========================================================================
+       TABLET-SPECIFIC DIMENSIONS (overridden via media queries)
+       ========================================================================= */
+    --sidebar-panel-width-tablet: 340px;
+    --toolbar-button-size-tablet: 48px;
+    --control-button-size-tablet: 48px;
+
+    /* =========================================================================
        COLORS - PRIMARY (Green)
        ========================================================================= */
     --primary-50: #f0fdf4;

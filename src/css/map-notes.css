@@ -674,59 +674,137 @@
     outline-offset: 2px;
 }
 
-/* ===== RESPONSIVE STYLES ===== */
-@media (max-width: 768px) {
-    .map-notes-view-panel,
-    .map-notes-edit-panel {
-        left: 8px;
-        width: calc(100vw - 24px);
-        max-width: 460px;
+/* =========================================================================
+   TABLET RESPONSIVE ADJUSTMENTS
+   ========================================================================= */
+
+/* Touch device optimizations */
+@media (pointer: coarse) {
+    /* Larger buttons for touch */
+    .map-notes-button {
+        width: var(--touch-target-min, 44px);
+        height: var(--touch-target-min, 44px);
     }
-    
-    .map-notes-content {
-        padding: 16px;
-        height: calc(100vh - 92px); /* Adjust for smaller padding */
+
+    .map-notes-close-btn,
+    .map-notes-cancel-btn,
+    .map-notes-edit-btn,
+    .map-notes-header-save-btn {
+        width: var(--touch-target-min, 44px);
+        height: var(--touch-target-min, 44px);
     }
-    
-    .map-notes-view-panel .map-notes-description-display {
-        height: calc(100vh - 200px); /* Adjust for mobile */
+
+    /* Action buttons larger */
+    .map-notes-cancel-bottom-btn,
+    .map-notes-save-btn {
+        min-height: var(--touch-target-comfortable, 48px);
+        padding: var(--space-3, 12px) var(--space-5, 20px);
     }
-    
-    .map-notes-description-section {
-        height: calc(100vh - 260px); /* Adjust for mobile */
-    }
-    
-    .map-notes-header {
-        padding: 14px 16px;
-    }
-    
+
+    /* Title input larger */
     .map-notes-title-input {
-        font-size: 15px;
+        min-height: var(--touch-target-comfortable, 48px);
+        font-size: 16px; /* Prevents iOS zoom */
+    }
+
+    /* Better scrolling */
+    .map-notes-description-display,
+    .map-notes-description-editor .ql-editor {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
     }
 }
 
-@media (max-width: 480px) {
+/* Tablet breakpoint */
+@media (width <= 1024px) {
+    /* Narrower panels */
     .map-notes-view-panel,
     .map-notes-edit-panel {
-        left: 4px;
-        width: calc(100vw - 16px);
-        max-width: none;
+        width: 400px;
     }
-    
+
+    /* Header padding reduced */
+    .map-notes-header {
+        padding: var(--space-3, 12px) var(--space-4, 16px);
+        height: 56px;
+    }
+
+    .map-notes-header-title {
+        font-size: 15px;
+    }
+
+    /* Content padding reduced */
     .map-notes-content {
-        padding: 12px;
+        padding: var(--space-4, 16px);
     }
-    
+
+    /* Description area adjust */
+    .map-notes-description-section {
+        height: calc(100vh - 360px);
+    }
+}
+
+/* Small tablet breakpoint */
+@media (width <= 768px) {
+    /* Panel takes more width */
+    .map-notes-view-panel,
+    .map-notes-edit-panel {
+        width: min(100vw - var(--sidebar-collapsed-width, 56px) - var(--space-4, 16px), 400px);
+        left: calc(var(--sidebar-collapsed-width, 56px) + var(--space-3, 12px));
+        top: calc(var(--space-4, 16px) + var(--safe-area-top, 0px));
+        height: calc(100vh - var(--space-8, 32px) - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px));
+    }
+
+    /* Title display smaller */
+    .map-notes-view-panel .map-notes-title-display {
+        font-size: 18px;
+        margin-bottom: var(--space-4, 16px);
+    }
+
+    /* Description heights adjust */
+    .map-notes-view-panel .map-notes-description-display {
+        height: calc(100vh - 240px - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px));
+    }
+
+    .map-notes-description-section {
+        height: calc(100vh - 340px - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px));
+    }
+
+    /* Actions smaller gap */
     .map-notes-actions {
-        flex-direction: column;
-        gap: 8px;
-        height: auto;
-        padding: 12px 0;
+        gap: var(--space-2, 8px);
+        margin-top: var(--space-4, 16px);
     }
-    
-    .map-notes-cancel-bottom-btn,
-    .map-notes-save-btn {
-        width: 100%;
-        justify-content: center;
+}
+
+/* Landscape mode */
+@media (orientation: landscape) and (width <= 1024px) {
+    /* Panel wider in landscape */
+    .map-notes-view-panel,
+    .map-notes-edit-panel {
+        width: 450px;
+        height: calc(100vh - var(--space-4, 16px));
+    }
+
+    /* Reduce vertical space */
+    .map-notes-view-panel .map-notes-title-display {
+        margin-bottom: var(--space-3, 12px);
+    }
+
+    .map-notes-description-section {
+        height: calc(100vh - 300px);
+    }
+
+    .map-notes-actions {
+        margin-top: var(--space-3, 12px);
+        height: 44px;
+    }
+}
+
+@media (orientation: landscape) and (width <= 768px) {
+    /* Panel narrower in small landscape */
+    .map-notes-view-panel,
+    .map-notes-edit-panel {
+        width: min(50vw, 360px);
     }
 }

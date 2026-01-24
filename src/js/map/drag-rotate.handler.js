@@ -1,4 +1,5 @@
 // Path: js/map/drag-rotate.handler.js
+import { createTwoFingerDragHandler } from '../utilities/pointer-utils';
 
 class DragRotateHandler {
     constructor(map) {
@@ -7,6 +8,11 @@ class DragRotateHandler {
         this._isRotating = false;
         this._startPoint = null;
         this._originalCursor = '';
+
+        // Two-finger touch state
+        this._initialBearing = 0;
+        this._initialPitch = 0;
+        this._cleanupTwoFingerDrag = null;
 
         this._onMouseDown = this._onMouseDown.bind(this);
         this._onMouseMove = this._onMouseMove.bind(this);
@@ -19,10 +25,49 @@ class DragRotateHandler {
         this._canvas = this._map.getCanvasContainer();
 
         if (this._canvas) {
+            // Mouse: Ctrl+drag
             this._canvas.addEventListener('mousedown', this._onMouseDown);
             window.addEventListener('mouseup', this._onMouseUp);
             window.addEventListener('mousemove', this._onMouseMove);
+
+            // Touch: Two-finger drag para rotação e pitch
+            this._setupTwoFingerDrag();
         }
+    }
+
+    /**
+     * Configura two-finger drag para rotação (bearing) e inclinação (pitch)
+     * - Rotação horizontal dos dedos: muda bearing
+     * - Arrastar dois dedos verticalmente: muda pitch
+     */
+    _setupTwoFingerDrag() {
+        this._cleanupTwoFingerDrag = createTwoFingerDragHandler(
+            this._canvas,
+            {
+                onStart: (initialState) => {
+                    this._initialBearing = this._map.getBearing();
+                    this._initialPitch = this._map.getPitch();
+                    this._isRotating = true;
+                    this._map.dragPan.disable();
+                    this._originalCursor = this._canvas.style.cursor;
+                    this._canvas.style.cursor = 'grabbing';
+                },
+                onMove: (angleDelta, midpointDelta) => {
+                    // Rotação: ângulo entre os dedos
+                    const newBearing = this._initialBearing + angleDelta;
+                    this._map.setBearing(newBearing);
+
+                    // Pitch: movimento vertical do ponto médio
+                    // Arrastar para cima = aumenta pitch, para baixo = diminui
+                    const pitchDelta = -midpointDelta.y * 0.3;
+                    const newPitch = Math.max(0, Math.min(85, this._initialPitch + pitchDelta));
+                    this._map.setPitch(newPitch);
+                },
+                onEnd: () => {
+                    this._endRotation();
+                }
+            }
+        );
     }
 
     disable() {
@@ -32,6 +77,12 @@ class DragRotateHandler {
 
         window.removeEventListener('mouseup', this._onMouseUp);
         window.removeEventListener('mousemove', this._onMouseMove);
+
+        // Cleanup two-finger drag handler
+        if (this._cleanupTwoFingerDrag) {
+            this._cleanupTwoFingerDrag();
+            this._cleanupTwoFingerDrag = null;
+        }
 
         if (this._isRotating) {
             this._endRotation();

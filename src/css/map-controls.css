@@ -863,17 +863,7 @@
     text-align: center;
 }
 
-/* ----- Mobile responsive ----- */
-@media (width <= 480px) {
-    .streetview-preview-content {
-        width: 300px;
-    }
-
-    .streetview-preview-thumbnail {
-        width: 300px;
-        height: 169px;
-    }
-}
+/* Mobile styles removed - to be redesigned */
 
 /* =========================================================================
    HIDE OLD STANDALONE CONTROLS (UI REDESIGN)

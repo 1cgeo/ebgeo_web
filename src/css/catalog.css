@@ -634,47 +634,207 @@
     height: 16px;
 }
 
-/* ==========================================================================
-   RESPONSIVE
-   ========================================================================== */
+/* =========================================================================
+   TABLET RESPONSIVE ADJUSTMENTS
+   ========================================================================= */
 
-@media (width <= 768px) {
-    .catalog-modal-container {
-        max-width: 100%;
-        max-height: 90vh;
-        width: 100%;
-        border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+/* Touch device optimizations */
+@media (pointer: coarse) {
+    /* Filter buttons larger */
+    .catalog-filter-btn {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-3) var(--space-4);
     }
 
+    /* Search input larger */
+    .catalog-search-input {
+        min-height: var(--touch-target-min, 44px);
+        font-size: 16px; /* Prevents iOS zoom */
+    }
+
+    /* Card buttons larger */
+    .catalog-card-btn {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-3);
+    }
+
+    /* Layer action buttons */
+    .catalog-layer-btn,
+    .catalog-layer-info-btn {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Popover close */
+    .popover-close {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* Retry button */
+    .popover-retry-btn {
+        min-height: var(--touch-target-min, 44px);
+    }
+
+    /* Better touch feedback for cards */
+    .catalog-card:active {
+        transform: scale(0.98);
+    }
+
+    /* Scrolling optimization */
+    .catalog-grid-wrapper {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+}
+
+/* Tablet breakpoint */
+@media (width <= 1024px) {
+    /* Modal sizing */
+    .catalog-modal-container {
+        width: 98vw;
+        height: 90vh;
+    }
+
+    /* Narrower filters sidebar */
+    .catalog-filters {
+        width: 160px;
+        padding: var(--space-3);
+    }
+
+    /* Grid with smaller cards */
+    .catalog-grid {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: var(--space-3);
+    }
+
+    /* Card content padding */
+    .catalog-card-content {
+        padding: var(--space-2);
+    }
+
+    /* Search header padding */
+    .catalog-header {
+        padding: var(--space-3);
+    }
+}
+
+/* Small tablet breakpoint */
+@media (width <= 768px) {
+    /* Full screen catalog */
+    .catalog-modal-container {
+        width: 100vw;
+        height: 100vh;
+        border-radius: 0;
+    }
+
+    /* Filters become horizontal scrollable bar */
     .catalog-layout {
         flex-direction: column;
-        min-height: 400px;
     }
 
     .catalog-filters {
         width: 100%;
         flex-direction: row;
-        flex-wrap: wrap;
+        overflow-x: auto;
+        padding: var(--space-2) var(--space-3);
         border-right: none;
         border-bottom: 1px solid var(--border-color);
-        padding: var(--space-3);
+        gap: var(--space-2);
+        scrollbar-width: none; /* Hide scrollbar */
+        -ms-overflow-style: none;
+    }
+
+    .catalog-filters::-webkit-scrollbar {
+        display: none;
     }
 
     .catalog-filters-title {
-        width: 100%;
+        display: none;
     }
 
     .catalog-filters-list {
         flex-direction: row;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
+        gap: var(--space-2);
     }
 
     .catalog-filter-btn {
-        padding: var(--space-1) var(--space-2);
+        flex-shrink: 0;
+        white-space: nowrap;
+        padding: var(--space-2) var(--space-3);
     }
 
+    /* Grid 2 columns */
     .catalog-grid {
-        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        grid-template-columns: repeat(2, 1fr);
         gap: var(--space-3);
+    }
+
+    /* Grid wrapper padding */
+    .catalog-grid-wrapper {
+        padding: var(--space-3);
+        padding-bottom: calc(var(--space-4) + var(--safe-area-bottom, 0px));
+    }
+
+    /* Larger thumbnail for touch */
+    .catalog-card-thumbnail {
+        aspect-ratio: 4 / 3;
+    }
+
+    /* Layer items in sidepanel */
+    .catalog-layer-item {
+        min-height: 52px;
+        padding: var(--space-3) var(--space-4);
+    }
+}
+
+/* Landscape mode */
+@media (orientation: landscape) and (width <= 1024px) {
+    /* Keep sidebar layout in landscape */
+    .catalog-layout {
+        flex-direction: row;
+    }
+
+    .catalog-filters {
+        width: 140px;
+        flex-direction: column;
+        border-right: 1px solid var(--border-color);
+        border-bottom: none;
+        overflow-x: visible;
+    }
+
+    .catalog-filters-title {
+        display: block;
+    }
+
+    .catalog-filters-list {
+        flex-direction: column;
+    }
+
+    /* Grid back to auto-fill */
+    .catalog-grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    }
+}
+
+@media (orientation: landscape) and (width <= 768px) {
+    /* Compact filters in small landscape */
+    .catalog-filters {
+        width: 120px;
+        padding: var(--space-2);
+    }
+
+    .catalog-filter-btn {
+        padding: var(--space-2);
+    }
+
+    .filter-label {
+        font-size: var(--font-size-xs);
+    }
+
+    /* Grid 3 columns */
+    .catalog-grid {
+        grid-template-columns: repeat(3, 1fr);
     }
 }

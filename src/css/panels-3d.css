@@ -79,8 +79,7 @@
 }
 
 /* ===== 3D LOCATION CONTAINER ===== */
-#locate-3d-container,
-#locate-3d-container-mobile {
+#locate-3d-container {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -88,12 +87,7 @@
     width: 100%;
 }
 
-#locate-3d-container-mobile {
-    gap: 5px;
-}
-
-#locate-3d-container button,
-#locate-3d-container-mobile button {
+#locate-3d-container button {
     width: 90%;
     min-height: 40px;
     background-color: var(--primary-color);
@@ -108,15 +102,13 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-#locate-3d-container button:hover,
-#locate-3d-container-mobile button:hover {
+#locate-3d-container button:hover {
     background-color: var(--primary-dark);
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-#locate-3d-container button:active,
-#locate-3d-container-mobile button:active {
+#locate-3d-container button:active {
     transform: translateY(0);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
@@ -217,42 +209,6 @@
     transform: scale(0.9);
 }
 
-/* ===== MOBILE FLOAT PANEL ===== */
-.panel-icon-float {
-    position: fixed;
-    bottom: 30px;
-    left: 30px;
-    width: 56px;
-    height: 56px;
-    background-color: var(--primary-color);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    transition: all 0.3s ease;
-    z-index: 100;
-    border: none;
-    outline: none;
-}
-
-.panel-icon-float:hover {
-    background-color: var(--primary-dark);
-    transform: scale(1.1);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-}
-
-.panel-icon-float:active {
-    transform: scale(0.95);
-}
-
-.panel-icon-float svg {
-    width: 24px;
-    height: 24px;
-    fill: white;
-}
-
 /* ===== LOADING STATES ===== */
 #map-3d-tool-bar.loading {
     opacity: 0.7;
@@ -304,18 +260,14 @@
 
 /* ===== ACCESSIBILITY ===== */
 .button-tool-3d:focus,
-.panel-icon-float:focus,
-#locate-3d-container button:focus,
-#locate-3d-container-mobile button:focus {
+#locate-3d-container button:focus {
     outline: 2px solid var(--primary-color);
     outline-offset: 2px;
 }
 
 /* ===== PERFORMANCE ===== */
 .button-tool-3d,
-.panel-icon-float,
-#locate-3d-container button,
-#locate-3d-container-mobile button {
+#locate-3d-container button {
     will-change: transform, background-color;
 }
 
@@ -323,10 +275,6 @@
 /* Note: Main z-index for #map-3d-container is set in the container definition above */
 
 #map-3d-tool-bar {
-    z-index: var(--z-3d-controls, 110);
-}
-
-.panel-icon-float {
     z-index: var(--z-3d-controls, 110);
 }
 
@@ -372,17 +320,3 @@
 }
 
 
-/* ----- Mobile Responsive ----- */
-@media (max-width: 768px) {
-    #close-3d-viewer-button {
-        width: 45px;
-        height: 45px;
-        top: 15px;
-        right: 15px;
-    }
-    
-    #close-3d-viewer-button svg {
-        width: 20px;
-        height: 20px;
-    }
-}

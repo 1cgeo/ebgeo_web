@@ -2,6 +2,8 @@
 
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
+import { isTouchDevice } from '../../utilities/pointer-utils';
+import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touch-helpers';
 import { addLineAttributesToPanel } from './line_attributes_panel.js';
 import { getTerrainElevation } from '../../terrain';
 import AddLineGeometry from './add_line_geometry.js';
@@ -28,6 +30,10 @@ class AddLineControl extends BaseControl {
 
         this.dragRecalculateTimeout = null;
         this._name = 'AddLineControl';
+
+        // Touch support
+        this._finishButton = null;
+        this._cleanupVertexLongPress = null;
     }
 
     static DEFAULT_PROPERTIES = {
@@ -199,6 +205,16 @@ class AddLineControl extends BaseControl {
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
         this.setupRightClickListener();
+
+        // Show finish button on touch devices
+        if (isTouchDevice()) {
+            this._finishButton = new DrawingFinishButton({
+                onFinish: () => this._finishDrawing(),
+                onUndo: () => this._undoLastPoint()
+            });
+            this._finishButton.show();
+            this._finishButton.updateState(0, 2); // Line needs min 2 points
+        }
     }
 
     deactivate = () => {
@@ -208,6 +224,12 @@ class AddLineControl extends BaseControl {
         this.clearPreview();
         this.removeRightClickListener();
         this.deselectFeature();
+
+        // Hide finish button
+        if (this._finishButton) {
+            this._finishButton.hide();
+            this._finishButton = null;
+        }
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====
@@ -364,6 +386,11 @@ class AddLineControl extends BaseControl {
 
         this.drawPoints.push(newPoint);
 
+        // Update finish button state
+        if (this._finishButton) {
+            this._finishButton.updateState(this.drawPoints.length, 2);
+        }
+
         if (this.drawPoints.length === 1) {
             this.map.on('mousemove', this.handlePreviewMouseMove);
         } else if (this.drawPoints.length >= 2) {
@@ -396,6 +423,41 @@ class AddLineControl extends BaseControl {
             this.map.off('mousemove', this.handlePreviewMouseMove);
             await this.createFeature();
             this.toolManager.deactivateCurrentTool();
+        }
+    }
+
+    /**
+     * Finish drawing - called by touch finish button
+     * @private
+     */
+    _finishDrawing = async () => {
+        if (!this.isActive || this.drawPoints.length < 2) return;
+
+        this.map.off('mousemove', this.handlePreviewMouseMove);
+        await this.createFeature();
+        this.toolManager.deactivateCurrentTool();
+    }
+
+    /**
+     * Undo last point - called by touch undo button
+     * @private
+     */
+    _undoLastPoint = () => {
+        if (!this.isActive || this.drawPoints.length === 0) return;
+
+        this.drawPoints.pop();
+
+        // Update finish button state
+        if (this._finishButton) {
+            this._finishButton.updateState(this.drawPoints.length, 2);
+        }
+
+        // Update preview
+        if (this.drawPoints.length === 0) {
+            this.clearPreview();
+            this.map.off('mousemove', this.handlePreviewMouseMove);
+        } else {
+            this.updateDrawingPreview();
         }
     }
 
@@ -518,6 +580,14 @@ class AddLineControl extends BaseControl {
         this.setupHoverListeners();
         this.setupEditRightClickListener();
         this.setMeasurementLabelSelected(feature.properties.id, true);
+
+        // Setup long-press vertex removal for touch devices
+        if (isTouchDevice()) {
+            this._cleanupVertexLongPress = setupVertexRemoveLongPress(this.map, {
+                handleLayerId: 'line-edit-handles-layer',
+                onVertexRemove: (vertexHandle) => this._handleVertexLongPress(vertexHandle, feature)
+            });
+        }
     }
 
     deselectFeature = () => {
@@ -536,6 +606,12 @@ class AddLineControl extends BaseControl {
         this.cancelPendingUpdates();
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
+
+        // Cleanup vertex long-press handler
+        if (this._cleanupVertexLongPress) {
+            this._cleanupVertexLongPress();
+            this._cleanupVertexLongPress = null;
+        }
     }
 
     createEditHandles = (feature) => {
@@ -855,6 +931,67 @@ class AddLineControl extends BaseControl {
                 warning.remove();
             }
         }, 2000);
+    }
+
+    /**
+     * Handle long-press on vertex for touch removal
+     * @param {Object} vertexHandle - The vertex handle feature
+     * @param {Object} feature - The selected line feature
+     * @private
+     */
+    _handleVertexLongPress = async (vertexHandle, feature) => {
+        const selectedFeature = this.getSelectedFeature();
+        if (!selectedFeature || selectedFeature.properties.id !== feature.properties.id) return;
+
+        const vertexIndex = vertexHandle.properties.index;
+        const coordinates = this.geometry.normalizeBaseCoordinates(selectedFeature.properties.baseCoordinates);
+
+        // Check if we can remove (must have more than 2 vertices)
+        if (!coordinates || coordinates.length <= 2) {
+            this.showVertexRemovalWarning();
+            // Haptic feedback for error
+            if (navigator.vibrate) {
+                navigator.vibrate([50, 50, 50]);
+            }
+            return;
+        }
+
+        // Haptic feedback for success
+        if (navigator.vibrate) {
+            navigator.vibrate(50);
+        }
+
+        // Remove the vertex
+        const newCoordinates = this.geometry.removeVertexAtIndex(coordinates, vertexIndex);
+        if (!newCoordinates) return;
+
+        // Update the feature
+        const updatedFeature = {
+            ...selectedFeature,
+            properties: {
+                ...selectedFeature.properties,
+                baseCoordinates: newCoordinates
+            },
+            geometry: this.geometry.generate(newCoordinates)
+        };
+
+        // Recalculate profile if enabled
+        if (updatedFeature.properties.profile) {
+            try {
+                const newProfileData = await this.calculateProfile(newCoordinates);
+                updatedFeature.properties.profileData = JSON.stringify(newProfileData);
+            } catch (error) {
+                console.error('Error recalculating profile after vertex removal:', error);
+            }
+        }
+
+        // Apply updates
+        await this.forceUpdateMainSource(updatedFeature);
+        this.updateSelectionManagerFeature(updatedFeature);
+        this.createEditHandles(updatedFeature);
+        this.updateUIAfterEdit();
+        this.saveFeatureChanges(updatedFeature);
+        this.updateFeatureMeasurement(updatedFeature);
     }
 
     onHoverMove = (e) => {

@@ -1,0 +1,658 @@
+/* Path: css/responsive.css */
+
+/**
+ * @fileoverview Responsive styles for tablet devices
+ * Breakpoints:
+ *   - Desktop: > 1024px (default styles)
+ *   - Tablet: 768px - 1024px
+ *   - Tablet Small: 600px - 768px
+ *
+ * Touch optimizations, safe areas, and layout adjustments.
+ * Mobile styles intentionally omitted - tablet/desktop focus only.
+ */
+
+/* =========================================================================
+   DRAWING TOUCH CONTROLS
+   ========================================================================= */
+
+.drawing-touch-controls {
+    position: fixed;
+    bottom: calc(80px + var(--safe-area-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: var(--space-2);
+    z-index: var(--z-floating);
+    animation: slideUp 200ms ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+.drawing-finish-btn,
+.drawing-undo-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-5);
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-lg);
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    box-shadow: var(--shadow-lg);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    min-height: var(--touch-target-min);
+}
+
+.drawing-finish-btn:hover:not(:disabled),
+.drawing-undo-btn:hover:not(:disabled) {
+    background: var(--primary-hover);
+    transform: scale(1.02);
+}
+
+.drawing-finish-btn:active:not(:disabled),
+.drawing-undo-btn:active:not(:disabled) {
+    transform: scale(0.98);
+}
+
+.drawing-finish-btn:disabled,
+.drawing-undo-btn:disabled {
+    cursor: not-allowed;
+}
+
+.drawing-undo-btn {
+    padding: var(--space-3);
+    background: var(--gray-600);
+}
+
+.drawing-undo-btn:hover:not(:disabled) {
+    background: var(--gray-700);
+}
+
+/* =========================================================================
+   UTILITY CLASSES
+   ========================================================================= */
+
+/* Touch target enforcement */
+.touch-target {
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+}
+
+/* Safe area utilities */
+.safe-area-top {
+    padding-top: var(--safe-area-top);
+}
+
+.safe-area-bottom {
+    padding-bottom: var(--safe-area-bottom);
+}
+
+.safe-area-left {
+    padding-left: var(--safe-area-left);
+}
+
+.safe-area-right {
+    padding-right: var(--safe-area-right);
+}
+
+/* Hide on tablet */
+.hide-on-tablet {
+    display: none !important;
+}
+
+/* Show only on tablet */
+.show-on-tablet {
+    display: block;
+}
+
+/* =========================================================================
+   TOUCH DEVICE OPTIMIZATIONS (pointer: coarse)
+   Applied to all touch devices regardless of screen size
+   ========================================================================= */
+
+@media (pointer: coarse) {
+    /* Enforce minimum touch targets on all interactive elements */
+    button,
+    .btn,
+    [role="button"],
+    .clickable {
+        min-height: var(--touch-target-min);
+    }
+
+    /* Remove hover effects that stick on touch devices */
+    .context-menu-item:hover,
+    .feature-selection-menu .context-menu-item:hover,
+    .toolbar-tool-btn:hover,
+    .toolbar-group-btn:hover,
+    .nav-btn:hover,
+    .feature-toggle-btn:hover,
+    .sidebar-nav-btn:hover,
+    .sidebar-action-btn:hover,
+    .map-list-item:hover,
+    .import-option-btn:hover,
+    .export-option-btn:hover,
+    .catalog-card:hover,
+    .catalog-filter-btn:hover {
+        background-color: inherit;
+        transform: none;
+        box-shadow: inherit;
+    }
+
+    /* Use active states for touch feedback instead */
+    .context-menu-item:active,
+    .feature-selection-menu .context-menu-item:active {
+        background-color: var(--gray-100) !important;
+    }
+
+    .toolbar-tool-btn:active,
+    .toolbar-group-btn:active {
+        background: var(--gray-200);
+        transform: scale(0.95);
+    }
+
+    .toolbar-tool-btn[data-active="true"]:active {
+        background: var(--primary-200);
+    }
+
+    .nav-btn:active,
+    .feature-toggle-btn:active:not(:disabled) {
+        transform: scale(0.92);
+    }
+
+    .sidebar-nav-btn:active {
+        background: rgba(255, 255, 255, 0.25);
+    }
+
+    .sidebar-action-btn:active,
+    .map-list-item:active {
+        background: var(--gray-100);
+    }
+
+    .import-option-btn:active,
+    .export-option-btn:active {
+        transform: scale(0.98);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .catalog-card:active {
+        transform: scale(0.98);
+    }
+
+    /* Larger close/action buttons for touch */
+    .sidebar-panel-close,
+    .modal-close-btn,
+    .feature-panel-close-btn,
+    .feature-panel-back-btn {
+        min-width: var(--touch-target-min);
+        min-height: var(--touch-target-min);
+    }
+
+    /* Ensure proper spacing between touch targets */
+    .sidebar-nav {
+        gap: var(--space-2);
+    }
+
+    .maps-list,
+    .catalog-filters-list {
+        gap: var(--space-3);
+    }
+
+    /* Scrolling optimization */
+    .sidebar-panel-content,
+    .feature-panel-content,
+    .modal-body,
+    .catalog-grid-wrapper {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+
+    /* Prevent text selection during touch interactions */
+    .toolbar-container,
+    .bottom-controls-left,
+    .bottom-controls-right,
+    .sidebar-collapsed {
+        -webkit-user-select: none;
+        user-select: none;
+    }
+}
+
+/* =========================================================================
+   TABLET BREAKPOINT (768px - 1024px)
+   ========================================================================= */
+
+@media (width <= 1024px) {
+    /* ----- SIDEBAR ADJUSTMENTS ----- */
+    .sidebar-panel {
+        width: var(--sidebar-panel-width-tablet, 340px);
+    }
+
+    .feature-panel {
+        width: var(--sidebar-panel-width-tablet, 340px);
+    }
+
+    /* Reduce padding in panels */
+    .sidebar-tab-content,
+    .feature-panel-content {
+        padding: var(--space-3);
+    }
+
+    /* ----- SEARCH BAR ----- */
+    /* Responsive width handled in search-bar.css */
+
+    /* ----- TOOLBAR ----- */
+    .toolbar-container {
+        top: 72px;
+    }
+
+    .toolbar-group-btn,
+    .toolbar-standalone-btn {
+        width: var(--toolbar-button-size-tablet, 48px);
+        height: var(--toolbar-button-size-tablet, 48px);
+    }
+
+    .toolbar-group-btn svg,
+    .toolbar-standalone-btn svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    /* Toolbar popup - ensure it doesn't overflow screen */
+    .toolbar-popup {
+        max-height: calc(100vh - 160px);
+        overflow-y: auto;
+    }
+
+    .toolbar-popup-grid .toolbar-tool-btn {
+        width: var(--toolbar-button-size-tablet, 48px);
+        height: var(--toolbar-button-size-tablet, 48px);
+    }
+
+    /* ----- BOTTOM CONTROLS ----- */
+    .nav-btn {
+        width: var(--control-button-size-tablet, 48px);
+        height: var(--control-button-size-tablet, 48px);
+    }
+
+    .nav-btn svg {
+        width: 22px;
+        height: 22px;
+    }
+
+    .feature-toggle-btn {
+        height: var(--control-button-size-tablet, 48px);
+        padding: 0 var(--space-4);
+    }
+
+    /* Position adjustment for larger controls */
+    .bottom-controls-left {
+        right: calc(var(--control-button-size-tablet, 48px) + var(--space-4) + var(--space-4));
+    }
+
+    /* ----- MODALS ----- */
+    .modal-container {
+        max-width: 90vw;
+        max-height: 90vh;
+    }
+
+    .shortcuts-modal-container {
+        max-width: 95vw;
+    }
+
+    /* Shortcuts modal - single column on smaller tablets */
+    .shortcuts-sections {
+        grid-template-columns: 1fr;
+        gap: var(--space-3);
+    }
+
+    /* ----- CATALOG ----- */
+    .catalog-modal-container {
+        width: 98vw;
+        height: 90vh;
+    }
+
+    .catalog-filters {
+        width: 160px;
+        padding: var(--space-3);
+    }
+
+    .catalog-grid {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: var(--space-3);
+    }
+
+    /* ----- ACTION BUTTONS ----- */
+    /* Ensure all small action buttons meet touch target requirements */
+    .map-list-action-btn,
+    .sidebar-section-header-btn,
+    .catalog-layer-btn,
+    .popover-close,
+    .feature-photo-gallery-delete,
+    .feature-location-edit-btn {
+        min-width: 36px;
+        min-height: 36px;
+    }
+
+    /* ----- CHIPS ----- */
+    .chip {
+        min-height: var(--touch-target-min);
+        padding: var(--space-2) var(--space-3);
+    }
+
+    /* ----- BASE LAYER SELECTOR ----- */
+    .base-layer-thumbnail {
+        width: 88px;
+        height: 88px;
+    }
+}
+
+/* =========================================================================
+   TABLET SMALL BREAKPOINT (600px - 768px)
+   ========================================================================= */
+
+@media (width <= 768px) {
+    /* ----- SIDEBAR AS OVERLAY ----- */
+    .sidebar-panel,
+    .feature-panel {
+        width: 100vw;
+        max-width: 400px;
+    }
+
+    /* Add safe area padding */
+    .sidebar-container {
+        padding-top: var(--safe-area-top);
+    }
+
+    /* ----- SEARCH BAR ----- */
+    /* Responsive width handled in search-bar.css */
+
+    .search-bar-input {
+        font-size: 16px; /* Prevents iOS zoom on focus */
+    }
+
+    /* ----- TOOLBAR ----- */
+    .toolbar-container {
+        top: 64px;
+        right: var(--space-3);
+    }
+
+    /* Toolbar popup positioning for small screens */
+    .toolbar-popup {
+        right: auto;
+        left: calc(-200px + var(--toolbar-button-size-tablet, 48px));
+        max-width: calc(100vw - var(--space-6));
+    }
+
+    /* ----- BOTTOM CONTROLS ----- */
+    .bottom-controls-right {
+        right: var(--space-3);
+        bottom: calc(var(--space-4) + var(--safe-area-bottom));
+    }
+
+    .bottom-controls-left {
+        right: calc(var(--control-button-size-tablet, 48px) + var(--space-3) + var(--space-3));
+        bottom: calc(var(--space-4) + var(--safe-area-bottom));
+    }
+
+    /* Icon-only feature toggles in small tablet */
+    .feature-toggle-btn {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        max-width: 48px;
+        padding: 0;
+        border-radius: var(--radius-md);
+        justify-content: center;
+        gap: 0;
+    }
+
+    .feature-toggle-label {
+        display: none;
+    }
+
+    .feature-toggle-icon {
+        width: 24px;
+        height: 24px;
+    }
+
+    .feature-toggle-icon svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    /* ----- MODALS ----- */
+    .modal-container {
+        max-width: 100vw;
+        max-height: 100vh;
+        height: 100vh;
+        border-radius: 0;
+        margin: 0;
+    }
+
+    .modal-overlay {
+        padding: 0;
+    }
+
+    .prompt-modal-container {
+        max-width: 90vw;
+        height: auto;
+        border-radius: var(--radius-xl);
+    }
+
+    /* ----- CATALOG ----- */
+    .catalog-modal-container {
+        width: 100vw;
+        height: 100vh;
+        border-radius: 0;
+    }
+
+    /* Collapse filters to horizontal scroll */
+    .catalog-layout {
+        flex-direction: column;
+    }
+
+    .catalog-filters {
+        width: 100%;
+        flex-direction: row;
+        overflow-x: auto;
+        padding: var(--space-2) var(--space-3);
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        gap: var(--space-2);
+    }
+
+    .catalog-filters-title {
+        display: none;
+    }
+
+    .catalog-filters-list {
+        flex-direction: row;
+        flex-wrap: nowrap;
+    }
+
+    .catalog-filter-btn {
+        flex-shrink: 0;
+        white-space: nowrap;
+    }
+
+    .catalog-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* ----- FORM INPUTS ----- */
+    /* Prevent iOS zoom on input focus */
+    input[type="text"],
+    input[type="email"],
+    input[type="number"],
+    input[type="search"],
+    textarea,
+    select {
+        font-size: 16px;
+    }
+}
+
+/* =========================================================================
+   LANDSCAPE ORIENTATION ADJUSTMENTS
+   ========================================================================= */
+
+@media (orientation: landscape) and (width <= 1024px) {
+    /* Sidebar takes less vertical space in landscape */
+    .sidebar-panel-content,
+    .feature-panel-content {
+        max-height: calc(100vh - 120px);
+    }
+
+    /* Modals should not be full height in landscape */
+    .modal-container {
+        max-height: 95vh;
+    }
+
+    /* Catalog keeps sidebar in landscape */
+    .catalog-layout {
+        flex-direction: row;
+    }
+
+    .catalog-filters {
+        width: 140px;
+        flex-direction: column;
+        border-right: 1px solid var(--border-color);
+        border-bottom: none;
+        overflow-x: visible;
+    }
+
+    .catalog-filters-title {
+        display: block;
+    }
+
+    .catalog-filters-list {
+        flex-direction: column;
+    }
+}
+
+@media (orientation: landscape) and (width <= 768px) {
+    /* In small landscape, keep controls more compact */
+    .bottom-controls-left {
+        flex-direction: row;
+        bottom: var(--space-3);
+        right: auto;
+        left: calc(var(--sidebar-collapsed-width) + var(--space-3));
+    }
+
+    .feature-toggle-btn {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        max-width: 48px;
+        padding: 0;
+        border-radius: var(--radius-md);
+        justify-content: center;
+        gap: 0;
+    }
+
+    .feature-toggle-label {
+        display: none;
+    }
+
+    .feature-toggle-icon {
+        width: 24px;
+        height: 24px;
+    }
+
+    .feature-toggle-icon svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    /* Toolbar horizontal in small landscape */
+    .toolbar-container {
+        top: auto;
+        bottom: var(--space-3);
+        right: calc(var(--control-button-size-tablet, 48px) + var(--space-4));
+        flex-direction: row;
+    }
+
+    .toolbar-popup {
+        bottom: calc(100% + var(--space-2));
+        top: auto;
+        right: 0;
+        left: auto;
+    }
+}
+
+/* =========================================================================
+   PORTRAIT ORIENTATION SPECIFIC
+   ========================================================================= */
+
+@media (orientation: portrait) and (width <= 768px) {
+    /* More vertical space for content in portrait */
+    .sidebar-panel-content {
+        max-height: calc(100vh - 80px - var(--safe-area-top) - var(--safe-area-bottom));
+    }
+
+    /* Drawing touch controls higher in portrait */
+    .drawing-touch-controls {
+        bottom: calc(100px + var(--safe-area-bottom));
+    }
+}
+
+/* =========================================================================
+   HIGH DENSITY DISPLAYS (Retina)
+   ========================================================================= */
+
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    /* Slightly thinner borders on high-density displays */
+    .sidebar-panel,
+    .feature-panel,
+    .modal-container {
+        border-width: 0.5px;
+    }
+}
+
+/* =========================================================================
+   REDUCED MOTION PREFERENCE
+   ========================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+    .sidebar-panel,
+    .feature-panel,
+    .modal-container,
+    .toolbar-popup,
+    .drawing-touch-controls {
+        transition: none;
+        animation: none;
+    }
+
+    .drawing-touch-controls {
+        animation: none;
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* =========================================================================
+   PRINT STYLES (hide UI controls)
+   ========================================================================= */
+
+@media print {
+    .sidebar-container,
+    .toolbar-container,
+    .bottom-controls-left,
+    .bottom-controls-right,
+    .search-bar-wrapper,
+    .drawing-touch-controls {
+        display: none !important;
+    }
+}

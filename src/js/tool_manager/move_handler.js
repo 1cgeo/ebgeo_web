@@ -26,14 +26,20 @@ class MoveHandler {
         // Animation frame management
         this.rafId = null;
         this.pendingUpdate = false;
-        this.mouseMoveHandler = null;
-        this.mouseUpHandler = null;
 
         // Cached position objects for performance (avoids object allocation during drag)
         this.cachedPosition = { lng: 0, lat: 0 };
         this.cachedDelta = { dx: 0, dy: 0 };
         this.coordsPool = { lng: 0, lat: 0 };
         this.tempCoords = { lng: 0, lat: 0 };
+
+        // Bound handlers for cleanup
+        this._onMouseDown = this._onMouseDown.bind(this);
+        this._onMouseMove = this._onMouseMove.bind(this);
+        this._onMouseUp = this._onMouseUp.bind(this);
+        this._onTouchStart = this._onTouchStart.bind(this);
+        this._onTouchMove = this._onTouchMove.bind(this);
+        this._onTouchEnd = this._onTouchEnd.bind(this);
 
         this._setupEventListeners();
     }
@@ -132,26 +138,166 @@ class MoveHandler {
 
     /**
      * Setup map event listeners.
+     * Uses MapLibre events for mouse and direct touch events for touch support.
      * @private
      */
     _setupEventListeners() {
-        this.map.on('mousedown', this._onMouseDown.bind(this));
+        // Use MapLibre map events for mouse (works reliably with MapLibre)
+        this.map.on('mousedown', this._onMouseDown);
+
+        // Add touch events directly on canvas for touch support
+        const canvas = this.map.getCanvasContainer();
+        canvas.addEventListener('touchstart', this._onTouchStart, { passive: false });
     }
 
     /**
-     * Handle mouse down event.
+     * Handle mouse down event via MapLibre.
      * @private
      */
     _onMouseDown(e) {
+        // Only handle left mouse button
+        if (e.originalEvent.button !== 0) return;
+
         this._startDrag(e);
 
-        this._cleanupDragListeners();
+        if (this.isDragging) {
+            this.map.on('mousemove', this._onMouseMove);
+            this.map.on('mouseup', this._onMouseUp);
+        }
+    }
 
-        this.mouseMoveHandler = this._onMouseMove.bind(this);
-        this.mouseUpHandler = this._onMouseUp.bind(this);
+    /**
+     * Handle mouse move during drag.
+     * @private
+     */
+    _onMouseMove(e) {
+        if (!this.isDragging) return;
 
-        this.map.on('mousemove', this.mouseMoveHandler);
-        this.map.once('mouseup', this.mouseUpHandler);
+        this.cachedPosition.lng = e.lngLat.lng;
+        this.cachedPosition.lat = e.lngLat.lat;
+        this.cachedDelta.dx = this.cachedPosition.lng - this.initialCoordinates.lng;
+        this.cachedDelta.dy = this.cachedPosition.lat - this.initialCoordinates.lat;
+
+        if (!this.pendingUpdate) {
+            this.pendingUpdate = true;
+            this.rafId = requestAnimationFrame(this._performDragUpdate.bind(this));
+        }
+    }
+
+    /**
+     * Handle mouse up - end drag.
+     * @private
+     */
+    async _onMouseUp(e) {
+        if (!this.isDragging) return;
+
+        this.map.off('mousemove', this._onMouseMove);
+        this.map.off('mouseup', this._onMouseUp);
+
+        await this._endDrag(e.lngLat);
+    }
+
+    /**
+     * Handle touch start event.
+     * @private
+     */
+    _onTouchStart(e) {
+        // Only handle single touch
+        if (e.touches.length !== 1) return;
+
+        const touch = e.touches[0];
+        const canvas = this.map.getCanvasContainer();
+        const rect = canvas.getBoundingClientRect();
+        const point = {
+            x: touch.clientX - rect.left,
+            y: touch.clientY - rect.top
+        };
+        const lngLat = this.map.unproject([point.x, point.y]);
+
+        // Create map event-like object
+        const mapEvent = {
+            point,
+            lngLat,
+            originalEvent: e
+        };
+
+        this._startDrag(mapEvent);
+
+        if (this.isDragging) {
+            // Store start position for threshold check
+            this._touchStartPoint = { x: touch.clientX, y: touch.clientY };
+            this._touchDragConfirmed = false;
+
+            canvas.addEventListener('touchmove', this._onTouchMove, { passive: false });
+            canvas.addEventListener('touchend', this._onTouchEnd);
+            canvas.addEventListener('touchcancel', this._onTouchEnd);
+
+            e.preventDefault();
+        }
+    }
+
+    /**
+     * Handle touch move during drag.
+     * @private
+     */
+    _onTouchMove(e) {
+        if (!this.isDragging || e.touches.length !== 1) return;
+
+        const touch = e.touches[0];
+
+        // Require 10px movement to confirm drag (prevents accidental moves)
+        if (!this._touchDragConfirmed && this._touchStartPoint) {
+            const dist = Math.hypot(
+                touch.clientX - this._touchStartPoint.x,
+                touch.clientY - this._touchStartPoint.y
+            );
+            if (dist < 10) return;
+            this._touchDragConfirmed = true;
+        }
+
+        const canvas = this.map.getCanvasContainer();
+        const rect = canvas.getBoundingClientRect();
+        const point = {
+            x: touch.clientX - rect.left,
+            y: touch.clientY - rect.top
+        };
+        const lngLat = this.map.unproject([point.x, point.y]);
+
+        this.cachedPosition.lng = lngLat.lng;
+        this.cachedPosition.lat = lngLat.lat;
+        this.cachedDelta.dx = this.cachedPosition.lng - this.initialCoordinates.lng;
+        this.cachedDelta.dy = this.cachedPosition.lat - this.initialCoordinates.lat;
+
+        if (!this.pendingUpdate) {
+            this.pendingUpdate = true;
+            this.rafId = requestAnimationFrame(this._performDragUpdate.bind(this));
+        }
+
+        e.preventDefault();
+    }
+
+    /**
+     * Handle touch end - end drag.
+     * @private
+     */
+    async _onTouchEnd(e) {
+        if (!this.isDragging) return;
+
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('touchmove', this._onTouchMove);
+        canvas.removeEventListener('touchend', this._onTouchEnd);
+        canvas.removeEventListener('touchcancel', this._onTouchEnd);
+
+        // Only apply changes if drag was confirmed (moved > 10px)
+        if (this._touchDragConfirmed) {
+            await this._endDrag(this.cachedPosition);
+        } else {
+            // Cancel drag without applying changes
+            this._cancelDrag();
+        }
+
+        this._touchStartPoint = null;
+        this._touchDragConfirmed = false;
     }
 
     /**
@@ -159,14 +305,13 @@ class MoveHandler {
      * @private
      */
     _cleanupDragListeners() {
-        if (this.mouseMoveHandler) {
-            this.map.off('mousemove', this.mouseMoveHandler);
-            this.mouseMoveHandler = null;
-        }
-        if (this.mouseUpHandler) {
-            this.map.off('mouseup', this.mouseUpHandler);
-            this.mouseUpHandler = null;
-        }
+        this.map.off('mousemove', this._onMouseMove);
+        this.map.off('mouseup', this._onMouseUp);
+
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('touchmove', this._onTouchMove);
+        canvas.removeEventListener('touchend', this._onTouchEnd);
+        canvas.removeEventListener('touchcancel', this._onTouchEnd);
     }
 
     /**
@@ -244,24 +389,6 @@ class MoveHandler {
     }
 
     /**
-     * Handle mouse move during drag.
-     * @private
-     */
-    _onMouseMove(e) {
-        if (!this.isDragging) return;
-
-        this.cachedPosition.lng = e.lngLat.lng;
-        this.cachedPosition.lat = e.lngLat.lat;
-        this.cachedDelta.dx = this.cachedPosition.lng - this.initialCoordinates.lng;
-        this.cachedDelta.dy = this.cachedPosition.lat - this.initialCoordinates.lat;
-
-        if (!this.pendingUpdate) {
-            this.pendingUpdate = true;
-            this.rafId = requestAnimationFrame(this._performDragUpdate.bind(this));
-        }
-    }
-
-    /**
      * Perform drag update in animation frame.
      * @private
      */
@@ -277,12 +404,10 @@ class MoveHandler {
     }
 
     /**
-     * Handle mouse up - end drag.
+     * End drag operation and apply changes.
      * @private
      */
-    _onMouseUp = async (e) => {
-        if (!this.isDragging) return;
-
+    async _endDrag(finalPosition) {
         if (this.rafId) {
             cancelAnimationFrame(this.rafId);
             this.rafId = null;
@@ -294,16 +419,14 @@ class MoveHandler {
         this.uiManager.setDragging(false);
         this._setCursorStyle('');
 
-        this._cleanupDragListeners();
-
         const dx = this.cachedDelta.dx;
         const dy = this.cachedDelta.dy;
         const distanceMoved = Math.sqrt(dx * dx + dy * dy);
         const tolerance = 2 / Math.pow(2, this.map.getZoom());
 
         if (distanceMoved > tolerance) {
-            this.tempCoords.lng = e.lngLat.lng;
-            this.tempCoords.lat = e.lngLat.lat;
+            this.tempCoords.lng = finalPosition.lng;
+            this.tempCoords.lat = finalPosition.lat;
 
             const updatedFeatures = this._batchUpdateFeaturesToolCentric(this.selectedFeatures, dx, dy, this.tempCoords);
 
@@ -319,6 +442,30 @@ class MoveHandler {
 
             this.uiManager.updatePanels();
         }
+
+        this.selectedFeatures = null;
+        this.offsets = null;
+        this.initialCoordinates = null;
+    }
+
+    /**
+     * Cancel drag operation without applying changes.
+     * @private
+     */
+    _cancelDrag() {
+        if (this.rafId) {
+            cancelAnimationFrame(this.rafId);
+            this.rafId = null;
+        }
+        this.pendingUpdate = false;
+
+        this.isDragging = false;
+        this.map.dragPan.enable();
+        this.uiManager.setDragging(false);
+        this._setCursorStyle('');
+
+        // Reset selection boxes to original position
+        this.uiManager.shiftSelectionBoxes(0, 0, true);
 
         this.selectedFeatures = null;
         this.offsets = null;
@@ -497,6 +644,12 @@ class MoveHandler {
      */
     destroy() {
         this._cleanupDragListeners();
+
+        // Remove main event listeners
+        this.map.off('mousedown', this._onMouseDown);
+
+        const canvas = this.map.getCanvasContainer();
+        canvas.removeEventListener('touchstart', this._onTouchStart);
 
         if (this.rafId) {
             cancelAnimationFrame(this.rafId);
