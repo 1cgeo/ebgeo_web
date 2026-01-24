@@ -83,12 +83,11 @@ export function addCoordinationMeasureAttributesToPanel(
     if (selectedFeatures.length === 1) {
         const pointButtonContainer = document.createElement('div');
         pointButtonContainer.className = 'attr-modern-button-row';
-        pointButtonContainer.style.marginBottom = '12px';
 
         const pointButton = document.createElement('button');
         pointButton.className = 'attr-modern-btn attr-modern-btn-primary';
+        pointButton.style.flex = '1';
         pointButton.textContent = 'Configurar Símbolo';
-        pointButton.style.width = '100%';
         pointButton.onclick = () => openPointModal({
             feature,
             selectedFeatures,

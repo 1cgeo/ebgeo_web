@@ -120,10 +120,10 @@ class AddLOSGeometry extends BaseGeometry {
     }
 
     /**
-     * Calculate elevation profile along coordinates
+     * Calculate elevation profile along coordinates with slope percentage
      * @param {Array} coordinates - [startPoint, endPoint]
      * @param {Object} map - MapLibre map instance for terrain queries
-     * @returns {Array} Array of {distance, elevation} objects
+     * @returns {Array} Array of {distance, elevation, slope} objects
      */
     async calculateProfile(coordinates, map) {
         if (!this.validate(coordinates)) {
@@ -142,8 +142,25 @@ class AddLOSGeometry extends BaseGeometry {
 
             profileData.push({
                 distance: i * stepLength,
-                elevation: elevation
+                elevation: elevation,
+                slope: 0 // Will be calculated after all elevations are collected
             });
+        }
+
+        // Calculate slope percentage between consecutive points
+        for (let i = 1; i < profileData.length; i++) {
+            const deltaElevation = profileData[i].elevation - profileData[i - 1].elevation;
+            const deltaDistance = profileData[i].distance - profileData[i - 1].distance;
+
+            if (deltaDistance > 0) {
+                // Slope as percentage: (rise / run) * 100
+                profileData[i].slope = (deltaElevation / deltaDistance) * 100;
+            }
+        }
+
+        // First point inherits slope from second point for display continuity
+        if (profileData.length > 1) {
+            profileData[0].slope = profileData[1].slope;
         }
 
         return profileData;

@@ -74,12 +74,11 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
     if (selectedFeatures.length === 1) {
         const symbolButtonContainer = document.createElement('div');
         symbolButtonContainer.className = 'attr-modern-button-row';
-        symbolButtonContainer.style.marginBottom = '12px';
 
         const symbolButton = document.createElement('button');
         symbolButton.className = 'attr-modern-btn attr-modern-btn-primary';
+        symbolButton.style.flex = '1';
         symbolButton.textContent = 'Configurar Símbolo';
-        symbolButton.style.width = '100%';
         symbolButton.onclick = () => openSymbolModal({
             feature,
             selectedFeatures,

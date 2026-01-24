@@ -79,12 +79,25 @@ const analysisLayersManager = new AnalysisLayersManager(map);
 const gridControl = new GridControl(map);
 const frameControl = new FrameControl(map);
 
+// Promise to track when IndexedDB initialization is complete.
+// This prevents a race condition where map.on('load') could call switchMap()
+// before the store is fully initialized, causing features to not load.
+let storeInitializedPromise;
+let resolveStoreInitialized;
+storeInitializedPromise = new Promise(resolve => {
+    resolveStoreInitialized = resolve;
+});
+
 // ===== MAP LOAD EVENT =====
 
 map.on('load', async () => {
     map.doubleClickZoom.disable();
     map.boxZoom.disable();
     map.dragRotate.disable();
+
+    // Wait for store initialization before loading features
+    await storeInitializedPromise;
+
     await baseLayerControl.switchMap(true);
 
     if (config.map2d.globe_projection) {
@@ -237,14 +250,20 @@ const keyboardShortcuts = new KeyboardShortcuts({
     }
 });
 
-keyboardShortcuts.enable();
+// NOTE: keyboardShortcuts.enable() is called after toolbar controls are initialized
+// to ensure controls have map reference when shortcuts are triggered
 
 // ===== ADD CONTROLS TO MAP (MUST BE FIRST - creates dependencies) =====
 // MapControl.onAdd() creates featuresTab and pdfExportTab, so it must run
 // before we create SidebarControl which depends on these
 map.addControl(baseLayerControl, 'top-left');
 map.addControl(mapControl, 'top-left');
-mapControl.loadMenu();
+// Load menu and then signal that store initialization is complete.
+// map.on('load') waits for this before calling switchMap() to prevent
+// a race condition that could cause features to not load.
+mapControl.loadMenu().then(() => {
+    resolveStoreInitialized();
+});
 
 // ===== EXTRACT DEPENDENCIES FROM MAP CONTROL =====
 // These are created inside MapControl's onAdd() method and must be extracted
@@ -280,6 +299,41 @@ const sidebarControl = new SidebarControl({
     uiManager: uiManager,
 });
 sidebarControl.init(document.body);
+
+// ===== INITIALIZE MAP REFERENCE FOR TOOLBAR-MANAGED CONTROLS =====
+// These controls are not added to the map via addControl() anymore,
+// but they still need the map reference for their functionality.
+// We call onAdd() manually BEFORE creating ToolbarControl to ensure
+// controls have the map reference when toolbar buttons are clicked.
+const toolbarManagedControls = [
+    pointControl,
+    lineControl,
+    polygonControl,
+    textControl,
+    imageControl,
+    circleControl,
+    rectangleControl,
+    ellipseControl,
+    brushControl,
+    arrowControl,
+    boundaryControl,
+    occupiedFrontControl,
+    militarySymbolControl,
+    coordinationMeasureControl,
+    losControl,
+    visibilityControl,
+    vectorTileInfoControl,
+    rectangleSelectionControl,
+];
+
+toolbarManagedControls.forEach(control => {
+    if (control && typeof control.onAdd === 'function') {
+        control.onAdd(map);
+    }
+});
+
+// Enable keyboard shortcuts after controls have map reference
+keyboardShortcuts.enable();
 
 // ===== TOOLBAR CONTROL (Reorganized tool groups) =====
 
@@ -369,37 +423,6 @@ const baseLayerSelectorControl = new BaseLayerSelectorControl({
     stateManager: getStateManager(),
 });
 baseLayerSelectorControl.init(document.body);
-
-// ===== INITIALIZE MAP REFERENCE FOR TOOLBAR-MANAGED CONTROLS =====
-// These controls are not added to the map via addControl() anymore,
-// but they still need the map reference for their functionality.
-// We call onAdd() manually to ensure zoom listeners and other setup runs.
-const toolbarManagedControls = [
-    pointControl,
-    lineControl,
-    polygonControl,
-    textControl,
-    imageControl,
-    circleControl,
-    rectangleControl,
-    ellipseControl,
-    brushControl,
-    arrowControl,
-    boundaryControl,
-    occupiedFrontControl,
-    militarySymbolControl,
-    coordinationMeasureControl,
-    losControl,
-    visibilityControl,
-    vectorTileInfoControl,
-    rectangleSelectionControl,
-];
-
-toolbarManagedControls.forEach(control => {
-    if (control && typeof control.onAdd === 'function') {
-        control.onAdd(map);
-    }
-});
 
 // ===== REGISTER CONTROLS IN CONTROL REGISTRY =====
 // This allows other modules (like layer_setup.js) to access controls by name

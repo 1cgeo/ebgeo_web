@@ -115,6 +115,9 @@ export function setupCircleLayers(features, mapInstance) {
                     'dashed', ['literal', [8, 4]],
                     'dotted', ['literal', [2, 3]],
                     'dash-dot', ['literal', [8, 4, 2, 4]],
+                    'long-dash', ['literal', [16, 6]],
+                    'short-dash', ['literal', [4, 4]],
+                    'dot-dot-dash', ['literal', [2, 2, 2, 2, 8, 2]],
                     ['literal', [1, 0]]
                 ]
             },
@@ -240,6 +243,9 @@ export function setupRectangleLayers(features, mapInstance) {
                     'dashed', ['literal', [8, 4]],
                     'dotted', ['literal', [2, 3]],
                     'dash-dot', ['literal', [8, 4, 2, 4]],
+                    'long-dash', ['literal', [16, 6]],
+                    'short-dash', ['literal', [4, 4]],
+                    'dot-dot-dash', ['literal', [2, 2, 2, 2, 8, 2]],
                     ['literal', [1, 0]]
                 ]
             },
@@ -370,6 +376,9 @@ export function setupEllipseLayers(features, mapInstance) {
                     'dashed', ['literal', [8, 4]],
                     'dotted', ['literal', [2, 3]],
                     'dash-dot', ['literal', [8, 4, 2, 4]],
+                    'long-dash', ['literal', [16, 6]],
+                    'short-dash', ['literal', [4, 4]],
+                    'dot-dot-dash', ['literal', [2, 2, 2, 2, 8, 2]],
                     ['literal', [1, 0]]
                 ]
             },

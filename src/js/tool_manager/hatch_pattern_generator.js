@@ -143,7 +143,8 @@ export class HatchPatternGenerator {
             type: feature.properties.hatchType || 'diagonal-right',
             spacing: feature.properties.hatchSpacing || 8,
             lineWidth: feature.properties.hatchLineWidth || 2,
-            color: feature.properties.hatchColor || '#000000'
+            // Use fillColor for hatch color (fallback to hatchColor for backwards compatibility)
+            color: feature.properties.fillColor || feature.properties.hatchColor || '#000000'
         };
         return this.getCacheKey(config);
     }
@@ -162,7 +163,8 @@ export class HatchPatternGenerator {
                     type: feature.properties.hatchType || 'diagonal-right',
                     spacing: feature.properties.hatchSpacing || 8,
                     lineWidth: feature.properties.hatchLineWidth || 2,
-                    color: feature.properties.hatchColor || '#000000'
+                    // Use fillColor for hatch color (fallback to hatchColor for backwards compatibility)
+                    color: feature.properties.fillColor || feature.properties.hatchColor || '#000000'
                 };
 
                 const patternId = this.getCacheKey(config);

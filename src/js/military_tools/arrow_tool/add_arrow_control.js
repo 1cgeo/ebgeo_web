@@ -53,7 +53,7 @@ class AddArrowControl extends BaseControl {
     static WIDTH_SIZE_CONSTANTS = {
         MIN_WIDTH_M: 50,
         DEFAULT_WIDTH_M: 500,
-        ZOOM_BASE_MULTIPLIER: 40,
+        ZOOM_BASE_MULTIPLIER: 25,
         ZOOM_EXPONENT_BASE: 2
     };
 

@@ -65,11 +65,11 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
     // Size slider
     panel.appendChild(createModernSlider({
         label: 'Tamanho',
-        min: 10,
-        max: 300,
-        step: 1,
-        value: feature.properties.size || 100,
-        unit: 'px',
+        min: 0.1,
+        max: 5,
+        step: 0.1,
+        value: feature.properties.size || 1,
+        unit: 'x',
         onChange: (value) => {
             imageControl.updateFeaturesProperty(selectedFeatures, 'size', value);
         }

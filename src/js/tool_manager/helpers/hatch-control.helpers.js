@@ -2,7 +2,10 @@
 
 /**
  * @fileoverview Hatch pattern control component for attribute panels.
+ * Hatch color follows the fill color automatically.
  */
+
+import { createModernSlider } from './slider.helpers.js';
 
 /**
  * Hatch pattern definitions.
@@ -17,14 +20,6 @@ const HATCH_PATTERNS = [
     { id: 'cross-diagonal', label: 'Cruz X', angles: [45, -45] },
     { id: 'dots', label: 'Pontos', type: 'dots' },
 ];
-
-/**
- * SVG icons.
- */
-const ICONS = {
-    settings: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
-    x: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>',
-};
 
 /**
  * Creates a hatch pattern preview SVG.
@@ -99,15 +94,15 @@ function createHatchPreviewSVG(pattern, color = '#000000', size = 24) {
 }
 
 /**
- * Creates a modern hatch control with toggle, pattern grid, and config panel.
+ * Creates a modern hatch control with pattern grid and inline sliders.
+ * The "none" pattern option serves as the disabled state.
+ * Hatch color follows the fill color automatically.
+ * Sliders appear when a hatch pattern is selected (not "none").
  *
  * @param {Object} config - Configuration object
- * @param {boolean} config.enabled - Whether hatch is enabled
- * @param {Function} config.onToggle - Callback when toggle changes
  * @param {string} config.hatchType - Current hatch pattern ID
  * @param {Function} config.onTypeChange - Callback when pattern changes
- * @param {string} config.hatchColor - Current hatch color
- * @param {Function} config.onColorChange - Callback when color changes
+ * @param {string} config.fillColor - Fill color (used for hatch color)
  * @param {number} config.hatchSpacing - Current spacing value
  * @param {Function} config.onSpacingChange - Callback when spacing changes
  * @param {number} config.hatchLineWidth - Current line width
@@ -117,12 +112,9 @@ function createHatchPreviewSVG(pattern, color = '#000000', size = 24) {
  */
 export function createModernHatchControl(config) {
     const {
-        enabled,
-        onToggle,
         hatchType,
         onTypeChange,
-        hatchColor,
-        onColorChange,
+        fillColor = '#000000',
         hatchSpacing,
         onSpacingChange,
         hatchLineWidth,
@@ -130,49 +122,26 @@ export function createModernHatchControl(config) {
         label = 'Hachura'
     } = config;
 
-    let isConfigOpen = false;
-    let configPanel = null;
-
     const container = document.createElement('div');
     container.className = 'attr-modern-hatch';
 
-    // Header with label and toggle
-    const header = document.createElement('div');
-    header.className = 'attr-modern-hatch-header';
-
+    // Header with label only (no toggle - "none" pattern serves as disabled)
     const labelEl = document.createElement('label');
     labelEl.className = 'attr-modern-hatch-label';
     labelEl.textContent = label;
-    header.appendChild(labelEl);
+    labelEl.style.marginBottom = '8px';
+    labelEl.style.display = 'block';
+    container.appendChild(labelEl);
 
-    // Toggle switch
-    const toggle = document.createElement('div');
-    toggle.className = 'attr-modern-toggle-switch';
-    if (enabled) {
-        toggle.classList.add('active');
-    }
-
-    const toggleThumb = document.createElement('div');
-    toggleThumb.className = 'attr-modern-toggle-thumb';
-    toggle.appendChild(toggleThumb);
-
-    toggle.addEventListener('click', () => {
-        const newState = !toggle.classList.contains('active');
-        toggle.classList.toggle('active', newState);
-        updateControlsState(newState);
-        onToggle(newState);
-    });
-
-    header.appendChild(toggle);
-    container.appendChild(header);
-
-    // Patterns content (grid + config)
+    // Patterns content (grid + sliders)
     const contentWrapper = document.createElement('div');
-    contentWrapper.style.cssText = enabled ? '' : 'opacity: 0.5; pointer-events: none;';
 
     // Pattern grid
     const grid = document.createElement('div');
     grid.className = 'attr-modern-hatch-grid';
+
+    // Use fillColor for preview
+    const previewColor = fillColor;
 
     HATCH_PATTERNS.forEach(pattern => {
         const btn = document.createElement('button');
@@ -185,7 +154,7 @@ export function createModernHatchControl(config) {
 
         const preview = document.createElement('div');
         preview.className = 'attr-modern-hatch-preview';
-        preview.innerHTML = createHatchPreviewSVG(pattern, hatchColor);
+        preview.innerHTML = createHatchPreviewSVG(pattern, previewColor);
         btn.appendChild(preview);
 
         btn.title = pattern.label;
@@ -197,6 +166,8 @@ export function createModernHatchControl(config) {
                 b.classList.toggle('selected', b.dataset.patternId === pattern.id);
             });
             onTypeChange(pattern.id);
+            // Show/hide sliders based on pattern
+            updateSlidersVisibility(pattern.id !== 'none');
         });
 
         grid.appendChild(btn);
@@ -204,146 +175,47 @@ export function createModernHatchControl(config) {
 
     contentWrapper.appendChild(grid);
 
-    // Config button
-    const configBtn = document.createElement('button');
-    configBtn.type = 'button';
-    configBtn.className = 'attr-modern-hatch-config-btn';
-    configBtn.innerHTML = `${ICONS.settings}<span>Configurar hachura</span>`;
+    // Sliders container (shown when hatch is active)
+    const slidersContainer = document.createElement('div');
+    slidersContainer.className = 'attr-modern-hatch-sliders';
 
-    const closeConfigPanel = () => {
-        if (configPanel && configPanel.parentNode) {
-            configPanel.remove();
-            configPanel = null;
-        }
-        isConfigOpen = false;
-    };
-
-    const openConfigPanel = () => {
-        if (isConfigOpen) {
-            closeConfigPanel();
-            return;
-        }
-
-        isConfigOpen = true;
-        configPanel = document.createElement('div');
-        configPanel.className = 'attr-modern-hatch-config-panel';
-
-        const title = document.createElement('div');
-        title.className = 'attr-modern-hatch-config-title';
-        title.textContent = 'Configurações de Hachura';
-        configPanel.appendChild(title);
-
-        // Color row
-        const colorRow = document.createElement('div');
-        colorRow.className = 'attr-modern-hatch-config-row';
-
-        const colorLabel = document.createElement('label');
-        colorLabel.className = 'attr-modern-hatch-config-label';
-        colorLabel.textContent = 'Cor da Hachura';
-        colorRow.appendChild(colorLabel);
-
-        const colorWrapper = document.createElement('div');
-        colorWrapper.className = 'attr-modern-hatch-config-color';
-
-        const colorInput = document.createElement('input');
-        colorInput.type = 'color';
-        colorInput.value = hatchColor;
-        colorInput.addEventListener('input', (e) => {
-            colorText.textContent = e.target.value;
-            onColorChange(e.target.value);
-            updatePatternPreviews(e.target.value);
-        });
-
-        const colorText = document.createElement('span');
-        colorText.textContent = hatchColor;
-
-        colorWrapper.appendChild(colorInput);
-        colorWrapper.appendChild(colorText);
-        colorRow.appendChild(colorWrapper);
-        configPanel.appendChild(colorRow);
-
-        // Spacing row
-        const spacingRow = document.createElement('div');
-        spacingRow.className = 'attr-modern-hatch-config-row';
-
-        const spacingLabel = document.createElement('label');
-        spacingLabel.className = 'attr-modern-hatch-config-label';
-        spacingLabel.textContent = `Espaçamento: ${hatchSpacing}px`;
-        spacingRow.appendChild(spacingLabel);
-
-        const spacingSlider = document.createElement('input');
-        spacingSlider.type = 'range';
-        spacingSlider.className = 'attr-modern-hatch-config-slider';
-        spacingSlider.min = 4;
-        spacingSlider.max = 24;
-        spacingSlider.value = hatchSpacing;
-        spacingSlider.addEventListener('input', (e) => {
-            spacingLabel.textContent = `Espaçamento: ${e.target.value}px`;
-            onSpacingChange(Number(e.target.value));
-        });
-
-        spacingRow.appendChild(spacingSlider);
-        configPanel.appendChild(spacingRow);
-
-        // Line width row
-        const widthRow = document.createElement('div');
-        widthRow.className = 'attr-modern-hatch-config-row';
-
-        const widthLabel = document.createElement('label');
-        widthLabel.className = 'attr-modern-hatch-config-label';
-        widthLabel.textContent = `Espessura: ${hatchLineWidth}px`;
-        widthRow.appendChild(widthLabel);
-
-        const widthSlider = document.createElement('input');
-        widthSlider.type = 'range';
-        widthSlider.className = 'attr-modern-hatch-config-slider';
-        widthSlider.min = 1;
-        widthSlider.max = 6;
-        widthSlider.value = hatchLineWidth;
-        widthSlider.addEventListener('input', (e) => {
-            widthLabel.textContent = `Espessura: ${e.target.value}px`;
-            onLineWidthChange(Number(e.target.value));
-        });
-
-        widthRow.appendChild(widthSlider);
-        configPanel.appendChild(widthRow);
-
-        contentWrapper.appendChild(configPanel);
-
-        // Close on click outside
-        const handleClickOutside = (e) => {
-            if (!contentWrapper.contains(e.target) || e.target === configBtn || configBtn.contains(e.target)) {
-                return;
-            }
-            if (configPanel && !configPanel.contains(e.target)) {
-                closeConfigPanel();
-                document.removeEventListener('mousedown', handleClickOutside);
-            }
-        };
-        setTimeout(() => {
-            document.addEventListener('mousedown', handleClickOutside);
-        }, 0);
-    };
-
-    configBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openConfigPanel();
+    // Spacing slider using createModernSlider (same as "Espessura da Borda")
+    const spacingSlider = createModernSlider({
+        label: 'Espaçamento da Hachura',
+        min: 4,
+        max: 24,
+        step: 1,
+        value: hatchSpacing,
+        unit: 'px',
+        onChange: onSpacingChange
     });
+    slidersContainer.appendChild(spacingSlider);
 
-    contentWrapper.appendChild(configBtn);
+    // Line width slider using createModernSlider (same as "Espessura da Borda")
+    const widthSlider = createModernSlider({
+        label: 'Espessura da Hachura',
+        min: 1,
+        max: 6,
+        step: 1,
+        value: hatchLineWidth,
+        unit: 'px',
+        onChange: onLineWidthChange
+    });
+    slidersContainer.appendChild(widthSlider);
+
+    contentWrapper.appendChild(slidersContainer);
     container.appendChild(contentWrapper);
 
-    // Helper function to update controls state
-    const updateControlsState = (isEnabled) => {
-        contentWrapper.style.cssText = isEnabled ? '' : 'opacity: 0.5; pointer-events: none;';
-        if (!isEnabled) {
-            closeConfigPanel();
-        }
+    // Function to show/hide sliders
+    const updateSlidersVisibility = (show) => {
+        slidersContainer.style.display = show ? 'block' : 'none';
     };
 
-    // Helper function to update pattern previews when color changes
-    const updatePatternPreviews = (color) => {
+    // Initial visibility based on current hatch type
+    updateSlidersVisibility(hatchType !== 'none');
+
+    // Helper function to update pattern previews when fill color changes
+    container.updatePreviewColor = (color) => {
         const buttons = grid.querySelectorAll('.attr-modern-hatch-btn');
         buttons.forEach((btn, index) => {
             const pattern = HATCH_PATTERNS[index];

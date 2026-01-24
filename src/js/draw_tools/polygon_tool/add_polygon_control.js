@@ -42,7 +42,7 @@ class AddPolygonControl extends BaseControl {
         visivel: true,
         bloqueado: false,
         hatchEnabled: false,
-        hatchType: 'diagonal-right',
+        hatchType: 'none',
         hatchColor: '#000000',
         hatchSpacing: 8,
         hatchLineWidth: 2
@@ -874,7 +874,8 @@ class AddPolygonControl extends BaseControl {
             }
         }
 
-        if (property.startsWith('hatch')) {
+        // Regenerate hatch patterns if hatch property changes or if fillColor changes (hatch uses fill color)
+        if (property.startsWith('hatch') || (property === 'fillColor' && features.some(f => f.properties.hatchEnabled))) {
             this.updateHatchPatterns(data);
         }
         this.map.getSource('polygons').setData(data);
@@ -909,6 +910,44 @@ class AddPolygonControl extends BaseControl {
         }
         const features = data.features.filter(f => f.properties.hatchEnabled);
         this.hatchGenerator.loadPatternsToMap(this.map, features);
+    }
+
+    /**
+     * Update hatch type and enabled status together
+     * This ensures proper pattern generation when enabling/disabling hatch
+     */
+    updateHatchType = async (features, type) => {
+        const data = await this.map.getSource('polygons').getData();
+        const isEnabled = type !== 'none';
+
+        for (const feature of features) {
+            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            if (sourceFeature) {
+                // Update both properties together
+                sourceFeature.properties.hatchType = type;
+                sourceFeature.properties.hatchEnabled = isEnabled;
+                feature.properties.hatchType = type;
+                feature.properties.hatchEnabled = isEnabled;
+
+                // Clear hatchPatternId when disabling
+                if (!isEnabled) {
+                    delete sourceFeature.properties.hatchPatternId;
+                    delete feature.properties.hatchPatternId;
+                }
+            }
+        }
+
+        // Generate patterns after both properties are set
+        if (isEnabled) {
+            this.updateHatchPatterns(data);
+        }
+
+        this.map.getSource('polygons').setData(data);
+
+        const selectedFeature = this.getSelectedFeature();
+        if (selectedFeature && !this.isDraggingHandle) {
+            this.createEditHandles(selectedFeature);
+        }
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {

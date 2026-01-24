@@ -18,14 +18,6 @@ const LINE_STYLES = [
 ];
 
 /**
- * SVG icons.
- */
-const ICONS = {
-    chevronDown: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>',
-    check: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
-};
-
-/**
  * Creates a line style preview SVG.
  *
  * @param {Object} style - Line style object
@@ -52,7 +44,8 @@ function createLinePreviewSVG(style, width = 60, height = 16) {
 }
 
 /**
- * Creates a modern line style selector with visual buttons.
+ * Creates a modern line style selector with visual buttons in a grid layout.
+ * All styles are displayed in two rows (4 + 3).
  *
  * @param {Object} config - Configuration object
  * @param {string} config.value - Currently selected line style ID
@@ -63,8 +56,6 @@ function createLinePreviewSVG(style, width = 60, height = 16) {
 export function createModernLineStyleSelect(config) {
     const { value, onChange, label = 'Estilo da Linha' } = config;
     let currentValue = value || 'solid';
-    let isDropdownOpen = false;
-    let dropdown = null;
 
     const container = document.createElement('div');
     container.className = 'attr-modern-line-style';
@@ -74,50 +65,31 @@ export function createModernLineStyleSelect(config) {
     labelEl.textContent = label;
     container.appendChild(labelEl);
 
-    const buttonsContainer = document.createElement('div');
-    buttonsContainer.className = 'attr-modern-line-style-buttons';
-
-    // Primary styles (first 3)
-    const primaryStyles = LINE_STYLES.slice(0, 3);
-    const otherStyles = LINE_STYLES.slice(3);
+    // Grid container for all styles (2 rows, 4 columns)
+    const gridContainer = document.createElement('div');
+    gridContainer.className = 'attr-modern-line-style-grid';
 
     const updateSelection = (styleId) => {
         currentValue = styleId;
 
-        // Update primary buttons
-        primaryStyles.forEach((style, index) => {
-            const btn = buttonsContainer.children[index];
-            if (btn) {
-                btn.classList.toggle('selected', style.id === styleId);
-            }
+        // Update all buttons
+        gridContainer.querySelectorAll('.attr-modern-line-style-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.styleId === styleId);
         });
-
-        // Update "others" button
-        const othersBtn = buttonsContainer.querySelector('.attr-modern-line-style-others');
-        if (othersBtn) {
-            const isOtherSelected = otherStyles.some(s => s.id === styleId);
-            othersBtn.classList.toggle('selected', isOtherSelected);
-        }
-
-        // Update current label
-        const currentLabel = container.querySelector('.attr-modern-line-style-current');
-        if (currentLabel) {
-            const selectedStyle = LINE_STYLES.find(s => s.id === styleId);
-            currentLabel.textContent = selectedStyle ? selectedStyle.label : 'Sólida';
-        }
 
         onChange(styleId);
     };
 
-    // Create primary style buttons
-    primaryStyles.forEach(style => {
+    // Create buttons for all styles
+    LINE_STYLES.forEach(style => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'attr-modern-line-style-btn';
+        btn.dataset.styleId = style.id;
         if (style.id === currentValue) {
             btn.classList.add('selected');
         }
-        btn.innerHTML = createLinePreviewSVG(style, 40, 12);
+        btn.innerHTML = createLinePreviewSVG(style, 50, 12);
         btn.title = style.label;
 
         btn.addEventListener('click', (e) => {
@@ -125,106 +97,10 @@ export function createModernLineStyleSelect(config) {
             updateSelection(style.id);
         });
 
-        buttonsContainer.appendChild(btn);
+        gridContainer.appendChild(btn);
     });
 
-    // Create "Others" dropdown button
-    const othersWrapper = document.createElement('div');
-    othersWrapper.style.position = 'relative';
-
-    const othersBtn = document.createElement('button');
-    othersBtn.type = 'button';
-    othersBtn.className = 'attr-modern-line-style-others';
-    if (otherStyles.some(s => s.id === currentValue)) {
-        othersBtn.classList.add('selected');
-    }
-    othersBtn.innerHTML = `<span>Outros</span>${ICONS.chevronDown}`;
-
-    const closeDropdown = () => {
-        if (dropdown && dropdown.parentNode) {
-            dropdown.remove();
-            dropdown = null;
-        }
-        isDropdownOpen = false;
-    };
-
-    const openDropdown = () => {
-        if (isDropdownOpen) {
-            closeDropdown();
-            return;
-        }
-
-        isDropdownOpen = true;
-        dropdown = document.createElement('div');
-        dropdown.className = 'attr-modern-line-style-dropdown';
-
-        otherStyles.forEach(style => {
-            const option = document.createElement('button');
-            option.type = 'button';
-            option.className = 'attr-modern-line-style-option';
-            if (style.id === currentValue) {
-                option.classList.add('selected');
-            }
-
-            const preview = document.createElement('div');
-            preview.className = 'attr-modern-line-style-option-preview';
-            preview.innerHTML = createLinePreviewSVG(style, 60, 16);
-
-            const labelSpan = document.createElement('span');
-            labelSpan.className = 'attr-modern-line-style-option-label';
-            labelSpan.textContent = style.label;
-
-            option.appendChild(preview);
-            option.appendChild(labelSpan);
-
-            if (style.id === currentValue) {
-                const checkIcon = document.createElement('span');
-                checkIcon.className = 'attr-modern-line-style-option-check';
-                checkIcon.innerHTML = ICONS.check;
-                option.appendChild(checkIcon);
-            }
-
-            option.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                updateSelection(style.id);
-                closeDropdown();
-            });
-
-            dropdown.appendChild(option);
-        });
-
-        othersWrapper.appendChild(dropdown);
-
-        // Close on click outside
-        const handleClickOutside = (e) => {
-            if (!othersWrapper.contains(e.target)) {
-                closeDropdown();
-                document.removeEventListener('mousedown', handleClickOutside);
-            }
-        };
-        setTimeout(() => {
-            document.addEventListener('mousedown', handleClickOutside);
-        }, 0);
-    };
-
-    othersBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openDropdown();
-    });
-
-    othersWrapper.appendChild(othersBtn);
-    buttonsContainer.appendChild(othersWrapper);
-
-    container.appendChild(buttonsContainer);
-
-    // Current selection label
-    const currentLabel = document.createElement('div');
-    currentLabel.className = 'attr-modern-line-style-current';
-    const selectedStyle = LINE_STYLES.find(s => s.id === currentValue);
-    currentLabel.textContent = selectedStyle ? selectedStyle.label : 'Sólida';
-    container.appendChild(currentLabel);
+    container.appendChild(gridContainer);
 
     return container;
 }

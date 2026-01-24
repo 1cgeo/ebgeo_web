@@ -15,7 +15,7 @@ class AddBoundaryControl extends BaseControl {
     static SYMBOL_SIZE_CONSTANTS = {
         MIN_SIZE_KM: 0.05,          // Minimum symbol size (50 meters)
         DEFAULT_SIZE_KM: 1,         // Fallback size if zoom calculation fails
-        ZOOM_BASE_MULTIPLIER: 0.125, // Base multiplier for zoom-adaptive sizing
+        ZOOM_BASE_MULTIPLIER: 0.05, // Base multiplier for zoom-adaptive sizing
         ZOOM_EXPONENT_BASE: 2       // Exponential base for zoom scaling
     };
 

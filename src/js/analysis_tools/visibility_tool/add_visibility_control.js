@@ -874,8 +874,6 @@ class AddVisibilityControl extends BaseControl {
     }
 
     _onTerrainChange = () => {
-        this.updateButtonAppearance();
-
         if (this.isActive && !this.geometry.isTerrainAvailable(this.map)) {
             this.toolManager.deactivateCurrentTool();
         }

@@ -687,7 +687,13 @@ class UIManager {
     }
 
     /**
-     * Create elevation profile panel with chart.
+     * Default slope threshold for cavalry mobility alerts (in percentage)
+     * Configurable threshold for when slope is considered critical
+     */
+    static SLOPE_THRESHOLD = 30;
+
+    /**
+     * Create elevation profile panel with chart including slope percentage.
      * @param {string} profileData - JSON string of profile data
      * @param {boolean} [linkFirstLast=false] - Whether to show line of sight
      */
@@ -740,24 +746,76 @@ class UIManager {
         header.appendChild(buttonGroup);
         panel.appendChild(header);
 
+        const profileDataParsed = JSON.parse(profileData);
+        const labels = profileDataParsed.map(d => d.distance.toFixed(0));
+        const elevation = profileDataParsed.map(d => d.elevation);
+        const slopes = profileDataParsed.map(d => d.slope ?? 0);
+
+        // Check for critical slopes and calculate max slope
+        const maxSlope = Math.max(...slopes.map(s => Math.abs(s)));
+        const hasCriticalSlope = maxSlope > UIManager.SLOPE_THRESHOLD;
+
+        // Show slope alert if critical slopes detected
+        if (hasCriticalSlope) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'profile-slope-alert';
+            alertDiv.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <span>Inclinação máxima: ${maxSlope.toFixed(1)}% (limite: ${UIManager.SLOPE_THRESHOLD}%)</span>
+            `;
+            panel.appendChild(alertDiv);
+        }
+
         const canvas = document.createElement('canvas');
         canvas.id = 'profileChart';
         panel.appendChild(canvas);
 
-        const profileDataParsed = JSON.parse(profileData);
-        const labels = profileDataParsed.map(d => d.distance.toFixed(0));
-        const elevation = profileDataParsed.map(d => d.elevation);
+        // Color function for slope segments based on threshold
+        const getSlopeColor = (slope) => {
+            const absSlope = Math.abs(slope);
+            if (absSlope > UIManager.SLOPE_THRESHOLD) {
+                return 'rgba(255, 82, 82, 0.8)'; // Critical - red
+            } else if (absSlope > UIManager.SLOPE_THRESHOLD * 0.6) {
+                return 'rgba(255, 193, 7, 0.8)'; // Warning - yellow
+            }
+            return 'rgba(102, 187, 106, 0.8)'; // Normal - green
+        };
 
-        const datasets = [{
-            label: 'Elevação',
-            data: elevation,
-            borderColor: 'rgb(75, 192, 192)',
-            backgroundColor: 'rgba(75, 192, 192, 0.1)',
-            fill: true,
-            tension: 0.1,
-            pointRadius: 3,
-            pointHoverRadius: 6
-        }];
+        const datasets = [
+            {
+                label: 'Elevação',
+                data: elevation,
+                borderColor: 'rgb(75, 192, 192)',
+                backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                fill: true,
+                tension: 0.1,
+                pointRadius: 3,
+                pointHoverRadius: 6,
+                yAxisID: 'y'
+            },
+            {
+                label: 'Inclinação (%)',
+                data: slopes,
+                borderColor: 'rgba(156, 39, 176, 0.8)',
+                backgroundColor: slopes.map(s => getSlopeColor(s)),
+                fill: false,
+                tension: 0.1,
+                pointRadius: 4,
+                pointHoverRadius: 7,
+                pointBackgroundColor: slopes.map(s => getSlopeColor(s)),
+                pointBorderColor: slopes.map(s => getSlopeColor(s)),
+                yAxisID: 'y1',
+                segment: {
+                    borderColor: ctx => {
+                        const slope = slopes[ctx.p1DataIndex];
+                        return getSlopeColor(slope);
+                    }
+                }
+            }
+        ];
 
         if (linkFirstLast) {
             const firstElevation = elevation[0];
@@ -785,6 +843,7 @@ class UIManager {
                 fill: false,
                 tension: 0.1,
                 pointRadius: 0,
+                yAxisID: 'y',
                 segment: {
                     borderColor: ctx => ctx.p0DataIndex < intersectionIndex || intersectionIndex == -1 ? 'rgb(0, 255, 0)' : 'rgb(255, 0, 0)'
                 }
@@ -816,12 +875,19 @@ class UIManager {
                             title: (context) => `Distância: ${context[0].label} m`,
                             label: (context) => {
                                 const value = context.parsed.y;
-                                return `${context.dataset.label}: ${value.toFixed(1)} m`;
+                                const datasetLabel = context.dataset.label;
+                                if (datasetLabel === 'Inclinação (%)') {
+                                    const absValue = Math.abs(value);
+                                    const direction = value >= 0 ? 'subida' : 'descida';
+                                    const warning = absValue > UIManager.SLOPE_THRESHOLD ? ' ⚠️' : '';
+                                    return `${datasetLabel}: ${value.toFixed(1)}% (${direction})${warning}`;
+                                }
+                                return `${datasetLabel}: ${value.toFixed(1)} m`;
                             }
                         }
                     },
                     legend: {
-                        display: linkFirstLast,
+                        display: true,
                         position: 'bottom',
                         labels: {
                             boxWidth: 12,
@@ -840,12 +906,31 @@ class UIManager {
                         ticks: { font: { size: 10 } }
                     },
                     y: {
+                        type: 'linear',
+                        position: 'left',
                         title: {
                             display: true,
                             text: 'Altitude (m)',
                             font: { size: 11 }
                         },
                         ticks: { font: { size: 10 } }
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Inclinação (%)',
+                            font: { size: 11 },
+                            color: 'rgba(156, 39, 176, 0.8)'
+                        },
+                        ticks: {
+                            font: { size: 10 },
+                            color: 'rgba(156, 39, 176, 0.8)'
+                        },
+                        grid: {
+                            drawOnChartArea: false
+                        }
                     }
                 }
             }

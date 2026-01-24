@@ -121,20 +121,13 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     // Fill section
     panel.appendChild(createSectionDivider('Preenchimento'));
 
-    // Hatch control
+    // Hatch control (uses fillColor for hatch color)
     panel.appendChild(createModernHatchControl({
-        enabled: feature.properties.hatchEnabled === true,
-        onToggle: (enabled) => {
-            polygonControl.updateFeaturesProperty(selectedFeatures, 'hatchEnabled', enabled);
-        },
-        hatchType: feature.properties.hatchType || 'diagonal-right',
+        hatchType: feature.properties.hatchType || 'none',
         onTypeChange: (type) => {
-            polygonControl.updateFeaturesProperty(selectedFeatures, 'hatchType', type);
+            polygonControl.updateHatchType(selectedFeatures, type);
         },
-        hatchColor: feature.properties.hatchColor || '#000000',
-        onColorChange: (color) => {
-            polygonControl.updateFeaturesProperty(selectedFeatures, 'hatchColor', color);
-        },
+        fillColor: feature.properties.fillColor,
         hatchSpacing: feature.properties.hatchSpacing || 8,
         onSpacingChange: (spacing) => {
             polygonControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);

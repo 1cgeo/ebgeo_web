@@ -964,13 +964,14 @@
     display: block;
 }
 
-.attr-modern-line-style-buttons {
-    display: flex;
+/* Line style grid layout - 4 columns, 2 rows */
+.attr-modern-line-style-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
     gap: 6px;
 }
 
 .attr-modern-line-style-btn {
-    flex: 1;
     padding: 8px 4px;
     border-radius: 8px;
     border: 2px solid #e5e7eb;
@@ -1000,115 +1001,10 @@
     color: var(--primary-color);
 }
 
-.attr-modern-line-style-others {
-    padding: 8px 12px;
-    border-radius: 8px;
-    border: 2px solid #e5e7eb;
-    background: white;
-    cursor: pointer;
-    transition: border-color 0.2s, background-color 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 10px;
-    font-weight: 500;
-    color: #6b7280;
-    white-space: nowrap;
-}
-
-.attr-modern-line-style-others:hover {
-    border-color: #d1d5db;
-}
-
-.attr-modern-line-style-others.selected {
-    border-color: var(--primary-color);
-    background: rgba(80, 141, 78, 0.05);
-    color: var(--primary-color);
-}
-
-.attr-modern-line-style-dropdown {
-    position: absolute;
-    right: 0;
-    top: 100%;
-    margin-top: 8px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-    border: 1px solid #e5e7eb;
-    padding: 8px;
-    z-index: 1000;
-    width: 192px;
-    animation: lineStyleDropdownFadeIn 0.15s ease-out;
-}
-
-@keyframes lineStyleDropdownFadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-8px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.attr-modern-line-style-option {
-    width: 100%;
-    padding: 8px 12px;
-    border-radius: 6px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    transition: background-color 0.15s;
-    color: #4b5563;
-}
-
-.attr-modern-line-style-option:hover {
-    background: #f9fafb;
-}
-
-.attr-modern-line-style-option.selected {
-    background: rgba(80, 141, 78, 0.05);
-    color: var(--primary-color);
-}
-
-.attr-modern-line-style-option-preview {
-    flex: 1;
-}
-
-.attr-modern-line-style-option-label {
-    font-size: 10px;
-    color: #6b7280;
-    white-space: nowrap;
-}
-
-.attr-modern-line-style-option-check {
-    width: 16px;
-    height: 16px;
-    color: var(--primary-color);
-}
-
-.attr-modern-line-style-current {
-    font-size: 10px;
-    color: #9ca3af;
-    margin-top: 4px;
-    text-align: center;
-}
-
 /* ----- Modern Hatch Control ----- */
 .attr-modern-hatch {
     margin-bottom: 16px;
     width: 100%;
-}
-
-.attr-modern-hatch-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
 }
 
 .attr-modern-hatch-label {
@@ -1153,126 +1049,19 @@
     border: 1px solid #d1d5db;
 }
 
-.attr-modern-hatch-config-btn {
-    width: 100%;
-    padding: 6px 12px;
-    font-size: 12px;
-    color: #6b7280;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    background: white;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    transition: background-color 0.15s, border-color 0.15s;
+/* ----- Hatch Sliders Container ----- */
+.attr-modern-hatch-sliders {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
 }
 
-.attr-modern-hatch-config-btn:hover {
-    background: #f9fafb;
-    border-color: #d1d5db;
-}
-
-.attr-modern-hatch-config-btn svg {
-    width: 12px;
-    height: 12px;
-}
-
-.attr-modern-hatch-config-panel {
-    margin-top: 8px;
-    padding: 12px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-    border: 1px solid #e5e7eb;
-    animation: hatchConfigFadeIn 0.15s ease-out;
-}
-
-@keyframes hatchConfigFadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(-8px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.attr-modern-hatch-config-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+.attr-modern-hatch-sliders .attr-modern-slider {
     margin-bottom: 12px;
 }
 
-.attr-modern-hatch-config-row {
-    margin-bottom: 12px;
-}
-
-.attr-modern-hatch-config-row:last-child {
+.attr-modern-hatch-sliders .attr-modern-slider:last-child {
     margin-bottom: 0;
-}
-
-.attr-modern-hatch-config-label {
-    font-size: 10px;
-    color: #6b7280;
-    margin-bottom: 4px;
-    display: block;
-}
-
-.attr-modern-hatch-config-color {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.attr-modern-hatch-config-color input[type="color"] {
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    cursor: pointer;
-    border: none;
-    padding: 0;
-}
-
-.attr-modern-hatch-config-color span {
-    font-size: 12px;
-    font-family: monospace;
-    color: #6b7280;
-}
-
-.attr-modern-hatch-config-slider {
-    width: 100%;
-    height: 6px;
-    border-radius: 3px;
-    background: #e5e7eb;
-    -webkit-appearance: none;
-    appearance: none;
-    cursor: pointer;
-    outline: none;
-}
-
-.attr-modern-hatch-config-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 14px;
-    height: 14px;
-    background: var(--primary-color);
-    border-radius: 50%;
-    cursor: pointer;
-}
-
-.attr-modern-hatch-config-slider::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    background: var(--primary-color);
-    border-radius: 50%;
-    cursor: pointer;
-    border: none;
 }
 
 /* ----- Modern Text Alignment ----- */
@@ -1324,6 +1113,58 @@
 
 .attr-modern-alignment-btn.selected svg {
     color: var(--primary-color);
+}
+
+/* ----- Modern Button Row ----- */
+.attr-modern-button-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+/* ----- Modern Button Base ----- */
+.attr-modern-btn {
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.15s, box-shadow 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 0 !important;
+}
+
+.attr-modern-btn:active {
+    transform: scale(0.98);
+}
+
+/* Primary Button (green) */
+.attr-modern-btn-primary {
+    background: var(--primary-color);
+    color: white;
+    box-shadow: 0 2px 4px rgba(80, 141, 78, 0.2);
+}
+
+.attr-modern-btn-primary:hover {
+    background: var(--primary-dark);
+    box-shadow: 0 4px 8px rgba(80, 141, 78, 0.3);
+}
+
+/* Secondary Button (outlined) */
+.attr-modern-btn-secondary {
+    background: white;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+
+.attr-modern-btn-secondary:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
 }
 
 /* ----- Modern Action Buttons ----- */

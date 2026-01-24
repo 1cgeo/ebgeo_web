@@ -893,9 +893,9 @@ class AddLineControl extends BaseControl {
     // ===== PROFILE CALCULATION =====
 
     /**
-     * Calculate terrain elevation profile for line
+     * Calculate terrain elevation profile for line with slope percentage
      * @param {Array} coordinates - Line coordinates
-     * @returns {Promise<Array>} Profile data with distance and elevation
+     * @returns {Promise<Array>} Profile data with distance, elevation and slope
      */
     async calculateProfile(coordinates) {
         const line = turf.lineString(coordinates);
@@ -910,8 +910,25 @@ class AddLineControl extends BaseControl {
             const elevation = await getTerrainElevation(this.map, point.geometry.coordinates);
             profileData.push({
                 distance: i * stepLength,
-                elevation: elevation
+                elevation: elevation,
+                slope: 0 // Will be calculated after all elevations are collected
             });
+        }
+
+        // Calculate slope percentage between consecutive points
+        for (let i = 1; i < profileData.length; i++) {
+            const deltaElevation = profileData[i].elevation - profileData[i - 1].elevation;
+            const deltaDistance = profileData[i].distance - profileData[i - 1].distance;
+
+            if (deltaDistance > 0) {
+                // Slope as percentage: (rise / run) * 100
+                profileData[i].slope = (deltaElevation / deltaDistance) * 100;
+            }
+        }
+
+        // First point inherits slope from second point for display continuity
+        if (profileData.length > 1) {
+            profileData[0].slope = profileData[1].slope;
         }
 
         return profileData;

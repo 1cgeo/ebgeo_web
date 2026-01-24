@@ -86,7 +86,16 @@ export function createModernSlider(config) {
     container.appendChild(slider);
 
     // Helper functions
-    const roundToStep = (val, s) => Math.round(val / s) * s;
+    const getDecimalPlaces = (num) => {
+        const str = String(num);
+        const decimalIndex = str.indexOf('.');
+        return decimalIndex === -1 ? 0 : str.length - decimalIndex - 1;
+    };
+    const decimalPlaces = getDecimalPlaces(step);
+    const roundToStep = (val, s) => {
+        const result = Math.round(val / s) * s;
+        return Number(result.toFixed(decimalPlaces));
+    };
     const clampValue = (val) => Math.max(min, Math.min(max, val));
     const parseValue = (val) => step < 1 ? parseFloat(val) : parseInt(val, 10);
 
@@ -193,7 +202,16 @@ export function createModernNumericInput(config) {
     container.appendChild(inputWrapper);
 
     // Helper functions
-    const roundToStep = (val, s) => Math.round(val / s) * s;
+    const getDecimalPlaces = (num) => {
+        const str = String(num);
+        const decimalIndex = str.indexOf('.');
+        return decimalIndex === -1 ? 0 : str.length - decimalIndex - 1;
+    };
+    const decimalPlaces = getDecimalPlaces(step);
+    const roundToStep = (val, s) => {
+        const result = Math.round(val / s) * s;
+        return Number(result.toFixed(decimalPlaces));
+    };
     const clampValue = (val) => Math.max(min, Math.min(max, val));
     const parseValue = (val) => step < 1 ? parseFloat(val) : parseInt(val, 10);
 

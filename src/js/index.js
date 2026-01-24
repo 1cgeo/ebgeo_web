@@ -1,11 +1,13 @@
 // Path: js/index.js
-import feather from 'feather-icons';
 import './config-loader.js';
 import './config.helpers.js';  // Attaches helper functions to config
 import config from './config.js';
 import { URLRouter } from './url_router.js';
-import { } from './map_sig.js';
 import { cleanup3DFeatures } from './3d_models_viewer_tool/index.js';
+
+// Import map_sig.js last to avoid circular dependency issues
+// This import triggers map initialization
+import './map_sig.js';
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', () => {
@@ -35,7 +37,6 @@ export function hideLoadingScreen() {
         el.classList.add('loaded');
     });
 
-    feather.replace();
 }
 
 // ===== GLOBAL CLEANUP =====

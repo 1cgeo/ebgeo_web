@@ -141,38 +141,16 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         }
     }));
 
-    // Dimensions info
-    const dimensionsContainer = document.createElement('div');
-    dimensionsContainer.className = 'attr-modern-info';
-    dimensionsContainer.innerHTML = `
-        <div class="attr-modern-info-row">
-            <span class="attr-modern-info-label">Largura:</span>
-            <span class="attr-modern-info-value">${Math.round(feature.properties.width || 100)} m</span>
-        </div>
-        <div class="attr-modern-info-row">
-            <span class="attr-modern-info-label">Altura:</span>
-            <span class="attr-modern-info-value">${Math.round(feature.properties.height || 100)} m</span>
-        </div>
-    `;
-    panel.appendChild(dimensionsContainer);
-
     // Fill section
     panel.appendChild(createSectionDivider('Preenchimento'));
 
-    // Hatch control
+    // Hatch control (uses fillColor for hatch color)
     panel.appendChild(createModernHatchControl({
-        enabled: feature.properties.hatchEnabled === true,
-        onToggle: (enabled) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchEnabled', enabled);
-        },
-        hatchType: feature.properties.hatchType || 'diagonal-right',
+        hatchType: feature.properties.hatchType || 'none',
         onTypeChange: (type) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchType', type);
+            rectangleControl.updateHatchType(selectedFeatures, type);
         },
-        hatchColor: feature.properties.hatchColor || '#000000',
-        onColorChange: (color) => {
-            rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchColor', color);
-        },
+        fillColor: feature.properties.fillColor,
         hatchSpacing: feature.properties.hatchSpacing || 8,
         onSpacingChange: (spacing) => {
             rectangleControl.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', spacing);

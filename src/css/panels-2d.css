@@ -78,8 +78,8 @@
     position: fixed;
     bottom: 20px;
     right: 20px;
-    width: 400px;
-    height: 280px;
+    width: 450px;
+    height: 320px;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -117,6 +117,35 @@
     width: 100% !important;
     height: calc(100% - 45px) !important;
     border-radius: 4px;
+}
+
+/* ----- Profile Panel Slope Alert ----- */
+.profile-slope-alert {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    background-color: rgba(255, 82, 82, 0.1);
+    border: 1px solid rgba(255, 82, 82, 0.3);
+    border-left: 3px solid #ff5252;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #c62828;
+}
+
+.profile-slope-alert svg {
+    flex-shrink: 0;
+    color: #ff5252;
+}
+
+.profile-slope-alert span {
+    font-weight: 500;
+}
+
+/* Adjust canvas height when alert is present */
+.profile-panel:has(.profile-slope-alert) canvas {
+    height: calc(100% - 85px) !important;
 }
 
 /* ----- Profile Panel Buttons ----- */
