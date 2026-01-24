@@ -95,7 +95,15 @@ export class BottomControlsControl {
      */
     _createFeatureToggles() {
         Object.values(FEATURE_TOGGLES).forEach(toggleConfig => {
-            // Check if feature is available in config
+            // Check if feature is enabled in config
+            const isEnabled = this._isFeatureEnabled(toggleConfig);
+
+            // Don't render button if feature is disabled in config
+            if (!isEnabled) {
+                return;
+            }
+
+            // Check if feature is available (has data/resources)
             const isAvailable = this._isFeatureAvailable(toggleConfig);
 
             const toggle = new FeatureToggle(
@@ -107,11 +115,31 @@ export class BottomControlsControl {
             this._leftContainer.appendChild(element);
             this._featureToggles.set(toggleConfig.id, toggle);
 
-            // Disable if not available
+            // Disable if not available (no tilesets, no terrain source, etc.)
             if (!isAvailable) {
                 toggle.setDisabled(true);
             }
         });
+    }
+
+    /**
+     * Checks if a feature is enabled in config.
+     * @private
+     * @param {Object} toggleConfig - Toggle configuration
+     * @returns {boolean}
+     */
+    _isFeatureEnabled(toggleConfig) {
+        switch (toggleConfig.id) {
+            case 'models3d':
+                return config.features?.map_3d !== false;
+            case 'panorama':
+                return config.features?.imagens_panoramicas !== false;
+            case 'terrain':
+                // Terrain is always enabled if config exists
+                return true;
+            default:
+                return true;
+        }
     }
 
     /**

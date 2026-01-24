@@ -6,16 +6,15 @@ const config = {
   // ===== APPLICATION SETTINGS =====
   app: {
     title: "EBGeo",        // Título exibido na interface
-    subtitle: "",          // Subtítulo da aplicação #DEPRECATED
     tutorialUrl: './docs/doc.html'  // URL do tutorial (abre em nova janela)
   },
 
   features: {
     map_3d: true,                 // Habilita/desabilita visualizador 3D
     imagens_panoramicas: true,    // Habilita/desabilita street view control
-    vector_info: false,           // Habilita/desabilita vector info control
-    grid: false,               // Habilita/desabilita grid
-    frame: false,               // Habilita/desabilita moldura
+    apisearch: true,              // Habilita/desabilita busca via API externa
+    grid: false,                  // Habilita/desabilita grid
+    frame: false,                 // Habilita/desabilita moldura
   },
 
   url_paths: {
@@ -33,31 +32,31 @@ const config = {
     'carta-topografica': {
       enabled: true,
       name: 'Topográfica',
-      icon: './images/dsg_symbol.svg',
+      image: './images/layers/carta-topografica-thumb.png',  // Imagem opcional para o painel
       priority: 1
     },
     'carta-ortoimagem': {
       enabled: true,
       name: 'Ortoimagem',
-      icon: './images/dsg_symbol.svg',
+      image: './images/layers/carta-ortoimagem-thumb.png',   // Imagem opcional para o painel
       priority: 2
     },
     'bdgex': {
       enabled: false,
       name: 'BDGEx',
-      icon: './images/dsg_symbol.svg',
+      image: './images/layers/bdgex-thumb.png',              // Imagem opcional para o painel
       priority: 3
     },
     'osm': {
       enabled: false,
       name: 'OSM',
-      icon: '🌐',
+      // image: './images/layers/osm-thumb.png',             // Sem imagem - usa fallback
       priority: 4
     },
     'imagens': {
       enabled: false,
       name: 'Imagens',
-      icon: '🌐',
+      // image: './images/layers/imagens-thumb.png',         // Sem imagem - usa fallback
       priority: 5
     }
   },
@@ -424,131 +423,6 @@ const config = {
       photoName: "IMG_0058"
     }
   ]
-};
-
-// ===== HELPER FUNCTIONS =====
-
-/**
- * Check if any tilesets are configured
- * @returns {boolean} True if tilesets exist
- */
-config.hasTilesets = () => config.tilesets && config.tilesets.length > 0;
-
-/**
- * Check if any streetview markers are configured
- * @returns {boolean} True if streetview markers exist
- */
-config.hasStreetViewMarkers = () => config.streetViewMarkers && config.streetViewMarkers.length > 0;
-
-/**
- * Validate basemaps configuration - ensures at least one basemap is enabled
- */
-config.validateBasemapsConfig = () => {
-  const enabled = Object.values(config.basemaps).filter(b => b.enabled);
-  if (enabled.length === 0) {
-    console.warn('All basemaps disabled! Enabling carta-topografica as fallback');
-    config.basemaps['carta-topografica'].enabled = true;
-  }
-};
-
-/**
- * Get enabled basemaps sorted by priority
- * @returns {Array} Array of [id, config] tuples sorted by priority
- */
-config.getEnabledBasemaps = () => {
-  return Object.entries(config.basemaps)
-    .filter(([_id, basemapConfig]) => basemapConfig.enabled)
-    .sort(([,a], [,b]) => a.priority - b.priority);
-};
-
-/**
- * Determine CSS layout class based on basemap count
- * @param {number} count - Number of enabled basemaps
- * @returns {string} CSS class name for grid layout
- */
-config.getBasemapLayoutClass = (count) => {
-  switch(count) {
-    case 1: return 'base-layer-grid-1x1';
-    case 2: return 'base-layer-grid-1x2';
-    case 3: return 'base-layer-grid-2x1-center';
-    case 4: return 'base-layer-grid-2x2';
-    case 5: return 'base-layer-grid-2x2-center';
-    default: return 'base-layer-grid-2x2';
-  }
-};
-
-/**
- * Get valid basemap fallback when current selection is unavailable
- * @param {string|null} currentBasemap - Currently selected basemap ID
- * @returns {string} Valid basemap ID
- */
-config.getValidBasemapFallback = (currentBasemap = null) => {
-  const enabled = config.getEnabledBasemaps();
-  if (enabled.length === 0) return 'carta-topografica';
-
-  if (currentBasemap && config.basemaps[currentBasemap]?.enabled) {
-    return currentBasemap;
-  }
-
-  return enabled[0][0];
-};
-
-/**
- * Create imagery provider configuration object
- * @returns {Object|boolean} Provider config or false if disabled
- */
-config.createImageryProvider = () => {
-  const imageryConfig = config.map3d.providers.imagery;
-  if (!imageryConfig.enabled) return false;
-
-  switch (imageryConfig.type) {
-    case 'UrlTemplate':
-      return {
-        provider: 'UrlTemplateImageryProvider',
-        url: imageryConfig.url,
-        maximumLevel: imageryConfig.options.maximumLevel || 18,
-        minimumLevel: imageryConfig.options.minimumLevel || 0,
-        tileWidth: imageryConfig.options.tileWidth || 256,
-        tileHeight: imageryConfig.options.tileHeight || 256
-      };
-    case 'WMS':
-      return {
-        provider: 'WebMapServiceImageryProvider',
-        url: imageryConfig.url,
-        layers: imageryConfig.options.layers
-      };
-    case 'SingleTile':
-      return {
-        provider: 'SingleTileImageryProvider',
-        url: imageryConfig.url
-      };
-    default:
-      return false;
-  }
-};
-
-/**
- * Create terrain provider configuration object
- * @returns {Object} Provider config (defaults to ellipsoid if disabled)
- */
-config.createTerrainProvider = () => {
-  const terrainConfig = config.map3d.providers.terrain;
-  if (!terrainConfig.enabled) {
-    return { provider: 'EllipsoidTerrainProvider' };
-  }
-
-  switch (terrainConfig.type) {
-    case 'Cesium':
-      return {
-        provider: 'CesiumTerrainProvider',
-        url: terrainConfig.url,
-        requestVertexNormals: terrainConfig.options.requestVertexNormals || false
-      };
-    case 'Ellipsoid':
-      return { provider: 'EllipsoidTerrainProvider' };
-    default:
-      return { provider: 'EllipsoidTerrainProvider' };
-  }
 };
 
 export default config;

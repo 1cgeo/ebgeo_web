@@ -3,23 +3,11 @@
 import config from './config.js';
 
 /**
- * Apply application configuration (title and subtitle) to HTML
+ * Apply application configuration (title) to HTML
  */
 function applyAppConfig() {
     if (config.app.title) {
         document.title = config.app.title;
-    }
-
-    applySubtitleToTopbar();
-}
-
-/**
- * Apply subtitle to topbar element
- */
-function applySubtitleToTopbar() {
-    const subtitleElement = document.querySelector('.topbar-subtitle');
-    if (subtitleElement && config.app.subtitle) {
-        subtitleElement.textContent = config.app.subtitle;
     }
 }
 

@@ -267,8 +267,9 @@ export class SearchBarComponent {
         }
 
         // Search API (places/coordinates) - async
+        // Only search API if apisearch feature is enabled
         let apiResults = [];
-        if (config.search?.apiUrl) {
+        if (config.features?.apisearch !== false && config.search?.apiUrl) {
             try {
                 apiResults = await this._searchAPI(query);
             } catch (error) {

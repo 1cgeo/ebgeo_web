@@ -1,6 +1,7 @@
 // Path: js/index.js
 import feather from 'feather-icons';
 import './config-loader.js';
+import './config.helpers.js';  // Attaches helper functions to config
 import config from './config.js';
 import { URLRouter } from './url_router.js';
 import { } from './map_sig.js';

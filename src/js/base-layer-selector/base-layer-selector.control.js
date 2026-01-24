@@ -158,7 +158,7 @@ export class BaseLayerSelectorControl {
      * Creates a layer option element.
      * @private
      * @param {string} layerId - Layer ID
-     * @param {Object} layerConfig - Layer configuration
+     * @param {Object} layerConfig - Layer configuration from config.js
      * @returns {HTMLElement}
      */
     _createLayerOption(layerId, layerConfig) {
@@ -177,8 +177,11 @@ export class BaseLayerSelectorControl {
         const img = document.createElement('img');
         const thumbnailConfig = LAYER_THUMBNAILS[layerId];
 
-        if (thumbnailConfig?.thumbnail) {
-            img.src = thumbnailConfig.thumbnail;
+        // Priority: config.image > LAYER_THUMBNAILS.thumbnail > fallback gradient
+        const imageUrl = layerConfig.image || thumbnailConfig?.thumbnail;
+
+        if (imageUrl) {
+            img.src = imageUrl;
         } else {
             // Use fallback gradient as background
             thumb.style.background = thumbnailConfig?.fallbackGradient ||
@@ -352,8 +355,11 @@ export class BaseLayerSelectorControl {
         const thumbnailConfig = LAYER_THUMBNAILS[layerId];
         const layerInfo = this._enabledLayers.find(l => l.id === layerId);
 
-        if (thumbnailConfig?.thumbnail) {
-            img.src = thumbnailConfig.thumbnail;
+        // Priority: config.image > LAYER_THUMBNAILS.thumbnail > fallback gradient
+        const imageUrl = layerInfo?.config?.image || thumbnailConfig?.thumbnail;
+
+        if (imageUrl) {
+            img.src = imageUrl;
             img.style.display = 'block';
             thumb.style.background = '';
 

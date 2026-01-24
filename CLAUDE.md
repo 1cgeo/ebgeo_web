@@ -33,6 +33,7 @@ src/js/
 ├── index.js                 # App entry point, loading screen
 ├── map_sig.js               # Main map initialization, control registration
 ├── config.js                # App configuration
+├── config-loader.js         # Dynamic config loading
 ├── url_router.js            # Deep linking support
 │
 ├── store/                   # State management (central data store)
@@ -44,6 +45,9 @@ src/js/
 │   ├── group.operations.js     # Feature grouping
 │   ├── map.operations.js       # Map management
 │   └── settings.operations.js  # App settings
+│
+├── state/                   # UI State management
+│   └── state_manager.js     # Centralized UI state (sidebar, panels, popups)
 │
 ├── events/                  # Event system
 │   ├── event_bus.js         # Pub/sub implementation
@@ -59,6 +63,54 @@ src/js/
 │   ├── group_manager.js     # Feature grouping logic
 │   ├── clipboard_manager.js # Copy/paste
 │   └── helpers/             # UI component helpers
+│
+├── sidebar/                 # Collapsible sidebar UI
+│   ├── sidebar.control.js   # Main sidebar component
+│   ├── sidebar.constants.js # Sidebar configuration
+│   ├── components/          # Reusable sidebar components
+│   │   ├── chips.component.js      # Quick action chips
+│   │   ├── feature-panel.js        # Feature attributes panel
+│   │   ├── feature-tabs.js         # Feature panel tabs
+│   │   ├── sidebar-collapsed.js    # Collapsed state UI
+│   │   └── sidebar-panel.js        # Panel base component
+│   └── tabs/                # Sidebar tab implementations
+│       ├── maps.tab.js      # Maps management tab
+│       ├── layers.tab.js    # Layers management tab
+│       ├── import.tab.js    # Import options tab
+│       └── export.tab.js    # Export options tab
+│
+├── toolbar/                 # Grouped toolbar UI
+│   ├── toolbar.control.js   # Main toolbar component
+│   ├── toolbar.constants.js # Tool definitions and groupings
+│   └── components/          # Toolbar components
+│       ├── toolbar-group.js      # Tool group popup
+│       └── active-tool-chip.js   # Active tool indicator
+│
+├── bottom-controls/         # Bottom controls bar
+│   ├── bottom-controls.control.js  # Toggle buttons (terrain, 3D, etc.)
+│   ├── bottom-controls.constants.js
+│   └── components/          # Control components
+│
+├── base-layer-selector/     # Base layer picker with thumbnails
+│   └── base-layer-selector.control.js
+│
+├── modals/                  # Modal dialogs
+│   ├── modal.base.js        # Base modal class
+│   ├── shortcuts.modal.js   # Keyboard shortcuts modal
+│   ├── info.modal.js        # Information/about modal
+│   └── prompt.modal.js      # User prompt modal
+│
+├── search/                  # Search functionality
+│   ├── search-bar.component.js    # Global search bar
+│   └── feature-search.control.js  # Feature search control
+│
+├── context-menu/            # Right-click context menus
+│   └── context-menu.control.js
+│
+├── catalog/                 # External layer catalog
+│   ├── catalog.modal.js     # Catalog browser modal
+│   ├── catalog.service.js   # Catalog data service
+│   └── components/          # Catalog UI components
 │
 ├── draw_tools/              # Drawing tools
 │   ├── point_tool/
@@ -82,14 +134,22 @@ src/js/
 │   ├── los_tool/            # Line of sight
 │   └── visibility_tool/     # Viewshed analysis
 │
+├── selection_tools/         # Selection utilities
+│   └── rectangle_selection_control.js
+│
+├── vector_info/             # Vector tile info display
+│   └── vector-info.control.js
+│
 ├── 3d_models_viewer_tool/   # Cesium 3D integration
 │   ├── map_3d.js            # Cesium viewer setup
 │   └── tools/               # 3D-specific tools
 │
+├── street_view_tool/        # Street view integration
+│
 ├── baselayers/              # Base map configurations
 ├── layers/                  # Layer styles and management
-├── features_tab/            # Layer/feature list UI
-├── map/                     # Map controls
+├── features_tab/            # Layer/feature list components
+├── map/                     # Map controls and notes
 ├── terrain/                 # Terrain/hillshade
 ├── import_export/           # File I/O (GeoJSON, KML, etc.)
 ├── coordinates/             # Coordinate display/conversion
@@ -97,6 +157,7 @@ src/js/
 ├── frame/                   # Map frame/border
 ├── keyboard/                # Keyboard shortcuts
 ├── user_data/               # Feature attributes/images
+├── ui/                      # Shared UI utilities
 └── utilities/               # Helpers (coordinate converter, etc.)
 ```
 
@@ -107,6 +168,18 @@ Each tool follows a consistent three-file pattern:
 - `add_*_control.js` - MapLibre control, toolbar button, tool activation
 - `add_*_geometry.js` - Geometry creation/editing logic
 - `*_attributes_panel.js` - Feature property editor UI
+
+### UI Architecture
+The UI is organized into distinct components:
+- **SidebarControl** - Collapsible sidebar with tabs (Maps, Layers, Import, Export)
+- **ToolbarControl** - Grouped tool buttons with popup menus
+- **BottomControlsControl** - Feature toggles (terrain, 3D, street view)
+- **BaseLayerSelectorControl** - Base map picker with thumbnails
+- **FeaturePanel** - Integrated in sidebar for feature attributes
+
+UI state is managed by `StateManager` which enforces mutual exclusivity:
+- Sidebar and Feature Panel cannot both be open
+- Only one toolbar group popup can be open at a time
 
 ### Store Pattern
 Central state management with:
@@ -124,6 +197,12 @@ const eventBus = getEventBus();
 eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 eventBus.on(EventTypes.FEATURE_UPDATED, handler);
 ```
+
+UI events for coordination:
+- `SIDEBAR_EXPANDED`, `SIDEBAR_COLLAPSED`, `SIDEBAR_TAB_CHANGED`
+- `FEATURE_PANEL_OPENED`, `FEATURE_PANEL_CLOSED`
+- `TOOLBAR_GROUP_OPENED`, `TOOLBAR_GROUP_CLOSED`
+- `UI_LAYOUT_CHANGED`, `UI_CLOSE_ALL_POPUPS`
 
 ### Services Initialization
 Services are initialized via dependency injection at startup:
@@ -161,19 +240,21 @@ Use `generateUUID()` from `utilities/id_utils.js` for unique identifiers.
 ## Build Configuration
 
 Vite splits code into chunks:
-- `core` - Store and state management
+- `core` - Store, state, events, layers, terrain, toolbar, modals, catalog, UI utilities
 - `draw-tools` - All drawing tools
 - `military-tools` - Military symbology
 - `analysis-tools` - LOS and visibility
+- `selection-tools` - Rectangle selection, vector info
 - `cesium-integration` - 3D viewer (lazy loaded)
-- `import-export` - File handling
-- `street-view` - Three.js street view
+- `import-export` - File handling (lazy loaded)
+- `street-view` - Three.js street view (lazy loaded)
 
 External dependencies loaded via script tags:
 - MapLibre GL JS
 - Turf.js
 - milsymbol
 - Cesium (loaded on demand)
+- GDAL (for georeferenced PDF export)
 
 ## Testing
 
@@ -188,7 +269,8 @@ No automated test framework currently configured. Manual testing via dev server.
 4. Implement `*_attributes_panel.js` for properties
 5. Export from folder's `index.js`
 6. Register in `map_sig.js`
-7. Add to `vite.config.js` manual chunks if large
+7. Add tool to `toolbar/toolbar.constants.js` in appropriate group
+8. Add to `vite.config.js` manual chunks if large
 
 ### Adding a New Event
 1. Define in `events/event_types.js`

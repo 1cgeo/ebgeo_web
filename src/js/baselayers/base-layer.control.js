@@ -108,11 +108,10 @@ class BaseLayerControl {
         enabledBasemaps.forEach(([id, basemapConfig], index) => {
             const isFirst = index === 0;
 
+            // Use optional image if available
             let iconHtml = '';
-            if (basemapConfig.icon.startsWith('./')) {
-                iconHtml = `<img src="${basemapConfig.icon}" class="layer-icon">`;
-            } else {
-                iconHtml = basemapConfig.icon;
+            if (basemapConfig.image) {
+                iconHtml = `<img src="${basemapConfig.image}" class="layer-icon">`;
             }
 
             htmlContent += `

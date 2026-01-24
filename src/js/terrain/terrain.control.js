@@ -63,8 +63,7 @@ class TerrainControl {
 
         // Hillshade source/layer are only added when explicitly requested via catalog
         // No automatic initialization here
-
-        this._updateTerrainIcon()
+        // UI state is managed by BottomControlsControl
     }
 
     _toggleTerrain = () => {
