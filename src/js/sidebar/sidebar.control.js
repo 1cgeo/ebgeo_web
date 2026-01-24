@@ -186,6 +186,10 @@ export class SidebarControl {
         // Listen for map notes requests
         subscribe(this, this._eventBus, EventTypes.MAP_NOTES_REQUESTED,
             (payload) => this._onMapNotesRequested(payload));
+
+        // Listen for search result panel requests
+        subscribe(this, this._eventBus, EventTypes.SEARCH_RESULT_PANEL_REQUESTED,
+            (payload) => this._onSearchResultPanelRequested(payload));
     }
 
     /**
@@ -455,6 +459,42 @@ export class SidebarControl {
 
         // Show notes in feature panel
         await this._showMapNotesContent(mapName);
+    }
+
+    /**
+     * Called when a search result should be shown in the feature panel.
+     * @private
+     * @param {Object} payload - Event payload with result and content
+     */
+    _onSearchResultPanelRequested(payload) {
+        const { result, content } = payload;
+        if (!result || !content) return;
+
+        // Collapse sidebar panel first
+        this._collapsePanel();
+
+        // Update state to reflect feature panel is open (for layout updates)
+        this._stateManager.set('ui.featurePanelOpen', true);
+        this._stateManager.set('ui.currentFeatureType', 'searchResult');
+
+        // Emit FEATURE_PANEL_OPENED event for consistency
+        this._eventBus.emit(EventTypes.FEATURE_PANEL_OPENED, {
+            featureId: 'searchResult',
+            featureType: 'searchResult'
+        });
+
+        // Emit layout changed to move search bar, chips, etc.
+        this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+            sidebarExpanded: false,
+            featurePanelOpen: true,
+            contentLeftOffset: 376
+        });
+
+        // Cleanup previous content
+        this._cleanupFeaturePanelContent();
+
+        // Show the content in feature panel
+        this._featurePanel.show(content, result.name || 'Resultado da Busca');
     }
 
     /**

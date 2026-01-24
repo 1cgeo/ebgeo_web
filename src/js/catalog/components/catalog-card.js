@@ -10,6 +10,9 @@ import {
     CATALOG_UI_ICONS
 } from '../catalog.constants.js';
 
+/** Icons used in catalog card */
+const { CALENDAR, MAP_PIN, CHEVRON_RIGHT } = CATALOG_UI_ICONS;
+
 /**
  * Creates an individual catalog card.
  * @param {Object} options
@@ -64,14 +67,25 @@ export function createCatalogCard({ item, onClick }) {
         content.appendChild(desc);
     }
 
-    // Metadata (date)
-    if (item.date) {
+    // Metadata (date and/or local)
+    if (item.date || item.local) {
         const meta = document.createElement('div');
         meta.className = 'catalog-card-meta';
-        meta.innerHTML = `
-            ${CATALOG_UI_ICONS.CALENDAR}
-            <span>${item.date}</span>
-        `;
+
+        if (item.local) {
+            const localSpan = document.createElement('span');
+            localSpan.className = 'catalog-card-meta-item';
+            localSpan.innerHTML = `${MAP_PIN}<span>${item.local}</span>`;
+            meta.appendChild(localSpan);
+        }
+
+        if (item.date) {
+            const dateSpan = document.createElement('span');
+            dateSpan.className = 'catalog-card-meta-item';
+            dateSpan.innerHTML = `${CALENDAR}<span>${item.date}</span>`;
+            meta.appendChild(dateSpan);
+        }
+
         content.appendChild(meta);
     }
 
@@ -85,7 +99,7 @@ export function createCatalogCard({ item, onClick }) {
     openBtn.className = 'catalog-card-btn';
     openBtn.innerHTML = `
         <span>Abrir</span>
-        ${CATALOG_UI_ICONS.CHEVRON_RIGHT}
+        ${CHEVRON_RIGHT}
     `;
     openBtn.addEventListener('click', (e) => {
         e.stopPropagation();

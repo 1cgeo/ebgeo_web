@@ -105,10 +105,20 @@ export class FeaturePanel {
     /**
      * Shows the feature panel with content.
      * @param {HTMLElement} contentElement - The panel content
+     * @param {string} [title] - Optional title to display in the header
      */
-    show(contentElement) {
+    show(contentElement, title) {
         // Clear previous content
         this._clearContent();
+
+        // Update title if provided
+        if (title && this._headerTitle) {
+            const featureIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+            this._headerTitle.innerHTML = `
+                ${featureIcon}
+                <span>${title}</span>
+            `;
+        }
 
         // Set new content
         this._currentContent = contentElement;

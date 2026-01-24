@@ -17,6 +17,7 @@ import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
  * @property {string} [description] - Optional description
  * @property {string} thumbnail - Thumbnail URL
  * @property {string} [date] - Capture date (DD/MM/YYYY)
+ * @property {string} [local] - Location (city, state) e.g. "Porto Alegre, RS"
  * @property {Object} [location] - Coordinates for zoom
  * @property {Object} originalData - Original config data
  */
@@ -119,6 +120,7 @@ export class CatalogService {
             description: tileset.description || null,
             thumbnail: tileset.previewThumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.MODEL_3D],
             date: tileset.data_captura || null,
+            local: tileset.local || null,
             location: tileset.locate,
             originalData: tileset
         }));
@@ -139,6 +141,7 @@ export class CatalogService {
             description: marker.description || null,
             thumbnail: marker.previewThumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.PANORAMIC_360],
             date: marker.data_captura || null,
+            local: marker.local || null,
             location: marker.locate,
             originalData: marker
         }));
@@ -181,6 +184,7 @@ export class CatalogService {
             description: layer.description || null,
             thumbnail: layer.thumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.ANALYSIS_LAYER],
             date: null,
+            local: layer.local || null,
             location: layer.bounds ? { bounds: layer.bounds } : null,
             originalData: layer
         }));

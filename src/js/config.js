@@ -24,7 +24,7 @@ const config = {
 
   // ===== SEARCH SETTINGS =====
   search: {
-    apiUrl: "http://localhost:3000/busca"  // URL da API de busca de features
+    apiUrl: "http://localhost:3001/busca"  // URL da API de busca de features
   },
 
   // ===== BASEMAP CONFIGURATION =====
@@ -70,6 +70,7 @@ const config = {
         name: 'Trafegabilidade',
         description: 'Análise de trafegabilidade do terreno baseada em tipo de solo, declividade e cobertura vegetal',
         thumbnail: null,
+        local: "Resende, RJ",
         bounds: [-44.50, -22.50, -44.40, -22.40],
         defaultVisibility: false,
         opacity: 0.7,
@@ -94,6 +95,7 @@ const config = {
         name: 'Análise de Declive',
         description: 'Mapa de declividade do terreno classificado em faixas de grau',
         thumbnail: null,
+        local: "Resende, RJ",
         bounds: [-44.50, -22.50, -44.40, -22.40],
         defaultVisibility: false,
         opacity: 0.6,
@@ -119,6 +121,7 @@ const config = {
         name: 'Risco de Inundação',
         description: 'Áreas com risco de inundação baseado em modelo hidrológico',
         thumbnail: null,
+        local: "Resende, RJ",
         bounds: [-44.52, -22.48, -44.42, -22.42],
         defaultVisibility: false,
         opacity: 0.65,
@@ -291,6 +294,7 @@ const config = {
       name: "Posto de Comando Logístico",
       description: "Modelo 3D do Posto de Comando Logístico capturado por drone",
       data_captura: "15/03/2024",
+      local: "Resende, RJ",
       previewVideo: "/3d/videos/preview.webm",
       previewThumbnail: "/3d/videos/thumbnail.jpg",
       locate: {
@@ -306,6 +310,7 @@ const config = {
       name: "Quartel General",
       description: "Modelo 3D do Quartel General - Edifício principal e anexos",
       data_captura: "22/04/2024",
+      local: "Resende, RJ",
       previewVideo: null,
       previewThumbnail: "/3d/thumbnails/quartel.jpg",
       locate: {
@@ -321,6 +326,7 @@ const config = {
       name: "Ponte Estratégica Rio Paraíba",
       description: "Modelo 3D da ponte sobre o Rio Paraíba - Ponto de passagem crítico",
       data_captura: "08/05/2024",
+      local: "Resende, RJ",
       previewVideo: "/3d/videos/ponte_preview.webm",
       previewThumbnail: "/3d/thumbnails/ponte.jpg",
       locate: {
@@ -336,6 +342,7 @@ const config = {
       name: "Depósito de Suprimentos",
       description: "Modelo 3D do depósito central de suprimentos classe I e III",
       data_captura: "30/05/2024",
+      local: "Resende, RJ",
       previewVideo: null,
       previewThumbnail: "/3d/thumbnails/deposito.jpg",
       locate: {
@@ -355,6 +362,7 @@ const config = {
       name: "Observatório Norte - Ponto Alto",
       description: "Vista panorâmica 360° do ponto de observação norte com visada para o vale",
       data_captura: "10/01/2025",
+      local: "Resende, RJ",
       locate: {
         lon: -44.47332,
         lat: -22.43976
@@ -367,6 +375,7 @@ const config = {
       name: "Cruzamento Principal - Eixo de Progressão",
       description: "Panorâmica do cruzamento principal na área de operações",
       data_captura: "12/01/2025",
+      local: "Resende, RJ",
       locate: {
         lon: -44.46850,
         lat: -22.44200
@@ -379,6 +388,7 @@ const config = {
       name: "Entrada do Quartel",
       description: "Vista 360° da entrada principal do aquartelamento",
       data_captura: "15/01/2025",
+      local: "Resende, RJ",
       locate: {
         lon: -44.46125,
         lat: -22.44512
@@ -391,6 +401,7 @@ const config = {
       name: "Ponte de Acesso - Margem Sul",
       description: "Panorâmica da ponte de acesso vista da margem sul do rio",
       data_captura: "18/01/2025",
+      local: "Resende, RJ",
       locate: {
         lon: -44.48950,
         lat: -22.42150
@@ -403,6 +414,7 @@ const config = {
       name: "Posto de Vigilância Leste",
       description: "Vista panorâmica do posto de vigilância setor leste",
       data_captura: "20/01/2025",
+      local: "Resende, RJ",
       locate: {
         lon: -44.45200,
         lat: -22.44800
@@ -415,6 +427,7 @@ const config = {
       name: "Área de Treinamento - Campo Aberto",
       description: "Panorâmica 360° da área de treinamento em campo aberto",
       data_captura: "25/01/2025",
+      local: "Resende, RJ",
       locate: {
         lon: -44.47800,
         lat: -22.45500

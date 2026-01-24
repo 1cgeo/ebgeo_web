@@ -128,12 +128,33 @@
     flex-shrink: 0;
 }
 
-/* Grid item (icon only with tooltip) */
+/* Grid item (icon with shortcut badge) */
 .toolbar-popup-grid .toolbar-tool-btn {
     width: var(--toolbar-button-size);
     height: var(--toolbar-button-size);
     justify-content: center;
     position: relative;
+}
+
+/* Shortcut badge in grid layout */
+.toolbar-popup-grid .tool-shortcut-badge {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gray-400);
+    font-family: monospace;
+    line-height: 1;
+    pointer-events: none;
+}
+
+.toolbar-popup-grid .toolbar-tool-btn:hover .tool-shortcut-badge {
+    color: var(--gray-500);
+}
+
+.toolbar-popup-grid .toolbar-tool-btn[data-active="true"] .tool-shortcut-badge {
+    color: var(--primary-600);
 }
 
 

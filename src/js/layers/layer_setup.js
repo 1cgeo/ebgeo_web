@@ -323,6 +323,16 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
     try {
         const boundaryControl = getControl('AddBoundaryControl');
 
+        // Clear existing circles and texts before restoring (fixes persistence bug on map switch)
+        const circlesSource = mapInstance.getSource('boundary-circles');
+        const textsSource = mapInstance.getSource('boundary-texts');
+        if (circlesSource) {
+            circlesSource.setData({ type: 'FeatureCollection', features: [] });
+        }
+        if (textsSource) {
+            textsSource.setData({ type: 'FeatureCollection', features: [] });
+        }
+
         if (!boundaryControl || !features.boundarys?.length) {
             return;
         }

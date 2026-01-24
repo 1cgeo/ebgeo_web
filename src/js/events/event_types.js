@@ -162,6 +162,15 @@ export const EventTypes = Object.freeze({
      */
     MAP_NOTES_REQUESTED: 'mapNotes:requested',
 
+    // ===== SEARCH =====
+    /**
+     * Emitted when a search result should be shown in the feature panel.
+     * Payload: { result: Object, content: HTMLElement }
+     * Subscribers: SidebarControl
+     * Emitters: SearchBarComponent
+     */
+    SEARCH_RESULT_PANEL_REQUESTED: 'search:resultPanelRequested',
+
     // ===== CATALOG =====
     /**
      * Emitted when a catalog layer should be added to the map.

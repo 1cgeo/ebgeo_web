@@ -50,8 +50,11 @@ export class ToolButton {
         this._button.title = `${this._config.label} (${this._config.shortcut})`;
 
         if (this._layout === 'grid') {
-            // Grid: icon only (uses native title tooltip)
-            this._button.innerHTML = this._config.icon;
+            // Grid: icon + shortcut badge
+            this._button.innerHTML = `
+                ${this._config.icon}
+                <span class="tool-shortcut-badge">${this._config.shortcut}</span>
+            `;
         } else {
             // List: icon + label + shortcut
             this._button.innerHTML = `

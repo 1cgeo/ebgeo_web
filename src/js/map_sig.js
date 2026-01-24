@@ -332,6 +332,7 @@ const searchBarComponent = new SearchBarComponent({
     eventBus: getEventBus(),
     map: map,
     uiManager: uiManager,
+    selectionManager: selectionManager,
 });
 searchBarComponent.init(document.body);
 

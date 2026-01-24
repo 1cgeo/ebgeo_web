@@ -182,9 +182,13 @@
 }
 
 .search-result-item[data-type="3d-model"] .search-result-icon {
-    background: #ffffff;
-    color: var(--primary);
-    border: 1px solid var(--gray-200);
+    background: #e8f5e9;
+    color: #388e3c;
+}
+
+.search-result-item[data-type="streetview-marker"] .search-result-icon {
+    background: var(--gray-100);
+    color: var(--gray-600);
 }
 
 .search-result-item[data-type="feature"] .search-result-icon {
@@ -352,6 +356,98 @@
 .search-popup-save-btn svg {
     width: 16px;
     height: 16px;
+    flex-shrink: 0;
+}
+
+/* =========================================================================
+   SEARCH RESULT SIDEPANEL CONTENT
+   ========================================================================= */
+
+.search-result-sidepanel-content {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Properties section */
+.search-result-properties-section {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.search-result-section-header {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--space-3);
+}
+
+.search-result-properties-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+}
+
+.search-result-property-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-color);
+    font-size: var(--font-size-sm);
+}
+
+.search-result-property-item:last-child {
+    border-bottom: none;
+}
+
+.search-result-property-label {
+    color: var(--gray-500);
+    font-weight: var(--font-weight-medium);
+}
+
+.search-result-property-value {
+    color: var(--gray-800);
+    text-align: right;
+}
+
+/* Save section */
+.search-result-save-section {
+    padding: var(--space-4);
+}
+
+.search-result-save-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-3);
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--primary);
+    color: white;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.search-result-save-btn:hover {
+    background: var(--primary-hover, #166534);
+    transform: translateY(-1px);
+}
+
+.search-result-save-btn:active {
+    transform: translateY(0);
+}
+
+.search-result-save-btn svg {
+    width: 18px;
+    height: 18px;
     flex-shrink: 0;
 }
 
