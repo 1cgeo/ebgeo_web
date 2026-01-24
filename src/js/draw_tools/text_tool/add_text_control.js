@@ -407,8 +407,15 @@ class AddTextControl extends BaseControl {
         return features.map(feature => {
             const zoomDifference = currentZoom - feature.properties.createdAtZoom;
             const scaleFactor = Math.pow(2, zoomDifference);
-            feature.properties.calculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
-            return feature;
+            const newCalculatedSize = Math.min(feature.properties.size * scaleFactor, 255);
+
+            return {
+                ...feature,
+                properties: {
+                    ...feature.properties,
+                    calculatedSize: newCalculatedSize
+                }
+            };
         });
     }
 

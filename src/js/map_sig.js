@@ -373,7 +373,7 @@ baseLayerSelectorControl.init(document.body);
 // ===== INITIALIZE MAP REFERENCE FOR TOOLBAR-MANAGED CONTROLS =====
 // These controls are not added to the map via addControl() anymore,
 // but they still need the map reference for their functionality.
-// We manually set the map property since onAdd() is not called.
+// We call onAdd() manually to ensure zoom listeners and other setup runs.
 const toolbarManagedControls = [
     pointControl,
     lineControl,
@@ -396,8 +396,8 @@ const toolbarManagedControls = [
 ];
 
 toolbarManagedControls.forEach(control => {
-    if (control && !control.map) {
-        control.map = map;
+    if (control && typeof control.onAdd === 'function') {
+        control.onAdd(map);
     }
 });
 

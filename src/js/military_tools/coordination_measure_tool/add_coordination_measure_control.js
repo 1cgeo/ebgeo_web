@@ -730,11 +730,18 @@ class AddCoordinationMeasureControl extends BaseControl {
     return features.map((feature) => {
       const zoomDifference = currentZoom - feature.properties.createdAtZoom;
       const scaleFactor = Math.pow(2, zoomDifference);
-      feature.properties.calculatedSize = Math.min(
+      const newCalculatedSize = Math.min(
         feature.properties.size * scaleFactor,
         10
       );
-      return feature;
+
+      return {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          calculatedSize: newCalculatedSize
+        }
+      };
     });
   };
 
