@@ -10,8 +10,12 @@ import {
     getCurrentMapName,
     getCurrentBaseLayer,
     hasMapSavedPosition,
-    getMapPosition
+    getMapPosition,
+    getCatalogLayers,
+    getEventBus,
+    getStateManager
 } from '../store';
+import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import cartaTopografica from './carta_topografica.js';
 import cartaOrtoimagem from './carta_ortoimagem.js';
 import osmLayer from './osm_layer.js';
@@ -20,7 +24,6 @@ import bdgexLayer from './bdgex_layer.js';
 import config from '../config.js';
 import { setupMapFeatures } from '../layers';
 import { showError } from '../utilities';
-import { getEventBus, getStateManager } from '../store';
 
 class BaseLayerControl {
     constructor(uiManager, hillshadeConfig) {
@@ -297,9 +300,6 @@ class BaseLayerControl {
 
         try {
             // Check if hillshade is in catalog layers and visible
-            const { getCatalogLayers } = await import('@store/catalog.operations.js');
-            const { CATALOG_ITEM_TYPES } = await import('../catalog/catalog.constants.js');
-
             const catalogLayers = await getCatalogLayers();
             const hillshadeLayer = catalogLayers?.find(l => l.type === CATALOG_ITEM_TYPES.HILLSHADE);
 

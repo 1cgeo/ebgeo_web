@@ -548,7 +548,6 @@ class MapControl {
     // =========================================================================
 
     async showCombineMapsModal(targetMapName) {
-        const { getAllMapNamesStore } = await import('../store/store.js');
         const allMapNames = await getAllMapNamesStore();
         const availableMaps = allMapNames.filter(name => name !== targetMapName);
 

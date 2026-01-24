@@ -10,7 +10,9 @@ import {
     removeCatalogLayer,
     toggleCatalogLayerVisibility,
     validateCatalogLayerAvailability,
-    updateCatalogLayerStatus
+    updateCatalogLayerStatus,
+    addCatalogLayer,
+    hasCatalogLayer
 } from '../store';
 import { EventTypes } from '../events';
 import {
@@ -449,7 +451,6 @@ function positionPopover(popover, anchor) {
  */
 export async function handleCatalogAddLayer(payload, map, eventBus, analysisLayersManager) {
     const { type, item } = payload;
-    const { addCatalogLayer, hasCatalogLayer } = await import('../store');
 
     // Check if already added
     if (await hasCatalogLayer(item.id)) {

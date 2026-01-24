@@ -23,6 +23,15 @@ import {
 } from '../utilities/event-cleanup.js';
 import { injectTabbedPanelStyles } from '../tool_manager/tabbed_attribute_panel.js';
 import { renderAttributesContent } from '../user_data/attributes_tab_renderer.js';
+import {
+    setCurrentMap,
+    getCurrentMapName,
+    getMapNotes,
+    setMapNotes,
+    getAllMapNamesStore,
+    getMapOrder,
+    getAllMapBadgeColors
+} from '../store/index.js';
 
 // New feature panel components
 import { createFeatureIdentification, createMultiSelectionHeader } from './components/feature-identification.js';
@@ -254,9 +263,6 @@ export class SidebarControl {
      */
     async _handleRecentMapClick(mapName) {
         try {
-            // Dynamic import to avoid circular dependencies
-            const { setCurrentMap, getCurrentMapName } = await import('../store/index.js');
-
             // Check if already on this map
             const currentMap = await getCurrentMapName();
             if (currentMap === mapName) return;
@@ -459,9 +465,6 @@ export class SidebarControl {
     async _showMapNotesContent(mapName) {
         // Cleanup previous content
         this._cleanupFeaturePanelContent();
-
-        // Dynamic import to avoid circular dependencies
-        const { getMapNotes, setMapNotes } = await import('../store/index.js');
 
         // Load notes
         let notesData;
@@ -922,8 +925,6 @@ export class SidebarControl {
      */
     async _updateRecentMaps() {
         try {
-            // Dynamic import to avoid circular dependencies
-            const { getAllMapNamesStore, getCurrentMapName, getMapOrder, getAllMapBadgeColors } = await import('../store/index.js');
             const allMaps = await getAllMapNamesStore();
             const currentMap = await getCurrentMapName();
             const savedOrder = await getMapOrder();

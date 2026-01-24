@@ -4,7 +4,7 @@
  * @fileoverview Feature header components for attribute panels.
  */
 
-import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature } from '../../store';
+import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature } from '../../store';
 import { IDUtils } from '../../utilities';
 
 /**
@@ -827,7 +827,6 @@ async function reverseArrow(arrowFeature, selectionManager, uiManager) {
         }
 
         // Update in store
-        const { updateFeature } = await import('../../store');
         await updateFeature('arrows', updatedFeature);
 
         // Update selection manager

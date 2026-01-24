@@ -36,11 +36,30 @@ export default defineConfig({
       },
       output: {
         // Chunks por funcionalidade (baseado em path matching)
+        // IMPORTANTE: A ordem importa! Regras mais específicas devem vir primeiro.
+        // Chunks são organizados para evitar dependências circulares:
+        //   core (store, state, events, layers, terrain, baselayers, catalog, modals)
+        //   -> ui-components (sidebar, toolbar, features_tab, user_data)
+        //   -> tools (draw, military, analysis, selection)
+        //   -> lazy (3d, street-view, import-export)
         manualChunks(id) {
-          // Separar código do 3D (lazy load)
+          // ===== LAZY LOADED CHUNKS (independentes) =====
+
+          // Separar código do 3D (lazy load via dynamic import)
           if (id.includes('3d_models_viewer_tool')) {
             return 'cesium-integration';
           }
+          // Street view (Three.js - lazy load)
+          if (id.includes('street_view_tool')) {
+            return 'street-view';
+          }
+          // Ferramentas de import/export
+          if (id.includes('import_export')) {
+            return 'import-export';
+          }
+
+          // ===== TOOL CHUNKS =====
+
           // Separar ferramentas militares (grandes)
           if (id.includes('military_tools')) {
             return 'military-tools';
@@ -57,53 +76,70 @@ export default defineConfig({
           if (id.includes('selection_tools')) {
             return 'selection-tools';
           }
-          // Ferramentas de import/export
-          if (id.includes('import_export')) {
-            return 'import-export';
+
+          // ===== UI COMPONENTS (depende de core) =====
+          // Inclui: sidebar, features_tab, user_data, search, bottom-controls, base-layer-selector, context-menu
+
+          // Features tab e user data
+          if (id.includes('src/js/features_tab/') || id.includes('src/js/user_data/')) {
+            return 'ui-components';
           }
-          // Street view (Three.js)
-          if (id.includes('street_view_tool')) {
-            return 'street-view';
+          // UI components (sidebar, etc. - NÃO inclui toolbar que está em core)
+          if (id.includes('src/js/sidebar/') ||
+              id.includes('src/js/bottom-controls/') ||
+              id.includes('src/js/base-layer-selector/') ||
+              id.includes('src/js/context-menu/')) {
+            return 'ui-components';
           }
-          // Catálogo de dados
-          if (id.includes('src/js/catalog/')) {
-            return 'catalog';
+          // Busca e informações de vetores
+          if (id.includes('src/js/search/') || id.includes('src/js/vector_info/')) {
+            return 'ui-components';
           }
+
+          // ===== CORE CHUNK (base de tudo) =====
+          // Inclui: store, state, events, layers, terrain, baselayers, toolbar, modals, catalog
+          // toolbar/modals/catalog estão aqui porque:
+          //   - store/settings.operations importa de catalog/catalog.constants
+          //   - modals/shortcuts.modal importa de toolbar/toolbar.constants
+          //   - catalog/catalog.modal importa de modals/modal.base
+
           // Store e state management
           if (id.includes('src/js/store/') || id.includes('src/js/state/')) {
             return 'core';
           }
-          // Layers e baselayers
+          // Events
+          if (id.includes('src/js/events/')) {
+            return 'core';
+          }
+          // Layers e baselayers (dependem de store)
           if (id.includes('src/js/layers/') || id.includes('src/js/baselayers/')) {
-            return 'layers';
+            return 'core';
           }
-          // Terreno e análise de relevo
+          // Terreno (depende de store e layers)
           if (id.includes('src/js/terrain/')) {
-            return 'terrain';
+            return 'core';
           }
-          // UI Redesign components (sidebar, toolbar, modals, etc.)
-          if (id.includes('src/js/sidebar/') ||
-              id.includes('src/js/toolbar/') ||
-              id.includes('src/js/bottom-controls/') ||
-              id.includes('src/js/base-layer-selector/') ||
-              id.includes('src/js/modals/') ||
-              id.includes('src/js/ui/') ||
-              id.includes('src/js/context-menu/')) {
-            return 'ui-components';
+          // Toolbar (dependido por modals/shortcuts.modal)
+          if (id.includes('src/js/toolbar/')) {
+            return 'core';
           }
-          // Features tab e user data
-          if (id.includes('src/js/features_tab/') || id.includes('src/js/user_data/')) {
-            return 'features';
+          // Modals (depende de toolbar, dependido por catalog)
+          if (id.includes('src/js/modals/')) {
+            return 'core';
           }
-          // Busca e informações de vetores
-          if (id.includes('src/js/search/') || id.includes('src/js/vector_info/')) {
-            return 'search';
+          // Catálogo (depende de modals, dependido por store/settings.operations)
+          if (id.includes('src/js/catalog/')) {
+            return 'core';
+          }
+          // UI base components
+          if (id.includes('src/js/ui/')) {
+            return 'core';
           }
           // Utilitários de mapa (grid, frame, coordinates)
           if (id.includes('src/js/grid/') ||
               id.includes('src/js/frame/') ||
               id.includes('src/js/coordinates/')) {
-            return 'map-utils';
+            return 'core';
           }
         },
         // Nomes dos arquivos

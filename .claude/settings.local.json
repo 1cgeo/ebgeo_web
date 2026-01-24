@@ -56,7 +56,8 @@
       "Bash(grep:*)",
       "Bash(git stash:*)",
       "Bash(git checkout:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(sort:*)"
     ],
     "deny": [],
     "ask": []

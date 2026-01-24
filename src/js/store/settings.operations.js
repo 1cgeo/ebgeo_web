@@ -19,6 +19,8 @@ import {
     getGridStyle as getGridStyleRepo
 } from './repository.js';
 import mapManager from './store-state-manager.js';
+import { getCatalogLayers } from './catalog.operations.js';
+import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 
 // ===== MAP NOTES =====
 
@@ -102,9 +104,6 @@ export const setGridStyle = async (mapName, gridStyle) => {
  * @returns {Promise<boolean>} Hillshade enabled state
  */
 export const getMapHillshadeState = async (mapName = null) => {
-    const { getCatalogLayers } = await import('./catalog.operations.js');
-    const { CATALOG_ITEM_TYPES } = await import('../catalog/catalog.constants.js');
-
     const catalogLayers = await getCatalogLayers(mapName);
     const hillshadeLayer = catalogLayers?.find(l => l.type === CATALOG_ITEM_TYPES.HILLSHADE);
 
@@ -139,9 +138,6 @@ export const setMapHillshadeState = async (enabled, mapName = null) => {
  * @returns {Promise<boolean>} Layer enabled state
  */
 export const getMapAnalysisLayerState = async (layerId, mapName = null) => {
-    const { getCatalogLayers } = await import('./catalog.operations.js');
-    const { CATALOG_ITEM_TYPES } = await import('../catalog/catalog.constants.js');
-
     const catalogLayers = await getCatalogLayers(mapName);
     const analysisLayer = catalogLayers?.find(
         l => l.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER &&
@@ -177,9 +173,6 @@ export const setMapAnalysisLayerState = async (layerId, enabled, mapName = null)
  * @returns {Promise<Object>} Analysis layers states { layerId: boolean }
  */
 export const getMapAnalysisLayersStates = async (mapName = null) => {
-    const { getCatalogLayers } = await import('./catalog.operations.js');
-    const { CATALOG_ITEM_TYPES } = await import('../catalog/catalog.constants.js');
-
     const catalogLayers = await getCatalogLayers(mapName);
     const states = {};
 

@@ -1,5 +1,5 @@
 // Path: js/utilities/id_utils.js
-import { getFeatureDisplayName, getStorageTypeFromSource, hasImageResource as storeHasImageResource } from '../store';
+import { getFeatureDisplayName, getStorageTypeFromSource, hasImageResource as storeHasImageResource, getImage, storeImage } from '../store';
 
 /**
  * Utilities for generating unique IDs and feature names
@@ -212,8 +212,6 @@ export class IDUtils {
      */
     static async duplicateImageResource(oldId, newId, featureType) {
         try {
-            const { getImage, storeImage } = await import('../store/store.js');
-
             const oldBlob = await getImage(oldId);
             if (oldBlob) {
                 await storeImage(newId, oldBlob);
