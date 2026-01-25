@@ -12,6 +12,12 @@ import { FrameControl } from '../frame';
 import config from '../config.js';
 import { getStateManager } from '../store';
 
+/** Throttle interval for coordinate updates (50ms = ~20 FPS, sufficient for display) */
+const COORDINATE_UPDATE_THROTTLE_MS = 50;
+
+/** Maximum number of coordinate parts to display (for DOM element pooling) */
+const MAX_COORDINATE_PARTS = 6;
+
 class MouseCoordinatesControl {
     constructor(pointControl, coordinationMeasureControl, militarySymbolControl) {
         this._map = null;
@@ -42,6 +48,49 @@ class MouseCoordinatesControl {
 
         /** @type {number} Counter to track latest update request and prevent race conditions */
         this._updateRequestId = 0;
+
+        // Performance: Throttle state for mousemove
+        /** @type {number} Last time coordinates were updated */
+        this._lastCoordinateUpdate = 0;
+        /** @type {number|null} Pending throttle timeout */
+        this._coordinateThrottleTimeout = null;
+        /** @type {{lat: number, lng: number}|null} Pending coordinates to process */
+        this._pendingCoordinates = null;
+
+        // Performance: Cached DOM elements to avoid recreation
+        /** @type {HTMLSpanElement|null} Cached zoom span element */
+        this._zoomSpan = null;
+        /** @type {HTMLSpanElement[]} Pool of span elements for coordinate parts */
+        this._coordSpanPool = [];
+        /** @type {HTMLSpanElement|null} Cached elevation span element */
+        this._elevationSpan = null;
+        /** @type {number} Current number of visible spans in pool */
+        this._visibleSpanCount = 0;
+
+        // Performance: Cached StateManager reference
+        /** @type {import('../state/state_manager.js').StateManager|null} */
+        this._stateManagerRef = null;
+    }
+
+    // =========================================================================
+    // PERFORMANCE: CACHED STATE MANAGER ACCESS
+    // =========================================================================
+
+    /**
+     * Get cached StateManager reference.
+     * Avoids repeated singleton lookups in hot paths.
+     * @returns {import('../state/state_manager.js').StateManager|null}
+     * @private
+     */
+    _getStateManager() {
+        if (!this._stateManagerRef) {
+            try {
+                this._stateManagerRef = getStateManager();
+            } catch (e) {
+                return null;
+            }
+        }
+        return this._stateManagerRef;
     }
 
     // =========================================================================
@@ -54,11 +103,8 @@ class MouseCoordinatesControl {
      * @returns {string}
      */
     get _currentFormat() {
-        try {
-            return getStateManager().getCoordinateFormat();
-        } catch (e) {
-            return 'latlong';
-        }
+        const sm = this._getStateManager();
+        return sm ? sm.getCoordinateFormat() : 'latlong';
     }
 
     /**
@@ -66,10 +112,9 @@ class MouseCoordinatesControl {
      * @param {string} value - Format identifier
      */
     set _currentFormat(value) {
-        try {
-            getStateManager().setCoordinateFormat(value);
-        } catch (e) {
-            // StateManager not available during early initialization
+        const sm = this._getStateManager();
+        if (sm) {
+            sm.setCoordinateFormat(value);
         }
     }
 
@@ -78,11 +123,8 @@ class MouseCoordinatesControl {
      * @returns {boolean}
      */
     get _elevationEnabled() {
-        try {
-            return getStateManager().isElevationEnabled();
-        } catch (e) {
-            return false;
-        }
+        const sm = this._getStateManager();
+        return sm ? sm.isElevationEnabled() : false;
     }
 
     /**
@@ -90,10 +132,9 @@ class MouseCoordinatesControl {
      * @param {boolean} value
      */
     set _elevationEnabled(value) {
-        try {
-            getStateManager().setElevationEnabled(value);
-        } catch (e) {
-            // StateManager not available
+        const sm = this._getStateManager();
+        if (sm) {
+            sm.setElevationEnabled(value);
         }
     }
 
@@ -102,11 +143,8 @@ class MouseCoordinatesControl {
      * @returns {number|null}
      */
     get _currentElevation() {
-        try {
-            return getStateManager().getElevation();
-        } catch (e) {
-            return null;
-        }
+        const sm = this._getStateManager();
+        return sm ? sm.getElevation() : null;
     }
 
     /**
@@ -114,10 +152,9 @@ class MouseCoordinatesControl {
      * @param {number|null} value
      */
     set _currentElevation(value) {
-        try {
-            getStateManager().setElevation(value);
-        } catch (e) {
-            // StateManager not available
+        const sm = this._getStateManager();
+        if (sm) {
+            sm.setElevation(value);
         }
     }
 
@@ -131,8 +168,10 @@ class MouseCoordinatesControl {
      * @private
      */
     _initSubscriptions() {
+        const stateManager = this._getStateManager();
+        if (!stateManager) return;
+
         try {
-            const stateManager = getStateManager();
 
             // React to format changes from other UI components
             this._unsubscribers.push(
@@ -219,6 +258,9 @@ class MouseCoordinatesControl {
 
         this._coordinatesText = document.createElement('div');
         this._coordinatesText.className = 'coordinates-text';
+
+        // Performance: Pre-create DOM element pool to avoid allocation during updates
+        this._initCoordinatesElementPool();
 
         const controlsContainer = document.createElement('div');
         controlsContainer.className = 'coordinates-controls';
@@ -649,28 +691,110 @@ class MouseCoordinatesControl {
         this._updateFormatUI(formatId);
     }
 
-    async _onMouseMove(e) {
-        this._currentCoordinates = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+    // =========================================================================
+    // PERFORMANCE: DOM ELEMENT POOLING
+    // =========================================================================
 
-        if (this._elevationEnabled && this._terrainAvailable) {
-            this._currentElevation = await this._getElevationDebounced(e.lngLat.lat, e.lngLat.lng);
+    /**
+     * Initialize the pool of DOM elements for coordinate display.
+     * Pre-creates elements to avoid allocation during frequent updates.
+     * @private
+     */
+    _initCoordinatesElementPool() {
+        // Create zoom span (always present)
+        this._zoomSpan = document.createElement('span');
+        this._zoomSpan.className = 'coordinates-zoom';
+
+        // Create pool of spans for coordinate parts
+        this._coordSpanPool = [];
+        for (let i = 0; i < MAX_COORDINATE_PARTS; i++) {
+            const span = document.createElement('span');
+            span.className = 'coordinates-part';
+            span.style.display = 'none';
+            this._coordSpanPool.push(span);
         }
 
-        this._updateCoordinates(e.lngLat.lat, e.lngLat.lng);
+        // Create elevation span (conditionally shown)
+        this._elevationSpan = document.createElement('span');
+        this._elevationSpan.className = 'coordinates-elevation';
+        this._elevationSpan.style.display = 'none';
+
+        // Append all elements to container once
+        this._coordinatesText.appendChild(this._zoomSpan);
+        this._coordSpanPool.forEach(span => this._coordinatesText.appendChild(span));
+        this._coordinatesText.appendChild(this._elevationSpan);
+
+        this._visibleSpanCount = 0;
     }
 
+    // =========================================================================
+    // PERFORMANCE: THROTTLED MOUSE HANDLING
+    // =========================================================================
+
+    /**
+     * Handle mouse move with throttling.
+     * Prevents excessive coordinate calculations during fast mouse movement.
+     * @param {Object} e - MapLibre mouse event
+     * @private
+     */
+    _onMouseMove(e) {
+        // Store current coordinates (lightweight)
+        this._currentCoordinates.lat = e.lngLat.lat;
+        this._currentCoordinates.lng = e.lngLat.lng;
+
+        // Store pending coordinates for throttled processing
+        this._pendingCoordinates = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+
+        const now = Date.now();
+
+        // If enough time has passed, process immediately
+        if (now - this._lastCoordinateUpdate >= COORDINATE_UPDATE_THROTTLE_MS) {
+            this._processCoordinateUpdate();
+        } else if (!this._coordinateThrottleTimeout) {
+            // Schedule deferred update
+            this._coordinateThrottleTimeout = setTimeout(() => {
+                this._processCoordinateUpdate();
+                this._coordinateThrottleTimeout = null;
+            }, COORDINATE_UPDATE_THROTTLE_MS - (now - this._lastCoordinateUpdate));
+        }
+        // If timeout already scheduled, pending coordinates will be used when it fires
+    }
+
+    /**
+     * Process pending coordinate update.
+     * Called either immediately or after throttle delay.
+     * @private
+     */
+    async _processCoordinateUpdate() {
+        if (!this._pendingCoordinates) return;
+
+        const { lat, lng } = this._pendingCoordinates;
+        this._lastCoordinateUpdate = Date.now();
+
+        // Handle elevation (already debounced separately)
+        if (this._elevationEnabled && this._terrainAvailable) {
+            this._currentElevation = await this._getElevationDebounced(lat, lng);
+        }
+
+        this._updateCoordinates(lat, lng);
+    }
+
+    /**
+     * Update coordinate display using pooled DOM elements.
+     * Avoids DOM allocation by reusing pre-created elements.
+     * @param {number} lat - Latitude
+     * @param {number} lng - Longitude
+     * @private
+     */
     async _updateCoordinates(lat, lng) {
         // Increment request ID and capture it for this call
         const requestId = ++this._updateRequestId;
 
-        // Clear immediately - this is synchronous
-        this._coordinatesText.innerHTML = '';
-
         try {
-            const zoomSpan = document.createElement('span');
-            zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
+            // Update zoom (always synchronous)
+            this._zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
 
-            // Await async operation
+            // Await async coordinate conversion
             const displayFormat = await getDisplayFormat(lat, lng, this._currentFormat);
 
             // Check if this is still the latest request (race condition guard)
@@ -678,20 +802,27 @@ class MouseCoordinatesControl {
                 return; // Stale request, discard results
             }
 
-            // Safe to update DOM - this is the latest request
-            this._coordinatesText.innerHTML = '';
-            this._coordinatesText.appendChild(zoomSpan);
+            // Update coordinate parts using pooled elements
+            const parts = displayFormat.parts;
+            const partsCount = Math.min(parts.length, MAX_COORDINATE_PARTS);
 
-            displayFormat.parts.forEach(part => {
-                const span = document.createElement('span');
-                span.textContent = `${part.label}: ${part.value}`;
-                this._coordinatesText.appendChild(span);
-            });
+            for (let i = 0; i < MAX_COORDINATE_PARTS; i++) {
+                const span = this._coordSpanPool[i];
+                if (i < partsCount) {
+                    span.textContent = `${parts[i].label}: ${parts[i].value}`;
+                    span.style.display = '';
+                } else {
+                    span.style.display = 'none';
+                }
+            }
+            this._visibleSpanCount = partsCount;
 
+            // Update elevation span
             if (this._elevationEnabled && this._currentElevation !== null) {
-                const elevSpan = document.createElement('span');
-                elevSpan.textContent = `Elev: ${Math.round(this._currentElevation)}m`;
-                this._coordinatesText.appendChild(elevSpan);
+                this._elevationSpan.textContent = `Elev: ${Math.round(this._currentElevation)}m`;
+                this._elevationSpan.style.display = '';
+            } else {
+                this._elevationSpan.style.display = 'none';
             }
         } catch (error) {
             // Check if this is still the latest request before error handling
@@ -700,25 +831,30 @@ class MouseCoordinatesControl {
             }
 
             console.error('Error converting coordinates:', error);
-            this._coordinatesText.innerHTML = '';
 
-            const zoomSpan = document.createElement('span');
-            zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
-            this._coordinatesText.appendChild(zoomSpan);
+            // Fallback display using pooled elements
+            this._zoomSpan.textContent = `Z${this._map.getZoom().toFixed(1)}`;
 
-            const latSpan = document.createElement('span');
-            latSpan.textContent = `Lat: ${lat.toFixed(5)}°`;
+            // Show lat/lng in first two pool spans
+            if (this._coordSpanPool.length >= 2) {
+                this._coordSpanPool[0].textContent = `Lat: ${lat.toFixed(5)}°`;
+                this._coordSpanPool[0].style.display = '';
+                this._coordSpanPool[1].textContent = `Lon: ${lng.toFixed(5)}°`;
+                this._coordSpanPool[1].style.display = '';
 
-            const lngSpan = document.createElement('span');
-            lngSpan.textContent = `Lon: ${lng.toFixed(5)}°`;
+                // Hide remaining spans
+                for (let i = 2; i < MAX_COORDINATE_PARTS; i++) {
+                    this._coordSpanPool[i].style.display = 'none';
+                }
+            }
+            this._visibleSpanCount = 2;
 
-            this._coordinatesText.appendChild(latSpan);
-            this._coordinatesText.appendChild(lngSpan);
-
+            // Update elevation span for error case
             if (this._elevationEnabled && this._currentElevation !== null) {
-                const elevSpan = document.createElement('span');
-                elevSpan.textContent = `Elev: ${Math.round(this._currentElevation)}m`;
-                this._coordinatesText.appendChild(elevSpan);
+                this._elevationSpan.textContent = `Elev: ${Math.round(this._currentElevation)}m`;
+                this._elevationSpan.style.display = '';
+            } else {
+                this._elevationSpan.style.display = 'none';
             }
         }
     }
@@ -747,12 +883,21 @@ class MouseCoordinatesControl {
         });
         this._unsubscribers = [];
 
+        // Cleanup performance-related timers
         if (this._debounceTimer) {
             clearTimeout(this._debounceTimer);
+        }
+        if (this._coordinateThrottleTimeout) {
+            clearTimeout(this._coordinateThrottleTimeout);
+            this._coordinateThrottleTimeout = null;
         }
         if (this._elevationAbortController) {
             this._elevationAbortController.abort();
         }
+
+        // Clear cached references
+        this._stateManagerRef = null;
+        this._pendingCoordinates = null;
 
         document.removeEventListener('click', this._closeFormatSelector);
         this._map.off('mousemove', this._onMouseMove);

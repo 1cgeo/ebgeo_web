@@ -87,12 +87,26 @@ export class EventBus extends EventEmitter {
         super();
 
         /**
-         * Event log for debugging. Stores recent events with timestamps.
-         * Uses safe cloning to prevent memory leaks from large payloads.
-         * @type {Array<{timestamp: number, event: string, payload: *, listenerCount: number}>}
+         * Event log for debugging using circular buffer.
+         * Uses O(1) operations instead of O(n) shift().
+         * @type {Array<{timestamp: number, event: string, payload: *, listenerCount: number}|null>}
          * @private
          */
-        this._eventLog = [];
+        this._eventLog = new Array(MAX_EVENT_LOG).fill(null);
+
+        /**
+         * Current write index in circular buffer.
+         * @type {number}
+         * @private
+         */
+        this._logIndex = 0;
+
+        /**
+         * Number of events stored (up to MAX_EVENT_LOG).
+         * @type {number}
+         * @private
+         */
+        this._logCount = 0;
     }
 
     /**
@@ -104,17 +118,16 @@ export class EventBus extends EventEmitter {
      */
     emit(event, payload) {
         // Log event for debugging with safe cloned payload
-        this._eventLog.push({
+        // Circular buffer - O(1) instead of O(n) shift()
+        this._eventLog[this._logIndex] = {
             timestamp: Date.now(),
             event,
             payload: safeClone(payload),
             listenerCount: this.listenerCount(event),
-        });
+        };
 
-        // Trim log if exceeds max size
-        if (this._eventLog.length > MAX_EVENT_LOG) {
-            this._eventLog.shift();
-        }
+        this._logIndex = (this._logIndex + 1) % MAX_EVENT_LOG;
+        this._logCount = Math.min(this._logCount + 1, MAX_EVENT_LOG);
 
         // Call parent emit (notifies all EventBus listeners)
         return super.emit(event, payload);
@@ -127,7 +140,24 @@ export class EventBus extends EventEmitter {
      * @returns {Array<{timestamp: number, event: string, payload: *, listenerCount: number}>}
      */
     getEventLog(count = 20) {
-        return this._eventLog.slice(-count);
+        const actualCount = Math.min(count, this._logCount);
+        if (actualCount === 0) return [];
+
+        // Reconstruct array in chronological order from circular buffer
+        const result = [];
+        const startIndex = this._logCount < MAX_EVENT_LOG
+            ? 0
+            : this._logIndex;
+
+        for (let i = 0; i < this._logCount; i++) {
+            const index = (startIndex + i) % MAX_EVENT_LOG;
+            if (this._eventLog[index]) {
+                result.push(this._eventLog[index]);
+            }
+        }
+
+        // Return only the last 'count' events
+        return result.slice(-actualCount);
     }
 
     /**
@@ -146,7 +176,9 @@ export class EventBus extends EventEmitter {
      * Clear the event log.
      */
     clearEventLog() {
-        this._eventLog.length = 0;
+        this._eventLog.fill(null);
+        this._logIndex = 0;
+        this._logCount = 0;
     }
 
     /**
@@ -163,7 +195,7 @@ export class EventBus extends EventEmitter {
             totalListeners: this.totalListenerCount(),
             listenersByEvent,
             recentEvents: this.getEventLog(10),
-            logSize: this._eventLog.length,
+            logSize: this._logCount,
         };
     }
 }

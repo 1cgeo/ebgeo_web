@@ -41,6 +41,15 @@ class SelectionManager {
         /** @type {Function|null} Cleanup for two-finger tap handler */
         this._cleanupTwoFingerTap = null;
 
+        /** @type {Function|null} Bound keydown handler for cleanup */
+        this._handleKeydown = null;
+
+        /** @type {Function|null} Bound movestart handler for cleanup */
+        this._handleMoveStart = null;
+
+        /** @type {Function|null} Bound zoomstart handler for cleanup */
+        this._handleZoomStart = null;
+
         this._setupEventListeners();
     }
 
@@ -296,19 +305,23 @@ class SelectionManager {
     _setupEventListeners() {
         this.map.on('click', this._handleMapClick);
 
-        document.addEventListener('keydown', (e) => {
+        // Store bound handlers for cleanup
+        this._handleKeydown = (e) => {
             if (e.key === 'Escape' && this.contextMenu) {
                 this._hideFeatureSelectionMenu();
             }
-        });
+        };
+        document.addEventListener('keydown', this._handleKeydown);
 
-        this.map.on('movestart', () => {
+        this._handleMoveStart = () => {
             if (this.contextMenu) this._hideFeatureSelectionMenu();
-        });
+        };
+        this.map.on('movestart', this._handleMoveStart);
 
-        this.map.on('zoomstart', () => {
+        this._handleZoomStart = () => {
             if (this.contextMenu) this._hideFeatureSelectionMenu();
-        });
+        };
+        this.map.on('zoomstart', this._handleZoomStart);
 
         // Two-finger tap para multi-select em dispositivos touch
         this._setupTwoFingerTap();
@@ -933,6 +946,25 @@ class SelectionManager {
         this._unsubscribers.forEach(unsub => unsub());
         this._unsubscribers = [];
         this._hideFeatureSelectionMenu();
+
+        // Cleanup map event listeners
+        this.map.off('click', this._handleMapClick);
+
+        if (this._handleMoveStart) {
+            this.map.off('movestart', this._handleMoveStart);
+            this._handleMoveStart = null;
+        }
+
+        if (this._handleZoomStart) {
+            this.map.off('zoomstart', this._handleZoomStart);
+            this._handleZoomStart = null;
+        }
+
+        // Cleanup document event listener
+        if (this._handleKeydown) {
+            document.removeEventListener('keydown', this._handleKeydown);
+            this._handleKeydown = null;
+        }
 
         // Cleanup two-finger tap handler
         if (this._cleanupTwoFingerTap) {

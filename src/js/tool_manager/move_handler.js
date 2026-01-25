@@ -33,6 +33,18 @@ class MoveHandler {
         this.coordsPool = { lng: 0, lat: 0 };
         this.tempCoords = { lng: 0, lat: 0 };
 
+        // Performance: Cached StateManager reference
+        /** @type {import('../state/state_manager.js').StateManager|null} */
+        this._stateManagerRef = null;
+
+        // Performance: Cached drag sources (invalidated when controls change)
+        /** @type {Array<string>|null} */
+        this._cachedValidDragSources = null;
+        /** @type {Array<string>|null} */
+        this._cachedEditHandleSources = null;
+        /** @type {number} Last controls count for cache invalidation */
+        this._lastControlsCount = 0;
+
         // Bound handlers for cleanup
         this._onMouseDown = this._onMouseDown.bind(this);
         this._onMouseMove = this._onMouseMove.bind(this);
@@ -45,19 +57,38 @@ class MoveHandler {
     }
 
     // =========================================================================
+    // PERFORMANCE: CACHED STATE MANAGER ACCESS
+    // =========================================================================
+
+    /**
+     * Get cached StateManager reference.
+     * @returns {import('../state/state_manager.js').StateManager|null}
+     * @private
+     */
+    _getStateManager() {
+        if (!this._stateManagerRef) {
+            try {
+                this._stateManagerRef = getStateManager();
+            } catch (e) {
+                return null;
+            }
+        }
+        return this._stateManagerRef;
+    }
+
+    // =========================================================================
     // STATE MANAGER INTEGRATION
     // =========================================================================
 
     /**
      * Get dragging state from StateManager.
+     * Uses getUnsafe() for performance in hot path.
      * @returns {boolean}
      */
     get isDragging() {
-        try {
-            return getStateManager().get('ui.isDragging') || false;
-        } catch (e) {
-            return false;
-        }
+        const sm = this._getStateManager();
+        if (!sm) return false;
+        return sm.getUnsafe('ui.isDragging') || false;
     }
 
     /**
@@ -65,22 +96,42 @@ class MoveHandler {
      * @param {boolean} value
      */
     set isDragging(value) {
-        try {
-            getStateManager().set('ui.isDragging', value);
-        } catch (e) {
-            // StateManager not available
+        const sm = this._getStateManager();
+        if (sm) {
+            sm.set('ui.isDragging', value);
         }
     }
 
     // =========================================================================
-    // DYNAMIC SOURCE MANAGEMENT
+    // DYNAMIC SOURCE MANAGEMENT (with caching)
     // =========================================================================
 
     /**
+     * Check if cached sources need invalidation.
+     * Invalidates cache when controls count changes.
+     * @private
+     */
+    _invalidateCacheIfNeeded() {
+        const currentCount = this.selectionManager.controls.size;
+        if (currentCount !== this._lastControlsCount) {
+            this._cachedValidDragSources = null;
+            this._cachedEditHandleSources = null;
+            this._lastControlsCount = currentCount;
+        }
+    }
+
+    /**
      * Get valid drag sources from all registered tools.
+     * Uses caching to avoid Set/Array creation on each call.
      * @returns {Array<string>} Array of valid drag source names
      */
     getValidDragSources() {
+        this._invalidateCacheIfNeeded();
+
+        if (this._cachedValidDragSources) {
+            return this._cachedValidDragSources;
+        }
+
         const sources = new Set();
 
         for (const control of this.selectionManager.controls.values()) {
@@ -88,14 +139,22 @@ class MoveHandler {
             toolSources.forEach(source => sources.add(source));
         }
 
-        return Array.from(sources);
+        this._cachedValidDragSources = Array.from(sources);
+        return this._cachedValidDragSources;
     }
 
     /**
      * Get edit handle sources from all registered tools.
+     * Uses caching to avoid Set/Array creation on each call.
      * @returns {Array<string>} Array of edit handle source names
      */
     getEditHandleSources() {
+        this._invalidateCacheIfNeeded();
+
+        if (this._cachedEditHandleSources) {
+            return this._cachedEditHandleSources;
+        }
+
         const sources = new Set();
 
         for (const control of this.selectionManager.controls.values()) {
@@ -105,7 +164,17 @@ class MoveHandler {
             }
         }
 
-        return Array.from(sources);
+        this._cachedEditHandleSources = Array.from(sources);
+        return this._cachedEditHandleSources;
+    }
+
+    /**
+     * Manually invalidate source caches.
+     * Call this when controls are added/removed.
+     */
+    invalidateSourceCache() {
+        this._cachedValidDragSources = null;
+        this._cachedEditHandleSources = null;
     }
 
     // =========================================================================
@@ -322,13 +391,16 @@ class MoveHandler {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
         if (allSelectedFeatures.length === 0) return;
 
+        // Performance: Query features once and reuse for both checks
         const clickedFeatures = this.map.queryRenderedFeatures(e.point);
+
         const validDragSources = this.getValidDragSources();
         const filteredFeatures = clickedFeatures.filter(feature =>
             validDragSources.includes(feature.source)
         );
 
-        if (filteredFeatures.length === 0 || this._isClickOnEditHandle(e.point)) {
+        // Performance: Check edit handle using already-queried features
+        if (filteredFeatures.length === 0 || this._isClickOnEditHandleCached(clickedFeatures)) {
             return;
         }
 
@@ -375,17 +447,31 @@ class MoveHandler {
     }
 
     /**
-     * Check if click is on edit handle.
+     * Check if click is on edit handle using pre-queried features.
+     * Performance optimization to avoid duplicate queryRenderedFeatures calls.
+     * @param {Array} features - Pre-queried features from queryRenderedFeatures
+     * @returns {boolean}
      * @private
      */
-    _isClickOnEditHandle(point) {
-        const features = this.map.queryRenderedFeatures(point);
+    _isClickOnEditHandleCached(features) {
         const editHandleSources = this.getEditHandleSources();
 
         return features.some(f =>
             editHandleSources.includes(f.source) &&
             f.properties.user_isEditingHandle
         );
+    }
+
+    /**
+     * Check if click is on edit handle.
+     * @param {Object} point - Click point
+     * @returns {boolean}
+     * @private
+     * @deprecated Use _isClickOnEditHandleCached with pre-queried features for better performance
+     */
+    _isClickOnEditHandle(point) {
+        const features = this.map.queryRenderedFeatures(point);
+        return this._isClickOnEditHandleCached(features);
     }
 
     /**
@@ -549,24 +635,24 @@ class MoveHandler {
      * @private
      */
     _updateSelectionManagerFeatures(updatedFeatures) {
-        try {
-            const stateManager = getStateManager();
-
-            // Clear and re-add with updated features
-            stateManager.batchUpdate(() => {
-                stateManager.clearSelection();
-
-                for (const feature of updatedFeatures) {
-                    const type = feature.properties.source;
-                    const featureId = feature.properties.id;
-                    if (featureId) {
-                        stateManager.addToSelection(type, String(featureId), feature);
-                    }
-                }
-            });
-        } catch (e) {
-            console.warn('Could not update StateManager after move:', e);
+        const stateManager = this._getStateManager();
+        if (!stateManager) {
+            console.warn('Could not update StateManager after move: StateManager unavailable');
+            return;
         }
+
+        // Clear and re-add with updated features
+        stateManager.batchUpdate(() => {
+            stateManager.clearSelection();
+
+            for (const feature of updatedFeatures) {
+                const type = feature.properties.source;
+                const featureId = feature.properties.id;
+                if (featureId) {
+                    stateManager.addToSelection(type, String(featureId), feature);
+                }
+            }
+        });
     }
 
     // =========================================================================

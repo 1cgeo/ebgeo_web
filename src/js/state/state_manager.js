@@ -270,6 +270,48 @@ class StateManager {
     }
 
     /**
+     * Get state value at path WITHOUT cloning.
+     *
+     * ⚠️ PERFORMANCE OPTIMIZATION - USE WITH CAUTION:
+     * - Returns direct reference to internal state
+     * - NEVER mutate the returned value
+     * - Use only for read-only operations in hot paths
+     * - Prefer get() for safety when performance is not critical
+     *
+     * @param {string} [path] - Dot-notation path. If omitted, returns entire state.
+     * @returns {*} Value at path (direct reference - DO NOT MUTATE)
+     */
+    getUnsafe(path) {
+        if (!path) return this._state;
+        return getByPath(this._state, path);
+    }
+
+    /**
+     * Get state value with shallow clone (1 level deep).
+     *
+     * ⚠️ PERFORMANCE OPTIMIZATION:
+     * - Only clones the first level of properties
+     * - Nested objects are still references - do not mutate them
+     * - Use for read operations where you need a safe copy but deep clone is too expensive
+     * - Ideal for arrays of primitives or simple objects
+     *
+     * @param {string} [path] - Dot-notation path. If omitted, returns entire state.
+     * @returns {*} Value at path (shallow cloned)
+     */
+    getShallow(path) {
+        const value = path ? getByPath(this._state, path) : this._state;
+
+        if (value === null || value === undefined) return value;
+        if (typeof value !== 'object') return value;
+
+        // Shallow clone: spread for arrays/objects
+        if (Array.isArray(value)) {
+            return [...value];
+        }
+        return { ...value };
+    }
+
+    /**
      * Set state value at path.
      * Skips update if value is deeply equal to current.
      * @param {string} path - Dot-notation path
