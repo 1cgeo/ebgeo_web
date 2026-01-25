@@ -1098,6 +1098,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+    height: 100%;
 }
 
 /* Feature properties tab content */
@@ -1222,12 +1223,8 @@
     gap: var(--space-3, 12px);
 }
 
-/* Sidebar feature content wrapper */
-.sidebar-feature-content {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-}
+/* Sidebar feature content wrapper
+   Note: height merged into .sidebar-feature-content above */
 
 .sidebar-feature-content > .tabbed-attribute-panel {
     flex: 1;
@@ -2141,6 +2138,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
 .feature-tab-content {
     display: none;
     padding: var(--space-4);
+
     /* Prevent layout shift when switching tabs - reserve scrollbar space */
     overflow-y: auto;
     scrollbar-gutter: stable;
@@ -2223,7 +2221,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 .feature-style-color-custom {
-    background: linear-gradient(135deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000);
+    background: linear-gradient(135deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2505,6 +2503,7 @@ body:has(.sidebar-container) .unified-attributes-panel {
     from {
         opacity: 0;
     }
+
     to {
         opacity: 1;
     }

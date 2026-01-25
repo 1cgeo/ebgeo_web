@@ -334,7 +334,7 @@ async function selectAllInLayer(layerId, selectionManager, uiManager) {
     try {
         const allFeatures = [];
 
-        for (const [featureType, control] of selectionManager.controls) {
+        for (const [_featureType, control] of selectionManager.controls) {
             const sourceNames = control.getSourceNames();
             if (!sourceNames || sourceNames.length === 0) continue;
 

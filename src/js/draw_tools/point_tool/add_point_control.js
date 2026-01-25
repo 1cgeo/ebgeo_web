@@ -115,11 +115,11 @@ class AddPointControl extends BaseControl {
         return null;
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -151,7 +151,7 @@ class AddPointControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, newCoords) {
+    updateFeatureForMove(feature, dx, dy, _newCoords) {
         const newCoordinates = this.geometry.applyOffset(
             feature.geometry.coordinates,
             dx,
@@ -185,10 +185,10 @@ class AddPointControl extends BaseControl {
 
     // ===== SELECTION SYSTEM INTEGRATION =====
 
-    onFeatureSelected = (feature) => {
+    onFeatureSelected = (_feature) => {
     }
 
-    onFeatureDeselected = (feature) => {
+    onFeatureDeselected = (_feature) => {
     }
 
     onGlobalDeselect = () => {
@@ -198,11 +198,11 @@ class AddPointControl extends BaseControl {
         return false;
     }
 
-    hasEditHandle = (featureId) => {
+    hasEditHandle = (_featureId) => {
         return false;
     }
 
-    syncEditHandlesAfterDrag = (movedFeatures) => {
+    syncEditHandlesAfterDrag = (_movedFeatures) => {
     }
 
     // ===== DRAWING SYSTEM =====
@@ -271,7 +271,7 @@ class AddPointControl extends BaseControl {
         const data = await this.map.getSource('points').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -281,7 +281,7 @@ class AddPointControl extends BaseControl {
         this.map.getSource('points').setData(data);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
 
@@ -290,15 +290,15 @@ class AddPointControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('points').getData();
-        let hasChanges = false;
+        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('points', currentFeature);
-                    hasChanges = true;
+                    _hasChanges = true;
                 }
             }
         }
@@ -351,7 +351,7 @@ class AddPointControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('points').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);

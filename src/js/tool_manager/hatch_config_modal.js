@@ -1,6 +1,6 @@
 // Path: js/tool_manager/hatch_config_modal.js
 
-import { createSliderWithInput, createColorPicker, createAttributeRow } from './helpers/index.js';
+import { createModernSlider, createModernColorPicker } from './helpers/index.js';
 
 export function openHatchConfigModal(feature, selectedFeatures, control) {
     const modal = document.createElement('div');
@@ -39,19 +39,20 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
             control.updateFeaturesProperty(selectedFeatures, 'hatchType', newValue);
         }
     );
-    const typeRow = createAttributeRow('Tipo:', typeSelect);
+    const typeRow = createAttributeRowSimple('Tipo:', typeSelect);
     content.appendChild(typeRow);
 
-    const colorInput = createColorPicker(
-        feature.properties.hatchColor || '#000000',
-        (e) => {
-            control.updateFeaturesProperty(selectedFeatures, 'hatchColor', e.target.value);
+    const colorPicker = createModernColorPicker({
+        label: 'Cor',
+        value: feature.properties.hatchColor || '#000000',
+        onChange: (color) => {
+            control.updateFeaturesProperty(selectedFeatures, 'hatchColor', color);
         }
-    );
-    const colorRow = createAttributeRow('Cor:', colorInput);
-    content.appendChild(colorRow);
+    });
+    content.appendChild(colorPicker);
 
-    const spacingSlider = createSliderWithInput({
+    const spacingSlider = createModernSlider({
+        label: 'Espaçamento',
         min: 4,
         max: 20,
         step: 2,
@@ -60,10 +61,10 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
             control.updateFeaturesProperty(selectedFeatures, 'hatchSpacing', newValue);
         }
     });
-    const spacingRow = createAttributeRow('Espaçamento:', spacingSlider);
-    content.appendChild(spacingRow);
+    content.appendChild(spacingSlider);
 
-    const widthSlider = createSliderWithInput({
+    const widthSlider = createModernSlider({
+        label: 'Espessura',
         min: 1,
         max: 5,
         step: 1,
@@ -72,8 +73,7 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
             control.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', newValue);
         }
     });
-    const widthRow = createAttributeRow('Espessura:', widthSlider);
-    content.appendChild(widthRow);
+    content.appendChild(widthSlider);
 
     const closeButton = document.createElement('button');
     closeButton.textContent = 'Fechar';
@@ -93,6 +93,21 @@ export function openHatchConfigModal(feature, selectedFeatures, control) {
     };
 
     document.body.appendChild(modal);
+}
+
+function createAttributeRowSimple(labelText, inputElement) {
+    const container = document.createElement('div');
+    container.className = 'attr-container-row';
+    container.style.cssText = 'display: flex; align-items: center; margin-bottom: 12px;';
+
+    const label = document.createElement('label');
+    label.textContent = labelText;
+    label.style.cssText = 'min-width: 100px; font-size: 13px;';
+
+    container.appendChild(label);
+    container.appendChild(inputElement);
+
+    return container;
 }
 
 function createHatchTypeSelect(value, onChange) {

@@ -183,11 +183,11 @@ class AddBoundaryControl extends BaseControl {
         return 'boundary-edit-handles';
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -226,7 +226,7 @@ class AddBoundaryControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, newCoords) {
+    updateFeatureForMove(feature, dx, dy, _newCoords) {
         const oldCoords = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         if (!oldCoords) return feature;
 
@@ -578,7 +578,7 @@ class AddBoundaryControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -641,7 +641,7 @@ class AddBoundaryControl extends BaseControl {
         }
     }
 
-    _onEditPointerUp = async (e) => {
+    _onEditPointerUp = async (_e) => {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -653,7 +653,7 @@ class AddBoundaryControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -949,7 +949,7 @@ class AddBoundaryControl extends BaseControl {
         const data = await this.map.getSource('boundarys').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -969,7 +969,7 @@ class AddBoundaryControl extends BaseControl {
         this.map.getSource('boundarys').setData(data);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
 
@@ -983,15 +983,13 @@ class AddBoundaryControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('boundarys').getData();
-        let hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('boundarys', currentFeature);
-                    hasChanges = true;
                 }
             }
         }
@@ -1035,9 +1033,9 @@ class AddBoundaryControl extends BaseControl {
 
     setDefaultProperties = (properties) => {
         const {
-            id,
-            nome,
-            baseCoordinates,
+            id: _id,
+            nome: _nome,
+            baseCoordinates: _baseCoordinates,
             ...styleProperties
         } = properties;
 
@@ -1068,7 +1066,7 @@ class AddBoundaryControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('boundarys').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     data.features[featureIndex] = feature;
                     await this.updateDependentFeatures(feature);
@@ -1128,7 +1126,7 @@ class AddBoundaryControl extends BaseControl {
         }
 
         const data = await this.map.getSource('boundarys').getData();
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };

@@ -92,7 +92,7 @@ class ScreenshotControl {
                 try {
                     const dataURL = canvas.toDataURL('image/png');
                     this.downloadImageFromDataURL(dataURL);
-                } catch (securityError) {
+                } catch (_securityError) {
                     console.warn('Security error with dataURL, trying blob method...');
                     this.captureWithBlob(canvas);
                 }
@@ -130,7 +130,7 @@ class ScreenshotControl {
                             this.downloadImageFromDataURL(dataURL);
                         }
                     }, 'image/png');
-                } catch (blobError) {
+                } catch (_blobError) {
                     console.warn('Error with blob, using dataURL as fallback');
                     const dataURL = offscreenCanvas.toDataURL('image/png');
                     this.downloadImageFromDataURL(dataURL);
@@ -231,7 +231,7 @@ class ScreenshotControl {
             link.click();
             document.body.removeChild(link);
 
-        } catch (error) {
+        } catch (_error) {
             console.warn('Error with blob URL, converting to dataURL');
             const reader = new FileReader();
             reader.onload = (event) => {

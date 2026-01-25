@@ -18,12 +18,12 @@ import { EventTypes } from '../events/event_types.js';
 import {
     setupCleanup,
     subscribe,
-    addDomListener,
+    addDomListener as _addDomListener,
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';
 import { injectTabbedPanelStyles } from '../tool_manager/tabbed_attribute_panel.js';
-import { renderAttributesContent } from '../user_data/attributes_tab_renderer.js';
+import { renderAttributesContent as _renderAttributesContent } from '../user_data/attributes_tab_renderer.js';
 import {
     setCurrentMap,
     getCurrentMapName,
@@ -526,7 +526,7 @@ export class SidebarControl {
         contentWrapper.className = 'map-notes-sidebar-content';
 
         // Track edit mode state
-        let isEditMode = false;
+        let _isEditMode = false;
 
         // --- VIEW MODE ELEMENTS ---
         const viewContainer = document.createElement('div');
@@ -627,14 +627,14 @@ export class SidebarControl {
 
         // --- MODE SWITCHING ---
         const switchToEditMode = () => {
-            isEditMode = true;
+            _isEditMode = true;
             viewContainer.style.display = 'none';
             editContainer.style.display = 'block';
             titleInput.focus();
         };
 
         const switchToViewMode = (updatedData = null) => {
-            isEditMode = false;
+            _isEditMode = false;
             editContainer.style.display = 'none';
             viewContainer.style.display = 'block';
 

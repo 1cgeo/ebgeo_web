@@ -195,7 +195,7 @@ class ToolManager {
             } else {
                 stateManager.setActiveTool(null);
             }
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available - continue without sync
         }
     }

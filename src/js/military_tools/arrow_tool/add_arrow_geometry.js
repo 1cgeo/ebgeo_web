@@ -430,12 +430,12 @@ class AddArrowGeometry extends BaseGeometry {
             }
         } else if (handleType.startsWith('vertex-')) {
             // Legacy format support
-            const index = parseInt(handleType.split('-')[1]);
+            const index = parseInt(handleType.split('-')[1], 10);
             coords[index] = newPosition;
             updatedProperties.baseCoordinates = coords;
         } else if (handleType.startsWith('midpoint-')) {
             // Legacy format support
-            const insertIndex = parseInt(handleType.split('-')[1]) + 1;
+            const insertIndex = parseInt(handleType.split('-')[1], 10) + 1;
             coords.splice(insertIndex, 0, newPosition);
             updatedProperties.baseCoordinates = coords;
         } else if (handleType === 'width') {
@@ -520,7 +520,7 @@ class AddArrowGeometry extends BaseGeometry {
      * @param {Object} properties - Arrow properties
      * @returns {boolean} True if valid
      */
-    validate(baseCoordinates, properties = {}) {
+    validate(baseCoordinates, _properties = {}) {
         const coords = this.normalizeBaseCoordinates(baseCoordinates);
 
         if (coords.length < 2) {

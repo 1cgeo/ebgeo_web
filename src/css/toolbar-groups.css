@@ -295,14 +295,10 @@
         top: 72px;
     }
 
-    /* Ensure popup doesn't overflow */
+    /* Ensure popup doesn't overflow with prominent shadow */
     .toolbar-popup {
         max-height: calc(100vh - 160px);
         overflow-y: auto;
-    }
-
-    /* Popup shadow more prominent */
-    .toolbar-popup {
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
     }
 }

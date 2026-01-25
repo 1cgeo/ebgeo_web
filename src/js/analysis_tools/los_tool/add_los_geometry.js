@@ -308,7 +308,7 @@ class AddLOSGeometry extends BaseGeometry {
      * @param {Object} feature - LOS feature
      * @returns {Array} Empty array
      */
-    createHandles(feature) {
+    createHandles(_feature) {
         return [];
     }
 
@@ -319,7 +319,7 @@ class AddLOSGeometry extends BaseGeometry {
      * @param {Object} feature - Feature
      * @returns {null} Not applicable for LOS
      */
-    updateFromHandle(handleType, newPosition, feature) {
+    updateFromHandle(_handleType, _newPosition, _feature) {
         console.warn('LOS features do not support handle-based editing');
         return null;
     }

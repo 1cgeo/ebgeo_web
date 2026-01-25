@@ -17,13 +17,13 @@ import {
     isModifier2Applicable
 } from '../military_constants.js';
 
-import { createCheckbox } from '../../../tool_manager';
+import { createModernToggle } from '../../../tool_manager';
 
 import {
     createDigitalComboBox,
     createColorControl,
     createDropdownState,
-    closeAllDropdowns
+    closeAllDropdowns as _closeAllDropdowns
 } from './ui-components.helpers.js';
 
 /**
@@ -120,38 +120,31 @@ function createCommandCheckbox(tempProperties, updatePreview, flags) {
     commandLabel.textContent = 'Elemento de Comando:';
     commandLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
 
-    const commandCheckboxWrapper = document.createElement('div');
-    commandCheckboxWrapper.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+    let toggleElement = null;
 
-    const commandCheckbox = createCheckbox(
-        tempProperties.isCommand || false,
-        (e) => {
+    const toggle = createModernToggle({
+        label: 'Esta unidade é um elemento de Comando',
+        checked: tempProperties.isCommand || false,
+        onChange: (checked) => {
             if (!flags.isUpdatingFromSIDC) {
-                tempProperties.isCommand = e.target.checked;
+                tempProperties.isCommand = checked;
                 updatePreview();
             }
         }
-    );
+    });
 
-    const commandCheckboxLabel = document.createElement('span');
-    commandCheckboxLabel.textContent = 'Esta unidade e um elemento de Comando';
-    commandCheckboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
+    toggleElement = toggle;
 
-    commandCheckboxLabel.onclick = () => {
-        const checkboxInput = commandCheckbox.querySelector('input');
-        checkboxInput.click();
-    };
-
-    commandCheckboxWrapper.appendChild(commandCheckbox);
-    commandCheckboxWrapper.appendChild(commandCheckboxLabel);
     commandCheckboxContainer.appendChild(commandLabel);
-    commandCheckboxContainer.appendChild(commandCheckboxWrapper);
+    commandCheckboxContainer.appendChild(toggle);
 
     return {
         container: commandCheckboxContainer,
         updateValue: (newValue) => {
-            const checkboxInput = commandCheckbox.querySelector('input');
-            checkboxInput.checked = !!newValue;
+            const checkbox = toggleElement?.querySelector('input[type="checkbox"]');
+            if (checkbox) {
+                checkbox.checked = !!newValue;
+            }
         }
     };
 }

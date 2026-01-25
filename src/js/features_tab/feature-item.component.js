@@ -8,7 +8,6 @@ import { FEATURES_TAB_ICONS } from './features_tab.icons.js';
 import {
     updateFeatureProperty,
     getFeatureById,
-    getFeatureDisplayNameFromStorage,
     getFeatureIconFromStorage,
 } from '../store';
 import { FeatureNavigationUtils } from '../utilities';

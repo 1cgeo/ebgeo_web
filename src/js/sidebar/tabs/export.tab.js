@@ -11,7 +11,7 @@ import {
     cleanup,
     removeElement
 } from '../../utilities/event-cleanup.js';
-import { showSuccess, showError } from '../../utilities/index.js';
+import { showSuccess as _showSuccess, showError } from '../../utilities/index.js';
 
 /**
  * Export option configurations.

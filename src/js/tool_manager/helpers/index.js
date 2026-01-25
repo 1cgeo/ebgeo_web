@@ -13,30 +13,25 @@ export {
     getCommonConfig
 } from './common-config.helpers.js';
 
-// Slider components (modern + legacy)
+// Slider components
 export {
     createModernSlider,
-    createModernNumericInput,
-    createNumericInput,
-    createSliderWithInput
+    createModernNumericInput
 } from './slider.helpers.js';
 
-// Color picker (modern + legacy)
+// Color picker
 export {
-    createModernColorPicker,
-    createColorPicker
+    createModernColorPicker
 } from './color-picker.helpers.js';
 
-// Form controls (modern + legacy)
+// Form controls
 export {
     createModernToggle,
     createModernSelect,
     createModernTextarea,
     createModernTabs,
     createModernInfoBox,
-    createCheckbox,
-    createAttributeRow,
-    createLineStyleSelect
+    createAttributeRow
 } from './form-controls.helpers.js';
 
 // Section divider
@@ -76,8 +71,7 @@ export {
     cleanupFeatureDropdownListeners
 } from './feature-header.helpers.js';
 
-// Buttons (modern + legacy)
+// Buttons
 export {
-    createModernButtons,
-    createStandardButtons
+    createModernButtons
 } from './buttons.helpers.js';

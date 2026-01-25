@@ -122,7 +122,7 @@ class KeyboardShortcuts {
                 this.selectionManager.deleteSelectedFeatures();
                 return true;
 
-            case 'escape':
+            case 'escape': {
                 e.preventDefault();
                 const map3dContainer = document.getElementById('map-3d-container');
                 if (map3dContainer && map3dContainer.style.display !== 'none') {
@@ -133,6 +133,7 @@ class KeyboardShortcuts {
                 this.toolManager.deactivateCurrentTool();
                 this.selectionManager.deselectAllFeatures();
                 return true;
+            }
 
             case 'z':
                 if (hasCtrl && !hasShift) {

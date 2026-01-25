@@ -150,7 +150,7 @@ export const updateFeature = async (type, feature, mapName = null) => {
 export const removeFeature = async (type, id, mapName = null) => {
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
-    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id == id);
+    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id === id);
 
     if (featureIndex === -1) return;
 
@@ -277,7 +277,7 @@ export const addFeatureSilent = async (type, feature, mapName = null) => {
 export const removeFeatureSilent = async (type, id, mapName = null) => {
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
-    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id == id);
+    const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id === id);
     if (featureIndex !== -1) {
         currentMapData.features[type].splice(featureIndex, 1);
         await updateMapData(targetMap, currentMapData);

@@ -76,15 +76,14 @@ if (config.map2d.maxBounds) {
 
 const analysisLayersManager = new AnalysisLayersManager(map);
 
-const gridControl = new GridControl(map);
-const frameControl = new FrameControl(map);
+const _gridControl = new GridControl(map);
+const _frameControl = new FrameControl(map);
 
 // Promise to track when IndexedDB initialization is complete.
 // This prevents a race condition where map.on('load') could call switchMap()
 // before the store is fully initialized, causing features to not load.
-let storeInitializedPromise;
 let resolveStoreInitialized;
-storeInitializedPromise = new Promise(resolve => {
+const storeInitializedPromise = new Promise(resolve => {
     resolveStoreInitialized = resolve;
 });
 

@@ -71,7 +71,7 @@ export const getActiveLayerIdSync = () => {
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<string>} Active layer ID
  */
-export const getActiveLayerId = async (mapName = null) => {
+export const getActiveLayerId = async (_mapName = null) => {
     return deps.layerManager.getActiveLayerIdSync();
 };
 

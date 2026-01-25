@@ -182,7 +182,7 @@ export class FeatureNavigationUtils {
             case 'LineString':
             case 'Polygon':
             case 'MultiLineString':
-            case 'MultiPolygon':
+            case 'MultiPolygon': {
                 const coordinates = this.extractAllCoordinates(geometry);
                 if (coordinates.length === 0) return null;
 
@@ -190,6 +190,7 @@ export class FeatureNavigationUtils {
                 const sumLat = coordinates.reduce((sum, coord) => sum + coord[1], 0);
 
                 return [sumLng / coordinates.length, sumLat / coordinates.length];
+            }
 
             default:
                 return null;

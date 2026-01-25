@@ -142,11 +142,11 @@ class AddLineControl extends BaseControl {
         return 'line-edit-handles';
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -178,7 +178,7 @@ class AddLineControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, newCoords) {
+    updateFeatureForMove(feature, dx, dy, _newCoords) {
         const coordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         const newCoordinates = this.geometry.applyOffset(coordinates, dx, dy);
 
@@ -1145,7 +1145,7 @@ class AddLineControl extends BaseControl {
         const data = await this.map.getSource('lines').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -1188,7 +1188,7 @@ class AddLineControl extends BaseControl {
         }
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
         this.updateSelectionManagerFeatures(freshFeatures);
@@ -1201,15 +1201,15 @@ class AddLineControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('lines').getData();
-        let hasChanges = false;
+        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('lines', currentFeature);
-                    hasChanges = true;
+                    _hasChanges = true;
                 }
             }
         }
@@ -1271,7 +1271,7 @@ class AddLineControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('lines').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -1338,7 +1338,7 @@ class AddLineControl extends BaseControl {
         }
 
         const data = await this.map.getSource('lines').getData();
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {
                 ...feature.properties,

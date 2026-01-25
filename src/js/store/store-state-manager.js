@@ -94,7 +94,7 @@ class MapManager {
     async calculateMapColors(mapData) {
         const colorCounts = new Map();
 
-        Object.entries(mapData.features || {}).forEach(([featureType, features]) => {
+        Object.entries(mapData.features || {}).forEach(([_featureType, features]) => {
             if (!Array.isArray(features)) return;
 
             features.forEach(feature => {
@@ -175,7 +175,7 @@ class MapManager {
             const mapData = await getMapData(mapName);
             const colorCounts = new Map();
 
-            Object.entries(mapData.features || {}).forEach(([featureType, features]) => {
+            Object.entries(mapData.features || {}).forEach(([_featureType, features]) => {
                 if (!Array.isArray(features)) return;
 
                 features.forEach(feature => {

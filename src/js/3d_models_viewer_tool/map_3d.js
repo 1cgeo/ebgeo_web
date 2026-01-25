@@ -39,7 +39,7 @@ async function loadCesiumAndInit() {
         return cesiumState.loadPromise;
     }
 
-    cesiumState.loadPromise = new Promise(async (resolve, reject) => {
+    cesiumState.loadPromise = (async () => {
         try {
             await loadScript('./vendors/cesium/Cesium.js');
             await waitForGlobal('Cesium', 5000);
@@ -53,14 +53,12 @@ async function loadCesiumAndInit() {
             }
 
             if (Cesium.createWorldTerrain) {
-                const originalCreateWorldTerrain = Cesium.createWorldTerrain;
                 Cesium.createWorldTerrain = function () {
                     return new Cesium.EllipsoidTerrainProvider();
                 };
             }
 
             if (Cesium.createWorldImagery) {
-                const originalCreateWorldImagery = Cesium.createWorldImagery;
                 Cesium.createWorldImagery = function () {
                     return false;
                 };
@@ -68,12 +66,13 @@ async function loadCesiumAndInit() {
 
             if (Cesium.RequestScheduler) {
                 const originalRequest = Cesium.RequestScheduler.request;
-                Cesium.RequestScheduler.request = function (request) {
+                Cesium.RequestScheduler.request = function (...args) {
+                    const request = args[0];
                     if (request.url && request.url.includes('api.cesium.com')) {
                         console.warn('Blocked Ion request:', request.url);
                         return Promise.reject(new Error('Ion requests are disabled'));
                     }
-                    return originalRequest.apply(this, arguments);
+                    return originalRequest.apply(this, args);
                 };
             }
 
@@ -85,14 +84,13 @@ async function loadCesiumAndInit() {
             await initCesiumMap();
 
             cesiumState.isLoaded = true;
-            resolve();
 
         } catch (error) {
             console.error('Error loading Cesium:', error);
             cesiumState.loadPromise = null;
-            reject(error);
+            throw error;
         }
-    });
+    })();
 
     return cesiumState.loadPromise;
 }
@@ -511,12 +509,12 @@ function initCesiumEventHandlers() {
     if (typeof Cesium !== 'undefined' && cesiumState.viewer) {
         const handler = new Cesium.ScreenSpaceEventHandler(cesiumState.viewer.canvas);
         handler.setInputAction(function (event) {
-            const scratchRectangle = new Cesium.Rectangle();
+            const _scratchRectangle = new Cesium.Rectangle();
             const pickedPosition = cesiumState.viewer.scene.pickPosition(event.position);
             if (Cesium.defined(pickedPosition)) {
                 const carto = Cesium.Ellipsoid.WGS84.cartesianToCartographic(pickedPosition);
-                const lon = Cesium.Math.toDegrees(carto.longitude);
-                const lat = Cesium.Math.toDegrees(carto.latitude);
+                const _lon = Cesium.Math.toDegrees(carto.longitude);
+                const _lat = Cesium.Math.toDegrees(carto.latitude);
             }
         }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
@@ -528,7 +526,7 @@ function initCesiumEventHandlers() {
 // ===== 3D MODELS VIEWER =====
 
 let currentTileset = null;
-let currentTilesetId = null;
+let _currentTilesetId = null;
 
 /**
  * Loads a single tileset and flies to its location
@@ -547,7 +545,7 @@ async function loadSingleTileset(viewer, tilesetId) {
             currentTileset.destroy();
         }
         currentTileset = null;
-        currentTilesetId = null;
+        _currentTilesetId = null;
     }
 
     const tilesetConfig = config.tilesets.find(t => t.id === tilesetId);
@@ -556,7 +554,7 @@ async function loadSingleTileset(viewer, tilesetId) {
     }
 
     currentTileset = await createOptimizedTileset(viewer, tilesetConfig);
-    currentTilesetId = tilesetId;
+    _currentTilesetId = tilesetId;
 
     viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(

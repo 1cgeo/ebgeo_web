@@ -180,11 +180,11 @@ class AddCoordinationMeasureControl extends BaseControl {
     return null;
   }
 
-  canCopy(feature) {
+  canCopy(_feature) {
     return true;
   }
 
-  canPaste(feature) {
+  canPaste(_feature) {
     return true;
   }
 
@@ -294,7 +294,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     return false;
   };
 
-  hasEditHandle = (featureId) => {
+  hasEditHandle = (_featureId) => {
     return false;
   };
 
@@ -359,7 +359,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     }
   };
 
-  selectFeature = (feature) => {
+  selectFeature = (_feature) => {
     this.setupHoverListeners();
   };
 
@@ -881,7 +881,7 @@ class AddCoordinationMeasureControl extends BaseControl {
 
     for (const feature of features) {
       const sourceFeature = data.features.find(
-        (f) => f.properties.id == feature.properties.id
+        (f) => f.properties.id === feature.properties.id
       );
       if (sourceFeature) {
         sourceFeature.properties[property] = value;
@@ -977,7 +977,7 @@ class AddCoordinationMeasureControl extends BaseControl {
     this.forceUpdateMainSource(data);
     const freshFeatures = features.map((feature) => {
       const sourceFeature = data.features.find(
-        (f) => f.properties.id == feature.properties.id
+        (f) => f.properties.id === feature.properties.id
       );
       return sourceFeature || feature;
     });
@@ -1060,7 +1060,6 @@ class AddCoordinationMeasureControl extends BaseControl {
 
   saveFeatures = async (features, initialPropertiesMap) => {
     const currentData = await this.map.getSource("coordination_measures").getData();
-    let hasChanges = false;
 
     for (const selectedFeature of features) {
       if (
@@ -1070,12 +1069,11 @@ class AddCoordinationMeasureControl extends BaseControl {
         )
       ) {
         const currentFeature = currentData.features.find(
-          (f) => f.properties.id == selectedFeature.properties.id
+          (f) => f.properties.id === selectedFeature.properties.id
         );
 
         if (currentFeature) {
           await updateFeature("coordination_measures", currentFeature);
-          hasChanges = true;
         }
       }
     }
@@ -1191,7 +1189,7 @@ class AddCoordinationMeasureControl extends BaseControl {
 
       for (const feature of features) {
         const featureIndex = data.features.findIndex(
-          (f) => f.properties.id == feature.properties.id
+          (f) => f.properties.id === feature.properties.id
         );
         if (featureIndex !== -1) {
           if (onlyUpdateProperties) {

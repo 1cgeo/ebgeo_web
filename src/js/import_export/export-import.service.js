@@ -342,7 +342,7 @@ export class ExportImportService {
             for (const mapName of mapsToExport) {
                 const mapData = await getCurrentMapFeatures(mapName);
                 if (mapData) {
-                    for (const [category, features] of Object.entries(mapData)) {
+                    for (const [_category, features] of Object.entries(mapData)) {
                         if (Array.isArray(features)) {
                             features.forEach(feature => {
                                 if (feature.properties && feature.properties.id) {
@@ -365,7 +365,7 @@ export class ExportImportService {
                             compressionOptions: { level: 9 }
                         });
                     }
-                } catch (error) {
+                } catch (_error) {
                     console.warn('Image not found:', imageId);
                 }
             }

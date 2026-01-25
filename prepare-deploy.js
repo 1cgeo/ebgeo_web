@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global require, module */
 /**
  * Script de preparação para deploy no GitHub Pages
  * Substitui automaticamente o config.js pela versão simplificada

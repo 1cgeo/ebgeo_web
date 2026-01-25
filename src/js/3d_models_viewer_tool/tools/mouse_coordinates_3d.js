@@ -81,8 +81,8 @@ function initMouseCoordinates3D(viewer) {
         justify-content: center;
     `;
     copyButton.addEventListener('click', copyCoordinates);
-    copyButton.addEventListener('mouseenter', () => copyButton.style.opacity = '1');
-    copyButton.addEventListener('mouseleave', () => copyButton.style.opacity = '0.7');
+    copyButton.addEventListener('mouseenter', () => { copyButton.style.opacity = '1'; });
+    copyButton.addEventListener('mouseleave', () => { copyButton.style.opacity = '0.7'; });
 
     // Fly to button
     const flyToButton = document.createElement('div');
@@ -98,8 +98,8 @@ function initMouseCoordinates3D(viewer) {
         height: 16px;
     `;
     flyToButton.addEventListener('click', openFlyToModal);
-    flyToButton.addEventListener('mouseenter', () => flyToButton.style.opacity = '1');
-    flyToButton.addEventListener('mouseleave', () => flyToButton.style.opacity = '0.7');
+    flyToButton.addEventListener('mouseenter', () => { flyToButton.style.opacity = '1'; });
+    flyToButton.addEventListener('mouseleave', () => { flyToButton.style.opacity = '0.7'; });
 
     // Format button
     const formatButton = document.createElement('div');
@@ -115,8 +115,8 @@ function initMouseCoordinates3D(viewer) {
         height: 16px;
     `;
     formatButton.addEventListener('click', toggleFormatSelector);
-    formatButton.addEventListener('mouseenter', () => formatButton.style.opacity = '1');
-    formatButton.addEventListener('mouseleave', () => formatButton.style.opacity = '0.7');
+    formatButton.addEventListener('mouseenter', () => { formatButton.style.opacity = '1'; });
+    formatButton.addEventListener('mouseleave', () => { formatButton.style.opacity = '0.7'; });
 
     // Create format selector dropdown
     formatSelector = document.createElement('div');

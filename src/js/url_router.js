@@ -141,4 +141,3 @@ const URLRouter = {
 };
 
 export { URLRouter };
-export default URLRouter;

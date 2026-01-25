@@ -370,7 +370,15 @@
 
 .coordinates-control,
 .coordinates-control-3d {
+    /* Transition and inheritance reset */
     transition: opacity 0.3s ease, transform 0.3s ease;
+    text-align: left !important;
+    line-height: normal !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+    text-decoration: none !important;
+    opacity: 1 !important;
+    visibility: visible !important;
 }
 
 @keyframes slideUp {
@@ -378,6 +386,7 @@
         opacity: 0;
         transform: translateY(10px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -396,16 +405,4 @@
 
 .coordinates-control-3d div[style*="position: absolute"] {
     z-index: 1001 !important;
-}
-
-/* ===== INHERITANCE RESET ===== */
-.coordinates-control,
-.coordinates-control-3d {
-    text-align: left !important;
-    line-height: normal !important;
-    letter-spacing: normal !important;
-    text-transform: none !important;
-    text-decoration: none !important;
-    opacity: 1 !important;
-    visibility: visible !important;
 }

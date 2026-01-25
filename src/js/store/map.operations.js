@@ -451,7 +451,7 @@ export const getMapBadgeColor = async (mapName) => {
     } else {
         // Count color usage and pick the least used
         const colorCounts = {};
-        MAP_BADGE_COLORS.forEach(c => colorCounts[c] = 0);
+        MAP_BADGE_COLORS.forEach(c => { colorCounts[c] = 0; });
         usedColors.forEach(c => {
             if (colorCounts[c] !== undefined) {
                 colorCounts[c]++;
@@ -509,7 +509,7 @@ export const getAllMapBadgeColors = async () => {
             if (!newColor) {
                 // All colors used, find least used
                 const colorCounts = {};
-                MAP_BADGE_COLORS.forEach(c => colorCounts[c] = 0);
+                MAP_BADGE_COLORS.forEach(c => { colorCounts[c] = 0; });
                 Object.values(colors).forEach(c => {
                     if (colorCounts[c] !== undefined) {
                         colorCounts[c]++;

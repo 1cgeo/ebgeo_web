@@ -187,7 +187,7 @@ class FeatureSearchControl {
           // API failed and no 3D models
           this._suggestionsList.style.display = 'none';
         }
-      } catch (error) {
+      } catch (_error) {
         // API failed - if no 3D models, hide suggestions
         if (models3D.length === 0) {
           this._suggestionsList.style.display = 'none';

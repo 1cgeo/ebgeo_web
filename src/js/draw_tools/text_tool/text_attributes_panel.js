@@ -68,7 +68,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
     }
 
     // Track text content for justify buttons state
-    let currentText = feature.properties.text;
+    let _currentText = feature.properties.text;
 
     // Create tab content containers
     const textTabContent = document.createElement('div');
@@ -76,7 +76,7 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
 
     // Build text tab content
     buildTextTabContent(textTabContent, feature, selectedFeatures, textControl, uiManager, (text) => {
-        currentText = text;
+        _currentText = text;
     });
 
     // Build background tab content

@@ -311,7 +311,7 @@ class ContextMenuControl {
                             sourceFeature.properties.layerId = targetLayerId;
                         }
                         source.setData(data);
-                    } catch (e) {
+                    } catch (_e) {
                     }
                 }
             }
@@ -461,7 +461,7 @@ class ContextMenuControl {
     }
 
     _handleUngroup(groupId) {
-        const features = ungroupFeatures(groupId);
+        const _features = ungroupFeatures(groupId);
 
         if (this._selectionManager) {
             this._selectionManager.updateUI();

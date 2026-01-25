@@ -33,7 +33,7 @@
     display: flex;
     align-items: center;
     width: var(--search-bar-width);
-    background-color: #ffffff !important;
+    background-color: #fff !important;
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     transition: box-shadow var(--transition-fast), border-radius var(--transition-fast);
@@ -125,7 +125,7 @@
     left: 0;
     right: 0;
     margin-top: var(--space-1);
-    background: #ffffff;
+    background: #fff;
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     box-shadow: var(--shadow-xl);
     max-height: 400px;

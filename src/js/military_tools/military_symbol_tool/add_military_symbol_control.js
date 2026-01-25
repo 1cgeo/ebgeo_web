@@ -6,7 +6,7 @@ import {
   updateFeature,
   removeFeature,
   storeImage,
-  removeImage,
+  removeImage as _removeImage,
   getActiveLayerIdSync
 } from '../../store';
 import { MilitarySymbolGenerator } from "./military_symbol_generator.js";
@@ -204,11 +204,11 @@ class AddMilitarySymbolControl extends BaseControl {
     return null; // Military symbols don't have edit handles
   }
 
-  canCopy(feature) {
+  canCopy(_feature) {
     return true;
   }
 
-  canPaste(feature) {
+  canPaste(_feature) {
     return true;
   }
 
@@ -318,7 +318,7 @@ class AddMilitarySymbolControl extends BaseControl {
     return false; // Military symbols don't have edit handles
   };
 
-  hasEditHandle = (featureId) => {
+  hasEditHandle = (_featureId) => {
     return false; // Military symbols don't have edit handles
   };
 
@@ -391,7 +391,7 @@ class AddMilitarySymbolControl extends BaseControl {
     }
   };
 
-  selectFeature = (feature) => {
+  selectFeature = (_feature) => {
     // Military symbols don't have edit handles, just selection feedback
     this.setupHoverListeners();
   };
@@ -882,7 +882,7 @@ class AddMilitarySymbolControl extends BaseControl {
 
     for (const feature of features) {
       const sourceFeature = data.features.find(
-        (f) => f.properties.id == feature.properties.id
+        (f) => f.properties.id === feature.properties.id
       );
       if (sourceFeature) {
         const oldSIDC = sourceFeature.properties.sidc;
@@ -912,9 +912,8 @@ class AddMilitarySymbolControl extends BaseControl {
           }
           sourceFeature.properties.calculatedSize = newCalculatedSize;
           feature.properties.calculatedSize = newCalculatedSize;
-        }
-        // Special handling for createdAtZoom
-        else if (property === "createdAtZoom") {
+        } else if (property === "createdAtZoom") {
+          // Special handling for createdAtZoom
           const roundedValue = Math.round(value * 10) / 10;
           sourceFeature.properties[property] = roundedValue;
           feature.properties[property] = roundedValue;
@@ -1004,7 +1003,7 @@ class AddMilitarySymbolControl extends BaseControl {
     this.forceUpdateMainSource(data);
     const freshFeatures = features.map((feature) => {
       const sourceFeature = data.features.find(
-        (f) => f.properties.id == feature.properties.id
+        (f) => f.properties.id === feature.properties.id
       );
       return sourceFeature || feature;
     });
@@ -1088,7 +1087,6 @@ class AddMilitarySymbolControl extends BaseControl {
   saveFeatures = async (features, initialPropertiesMap) => {
     // Always get fresh feature data from map source before saving
     const currentData = await this.map.getSource("military_symbols").getData();
-    let hasChanges = false;
 
     for (const selectedFeature of features) {
       if (
@@ -1098,13 +1096,12 @@ class AddMilitarySymbolControl extends BaseControl {
         )
       ) {
         const currentFeature = currentData.features.find(
-          (f) => f.properties.id == selectedFeature.properties.id
+          (f) => f.properties.id === selectedFeature.properties.id
         );
 
         if (currentFeature) {
           // Use complete current feature (with updated geometry + properties)
           await updateFeature("military_symbols", currentFeature);
-          hasChanges = true;
         }
       }
     }
@@ -1230,7 +1227,7 @@ class AddMilitarySymbolControl extends BaseControl {
 
       for (const feature of features) {
         const featureIndex = data.features.findIndex(
-          (f) => f.properties.id == feature.properties.id
+          (f) => f.properties.id === feature.properties.id
         );
         if (featureIndex !== -1) {
           if (onlyUpdateProperties) {

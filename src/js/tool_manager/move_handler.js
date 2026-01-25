@@ -69,7 +69,7 @@ class MoveHandler {
         if (!this._stateManagerRef) {
             try {
                 this._stateManagerRef = getStateManager();
-            } catch (e) {
+            } catch (_e) {
                 return null;
             }
         }
@@ -349,7 +349,7 @@ class MoveHandler {
      * Handle touch end - end drag.
      * @private
      */
-    async _onTouchEnd(e) {
+    async _onTouchEnd(_e) {
         if (!this.isDragging) return;
 
         const canvas = this.map.getCanvasContainer();
@@ -413,7 +413,7 @@ class MoveHandler {
 
             return allSelectedFeatures.some(selectedFeature => {
                 const selectedFeatureId = selectedFeature.properties.id;
-                return selectedFeatureId == clickedFeatureId;
+                return selectedFeatureId === clickedFeatureId;
             });
         });
 
@@ -460,18 +460,6 @@ class MoveHandler {
             editHandleSources.includes(f.source) &&
             f.properties.user_isEditingHandle
         );
-    }
-
-    /**
-     * Check if click is on edit handle.
-     * @param {Object} point - Click point
-     * @returns {boolean}
-     * @private
-     * @deprecated Use _isClickOnEditHandleCached with pre-queried features for better performance
-     */
-    _isClickOnEditHandle(point) {
-        const features = this.map.queryRenderedFeatures(point);
-        return this._isClickOnEditHandleCached(features);
     }
 
     /**

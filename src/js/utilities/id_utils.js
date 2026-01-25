@@ -167,7 +167,7 @@ export class IDUtils {
         }
 
         // PHASE 3: Apply new IDs to features
-        for (const [featureType, features] of Object.entries(newMapData.features)) {
+        for (const [_featureType, features] of Object.entries(newMapData.features)) {
             if (!Array.isArray(features)) continue;
 
             for (const feature of features) {
@@ -232,7 +232,7 @@ export class IDUtils {
         if (typeof coordinates === 'string') {
             try {
                 return JSON.parse(coordinates);
-            } catch (e) {
+            } catch (_e) {
                 console.warn('Error parsing coordinates:', coordinates);
                 return [];
             }

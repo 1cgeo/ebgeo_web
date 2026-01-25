@@ -5,7 +5,7 @@
  * Provides a color picker with enable/disable toggle.
  */
 
-import { createColorPicker, createCheckbox } from '../../../tool_manager';
+import { createModernColorPicker, createModernToggle } from '../../../tool_manager';
 
 /**
  * Creates a color control with checkbox toggle.
@@ -17,18 +17,18 @@ import { createColorPicker, createCheckbox } from '../../../tool_manager';
 export function createColorControlSection(currentValue, onChange, label) {
     const container = document.createElement('div');
     container.className = 'color-control-container';
+    container.style.cssText = 'margin-bottom: 16px;';
 
     const labelElement = document.createElement('label');
     labelElement.textContent = label + ':';
     labelElement.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
 
-    const checkboxContainer = document.createElement('div');
-    checkboxContainer.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 12px;';
+    let colorPickerContainer = null;
 
-    const checkbox = createCheckbox(
-        !!currentValue,
-        (e) => {
-            const isEnabled = e.target.checked;
+    const toggle = createModernToggle({
+        label: 'Usar cor personalizada',
+        checked: !!currentValue,
+        onChange: (isEnabled) => {
             if (isEnabled) {
                 const color = currentValue || '#11FF00';
                 onChange(color);
@@ -38,33 +38,18 @@ export function createColorControlSection(currentValue, onChange, label) {
                 updateColorControlState(null);
             }
         }
-    );
-
-    const checkboxLabel = document.createElement('span');
-    checkboxLabel.textContent = 'Usar cor personalizada';
-    checkboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
-
-    checkboxLabel.onclick = () => {
-        const checkboxInput = checkbox.querySelector('input');
-        checkboxInput.click();
-    };
-
-    checkboxContainer.appendChild(checkbox);
-    checkboxContainer.appendChild(checkboxLabel);
+    });
 
     const controlsContainer = document.createElement('div');
-    controlsContainer.style.cssText = 'display: flex; align-items: center; gap: 12px;';
+    controlsContainer.style.cssText = 'margin-top: 12px;';
 
-    const colorPicker = createColorPicker(
-        currentValue || '#11FF00',
-        (e) => {
-            const color = e.target.value;
+    colorPickerContainer = createModernColorPicker({
+        label: 'Cor',
+        value: currentValue || '#11FF00',
+        onChange: (color) => {
             onChange(color);
-            updateColorControlState(color);
-        },
-        'Escolher cor personalizada',
-        'current'
-    );
+        }
+    });
 
     /**
      * Updates color control state.
@@ -72,25 +57,16 @@ export function createColorControlSection(currentValue, onChange, label) {
      */
     function updateColorControlState(color) {
         const isCustomColor = !!color;
-        const checkboxInput = checkbox.querySelector('input');
-
-        checkboxInput.checked = isCustomColor;
-
-        colorPicker.disabled = !isCustomColor;
-        colorPicker.style.opacity = isCustomColor ? '1' : '0.5';
-        colorPicker.style.cursor = isCustomColor ? 'pointer' : 'not-allowed';
-
-        if (isCustomColor) {
-            colorPicker.value = color;
-        }
+        colorPickerContainer.style.opacity = isCustomColor ? '1' : '0.5';
+        colorPickerContainer.style.pointerEvents = isCustomColor ? 'auto' : 'none';
     }
 
     updateColorControlState(currentValue);
 
-    controlsContainer.appendChild(colorPicker);
+    controlsContainer.appendChild(colorPickerContainer);
 
     container.appendChild(labelElement);
-    container.appendChild(checkboxContainer);
+    container.appendChild(toggle);
     container.appendChild(controlsContainer);
 
     return container;

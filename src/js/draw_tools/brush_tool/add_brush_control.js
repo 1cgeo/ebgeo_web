@@ -148,11 +148,11 @@ class AddBrushControl extends BaseControl {
         return null;
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -184,7 +184,7 @@ class AddBrushControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, newCoords) {
+    updateFeatureForMove(feature, dx, dy, _newCoords) {
         const newCoordinates = this.geometry.applyOffset(
             feature.geometry.coordinates,
             dx,
@@ -224,10 +224,10 @@ class AddBrushControl extends BaseControl {
 
     // ===== SELECTION SYSTEM INTEGRATION =====
 
-    onFeatureSelected = (feature) => {
+    onFeatureSelected = (_feature) => {
     }
 
-    onFeatureDeselected = (feature) => {
+    onFeatureDeselected = (_feature) => {
     }
 
     onGlobalDeselect = () => {
@@ -237,16 +237,16 @@ class AddBrushControl extends BaseControl {
         return false;
     }
 
-    hasEditHandle = (featureId) => {
+    hasEditHandle = (_featureId) => {
         return false;
     }
 
-    syncEditHandlesAfterDrag = (movedFeatures) => {
+    syncEditHandlesAfterDrag = (_movedFeatures) => {
     }
 
     // ===== DRAWING SYSTEM =====
 
-    handleMapClick = (e) => {
+    handleMapClick = (_e) => {
     }
 
     /**
@@ -283,7 +283,7 @@ class AddBrushControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -344,7 +344,7 @@ class AddBrushControl extends BaseControl {
      * Handle pointer up - finish drawing
      * @param {PointerEvent} e
      */
-    _onPointerUp(e) {
+    _onPointerUp(_e) {
         if (!this.isActive || !this.isDrawing) return;
 
         // Release pointer capture
@@ -352,7 +352,7 @@ class AddBrushControl extends BaseControl {
             const canvas = this.map.getCanvasContainer();
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -365,7 +365,7 @@ class AddBrushControl extends BaseControl {
      * Handle pointer leave - finish drawing if active
      * @param {PointerEvent} e
      */
-    _onPointerLeave(e) {
+    _onPointerLeave(_e) {
         if (this.isDrawing) {
             this.finishDrawing();
         }
@@ -527,7 +527,7 @@ class AddBrushControl extends BaseControl {
         const data = await this.map.getSource('brushes').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -586,7 +586,7 @@ class AddBrushControl extends BaseControl {
         this.map.getSource('brushes').setData(data);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
 
@@ -597,15 +597,15 @@ class AddBrushControl extends BaseControl {
         const correctedFeatures = this.applyZoomCorrections(features);
 
         const currentData = await this.map.getSource('brushes').getData();
-        let hasChanges = false;
+        let _hasChanges = false;
 
         for (const selectedFeature of correctedFeatures) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('brushes', currentFeature);
-                    hasChanges = true;
+                    _hasChanges = true;
                 }
             }
         }
@@ -660,7 +660,7 @@ class AddBrushControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('brushes').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);

@@ -44,7 +44,7 @@ class DragRotateHandler {
         this._cleanupTwoFingerDrag = createTwoFingerDragHandler(
             this._canvas,
             {
-                onStart: (initialState) => {
+                onStart: (_initialState) => {
                     this._initialBearing = this._map.getBearing();
                     this._initialPitch = this._map.getPitch();
                     this._isRotating = true;
@@ -101,7 +101,7 @@ class DragRotateHandler {
         this._updateRotation(e);
     }
 
-    _onMouseUp(e) {
+    _onMouseUp(_e) {
         if (this._isRotating) {
             this._endRotation();
         }

@@ -251,6 +251,7 @@
     }
 
     /* ----- SEARCH BAR ----- */
+
     /* Responsive width handled in search-bar.css */
 
     /* ----- TOOLBAR ----- */
@@ -335,6 +336,7 @@
     }
 
     /* ----- ACTION BUTTONS ----- */
+
     /* Ensure all small action buttons meet touch target requirements */
     .map-list-action-btn,
     .sidebar-section-header-btn,
@@ -377,6 +379,7 @@
     }
 
     /* ----- SEARCH BAR ----- */
+
     /* Responsive width handled in search-bar.css */
 
     .search-bar-input {
@@ -493,6 +496,7 @@
     }
 
     /* ----- FORM INPUTS ----- */
+
     /* Prevent iOS zoom on input focus */
     input[type="text"],
     input[type="email"],
@@ -612,7 +616,7 @@
    HIGH DENSITY DISPLAYS (Retina)
    ========================================================================= */
 
-@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+@media (-webkit-min-device-pixel-ratio: 2), (resolution >= 192dpi) {
     /* Slightly thinner borders on high-density displays */
     .sidebar-panel,
     .feature-panel,

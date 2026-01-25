@@ -532,11 +532,7 @@ export const TEXT_MODIFIERS_CATALOG = {
                 label: 'Credibilidade/Confiabilidade',
                 code: 'J+K',
                 placeholder: 'Ex: A1, B3, F6',
-                tooltip: 'Idoneidade da fonte (A-F) + Veracidade (1-6). Exemplo: A1',
-                label: 'Credibilidade',
-                code: 'J',
-                placeholder: 'Ex: A, B, C, D, E, F',
-                tooltip: 'Código alfanumérico de idoneidade da fonte (A-F conforme EB70-MT-10.401)'
+                tooltip: 'Idoneidade da fonte (A-F) + Veracidade (1-6). Exemplo: A1'
             },
             {
                 id: 'location',

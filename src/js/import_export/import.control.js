@@ -2,11 +2,10 @@
 import JSZip from 'jszip';
 import * as toGeoJSON from '@tmcw/togeojson';
 import shp from 'shpjs';
-import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync } from '../store';
+import { addFeatures, createLayerForImport, getLayers, getCurrentMapNameSync, getEventBus } from '../store';
 import { IDUtils, showSuccess } from '../utilities';
 import { getTerrainElevation } from '../terrain';
 import { EventTypes } from '../events';
-import { getEventBus } from '../store';
 import { userDataManager } from '../user_data';
 
 class AddImportControl {
@@ -489,7 +488,7 @@ class AddImportControl {
                                 const name = feature.properties.nome;
                                 const match = name.match(new RegExp(`^${expectedPrefix}\\s*#(\\d+)$`));
                                 if (match) {
-                                    existingNumbers.push(parseInt(match[1]));
+                                    existingNumbers.push(parseInt(match[1], 10));
                                 }
                             }
                         });
@@ -599,7 +598,7 @@ class AddImportControl {
                 );
                 break;
 
-            case 'polygons':
+            case 'polygons': {
                 const coords = feature.geometry.coordinates[0];
                 if (coords && coords.length > 0) {
                     const lastPoint = coords[coords.length - 1];
@@ -614,6 +613,7 @@ class AddImportControl {
                         : coords;
                 }
                 break;
+            }
 
             case 'points':
                 break;
@@ -767,7 +767,7 @@ class AddImportControl {
             'polygons': this.polygonControl.constructor.DEFAULT_PROPERTIES
         };
 
-        return { ...controlDefaults[targetType] } || {};
+        return controlDefaults[targetType] ? { ...controlDefaults[targetType] } : {};
     }
 
     zoomToFeatures(features) {

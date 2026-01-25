@@ -1,4 +1,5 @@
 // Path: js/import_export/pdf-export.tab.js
+/* global initGdalJs */
 import config from '../config.js'
 
 export default class PDFExportTab {
@@ -183,7 +184,7 @@ export default class PDFExportTab {
     calculateBoundsFromScale(scale, orientation) {
         const center = this.map.getCenter();
 
-        const denominator = parseInt(scale.split(':')[1]);
+        const denominator = parseInt(scale.split(':')[1], 10);
 
         let realWidthMeters, realHeightMeters;
 
@@ -223,7 +224,7 @@ export default class PDFExportTab {
     }
 
     convertMMToMapUnitsFromScale(marginMM, scale) {
-        const denominator = parseInt(scale.split(':')[1]);
+        const denominator = parseInt(scale.split(':')[1], 10);
         const marginMeters = (marginMM / 1000) * denominator;
         return marginMeters / 111320;
     }

@@ -176,13 +176,13 @@ class AddPolygonGeometry extends BaseGeometry {
             newCoordinates.splice(insertIndex, 0, newPosition);
         } else if (handleType.startsWith('vertex-')) {
             // Legacy format support - move existing vertex
-            const index = parseInt(handleType.split('-')[1]);
+            const index = parseInt(handleType.split('-')[1], 10);
             if (index >= 0 && index < newCoordinates.length) {
                 newCoordinates[index] = newPosition;
             }
         } else if (handleType.startsWith('midpoint-')) {
             // Legacy format support - insert new vertex at midpoint
-            const segmentIndex = parseInt(handleType.split('-')[1]);
+            const segmentIndex = parseInt(handleType.split('-')[1], 10);
             const insertIndex = (segmentIndex + 1) % coordinates.length;
             newCoordinates.splice(insertIndex, 0, newPosition);
         }

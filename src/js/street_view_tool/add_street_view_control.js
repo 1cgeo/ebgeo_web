@@ -1,4 +1,5 @@
 // Path: js/street_view_tool/add_street_view_control.js
+/* global PMTiles */
 
 import * as THREE from '../../vendor/three/three.module.js';
 import { DragControls } from '../../vendor/three/addons/controls/DragControls.js';
@@ -46,7 +47,7 @@ class AddStreetViewControl {
             maxZoom: 17.9,
             validateStyle: false
         });
-        this.isOpen = false,
+        this.isOpen = false;
 
         // Performance optimization properties
         this.animationId = null
@@ -650,10 +651,10 @@ class AddStreetViewControl {
             event.preventDefault();
 
             const reader = new FileReader();
-            reader.addEventListener('load', function (event) {
+            reader.addEventListener('load', (event) => {
 
-                material.map.image.src = event.target.result;
-                material.map.needsUpdate = true;
+                this.material.map.image.src = event.target.result;
+                this.material.map.needsUpdate = true;
 
             });
             reader.readAsDataURL(event.dataTransfer.files[0]);
@@ -687,7 +688,7 @@ class AddStreetViewControl {
 
     }
 
-    setCurrentMouse = (event) => {
+    setCurrentMouse = (_event) => {
         if (!this.camera) return
         const heading = this.camera.rotation.y;
         const radians = heading > 0 ? heading : (2 * Math.PI) + heading;
@@ -738,7 +739,7 @@ class AddStreetViewControl {
 
         if (this.controls) this.controls.deactivate();
         this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
-        this.controls.addEventListener('drag', (event) => {
+        this.controls.addEventListener('drag', (_event) => {
             this.isDrag = true;
         });
         this.controls.addEventListener('dragstart', (event) => {
@@ -766,7 +767,7 @@ class AddStreetViewControl {
         this.updateArrowsVisibility();
     }
 
-    clickObj = (event) => {
+    clickObj = (_event) => {
         this.raycaster.setFromCamera(this.mouse, this.camera);
         const intersects = this.raycaster.intersectObjects(this.arrows.filter(i => i.arrow.visible).map(i => i.arrow));
         if (intersects.length > 0) {
@@ -808,7 +809,7 @@ class AddStreetViewControl {
             this.mesh.rotation.y = this.offsetRad;
             cb();
         } else {
-            const texture = new THREE.TextureLoader().load(
+            const _texture = new THREE.TextureLoader().load(
                 imagePath,
                 (loadedTexture) => {
                     loadedTexture.colorSpace = THREE.SRGBColorSpace;
@@ -969,7 +970,7 @@ class AddStreetViewControl {
     }
 
     drawControl = () => {
-        for (const [idx, item] of this.arrows.entries()) {
+        for (const [_idx, item] of this.arrows.entries()) {
             const arrow = item.arrow;
 
             if (!arrow.visible) continue;
@@ -1062,8 +1063,8 @@ class AddStreetViewControl {
         // Safe hidePhotos call
         try {
             this.hidePhotos()
-        } catch (e) {
-            console.warn('Error hiding photos:', e);
+        } catch (_e) {
+            console.warn('Error hiding photos:', _e);
         }
 
         // Hide streetview markers
@@ -1081,8 +1082,8 @@ class AddStreetViewControl {
         // Safe cleanup
         try {
             this.cleanupThreeJS()
-        } catch (e) {
-            console.warn('Error cleaning up ThreeJS:', e);
+        } catch (_e) {
+            console.warn('Error cleaning up ThreeJS:', _e);
         }
     }
 
@@ -1126,11 +1127,11 @@ class AddStreetViewControl {
         this.nearbyFeaturesCache.clear();
     }
 
-    handleMapClick(e) {
+    handleMapClick(_e) {
 
     }
 
-    handleMouseDown(e) {
+    handleMouseDown(_e) {
 
     }
 

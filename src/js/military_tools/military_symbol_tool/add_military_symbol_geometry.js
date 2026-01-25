@@ -37,7 +37,7 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      * @param {Object} feature - Military symbol feature
      * @returns {Array} Empty array (no handles)
      */
-    createHandles(feature) {
+    createHandles(_feature) {
         return [];
     }
 
@@ -48,7 +48,7 @@ class AddMilitarySymbolGeometry extends BaseGeometry {
      * @param {Object} feature - Feature being edited
      * @returns {null} Always null (not supported)
      */
-    updateFromHandle(handleType, newPosition, feature) {
+    updateFromHandle(_handleType, _newPosition, _feature) {
         return null;
     }
 

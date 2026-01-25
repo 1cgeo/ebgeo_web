@@ -501,10 +501,9 @@ export class BottomControlsControl {
      * @private
      * @param {Object} payload - Layout change payload
      */
-    _onLayoutChanged(payload) {
+    _onLayoutChanged(_payload) {
         // Feature toggles are now positioned on the right side
         // No need to adjust left offset based on sidebar state
-        void payload;
     }
 
     /**

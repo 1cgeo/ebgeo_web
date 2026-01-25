@@ -44,7 +44,7 @@ class ClipboardManager {
                 sourceMapName: data.sourceMapName,
                 pixelOffset: this._pixelOffset
             };
-        } catch (e) {
+        } catch (_e) {
             return {
                 features: [],
                 copiedAt: null,
@@ -83,7 +83,7 @@ class ClipboardManager {
 
         try {
             getStateManager().setClipboard(features, getCurrentMapNameSync());
-        } catch (e) {
+        } catch (_e) {
             console.warn('StateManager not available for clipboard');
         }
     }
@@ -181,7 +181,7 @@ class ClipboardManager {
     hasClipboardData() {
         try {
             return getStateManager().hasClipboardData();
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     }
@@ -192,7 +192,7 @@ class ClipboardManager {
     clearClipboard() {
         try {
             getStateManager().clearClipboard();
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available
         }
     }
@@ -301,7 +301,7 @@ class ClipboardManager {
         const match = originalName.match(/^(.+) - Cópia( (\d+))?$/);
         if (match) {
             const baseName = match[1];
-            const currentNum = parseInt(match[3] || '1');
+            const currentNum = parseInt(match[3] || '1', 10);
             return `${baseName} - Cópia ${currentNum + 1}`;
         }
 
@@ -498,8 +498,8 @@ class ClipboardManager {
         if (typeof center === 'string') {
             try {
                 center = JSON.parse(center);
-            } catch (e) {
-                console.error('Erro ao parsear center:', center, e);
+            } catch (_e) {
+                console.error('Erro ao parsear center:', center, _e);
                 return [0, 0];
             }
         }
@@ -521,7 +521,7 @@ class ClipboardManager {
         if (typeof coords === 'string') {
             try {
                 coords = JSON.parse(coords);
-            } catch (e) {
+            } catch (_e) {
                 console.warn('Erro ao parsear coordenadas:', coords);
                 return [];
             }

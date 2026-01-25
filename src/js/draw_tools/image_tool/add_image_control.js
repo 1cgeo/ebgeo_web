@@ -5,7 +5,6 @@ import {
   updateFeature,
   removeFeature,
   storeImage,
-  removeImage,
   getActiveLayerIdSync
 } from "../../store";
 import { IDUtils } from "../../utilities";
@@ -156,11 +155,11 @@ class AddImageControl extends BaseControl {
     return null;
   }
 
-  canCopy(feature) {
+  canCopy(_feature) {
     return true;
   }
 
-  canPaste(feature) {
+  canPaste(_feature) {
     return true;
   }
 
@@ -267,14 +266,14 @@ class AddImageControl extends BaseControl {
     return false;
   };
 
-  hasEditHandle = (featureId) => {
+  hasEditHandle = (_featureId) => {
     return false;
   };
 
-  syncEditHandlesAfterDrag = (movedFeatures) => {
+  syncEditHandlesAfterDrag = (_movedFeatures) => {
   };
 
-  selectFeature = (feature) => {
+  selectFeature = (_feature) => {
     this.setupHoverListeners();
   };
 
@@ -608,7 +607,7 @@ class AddImageControl extends BaseControl {
 
     for (const feature of features) {
       const sourceFeature = data.features.find(
-        (f) => f.properties.id == feature.properties.id
+        (f) => f.properties.id === feature.properties.id
       );
       if (sourceFeature) {
         sourceFeature.properties[property] = value;
@@ -709,7 +708,7 @@ class AddImageControl extends BaseControl {
 
   saveFeatures = async (features, initialPropertiesMap) => {
     const currentData = await this.map.getSource("images").getData();
-    let hasChanges = false;
+    let _hasChanges = false;
 
     for (const selectedFeature of features) {
       if (
@@ -719,12 +718,12 @@ class AddImageControl extends BaseControl {
         )
       ) {
         const currentFeature = currentData.features.find(
-          (f) => f.properties.id == selectedFeature.properties.id
+          (f) => f.properties.id === selectedFeature.properties.id
         );
 
         if (currentFeature) {
           await updateFeature("images", currentFeature);
-          hasChanges = true;
+          _hasChanges = true;
         }
       }
     }
@@ -795,7 +794,7 @@ class AddImageControl extends BaseControl {
 
       for (const feature of features) {
         const featureIndex = data.features.findIndex(
-          (f) => f.properties.id == feature.properties.id
+          (f) => f.properties.id === feature.properties.id
         );
         if (featureIndex !== -1) {
           if (onlyUpdateProperties) {

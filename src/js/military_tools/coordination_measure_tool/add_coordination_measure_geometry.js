@@ -37,7 +37,7 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
      * @param {Object} feature - Coordination measure feature
      * @returns {Array} Empty array
      */
-    createHandles(feature) {
+    createHandles(_feature) {
         return [];
     }
 
@@ -48,7 +48,7 @@ class AddCoordinationMeasureGeometry extends BaseGeometry {
      * @param {Object} feature - Feature being edited
      * @returns {null} Always null
      */
-    updateFromHandle(handleType, newPosition, feature) {
+    updateFromHandle(_handleType, _newPosition, _feature) {
         return null;
     }
 

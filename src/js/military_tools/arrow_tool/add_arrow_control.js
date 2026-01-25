@@ -172,11 +172,11 @@ class AddArrowControl extends BaseControl {
         return 'arrow-edit-handles';
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -208,7 +208,7 @@ class AddArrowControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, newCoords) {
+    updateFeatureForMove(feature, dx, dy, _newCoords) {
         const baseCoordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         const newBaseCoordinates = baseCoordinates.map(coord => [
             coord[0] + dx,
@@ -532,7 +532,7 @@ class AddArrowControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -595,7 +595,7 @@ class AddArrowControl extends BaseControl {
         }
     }
 
-    _onEditPointerUp(e) {
+    _onEditPointerUp(_e) {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -607,7 +607,7 @@ class AddArrowControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -873,7 +873,7 @@ class AddArrowControl extends BaseControl {
         const data = await this.map.getSource('arrows').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -892,7 +892,7 @@ class AddArrowControl extends BaseControl {
         this.map.getSource('arrows').setData(data);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
         this.updateSelectionManagerFeatures(freshFeatures);
@@ -905,15 +905,13 @@ class AddArrowControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('arrows').getData();
-        let hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('arrows', currentFeature);
-                    hasChanges = true;
                 }
             }
         }
@@ -975,7 +973,7 @@ class AddArrowControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('arrows').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -1035,7 +1033,7 @@ class AddArrowControl extends BaseControl {
         }
 
         const data = await this.map.getSource('arrows').getData();
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = { ...feature.properties };
             sourceFeature.geometry = { ...feature.geometry };

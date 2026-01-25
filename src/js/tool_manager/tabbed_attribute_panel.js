@@ -140,7 +140,7 @@ export function createTabbedAttributePanel(config, renderAttributesContent, rend
                 }
             }
         });
-    } catch (e) {
+    } catch (_e) {
         console.warn('EventBus not available for TabbedAttributePanel');
     }
 

@@ -6,6 +6,7 @@
     background: inherit !important;
     margin: 0 !important;
     padding: 0 !important;
+    transition: opacity 0.3s ease;
 }
 
 /* ===== MAIN CONTAINER ===== */
@@ -158,10 +159,8 @@
     outline-offset: 2px;
 }
 
-/* ===== MAIN THEME INTEGRATION ===== */
-.pdf-export-tab-content {
-    transition: opacity 0.3s ease;
-}
+/* ===== MAIN THEME INTEGRATION =====
+   Note: transition merged into .pdf-export-tab-content above */
 
 .pdf-export-tab-content[style*="display: none"] {
     opacity: 0;

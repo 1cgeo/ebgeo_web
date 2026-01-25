@@ -30,13 +30,16 @@
     margin: 0 !important;
 }
 
-/* ----- Bottom Left Side by Side Positioning ----- */
+/* ----- Bottom Left Side by Side Positioning -----
+   Note: These controls are now hidden (UI redesign) but positioning kept for reference */
 .models3d-view-control.controls-bottom-left {
     left: 10px !important;
+    display: none !important;
 }
 
 .street-view-control.controls-bottom-left {
     left: 54px !important;
+    display: none !important;
 }
 
 /* ----- Bottom Left Larger Size ----- */
@@ -79,25 +82,32 @@
     top: 60px !important;
 }
 
+/* Note: These controls are hidden (UI redesign) but positioning kept for reference */
 .import-control.controls-column-left {
     top: 94px !important;
+    display: none !important;
 }
 
 .screenshot-control.controls-column-left {
     top: 128px !important;
+    display: none !important;
 }
 
 .vector-info-control.controls-column-left {
     top: 162px !important;
+    display: none !important;
 }
 
 .rectangle-selection-control.controls-column-left {
     top: 196px !important;
+    display: none !important;
 }
 
-/* ----- Terrain Controls Group ----- */
+/* ----- Terrain Controls Group -----
+   Note: Hidden (UI redesign) but positioning kept for reference */
 .terrain-control.controls-column-left {
     top: 230px !important;
+    display: none !important;
 }
 
 .los-control.controls-column-left {
@@ -237,7 +247,7 @@
 /* ----- Search Input ----- */
 .feature-search-control .feature-search-input {
     position: fixed !important;
-    top: 0px !important;
+    top: 0 !important;
     right: 35px !important;
     border: 1px solid #d0d0d0 !important;
     border-radius: 6px !important;
@@ -250,6 +260,7 @@
     color: #333 !important;
     box-sizing: border-box !important;
     flex-shrink: 0 !important;
+
     /* Transitions */
     transition: all 0.2s ease !important;
 
@@ -272,6 +283,7 @@
 .feature-search-control .feature-search-suggestions {
     position: fixed !important;
     top: 35px !important;
+
     /* 60px (control top) + ~40px (control height) + 8px gap */
     right: 37px !important;
     margin-top: 2px !important;
@@ -639,7 +651,7 @@
     background: rgba(0, 0, 0, 0.5) !important;
     border: none !important;
     border-radius: 50% !important;
-    color: #ffffff !important;
+    color: #fff !important;
     font-size: 16px !important;
     line-height: 24px !important;
     text-align: center !important;
@@ -681,6 +693,7 @@
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
+
 .model-preview-info {
     padding: 8px 0;
     background: transparent;
@@ -689,7 +702,7 @@
 .model-preview-name {
     font-size: 14px;
     font-weight: 600;
-    color: #333333;
+    color: #333;
     margin-bottom: 8px;
     white-space: nowrap;
     overflow: hidden;
@@ -699,7 +712,7 @@
 .model-preview-date {
     font-size: 13px;
     font-weight: 400;
-    color: #666666;
+    color: #666;
     margin-bottom: 8px;
 }
 
@@ -709,7 +722,7 @@
     background: #508D4E;
     border: none;
     border-radius: 6px;
-    color: #ffffff;
+    color: #fff;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
@@ -770,7 +783,7 @@
     background: rgba(0, 0, 0, 0.5) !important;
     border: none !important;
     border-radius: 50% !important;
-    color: #ffffff !important;
+    color: #fff !important;
     font-size: 16px !important;
     line-height: 24px !important;
     text-align: center !important;
@@ -872,22 +885,8 @@
    buttons are hidden since new components provide the UI.
    ========================================================================= */
 
-/* ----- Controls managed by BottomControlsControl ----- */
-
-/* Hide old terrain control button */
-.terrain-control.controls-column-left {
-    display: none !important;
-}
-
-/* Hide old 3D models viewer control button */
-.models3d-view-control.controls-bottom-left {
-    display: none !important;
-}
-
-/* Hide old street view control button */
-.street-view-control.controls-bottom-left {
-    display: none !important;
-}
+/* ----- Controls managed by BottomControlsControl -----
+   Note: display:none rules merged into positioning rules above */
 
 /* ----- Drawing tools managed by ToolbarControl ----- */
 
@@ -923,29 +922,11 @@
     display: none !important;
 }
 
-/* ----- Import/Export managed by Sidebar ----- */
+/* ----- Import/Export managed by Sidebar -----
+   Note: display:none rules merged into positioning rules above */
 
-/* Hide old import control button (now in sidebar Import tab) */
-.import-control.controls-column-left {
-    display: none !important;
-}
-
-/* Hide old screenshot control button (now in sidebar Export tab) */
-.screenshot-control.controls-column-left {
-    display: none !important;
-}
-
-/* ----- Other controls managed by ToolbarControl ----- */
-
-/* Hide old vector info control button (now standalone in toolbar) */
-.vector-info-control.controls-column-left {
-    display: none !important;
-}
-
-/* Hide old rectangle selection control button (now standalone in toolbar) */
-.rectangle-selection-control.controls-column-left {
-    display: none !important;
-}
+/* ----- Other controls managed by ToolbarControl -----
+   Note: display:none rules merged into positioning rules above */
 
 /* =========================================================================
    PHASE 2: LEGACY MAP PANEL HIDING

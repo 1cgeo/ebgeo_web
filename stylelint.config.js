@@ -37,10 +37,8 @@ export default {
         'shorthand-property-no-redundant-values': true,
 
         // ===== FORMATTING =====
-        'indentation': 4,
-        'max-empty-lines': 2,
-        'no-eol-whitespace': true,
-        'no-missing-end-of-source-newline': true,
+        // Note: Formatting rules (indentation, max-empty-lines, etc.) were removed
+        // in Stylelint 16.x. Use Prettier or @stylistic/stylelint-plugin if needed.
 
         // ===== VENDOR PREFIXES (handled by PostCSS/autoprefixer if needed) =====
         'property-no-vendor-prefix': null,

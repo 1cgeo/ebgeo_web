@@ -11,7 +11,7 @@ import {
     getPointsGroupedOptions,
     getEchelonSubtypeOptions,
     clearAllTextModifiers,
-    closeAllDropdowns,
+    closeAllDropdowns as _closeAllDropdowns,
     createDropdownState
 } from './ui-components.helpers.js';
 import { createColorControlSection } from './color-control.section.js';
@@ -361,8 +361,8 @@ export function openPointModal(config) {
         font-weight: 500;
         transition: background-color 0.2s;
     `;
-    applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
-    applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
+    applyButton.onmouseenter = () => { applyButton.style.backgroundColor = '#0056b3'; };
+    applyButton.onmouseleave = () => { applyButton.style.backgroundColor = '#007bff'; };
     applyButton.onclick = async () => {
         const propertiesToUpdate = [
             'pointCode', 'echelonCode', 'fillColor',
@@ -375,12 +375,12 @@ export function openPointModal(config) {
 
         for (const feat of selectedFeatures) {
             const sourceFeature = data.features.find(
-                (f) => f.properties.id == feat.properties.id
+                (f) => f.properties.id === feat.properties.id
             );
 
             if (sourceFeature) {
                 for (const key of propertiesToUpdate) {
-                    if (tempProperties.hasOwnProperty(key)) {
+                    if (Object.prototype.hasOwnProperty.call(tempProperties, key)) {
                         sourceFeature.properties[key] = tempProperties[key];
                         feat.properties[key] = tempProperties[key];
 
@@ -426,8 +426,8 @@ export function openPointModal(config) {
         font-weight: 500;
         transition: background-color 0.2s;
     `;
-    cancelButton.onmouseenter = () => cancelButton.style.backgroundColor = '#545b62';
-    cancelButton.onmouseleave = () => cancelButton.style.backgroundColor = '#6c757d';
+    cancelButton.onmouseenter = () => { cancelButton.style.backgroundColor = '#545b62'; };
+    cancelButton.onmouseleave = () => { cancelButton.style.backgroundColor = '#6c757d'; };
     cancelButton.onclick = closeModal;
 
     modalButtons.appendChild(applyButton);

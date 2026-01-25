@@ -129,11 +129,11 @@ class AddLOSControl extends BaseControl {
         return null;
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -178,7 +178,7 @@ class AddLOSControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, newCoords) {
+    updateFeatureForMove(feature, dx, dy, _newCoords) {
         const oldCoords = this.geometry.extractCoordinatesFromGeometry(feature.geometry);
         if (!oldCoords) return feature;
 
@@ -237,10 +237,10 @@ class AddLOSControl extends BaseControl {
 
     // ===== SELECTION SYSTEM INTEGRATION =====
 
-    onFeatureSelected = (feature) => {
+    onFeatureSelected = (_feature) => {
     }
 
-    onFeatureDeselected = (feature) => {
+    onFeatureDeselected = (_feature) => {
     }
 
     onGlobalDeselect = () => {
@@ -250,7 +250,7 @@ class AddLOSControl extends BaseControl {
         return false;
     }
 
-    hasEditHandle = (featureId) => {
+    hasEditHandle = (_featureId) => {
         return false;
     }
 
@@ -489,7 +489,7 @@ class AddLOSControl extends BaseControl {
         const processedData = await this.map.getSource('processed-los').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -514,7 +514,7 @@ class AddLOSControl extends BaseControl {
         this.map.getSource('processed-los').setData(processedData);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
 
@@ -527,7 +527,7 @@ class AddLOSControl extends BaseControl {
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     const featureToSave = {
@@ -612,9 +612,9 @@ class AddLOSControl extends BaseControl {
 
     setDefaultProperties = (properties) => {
         const {
-            id,
-            nome,
-            profileData,
+            id: _id,
+            nome: _nome,
+            profileData: _profileData,
             ...styleProperties
         } = properties;
 
@@ -643,7 +643,7 @@ class AddLOSControl extends BaseControl {
         const processedData = await this.map.getSource('processed-los').getData();
 
         for (const feature of features) {
-            const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+            const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
             if (featureIndex !== -1) {
                 if (onlyUpdateProperties) {
                     Object.assign(data.features[featureIndex].properties, feature.properties);

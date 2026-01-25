@@ -66,7 +66,7 @@ class SelectionManager {
     isFeatureSelected(type, featureId) {
         try {
             return getStateManager().isFeatureSelected(type, String(featureId));
-        } catch (e) {
+        } catch (_e) {
             // StateManager not initialized yet
             return false;
         }
@@ -79,7 +79,7 @@ class SelectionManager {
     getAllSelectedFeatures() {
         try {
             return getStateManager().getSelectedFeatures().map(item => item.feature);
-        } catch (e) {
+        } catch (_e) {
             return [];
         }
     }
@@ -92,7 +92,7 @@ class SelectionManager {
     getSelectedFeaturesByType(type) {
         try {
             return getStateManager().getSelectedFeatures().filter(item => item.type === type);
-        } catch (e) {
+        } catch (_e) {
             return [];
         }
     }
@@ -115,7 +115,7 @@ class SelectionManager {
     getSelectedFeature(type, featureId) {
         try {
             return getStateManager().getSelectedFeature(type, String(featureId));
-        } catch (e) {
+        } catch (_e) {
             return null;
         }
     }
@@ -127,7 +127,7 @@ class SelectionManager {
     hasSelectedFeatures() {
         try {
             return getStateManager().getSelectionCount() > 0;
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     }
@@ -165,7 +165,7 @@ class SelectionManager {
         let stateManager;
         try {
             stateManager = getStateManager();
-        } catch (e) {
+        } catch (_e) {
             console.warn('StateManager not available for selection');
             return;
         }
@@ -229,7 +229,7 @@ class SelectionManager {
 
             try {
                 getStateManager().clearSelection();
-            } catch (e) {
+            } catch (_e) {
                 // StateManager not available
             }
 
@@ -252,7 +252,7 @@ class SelectionManager {
             stateManager.batchUpdate(() => {
                 toRemove.forEach(f => stateManager.removeFromSelection(f.type, f.id));
             });
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available
         }
     }
@@ -547,7 +547,7 @@ class SelectionManager {
         let stateManager;
         try {
             stateManager = getStateManager();
-        } catch (e) {
+        } catch (_e) {
             return;
         }
 
@@ -571,7 +571,7 @@ class SelectionManager {
         let stateManager;
         try {
             stateManager = getStateManager();
-        } catch (e) {
+        } catch (_e) {
             return;
         }
 
@@ -838,7 +838,7 @@ class SelectionManager {
         const data = await mapSource.getData();
         if (!data) return null;
 
-        return data.features.find(f => f.properties.id == featureId);
+        return data.features.find(f => f.properties.id === featureId);
     }
 
     /**

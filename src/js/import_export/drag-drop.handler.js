@@ -160,13 +160,14 @@ class DragDropHandler {
 
     async processFile(file, fileType, dropCoordinates = null) {
         switch (fileType) {
-            case 'EBGEO':
+            case 'EBGEO': {
                 const result = await this.askImportMode();
                 if (result.cancelled) {
                     return;
                 }
                 await this.mapControl.exportImportService.processFileDirectly(file, result.additive);
                 break;
+            }
 
             case 'GEO_IMPORT':
                 await this.importControl.processFileDirectly(file);

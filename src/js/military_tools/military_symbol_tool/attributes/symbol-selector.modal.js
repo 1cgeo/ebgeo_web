@@ -10,9 +10,9 @@ import {
     BrazilianSIDCExtension
 } from '../brazilian_sidc_extension.js';
 import { checkCatalogWarnings } from '../brazilian_svg_postprocessing.js';
-import { isEngagementBarApplicable, getTextModifiersConfig } from '../military_constants.js';
+import { isEngagementBarApplicable, getTextModifiersConfig as _getTextModifiersConfig } from '../military_constants.js';
 
-import { createTabsContainer, switchTab, closeAllDropdowns } from './ui-components.helpers.js';
+import { createTabsContainer, switchTab, closeAllDropdowns as _closeAllDropdowns } from './ui-components.helpers.js';
 import { createSymbolGallery } from './symbol-gallery.section.js';
 import { createTextFieldsContainer } from './text-modifiers.section.js';
 import { createEngagementBarContent } from './engagement-bar.section.js';
@@ -35,7 +35,7 @@ import { createSymbolFormColumns } from './symbol-form.section.js';
  * @param {number} [size=80] - Preview size
  * @returns {Promise<string|null>} Data URL or null
  */
-async function generatePreviewWithTextModifiers(militarySymbolControl, properties, size = 80) {
+async function generatePreviewWithTextModifiers(militarySymbolControl, properties, _size = 80) {
     try {
         const result = await militarySymbolControl.symbolGenerator.generateSymbolBlob(properties);
 
@@ -128,7 +128,7 @@ function createSidcInput(tempProperties, militarySymbolControl, updateComboboxes
         }
     });
 
-    sidcInput.addEventListener('paste', (e) => {
+    sidcInput.addEventListener('paste', (_e) => {
         setTimeout(() => {
             let cleanSIDC = sidcInput.value.replace(/\s/g, '').trim();
 
@@ -276,7 +276,7 @@ export function openSymbolModal(config) {
         updatePreview: updatePreviewFromComboboxes
     });
 
-    const { column1, column2, comboboxes, reloadDependentComboboxes, updateAllComboboxValues, dropdownState, setUpdatingFromSIDC } = formColumns;
+    const { column1, column2, comboboxes: _comboboxes, reloadDependentComboboxes, updateAllComboboxValues, dropdownState, setUpdatingFromSIDC } = formColumns;
 
     /**
      * Updates comboboxes from SIDC input.
@@ -469,8 +469,8 @@ export function openSymbolModal(config) {
         font-weight: 500;
         transition: background-color 0.2s;
     `;
-    applyButton.onmouseenter = () => applyButton.style.backgroundColor = '#0056b3';
-    applyButton.onmouseleave = () => applyButton.style.backgroundColor = '#007bff';
+    applyButton.onmouseenter = () => { applyButton.style.backgroundColor = '#0056b3'; };
+    applyButton.onmouseleave = () => { applyButton.style.backgroundColor = '#007bff'; };
     applyButton.onclick = async () => {
         const propertiesToUpdate = [
             'standardIdentity', 'symbolSet', 'status', 'hqTfDummy', 'echelon',
@@ -489,12 +489,12 @@ export function openSymbolModal(config) {
 
         for (const feat of selectedFeatures) {
             const sourceFeature = data.features.find(
-                (f) => f.properties.id == feat.properties.id
+                (f) => f.properties.id === feat.properties.id
             );
 
             if (sourceFeature) {
                 for (const key of propertiesToUpdate) {
-                    if (tempProperties.hasOwnProperty(key)) {
+                    if (Object.prototype.hasOwnProperty.call(tempProperties, key)) {
                         sourceFeature.properties[key] = tempProperties[key];
                         feat.properties[key] = tempProperties[key];
 
@@ -546,8 +546,8 @@ export function openSymbolModal(config) {
         font-weight: 500;
         transition: background-color 0.2s;
     `;
-    cancelButton.onmouseenter = () => cancelButton.style.backgroundColor = '#545b62';
-    cancelButton.onmouseleave = () => cancelButton.style.backgroundColor = '#6c757d';
+    cancelButton.onmouseenter = () => { cancelButton.style.backgroundColor = '#545b62'; };
+    cancelButton.onmouseleave = () => { cancelButton.style.backgroundColor = '#6c757d'; };
     cancelButton.onclick = closeModal;
 
     modalButtons.appendChild(applyButton);

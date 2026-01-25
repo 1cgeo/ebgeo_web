@@ -1,7 +1,7 @@
 // Path: js/store/repository.js
 
 import localforage from 'localforage';
-import config from '../config.js';
+import _config from '../config.js';
 
 const SCHEMA_VERSION = '1.6';
 const MIN_SCHEMA_VERSION = '1.3';
@@ -277,7 +277,7 @@ const removeMapGroups = async (mapName) => {
  * Lists all maps that have groups
  * @returns {Array} Array of map names
  */
-const getAllMapsWithGroups = async () => {
+const _getAllMapsWithGroups = async () => {
     return await groupStore.keys();
 };
 
@@ -299,7 +299,7 @@ const hasImageData = async (imageId) => {
     try {
         const image = await imageStore.getItem(imageId);
         return image !== null;
-    } catch (error) {
+    } catch (_error) {
         return false;
     }
 };

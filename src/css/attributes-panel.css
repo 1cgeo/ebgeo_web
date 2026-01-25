@@ -31,6 +31,7 @@
     width: 300px;
     max-height: calc(100vh - 100px);
     overflow-y: auto;
+    animation: slideInUp 0.3s ease-out;
 }
 
 #attributes-panel {
@@ -39,7 +40,7 @@
 
 /* ===== TITLES AND HEADERS ===== */
 .unified-attributes-panel h3 {
-    margin: 0 0 12px 0;
+    margin: 0 0 12px;
     color: #333;
     font-size: 15px;
     font-weight: 600;
@@ -153,7 +154,6 @@
     min-width: 70px;
     max-width: 70px;
     flex-shrink: 0;
-    padding: 6px 4px;
     min-height: 28px;
     box-sizing: border-box;
     padding: 3px;
@@ -303,7 +303,7 @@
     border-radius: 14px;
 }
 
-.slider-check:before {
+.slider-check::before {
     position: absolute;
     content: "";
     height: 15px;
@@ -324,7 +324,7 @@
     box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.2);
 }
 
-.slider-check-input:checked + .slider-check:before {
+.slider-check-input:checked + .slider-check::before {
     transform: translateX(17px);  /* Ajustado para novo tamanho */
 }
 
@@ -348,7 +348,6 @@
     font-weight: 500;
     transition: all 0.2s ease;
     min-height: 32px;
-    
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -383,7 +382,6 @@
     color: white !important;
     box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2) !important;
     border: none !important;
-    
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -451,21 +449,21 @@
     background: var(--primary-color);
 }
 
-/* ===== ANIMATIONS ===== */
-.unified-attributes-panel {
-    animation: slideInUp 0.3s ease-out;
-}
+/* ===== ANIMATIONS =====
+   Note: animation is defined in the base .unified-attributes-panel rule */
 
 @keyframes slideInUp {
     from {
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
     }
 }
+
 /* ===== HEADER WITH OPTIONS ===== */
 .feature-header-with-options {
     width: 100%;
@@ -558,6 +556,7 @@
         opacity: 1;
         transform: translateY(0);
     }
+
     to {
         opacity: 0;
         transform: translateY(-8px);
@@ -788,6 +787,7 @@
         opacity: 0;
         transform: translateY(-8px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);

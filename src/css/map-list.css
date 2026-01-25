@@ -452,10 +452,10 @@
     align-items: center !important;
     justify-content: flex-start !important;
     position: relative !important;
-    
     height: auto !important;
     min-height: 44px !important;
     padding: 0 !important;
+    padding-left: 0 !important;
     background: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(8px) !important;
     box-shadow: none !important;
@@ -553,14 +553,16 @@
     background-color: white !important;
     border: 1px solid #ddd !important;
     border-radius: 8px !important;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.15),
+        0 0 0 1px rgba(0, 0, 0, 0.05) !important;
     z-index: 9999 !important;
     min-width: 180px !important;
     max-width: 250px !important;
     padding: 8px !important;
     backdrop-filter: blur(12px) !important;
     pointer-events: auto !important;
-    
+
     /* Ensure it appears above everything */
     transform: translateZ(0) !important;
     isolation: isolate !important;
@@ -601,6 +603,7 @@
 .clear-position {
     color: #dc3545 !important;
 }
+
 .clear-position:hover {
     background-color: #fef2f2 !important;
 }
@@ -628,12 +631,8 @@
     filter: brightness(0) invert(1);
 }
 
-/* ----- Dropdown Animation ----- */
-.dropdown-content {
-    box-shadow: 
-        0 8px 32px rgba(0, 0, 0, 0.15),
-        0 0 0 1px rgba(0, 0, 0, 0.05) !important;
-}
+/* ----- Dropdown Animation -----
+   Note: box-shadow merged into .dropdown-content above */
 
 /* ===== FEEDBACK STATES ===== */
 .map-action-button.loading {
@@ -842,10 +841,8 @@
     border-radius: 8px !important;
 }
 
-/* ----- Main Item Adjustment ----- */
-.list-map-container li {
-    padding-left: 0 !important;
-}
+/* ----- Main Item Adjustment -----
+   Note: padding-left merged into .list-map-container li above */
 
 .list-map-container li .map-item-main {
     width: calc(100% - 100px) !important;

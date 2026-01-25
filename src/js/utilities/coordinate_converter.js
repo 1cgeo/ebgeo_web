@@ -171,7 +171,7 @@ function parseLatLongDMS(input) {
     // Pattern to capture full DMS with decimal seconds
     // Accepts º or ° for degrees, ' for minutes, " for seconds
     // Accepts directions: N/S for latitude, L/O/E/W for longitude
-    const dmsPattern = /(\d+)[º°]\s*(\d+)['′]\s*(\d+(?:\.\d+)?)[\"″]?\s*([NS])\s+(\d+)[º°]\s*(\d+)['′]\s*(\d+(?:\.\d+)?)[\"″]?\s*([LOEW])/i;
+    const dmsPattern = /(\d+)[º°]\s*(\d+)['′]\s*(\d+(?:\.\d+)?)["\u2033]?\s*([NS])\s+(\d+)[º°]\s*(\d+)['′]\s*(\d+(?:\.\d+)?)["\u2033]?\s*([LOEW])/i;
 
     // Pattern without seconds (only degrees and minutes)
     const dmPattern = /(\d+)[º°]\s*(\d+)['′]\s*([NS])\s+(\d+)[º°]\s*(\d+)['′]\s*([LOEW])/i;
@@ -287,7 +287,7 @@ function parseMGRS(input) {
     try {
         const result = mgrs.toPoint(mgrsString);
         return { lng: result[0], lat: result[1] };
-    } catch (e) {
+    } catch (_e) {
         return null;
     }
 }
@@ -423,7 +423,7 @@ async function getUTMWGS84DisplayFormat(lat, lng) {
                 { label: 'N', value: `${utmCoords[1].toFixed(2)}m` }
             ]
         };
-    } catch (error) {
+    } catch (_error) {
         return {
             parts: [
                 { label: 'Lat', value: `${lat.toFixed(5)}°` },
@@ -449,7 +449,7 @@ function getMGRSDisplayFormat(lat, lng) {
                 { label: 'MGRS', value: formattedMGRS }
             ]
         };
-    } catch (error) {
+    } catch (_error) {
         return {
             parts: [
                 { label: 'Lat', value: `${lat.toFixed(5)}°` },

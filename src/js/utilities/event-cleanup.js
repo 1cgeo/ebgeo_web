@@ -262,13 +262,3 @@ export function EventCleanupMixin(Base = class {}) {
     };
 }
 
-// Default export for convenience
-export default {
-    setupCleanup,
-    subscribe,
-    addDomListener,
-    trackTimer,
-    cleanup,
-    removeElement,
-    EventCleanupMixin
-};

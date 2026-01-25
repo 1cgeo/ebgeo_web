@@ -5,7 +5,7 @@
  * Contains reusable components like digital combobox, color control and tabs.
  */
 
-import { createCheckbox, createColorPicker } from '../../../tool_manager';
+import { createModernToggle, createModernColorPicker } from '../../../tool_manager';
 
 /**
  * @typedef {Object} ComboBoxOption
@@ -58,7 +58,7 @@ export function closeAllDropdowns(state) {
  * @param {DropdownState} dropdownState - Shared dropdown state
  * @returns {HTMLElement} Container element with combobox
  */
-export function createDigitalComboBox(options, currentValue, onChange, label, simplifiedDisplay = false, displayMode = 'modifier', disableHoverPreview = false, dropdownState) {
+export function createDigitalComboBox(options, currentValue, onChange, label, _simplifiedDisplay = false, displayMode = 'modifier', disableHoverPreview = false, dropdownState) {
     const container = document.createElement('div');
     container.className = 'digital-combo-container';
     container.style.cssText = 'margin-bottom: 20px; position: relative;';
@@ -189,7 +189,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, si
         return option.label;
     }
 
-    const currentOption = options.find(opt => opt.value == internalCurrentValue || opt.code == internalCurrentValue);
+    const currentOption = options.find(opt => opt.value === internalCurrentValue || opt.code === internalCurrentValue);
     if (currentOption) {
         const displayText = getOptionDisplayText(currentOption);
         const tooltipText = getOptionTooltipText(currentOption);
@@ -197,7 +197,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, si
         textContainer.textContent = displayText;
         textContainer.title = tooltipText;
 
-        highlightedIndex = options.findIndex(opt => opt.value == internalCurrentValue || opt.code == internalCurrentValue);
+        highlightedIndex = options.findIndex(opt => opt.value === internalCurrentValue || opt.code === internalCurrentValue);
     }
 
     /**
@@ -304,7 +304,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, si
             optionElement.textContent = displayText;
 
             const value = option.value || option.code;
-            if (value == internalCurrentValue) {
+            if (value === internalCurrentValue) {
                 optionElement.style.backgroundColor = '#e3f2fd';
                 optionElement.style.fontWeight = '600';
             }
@@ -357,7 +357,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, si
         setTimeout(() => searchInput.focus(), 50);
 
         highlightedIndex = filteredOptions.findIndex(opt =>
-            (opt.value || opt.code) == internalCurrentValue
+            (opt.value || opt.code) === internalCurrentValue
         );
     }
 
@@ -450,7 +450,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, si
 
     container.updateValue = (newValue) => {
         internalCurrentValue = newValue;
-        const option = options.find(opt => (opt.value || opt.code) == newValue);
+        const option = options.find(opt => (opt.value || opt.code) === newValue);
         if (option) {
             const displayText = getOptionDisplayText(option);
             const tooltipText = getOptionTooltipText(option);
@@ -479,15 +479,15 @@ export function createColorControl(currentValue, onChange, label) {
     labelElement.textContent = label + ':';
     labelElement.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
 
-    const checkboxContainer = document.createElement('div');
-    checkboxContainer.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 12px;';
+    let colorPickerContainer = null;
+    let currentColorValue = currentValue;
 
-    const checkbox = createCheckbox(
-        !!currentValue,
-        (e) => {
-            const isEnabled = e.target.checked;
+    const toggle = createModernToggle({
+        label: 'Usar cor personalizada',
+        checked: !!currentValue,
+        onChange: (isEnabled) => {
             if (isEnabled) {
-                const color = currentValue || '#11FF00';
+                const color = currentColorValue || '#11FF00';
                 onChange(color);
                 updateColorControlState(color);
             } else {
@@ -495,33 +495,19 @@ export function createColorControl(currentValue, onChange, label) {
                 updateColorControlState(null);
             }
         }
-    );
-
-    const checkboxLabel = document.createElement('span');
-    checkboxLabel.textContent = 'Usar cor personalizada';
-    checkboxLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
-
-    checkboxLabel.onclick = () => {
-        const checkboxInput = checkbox.querySelector('input');
-        checkboxInput.click();
-    };
-
-    checkboxContainer.appendChild(checkbox);
-    checkboxContainer.appendChild(checkboxLabel);
+    });
 
     const controlsContainer = document.createElement('div');
-    controlsContainer.style.cssText = 'display: flex; align-items: center; gap: 12px;';
+    controlsContainer.style.cssText = 'margin-top: 12px;';
 
-    const colorPicker = createColorPicker(
-        currentValue || '#11FF00',
-        (e) => {
-            const color = e.target.value;
+    colorPickerContainer = createModernColorPicker({
+        label: 'Cor',
+        value: currentValue || '#11FF00',
+        onChange: (color) => {
+            currentColorValue = color;
             onChange(color);
-            updateColorControlState(color);
-        },
-        'Escolher cor personalizada',
-        'current'
-    );
+        }
+    });
 
     /**
      * Updates color control state.
@@ -529,25 +515,17 @@ export function createColorControl(currentValue, onChange, label) {
      */
     function updateColorControlState(color) {
         const isCustomColor = !!color;
-        const checkboxInput = checkbox.querySelector('input');
-
-        checkboxInput.checked = isCustomColor;
-
-        colorPicker.disabled = !isCustomColor;
-        colorPicker.style.opacity = isCustomColor ? '1' : '0.5';
-        colorPicker.style.cursor = isCustomColor ? 'pointer' : 'not-allowed';
-
-        if (isCustomColor) {
-            colorPicker.value = color;
-        }
+        currentColorValue = color;
+        colorPickerContainer.style.opacity = isCustomColor ? '1' : '0.5';
+        colorPickerContainer.style.pointerEvents = isCustomColor ? 'auto' : 'none';
     }
 
     updateColorControlState(currentValue);
 
-    controlsContainer.appendChild(colorPicker);
+    controlsContainer.appendChild(colorPickerContainer);
 
     container.appendChild(labelElement);
-    container.appendChild(checkboxContainer);
+    container.appendChild(toggle);
     container.appendChild(controlsContainer);
 
     container.updateValue = (newValue) => {

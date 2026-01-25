@@ -6,5 +6,9 @@
     "**/vendor/**",
     "src/js/**/index.js"
   ],
-  "vite": true
+  "vite": true,
+  "ignoreExportsUsedInFile": true,
+  "rules": {
+    "duplicates": "off"
+  }
 }

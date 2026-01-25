@@ -1,4 +1,5 @@
 // Path: js/military_tools/military_symbol_tool/military_symbol_generator.js
+/* global ms */
 
 import { BrazilianSIDCExtension, normalizeSIDC, getBaseSIDC } from './brazilian_sidc_extension.js';
 import {
@@ -20,9 +21,6 @@ const DEFAULT_SIZE = 100;
  * - Returns actual dimensions for accurate bounding box calculations
  */
 export class MilitarySymbolGenerator {
-    constructor() {
-        // Simplified: no cache
-    }
 
     /**
      * Build 30-digit SIDC from properties
@@ -68,7 +66,7 @@ export class MilitarySymbolGenerator {
                                       properties.specialModifier !== null &&
                                       properties.specialModifier !== "0" &&
                                       properties.specialModifier !== 0)
-            ? parseInt(properties.specialModifier)
+            ? parseInt(properties.specialModifier, 10)
             : 0;
 
         const isCommandValue = properties.isCommand || false;

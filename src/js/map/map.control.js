@@ -9,18 +9,18 @@ import {
     initializeWithLastActiveMap,
     setCurrentMap,
     getCurrentMapName,
-    getAllMapNamesStore
+    getAllMapNamesStore,
+    getEventBus,
+    getStateManager
 } from '../store';
 
-import { IDUtils } from '../utilities';
+import { IDUtils, showToast as toastServiceShow } from '../utilities';
 
 import Sortable from 'sortablejs';
 import MapManager from './map.manager.js';
 import { ExportImportService, PDFExportTab } from '../import_export';
 import { FeaturesTab } from '../features_tab';
-import { showToast as toastServiceShow } from '../utilities';
 import { MapNotesManager } from './map-notes.panel.js';
-import { getEventBus, getStateManager } from '../store';
 import { showPrompt } from '../modals/prompt.modal.js';
 
 class MapControl {
@@ -54,7 +54,7 @@ class MapControl {
     get isCollapsed() {
         try {
             return !getStateManager().get('sidebar.expanded');
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     }
@@ -66,7 +66,7 @@ class MapControl {
     get currentTab() {
         try {
             return getStateManager().get('sidebar.activeTab') || 'maps';
-        } catch (e) {
+        } catch (_e) {
             return 'maps';
         }
     }
@@ -254,7 +254,7 @@ class MapControl {
         // Sync to StateManager
         try {
             getStateManager().setActiveTab(tabName);
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available
         }
 
@@ -329,7 +329,7 @@ class MapControl {
         // Sync to StateManager (expanded = false)
         try {
             getStateManager().set('sidebar.expanded', false);
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available
         }
 
@@ -352,7 +352,7 @@ class MapControl {
         // Sync to StateManager (expanded = true)
         try {
             getStateManager().set('sidebar.expanded', true);
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available
         }
 
@@ -394,7 +394,7 @@ class MapControl {
             ghostClass: 'sortable-ghost',
             chosenClass: 'sortable-chosen',
             dragClass: 'sortable-drag',
-            onEnd: async (evt) => {
+            onEnd: async (_evt) => {
                 const newOrder = Array.from(this.mapList.querySelectorAll('li'))
                     .map(li => li.dataset.mapName)
                     .filter(Boolean);

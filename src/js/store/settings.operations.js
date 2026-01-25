@@ -96,9 +96,7 @@ export const setGridStyle = async (mapName, gridStyle) => {
 // ===== HILLSHADE =====
 
 /**
- * Gets map hillshade state.
- * @deprecated Use catalogLayers to check if hillshade is added and visible.
- * This function now checks the catalogLayers for hillshade state.
+ * Gets map hillshade state from catalog layers.
  *
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<boolean>} Hillshade enabled state
@@ -107,31 +105,13 @@ export const getMapHillshadeState = async (mapName = null) => {
     const catalogLayers = await getCatalogLayers(mapName);
     const hillshadeLayer = catalogLayers?.find(l => l.type === CATALOG_ITEM_TYPES.HILLSHADE);
 
-    // Return true only if hillshade is in catalog and visible
     return hillshadeLayer?.visible === true && hillshadeLayer?.status !== 'unavailable';
-};
-
-/**
- * Sets map hillshade state.
- * @deprecated Use addCatalogLayer/removeCatalogLayer/toggleCatalogLayerVisibility instead.
- * This function is kept for backward compatibility but does nothing.
- *
- * @param {boolean} enabled - New state
- * @param {string} [mapName=null] - Map name
- * @returns {Promise<void>}
- */
-export const setMapHillshadeState = async (enabled, mapName = null) => {
-    // This function is deprecated - hillshade state is now managed via catalogLayers
-    // Keeping for backward compatibility but it's a no-op
-    console.warn('setMapHillshadeState is deprecated. Use catalog layer operations instead.');
 };
 
 // ===== ANALYSIS LAYERS =====
 
 /**
- * Gets a specific analysis layer state.
- * @deprecated Use catalogLayers to check if analysis layer is added and visible.
- * This function now checks the catalogLayers for the layer state.
+ * Gets a specific analysis layer state from catalog layers.
  *
  * @param {string} layerId - Analysis layer ID
  * @param {string} [mapName=null] - Map name
@@ -144,30 +124,11 @@ export const getMapAnalysisLayerState = async (layerId, mapName = null) => {
              (l.config?.id === layerId || l.originalId === layerId || l.id === `analysis-${layerId}`)
     );
 
-    // Return true only if layer is in catalog and visible
     return analysisLayer?.visible === true && analysisLayer?.status !== 'unavailable';
 };
 
 /**
- * Sets a specific analysis layer state.
- * @deprecated Use addCatalogLayer/removeCatalogLayer/toggleCatalogLayerVisibility instead.
- * This function is kept for backward compatibility but does nothing.
- *
- * @param {string} layerId - Analysis layer ID
- * @param {boolean} enabled - New state
- * @param {string} [mapName=null] - Map name
- * @returns {Promise<void>}
- */
-export const setMapAnalysisLayerState = async (layerId, enabled, mapName = null) => {
-    // This function is deprecated - analysis layer state is now managed via catalogLayers
-    // Keeping for backward compatibility but it's a no-op
-    console.warn('setMapAnalysisLayerState is deprecated. Use catalog layer operations instead.');
-};
-
-/**
- * Gets all analysis layers states.
- * @deprecated Use getCatalogLayers and filter by ANALYSIS_LAYER type.
- * This function now derives state from catalogLayers.
+ * Gets all analysis layers states from catalog layers.
  *
  * @param {string} [mapName=null] - Map name
  * @returns {Promise<Object>} Analysis layers states { layerId: boolean }

@@ -78,7 +78,7 @@ class AddTextGeometry extends BaseGeometry {
      * @param {Object} feature - Text feature
      * @returns {Array} Empty array (no handles)
      */
-    createHandles(feature) {
+    createHandles(_feature) {
         return [];
     }
 
@@ -89,7 +89,7 @@ class AddTextGeometry extends BaseGeometry {
      * @param {Object} feature - Feature being edited
      * @returns {null} Always null (not supported)
      */
-    updateFromHandle(handleType, newPosition, feature) {
+    updateFromHandle(_handleType, _newPosition, _feature) {
         return null;
     }
 

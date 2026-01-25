@@ -1,6 +1,7 @@
 // Path: js/terrain/analysis-layers.manager.js
 // Note: Analysis layer state is now managed via catalogLayers, not separate settings
 import config from '../config.js';
+import { getMapAnalysisLayersStates } from '../store/settings.operations.js';
 
 /**
  * Manages raster analysis layers in the system

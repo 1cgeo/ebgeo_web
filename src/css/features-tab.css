@@ -300,7 +300,7 @@
 }
 
 .group-controls button:hover {
-    background-color: #ffffff;
+    background-color: #fff;
     color: var(--primary-color);
 }
 
@@ -312,7 +312,7 @@
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease;
-    background-color: #ffffff;
+    background-color: #fff;
 }
 
 .group-features-list.expanded {
@@ -324,7 +324,7 @@
     align-items: center;
     padding: 6px 12px 6px 32px;
     border-bottom: 1px solid #f0f0f0;
-    background-color: #ffffff;
+    background-color: #fff;
 }
 
 .group-feature-item:last-child {

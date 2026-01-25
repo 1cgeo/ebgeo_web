@@ -152,13 +152,13 @@ class AddLineGeometry extends BaseGeometry {
             }
         } else if (handleType.startsWith('vertex-')) {
             // Legacy format support
-            const index = parseInt(handleType.split('-')[1]);
+            const index = parseInt(handleType.split('-')[1], 10);
             if (index >= 0 && index < newCoordinates.length) {
                 newCoordinates[index] = newPosition;
             }
         } else if (handleType.startsWith('midpoint-')) {
             // Legacy format support
-            const segmentIndex = parseInt(handleType.split('-')[1]);
+            const segmentIndex = parseInt(handleType.split('-')[1], 10);
             if (segmentIndex >= 0 && segmentIndex < newCoordinates.length - 1) {
                 const insertIndex = segmentIndex + 1;
                 newCoordinates.splice(insertIndex, 0, newPosition);

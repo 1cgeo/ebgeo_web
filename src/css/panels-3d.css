@@ -40,7 +40,6 @@
     flex-direction: column !important;
     top: 20px !important;
     left: 20px !important;
-    background-color: rgba(255, 255, 255, 0.95) !important;
     background: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(8px) !important;
     width: 300px !important;
@@ -54,7 +53,6 @@
 
 /* ----- Card Class Override ----- */
 #map-3d-tool-bar.card {
-    background-color: rgba(255, 255, 255, 0.95) !important;
     background: rgba(255, 255, 255, 0.95) !important;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
     border: 1px solid rgba(0, 0, 0, 0.1) !important;
@@ -71,7 +69,7 @@
 }
 
 #model-3d-container p {
-    margin: 0 0 10px 0 !important;
+    margin: 0 0 10px !important;
     font-weight: 600 !important;
     color: #000 !important;
     font-size: 16px !important;
@@ -120,8 +118,9 @@
 }
 
 #tool-3d-container p {
-    margin: 0 0 10px 0 !important;
+    margin: 0 0 10px !important;
     font-weight: 600 !important;
+
     /* Force black text */
     color: #000 !important;
     font-size: 16px !important;
@@ -131,6 +130,7 @@
 /* ===== 3D TOOLS GRID ===== */
 .tools-3d-bar {
     display: grid;
+
     /* Force 5 columns in a single row */
     grid-template-columns: repeat(5, 1fr);
     gap: 6px;
@@ -155,6 +155,7 @@
     transition: all 0.2s ease;
     background-color: transparent;
     border-radius: 6px;
+
     /* Reduced button padding */
     padding: 4px;
     min-width: 50px;
@@ -271,16 +272,8 @@
     will-change: transform, background-color;
 }
 
-/* ===== Z-INDEX MANAGEMENT ===== */
-/* Note: Main z-index for #map-3d-container is set in the container definition above */
-
-#map-3d-tool-bar {
-    z-index: var(--z-3d-controls, 110);
-}
-
-.button-tool-3d::after {
-    z-index: 1000;
-}
+/* ===== Z-INDEX MANAGEMENT =====
+   Note: z-index values defined in base rules above */
 
 .cesium-navigationHelpButton-wrapper button[title*="Instruções de navegação"] {
     margin-top: 80px !important;

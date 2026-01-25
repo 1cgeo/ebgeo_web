@@ -48,7 +48,7 @@ const config = {
       priority: 3
     },
     'osm': {
-      enabled: true,
+      enabled: false,
       name: 'OSM',
       // image: './images/layers/osm-thumb.png',             // Sem imagem - usa fallback
       priority: 4

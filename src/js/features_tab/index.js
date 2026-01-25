@@ -73,10 +73,6 @@ export {
     updateGroupLockState,
 } from './group-item.component.js';
 export {
-    createHillshadeControl,
-    loadHillshadeState,
-} from './hillshade.component.js';
-export {
     createAnalysisLayersContainer,
     renderAnalysisLayersControl,
 } from './analysis-layers.component.js';

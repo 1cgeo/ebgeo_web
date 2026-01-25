@@ -36,16 +36,13 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
-
     background: var(--primary);
     color: white;
     padding: var(--space-2) var(--space-4);
     border-radius: var(--radius-full);
     box-shadow: var(--shadow-lg);
-
     font-size: var(--font-size-sm);
     white-space: nowrap;
-
     pointer-events: auto;
 
     /* Animation states */
@@ -90,13 +87,11 @@
     width: 24px;
     height: 24px;
     margin-left: var(--space-1);
-
     border: none;
     background: transparent;
     color: white;
     border-radius: var(--radius-full);
     cursor: pointer;
-
     opacity: 0.7;
     transition: opacity var(--transition-fast), background var(--transition-fast);
 }
@@ -127,21 +122,17 @@
         padding: var(--space-2) var(--space-5);
     }
 
-    /* Larger close button for touch */
+    /* Larger close button for touch - always visible */
     .active-tool-chip-close {
         width: 36px;
         height: 36px;
         margin-left: var(--space-2);
+        opacity: 0.9;
     }
 
     .active-tool-chip-close svg {
         width: 20px;
         height: 20px;
-    }
-
-    /* Always visible on touch */
-    .active-tool-chip-close {
-        opacity: 0.9;
     }
 
     /* Better active state */

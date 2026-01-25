@@ -170,55 +170,6 @@ class AddVisibilityGeometry extends BaseGeometry {
     }
 
     /**
-     * Translate visibility geometry by offset (immediate translation for drag preview)
-     * Following LOS tool pattern for immediate geometry updates
-     * @param {Object} geometry - MultiPolygon geometry to translate
-     * @param {number} dx - Longitude offset
-     * @param {number} dy - Latitude offset
-     * @returns {Object} Translated geometry
-     */
-    translateGeometry(geometry, dx, dy) {
-        try {
-            if (geometry.type === 'MultiPolygon') {
-                const translatedCoordinates = geometry.coordinates.map(polygonCoords =>
-                    polygonCoords.map(ring =>
-                        ring.map(coord => [coord[0] + dx, coord[1] + dy])
-                    )
-                );
-
-                return {
-                    type: 'MultiPolygon',
-                    coordinates: translatedCoordinates
-                };
-            } else if (geometry.type === 'Polygon') {
-                const translatedCoordinates = geometry.coordinates.map(ring =>
-                    ring.map(coord => [coord[0] + dx, coord[1] + dy])
-                );
-
-                return {
-                    type: 'Polygon',
-                    coordinates: translatedCoordinates
-                };
-            }
-
-            console.warn('Unsupported geometry type for translation:', geometry.type);
-            return geometry;
-        } catch (error) {
-            console.error('Error translating visibility geometry:', error);
-            return geometry;
-        }
-    }
-
-    /**
-     * Get coordinates from geometry for movement operations (following LOS pattern)
-     * @param {Object} geometry - GeoJSON geometry
-     * @returns {Array} Center coordinates for movement reference
-     */
-    getCoordinatesForMovement(geometry) {
-        return this.extractCenterFromGeometry(geometry);
-    }
-
-    /**
      * Calculate viewshed with adaptive polar grid
      * @param {Object} center - Turf point with observer coordinates
      * @param {number} radius - Analysis radius in meters
@@ -230,7 +181,7 @@ class AddVisibilityGeometry extends BaseGeometry {
     async calculateViewshed(center, radius, angle, map, progressCallback = null) {
         try {
             const sectorStart = angle - 22.5;
-            const sectorEnd = angle + 22.5;
+            const _sectorEnd = angle + 22.5;
 
             if (progressCallback) {
                 progressCallback(5, 'Obtendo elevação do observador...');
@@ -572,7 +523,7 @@ class AddVisibilityGeometry extends BaseGeometry {
      * @param {Object} feature - Visibility feature
      * @returns {Array} Empty array
      */
-    createHandles(feature) {
+    createHandles(_feature) {
         return [];
     }
 
@@ -583,7 +534,7 @@ class AddVisibilityGeometry extends BaseGeometry {
      * @param {Object} feature - Feature
      * @returns {null} Always null
      */
-    updateFromHandle(handleType, newPosition, feature) {
+    updateFromHandle(_handleType, _newPosition, _feature) {
         console.warn('Visibility features do not support handle-based editing');
         return null;
     }

@@ -107,19 +107,19 @@ export const createLongPressHandler = (element, callback, options = {}) => {
 
     let timer = null;
     let startPos = null;
-    let isLongPressTriggered = false;
+    let _isLongPressTriggered = false;
 
     const onTouchStart = (e) => {
         if (e.touches.length !== 1) return;
 
-        isLongPressTriggered = false;
+        _isLongPressTriggered = false;
         startPos = {
             x: e.touches[0].clientX,
             y: e.touches[0].clientY
         };
 
         timer = setTimeout(() => {
-            isLongPressTriggered = true;
+            _isLongPressTriggered = true;
             // Haptic feedback se disponível
             if (navigator.vibrate) {
                 navigator.vibrate(50);

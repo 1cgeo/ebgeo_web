@@ -57,7 +57,11 @@
       "Bash(git stash:*)",
       "Bash(git checkout:*)",
       "Bash(dir:*)",
-      "Bash(sort:*)"
+      "Bash(sort:*)",
+      "Bash(findstr:*)",
+      "Bash(Select-String -Pattern \"eqeqeq\")",
+      "Bash(npm run lint:fix:*)",
+      "Bash(npm ls:*)"
     ],
     "deny": [],
     "ask": []

@@ -262,7 +262,7 @@ class AddEllipseGeometry extends BaseGeometry {
      * @param {number} bearing - Current bearing
      * @returns {number} New major radius
      */
-    calculateHorizontalRadius(center, newPosition, bearing) {
+    calculateHorizontalRadius(center, newPosition, _bearing) {
         return turf.distance(center, newPosition, { units: 'kilometers' });
     }
 
@@ -273,7 +273,7 @@ class AddEllipseGeometry extends BaseGeometry {
      * @param {number} bearing - Current bearing
      * @returns {number} New minor radius
      */
-    calculateVerticalRadius(center, newPosition, bearing) {
+    calculateVerticalRadius(center, newPosition, _bearing) {
         return turf.distance(center, newPosition, { units: 'kilometers' });
     }
 
@@ -380,7 +380,7 @@ class AddEllipseGeometry extends BaseGeometry {
      * @param {number} bearing - Bearing in degrees
      * @returns {Array} Bounding box [minLng, minLat, maxLng, maxLat]
      */
-    getBoundingBox(center, majorRadius, minorRadius, bearing) {
+    getBoundingBox(center, majorRadius, minorRadius, _bearing) {
         const maxRadius = Math.max(majorRadius, minorRadius);
         const radiusInDegrees = (maxRadius * 1000) / 111320;
         const cosLat = Math.cos(center[1] * Math.PI / 180);

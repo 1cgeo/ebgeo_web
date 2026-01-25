@@ -320,7 +320,7 @@ class AddBoundaryGeometry extends BaseGeometry {
             const symbolType = echelon.charAt(i);
 
             switch (symbolType) {
-                case 'X':
+                case 'X': {
                     const xAngle1 = 45;
                     const p1_start = turf.destination(currentCenter, size / 2, bearing + xAngle1, { units: 'kilometers' });
                     const p1_end = turf.destination(currentCenter, size / 2, bearing + xAngle1 + 180, { units: 'kilometers' });
@@ -331,16 +331,19 @@ class AddBoundaryGeometry extends BaseGeometry {
                     const p2_end = turf.destination(currentCenter, size / 2, bearing + xAngle2 + 180, { units: 'kilometers' });
                     symbolLines.push([p2_start.geometry.coordinates, p2_end.geometry.coordinates]);
                     break;
-                case 'I':
+                }
+                case 'I': {
                     const iAngle = bearing - 90;
                     const p_top = turf.destination(currentCenter, size / AddBoundaryGeometry.GEOMETRY_CONSTANTS.VERTICAL_OFFSET_DIVISOR, iAngle, { units: 'kilometers' });
                     const p_bottom = turf.destination(currentCenter, -size / AddBoundaryGeometry.GEOMETRY_CONSTANTS.VERTICAL_OFFSET_DIVISOR, iAngle, { units: 'kilometers' });
                     symbolLines.push([p_top.geometry.coordinates, p_bottom.geometry.coordinates]);
                     break;
-                case 'o':
+                }
+                case 'o': {
                     const circle = turf.circle(currentCenter, size / 4, { steps: 32, units: 'kilometers' });
                     polygons.push(circle);
                     break;
+                }
             }
         }
         return { lines: symbolLines, polygons: polygons };
@@ -670,7 +673,7 @@ class AddBoundaryGeometry extends BaseGeometry {
         const updatedProperties = { ...feature.properties };
 
         switch (handleType) {
-            case 'size_handle':
+            case 'size_handle': {
                 const ratio = feature.properties.symbol_position_ratio || 0.5;
                 const line = turf.lineString(coordinates);
                 const totalLength = turf.length(line, { units: 'kilometers' });
@@ -678,16 +681,18 @@ class AddBoundaryGeometry extends BaseGeometry {
                 const newSize = turf.distance(centerPoint, turf.point(newPosition), { units: 'kilometers' }) * 2;
                 updatedProperties.symbol_size = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.MIN_SIZE_KM, newSize);
                 break;
+            }
 
-            case 'symbol_handle':
+            case 'symbol_handle': {
                 const symbolLine = turf.lineString(coordinates);
                 const pointOnLine = turf.nearestPointOnLine(symbolLine, turf.point(newPosition), { units: 'kilometers' });
                 const distance = pointOnLine.properties.location;
                 const symbolTotalLength = turf.length(symbolLine, { units: 'kilometers' });
                 updatedProperties.symbol_position_ratio = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.POSITION_RATIO_MIN, Math.min(AddBoundaryGeometry.GEOMETRY_CONSTANTS.POSITION_RATIO_MAX, distance / symbolTotalLength));
                 break;
+            }
 
-            case 'text_distance_handle':
+            case 'text_distance_handle': {
                 const textRatio = feature.properties.symbol_position_ratio || 0.5;
                 const textLine = turf.lineString(coordinates);
                 const textTotalLength = turf.length(textLine, { units: 'kilometers' });
@@ -697,6 +702,7 @@ class AddBoundaryGeometry extends BaseGeometry {
                 const newRatio = newDistance / symbolSize;
                 updatedProperties.text_distance_ratio = Math.max(AddBoundaryGeometry.GEOMETRY_CONSTANTS.TEXT_DISTANCE_MIN, Math.min(AddBoundaryGeometry.GEOMETRY_CONSTANTS.TEXT_DISTANCE_MAX, newRatio));
                 break;
+            }
 
             case 'vertex':
                 if (handleIndex !== null && handleIndex < coordinates.length) {

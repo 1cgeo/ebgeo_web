@@ -19,8 +19,8 @@ const CLUSTER_SIZE_STEPS = {
 const PRIMARY_COLOR = '#508D4E';
 
 // Video popup dimensions (16:9 aspect ratio)
-const VIDEO_POPUP_WIDTH = 320;
-const VIDEO_POPUP_HEIGHT = 180;
+const _VIDEO_POPUP_WIDTH = 320;
+const _VIDEO_POPUP_HEIGHT = 180;
 
 // Marker pin vertical offset for popup positioning
 const MARKER_POPUP_OFFSET = 55;

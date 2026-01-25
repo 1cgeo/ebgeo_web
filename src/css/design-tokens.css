@@ -21,15 +21,16 @@
     /* =========================================================================
        RESPONSIVE / TOUCH
        ========================================================================= */
+
     /* Touch target sizes (Apple HIG: 44px minimum) */
     --touch-target-min: 44px;
     --touch-target-comfortable: 48px;
 
     /* Safe areas for notches and home indicators */
-    --safe-area-top: env(safe-area-inset-top, 0px);
-    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
-    --safe-area-left: env(safe-area-inset-left, 0px);
-    --safe-area-right: env(safe-area-inset-right, 0px);
+    --safe-area-top: env(safe-area-inset-top, 0);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0);
+    --safe-area-left: env(safe-area-inset-left, 0);
+    --safe-area-right: env(safe-area-inset-right, 0);
 
     /* Breakpoints (for reference in JS, actual usage via media queries) */
     --breakpoint-tablet-sm: 600px;
@@ -166,6 +167,7 @@
     --z-modal-backdrop: 50;
     --z-modal: 60;
     --z-toast: 70;
+
     /* 3D viewer must be above all legacy z-indexes (some go up to 10000+) */
     --z-3d-viewer: 50000;
     --z-3d-controls: 50010;

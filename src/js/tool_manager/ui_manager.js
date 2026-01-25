@@ -81,13 +81,13 @@ class UIManager {
             // Panel updates are handled explicitly by SelectionManager.updateUI()
             // to avoid unnecessary panel recreation during property edits.
             this._unsubscribers.push(
-                stateManager.subscribe('selection.features', (features) => {
+                stateManager.subscribe('selection.features', (_features) => {
                     // Only update selection highlight (boxes), not panels
                     // Panels are managed explicitly to avoid flicker during edits
                     this.updateSelectionHighlight();
                 })
             );
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available yet - will work without subscriptions
         }
     }
@@ -99,7 +99,7 @@ class UIManager {
     get isDragging() {
         try {
             return getStateManager().get('ui.isDragging') || false;
-        } catch (e) {
+        } catch (_e) {
             return false;
         }
     }
@@ -111,7 +111,7 @@ class UIManager {
     setDragging(isDragging) {
         try {
             getStateManager().set('ui.isDragging', isDragging);
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available
         }
     }
@@ -270,7 +270,7 @@ class UIManager {
                 }
                 featuresByType.get(item.type).push(item.feature);
             }
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available - return empty map
         }
 
@@ -458,19 +458,6 @@ class UIManager {
             cleanupFeatureDropdownListeners(existingPanel);
             existingPanel.remove();
         }
-    }
-
-    /**
-     * Create unified attributes panel for selected features.
-     * DEPRECATED: Now handled by sidebar feature panel.
-     * This method is kept for API compatibility but no longer creates the floating panel.
-     * The sidebar handles feature panel rendering via StateManager events.
-     * @param {Array<Object>} _selectedFeatures - Unused, kept for API compatibility
-     */
-    createUnifiedAttributesPanel = (_selectedFeatures) => {
-        // Panel creation is now handled by SidebarControl via StateManager events
-        // Just ensure any legacy floating panel is removed
-        this.removeExistingPanel();
     }
 
     /**
@@ -837,7 +824,7 @@ class UIManager {
                 const dist = parseFloat(distance);
                 const lineElevation = slopeLine * (dist - firstDistance) + firstElevation;
 
-                if (i != 0 && i != labels.length - 1 && intersectionIndex === -1 && elevation[i] >= lineElevation) {
+                if (i !== 0 && i !== labels.length - 1 && intersectionIndex === -1 && elevation[i] >= lineElevation) {
                     intersectionIndex = i;
                 }
 
@@ -852,7 +839,7 @@ class UIManager {
                 pointRadius: 0,
                 yAxisID: 'y',
                 segment: {
-                    borderColor: ctx => ctx.p0DataIndex < intersectionIndex || intersectionIndex == -1 ? 'rgb(0, 255, 0)' : 'rgb(255, 0, 0)'
+                    borderColor: ctx => ctx.p0DataIndex < intersectionIndex || intersectionIndex === -1 ? 'rgb(0, 255, 0)' : 'rgb(255, 0, 0)'
                 }
             });
         }
@@ -953,7 +940,7 @@ class UIManager {
         if (!this.activeChart) return;
 
         const canvas = this.activeChart.canvas;
-        const ctx = canvas.getContext('2d');
+        const _ctx = canvas.getContext('2d');
 
         // Create a new canvas with white background
         const tempCanvas = document.createElement('canvas');
@@ -1211,7 +1198,7 @@ class UIManager {
                 feature,
                 title: sourceName
             });
-        } catch (e) {
+        } catch (_e) {
             // Fallback to legacy floating panel if event bus not available
             const panel = document.createElement('div');
             panel.className = 'vector-tile-info-panel unified-attributes-panel';
@@ -1328,7 +1315,7 @@ class UIManager {
         try {
             const stateManager = getStateManager();
             stateManager.closeFeaturePanel();
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available
         }
     }
@@ -1348,7 +1335,7 @@ class UIManager {
         if (this.activeChart) {
             try {
                 this.activeChart.destroy();
-            } catch (e) {
+            } catch (_e) {
                 // Ignore
             }
             this.activeChart = null;

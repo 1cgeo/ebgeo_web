@@ -137,11 +137,11 @@ class AddVisibilityControl extends BaseControl {
         return null;
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -228,10 +228,10 @@ class AddVisibilityControl extends BaseControl {
 
     // ===== SELECTION SYSTEM INTEGRATION =====
 
-    onFeatureSelected = (feature) => {
+    onFeatureSelected = (_feature) => {
     }
 
-    onFeatureDeselected = (feature) => {
+    onFeatureDeselected = (_feature) => {
     }
 
     onGlobalDeselect = () => {
@@ -241,7 +241,7 @@ class AddVisibilityControl extends BaseControl {
         return false;
     }
 
-    hasEditHandle = (featureId) => {
+    hasEditHandle = (_featureId) => {
         return false;
     }
 
@@ -263,7 +263,7 @@ class AddVisibilityControl extends BaseControl {
         for (const movedFeature of movedFeatures) {
             if (movedFeature.properties.source === 'visibility') {
                 try {
-                    const featureId = movedFeature.properties.id;
+                    const _featureId = movedFeature.properties.id;
 
                     this.showProgressModal();
                     this.updateProgress(5, 'Detectando nova posição...');
@@ -506,7 +506,7 @@ class AddVisibilityControl extends BaseControl {
         const processedData = await this.map.getSource('processed-visibility').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -526,7 +526,7 @@ class AddVisibilityControl extends BaseControl {
         this.map.getSource('processed-visibility').setData(processedData);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
 
@@ -548,7 +548,7 @@ class AddVisibilityControl extends BaseControl {
             const processedData = await this.map.getSource('processed-visibility').getData();
 
             for (const feature of features) {
-                const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+                const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
                 if (sourceFeature) {
                     try {
                         this.updateProgress(15, `Recalculando visibilidade (altura: ${newObserverHeight}m)...`);
@@ -603,7 +603,7 @@ class AddVisibilityControl extends BaseControl {
             this.map.getSource('processed-visibility').setData(processedData);
 
             const freshFeatures = features.map(feature => {
-                const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+                const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
                 return sourceFeature || feature;
             });
 
@@ -626,7 +626,7 @@ class AddVisibilityControl extends BaseControl {
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     const featureToSave = {
@@ -696,12 +696,12 @@ class AddVisibilityControl extends BaseControl {
 
     setDefaultProperties = (properties) => {
         const {
-            id,
-            nome,
-            cellData,
-            center,
-            radius,
-            angle,
+            id: _id,
+            nome: _nome,
+            cellData: _cellData,
+            center: _center,
+            radius: _radius,
+            angle: _angle,
             ...styleProperties
         } = properties;
 
@@ -728,7 +728,7 @@ class AddVisibilityControl extends BaseControl {
         const processedData = await this.map.getSource('processed-visibility').getData();
 
         for (const feature of features) {
-            const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+            const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
             if (featureIndex !== -1) {
                 if (onlyUpdateProperties) {
                     Object.assign(data.features[featureIndex].properties, feature.properties);

@@ -11,7 +11,7 @@
  * - Extracts custom attributes from imported GeoJSON properties
  */
 
-import { getMapData, updateMapData, getCurrentMapNameSync, getStorageTypeFromSource, FEATURE_TYPE_MAPPINGS, getEventBus } from '../store';
+import { getMapData, updateMapData, getCurrentMapNameSync, getStorageTypeFromSource, FEATURE_TYPE_MAPPINGS as _FEATURE_TYPE_MAPPINGS, getEventBus } from '../store';
 import { IDUtils } from '../utilities';
 import { EventTypes, FeatureUpdateProperty } from '../events';
 
@@ -449,7 +449,7 @@ const userDataManager = {
      * @returns {Promise<string>} Compressed base64 image
      */
     async _compressImage(base64Data) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve, _reject) => {
             const img = new Image();
 
             img.onload = () => {
@@ -477,7 +477,7 @@ const userDataManager = {
 
                     const compressed = canvas.toDataURL('image/jpeg', IMAGE_CONFIG.compressionQuality);
                     resolve(compressed);
-                } catch (error) {
+                } catch (_error) {
                     // Fallback to original on compression failure
                     console.warn('UserDataManager: Compression failed, using original');
                     resolve(base64Data);
@@ -501,7 +501,7 @@ const userDataManager = {
      * @returns {Promise<string>} Thumbnail as base64
      */
     async _createThumbnail(base64Data) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve, _reject) => {
             const img = new Image();
 
             img.onload = () => {
@@ -521,7 +521,7 @@ const userDataManager = {
 
                     const thumbnail = canvas.toDataURL('image/jpeg', 0.7);
                     resolve(thumbnail);
-                } catch (error) {
+                } catch (_error) {
                     // Return original as fallback
                     console.warn('UserDataManager: Thumbnail creation failed');
                     resolve(base64Data);

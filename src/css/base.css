@@ -6,7 +6,7 @@
   --primary-light: #B4E380;
   --primary-dark: #427842;
   --background-light: #fbfbfa;
-  --border-color: #EEEEEE;
+  --border-color: #EEE;
   --text-color: #000;
   --success-color: #28a745;
   --error-color: #dc3545;
@@ -16,7 +16,7 @@
   --ebgeo-main: #508D4E;
   --ebgeo-dark: #1d361c;
   --ebgeo-light: #69bd66;
-  --ebgeo-contrast: #ffffff;
+  --ebgeo-contrast: #fff;
 }
 
 /* ===== RESET AND BASE ELEMENTS ===== */
@@ -34,10 +34,10 @@ html {
 
 /* ----- List Reset ----- */
 ul {
-  padding-inline-start: 0px;
-  padding-inline-end: 0px;
-  margin-block-start: 0em;
-  margin-block-end: 0em;
+  padding-inline-start: 0;
+  padding-inline-end: 0;
+  margin-block-start: 0;
+  margin-block-end: 0;
 }
 
 /* ----- Links ----- */

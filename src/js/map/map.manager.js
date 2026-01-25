@@ -18,7 +18,7 @@ import {
     setMapOrder
 } from '../store';
 
-import { IDUtils, showError, showWarning } from '../utilities';
+import { IDUtils, showError as _showError, showWarning } from '../utilities';
 import { groupManager } from '../tool_manager';
 import { showPrompt } from '../modals/prompt.modal.js';
 
@@ -78,7 +78,7 @@ class MapManager {
                 };
             }
 
-            const isCurrentMap = mapName === currentMapName;
+            const _isCurrentMap = mapName === currentMapName;
             const result = await removeMap(mapName);
 
             if (result.success) {
@@ -247,8 +247,6 @@ class MapManager {
             }
 
             return { success: true, totalFeatures };
-        } catch (error) {
-            throw error;
         } finally {
             // Always ensure context restoration
             setCurrentMap(originalCurrentMap);

@@ -29,9 +29,24 @@ import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
 
 // Import specialized operation modules
-import { setFeatureDependencies } from './feature.operations.js';
-import { setMapDependencies } from './map.operations.js';
-import { setLayerDependencies } from './layer.operations.js';
+import {
+    setFeatureDependencies,
+    deleteLayerFeatures,
+    addFeature,
+    updateFeature,
+    removeFeature,
+    addFeatureToMap,
+    removeFeatureFromMap,
+    moveFeaturesToLayer as moveFeaturesToLayerBase
+} from './feature.operations.js';
+import {
+    setMapDependencies,
+    getCurrentMapNameSync
+} from './map.operations.js';
+import {
+    setLayerDependencies,
+    deleteLayerOnly
+} from './layer.operations.js';
 import { setGroupDependencies } from './group.operations.js';
 
 // ===== DEPENDENCY INJECTION =====
@@ -119,10 +134,6 @@ export const clearAllDataStore = async () => {
 
 // ===== DELETE LAYER WITH FEATURES =====
 
-// Import deleteLayerFeatures from feature operations
-import { deleteLayerFeatures } from './feature.operations.js';
-import { deleteLayerOnly } from './layer.operations.js';
-
 /**
  * Deletes a layer and all its features.
  *
@@ -136,14 +147,6 @@ export const deleteLayer = async (layerId, mapName = null) => {
 };
 
 // ===== UNDO/REDO SYSTEM =====
-
-import {
-    addFeature,
-    updateFeature,
-    removeFeature,
-    addFeatureToMap,
-    removeFeatureFromMap
-} from './feature.operations.js';
 
 /**
  * Undoes the last action.
@@ -180,9 +183,6 @@ export const redoLastAction = async () => {
 };
 
 // ===== MOVE FEATURES TO LAYER (with event emission) =====
-
-import { moveFeaturesToLayer as moveFeaturesToLayerBase } from './feature.operations.js';
-import { getCurrentMapNameSync } from './map.operations.js';
 
 /**
  * Moves features to another layer (with event emission).
@@ -322,9 +322,7 @@ export {
     getGridStyle,
     setGridStyle,
     getMapHillshadeState,
-    setMapHillshadeState,
     getMapAnalysisLayerState,
-    setMapAnalysisLayerState,
     getMapAnalysisLayersStates,
     setMapAnalysisLayersStates,
     storeImage,

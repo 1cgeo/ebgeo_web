@@ -366,7 +366,7 @@ export function getEngagementBarData() {
  * @returns {boolean} True if valid
  */
 export function isValidSymbolSet(symbolSetCode) {
-    return SYMBOL_SET_REGISTRY.hasOwnProperty(symbolSetCode);
+    return Object.prototype.hasOwnProperty.call(SYMBOL_SET_REGISTRY, symbolSetCode);
 }
 
 /**

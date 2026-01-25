@@ -62,7 +62,7 @@ class AddPointGeometry extends BaseGeometry {
      * @param {Object} feature - Point feature
      * @returns {Array} Empty array (point features don't have edit handles)
      */
-    createHandles(feature) {
+    createHandles(_feature) {
         return [];
     }
 
@@ -73,7 +73,7 @@ class AddPointGeometry extends BaseGeometry {
      * @param {Object} feature - Feature being edited
      * @returns {null} Always null (point doesn't support handle editing)
      */
-    updateFromHandle(handleType, newPosition, feature) {
+    updateFromHandle(_handleType, _newPosition, _feature) {
         return null;
     }
 

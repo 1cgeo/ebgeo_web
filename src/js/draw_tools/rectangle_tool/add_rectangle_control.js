@@ -145,11 +145,11 @@ class AddRectangleControl extends BaseControl {
         return 'rectangle-edit-handles';
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -208,7 +208,7 @@ class AddRectangleControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, newCoords) {
+    updateFeatureForMove(feature, dx, dy, _newCoords) {
         const bearing = feature.properties.bearing || 0;
 
         if (bearing !== 0) {
@@ -334,7 +334,7 @@ class AddRectangleControl extends BaseControl {
         return selectedFeature && selectedFeature.properties.id === featureId;
     }
 
-    syncEditHandlesAfterDrag = (movedFeatures) => {
+    syncEditHandlesAfterDrag = (_movedFeatures) => {
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
             this.createEditHandles(selectedFeature);
@@ -387,7 +387,7 @@ class AddRectangleControl extends BaseControl {
             const corner1 = this.lastPreviewCenter;
             const corner2 = this.lastPreviewPosition;
 
-            const { center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
+            const { center: _center, width, height } = this.geometry.calculateDimensionsFromCorners(corner1, corner2);
 
             if (width >= 10 && height >= 10) {
                 clearTimeout(this.geometryDebounceTimer);
@@ -589,7 +589,7 @@ class AddRectangleControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -671,7 +671,7 @@ class AddRectangleControl extends BaseControl {
         }
     }
 
-    _onEditPointerUp = async (e) => {
+    _onEditPointerUp = async (_e) => {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -683,7 +683,7 @@ class AddRectangleControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -869,7 +869,7 @@ class AddRectangleControl extends BaseControl {
         const data = await this.map.getSource('rectangles').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -939,15 +939,15 @@ class AddRectangleControl extends BaseControl {
     saveFeatures = async (features, initialPropertiesMap) => {
         // Always get fresh feature data from map source before saving
         const currentData = await this.map.getSource('rectangles').getData();
-        let hasChanges = false;
+        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('rectangles', currentFeature);
-                    hasChanges = true;
+                    _hasChanges = true;
                 }
             }
         }
@@ -1003,7 +1003,7 @@ class AddRectangleControl extends BaseControl {
         const isEnabled = type !== 'none';
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 // Update both properties together
                 sourceFeature.properties.hatchType = type;
@@ -1068,7 +1068,7 @@ class AddRectangleControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('rectangles').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -1136,7 +1136,7 @@ class AddRectangleControl extends BaseControl {
         }
 
         const data = await this.map.getSource('rectangles').getData();
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {
                 ...feature.properties,

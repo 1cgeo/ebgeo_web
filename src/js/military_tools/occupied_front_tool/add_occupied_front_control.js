@@ -132,11 +132,11 @@ class AddOccupiedFrontControl extends BaseControl {
         return 'occupied-front-edit-handles';
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -171,7 +171,7 @@ class AddOccupiedFrontControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, newCoords) {
+    updateFeatureForMove(feature, dx, dy, _newCoords) {
         const coords = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         if (!coords || coords.length < 3) {
             return feature;
@@ -244,7 +244,7 @@ class AddOccupiedFrontControl extends BaseControl {
         return selectedFeature && selectedFeature.properties.id === featureId;
     }
 
-    syncEditHandlesAfterDrag = (movedFeatures) => {
+    syncEditHandlesAfterDrag = (_movedFeatures) => {
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
             this.createEditHandles(selectedFeature);
@@ -449,7 +449,7 @@ class AddOccupiedFrontControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -507,7 +507,7 @@ class AddOccupiedFrontControl extends BaseControl {
         }
     }
 
-    _onEditPointerUp(e) {
+    _onEditPointerUp(_e) {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -519,7 +519,7 @@ class AddOccupiedFrontControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -651,7 +651,7 @@ class AddOccupiedFrontControl extends BaseControl {
         const data = await this.map.getSource('occupied_fronts').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -667,7 +667,7 @@ class AddOccupiedFrontControl extends BaseControl {
         this.map.getSource('occupied_fronts').setData(data);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
 
@@ -681,15 +681,13 @@ class AddOccupiedFrontControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('occupied_fronts').getData();
-        let hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('occupied_fronts', currentFeature);
-                    hasChanges = true;
                 }
             }
         }
@@ -744,7 +742,7 @@ class AddOccupiedFrontControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('occupied_fronts').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -812,7 +810,7 @@ class AddOccupiedFrontControl extends BaseControl {
         }
 
         const data = await this.map.getSource('occupied_fronts').getData();
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {
                 ...feature.properties,

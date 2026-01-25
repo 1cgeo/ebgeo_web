@@ -14,7 +14,7 @@ class BaseGeometry {
      * @param {*} coordinates - Input coordinates
      * @returns {Object} GeoJSON geometry
      */
-    generate(coordinates) {
+    generate(_coordinates) {
         throw new Error('Must implement generate() method');
     }
 
@@ -23,7 +23,7 @@ class BaseGeometry {
      * @param {Object} feature - The feature to create handles for
      * @returns {Array} Array of handle features
      */
-    createHandles(feature) {
+    createHandles(_feature) {
         throw new Error('Must implement createHandles() method');
     }
 
@@ -34,7 +34,7 @@ class BaseGeometry {
      * @param {Object} feature - Feature being edited
      * @returns {Object} Updated geometry
      */
-    updateFromHandle(handleType, newPosition, feature) {
+    updateFromHandle(_handleType, _newPosition, _feature) {
         throw new Error('Must implement updateFromHandle() method');
     }
 
@@ -43,7 +43,7 @@ class BaseGeometry {
      * @param {*} data - Data to validate
      * @returns {boolean} True if valid
      */
-    validate(data) {
+    validate(_data) {
         return true;
     }
 

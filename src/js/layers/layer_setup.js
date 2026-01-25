@@ -198,7 +198,7 @@ async function setImages(features, mapInstance) {
  * Hillshade is restored via catalog layers.
  * @param {Object} mapInstance - MapLibre map instance
  */
-async function restoreTerrainState(mapInstance) {
+async function restoreTerrainState(_mapInstance) {
     try {
         const terrainControl = getControl('TerrainControl');
 
@@ -280,7 +280,7 @@ function clearAllMeasurements() {
  * @param {Object} features - Feature collection
  * @param {Object} mapInstance - MapLibre map instance
  */
-function restoreMeasurements(features, mapInstance) {
+function restoreMeasurements(features, _mapInstance) {
     try {
         const lineControl = getControl('AddLineControl');
         const polygonControl = getControl('AddPolygonControl');
@@ -349,7 +349,7 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
                 if (typeof coords === 'string') {
                     try {
                         coords = JSON.parse(coords);
-                    } catch (parseError) {
+                    } catch (_parseError) {
                         console.warn(`Failed to parse coordinates for boundary ${boundaryFeature.properties.id}`);
                         return;
                     }

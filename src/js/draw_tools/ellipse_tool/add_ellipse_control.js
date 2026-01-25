@@ -138,11 +138,11 @@ class AddEllipseControl extends BaseControl {
         return 'ellipse-edit-handles';
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -459,7 +459,7 @@ class AddEllipseControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -537,7 +537,7 @@ class AddEllipseControl extends BaseControl {
         }
     }
 
-    _onEditPointerUp(e) {
+    _onEditPointerUp(_e) {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -549,7 +549,7 @@ class AddEllipseControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -700,7 +700,7 @@ class AddEllipseControl extends BaseControl {
         const data = await this.map.getSource('ellipses').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -727,7 +727,7 @@ class AddEllipseControl extends BaseControl {
         this.map.getSource('ellipses').setData(data);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
 
@@ -741,15 +741,15 @@ class AddEllipseControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('ellipses').getData();
-        let hasChanges = false;
+        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('ellipses', currentFeature);
-                    hasChanges = true;
+                    _hasChanges = true;
                 }
             }
         }
@@ -800,7 +800,7 @@ class AddEllipseControl extends BaseControl {
         const isEnabled = type !== 'none';
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 // Update both properties together
                 sourceFeature.properties.hatchType = type;
@@ -824,7 +824,7 @@ class AddEllipseControl extends BaseControl {
         this.map.getSource('ellipses').setData(data);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
         this.updateSelectionManagerFeatures(freshFeatures);
@@ -867,7 +867,7 @@ class AddEllipseControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('ellipses').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -933,7 +933,7 @@ class AddEllipseControl extends BaseControl {
         }
 
         const data = await this.map.getSource('ellipses').getData();
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {
                 ...feature.properties,

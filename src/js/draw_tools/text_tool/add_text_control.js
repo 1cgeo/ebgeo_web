@@ -152,11 +152,11 @@ class AddTextControl extends BaseControl {
         return null;
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -265,7 +265,7 @@ class AddTextControl extends BaseControl {
         return false;
     }
 
-    hasEditHandle = (featureId) => {
+    hasEditHandle = (_featureId) => {
         return false;
     }
 
@@ -329,7 +329,7 @@ class AddTextControl extends BaseControl {
         }
     }
 
-    selectFeature = (feature) => {
+    selectFeature = (_feature) => {
         this.setupHoverListeners();
     }
 
@@ -607,7 +607,7 @@ class AddTextControl extends BaseControl {
         const data = await this.map.getSource('texts').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -681,7 +681,7 @@ class AddTextControl extends BaseControl {
         }
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
 
@@ -748,15 +748,15 @@ class AddTextControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('texts').getData();
-        let hasChanges = false;
+        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('texts', currentFeature);
-                    hasChanges = true;
+                    _hasChanges = true;
                 }
             }
         }
@@ -829,7 +829,7 @@ class AddTextControl extends BaseControl {
             let backgroundNeedsUpdate = false;
 
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);

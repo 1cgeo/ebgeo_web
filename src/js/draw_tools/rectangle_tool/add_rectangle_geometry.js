@@ -289,7 +289,7 @@ class AddRectangleGeometry extends BaseGeometry {
     generateRoundedRectangleGeometry(minLng, minLat, maxLng, maxLat, borderRadius) {
         const segmentsPerCorner = 8;
 
-        const centerLat = (minLat + maxLat) / 2;
+        const _centerLat = (minLat + maxLat) / 2;
         const rectWidth = maxLng - minLng;
         const rectHeight = maxLat - minLat;
 
@@ -567,22 +567,6 @@ class AddRectangleGeometry extends BaseGeometry {
     }
 
     /**
-     * LEGACY METHOD: Create edit handles for rectangle (backward compatibility)
-     * @param {Object} feature - Rectangle feature
-     * @returns {Array} Array of handle features for both corners
-     * @deprecated Use createHandlesFromGeometry for consistency
-     */
-    createHandles(feature) {
-        console.warn('createHandles is deprecated, use createHandlesFromGeometry for better consistency');
-        return this.createHandlesFromGeometry(
-            feature.geometry,
-            feature.properties.id,
-            feature.properties.bearing,
-            feature.properties
-        );
-    }
-
-    /**
      * Update rectangle geometry based on handle movement
      * Uses width-resize, height-resize and rotation (similar to ellipse)
      * @param {string} handleType - Type of handle ('width-resize', 'height-resize', 'rotation')
@@ -658,7 +642,7 @@ class AddRectangleGeometry extends BaseGeometry {
      * @param {number} bearing - Current bearing (not used, handle defines directly)
      * @returns {number} New half-width in meters (distance from center to handle)
      */
-    calculateWidthFromHandle(center, newPosition, bearing) {
+    calculateWidthFromHandle(center, newPosition, _bearing) {
         // Distance from center to handle is half the width
         return turf.distance(center, newPosition, { units: 'kilometers' }) * 1000;
     }
@@ -670,7 +654,7 @@ class AddRectangleGeometry extends BaseGeometry {
      * @param {number} bearing - Current bearing (not used, handle defines directly)
      * @returns {number} New half-height in meters (distance from center to handle)
      */
-    calculateHeightFromHandle(center, newPosition, bearing) {
+    calculateHeightFromHandle(center, newPosition, _bearing) {
         // Distance from center to handle is half the height
         return turf.distance(center, newPosition, { units: 'kilometers' }) * 1000;
     }

@@ -115,10 +115,10 @@ class AddCircleControl extends BaseControl {
     getEditHandleSource() {
         return 'circle-edit-handles';
     }
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
     prepareForPaste(feature, offset) {
@@ -192,7 +192,7 @@ class AddCircleControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         return selectedFeature && selectedFeature.properties.id === featureId;
     }
-    syncEditHandlesAfterDrag = (movedFeatures) => {
+    syncEditHandlesAfterDrag = (_movedFeatures) => {
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
             this.createEditHandles(selectedFeature);
@@ -362,7 +362,7 @@ class AddCircleControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -415,7 +415,7 @@ class AddCircleControl extends BaseControl {
             this.previewRafId = requestAnimationFrame(this.performPreviewUpdate);
         }
     }
-    _onEditPointerUp(e) {
+    _onEditPointerUp(_e) {
         const canvas = this.map.getCanvasContainer();
 
         // Remove move/up listeners
@@ -427,7 +427,7 @@ class AddCircleControl extends BaseControl {
         if (this._activePointerId !== null) {
             try {
                 canvas.releasePointerCapture(this._activePointerId);
-            } catch (err) {
+            } catch (_err) {
                 // Pointer may have already been released
             }
             this._activePointerId = null;
@@ -528,7 +528,7 @@ class AddCircleControl extends BaseControl {
     updateFeaturesProperty = async (features, property, value) => {
         const data = await this.map.getSource('circles').getData();
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -548,7 +548,7 @@ class AddCircleControl extends BaseControl {
 
         this.map.getSource('circles').setData(data);
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
         this.updateSelectionManagerFeatures(freshFeatures);
@@ -574,7 +574,7 @@ class AddCircleControl extends BaseControl {
         const isEnabled = type !== 'none';
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 // Update both properties together
                 sourceFeature.properties.hatchType = type;
@@ -598,7 +598,7 @@ class AddCircleControl extends BaseControl {
         this.map.getSource('circles').setData(data);
 
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
         this.updateSelectionManagerFeatures(freshFeatures);
@@ -612,13 +612,13 @@ class AddCircleControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('circles').getData();
-        let hasChanges = false;
+        let _hasChanges = false;
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
                 if (currentFeature) {
                     await updateFeature('circles', currentFeature);
-                    hasChanges = true;
+                    _hasChanges = true;
                 }
             }
         }
@@ -673,7 +673,7 @@ class AddCircleControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('circles').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -721,7 +721,7 @@ class AddCircleControl extends BaseControl {
             return;
         }
         const data = await this.map.getSource('circles').getData();
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {
                 ...feature.properties,

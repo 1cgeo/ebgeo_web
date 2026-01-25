@@ -1389,7 +1389,7 @@ export function supportsCommand(symbolSet) {
     }
 
     // If catalog explicitly defines supportsCommand, use that value
-    if (catalog.hasOwnProperty('supportsCommand')) {
+    if (Object.prototype.hasOwnProperty.call(catalog, 'supportsCommand')) {
         return catalog.supportsCommand;
     }
 

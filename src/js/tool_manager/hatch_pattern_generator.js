@@ -67,7 +67,7 @@ export class HatchPatternGenerator {
      * For tileable pattern, draw parallel lines spaced by the spacing value.
      * Add small overlap at edges to ensure perfect continuity between tiles.
      */
-    drawDiagonalRight(ctx, size, lineWidth) {
+    drawDiagonalRight(ctx, size, _lineWidth) {
         ctx.beginPath();
 
         const spacing = size / 2;
@@ -87,7 +87,7 @@ export class HatchPatternGenerator {
      * Similar to diagonal-right, draw multiple parallel lines spaced uniformly.
      * Add overlap at edges to ensure continuity.
      */
-    drawDiagonalLeft(ctx, size, lineWidth) {
+    drawDiagonalLeft(ctx, size, _lineWidth) {
         ctx.beginPath();
 
         const spacing = size / 2;
@@ -101,14 +101,14 @@ export class HatchPatternGenerator {
         ctx.stroke();
     }
 
-    drawHorizontal(ctx, size, lineWidth) {
+    drawHorizontal(ctx, size, _lineWidth) {
         ctx.beginPath();
         ctx.moveTo(0, size / 2);
         ctx.lineTo(size, size / 2);
         ctx.stroke();
     }
 
-    drawVertical(ctx, size, lineWidth) {
+    drawVertical(ctx, size, _lineWidth) {
         ctx.beginPath();
         ctx.moveTo(size / 2, 0);
         ctx.lineTo(size / 2, size);

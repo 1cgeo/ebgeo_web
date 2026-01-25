@@ -143,11 +143,11 @@ class AddPolygonControl extends BaseControl {
         return 'polygon-edit-handles';
     }
 
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -179,7 +179,7 @@ class AddPolygonControl extends BaseControl {
         ];
     }
 
-    updateFeatureForMove(feature, dx, dy, newCoords) {
+    updateFeatureForMove(feature, dx, dy, _newCoords) {
         const coordinates = this.geometry.normalizeBaseCoordinates(feature.properties.baseCoordinates);
         const newCoordinates = this.geometry.applyOffset(coordinates, dx, dy);
 
@@ -263,7 +263,7 @@ class AddPolygonControl extends BaseControl {
         return selectedFeature && selectedFeature.properties.id === featureId;
     }
 
-    syncEditHandlesAfterDrag = (movedFeatures) => {
+    syncEditHandlesAfterDrag = (_movedFeatures) => {
         const selectedFeature = this.getSelectedFeature();
         if (selectedFeature && !this.isDraggingHandle) {
             // Always recreate handles with current feature data
@@ -987,7 +987,7 @@ class AddPolygonControl extends BaseControl {
         const data = await this.map.getSource('polygons').getData();
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 sourceFeature.properties[property] = value;
                 feature.properties[property] = value;
@@ -1020,7 +1020,7 @@ class AddPolygonControl extends BaseControl {
 
         // Update SelectionManager with fresh features
         const freshFeatures = features.map(feature => {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             return sourceFeature || feature;
         });
         this.updateSelectionManagerFeatures(freshFeatures);
@@ -1048,7 +1048,7 @@ class AddPolygonControl extends BaseControl {
         const isEnabled = type !== 'none';
 
         for (const feature of features) {
-            const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+            const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
             if (sourceFeature) {
                 // Update both properties together
                 sourceFeature.properties.hatchType = type;
@@ -1079,15 +1079,15 @@ class AddPolygonControl extends BaseControl {
 
     saveFeatures = async (features, initialPropertiesMap) => {
         const currentData = await this.map.getSource('polygons').getData();
-        let hasChanges = false;
+        let _hasChanges = false;
 
         for (const selectedFeature of features) {
             if (this.hasFeatureChanged(selectedFeature, initialPropertiesMap.get(selectedFeature.properties.id))) {
-                const currentFeature = currentData.features.find(f => f.properties.id == selectedFeature.properties.id);
+                const currentFeature = currentData.features.find(f => f.properties.id === selectedFeature.properties.id);
 
                 if (currentFeature) {
                     await updateFeature('polygons', currentFeature);
-                    hasChanges = true;
+                    _hasChanges = true;
                 }
             }
         }
@@ -1155,7 +1155,7 @@ class AddPolygonControl extends BaseControl {
         if (features.length > 0) {
             const data = await this.map.getSource('polygons').getData();
             for (const feature of features) {
-                const featureIndex = data.features.findIndex(f => f.properties.id == feature.properties.id);
+                const featureIndex = data.features.findIndex(f => f.properties.id === feature.properties.id);
                 if (featureIndex !== -1) {
                     if (onlyUpdateProperties) {
                         Object.assign(data.features[featureIndex].properties, feature.properties);
@@ -1218,7 +1218,7 @@ class AddPolygonControl extends BaseControl {
         }
 
         const data = await this.map.getSource('polygons').getData();
-        const sourceFeature = data.features.find(f => f.properties.id == feature.properties.id);
+        const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
         if (sourceFeature) {
             sourceFeature.properties = {
                 ...feature.properties,

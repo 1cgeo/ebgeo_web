@@ -38,7 +38,7 @@ class BaseLayerControl {
         config.validateBasemapsConfig();
 
         this.styleUrls = {};
-        config.getEnabledBasemaps().forEach(([id, basemapConfig]) => {
+        config.getEnabledBasemaps().forEach(([id, _basemapConfig]) => {
             switch(id) {
                 case 'carta-topografica':
                     this.styleUrls[id] = cartaTopografica;
@@ -70,7 +70,7 @@ class BaseLayerControl {
     get currentLayer() {
         try {
             return getStateManager().get('baseLayer.activeLayer') || 'carta-topografica';
-        } catch (e) {
+        } catch (_e) {
             return 'carta-topografica';
         }
     }
@@ -82,7 +82,7 @@ class BaseLayerControl {
     set currentLayer(value) {
         try {
             getStateManager().set('baseLayer.activeLayer', value);
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available
         }
     }
@@ -292,7 +292,7 @@ class BaseLayerControl {
     // HILLSHADE
     // =========================================================================
 
-    async _updateHillshadeVisibility(currentLayer) {
+    async _updateHillshadeVisibility(_currentLayer) {
         if (!this.hillshadeConfig?.enabled) {
             return;
         }

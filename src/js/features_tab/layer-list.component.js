@@ -13,10 +13,7 @@ import {
     setLayerLocked,
     deleteLayer,
     renameLayer,
-    reorderLayers,
-    getCurrentMapNameSync,
 } from '../store';
-import { EventTypes } from '../events';
 import { showPrompt } from '../modals/prompt.modal.js';
 import { IDUtils } from '../utilities';
 

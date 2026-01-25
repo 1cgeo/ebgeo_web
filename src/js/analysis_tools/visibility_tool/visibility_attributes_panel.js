@@ -2,7 +2,7 @@
 
 import {
     createModernSlider,
-    createModernButtons,
+    createModernButtons as _createModernButtons,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';

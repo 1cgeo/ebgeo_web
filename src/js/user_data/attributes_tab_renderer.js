@@ -274,7 +274,7 @@ function createAttributeRow(key, value, featureId, featureType, parentContainer)
         input.focus();
         input.select();
 
-        let debounceTimer = null;
+        const debounceTimer = null;
 
         const finishEdit = async (save) => {
             clearTimeout(debounceTimer);

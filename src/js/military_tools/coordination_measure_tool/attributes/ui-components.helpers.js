@@ -340,7 +340,7 @@ export function createDigitalComboBoxWithThumbnails(options, currentValue, onCha
             optionElement.style.backgroundColor = '#e9ecef';
         }
 
-        optionElement.onmouseenter = () => optionElement.style.backgroundColor = '#f8f9fa';
+        optionElement.onmouseenter = () => { optionElement.style.backgroundColor = '#f8f9fa'; };
         optionElement.onmouseleave = () => {
             optionElement.style.backgroundColor = option.value === internalCurrentValue ? '#e9ecef' : 'transparent';
         };
@@ -518,7 +518,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, dr
             item.style.backgroundColor = '#e9ecef';
         }
 
-        item.onmouseenter = () => item.style.backgroundColor = '#f8f9fa';
+        item.onmouseenter = () => { item.style.backgroundColor = '#f8f9fa'; };
         item.onmouseleave = () => {
             item.style.backgroundColor = option.value === internalCurrentValue ? '#e9ecef' : 'white';
         };

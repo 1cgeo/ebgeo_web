@@ -31,7 +31,7 @@ class BaseControl {
      * Handle map click events
      * @param {Object} e - MapLibre click event
      */
-    handleMapClick(e) {
+    handleMapClick(_e) {
     }
 
     // ===== SELECTION INTERFACE =====
@@ -40,14 +40,14 @@ class BaseControl {
      * Called when a feature of this type is selected
      * @param {Object} feature - Selected feature
      */
-    onFeatureSelected(feature) {
+    onFeatureSelected(_feature) {
     }
 
     /**
      * Called when a feature of this type is deselected
      * @param {Object} feature - Deselected feature
      */
-    onFeatureDeselected(feature) {
+    onFeatureDeselected(_feature) {
     }
 
     /**
@@ -69,7 +69,7 @@ class BaseControl {
      * @param {string} featureId - Feature ID
      * @returns {boolean}
      */
-    hasEditHandle(featureId) {
+    hasEditHandle(_featureId) {
         return false;
     }
 
@@ -77,7 +77,7 @@ class BaseControl {
      * Sync edit handles after feature is moved
      * @param {Array} movedFeatures - Array of moved features
      */
-    syncEditHandlesAfterDrag(movedFeatures) {
+    syncEditHandlesAfterDrag(_movedFeatures) {
     }
 
     // ===== MOVEMENT INTERFACE =====
@@ -135,7 +135,7 @@ class BaseControl {
      * @param {Object} newPosition - New position {lng, lat}
      * @returns {boolean}
      */
-    validateMove(feature, newPosition) {
+    validateMove(_feature, _newPosition) {
         return true;
     }
 
@@ -200,7 +200,7 @@ class BaseControl {
      * @param {Object} feature - Feature to check
      * @returns {boolean}
      */
-    canCopy(feature) {
+    canCopy(_feature) {
         return true;
     }
 
@@ -209,7 +209,7 @@ class BaseControl {
      * @param {Object} feature - Feature to check
      * @returns {boolean}
      */
-    canPaste(feature) {
+    canPaste(_feature) {
         return true;
     }
 
@@ -267,7 +267,7 @@ class BaseControl {
      * @param {Object} selectionManager - Selection manager instance
      * @param {Object} uiManager - UI manager instance
      */
-    createAttributePanel(container, features, selectionManager, uiManager) {
+    createAttributePanel(_container, _features, _selectionManager, _uiManager) {
     }
 
     // ===== DRAG AND HANDLE SOURCES INTERFACE =====
@@ -296,7 +296,7 @@ class BaseControl {
      * @param {string} property - Property name
      * @param {*} value - Property value
      */
-    updateFeaturesProperty(features, property, value) {
+    updateFeaturesProperty(_features, _property, _value) {
     }
 
     /**
@@ -304,7 +304,7 @@ class BaseControl {
      * @param {Array} features - Features to save
      * @param {Map} initialPropertiesMap - Initial properties for comparison
      */
-    async saveFeatures(features, initialPropertiesMap) {
+    async saveFeatures(_features, _initialPropertiesMap) {
     }
 
     /**
@@ -313,14 +313,14 @@ class BaseControl {
      * @param {boolean} save - Whether to save to storage
      * @param {boolean} onlyUpdateProperties - Only update properties, not geometry
      */
-    async updateFeatures(features, save = false, onlyUpdateProperties = false) {
+    async updateFeatures(_features, _save = false, _onlyUpdateProperties = false) {
     }
 
     /**
      * Delete multiple features
      * @param {Array} features - Features to delete
      */
-    async deleteFeatures(features) {
+    async deleteFeatures(_features) {
     }
 
     /**
@@ -328,14 +328,14 @@ class BaseControl {
      * @param {Array} features - Features to revert
      * @param {Map} initialPropertiesMap - Initial properties
      */
-    async discardChangeFeatures(features, initialPropertiesMap) {
+    async discardChangeFeatures(_features, _initialPropertiesMap) {
     }
 
     /**
      * Set default properties for this tool
      * @param {Object} properties - Default properties
      */
-    setDefaultProperties(properties) {
+    setDefaultProperties(_properties) {
     }
 
     /**
@@ -344,7 +344,7 @@ class BaseControl {
      * @param {Object} initialProperties - Initial properties
      * @returns {boolean}
      */
-    hasFeatureChanged(feature, initialProperties) {
+    hasFeatureChanged(_feature, _initialProperties) {
         return true;
     }
 
@@ -397,7 +397,7 @@ class BaseControl {
         if (typeof coordinates === 'string') {
             try {
                 coordinates = JSON.parse(coordinates);
-            } catch (e) {
+            } catch (_e) {
                 console.warn('Error parsing coordinates:', coordinates);
                 return null;
             }

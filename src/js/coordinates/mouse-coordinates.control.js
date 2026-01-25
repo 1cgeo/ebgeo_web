@@ -86,7 +86,7 @@ class MouseCoordinatesControl {
         if (!this._stateManagerRef) {
             try {
                 this._stateManagerRef = getStateManager();
-            } catch (e) {
+            } catch (_e) {
                 return null;
             }
         }
@@ -186,7 +186,7 @@ class MouseCoordinatesControl {
                     this._updateElevationButtonUI(enabled);
                 })
             );
-        } catch (e) {
+        } catch (_e) {
             // StateManager not available yet - subscriptions will be skipped
         }
     }
@@ -877,7 +877,7 @@ class MouseCoordinatesControl {
         this._unsubscribers.forEach(unsub => {
             try {
                 unsub();
-            } catch (e) {
+            } catch (_e) {
                 // Ignore cleanup errors
             }
         });
