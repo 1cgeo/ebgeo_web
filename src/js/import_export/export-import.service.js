@@ -33,6 +33,7 @@ import { IDUtils, showToast, showSuccess } from '../utilities';
 import JSZip from 'jszip';
 import config from '../config.js';
 import { groupManager } from '../tool_manager';
+import { showExportModal } from '../modals/export.modal.js';
 
 /**
  * Normalizes mapData structure to current version
@@ -157,11 +158,20 @@ export class ExportImportService {
         saveButton.innerHTML = `<img src="./images/icon_save_black.svg" alt="Exportar projeto" />`;
         saveButton.title = 'Exportar projeto';
 
-        saveButton.onclick = async () => {
-            await this.handleExport();
+        saveButton.onclick = () => {
+            this.showExportModal();
         };
 
         return saveButton;
+    }
+
+    /**
+     * Shows the export modal for map selection
+     */
+    showExportModal() {
+        showExportModal(async (selectedMaps) => {
+            await this.handleExport(selectedMaps);
+        });
     }
 
     /**
@@ -218,24 +228,37 @@ export class ExportImportService {
 
     /**
      * Handles project export to .ebgeo file
+     * @param {string[]|null} selectedMaps - Optional array of map names to export. If null, exports all maps.
      */
-    async handleExport() {
+    async handleExport(selectedMaps = null) {
         try {
             this.mapControl.deactivateActiveTools();
 
             const zip = new JSZip();
 
-            const mapsToExport = await getAllMapNamesStore();
+            // Use selected maps or fall back to all maps
+            const allMaps = await getAllMapNamesStore();
+            const mapsToExport = selectedMaps || allMaps;
 
             if (mapsToExport.length === 0) {
                 alert('Nenhum mapa para exportar');
                 return;
             }
 
+            // Determine current map (must be one of the exported maps)
+            const currentMapName = await getCurrentMapName();
+            const exportCurrentMap = mapsToExport.includes(currentMapName)
+                ? currentMapName
+                : mapsToExport[0];
+
+            // Filter map order to only include exported maps
+            const fullMapOrder = await getMapOrder();
+            const filteredMapOrder = fullMapOrder.filter(name => mapsToExport.includes(name));
+
             const data = {
                 version: SCHEMA_VERSION,
-                currentMap: await getCurrentMapName(),
-                mapOrder: await getMapOrder(),
+                currentMap: exportCurrentMap,
+                mapOrder: filteredMapOrder,
                 maps: {},
                 colorUsage: {},
                 mapNotes: {},

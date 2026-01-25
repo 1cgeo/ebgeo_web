@@ -500,6 +500,7 @@ export class SidebarControl {
 
     /**
      * Shows map notes content in the feature panel.
+     * Starts in view mode (read-only) with an edit button.
      * @private
      * @param {string} mapName - Map name to show notes for
      */
@@ -523,6 +524,50 @@ export class SidebarControl {
         // Create content wrapper
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'map-notes-sidebar-content';
+
+        // Track edit mode state
+        let isEditMode = false;
+
+        // --- VIEW MODE ELEMENTS ---
+        const viewContainer = document.createElement('div');
+        viewContainer.className = 'map-notes-view-container';
+
+        // Edit button (shown in view mode)
+        const editBtn = document.createElement('button');
+        editBtn.className = 'map-notes-sidebar-edit-btn';
+        editBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Editar
+        `;
+
+        // Title display (view mode)
+        const titleDisplay = document.createElement('div');
+        titleDisplay.className = 'map-notes-sidebar-title-display';
+        titleDisplay.textContent = notesData.title || 'Sem título';
+        if (!notesData.title) {
+            titleDisplay.classList.add('map-notes-sidebar-placeholder');
+        }
+
+        // Description display (view mode)
+        const descDisplay = document.createElement('div');
+        descDisplay.className = 'map-notes-sidebar-desc-display';
+        const descText = this._stripHtml(notesData.description);
+        descDisplay.textContent = descText || 'Clique em editar para adicionar uma descrição...';
+        if (!descText) {
+            descDisplay.classList.add('map-notes-sidebar-placeholder');
+        }
+
+        viewContainer.appendChild(editBtn);
+        viewContainer.appendChild(titleDisplay);
+        viewContainer.appendChild(descDisplay);
+
+        // --- EDIT MODE ELEMENTS ---
+        const editContainer = document.createElement('div');
+        editContainer.className = 'map-notes-edit-container';
+        editContainer.style.display = 'none';
 
         // Title section
         const titleSection = document.createElement('div');
@@ -559,10 +604,63 @@ export class SidebarControl {
         descSection.appendChild(descLabel);
         descSection.appendChild(descTextarea);
 
+        // Buttons container
+        const buttonsContainer = document.createElement('div');
+        buttonsContainer.className = 'map-notes-sidebar-buttons';
+
+        // Cancel button
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'map-notes-sidebar-cancel-btn';
+        cancelBtn.textContent = 'Cancelar';
+
         // Save button
         const saveBtn = document.createElement('button');
         saveBtn.className = 'map-notes-sidebar-save-btn';
-        saveBtn.textContent = 'Salvar Notas';
+        saveBtn.textContent = 'Salvar';
+
+        buttonsContainer.appendChild(cancelBtn);
+        buttonsContainer.appendChild(saveBtn);
+
+        editContainer.appendChild(titleSection);
+        editContainer.appendChild(descSection);
+        editContainer.appendChild(buttonsContainer);
+
+        // --- MODE SWITCHING ---
+        const switchToEditMode = () => {
+            isEditMode = true;
+            viewContainer.style.display = 'none';
+            editContainer.style.display = 'block';
+            titleInput.focus();
+        };
+
+        const switchToViewMode = (updatedData = null) => {
+            isEditMode = false;
+            editContainer.style.display = 'none';
+            viewContainer.style.display = 'block';
+
+            if (updatedData) {
+                // Update view with new data
+                titleDisplay.textContent = updatedData.title || 'Sem título';
+                titleDisplay.classList.toggle('map-notes-sidebar-placeholder', !updatedData.title);
+
+                const newDescText = updatedData.description || '';
+                descDisplay.textContent = newDescText || 'Clique em editar para adicionar uma descrição...';
+                descDisplay.classList.toggle('map-notes-sidebar-placeholder', !newDescText);
+            }
+        };
+
+        // Edit button click
+        editBtn.onclick = switchToEditMode;
+
+        // Cancel button click
+        cancelBtn.onclick = () => {
+            // Reset inputs to original values
+            titleInput.value = notesData.title;
+            descTextarea.value = this._stripHtml(notesData.description);
+            switchToViewMode();
+        };
+
+        // Save button click
         saveBtn.onclick = async () => {
             try {
                 const notes = {
@@ -570,6 +668,13 @@ export class SidebarControl {
                     description: descTextarea.value.trim()
                 };
                 await setMapNotes(mapName, notes);
+
+                // Update stored data
+                notesData.title = notes.title;
+                notesData.description = notes.description;
+
+                // Switch back to view mode with updated data
+                switchToViewMode(notes);
 
                 // Dynamic import for showSuccess
                 const { showSuccess } = await import('../utilities/index.js');
@@ -581,9 +686,8 @@ export class SidebarControl {
             }
         };
 
-        contentWrapper.appendChild(titleSection);
-        contentWrapper.appendChild(descSection);
-        contentWrapper.appendChild(saveBtn);
+        contentWrapper.appendChild(viewContainer);
+        contentWrapper.appendChild(editContainer);
 
         // Show in feature panel
         this._featurePanel.show(contentWrapper, `Notas: ${mapName}`);

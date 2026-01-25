@@ -658,9 +658,9 @@ export class MapsTab {
      * Handles saving the project.
      * @private
      */
-    async _handleSaveProject() {
+    _handleSaveProject() {
         if (this._exportImportService) {
-            await this._exportImportService.handleExport();
+            this._exportImportService.showExportModal();
         }
     }
 
