@@ -61,11 +61,11 @@ export function closeAllDropdowns(state) {
 export function createDigitalComboBox(options, currentValue, onChange, label, _simplifiedDisplay = false, displayMode = 'modifier', disableHoverPreview = false, dropdownState) {
     const container = document.createElement('div');
     container.className = 'digital-combo-container';
-    container.style.cssText = 'margin-bottom: 20px; position: relative;';
+    container.style.cssText = 'margin-bottom: 12px; position: relative;';
 
     const labelElement = document.createElement('label');
     labelElement.textContent = label + ':';
-    labelElement.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+    labelElement.style.cssText = 'display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; color: #333;';
 
     const selectContainer = document.createElement('div');
     selectContainer.style.cssText = 'position: relative;';
@@ -73,10 +73,10 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
     const selectDisplay = document.createElement('div');
     selectDisplay.style.cssText = `
         width: 100%;
-        padding: 15px 40px 15px 15px;
+        padding: 10px 36px 10px 12px;
         border: 2px solid #ddd;
-        border-radius: 8px;
-        font-size: 15px;
+        border-radius: 6px;
+        font-size: 14px;
         background: #fff;
         cursor: pointer;
         transition: border-color 0.2s;
@@ -98,10 +98,10 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
     dropdownIcon.innerHTML = '\u25BC';
     dropdownIcon.style.cssText = `
         position: absolute;
-        right: 12px;
+        right: 10px;
         top: 50%;
         transform: translateY(-50%);
-        font-size: 15px;
+        font-size: 12px;
         pointer-events: none;
         color: #000;
     `;
@@ -324,7 +324,7 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
 
         if (filteredOptions.length === 0) {
             const noResultElement = document.createElement('div');
-            noResultElement.textContent = 'Nenhuma opcao encontrada';
+            noResultElement.textContent = 'Nenhuma opção encontrada';
             noResultElement.style.cssText = `
                 padding: 12px 15px;
                 font-size: 14px;
@@ -473,11 +473,10 @@ export function createDigitalComboBox(options, currentValue, onChange, label, _s
 export function createColorControl(currentValue, onChange, label) {
     const container = document.createElement('div');
     container.className = 'color-control-container';
-    container.style.cssText = 'margin-bottom: 20px;';
 
     const labelElement = document.createElement('label');
     labelElement.textContent = label + ':';
-    labelElement.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+    labelElement.style.cssText = 'display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; color: #333;';
 
     let colorPickerContainer = null;
     let currentColorValue = currentValue;
@@ -554,7 +553,7 @@ export function createTabButton(text, active = false) {
         font-weight: ${active ? 'bold' : 'normal'};
         cursor: pointer;
         transition: all 0.2s;
-        background: ${active ? '#007bff' : '#f5f5f5'};
+        background: ${active ? '#508d4e' : '#f5f5f5'};
         color: ${active ? 'white' : '#333'};
     `;
 
@@ -572,6 +571,7 @@ export function createTabButton(text, active = false) {
  * @property {HTMLElement} textoTab - Text tab content element
  * @property {HTMLElement} engajamentoTab - Engagement bar tab content element
  * @property {Object} tabButtons - Tab button elements
+ * @property {Object} tabs - Tab content elements reference
  */
 
 /**
@@ -581,12 +581,12 @@ export function createTabButton(text, active = false) {
  */
 export function createTabsContainer() {
     const container = document.createElement('div');
-    container.style.cssText = 'margin-bottom: 20px;';
+    container.style.cssText = 'display: flex; flex-direction: column; height: 100%;';
 
     const tabButtonsContainer = document.createElement('div');
-    tabButtonsContainer.style.cssText = 'display: flex; gap: 5px; margin-bottom: 0;';
+    tabButtonsContainer.style.cssText = 'display: flex; gap: 5px; flex-shrink: 0;';
 
-    const simboloButton = createTabButton('Simbolo', true);
+    const simboloButton = createTabButton('Símbolo', true);
     const textoButton = createTabButton('Texto', false);
     const engajamentoButton = createTabButton('Barra de Engajamento', false);
 
@@ -594,29 +594,50 @@ export function createTabsContainer() {
     tabButtonsContainer.appendChild(textoButton);
     tabButtonsContainer.appendChild(engajamentoButton);
 
+    // Scrollable content wrapper
+    const tabContentWrapper = document.createElement('div');
+    tabContentWrapper.style.cssText = 'flex: 1; overflow-y: auto; overflow-x: hidden;';
+
     const simboloTab = document.createElement('div');
-    simboloTab.id = 'simbolo-tab';
-    simboloTab.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 40px; width: 100%;';
+    simboloTab.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 30px; width: 100%; padding: 16px 0;';
 
     const textoTab = document.createElement('div');
-    textoTab.id = 'texto-tab';
     textoTab.style.cssText = 'display: none;';
 
     const engajamentoTab = document.createElement('div');
-    engajamentoTab.id = 'engajamento-tab';
-    engajamentoTab.style.cssText = 'display: none; padding: 20px;';
+    engajamentoTab.style.cssText = 'display: none; padding: 16px 0;';
+
+    tabContentWrapper.appendChild(simboloTab);
+    tabContentWrapper.appendChild(textoTab);
+    tabContentWrapper.appendChild(engajamentoTab);
 
     container.appendChild(tabButtonsContainer);
-    container.appendChild(simboloTab);
-    container.appendChild(textoTab);
-    container.appendChild(engajamentoTab);
+    container.appendChild(tabContentWrapper);
+
+    // Store tab references in the buttons object for switchTab to use
+    const tabButtons = {
+        simbolo: simboloButton,
+        texto: textoButton,
+        engajamento: engajamentoButton
+    };
+
+    // Store tab content references
+    const tabs = {
+        simbolo: simboloTab,
+        texto: textoTab,
+        engajamento: engajamentoTab
+    };
+
+    // Attach tabs reference to tabButtons for switchTab function
+    tabButtons._tabs = tabs;
 
     return {
         container,
         simboloTab,
         textoTab,
         engajamentoTab,
-        tabButtons: { simbolo: simboloButton, texto: textoButton, engajamento: engajamentoButton }
+        tabButtons,
+        tabs
     };
 }
 
@@ -624,18 +645,24 @@ export function createTabsContainer() {
  * Switches between tabs.
  *
  * @param {string} tabName - Tab name ('simbolo', 'texto' or 'engajamento')
- * @param {Object} tabButtons - Tab button elements
+ * @param {Object} tabButtons - Tab button elements (with _tabs reference)
  */
 export function switchTab(tabName, tabButtons) {
-    const simboloTab = document.getElementById('simbolo-tab');
-    const textoTab = document.getElementById('texto-tab');
-    const engajamentoTab = document.getElementById('engajamento-tab');
+    const tabs = tabButtons._tabs;
+    if (!tabs) {
+        console.warn('switchTab: tabs reference not found in tabButtons');
+        return;
+    }
+
+    const { simbolo: simboloTab, texto: textoTab, engajamento: engajamentoTab } = tabs;
     const { simbolo: simboloButton, texto: textoButton, engajamento: engajamentoButton } = tabButtons;
 
+    // Hide all tabs
     simboloTab.style.display = 'none';
     textoTab.style.display = 'none';
     engajamentoTab.style.display = 'none';
 
+    // Reset all buttons
     simboloButton.style.background = '#f5f5f5';
     simboloButton.style.color = '#333';
     simboloButton.style.fontWeight = 'normal';
@@ -651,21 +678,22 @@ export function switchTab(tabName, tabButtons) {
     engajamentoButton.style.fontWeight = 'normal';
     engajamentoButton.classList.remove('active');
 
+    // Show selected tab and activate button
     if (tabName === 'simbolo') {
         simboloTab.style.display = 'grid';
-        simboloButton.style.background = '#007bff';
+        simboloButton.style.background = '#508d4e';
         simboloButton.style.color = 'white';
         simboloButton.style.fontWeight = 'bold';
         simboloButton.classList.add('active');
     } else if (tabName === 'texto') {
         textoTab.style.display = 'block';
-        textoButton.style.background = '#007bff';
+        textoButton.style.background = '#508d4e';
         textoButton.style.color = 'white';
         textoButton.style.fontWeight = 'bold';
         textoButton.classList.add('active');
     } else if (tabName === 'engajamento') {
         engajamentoTab.style.display = 'block';
-        engajamentoButton.style.background = '#007bff';
+        engajamentoButton.style.background = '#508d4e';
         engajamentoButton.style.color = 'white';
         engajamentoButton.style.fontWeight = 'bold';
         engajamentoButton.classList.add('active');

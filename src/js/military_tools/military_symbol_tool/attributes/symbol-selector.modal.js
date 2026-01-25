@@ -5,6 +5,9 @@
  * Main orchestrator for the symbol configuration modal.
  */
 
+import { ModalBase } from '../../../modals/modal.base.js';
+import { addDomListener } from '../../../utilities/event-cleanup.js';
+
 import {
     normalizeSIDC,
     BrazilianSIDCExtension
@@ -17,6 +20,17 @@ import { createSymbolGallery } from './symbol-gallery.section.js';
 import { createTextFieldsContainer } from './text-modifiers.section.js';
 import { createEngagementBarContent } from './engagement-bar.section.js';
 import { createSymbolFormColumns } from './symbol-form.section.js';
+
+/**
+ * Icons used in the modal.
+ */
+const ICONS = {
+    militarySymbol: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+        <path d="M2 17l10 5 10-5"/>
+        <path d="M2 12l10 5 10-5"/>
+    </svg>`
+};
 
 /**
  * @typedef {Object} SymbolModalConfig
@@ -51,50 +65,278 @@ async function generatePreviewWithTextModifiers(militarySymbolControl, propertie
 }
 
 /**
- * Creates the SIDC input section.
- *
- * @param {Object} tempProperties - Temporary properties
- * @param {Object} militarySymbolControl - Control instance
- * @param {Function} updateComboboxesFromSIDC - SIDC update callback
- * @param {Function} updatePreview - Preview update callback
- * @returns {Object} SIDC container and input element
+ * Symbol selector modal class.
+ * @extends ModalBase
  */
-function createSidcInput(tempProperties, militarySymbolControl, updateComboboxesFromSIDC, updatePreview) {
-    const sidcContainer = document.createElement('div');
-    sidcContainer.style.cssText = 'margin-top: 15px;';
+export class SymbolSelectorModal extends ModalBase {
+    /**
+     * @param {SymbolModalConfig} config - Modal configuration
+     */
+    constructor(config) {
+        super({
+            id: 'symbol-selector-modal',
+            title: 'Configurar Símbolo Militar',
+            icon: ICONS.militarySymbol
+        });
 
-    const sidcInputLabel = document.createElement('label');
-    sidcInputLabel.textContent = 'SIDC:';
-    sidcInputLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 14px; color: #333;';
+        this._feature = config.feature;
+        this._selectedFeatures = config.selectedFeatures;
+        this._militarySymbolControl = config.militarySymbolControl;
+        this._selectionManager = config.selectionManager;
+        this._initialPropertiesMap = config.initialPropertiesMap;
 
-    const sidcInput = document.createElement('input');
-    sidcInput.type = 'text';
-    sidcInput.placeholder = '30 digitos (ex: 10031000161211000000 0760000000)';
-    sidcInput.style.cssText = `
-        width: 100%;
-        padding: 8px 12px;
-        border: 2px solid #ddd;
-        border-radius: 6px;
-        font-family: monospace;
-        font-size: 12px;
-        text-align: center;
-        transition: border-color 0.2s;
-        box-sizing: border-box;
-    `;
+        this._tempProperties = { ...config.feature.properties };
+        this._previewImage = null;
+        this._sidcInput = null;
+        this._sidcStatusMessage = null;
+        this._formColumns = null;
+        this._tabButtons = null;
+        this._textoTab = null;
+        this._engajamentoTab = null;
+        this._textFieldsContainer = null;
+        this._engagementBarContainer = null;
+    }
 
-    const sidcStatusMessage = document.createElement('div');
-    sidcStatusMessage.style.cssText = `
-        margin-top: 5px;
-        font-size: 11px;
-        min-height: 16px;
-        text-align: center;
-    `;
+    /**
+     * Renders the modal content.
+     * @returns {HTMLElement}
+     */
+    render() {
+        const overlay = super.render();
+        this._container.classList.add('symbol-selector-modal-container');
 
-    sidcContainer.appendChild(sidcInputLabel);
-    sidcContainer.appendChild(sidcInput);
-    sidcContainer.appendChild(sidcStatusMessage);
+        const body = this.getBody();
+        body.innerHTML = '';
+        body.appendChild(this._createBodyContent());
 
-    sidcInput.addEventListener('input', (e) => {
+        this._setupListeners();
+        this._initializeAsync();
+
+        document.body.appendChild(overlay);
+        return overlay;
+    }
+
+    /**
+     * Creates the body content.
+     * @private
+     * @returns {HTMLElement}
+     */
+    _createBodyContent() {
+        const content = document.createElement('div');
+        content.className = 'symbol-selector-content';
+
+        // Main layout: controls + preview + gallery
+        const mainLayout = document.createElement('div');
+        mainLayout.className = 'symbol-selector-main';
+
+        // Controls column
+        const controlsColumn = document.createElement('div');
+        controlsColumn.className = 'symbol-selector-controls';
+        this._controlsColumn = controlsColumn;
+
+        // Create tabs
+        const tabsContainer = createTabsContainer();
+        const { simboloTab, textoTab, engajamentoTab, tabButtons } = tabsContainer;
+        this._tabButtons = tabButtons;
+        this._textoTab = textoTab;
+        this._engajamentoTab = engajamentoTab;
+
+        // Create form columns
+        this._formColumns = createSymbolFormColumns({
+            tempProperties: this._tempProperties,
+            updatePreview: () => this._updatePreviewFromComboboxes()
+        });
+
+        const { column1, column2 } = this._formColumns;
+        simboloTab.appendChild(column1);
+        simboloTab.appendChild(column2);
+
+        // Text modifiers tab
+        this._textFieldsContainer = createTextFieldsContainer(
+            this._tempProperties.symbolSet || "10",
+            this._tempProperties,
+            () => this._updatePreviewFromComboboxes()
+        );
+        textoTab.appendChild(this._textFieldsContainer);
+
+        // Engagement bar tab
+        this._engagementBarContainer = createEngagementBarContent(
+            this._tempProperties,
+            () => this._updatePreviewFromComboboxes()
+        );
+        engajamentoTab.appendChild(this._engagementBarContainer);
+        this._engagementBarContainer.updateFromProperties(this._tempProperties);
+
+        this._updateEngagementBarVisibility();
+
+        controlsColumn.appendChild(tabsContainer.container);
+
+        // Preview column
+        const previewColumn = document.createElement('div');
+        previewColumn.className = 'symbol-selector-preview';
+
+        const previewLabel = document.createElement('h4');
+        previewLabel.className = 'symbol-selector-preview-label';
+        previewLabel.textContent = 'Visualização';
+        previewColumn.appendChild(previewLabel);
+
+        const previewContainer = document.createElement('div');
+        previewContainer.className = 'symbol-selector-preview-container';
+
+        this._previewImage = document.createElement('img');
+        this._previewImage.className = 'symbol-selector-preview-image';
+        previewContainer.appendChild(this._previewImage);
+        previewColumn.appendChild(previewContainer);
+
+        // SIDC input
+        const sidcSection = this._createSidcInput();
+        previewColumn.appendChild(sidcSection);
+
+        // Gallery column (placeholder, filled async)
+        this._galleryColumn = document.createElement('div');
+        this._galleryColumn.className = 'symbol-selector-gallery';
+
+        mainLayout.appendChild(controlsColumn);
+        mainLayout.appendChild(previewColumn);
+        mainLayout.appendChild(this._galleryColumn);
+
+        content.appendChild(mainLayout);
+
+        // Actions
+        const actions = document.createElement('div');
+        actions.className = 'symbol-selector-actions';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'symbol-selector-btn symbol-selector-btn-cancel';
+        cancelBtn.textContent = 'Cancelar';
+        this._cancelBtn = cancelBtn;
+
+        const applyBtn = document.createElement('button');
+        applyBtn.className = 'symbol-selector-btn symbol-selector-btn-apply';
+        applyBtn.textContent = 'Aplicar';
+        this._applyBtn = applyBtn;
+
+        actions.appendChild(cancelBtn);
+        actions.appendChild(applyBtn);
+        content.appendChild(actions);
+
+        return content;
+    }
+
+    /**
+     * Creates the SIDC input section.
+     * @private
+     * @returns {HTMLElement}
+     */
+    _createSidcInput() {
+        const sidcContainer = document.createElement('div');
+        sidcContainer.className = 'symbol-selector-sidc';
+
+        const sidcInputLabel = document.createElement('label');
+        sidcInputLabel.className = 'symbol-selector-sidc-label';
+        sidcInputLabel.textContent = 'SIDC:';
+
+        this._sidcInput = document.createElement('input');
+        this._sidcInput.type = 'text';
+        this._sidcInput.className = 'symbol-selector-sidc-input';
+        this._sidcInput.placeholder = '30 dígitos (ex: 10031000161211000000 0760000000)';
+        this._sidcInput.value = normalizeSIDC(
+            this._tempProperties.sidc ||
+            this._militarySymbolControl.symbolGenerator.buildSIDC(this._tempProperties)
+        );
+
+        this._sidcStatusMessage = document.createElement('div');
+        this._sidcStatusMessage.className = 'symbol-selector-sidc-status';
+
+        sidcContainer.appendChild(sidcInputLabel);
+        sidcContainer.appendChild(this._sidcInput);
+        sidcContainer.appendChild(this._sidcStatusMessage);
+
+        return sidcContainer;
+    }
+
+    /**
+     * Sets up event listeners.
+     * @private
+     */
+    _setupListeners() {
+        // Tab buttons
+        addDomListener(this, this._tabButtons.simbolo, 'click', () => {
+            switchTab('simbolo', this._tabButtons);
+        });
+
+        addDomListener(this, this._tabButtons.texto, 'click', () => {
+            switchTab('texto', this._tabButtons);
+        });
+
+        addDomListener(this, this._tabButtons.engajamento, 'click', () => {
+            switchTab('engajamento', this._tabButtons);
+        });
+
+        // SIDC input
+        addDomListener(this, this._sidcInput, 'input', (e) => this._handleSidcInput(e));
+        addDomListener(this, this._sidcInput, 'paste', () => this._handleSidcPaste());
+
+        // Action buttons
+        addDomListener(this, this._cancelBtn, 'click', () => this.hide());
+        addDomListener(this, this._applyBtn, 'click', () => this._handleApply());
+    }
+
+    /**
+     * Initializes async parts of the modal.
+     * @private
+     */
+    async _initializeAsync() {
+        try {
+            const onSymbolClick = (sidc) => {
+                this._updateComboboxesFromSIDC(sidc);
+                this._clearTextModifiers();
+                if (this._engagementBarContainer && this._engagementBarContainer.updateFromProperties) {
+                    this._engagementBarContainer.updateFromProperties(this._tempProperties);
+                }
+                this._updatePreview();
+            };
+
+            const galleryColumn = await createSymbolGallery(this._militarySymbolControl, onSymbolClick);
+            galleryColumn.className = 'symbol-selector-gallery';
+            this._galleryColumn.replaceWith(galleryColumn);
+            this._galleryColumn = galleryColumn;
+        } catch (error) {
+            console.error('Error initializing gallery:', error);
+        }
+
+        this._updatePreview();
+    }
+
+    /**
+     * Clears text modifier properties.
+     * @private
+     */
+    _clearTextModifiers() {
+        this._tempProperties.uniqueDesignation = '';
+        this._tempProperties.higherFormation = '';
+        this._tempProperties.reinforcedReduced = '';
+        this._tempProperties.additionalInformation = '';
+        this._tempProperties.credibility = '';
+        this._tempProperties.location = '';
+        this._tempProperties.dateTimeGroup = '';
+        this._tempProperties.altitudeDepth = '';
+        this._tempProperties.speed = '';
+        this._tempProperties.specialHeadquarters = '';
+        this._tempProperties.type = '';
+        this._tempProperties.iffSif = '';
+        this._tempProperties.equipmentTeardownTime = '';
+        this._tempProperties.quantity = '';
+        this._tempProperties.direction = '';
+        this._tempProperties.engagementBar = null;
+    }
+
+    /**
+     * Handles SIDC input changes.
+     * @private
+     * @param {Event} e - Input event
+     */
+    _handleSidcInput(e) {
         let cleanSIDC = e.target.value.replace(/\s/g, '').trim();
 
         if (cleanSIDC.length > 30) {
@@ -105,373 +347,229 @@ function createSidcInput(tempProperties, militarySymbolControl, updateComboboxes
             e.target.value = cleanSIDC;
         }
 
-        sidcInput.style.borderColor = '#ddd';
-        sidcStatusMessage.textContent = '';
+        this._sidcInput.classList.remove('warning', 'success', 'error');
+        this._sidcStatusMessage.textContent = '';
+        this._sidcStatusMessage.className = 'symbol-selector-sidc-status';
 
         if (cleanSIDC.length === 20) {
             const normalized = normalizeSIDC(cleanSIDC);
-            sidcInput.value = normalized;
+            this._sidcInput.value = normalized;
             cleanSIDC = normalized;
-            updateComboboxesFromSIDC(cleanSIDC);
-            updatePreview();
+            this._updateComboboxesFromSIDC(cleanSIDC);
+            this._updatePreview();
         } else if (cleanSIDC.length === 30) {
-            updateComboboxesFromSIDC(cleanSIDC);
-            updatePreview();
+            this._updateComboboxesFromSIDC(cleanSIDC);
+            this._updatePreview();
         } else if (cleanSIDC.length > 0 && cleanSIDC.length < 20) {
-            sidcInput.style.borderColor = '#ffc107';
-            sidcStatusMessage.style.color = '#856404';
-            sidcStatusMessage.textContent = `\u26A0\uFE0F ${cleanSIDC.length}/20 digitos (minimo)`;
+            this._sidcInput.classList.add('warning');
+            this._sidcStatusMessage.classList.add('warning');
+            this._sidcStatusMessage.textContent = `\u26A0\uFE0F ${cleanSIDC.length}/20 dígitos (mínimo)`;
         } else if (cleanSIDC.length > 20 && cleanSIDC.length < 30) {
-            sidcInput.style.borderColor = '#ffc107';
-            sidcStatusMessage.style.color = '#856404';
-            sidcStatusMessage.textContent = `\u26A0\uFE0F ${cleanSIDC.length}/30 digitos`;
+            this._sidcInput.classList.add('warning');
+            this._sidcStatusMessage.classList.add('warning');
+            this._sidcStatusMessage.textContent = `\u26A0\uFE0F ${cleanSIDC.length}/30 dígitos`;
         }
-    });
+    }
 
-    sidcInput.addEventListener('paste', (_e) => {
+    /**
+     * Handles SIDC paste event.
+     * @private
+     */
+    _handleSidcPaste() {
         setTimeout(() => {
-            let cleanSIDC = sidcInput.value.replace(/\s/g, '').trim();
+            let cleanSIDC = this._sidcInput.value.replace(/\s/g, '').trim();
 
             if (cleanSIDC.length > 30) {
                 cleanSIDC = cleanSIDC.substring(0, 30);
             }
 
-            sidcInput.value = cleanSIDC;
+            this._sidcInput.value = cleanSIDC;
 
             if (cleanSIDC.length === 20) {
                 const normalized = normalizeSIDC(cleanSIDC);
-                sidcInput.value = normalized;
-                updateComboboxesFromSIDC(normalized);
-                updatePreview();
+                this._sidcInput.value = normalized;
+                this._updateComboboxesFromSIDC(normalized);
+                this._updatePreview();
             } else if (cleanSIDC.length === 30) {
-                updateComboboxesFromSIDC(cleanSIDC);
-                updatePreview();
+                this._updateComboboxesFromSIDC(cleanSIDC);
+                this._updatePreview();
             }
         }, 10);
-    });
-
-    sidcInput.value = normalizeSIDC(
-        tempProperties.sidc ||
-        militarySymbolControl.symbolGenerator.buildSIDC(tempProperties)
-    );
-
-    return { sidcContainer, sidcInput, sidcStatusMessage };
-}
-
-/**
- * Opens the symbol configuration modal.
- *
- * @param {SymbolModalConfig} config - Modal configuration
- */
-export function openSymbolModal(config) {
-    const { feature, selectedFeatures, militarySymbolControl, selectionManager, initialPropertiesMap } = config;
-
-    const modalOverlay = document.createElement('div');
-    modalOverlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.5);
-        z-index: 10000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    `;
-
-    const modal = document.createElement('div');
-    modal.style.cssText = `
-        background: white;
-        border-radius: 12px;
-        padding: 30px;
-        width: 95%;
-        max-width: 1400px;
-        max-height: 95vh;
-        overflow-y: auto;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    `;
-
-    const modalTitle = document.createElement('h2');
-    modalTitle.textContent = 'Configurar Simbolo Militar';
-    modalTitle.style.cssText = 'margin-top: 0; margin-bottom: 30px; text-align: center; font-size: 24px; color: #333;';
-    modal.appendChild(modalTitle);
-
-    const modalContent = document.createElement('div');
-    modalContent.style.cssText = 'display: flex; gap: 20px;';
-
-    const controlsColumn = document.createElement('div');
-    controlsColumn.style.cssText = 'flex: 1;';
-
-    const previewColumn = document.createElement('div');
-    previewColumn.style.cssText = 'flex: 0 0 240px; text-align: center;';
-
-    const previewContainer = document.createElement('div');
-    previewContainer.style.cssText = `
-        border: 2px solid #ddd;
-        border-radius: 12px;
-        padding: 30px;
-        background: #f9f9f9;
-        min-height: 200px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    `;
-
-    const previewImage = document.createElement('img');
-    previewImage.style.cssText = 'max-width: 100%; max-height: 180px;';
-    previewContainer.appendChild(previewImage);
-
-    const previewLabel = document.createElement('h4');
-    previewLabel.textContent = 'Visualizacao';
-    previewLabel.style.cssText = 'margin-bottom: 15px; font-size: 16px; color: #333;';
-
-    const tempProperties = { ...feature.properties };
-
-    /**
-     * Updates the preview image.
-     */
-    async function updatePreview() {
-        try {
-            const sidc = tempProperties.sidc;
-            const validation = militarySymbolControl.symbolGenerator.validateSIDC(sidc);
-
-            if (!validation.valid) {
-                previewImage.style.display = 'none';
-                return;
-            }
-
-            const previewDataURL = await generatePreviewWithTextModifiers(
-                militarySymbolControl,
-                tempProperties,
-                80
-            );
-
-            if (previewDataURL) {
-                previewImage.src = previewDataURL;
-                previewImage.style.display = 'block';
-            } else {
-                previewImage.style.display = 'none';
-                console.warn('Failed to generate preview for SIDC:', sidc);
-            }
-
-        } catch (error) {
-            console.error('Error generating preview:', error);
-            previewImage.style.display = 'none';
-        }
     }
-
-    /**
-     * Updates preview from combobox changes.
-     */
-    function updatePreviewFromComboboxes() {
-        const sidc = militarySymbolControl.symbolGenerator.buildSIDC(tempProperties);
-        tempProperties.sidc = sidc;
-        sidcInput.value = sidc;
-        updatePreview();
-    }
-
-    const formColumns = createSymbolFormColumns({
-        tempProperties,
-        updatePreview: updatePreviewFromComboboxes
-    });
-
-    const { column1, column2, comboboxes: _comboboxes, reloadDependentComboboxes, updateAllComboboxValues, dropdownState, setUpdatingFromSIDC } = formColumns;
 
     /**
      * Updates comboboxes from SIDC input.
+     * @private
      * @param {string} sidc - SIDC code
      */
-    function updateComboboxesFromSIDC(sidc) {
+    _updateComboboxesFromSIDC(sidc) {
         try {
-            setUpdatingFromSIDC(true);
+            this._formColumns.setUpdatingFromSIDC(true);
 
             let normalizedSIDC = sidc;
             if (sidc.length === 20) {
                 normalizedSIDC = normalizeSIDC(sidc);
-                sidcInput.value = normalizedSIDC;
+                this._sidcInput.value = normalizedSIDC;
             }
 
-            const parseResult = militarySymbolControl.symbolGenerator.canParseSIDC(normalizedSIDC);
+            const parseResult = this._militarySymbolControl.symbolGenerator.canParseSIDC(normalizedSIDC);
             if (!parseResult.canParse) {
                 throw new Error(parseResult.error);
             }
 
             const parsed = parseResult.properties;
 
-            const oldSymbolSet = tempProperties.symbolSet;
+            const oldSymbolSet = this._tempProperties.symbolSet;
             const newSymbolSet = parsed.symbolSet;
             const dimensionChanged = oldSymbolSet !== newSymbolSet;
 
-            tempProperties.standardIdentity = parsed.standardIdentity;
-            tempProperties.symbolSet = parsed.symbolSet;
-            tempProperties.status = parsed.status;
-            tempProperties.hqTfDummy = parsed.hqTfDummy;
-            tempProperties.echelon = parsed.echelon;
-            tempProperties.mainIcon = parsed.mainIcon;
-            tempProperties.modifier1 = parsed.modifier1;
-            tempProperties.modifier2 = parsed.modifier2;
-            tempProperties.specialModifier = parsed.specialModifier || "0";
-            tempProperties.isCommand = parsed.isCommand || false;
+            this._tempProperties.standardIdentity = parsed.standardIdentity;
+            this._tempProperties.symbolSet = parsed.symbolSet;
+            this._tempProperties.status = parsed.status;
+            this._tempProperties.hqTfDummy = parsed.hqTfDummy;
+            this._tempProperties.echelon = parsed.echelon;
+            this._tempProperties.mainIcon = parsed.mainIcon;
+            this._tempProperties.modifier1 = parsed.modifier1;
+            this._tempProperties.modifier2 = parsed.modifier2;
+            this._tempProperties.specialModifier = parsed.specialModifier || "0";
+            this._tempProperties.isCommand = parsed.isCommand || false;
 
-            tempProperties.mainIconExtension = parsed.mainIconExtension || 0;
-            tempProperties.modifier1Extension = parsed.modifier1Extension || 0;
-            tempProperties.modifier2Extension = parsed.modifier2Extension || 0;
+            this._tempProperties.mainIconExtension = parsed.mainIconExtension || 0;
+            this._tempProperties.modifier1Extension = parsed.modifier1Extension || 0;
+            this._tempProperties.modifier2Extension = parsed.modifier2Extension || 0;
 
-            tempProperties.sidc = normalizedSIDC;
+            this._tempProperties.sidc = normalizedSIDC;
 
             if (dimensionChanged) {
-                wrappedReloadDependentComboboxes(newSymbolSet);
+                this._wrappedReloadDependentComboboxes(newSymbolSet);
             }
 
-            updateAllComboboxValues();
+            this._formColumns.updateAllComboboxValues();
 
             const extension = BrazilianSIDCExtension.decode(normalizedSIDC.substring(20));
             const sidc20 = normalizedSIDC.substring(0, 20);
-            const warnings = checkCatalogWarnings(extension, tempProperties.symbolSet, sidc20);
+            const warnings = checkCatalogWarnings(extension, this._tempProperties.symbolSet, sidc20);
+
+            this._sidcInput.classList.remove('warning', 'success', 'error');
+            this._sidcStatusMessage.className = 'symbol-selector-sidc-status';
 
             if (warnings.length > 0) {
-                sidcInput.style.borderColor = '#ffc107';
-                sidcStatusMessage.style.color = '#856404';
-                sidcStatusMessage.textContent = '\u26A0\uFE0F ' + warnings[0];
+                this._sidcInput.classList.add('warning');
+                this._sidcStatusMessage.classList.add('warning');
+                this._sidcStatusMessage.textContent = '\u26A0\uFE0F ' + warnings[0];
                 console.warn('Uncataloged extensions:', warnings);
             } else {
-                sidcInput.style.borderColor = '#28a745';
-                sidcStatusMessage.style.color = '#155724';
-                sidcStatusMessage.textContent = '\u2713 SIDC valido';
+                this._sidcInput.classList.add('success');
+                this._sidcStatusMessage.classList.add('success');
+                this._sidcStatusMessage.textContent = '\u2713 SIDC válido';
             }
 
         } catch (error) {
-            sidcInput.style.borderColor = '#dc3545';
-            sidcStatusMessage.style.color = '#721c24';
-            sidcStatusMessage.textContent = '\u2717 ' + error.message;
+            this._sidcInput.classList.remove('warning', 'success');
+            this._sidcInput.classList.add('error');
+            this._sidcStatusMessage.className = 'symbol-selector-sidc-status error';
+            this._sidcStatusMessage.textContent = '\u2717 ' + error.message;
             console.warn('Invalid SIDC for parsing:', error.message);
         } finally {
-            setUpdatingFromSIDC(false);
+            this._formColumns.setUpdatingFromSIDC(false);
         }
     }
-
-    const { sidcContainer, sidcInput, sidcStatusMessage } = createSidcInput(
-        tempProperties,
-        militarySymbolControl,
-        updateComboboxesFromSIDC,
-        updatePreview
-    );
-
-    previewColumn.appendChild(previewLabel);
-    previewColumn.appendChild(previewContainer);
-    previewColumn.appendChild(sidcContainer);
-
-    const tabsContainer = createTabsContainer();
-    const { simboloTab, textoTab, engajamentoTab, tabButtons } = tabsContainer;
-
-    simboloTab.appendChild(column1);
-    simboloTab.appendChild(column2);
-
-    let textFieldsContainer = createTextFieldsContainer(
-        tempProperties.symbolSet || "10",
-        tempProperties,
-        updatePreviewFromComboboxes
-    );
-    textoTab.appendChild(textFieldsContainer);
-
-    let engagementBarContainer = createEngagementBarContent(
-        tempProperties,
-        updatePreviewFromComboboxes
-    );
-    engajamentoTab.appendChild(engagementBarContainer);
-    engagementBarContainer.updateFromProperties(tempProperties);
-
-    /**
-     * Updates engagement bar visibility based on symbol set.
-     */
-    function updateEngagementBarVisibility() {
-        const isApplicable = isEngagementBarApplicable(tempProperties.symbolSet || "10");
-        tabButtons.engajamento.style.display = isApplicable ? '' : 'none';
-        if (!isApplicable && engajamentoTab.style.display === 'block') {
-            switchTab('simbolo', tabButtons);
-        }
-    }
-    updateEngagementBarVisibility();
-
-    tabButtons.simbolo.onclick = () => {
-        switchTab('simbolo', tabButtons);
-    };
-
-    tabButtons.texto.onclick = () => {
-        switchTab('texto', tabButtons);
-    };
-
-    tabButtons.engajamento.onclick = () => {
-        switchTab('engajamento', tabButtons);
-    };
-
-    controlsColumn.appendChild(tabsContainer.container);
 
     /**
      * Extended reload function that also updates text and engagement tabs.
+     * @private
      * @param {string} symbolSetCode - Symbol set code
      */
-    function wrappedReloadDependentComboboxes(symbolSetCode) {
-        reloadDependentComboboxes(symbolSetCode);
+    _wrappedReloadDependentComboboxes(symbolSetCode) {
+        this._formColumns.reloadDependentComboboxes(symbolSetCode);
 
-        tempProperties.uniqueDesignation = '';
-        tempProperties.higherFormation = '';
-        tempProperties.reinforcedReduced = '';
-        tempProperties.additionalInformation = '';
-        tempProperties.credibility = '';
-        tempProperties.location = '';
-        tempProperties.dateTimeGroup = '';
-        tempProperties.altitudeDepth = '';
-        tempProperties.speed = '';
-        tempProperties.specialHeadquarters = '';
-        tempProperties.type = '';
-        tempProperties.iffSif = '';
-        tempProperties.equipmentTeardownTime = '';
-        tempProperties.quantity = '';
+        this._clearTextModifiers();
 
-        while (textoTab.firstChild) {
-            textoTab.removeChild(textoTab.firstChild);
+        while (this._textoTab.firstChild) {
+            this._textoTab.removeChild(this._textoTab.firstChild);
         }
 
-        textFieldsContainer = createTextFieldsContainer(
+        this._textFieldsContainer = createTextFieldsContainer(
             symbolSetCode,
-            tempProperties,
-            updatePreviewFromComboboxes
+            this._tempProperties,
+            () => this._updatePreviewFromComboboxes()
         );
-        textoTab.appendChild(textFieldsContainer);
+        this._textoTab.appendChild(this._textFieldsContainer);
 
-        tempProperties.engagementBar = null;
-        while (engajamentoTab.firstChild) {
-            engajamentoTab.removeChild(engajamentoTab.firstChild);
+        this._tempProperties.engagementBar = null;
+        while (this._engajamentoTab.firstChild) {
+            this._engajamentoTab.removeChild(this._engajamentoTab.firstChild);
         }
-        engagementBarContainer = createEngagementBarContent(
-            tempProperties,
-            updatePreviewFromComboboxes
+        this._engagementBarContainer = createEngagementBarContent(
+            this._tempProperties,
+            () => this._updatePreviewFromComboboxes()
         );
-        engajamentoTab.appendChild(engagementBarContainer);
-        updateEngagementBarVisibility();
+        this._engajamentoTab.appendChild(this._engagementBarContainer);
+        this._updateEngagementBarVisibility();
     }
 
-    const modalButtons = document.createElement('div');
-    modalButtons.style.cssText = 'margin-top: 30px; text-align: center; display: flex; gap: 15px; justify-content: center;';
+    /**
+     * Updates engagement bar visibility based on symbol set.
+     * @private
+     */
+    _updateEngagementBarVisibility() {
+        const isApplicable = isEngagementBarApplicable(this._tempProperties.symbolSet || "10");
+        this._tabButtons.engajamento.style.display = isApplicable ? '' : 'none';
+        if (!isApplicable && this._engajamentoTab.style.display === 'block') {
+            switchTab('simbolo', this._tabButtons);
+        }
+    }
 
-    const applyButton = document.createElement('button');
-    applyButton.textContent = 'Aplicar';
-    applyButton.style.cssText = `
-        padding: 12px 30px;
-        background: #007bff;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 16px;
-        font-weight: 500;
-        transition: background-color 0.2s;
-    `;
-    applyButton.onmouseenter = () => { applyButton.style.backgroundColor = '#0056b3'; };
-    applyButton.onmouseleave = () => { applyButton.style.backgroundColor = '#007bff'; };
-    applyButton.onclick = async () => {
+    /**
+     * Updates preview from combobox changes.
+     * @private
+     */
+    _updatePreviewFromComboboxes() {
+        const sidc = this._militarySymbolControl.symbolGenerator.buildSIDC(this._tempProperties);
+        this._tempProperties.sidc = sidc;
+        this._sidcInput.value = sidc;
+        this._updatePreview();
+    }
+
+    /**
+     * Updates the preview image.
+     * @private
+     */
+    async _updatePreview() {
+        try {
+            const sidc = this._tempProperties.sidc;
+            const validation = this._militarySymbolControl.symbolGenerator.validateSIDC(sidc);
+
+            if (!validation.valid) {
+                this._previewImage.style.display = 'none';
+                return;
+            }
+
+            const previewDataURL = await generatePreviewWithTextModifiers(
+                this._militarySymbolControl,
+                this._tempProperties,
+                80
+            );
+
+            if (previewDataURL) {
+                this._previewImage.src = previewDataURL;
+                this._previewImage.style.display = 'block';
+            } else {
+                this._previewImage.style.display = 'none';
+                console.warn('Failed to generate preview for SIDC:', sidc);
+            }
+
+        } catch (error) {
+            console.error('Error generating preview:', error);
+            this._previewImage.style.display = 'none';
+        }
+    }
+
+    /**
+     * Handles apply button click.
+     * @private
+     */
+    async _handleApply() {
         const propertiesToUpdate = [
             'standardIdentity', 'symbolSet', 'status', 'hqTfDummy', 'echelon',
             'mainIcon', 'modifier1', 'modifier2', 'specialModifier', 'isCommand',
@@ -484,22 +582,22 @@ export function openSymbolModal(config) {
             'engagementBar'
         ];
 
-        const data = await militarySymbolControl.map.getSource("military_symbols").getData();
+        const data = await this._militarySymbolControl.map.getSource("military_symbols").getData();
         let needsRegeneration = false;
 
-        for (const feat of selectedFeatures) {
+        for (const feat of this._selectedFeatures) {
             const sourceFeature = data.features.find(
                 (f) => f.properties.id === feat.properties.id
             );
 
             if (sourceFeature) {
                 for (const key of propertiesToUpdate) {
-                    if (Object.prototype.hasOwnProperty.call(tempProperties, key)) {
-                        sourceFeature.properties[key] = tempProperties[key];
-                        feat.properties[key] = tempProperties[key];
+                    if (Object.prototype.hasOwnProperty.call(this._tempProperties, key)) {
+                        sourceFeature.properties[key] = this._tempProperties[key];
+                        feat.properties[key] = this._tempProperties[key];
 
-                        if (militarySymbolControl.geometry.affectsSIDC(key) ||
-                            militarySymbolControl.geometry.affectsTextModifiers(key) ||
+                        if (this._militarySymbolControl.geometry.affectsSIDC(key) ||
+                            this._militarySymbolControl.geometry.affectsTextModifiers(key) ||
                             key === 'fillColor') {
                             needsRegeneration = true;
                         }
@@ -507,156 +605,60 @@ export function openSymbolModal(config) {
                 }
 
                 if (needsRegeneration) {
-                    const newSIDC30 = militarySymbolControl.symbolGenerator.buildSIDC(sourceFeature.properties);
+                    const newSIDC30 = this._militarySymbolControl.symbolGenerator.buildSIDC(sourceFeature.properties);
                     sourceFeature.properties.sidc = newSIDC30;
                     feat.properties.sidc = newSIDC30;
                 }
             }
         }
 
-        militarySymbolControl.map.getSource("military_symbols").setData(data);
+        this._militarySymbolControl.map.getSource("military_symbols").setData(data);
 
-        if (needsRegeneration && selectedFeatures.length > 0) {
-            const updatedData = await militarySymbolControl.map.getSource("military_symbols").getData();
+        if (needsRegeneration && this._selectedFeatures.length > 0) {
+            const updatedData = await this._militarySymbolControl.map.getSource("military_symbols").getData();
             const updatedFeature = updatedData.features.find(
-                f => f.properties.id === selectedFeatures[0].properties.id
+                f => f.properties.id === this._selectedFeatures[0].properties.id
             );
 
             if (updatedFeature) {
-                await militarySymbolControl.updateSymbolImage(updatedFeature);
-                militarySymbolControl.updateSelectionManagerFeature(updatedFeature);
+                await this._militarySymbolControl.updateSymbolImage(updatedFeature);
+                this._militarySymbolControl.updateSelectionManagerFeature(updatedFeature);
             }
         }
 
-        militarySymbolControl.saveFeatures(selectedFeatures, initialPropertiesMap);
-        closeModal();
-        selectionManager.deselectAllFeatures();
-    };
-
-    const cancelButton = document.createElement('button');
-    cancelButton.textContent = 'Cancelar';
-    cancelButton.style.cssText = `
-        padding: 12px 30px;
-        background: #6c757d;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 16px;
-        font-weight: 500;
-        transition: background-color 0.2s;
-    `;
-    cancelButton.onmouseenter = () => { cancelButton.style.backgroundColor = '#545b62'; };
-    cancelButton.onmouseleave = () => { cancelButton.style.backgroundColor = '#6c757d'; };
-    cancelButton.onclick = closeModal;
-
-    modalButtons.appendChild(applyButton);
-    modalButtons.appendChild(cancelButton);
-
-    /**
-     * Closes the modal and cleans up.
-     */
-    function closeModal() {
-        document.removeEventListener('keydown', handleModalKeyDown);
-
-        const comboBoxes = [column1, column2].flatMap(col => Array.from(col.children));
-        comboBoxes.forEach(combo => {
-            if (combo._cleanup) {
-                combo._cleanup();
-            }
-        });
-        document.body.removeChild(modalOverlay);
+        this._militarySymbolControl.saveFeatures(this._selectedFeatures, this._initialPropertiesMap);
+        this.hide();
+        this._selectionManager.deselectAllFeatures();
     }
 
     /**
-     * Handles keyboard events for modal.
-     * @param {KeyboardEvent} e - Keyboard event
+     * Hides the modal.
+     * @override
      */
-    function handleModalKeyDown(e) {
-        if (e.key === 'Escape') {
-            const hasOpenDropdown = dropdownState.openDropdowns.some(dropdown =>
-                dropdown.style.display === 'block'
-            );
-
-            if (!hasOpenDropdown) {
-                e.preventDefault();
-                closeModal();
-            }
+    hide() {
+        // Cleanup comboboxes
+        if (this._formColumns) {
+            const { column1, column2 } = this._formColumns;
+            const comboBoxes = [column1, column2].flatMap(col => Array.from(col.children));
+            comboBoxes.forEach(combo => {
+                if (combo._cleanup) {
+                    combo._cleanup();
+                }
+            });
         }
+
+        super.hide();
     }
+}
 
-    /**
-     * Initializes the modal.
-     */
-    async function initializeModal() {
-        try {
-            const onSymbolClick = (sidc) => {
-                updateComboboxesFromSIDC(sidc);
-
-                tempProperties.uniqueDesignation = '';
-                tempProperties.higherFormation = '';
-                tempProperties.reinforcedReduced = '';
-                tempProperties.additionalInformation = '';
-                tempProperties.credibility = '';
-                tempProperties.location = '';
-                tempProperties.dateTimeGroup = '';
-                tempProperties.altitudeDepth = '';
-                tempProperties.speed = '';
-                tempProperties.specialHeadquarters = '';
-                tempProperties.type = '';
-                tempProperties.iffSif = '';
-                tempProperties.equipmentTeardownTime = '';
-                tempProperties.quantity = '';
-                tempProperties.direction = '';
-                tempProperties.engagementBar = null;
-
-                if (engagementBarContainer && engagementBarContainer.updateFromProperties) {
-                    engagementBarContainer.updateFromProperties(tempProperties);
-                }
-
-                updatePreview();
-            };
-
-            const galleryColumn = await createSymbolGallery(militarySymbolControl, onSymbolClick);
-
-            modalContent.appendChild(controlsColumn);
-            modalContent.appendChild(previewColumn);
-            modalContent.appendChild(galleryColumn);
-            modal.appendChild(modalContent);
-            modal.appendChild(modalButtons);
-            modalOverlay.appendChild(modal);
-
-            modalOverlay.onclick = (e) => {
-                if (e.target === modalOverlay) {
-                    closeModal();
-                }
-            };
-
-            document.addEventListener('keydown', handleModalKeyDown);
-
-            document.body.appendChild(modalOverlay);
-            updatePreview();
-
-        } catch (error) {
-            console.error('Error initializing modal:', error);
-
-            modalContent.appendChild(controlsColumn);
-            modalContent.appendChild(previewColumn);
-            modal.appendChild(modalContent);
-            modal.appendChild(modalButtons);
-            modalOverlay.appendChild(modal);
-
-            modalOverlay.onclick = (e) => {
-                if (e.target === modalOverlay) {
-                    closeModal();
-                }
-            };
-
-            document.addEventListener('keydown', handleModalKeyDown);
-            document.body.appendChild(modalOverlay);
-            updatePreview();
-        }
-    }
-
-    initializeModal();
+/**
+ * Opens the symbol configuration modal.
+ *
+ * @param {SymbolModalConfig} config - Modal configuration
+ */
+export function openSymbolModal(config) {
+    const modal = new SymbolSelectorModal(config);
+    modal.render();
+    modal.show();
+    return modal;
 }

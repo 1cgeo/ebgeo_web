@@ -39,7 +39,7 @@ function createGalleryItem(feature, dataURL, onSymbolClick) {
     const img = document.createElement('img');
     img.src = dataURL;
     img.style.cssText = 'max-width: 50px; max-height: 50px;';
-    img.title = `${feature.properties.nome || 'Simbolo'} (${feature.usageCount}x)`;
+    img.title = `${feature.properties.nome || 'Símbolo'} (${feature.usageCount}x)`;
 
     item.onclick = () => {
         onSymbolClick(feature.properties.sidc);
@@ -58,20 +58,21 @@ function createGalleryItem(feature, dataURL, onSymbolClick) {
  */
 export async function createSymbolGallery(militarySymbolControl, onSymbolClick) {
     const galleryColumn = document.createElement('div');
-    galleryColumn.style.cssText = 'flex: 0 0 160px; border-left: 2px solid #e9ecef; padding-left: 20px;';
+    galleryColumn.className = 'symbol-selector-gallery';
 
     const galleryTitle = document.createElement('h4');
-    galleryTitle.textContent = 'Simbolos do Mapa';
-    galleryTitle.style.cssText = 'margin: 0 0 15px 0; font-size: 16px; color: #333; text-align: center;';
+    galleryTitle.textContent = 'Símbolos do Mapa';
 
     const scrollContainer = document.createElement('div');
+    scrollContainer.className = 'symbol-gallery-scroll';
     scrollContainer.style.cssText = `
-        max-height: 400px;
+        max-height: 500px;
         overflow-y: auto;
-        padding-right: 8px;
+        padding-right: 4px;
     `;
 
     const gallery = document.createElement('div');
+    gallery.className = 'symbol-gallery-grid';
     gallery.style.cssText = `
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -83,7 +84,7 @@ export async function createSymbolGallery(militarySymbolControl, onSymbolClick) 
 
     if (distinctSymbols.length === 0) {
         const emptyMessage = document.createElement('div');
-        emptyMessage.textContent = 'Nenhum simbolo no mapa';
+        emptyMessage.textContent = 'Nenhum símbolo no mapa';
         emptyMessage.style.cssText = 'color: #999; font-style: italic; font-size: 14px; text-align: center; padding: 20px; grid-column: 1 / -1;';
         gallery.appendChild(emptyMessage);
     } else {

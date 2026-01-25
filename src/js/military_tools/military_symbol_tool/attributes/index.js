@@ -5,7 +5,7 @@
  */
 
 export { addMilitarySymbolAttributesToPanel } from './military_symbol_attributes_panel.js';
-export { openSymbolModal } from './symbol-selector.modal.js';
+export { SymbolSelectorModal, openSymbolModal } from './symbol-selector.modal.js';
 export { createSymbolGallery } from './symbol-gallery.section.js';
 export { createTextFieldsContainer } from './text-modifiers.section.js';
 export { createEngagementBarContent } from './engagement-bar.section.js';

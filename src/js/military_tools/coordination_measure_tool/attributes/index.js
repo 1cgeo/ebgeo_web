@@ -5,7 +5,7 @@
  */
 
 export { addCoordinationMeasureAttributesToPanel } from './coordination_measure_attributes_panel.js';
-export { openPointModal } from './point-selector.modal.js';
+export { PointSelectorModal, openPointModal } from './point-selector.modal.js';
 export { createTextModifierField, createTextModifiersSection, rebuildTextModifiersSection } from './text-modifiers.section.js';
 export { createColorControlSection } from './color-control.section.js';
 export {

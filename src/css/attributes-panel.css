@@ -730,6 +730,9 @@
 .color-picker-circle {
     width: 28px;
     height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    aspect-ratio: 1;
     border-radius: 50%;
     border: 2px solid transparent;
     cursor: pointer;
@@ -740,6 +743,7 @@
     padding: 0;
     position: relative;
     flex-shrink: 0;
+    box-sizing: border-box;
 }
 
 .color-picker-circle:hover {

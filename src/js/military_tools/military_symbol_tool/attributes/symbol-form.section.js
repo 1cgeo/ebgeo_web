@@ -53,11 +53,11 @@ import {
  */
 function createDirectionInput(tempProperties, updatePreview, flags) {
     const directionContainer = document.createElement('div');
-    directionContainer.style.cssText = 'margin-bottom: 20px;';
+    directionContainer.style.cssText = 'margin-bottom: 12px;';
 
     const directionLabel = document.createElement('label');
-    directionLabel.textContent = 'Direcao:';
-    directionLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+    directionLabel.textContent = 'Direção:';
+    directionLabel.style.cssText = 'display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; color: #333;';
 
     const directionInput = document.createElement('input');
     directionInput.type = 'text';
@@ -65,7 +65,7 @@ function createDirectionInput(tempProperties, updatePreview, flags) {
     directionInput.value = tempProperties.direction || '';
     directionInput.style.cssText = `
         width: 100%;
-        padding: 8px 12px;
+        padding: 10px 12px;
         border: 2px solid #ddd;
         border-radius: 6px;
         font-size: 14px;
@@ -114,11 +114,11 @@ function createDirectionInput(tempProperties, updatePreview, flags) {
  */
 function createCommandCheckbox(tempProperties, updatePreview, flags) {
     const commandCheckboxContainer = document.createElement('div');
-    commandCheckboxContainer.style.cssText = 'margin-bottom: 20px;';
+    commandCheckboxContainer.style.cssText = 'margin-bottom: 12px;';
 
     const commandLabel = document.createElement('label');
     commandLabel.textContent = 'Elemento de Comando:';
-    commandLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; font-size: 15px; color: #333;';
+    commandLabel.style.cssText = 'display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; color: #333;';
 
     let toggleElement = null;
 
@@ -274,7 +274,7 @@ export function createSymbolFormColumns(config) {
                     updatePreview();
                 }
             },
-            'Icone Principal',
+            'Ícone Principal',
             false,
             'mainIcon',
             false,
@@ -330,7 +330,7 @@ export function createSymbolFormColumns(config) {
                 tempProperties.fillColor = color;
                 updatePreview();
             },
-            'Cor do Simbolo'
+            'Cor do Símbolo'
         );
         column2.appendChild(comboboxes.colorControl);
     }
@@ -372,7 +372,7 @@ export function createSymbolFormColumns(config) {
                 updatePreview();
             }
         },
-        'Dimensao',
+        'Dimensão',
         false,
         'modifier',
         true,
@@ -406,7 +406,7 @@ export function createSymbolFormColumns(config) {
                 updatePreview();
             }
         },
-        'Situacao e Condicao Operacional',
+        'Situação e Condição Operacional',
         false,
         'modifier',
         false,
@@ -495,7 +495,7 @@ export function createSymbolFormColumns(config) {
                 updatePreview();
             }
         },
-        'Icone Principal',
+        'Ícone Principal',
         false,
         'mainIcon',
         false,
@@ -549,7 +549,7 @@ export function createSymbolFormColumns(config) {
             tempProperties.fillColor = color;
             updatePreview();
         },
-        'Cor do Simbolo'
+        'Cor do Símbolo'
     );
     column2.appendChild(comboboxes.colorControl);
 

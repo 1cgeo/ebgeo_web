@@ -21,23 +21,23 @@ import { getEngagementBarData } from '../military_constants.js';
  */
 export function createEngagementBarContent(tempProperties, onUpdate) {
     const container = document.createElement('div');
-    container.style.cssText = 'display: flex; flex-direction: column; gap: 20px; max-width: 600px;';
+    container.style.cssText = 'display: flex; flex-direction: column; gap: 16px; max-width: 600px;';
 
     const data = getEngagementBarData();
 
     const stageContainer = document.createElement('div');
-    stageContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+    stageContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
 
     const stageLabel = document.createElement('label');
-    stageLabel.textContent = 'Estagio do Engajamento:';
-    stageLabel.style.cssText = 'font-weight: bold; font-size: 15px; color: #333;';
+    stageLabel.textContent = 'Estágio do Engajamento:';
+    stageLabel.style.cssText = 'font-weight: 600; font-size: 14px; color: #333;';
 
     const stageSelect = document.createElement('select');
-    stageSelect.style.cssText = 'padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
+    stageSelect.style.cssText = 'padding: 10px 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
 
     const stageDefaultOption = document.createElement('option');
     stageDefaultOption.value = '';
-    stageDefaultOption.textContent = 'Nao Aplicavel';
+    stageDefaultOption.textContent = 'Não Aplicável';
     stageSelect.appendChild(stageDefaultOption);
 
     data.stages.forEach(stage => {
@@ -51,18 +51,18 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
     stageContainer.appendChild(stageSelect);
 
     const weaponContainer = document.createElement('div');
-    weaponContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+    weaponContainer.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
 
     const weaponLabel = document.createElement('label');
     weaponLabel.textContent = 'Armamento/Elemento:';
-    weaponLabel.style.cssText = 'font-weight: bold; font-size: 15px; color: #333;';
+    weaponLabel.style.cssText = 'font-weight: 600; font-size: 14px; color: #333;';
 
     const weaponSelect = document.createElement('select');
-    weaponSelect.style.cssText = 'padding: 10px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
+    weaponSelect.style.cssText = 'padding: 10px 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 14px;';
 
     const weaponDefaultOption = document.createElement('option');
     weaponDefaultOption.value = '';
-    weaponDefaultOption.textContent = 'Nao Aplicavel';
+    weaponDefaultOption.textContent = 'Não Aplicável';
     weaponSelect.appendChild(weaponDefaultOption);
 
     data.weapons.forEach(weapon => {
@@ -85,7 +85,7 @@ export function createEngagementBarContent(tempProperties, onUpdate) {
 
     const remoteLabel = document.createElement('label');
     remoteLabel.htmlFor = 'engagement-remote';
-    remoteLabel.textContent = 'Designacao Remota';
+    remoteLabel.textContent = 'Designação Remota';
     remoteLabel.style.cssText = 'font-size: 14px; color: #333; cursor: pointer;';
 
     remoteContainer.appendChild(remoteCheckbox);

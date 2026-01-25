@@ -99,11 +99,11 @@ export function createTextFieldsContainer(symbolSetCode, tempProperties, onUpdat
         icon.style.cssText = 'font-size: 48px; margin-bottom: 15px;';
 
         const text = document.createElement('p');
-        text.textContent = 'Amplificadores textuais nao disponiveis para esta dimensao.';
+        text.textContent = 'Amplificadores textuais não disponíveis para esta dimensão.';
         text.style.cssText = 'margin: 0; font-size: 16px;';
 
         const subtext = document.createElement('p');
-        subtext.textContent = 'Selecione "Unidades" ou "Equipamentos e Viaturas" na aba Simbolo.';
+        subtext.textContent = 'Selecione "Unidades" ou "Equipamentos e Viaturas" na aba Símbolo.';
         subtext.style.cssText = 'margin: 10px 0 0 0; font-size: 14px; color: #999;';
 
         message.appendChild(icon);
