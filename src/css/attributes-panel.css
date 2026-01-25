@@ -707,7 +707,87 @@
     transform: scale(1.1);
 }
 
-/* ----- Modern Color Picker ----- */
+/* ----- Modern Color Picker (Circle Style) ----- */
+.color-picker-circles {
+    width: 100%;
+    margin-bottom: 16px;
+}
+
+.color-picker-circles-header {
+    font-size: 12px;
+    font-weight: 500;
+    color: #4b5563;
+    margin-bottom: 8px;
+}
+
+.color-picker-circles-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.color-picker-circle {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.color-picker-circle:hover {
+    transform: scale(1.15);
+}
+
+.color-picker-circle.light-color {
+    border-color: #e5e7eb;
+}
+
+.color-picker-circle.selected {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(80, 141, 78, 0.3);
+}
+
+.color-picker-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Custom color button (+) */
+.color-picker-custom-wrapper {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.color-picker-custom-btn {
+    background: #f9fafb;
+    border: 2px dashed #d1d5db;
+    color: #6b7280;
+}
+
+.color-picker-custom-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(80, 141, 78, 0.05);
+}
+
+.color-picker-native-hidden {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Legacy styles kept for backwards compatibility */
 .attr-modern-color-picker {
     display: flex;
     align-items: center;

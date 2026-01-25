@@ -45,7 +45,7 @@ class MapManager {
     // ===== COLOR TRACKING SYSTEM =====
 
     /**
-     * Extracts color from a feature based on layer_setup.js properties
+     * Extracts the primary color from a feature based on layer_setup.js properties
      * @param {Object} feature - GeoJSON feature
      * @returns {string|null} Color value or null
      */
@@ -58,6 +58,37 @@ class MapManager {
                props.lineColor ||
                props.outlinecolor ||
                props.backgroundColor;
+    }
+
+    /**
+     * Extracts ALL color properties from a feature.
+     * Used to track all colors when a feature is created.
+     * @param {Object} feature - GeoJSON feature
+     * @returns {string[]} Array of color values (may have duplicates if same color used multiple times)
+     */
+    getFeatureColors(feature) {
+        const props = feature.properties;
+        if (!props) return [];
+
+        const colorProperties = [
+            'color',
+            'fillColor',
+            'lineColor',
+            'outlinecolor',
+            'backgroundColor',
+            'hatchColor',
+            'backgroundFillColor',
+            'backgroundBorderColor'
+        ];
+
+        const colors = [];
+        for (const prop of colorProperties) {
+            if (props[prop] && typeof props[prop] === 'string') {
+                colors.push(props[prop]);
+            }
+        }
+
+        return colors;
     }
 
     /**
@@ -98,8 +129,9 @@ class MapManager {
             if (!Array.isArray(features)) return;
 
             features.forEach(feature => {
-                const color = this.getFeatureColor(feature);
-                if (color) {
+                // Get all colors from the feature
+                const colors = this.getFeatureColors(feature);
+                for (const color of colors) {
                     colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
                 }
             });

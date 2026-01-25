@@ -2,295 +2,214 @@
 
 /**
  * @fileoverview Modern color picker components for attribute panels.
+ * Displays most used colors as circles with custom color option.
+ * Uses a global color usage tracking system across all features and attributes.
  */
 
 import { getFrequentColors } from '../../store';
 
 /**
- * Preset colors palette for quick selection.
+ * Maximum number of frequent colors to show.
+ * Grid fits 9 per row × 2 rows = 18 spots.
+ * Reserve 1 for current color (if not in top), 1 for custom button = 16 frequent colors max.
  */
-const PRESET_COLORS = [
-    '#FF0000', '#FF5722', '#FF9800', '#FFC107', '#FFEB3B',
-    '#4CAF50', '#2196F3', '#3F51B5', '#9C27B0', '#E91E63',
-    '#000000', '#424242', '#757575', '#9E9E9E', '#FFFFFF',
-    '#8B0000', '#006400', '#00008B', '#4B0082', '#8B4513',
-];
+const MAX_FREQUENT_COLORS = 16;
+
+/**
+ * LocalStorage key for global color usage.
+ */
+const COLOR_USAGE_KEY = 'ebgeo_global_color_usage';
 
 /**
  * SVG icons used in the color picker.
  */
 const ICONS = {
-    chevronDown: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>',
-    check: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+    plus: '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>',
+    check: '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
 };
 
+// ===== GLOBAL COLOR USAGE SYSTEM =====
+
 /**
- * Creates a modern color picker with dropdown palette.
- *
- * @param {Object} config - Configuration object
- * @param {string} config.label - Label text for the color picker
- * @param {string} config.value - Initial color value (hex)
- * @param {Function} config.onChange - Callback when color changes (receives color string)
- * @param {string} [config.scope='current'] - Color scope for frequent colors
- * @returns {HTMLElement} Color picker container element
+ * In-memory cache of global color usage.
+ * @type {Map<string, number>|null}
  */
-export function createModernColorPicker(config) {
-    const { label, value, onChange, scope = 'current' } = config;
-    let currentColor = value || '#000000';
-    let isOpen = false;
-    let dropdown = null;
+let globalColorCache = null;
 
-    const container = document.createElement('div');
-    container.className = 'attr-modern-color-picker';
+/**
+ * Flag to track if we've initialized from store.
+ */
+let hasInitializedFromStore = false;
 
-    const labelEl = document.createElement('label');
-    labelEl.className = 'attr-modern-color-picker-label';
-    labelEl.textContent = label;
+/**
+ * Set of registered color picker grids for live updates.
+ * Each entry is { grid, getCurrentColor, onSelect }
+ * @type {Set<Object>}
+ */
+const registeredColorPickers = new Set();
 
-    const wrapper = document.createElement('div');
-    wrapper.style.position = 'relative';
+/**
+ * Loads global color usage from localStorage.
+ * @returns {Map<string, number>} Map of color -> usage count
+ */
+function loadGlobalColorUsage() {
+    if (globalColorCache !== null) {
+        return globalColorCache;
+    }
 
-    const trigger = document.createElement('button');
-    trigger.type = 'button';
-    trigger.className = 'attr-modern-color-picker-trigger';
-
-    const preview = document.createElement('div');
-    preview.className = 'attr-modern-color-preview';
-    preview.style.backgroundColor = currentColor;
-
-    const hexText = document.createElement('span');
-    hexText.className = 'attr-modern-color-hex';
-    hexText.textContent = currentColor.toUpperCase();
-
-    const chevron = document.createElement('span');
-    chevron.className = 'attr-modern-color-chevron';
-    chevron.innerHTML = ICONS.chevronDown;
-
-    trigger.appendChild(preview);
-    trigger.appendChild(hexText);
-    trigger.appendChild(chevron);
-
-    const updateColor = (color) => {
-        currentColor = color;
-        preview.style.backgroundColor = color;
-        hexText.textContent = color.toUpperCase();
-        onChange(color);
-    };
-
-    const closeDropdown = () => {
-        if (dropdown && dropdown.parentNode) {
-            dropdown.remove();
-            dropdown = null;
+    try {
+        const stored = localStorage.getItem(COLOR_USAGE_KEY);
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            globalColorCache = new Map(Object.entries(parsed));
+        } else {
+            globalColorCache = new Map();
         }
-        isOpen = false;
-    };
+    } catch {
+        globalColorCache = new Map();
+    }
 
-    const openDropdown = () => {
-        if (isOpen) {
-            closeDropdown();
-            return;
-        }
+    return globalColorCache;
+}
 
-        isOpen = true;
-        dropdown = createColorDropdown(currentColor, updateColor, closeDropdown, scope);
-        wrapper.appendChild(dropdown);
+/**
+ * Saves global color usage to localStorage.
+ */
+function saveGlobalColorUsage() {
+    if (!globalColorCache) return;
 
-        // Close on click outside
-        const handleClickOutside = (e) => {
-            if (!wrapper.contains(e.target)) {
-                closeDropdown();
-                document.removeEventListener('mousedown', handleClickOutside);
+    try {
+        const obj = Object.fromEntries(globalColorCache);
+        localStorage.setItem(COLOR_USAGE_KEY, JSON.stringify(obj));
+    } catch {
+        // Ignore storage errors
+    }
+}
+
+/**
+ * Initializes the color cache from the store's project color cache if our cache is empty.
+ * This ensures we have colors from existing features.
+ */
+function ensureInitializedFromStore() {
+    if (hasInitializedFromStore) return;
+    hasInitializedFromStore = true;
+
+    const cache = loadGlobalColorUsage();
+
+    // If we already have colors, don't override
+    if (cache.size > 0) return;
+
+    try {
+        // Get colors from the store's project-wide cache
+        const storeColors = getFrequentColors(50, 'project');
+
+        for (const { color, count } of storeColors) {
+            if (color && typeof color === 'string') {
+                const normalized = normalizeColor(color);
+                cache.set(normalized, count || 1);
             }
-        };
-        setTimeout(() => {
-            document.addEventListener('mousedown', handleClickOutside);
-        }, 0);
-    };
+        }
 
-    trigger.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openDropdown();
-    });
-
-    wrapper.appendChild(trigger);
-    container.appendChild(labelEl);
-    container.appendChild(wrapper);
-
-    return container;
+        if (cache.size > 0) {
+            saveGlobalColorUsage();
+        }
+    } catch {
+        // Ignore initialization errors
+    }
 }
 
 /**
- * Creates the color dropdown panel.
- *
- * @param {string} currentColor - Currently selected color
- * @param {Function} onSelect - Callback when color is selected
- * @param {Function} onClose - Callback to close dropdown
- * @param {string} scope - Color scope for frequent colors
- * @returns {HTMLElement} Dropdown element
+ * Tracks usage of a color (increments its count).
+ * Also triggers refresh of all registered color pickers.
+ * @param {string} color - Color hex value
  */
-function createColorDropdown(currentColor, onSelect, onClose, scope) {
-    const dropdown = document.createElement('div');
-    dropdown.className = 'attr-modern-color-dropdown';
+function trackColorUsage(color) {
+    if (!color) return;
 
-    // Frequent colors section
-    const frequentSection = document.createElement('div');
-    frequentSection.style.marginBottom = '12px';
+    const normalized = normalizeColor(color);
+    const cache = loadGlobalColorUsage();
+    const currentCount = cache.get(normalized) || 0;
+    cache.set(normalized, currentCount + 1);
 
-    const frequentTitle = document.createElement('div');
-    frequentTitle.className = 'attr-modern-color-section-title';
-    frequentTitle.textContent = 'Cores Frequentes';
-    frequentSection.appendChild(frequentTitle);
+    // Debounce save
+    clearTimeout(trackColorUsage._saveTimeout);
+    trackColorUsage._saveTimeout = setTimeout(saveGlobalColorUsage, 500);
 
-    const frequentGrid = document.createElement('div');
-    frequentGrid.className = 'attr-modern-color-grid';
-
-    // Get frequent colors or use presets
-    const frequentColors = getFrequentColors(20, scope);
-    const colorsToShow = frequentColors.length > 0
-        ? frequentColors.map(c => c.color)
-        : PRESET_COLORS;
-
-    colorsToShow.forEach((color) => {
-        const swatch = createColorSwatch(color, currentColor, (selectedColor) => {
-            onSelect(selectedColor);
-            onClose();
-        });
-        frequentGrid.appendChild(swatch);
-    });
-
-    frequentSection.appendChild(frequentGrid);
-    dropdown.appendChild(frequentSection);
-
-    // Custom color section
-    const customSection = document.createElement('div');
-    customSection.className = 'attr-modern-color-custom';
-
-    const customTitle = document.createElement('div');
-    customTitle.className = 'attr-modern-color-section-title';
-    customTitle.textContent = 'Cor Personalizada';
-    customTitle.style.marginBottom = '8px';
-
-    const customRow = document.createElement('div');
-    customRow.style.cssText = 'display: flex; align-items: center; gap: 8px;';
-
-    const nativeInput = document.createElement('input');
-    nativeInput.type = 'color';
-    nativeInput.value = currentColor;
-    nativeInput.className = 'attr-modern-color-native';
-
-    const textInput = document.createElement('input');
-    textInput.type = 'text';
-    textInput.value = currentColor.toUpperCase();
-    textInput.className = 'attr-modern-color-text-input';
-    textInput.placeholder = '#000000';
-
-    nativeInput.addEventListener('input', (e) => {
-        const color = e.target.value;
-        textInput.value = color.toUpperCase();
-        onSelect(color);
-        updateSwatchSelection(frequentGrid, color);
-    });
-
-    textInput.addEventListener('input', (e) => {
-        let val = e.target.value;
-        if (!val.startsWith('#')) {
-            val = '#' + val;
-        }
-        if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
-            nativeInput.value = val;
-            onSelect(val);
-            updateSwatchSelection(frequentGrid, val);
-        }
-    });
-
-    textInput.addEventListener('blur', (e) => {
-        const val = e.target.value;
-        if (!/^#[0-9A-Fa-f]{6}$/.test(val)) {
-            textInput.value = currentColor.toUpperCase();
-        }
-    });
-
-    customRow.appendChild(nativeInput);
-    customRow.appendChild(textInput);
-
-    const customWrapper = document.createElement('div');
-    customWrapper.style.cssText = 'padding-top: 12px; border-top: 1px solid #f3f4f6;';
-    customWrapper.appendChild(customTitle);
-    customWrapper.appendChild(customRow);
-
-    dropdown.appendChild(customWrapper);
-
-    return dropdown;
+    // Debounce refresh of all pickers
+    clearTimeout(trackColorUsage._refreshTimeout);
+    trackColorUsage._refreshTimeout = setTimeout(refreshAllColorPickers, 50);
 }
 
 /**
- * Creates a single color swatch button.
- *
- * @param {string} color - Swatch color
- * @param {string} currentColor - Currently selected color
- * @param {Function} onSelect - Callback when swatch is clicked
- * @returns {HTMLElement} Swatch button element
+ * Refreshes all registered color picker grids.
+ * Called when the frequent colors list changes.
  */
-function createColorSwatch(color, currentColor, onSelect) {
-    const swatch = document.createElement('button');
-    swatch.type = 'button';
-    swatch.className = 'attr-modern-color-swatch';
-    swatch.style.backgroundColor = color;
-    swatch.dataset.color = color;
-    swatch.title = color;
+function refreshAllColorPickers() {
+    for (const picker of registeredColorPickers) {
+        // Check if the grid is still in the DOM
+        if (!picker.grid.isConnected) {
+            registeredColorPickers.delete(picker);
+            continue;
+        }
+        // Rebuild the grid with current color
+        buildColorGrid(picker.grid, picker.getCurrentColor(), picker.onSelect);
+    }
+}
 
-    if (color.toUpperCase() === currentColor.toUpperCase()) {
-        swatch.classList.add('selected');
+/**
+ * Gets the most frequently used colors globally.
+ * Merges localStorage cache with store's project colors.
+ * @param {number} limit - Maximum number of colors to return
+ * @returns {string[]} Array of color hex values, sorted by usage (most used first)
+ */
+function getGlobalFrequentColors(limit = MAX_FREQUENT_COLORS) {
+    // Ensure we have data from the store
+    ensureInitializedFromStore();
+
+    const cache = loadGlobalColorUsage();
+
+    // Also get colors from the store's project cache and merge
+    try {
+        const storeColors = getFrequentColors(50, 'project');
+        for (const { color, count } of storeColors) {
+            if (color && typeof color === 'string') {
+                const normalized = normalizeColor(color);
+                // Add store counts to our cache (but don't double count if already tracked)
+                if (!cache.has(normalized)) {
+                    cache.set(normalized, count || 1);
+                }
+            }
+        }
+    } catch {
+        // Ignore errors
     }
 
-    // Check icon for selected state
-    if (swatch.classList.contains('selected')) {
-        const checkIcon = document.createElement('span');
-        checkIcon.innerHTML = ICONS.check;
-        checkIcon.style.color = isLightColor(color) ? '#333' : '#fff';
-        swatch.appendChild(checkIcon);
-    }
-
-    swatch.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onSelect(color);
-    });
-
-    return swatch;
+    return Array.from(cache.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit)
+        .map(([color]) => color);
 }
 
-/**
- * Updates swatch selection in grid.
- *
- * @param {HTMLElement} grid - Grid container
- * @param {string} selectedColor - Selected color
- */
-function updateSwatchSelection(grid, selectedColor) {
-    const swatches = grid.querySelectorAll('.attr-modern-color-swatch');
-    swatches.forEach(swatch => {
-        const swatchColor = swatch.dataset.color;
-        const isSelected = swatchColor.toUpperCase() === selectedColor.toUpperCase();
-        swatch.classList.toggle('selected', isSelected);
+// ===== COLOR UTILITIES =====
 
-        // Update check icon
-        const existingCheck = swatch.querySelector('span');
-        if (existingCheck) {
-            existingCheck.remove();
-        }
-        if (isSelected) {
-            const checkIcon = document.createElement('span');
-            checkIcon.innerHTML = ICONS.check;
-            checkIcon.style.color = isLightColor(swatchColor) ? '#333' : '#fff';
-            swatch.appendChild(checkIcon);
-        }
-    });
+/**
+ * Normalizes a color to uppercase 6-digit hex format.
+ * Strips alpha channel if present (#RRGGBBAA -> #RRGGBB).
+ * @param {string} color - Color value
+ * @returns {string} Normalized color (6-digit hex)
+ */
+function normalizeColor(color) {
+    if (!color) return '#000000';
+    let normalized = color.toUpperCase();
+    // Strip alpha channel if present (#RRGGBBAA -> #RRGGBB)
+    if (normalized.length === 9 && normalized.startsWith('#')) {
+        normalized = normalized.slice(0, 7);
+    }
+    return normalized;
 }
 
 /**
  * Determines if a color is light (for contrast purposes).
- *
  * @param {string} color - Hex color
  * @returns {boolean} True if color is light
  */
@@ -302,3 +221,251 @@ function isLightColor(color) {
     const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
     return luminance > 0.5;
 }
+
+// ===== COLOR PICKER COMPONENT =====
+
+/**
+ * Creates a modern color picker with circle swatches.
+ *
+ * @param {Object} config - Configuration object
+ * @param {string} config.label - Label text for the color picker (header)
+ * @param {string} config.value - Initial color value (hex)
+ * @param {Function} config.onChange - Callback when color changes (receives color string)
+ * @returns {HTMLElement} Color picker container element
+ */
+export function createModernColorPicker(config) {
+    const { label, value, onChange } = config;
+    let currentColor = normalizeColor(value);
+
+    const container = document.createElement('div');
+    container.className = 'color-picker-circles';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'color-picker-circles-header';
+    header.textContent = label;
+    container.appendChild(header);
+
+    // Colors grid
+    const grid = document.createElement('div');
+    grid.className = 'color-picker-circles-grid';
+
+    // Handler for color selection
+    const handleColorSelect = (selectedColor) => {
+        const normalized = normalizeColor(selectedColor);
+        currentColor = normalized;
+
+        // Track this color usage
+        trackColorUsage(normalized);
+
+        // Update UI (will be done by refreshAllColorPickers, but do immediately for responsiveness)
+        updateGridColors(grid, normalized, handleColorSelect);
+
+        // Notify parent
+        onChange(normalized);
+    };
+
+    // Register this picker for live updates
+    const pickerRef = {
+        grid,
+        getCurrentColor: () => currentColor,
+        onSelect: handleColorSelect
+    };
+    registeredColorPickers.add(pickerRef);
+
+    // Build initial grid
+    buildColorGrid(grid, currentColor, handleColorSelect);
+
+    container.appendChild(grid);
+
+    // Cleanup when removed from DOM (using MutationObserver)
+    const observer = new MutationObserver((mutations, obs) => {
+        if (!container.isConnected) {
+            registeredColorPickers.delete(pickerRef);
+            obs.disconnect();
+        }
+    });
+    // Observe parent changes when container is added to DOM
+    requestAnimationFrame(() => {
+        if (container.parentNode) {
+            observer.observe(container.parentNode, { childList: true });
+        }
+    });
+
+    return container;
+}
+
+/**
+ * Builds the color grid with frequent colors, current color, and custom button.
+ *
+ * @param {HTMLElement} grid - Grid container
+ * @param {string} currentColor - Currently selected color
+ * @param {Function} onSelect - Selection handler
+ */
+function buildColorGrid(grid, currentColor, onSelect) {
+    grid.innerHTML = '';
+
+    // Get frequent colors (globally tracked, sorted by usage)
+    const frequentColors = getGlobalFrequentColors(MAX_FREQUENT_COLORS);
+
+    // Deduplicate (should already be unique, but ensure)
+    const seenColors = new Set();
+    const uniqueFrequentColors = [];
+
+    for (const color of frequentColors) {
+        const normalized = normalizeColor(color);
+        if (!seenColors.has(normalized)) {
+            seenColors.add(normalized);
+            uniqueFrequentColors.push(normalized);
+        }
+    }
+
+    // Check if current color is already in frequent list
+    const normalizedCurrent = normalizeColor(currentColor);
+    const currentInFrequent = seenColors.has(normalizedCurrent);
+
+    // Build final color list
+    let colorsToShow;
+
+    if (currentInFrequent) {
+        // Current color is in frequent list, show all frequent colors
+        colorsToShow = uniqueFrequentColors.slice(0, MAX_FREQUENT_COLORS);
+    } else if (normalizedCurrent && normalizedCurrent !== '#000000') {
+        // Current color not in frequent list, make room for it
+        colorsToShow = uniqueFrequentColors.slice(0, MAX_FREQUENT_COLORS - 1);
+        colorsToShow.push(normalizedCurrent);
+    } else {
+        colorsToShow = uniqueFrequentColors.slice(0, MAX_FREQUENT_COLORS);
+    }
+
+    // Render color circles
+    colorsToShow.forEach((color) => {
+        const circle = createColorCircle(color, normalizedCurrent, onSelect);
+        grid.appendChild(circle);
+    });
+
+    // Add custom color button (+ button) - always last
+    const customButton = createCustomColorButton(normalizedCurrent, onSelect);
+    grid.appendChild(customButton);
+}
+
+/**
+ * Updates the grid with new colors (called when selection changes).
+ *
+ * @param {HTMLElement} grid - Grid container
+ * @param {string} currentColor - Currently selected color
+ * @param {Function} onSelect - Selection handler
+ */
+function updateGridColors(grid, currentColor, onSelect) {
+    // Rebuild the entire grid to reflect current frequent colors
+    buildColorGrid(grid, currentColor, onSelect);
+}
+
+/**
+ * Creates a color circle button.
+ *
+ * @param {string} color - Circle color
+ * @param {string} currentColor - Currently selected color
+ * @param {Function} onSelect - Callback when circle is clicked
+ * @returns {HTMLElement} Circle button element
+ */
+function createColorCircle(color, currentColor, onSelect) {
+    const normalized = normalizeColor(color);
+    const circle = document.createElement('button');
+    circle.type = 'button';
+    circle.className = 'color-picker-circle';
+    circle.style.backgroundColor = color;
+    circle.dataset.color = normalized;
+    circle.title = normalized;
+
+    // Add border for white/light colors
+    if (isLightColor(color)) {
+        circle.classList.add('light-color');
+    }
+
+    if (normalized === normalizeColor(currentColor)) {
+        circle.classList.add('selected');
+        addCheckIcon(circle, color);
+    }
+
+    circle.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect(normalized);
+    });
+
+    return circle;
+}
+
+/**
+ * Creates the custom color button with + icon.
+ *
+ * @param {string} currentColor - Currently selected color (for picker initial value)
+ * @param {Function} onSelect - Callback when color is selected
+ * @returns {HTMLElement} Custom color button element
+ */
+function createCustomColorButton(currentColor, onSelect) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'color-picker-custom-wrapper';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'color-picker-circle color-picker-custom-btn';
+    button.title = 'Cor personalizada';
+    button.innerHTML = ICONS.plus;
+
+    // Hidden native color input
+    const nativeInput = document.createElement('input');
+    nativeInput.type = 'color';
+    nativeInput.value = currentColor || '#000000';
+    nativeInput.className = 'color-picker-native-hidden';
+
+    button.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        nativeInput.click();
+    });
+
+    // Only trigger on final selection (change), not during dragging (input)
+    nativeInput.addEventListener('change', (e) => {
+        const color = normalizeColor(e.target.value);
+        onSelect(color);
+    });
+
+    wrapper.appendChild(button);
+    wrapper.appendChild(nativeInput);
+
+    return wrapper;
+}
+
+/**
+ * Adds check icon to selected circle.
+ *
+ * @param {HTMLElement} circle - Circle element
+ * @param {string} color - Circle color
+ */
+function addCheckIcon(circle, color) {
+    const checkIcon = document.createElement('span');
+    checkIcon.className = 'color-picker-check';
+    checkIcon.innerHTML = ICONS.check;
+    checkIcon.style.color = isLightColor(color) ? '#333' : '#fff';
+    circle.appendChild(checkIcon);
+}
+
+/**
+ * Resets the color cache (useful for testing or when data changes significantly).
+ */
+export function resetColorCache() {
+    globalColorCache = null;
+    hasInitializedFromStore = false;
+    localStorage.removeItem(COLOR_USAGE_KEY);
+    // Clear registered pickers (they will be re-registered when rebuilt)
+    registeredColorPickers.clear();
+}
+
+/**
+ * Tracks a color programmatically (for colors set without using the picker).
+ * This is exported so other modules can track colors when they set them directly.
+ * @param {string} color - Color hex value
+ */
+export { trackColorUsage };

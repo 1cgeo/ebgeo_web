@@ -31,7 +31,7 @@ class AddTextControl extends BaseControl {
         showBackground: false,
         backgroundFillColor: '#315730',
         backgroundFillOpacity: 0.8,
-        backgroundBorderColor: '#000000ff',
+        backgroundBorderColor: '#000000',
         backgroundBorderOpacity: 1.0,
         backgroundBorderWidth: 1,
 

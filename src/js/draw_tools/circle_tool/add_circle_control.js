@@ -298,6 +298,7 @@ class AddCircleControl extends BaseControl {
                 this.updateHatchPatterns(data);
             }
             this.map.getSource('circles').setData(data);
+
             this.drawPoints = [];
             this.toolManager.deactivateCurrentTool();
             await this.selectionManager.toggleFeatureSelection('circle', featureId, feature);

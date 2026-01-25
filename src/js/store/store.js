@@ -27,6 +27,7 @@ import {
 
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
+import { resetColorCache } from '../tool_manager/helpers/color-picker.helpers.js';
 
 // Import specialized operation modules
 import {
@@ -118,6 +119,7 @@ export const clearAllDataStore = async () => {
     await clearAllLayerData();
 
     await mapManager.clearAllColorCaches();
+    resetColorCache();
 
     deps.layerManager.clearLayersCache();
 

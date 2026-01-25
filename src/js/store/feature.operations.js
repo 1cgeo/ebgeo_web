@@ -68,8 +68,9 @@ export const addFeature = async (type, feature, mapName = null) => {
     currentMapData.features[type].push(cleanedFeature);
     await updateMapData(targetMap, currentMapData);
 
-    const color = mapManager.getFeatureColor(cleanedFeature);
-    if (color) {
+    // Track ALL colors from the feature
+    const colors = mapManager.getFeatureColors(cleanedFeature);
+    for (const color of colors) {
         mapManager.updateColorUsage(null, color, targetMap);
     }
 
