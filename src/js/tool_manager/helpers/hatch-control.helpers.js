@@ -154,7 +154,7 @@ export function createModernHatchControl(config) {
 
         const preview = document.createElement('div');
         preview.className = 'attr-modern-hatch-preview';
-        preview.innerHTML = createHatchPreviewSVG(pattern, previewColor);
+        preview.innerHTML = createHatchPreviewSVG(pattern, previewColor, 36);
         btn.appendChild(preview);
 
         btn.title = pattern.label;
@@ -221,7 +221,7 @@ export function createModernHatchControl(config) {
             const pattern = HATCH_PATTERNS[index];
             const preview = btn.querySelector('.attr-modern-hatch-preview');
             if (preview) {
-                preview.innerHTML = createHatchPreviewSVG(pattern, color);
+                preview.innerHTML = createHatchPreviewSVG(pattern, color, 36);
             }
         });
     };

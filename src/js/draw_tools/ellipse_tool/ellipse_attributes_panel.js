@@ -65,12 +65,19 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         }
     }
 
+    // Hatch control reference for color sync
+    let hatchControl = null;
+
     // Fill color picker
     panel.appendChild(createModernColorPicker({
         label: 'Preenchimento',
         value: feature.properties.fillColor,
         onChange: (color) => {
             ellipseControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
+            // Update hatch preview colors
+            if (hatchControl?.updatePreviewColor) {
+                hatchControl.updatePreviewColor(color);
+            }
         }
     }));
 
@@ -121,7 +128,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
     panel.appendChild(createSectionDivider('Preenchimento'));
 
     // Hatch control (uses fillColor for hatch color)
-    panel.appendChild(createModernHatchControl({
+    hatchControl = createModernHatchControl({
         hatchType: feature.properties.hatchType || 'none',
         onTypeChange: (type) => {
             ellipseControl.updateHatchType(selectedFeatures, type);
@@ -135,7 +142,8 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         onLineWidthChange: (width) => {
             ellipseControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
         }
-    }));
+    });
+    panel.appendChild(hatchControl);
 
     // Action buttons
     panel.appendChild(createModernButtons({

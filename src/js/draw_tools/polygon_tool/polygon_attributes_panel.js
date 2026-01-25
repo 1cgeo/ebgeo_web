@@ -66,12 +66,19 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
         }
     }
 
+    // Hatch control reference for color sync
+    let hatchControl = null;
+
     // Fill color picker
     panel.appendChild(createModernColorPicker({
         label: 'Preenchimento',
         value: feature.properties.fillColor,
         onChange: (color) => {
             polygonControl.updateFeaturesProperty(selectedFeatures, 'fillColor', color);
+            // Update hatch preview colors
+            if (hatchControl?.updatePreviewColor) {
+                hatchControl.updatePreviewColor(color);
+            }
         }
     }));
 
@@ -122,7 +129,7 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
     panel.appendChild(createSectionDivider('Preenchimento'));
 
     // Hatch control (uses fillColor for hatch color)
-    panel.appendChild(createModernHatchControl({
+    hatchControl = createModernHatchControl({
         hatchType: feature.properties.hatchType || 'none',
         onTypeChange: (type) => {
             polygonControl.updateHatchType(selectedFeatures, type);
@@ -136,7 +143,8 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
         onLineWidthChange: (width) => {
             polygonControl.updateFeaturesProperty(selectedFeatures, 'hatchLineWidth', width);
         }
-    }));
+    });
+    panel.appendChild(hatchControl);
 
     // Measure toggle
     panel.appendChild(createModernToggle({
