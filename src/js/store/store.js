@@ -212,14 +212,11 @@ export {
     getStorageTypeFromSource,
     getSourceTypeFromStorage,
     getFeatureIcon,
-    getFeatureLayer,
     getFeatureDisplayName,
     getFeatureDisplayNameFromStorage,
     getFeatureIconFromStorage,
     getAllSourceTypes,
     getAllStorageTypes,
-    isValidSourceType,
-    isValidStorageType,
     isUncopyableFeatureType,
     hasImageResource,
     getSelectionControlConfig
@@ -233,8 +230,6 @@ export {
     removeFeature,
     addFeatureToMap,
     removeFeatureFromMap,
-    addFeatureSilent,
-    removeFeatureSilent,
     addFeatures,
     getCurrentMapFeatures,
     getFeatureById,
@@ -243,8 +238,6 @@ export {
     batchUpdateLOSFeatures,
     batchUpdateVisibilityFeatures,
     deleteLayerFeatures,
-    getLayerFeatures,
-    isFeatureEffectivelyVisible,
     isFeatureEffectivelyLocked
 } from './feature.operations.js';
 
@@ -260,7 +253,6 @@ export {
     setCurrentMap,
     getCurrentMapName,
     getCurrentMapNameSync,
-    setLastActiveMap,
     setSchemaVersion,
     getMapDataStore,
     getCurrentBaseLayer,
@@ -271,29 +263,22 @@ export {
     clearMapPosition,
     getFrequentColors,
     getMapBadgeColors,
-    getMapBadgeColor,
-    getAllMapBadgeColors,
-    removeMapBadgeColor
+    getAllMapBadgeColors
 } from './map.operations.js';
 
 // ===== RE-EXPORTS FROM LAYER OPERATIONS =====
 
 export {
     getLayers,
-    getLayerById,
     getActiveLayerIdSync,
-    getActiveLayerId,
     getVisibleLayerIds,
     createLayer,
     createLayerForImport,
     setActiveLayer,
-    setActiveLayerId,
     renameLayer,
     setLayerVisibility,
     setLayerLocked,
     reorderLayers,
-    loadLayersToMemory,
-    clearLayersCache,
     setMapLayers
 } from './layer.operations.js';
 
@@ -303,13 +288,9 @@ export {
     createGroup,
     combineGroups,
     getMapGroups,
-    getGroupById,
     getFeatureGroup,
-    getGroupFeatures,
-    isFeatureGrouped,
     updateGroupProperty,
-    ungroupFeatures,
-    removeFeatureFromAllGroups
+    ungroupFeatures
 } from './group.operations.js';
 
 // ===== RE-EXPORTS FROM SETTINGS OPERATIONS =====
@@ -321,14 +302,10 @@ export {
     setFrameStyle,
     getGridStyle,
     setGridStyle,
-    getMapHillshadeState,
-    getMapAnalysisLayerState,
     getMapAnalysisLayersStates,
-    setMapAnalysisLayersStates,
     storeImage,
     getImage,
-    removeImage,
-    hasImage
+    removeImage
 } from './settings.operations.js';
 
 // ===== RE-EXPORTS FROM CATALOG OPERATIONS =====
@@ -341,11 +318,9 @@ export {
     toggleCatalogLayerVisibility,
     getCatalogLayerById,
     hasCatalogLayer,
-    clearCatalogLayers,
     validateCatalogLayerAvailability,
     processCatalogLayersOnImport,
-    updateCatalogLayerStatus,
-    revalidateCatalogLayers
+    updateCatalogLayerStatus
 } from './catalog.operations.js';
 
 // ===== LEGACY COMPATIBILITY EXPORTS =====

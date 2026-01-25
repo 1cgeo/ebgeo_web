@@ -1,6 +1,7 @@
 // Path: js/3d_models_viewer_tool/add_3d_models_viewer_control.js
 
 import config from '../config.js';
+import { URLRouter } from '../url_router.js';
 
 // Clustering configuration
 const CLUSTER_CONFIG = {
@@ -587,7 +588,6 @@ class Add3DModelsViewerControl {
             await map3dModule.openViewerWithTileset(tilesetId);
 
             // Update URL for deep linking / sharing
-            const { URLRouter } = await import('../url_router.js');
             URLRouter.setModel(tilesetId);
 
         } catch (error) {
@@ -635,7 +635,6 @@ class Add3DModelsViewerControl {
             if (closeBtn) closeBtn.style.display = 'none';
 
             // Clear URL param when closing viewer
-            const { URLRouter } = await import('../url_router.js');
             URLRouter.clearModel();
 
         } catch (error) {

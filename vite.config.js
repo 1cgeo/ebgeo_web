@@ -46,7 +46,11 @@ export default defineConfig({
           // ===== LAZY LOADED CHUNKS (independentes) =====
 
           // Separar código do 3D (lazy load via dynamic import)
-          if (id.includes('3d_models_viewer_tool')) {
+          // NOTA: Apenas map_3d.js e tools/* são lazy-loaded.
+          // add_3d_models_viewer_control.js é importado estaticamente,
+          // então não vai para este chunk (fica no main).
+          if (id.includes('3d_models_viewer_tool/map_3d') ||
+              id.includes('3d_models_viewer_tool/tools/')) {
             return 'cesium-integration';
           }
           // Street view (Three.js - lazy load)
@@ -97,12 +101,18 @@ export default defineConfig({
           }
 
           // ===== CORE CHUNK (base de tudo) =====
-          // Inclui: store, state, events, layers, terrain, baselayers, toolbar, modals, catalog
+          // Inclui: store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog
+          // utilities está aqui porque é usado por toolbar, modals e também por cesium-integration
           // toolbar/modals/catalog estão aqui porque:
           //   - store/settings.operations importa de catalog/catalog.constants
           //   - modals/shortcuts.modal importa de toolbar/toolbar.constants
           //   - catalog/catalog.modal importa de modals/modal.base
 
+          // Utilities (base para toolbar, modals, e também usado por cesium-integration)
+          // DEVE vir antes de qualquer outro chunk que dependa dele
+          if (id.includes('src/js/utilities/')) {
+            return 'core';
+          }
           // Store e state management
           if (id.includes('src/js/store/') || id.includes('src/js/state/')) {
             return 'core';

@@ -9,12 +9,12 @@
  *
  * Usage:
  *   // In map_sig.js - register controls after creation
- *   import { getControlRegistry } from './store';
- *   const registry = getControlRegistry();
- *   registry.register('AddMilitarySymbolControl', militarySymbolControl);
+ *   import { registerControl } from './store';
+ *   registerControl('AddMilitarySymbolControl', militarySymbolControl);
  *
  *   // In layer setup or other modules - get controls by name
- *   const control = registry.get('AddMilitarySymbolControl');
+ *   import { getControl } from './store';
+ *   const control = getControl('AddMilitarySymbolControl');
  */
 
 /**
@@ -54,41 +54,3 @@ export function getControl(name) {
     return controls.get(name) || null;
 }
 
-/**
- * Check if a control is registered.
- * @param {string} name - Control name
- * @returns {boolean}
- */
-export function hasControl(name) {
-    return controls.has(name);
-}
-
-/**
- * Get all registered control names.
- * @returns {string[]}
- */
-export function getControlNames() {
-    return Array.from(controls.keys());
-}
-
-/**
- * Clear all registered controls.
- * Mainly for testing purposes.
- */
-export function clearControls() {
-    controls.clear();
-}
-
-/**
- * Get the control registry object with all methods.
- * @returns {ControlRegistry}
- */
-export function getControlRegistry() {
-    return {
-        register: registerControl,
-        get: getControl,
-        has: hasControl,
-        getNames: getControlNames,
-        clear: clearControls
-    };
-}

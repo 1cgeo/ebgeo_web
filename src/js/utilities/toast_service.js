@@ -270,16 +270,6 @@ class ToastService {
     }
 
     /**
-     * Removes all active toasts
-     */
-    static clearAllToasts() {
-        const activeToastsArray = Array.from(ToastService.activeToasts);
-        activeToastsArray.forEach(toast => {
-            ToastService.hideToast(toast);
-        });
-    }
-
-    /**
      * Checks if there are active toasts
      * @returns {boolean}
      */
@@ -299,8 +289,6 @@ class ToastService {
 export const showToast = ToastService.showToast.bind(ToastService);
 export const showSuccess = ToastService.showSuccess.bind(ToastService);
 export const showError = ToastService.showError.bind(ToastService);
-export const showInfo = ToastService.showInfo.bind(ToastService);
 export const showWarning = ToastService.showWarning.bind(ToastService);
-export const clearAllToasts = ToastService.clearAllToasts.bind(ToastService);
 
 export default ToastService;

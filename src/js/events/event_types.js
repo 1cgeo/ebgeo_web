@@ -94,14 +94,6 @@ export const EventTypes = Object.freeze({
      */
     VECTOR_INFO_PANEL_OPENED: 'vectorInfoPanel:opened',
 
-    /**
-     * Emitted when vector tile info panel closes.
-     * Payload: {}
-     * Subscribers: UIManager
-     * Emitters: Sidebar
-     */
-    VECTOR_INFO_PANEL_CLOSED: 'vectorInfoPanel:closed',
-
     // ===== TOOLBAR =====
     /**
      * Emitted when a toolbar group popup opens.
@@ -177,24 +169,9 @@ export const EventTypes = Object.freeze({
      * Payload: { type: string, item: CatalogItem }
      * Subscribers: catalog-layers.component.js
      * Emitters: CatalogModal
+     * NOTE: Uses hardcoded string 'CATALOG_ADD_LAYER' in code, not this constant.
      */
-    CATALOG_ADD_LAYER: 'catalog:addLayer',
-
-    /**
-     * Emitted when a catalog layer visibility changes.
-     * Payload: { layerId: string, visible: boolean }
-     * Subscribers: layer_manager.js
-     * Emitters: catalog-layers.component.js
-     */
-    CATALOG_LAYER_VISIBILITY_CHANGED: 'catalog:layerVisibilityChanged',
-
-    /**
-     * Emitted when a catalog layer is removed.
-     * Payload: { layerId: string, type: string }
-     * Subscribers: layer_manager.js
-     * Emitters: catalog-layers.component.js
-     */
-    CATALOG_LAYER_REMOVED: 'catalog:layerRemoved',
+    CATALOG_ADD_LAYER: 'CATALOG_ADD_LAYER',
 });
 
 /**
@@ -206,108 +183,4 @@ export const EventTypes = Object.freeze({
 export const FeatureUpdateProperty = Object.freeze({
     ATTRIBUTES: 'attributes',
     IMAGES: 'images',
-    VISUAL: 'visual',
-    GEOMETRY: 'geometry',
-});
-
-/**
- * Event payload type definitions for documentation.
- * @readonly
- */
-export const EventPayloads = Object.freeze({
-    /**
-     * LAYERS_CHANGED payload.
-     * @typedef {Object} LayersChangedPayload
-     * @property {string|null} mapName - Map name where change occurred, null for current map
-     */
-    [EventTypes.LAYERS_CHANGED]: {
-        mapName: '',
-    },
-
-    /**
-     * GROUPS_CHANGED payload.
-     * @typedef {Object} GroupsChangedPayload
-     * @property {string|null} mapName - Map name where change occurred, null for current map
-     */
-    [EventTypes.GROUPS_CHANGED]: {
-        mapName: '',
-    },
-
-    /**
-     * FEATURE_UPDATED payload.
-     * @typedef {Object} FeatureUpdatedPayload
-     * @property {string} featureType - Feature type in singular form ('polygon', 'point', etc.)
-     * @property {string} featureId - Unique feature identifier
-     * @property {string} property - FeatureUpdateProperty value indicating what changed
-     * @property {string} [key] - Attribute key (for attributes updates)
-     * @property {*} [value] - New value (for attributes updates)
-     * @property {string} [action] - Action type for images: 'added' | 'removed' | 'updated'
-     * @property {string} [imageId] - Image identifier (for images updates)
-     */
-    [EventTypes.FEATURE_UPDATED]: {
-        featureType: '',
-        featureId: '',
-        property: '',
-        key: '',
-        value: null,
-        action: '',
-        imageId: '',
-    },
-
-    // =========================================================================
-    // UI REDESIGN EVENT PAYLOADS
-    // =========================================================================
-
-    /**
-     * SIDEBAR_EXPANDED payload.
-     * @typedef {Object} SidebarExpandedPayload
-     * @property {string} tab - The tab that triggered expansion
-     */
-    [EventTypes.SIDEBAR_EXPANDED]: {
-        tab: '',
-    },
-
-    /**
-     * SIDEBAR_TAB_CHANGED payload.
-     * @typedef {Object} SidebarTabChangedPayload
-     * @property {string|null} previousTab - Previous active tab
-     * @property {string} currentTab - New active tab
-     */
-    [EventTypes.SIDEBAR_TAB_CHANGED]: {
-        previousTab: '',
-        currentTab: '',
-    },
-
-    /**
-     * FEATURE_PANEL_OPENED payload.
-     * @typedef {Object} FeaturePanelOpenedPayload
-     * @property {string} featureId - ID of the feature being edited
-     * @property {string} featureType - Type of the feature
-     */
-    [EventTypes.FEATURE_PANEL_OPENED]: {
-        featureId: '',
-        featureType: '',
-    },
-
-    /**
-     * TOOLBAR_GROUP_OPENED payload.
-     * @typedef {Object} ToolbarGroupOpenedPayload
-     * @property {string} group - Group name: 'draw' | 'military' | 'analysis'
-     */
-    [EventTypes.TOOLBAR_GROUP_OPENED]: {
-        group: '',
-    },
-
-    /**
-     * UI_LAYOUT_CHANGED payload.
-     * @typedef {Object} UILayoutChangedPayload
-     * @property {boolean} sidebarExpanded - Current sidebar state
-     * @property {boolean} featurePanelOpen - Current feature panel state
-     * @property {number} contentLeftOffset - Calculated left offset for content
-     */
-    [EventTypes.UI_LAYOUT_CHANGED]: {
-        sidebarExpanded: false,
-        featurePanelOpen: false,
-        contentLeftOffset: 56,
-    },
 });

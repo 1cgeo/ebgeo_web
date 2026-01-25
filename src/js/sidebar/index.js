@@ -17,6 +17,5 @@ export {
     SIDEBAR_TABS,
     TAB_CONFIG,
     SIDEBAR_ICONS,
-    SIDEBAR_DIMENSIONS,
-    getIcon
+    SIDEBAR_DIMENSIONS
 } from './sidebar.constants.js';
