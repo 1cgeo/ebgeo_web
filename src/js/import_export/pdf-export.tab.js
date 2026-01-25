@@ -57,7 +57,7 @@ export default class PDFExportTab {
                     </label>
                 </div>
 
-                <button id="export-pdf-btn" class="export-pdf-btn pure-material-button-contained">
+                <button id="pdf-export-btn" class="export-pdf-btn pure-material-button-contained">
                     Exportar PDF
                 </button>
             </div>
@@ -94,7 +94,7 @@ export default class PDFExportTab {
             input.addEventListener('change', this.onOrientationChange);
         });
 
-        const exportBtn = document.getElementById('export-pdf-btn');
+        const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) {
             exportBtn.addEventListener('click', this.onExportClick);
         }
@@ -111,7 +111,7 @@ export default class PDFExportTab {
             input.removeEventListener('change', this.onOrientationChange);
         });
 
-        const exportBtn = document.getElementById('export-pdf-btn');
+        const exportBtn = document.getElementById('pdf-export-btn');
         if (exportBtn) {
             exportBtn.removeEventListener('click', this.onExportClick);
         }
@@ -128,6 +128,40 @@ export default class PDFExportTab {
         this.updateBounds();
     }
 
+    /**
+     * Public method to update the preview when settings change externally.
+     * Called by ExportTab when scale or orientation is changed from sidebar UI.
+     */
+    updatePreview() {
+        if (this.isVisible) {
+            this.updateBounds();
+            this.zoomToPreviewArea();
+        }
+    }
+
+    /**
+     * Get the visible center of the map, accounting for sidebar offset.
+     * When sidebar is open (376px width), the visible map area is offset to the right.
+     * @returns {{lng: number, lat: number}} The visible center coordinates
+     */
+    getVisibleCenter() {
+        const container = this.map.getContainer();
+        const containerWidth = container.clientWidth;
+        const containerHeight = container.clientHeight;
+
+        const sidebarOffset = this.getSidebarOffset();
+
+        // Calculate the center of the visible map area (excluding sidebar)
+        const visibleWidth = containerWidth - sidebarOffset;
+        const visibleCenterX = sidebarOffset + (visibleWidth / 2);
+        const visibleCenterY = containerHeight / 2;
+
+        // Convert pixel coordinates to map coordinates
+        const centerPoint = this.map.unproject([visibleCenterX, visibleCenterY]);
+
+        return { lng: centerPoint.lng, lat: centerPoint.lat };
+    }
+
     onMapMove() {
         if (this.isVisible) {
             clearTimeout(this.updateTimeout);
@@ -138,52 +172,24 @@ export default class PDFExportTab {
     }
 
     updateBoundsOnly() {
-        const bounds = this.calculateBoundsFromScale(this.scale, this.orientation);
-        this.paperBounds = bounds.paper;
-        this.usableBounds = bounds.usable;
-
-        const paperFeature = {
-            type: 'Feature',
-            properties: { type: 'paper', orientation: this.orientation, scale: this.scale },
-            geometry: {
-                type: 'Polygon',
-                coordinates: [[
-                    this.paperBounds.topLeft,
-                    this.paperBounds.topRight,
-                    this.paperBounds.bottomRight,
-                    this.paperBounds.bottomLeft,
-                    this.paperBounds.topLeft
-                ]]
-            }
-        };
-
-        const usableFeature = {
-            type: 'Feature',
-            properties: { type: 'usable', orientation: this.orientation, scale: this.scale },
-            geometry: {
-                type: 'Polygon',
-                coordinates: [[
-                    this.usableBounds.topLeft,
-                    this.usableBounds.topRight,
-                    this.usableBounds.bottomRight,
-                    this.usableBounds.bottomLeft,
-                    this.usableBounds.topLeft
-                ]]
-            }
-        };
-
-        const source = this.map.getSource('pdf-export-preview');
-        if (source) {
-            source.setData({
-                type: 'FeatureCollection',
-                features: [paperFeature, usableFeature]
-            });
-        }
+        // Reuse updateBounds which now delegates to updateBoundsAtCenter
+        this.updateBounds();
     }
 
     calculateBoundsFromScale(scale, orientation) {
-        const center = this.map.getCenter();
+        // Use visible center that accounts for sidebar offset
+        const center = this.getVisibleCenter();
+        return this.calculateBoundsFromScaleAtCenter(scale, orientation, center);
+    }
 
+    /**
+     * Calculates the paper and usable bounds for a given scale at a specific center point.
+     * @param {string} scale - Scale string like "1:25000"
+     * @param {string} orientation - "landscape" or "portrait"
+     * @param {Object} center - Center point with lng and lat properties
+     * @returns {Object} Object with paper and usable bounds
+     */
+    calculateBoundsFromScaleAtCenter(scale, orientation, center) {
         const denominator = parseInt(scale.split(':')[1], 10);
 
         let realWidthMeters, realHeightMeters;
@@ -230,7 +236,16 @@ export default class PDFExportTab {
     }
 
     updateBounds() {
-        const bounds = this.calculateBoundsFromScale(this.scale, this.orientation);
+        const center = this.getVisibleCenter();
+        this.updateBoundsAtCenter(center);
+    }
+
+    /**
+     * Updates the preview bounds centered at a specific point.
+     * @param {Object} center - The center point with lng and lat properties
+     */
+    updateBoundsAtCenter(center) {
+        const bounds = this.calculateBoundsFromScaleAtCenter(this.scale, this.orientation, center);
         this.paperBounds = bounds.paper;
         this.usableBounds = bounds.usable;
 
@@ -281,10 +296,36 @@ export default class PDFExportTab {
             this.paperBounds.topRight
         ];
 
+        // Calculate sidebar offset for asymmetric padding
+        const sidebarOffset = this.getSidebarOffset();
+
         this.map.fitBounds(mapBounds, {
-            padding: 50,
+            padding: {
+                top: 50,
+                bottom: 50,
+                left: sidebarOffset + 50,
+                right: 50
+            },
             duration: 1000
         });
+    }
+
+    /**
+     * Gets the current sidebar offset in pixels.
+     * @returns {number} Sidebar width in pixels
+     */
+    getSidebarOffset() {
+        const panelElement = document.querySelector('.sidebar-panel[data-expanded="true"]');
+        if (panelElement) {
+            return 376; // Sidebar (56px) + panel (320px)
+        }
+
+        const featurePanel = document.querySelector('.feature-panel[data-expanded="true"]');
+        if (featurePanel) {
+            return 376;
+        }
+
+        return 56; // Just collapsed sidebar
     }
 
     showPreview() {
@@ -436,7 +477,7 @@ export default class PDFExportTab {
         try {
             const source = hiddenMap.getSource(sourceConfig.sourceName);
             if (!source) {
-                console.warn(`Source ${sourceConfig.sourceName} not found in hidden map`);
+                // Source doesn't exist - this is expected if user hasn't created features of this type
                 return false;
             }
 
@@ -566,7 +607,17 @@ export default class PDFExportTab {
             modal = this.showExportModal();
             this.updateProgress(10, 'Inicializando...');
 
-            const Gdal = await initGdalJs({ path: `http://${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}/vendors/gdal`, useWorker: false })
+            // Build GDAL path - use window.location for local dev or configured URL for production
+            let gdalBasePath;
+            if (config.url_paths.url && config.url_paths.url !== 'IP:PORT') {
+                gdalBasePath = `http://${config.url_paths.url}${config.url_paths.prefix_name ? `/${config.url_paths.prefix_name}` : ''}`;
+            } else {
+                // Local development - use current origin
+                gdalBasePath = window.location.origin;
+            }
+            const gdalPath = `${gdalBasePath}/vendors/gdal`;
+
+            const Gdal = await initGdalJs({ path: gdalPath, useWorker: false })
 
             await new Promise(resolve => setTimeout(resolve, 200));
 

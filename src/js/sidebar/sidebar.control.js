@@ -87,6 +87,9 @@ export class SidebarControl {
             [SIDEBAR_TABS.EXPORTAR]: null,
         };
 
+        // Track the currently active tab locally (needed for deactivation on close)
+        this._activeTab = null;
+
         // Current feature panel content cleanup
         this._currentFeaturePanelCleanup = null;
 
@@ -1046,6 +1049,14 @@ export class SidebarControl {
      * @param {string} tabId - Tab to show
      */
     _expandToTab(tabId) {
+        // Deactivate the previous tab if switching to a different one
+        if (this._activeTab && this._activeTab !== tabId) {
+            this._deactivateTab(this._activeTab);
+        }
+
+        // Track the active tab locally
+        this._activeTab = tabId;
+
         // Update collapsed sidebar active state
         this._collapsedSidebar.setActiveTab(tabId);
 
@@ -1061,8 +1072,27 @@ export class SidebarControl {
      * @private
      */
     _collapsePanel() {
+        // Deactivate the current tab before collapsing
+        // Use local tracking since stateManager may have already cleared activeTab
+        if (this._activeTab) {
+            this._deactivateTab(this._activeTab);
+            this._activeTab = null;
+        }
+
         this._collapsedSidebar.setActiveTab(null);
         this._panel.collapse();
+    }
+
+    /**
+     * Deactivates a tab component if it has an onDeactivate method.
+     * @private
+     * @param {string} tabId - Tab identifier
+     */
+    _deactivateTab(tabId) {
+        const component = this._tabComponents[tabId];
+        if (component && typeof component.onDeactivate === 'function') {
+            component.onDeactivate();
+        }
     }
 
     /**

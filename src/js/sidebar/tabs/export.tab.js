@@ -145,10 +145,22 @@ export class ExportTab {
             this._renderPdfContent();
         } else if (!this._pdfContentExpanded && this._pdfExportTab) {
             // Hide the PDF preview on map when collapsing
-            if (this._pdfExportTab.hide) {
-                this._pdfExportTab.hide();
-            }
+            this._hidePdfPreview();
         }
+    }
+
+    /**
+     * Hides the PDF preview from the map.
+     * @private
+     */
+    _hidePdfPreview() {
+        if (!this._pdfExportTab || !this._pdfExportTab.map) return;
+
+        this._pdfExportTab.isVisible = false;
+        if (this._pdfExportTab.hidePreview) {
+            this._pdfExportTab.hidePreview();
+        }
+        this._pdfExportTab.map.off('move', this._pdfExportTab.onMapMove);
     }
 
     /**
@@ -164,18 +176,22 @@ export class ExportTab {
         // Try to get UI from PDFExportTab
         if (this._pdfExportTab.createUI) {
             const pdfUIString = this._pdfExportTab.createUI();
-            // createUI returns HTML string, need to parse it
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = pdfUIString;
-            this._pdfContentContainer.appendChild(tempDiv);
+            // createUI returns HTML string, insert directly without wrapper
+            this._pdfContentContainer.innerHTML = pdfUIString;
 
-            // Activate the PDF preview on map
-            if (this._pdfExportTab.show) {
-                this._pdfExportTab.show();
-            }
+            // Show the preview on the map (adds source and layers)
+            this._pdfExportTab.isVisible = true;
+            this._pdfExportTab.showPreview();
 
-            // Setup event listeners for the PDF controls
-            this._setupPdfControls();
+            // Calculate bounds using visible center from the start
+            // This ensures the polygon appears in the correct position immediately
+            this._pdfExportTab.updateBounds();
+            this._pdfExportTab.zoomToPreviewArea();
+
+            this._pdfExportTab.map.on('move', this._pdfExportTab.onMapMove);
+
+            // Setup event listeners manually since we control the DOM here
+            this._setupPdfEventListeners();
         } else {
             // Fallback: create simple export button
             this._createFallbackPdfUI();
@@ -186,41 +202,38 @@ export class ExportTab {
      * Sets up event listeners for PDF export controls.
      * @private
      */
-    _setupPdfControls() {
-        // Orientation buttons
-        const orientationBtns = this._pdfContentContainer.querySelectorAll('.orientation-button');
-        orientationBtns.forEach(btn => {
-            addDomListener(this, btn, 'click', () => {
-                orientationBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                if (this._pdfExportTab) {
-                    this._pdfExportTab.orientation = btn.dataset.orientation;
-                    if (this._pdfExportTab.updatePreview) {
-                        this._pdfExportTab.updatePreview();
-                    }
-                }
-            });
-        });
-
+    _setupPdfEventListeners() {
         // Scale select
-        const scaleSelect = this._pdfContentContainer.querySelector('#pdf-scale-select, .scale-select');
+        const scaleSelect = this._pdfContentContainer.querySelector('#pdf-scale-select');
         if (scaleSelect) {
             addDomListener(this, scaleSelect, 'change', (e) => {
                 if (this._pdfExportTab) {
                     this._pdfExportTab.scale = e.target.value;
-                    if (this._pdfExportTab.updatePreview) {
-                        this._pdfExportTab.updatePreview();
-                    }
+                    this._pdfExportTab.updateBounds();
+                    this._pdfExportTab.zoomToPreviewArea();
                 }
             });
         }
 
+        // Orientation radio buttons
+        const orientationInputs = this._pdfContentContainer.querySelectorAll('input[name="pdf-orientation"]');
+        orientationInputs.forEach(input => {
+            addDomListener(this, input, 'change', (e) => {
+                if (this._pdfExportTab) {
+                    this._pdfExportTab.orientation = e.target.value;
+                    this._pdfExportTab.updateBounds();
+                }
+            });
+        });
+
         // Export button
-        const exportBtn = this._pdfContentContainer.querySelector('.export-button, #pdf-export-btn');
+        const exportBtn = this._pdfContentContainer.querySelector('#pdf-export-btn');
         if (exportBtn) {
             addDomListener(this, exportBtn, 'click', () => {
-                if (this._pdfExportTab.onExportClick) {
+                if (this._pdfExportTab && this._pdfExportTab.onExportClick) {
                     this._pdfExportTab.onExportClick();
+                } else {
+                    showError('Serviço de exportação PDF não disponível');
                 }
             });
         }
@@ -356,13 +369,35 @@ export class ExportTab {
     }
 
     /**
+     * Called when the tab is deactivated (switching to another tab or sidebar closes).
+     * Hides the PDF preview if it was active.
+     */
+    onDeactivate() {
+        // Collapse PDF content and hide preview
+        if (this._pdfContentExpanded) {
+            this._pdfContentExpanded = false;
+            if (this._pdfContentContainer) {
+                this._pdfContentContainer.dataset.visible = 'false';
+            }
+
+            // Reset arrow direction
+            const pdfBtn = this._container?.querySelector('#export-option-pdf');
+            const arrow = pdfBtn?.querySelector('.export-option-arrow svg');
+            if (arrow) {
+                arrow.style.transform = 'rotate(0deg)';
+            }
+
+            // Hide the PDF preview on map
+            this._hidePdfPreview();
+        }
+    }
+
+    /**
      * Destroys the component.
      */
     destroy() {
         // Hide PDF preview if it was active
-        if (this._pdfExportTab && this._pdfExportTab.hide) {
-            this._pdfExportTab.hide();
-        }
+        this._hidePdfPreview();
 
         cleanup(this);
         removeElement(this._container);
