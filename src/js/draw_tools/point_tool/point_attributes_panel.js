@@ -103,6 +103,7 @@ export function addPointAttributesToPanel(panel, selectedFeatures, pointControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => pointControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => pointControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

@@ -4,7 +4,7 @@
  * @fileoverview Feature header components for attribute panels.
  */
 
-import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature } from '../../store';
+import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature, getGroupManager } from '../../store';
 import { IDUtils } from '../../utilities';
 
 /**
@@ -325,6 +325,7 @@ function getFeatureTypeName(featureType) {
 
 /**
  * Selects all features in a layer.
+ * Respects groups: only selects features from groups where ALL features are in the target layer.
  *
  * @param {string} layerId - Layer ID
  * @param {Object} selectionManager - SelectionManager instance
@@ -333,6 +334,7 @@ function getFeatureTypeName(featureType) {
 async function selectAllInLayer(layerId, selectionManager, uiManager) {
     try {
         const allFeatures = [];
+        const allFeaturesMap = new Map(); // Store all features for group lookup
 
         for (const [_featureType, control] of selectionManager.controls) {
             const sourceNames = control.getSourceNames();
@@ -345,6 +347,13 @@ async function selectAllInLayer(layerId, selectionManager, uiManager) {
                 try {
                     const data = await source.getData();
                     if (data && data.features) {
+                        // Store all features for group membership check
+                        for (const f of data.features) {
+                            if (f.properties?.id) {
+                                allFeaturesMap.set(`${f.properties.source}:${f.properties.id}`, f);
+                            }
+                        }
+
                         const layerFeatures = data.features.filter(f => {
                             const featureLayerId = f.properties?.layerId || 'default';
                             return featureLayerId === layerId;
@@ -363,9 +372,53 @@ async function selectAllInLayer(layerId, selectionManager, uiManager) {
             return;
         }
 
+        // Filter features respecting groups
+        const groupManager = getGroupManager();
+        const skippedGroups = new Set(); // Groups that should NOT be selected
+        const featuresToSelect = [];
+
+        // First pass: identify groups to skip (not all features in layer)
+        for (const feature of selectableFeatures) {
+            const featureType = feature.properties?.source;
+            const featureId = feature.properties?.id;
+            if (!featureType || !featureId) continue;
+
+            const group = groupManager.getFeatureGroup(featureType, featureId);
+
+            if (group && !skippedGroups.has(group.id)) {
+                // Check if ALL features in group are in the target layer
+                const allInLayer = group.features.every(ref => {
+                    const refFeature = allFeaturesMap.get(`${ref.type}:${ref.id}`);
+                    const refLayerId = refFeature?.properties?.layerId || 'default';
+                    return refLayerId === layerId;
+                });
+
+                if (!allInLayer) {
+                    // Mark group to be skipped
+                    skippedGroups.add(group.id);
+                }
+            }
+        }
+
+        // Second pass: select features not in skipped groups
+        for (const feature of selectableFeatures) {
+            const featureType = feature.properties?.source;
+            const featureId = feature.properties?.id;
+            if (!featureType || !featureId) continue;
+
+            const group = groupManager.getFeatureGroup(featureType, featureId);
+
+            if (group && skippedGroups.has(group.id)) {
+                // Feature belongs to a group not fully in layer - skip
+                continue;
+            }
+
+            featuresToSelect.push(feature);
+        }
+
         selectionManager.deselectAllFeatures();
 
-        for (const feature of selectableFeatures) {
+        for (const feature of featuresToSelect) {
             const featureType = feature.properties?.source;
             const featureId = feature.properties?.id;
             if (featureType && featureId) {
@@ -384,6 +437,7 @@ async function selectAllInLayer(layerId, selectionManager, uiManager) {
 
 /**
  * Selects all features of a type in a specific layer.
+ * Respects groups: only selects features from homogeneous groups (all same type) in the target layer.
  *
  * @param {string} featureType - Feature type
  * @param {string} layerId - Layer ID
@@ -428,9 +482,47 @@ async function selectAllOfTypeInLayer(featureType, layerId, selectionManager, ui
             return;
         }
 
+        // Filter features respecting groups
+        const groupManager = getGroupManager();
+        const skippedGroups = new Set(); // Groups that should NOT be selected (heterogeneous)
+        const featuresToSelect = [];
+
+        // First pass: identify heterogeneous groups to skip
+        for (const feature of filteredFeatures) {
+            const featureId = feature.properties?.id;
+            if (!featureId) continue;
+
+            const group = groupManager.getFeatureGroup(featureType, featureId);
+
+            if (group && !skippedGroups.has(group.id)) {
+                // Check if all features in group are of the target type
+                const allSameType = group.features.every(f => f.type === featureType);
+
+                if (!allSameType) {
+                    // Mark heterogeneous group to be skipped
+                    skippedGroups.add(group.id);
+                }
+            }
+        }
+
+        // Second pass: select features not in skipped groups
+        for (const feature of filteredFeatures) {
+            const featureId = feature.properties?.id;
+            if (!featureId) continue;
+
+            const group = groupManager.getFeatureGroup(featureType, featureId);
+
+            if (group && skippedGroups.has(group.id)) {
+                // Feature belongs to a heterogeneous group - skip
+                continue;
+            }
+
+            featuresToSelect.push(feature);
+        }
+
         selectionManager.deselectAllFeatures();
 
-        for (const feature of filteredFeatures) {
+        for (const feature of featuresToSelect) {
             const featureId = feature.properties?.id;
             if (featureId) {
                 if (!selectionManager.isFeatureSelected(featureType, featureId)) {
@@ -526,6 +618,7 @@ function closeAllFeatureDropdowns(animated = false) {
 
 /**
  * Selects all features of same type as current selection.
+ * Respects groups: heterogeneous groups are not selected, homogeneous groups are selected entirely.
  *
  * @param {Array} selectedFeatures - Currently selected features
  * @param {Object} selectionManager - SelectionManager instance
@@ -566,9 +659,48 @@ async function selectAllFeaturesOfSameType(selectedFeatures, selectionManager, u
         return;
     }
 
+    // Filter features respecting groups
+    const groupManager = getGroupManager();
+    const skippedGroups = new Set(); // Groups that should NOT be selected (heterogeneous)
+    const featuresToSelect = [];
+
+    // First pass: identify heterogeneous groups to skip
+    for (const feature of allFeaturesOfType) {
+        const featureId = feature.properties?.id;
+        if (!featureId) continue;
+
+        const group = groupManager.getFeatureGroup(targetType, featureId);
+
+        if (group && !skippedGroups.has(group.id)) {
+            // Check if all features in group are of the target type
+            const allSameType = group.features.every(f => f.type === targetType);
+
+            if (!allSameType) {
+                // Mark heterogeneous group to be skipped
+                skippedGroups.add(group.id);
+            }
+        }
+    }
+
+    // Second pass: select features not in skipped groups
+    for (const feature of allFeaturesOfType) {
+        const featureId = feature.properties?.id;
+        if (!featureId) continue;
+
+        const group = groupManager.getFeatureGroup(targetType, featureId);
+
+        if (group && skippedGroups.has(group.id)) {
+            // Feature belongs to a heterogeneous group - skip
+            continue;
+        }
+
+        // Feature is either ungrouped or in a homogeneous group - select it
+        featuresToSelect.push(feature);
+    }
+
     selectionManager.deselectAllFeatures();
 
-    for (const feature of allFeaturesOfType) {
+    for (const feature of featuresToSelect) {
         const featureId = feature.properties.id;
         if (!selectionManager.isFeatureSelected(targetType, featureId)) {
             await selectionManager.toggleFeatureSelection(targetType, featureId, feature, false);

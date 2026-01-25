@@ -292,8 +292,11 @@ class GroupManager {
 
     /**
      * Duplicate groups from one map to another (for map copy)
+     * @param {string} sourceMapName - Source map name
+     * @param {string} targetMapName - Target map name
+     * @param {Map} [featureIdMapping=null] - Mapping of old feature IDs to new feature IDs
      */
-    async duplicateMapGroups(sourceMapName, targetMapName) {
+    async duplicateMapGroups(sourceMapName, targetMapName, featureIdMapping = null) {
         try {
             const sourceGroupsData = await getMapGroupsFromDB(sourceMapName);
 
@@ -305,10 +308,23 @@ class GroupManager {
 
             Object.values(sourceGroupsData).forEach(group => {
                 const newGroupId = IDUtils.generateUniqueId();
-                duplicatedGroups[newGroupId] = {
+                const newGroup = {
                     ...group,
                     id: newGroupId,
                 };
+
+                // Update feature IDs if mapping is provided
+                if (featureIdMapping && group.features && Array.isArray(group.features)) {
+                    newGroup.features = group.features.map(featureRef => {
+                        const newFeatureId = featureIdMapping.get(featureRef.id);
+                        return {
+                            ...featureRef,
+                            id: newFeatureId || featureRef.id
+                        };
+                    });
+                }
+
+                duplicatedGroups[newGroupId] = newGroup;
             });
 
             await setMapGroups(targetMapName, duplicatedGroups);

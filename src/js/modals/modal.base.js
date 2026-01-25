@@ -166,15 +166,23 @@ export class ModalBase {
         if (!this._isOpen) return;
 
         this._isOpen = false;
-        this._overlay.dataset.visible = 'false';
-        this._overlay.setAttribute('aria-hidden', 'true');
-        document.body.style.overflow = '';
 
-        // Restore focus
+        // Move focus out BEFORE setting aria-hidden to avoid accessibility warning
+        // "Blocked aria-hidden on an element because its descendant retained focus"
         if (this._previousActiveElement) {
             this._previousActiveElement.focus();
             this._previousActiveElement = null;
+        } else {
+            // Fallback: blur current focus to prevent aria-hidden warning
+            const activeElement = document.activeElement;
+            if (activeElement && this._overlay.contains(activeElement)) {
+                activeElement.blur();
+            }
         }
+
+        this._overlay.dataset.visible = 'false';
+        this._overlay.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
     }
 
     /**

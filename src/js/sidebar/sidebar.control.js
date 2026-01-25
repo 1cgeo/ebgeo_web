@@ -39,6 +39,7 @@ import { createFeatureIdentification, createMultiSelectionHeader } from './compo
 import { createPhotoGallery } from './components/feature-photo-gallery.js';
 import { createFeatureTabs } from './components/feature-tabs.js';
 import { createLocationSection } from './components/feature-location-section.js';
+import { createGroupTypeSelector } from './components/group-type-selector.js';
 
 /**
  * Main sidebar controller class.
@@ -808,7 +809,7 @@ export class SidebarControl {
         }
 
         // 3. Tabs (Estilo / Atributos) - only show for single selection or multiple same-type
-        // For mixed types, only show identification and delete button
+        // For mixed types, show group type selector to edit by type
         if (!isMixedTypes) {
             const featureTabs = createFeatureTabs({
                 featureId,
@@ -832,6 +833,121 @@ export class SidebarControl {
                     console.error(`Error creating attribute panel for ${featureType}:`, error);
                 }
             }
+        } else {
+            // Mixed types: show group type selector
+            const typeTabsContainer = document.createElement('div');
+            typeTabsContainer.className = 'group-type-tabs-container';
+
+            // Track state for each type that was edited
+            // Key: type, Value: { control, features, initialPropertiesMap }
+            const editedTypesState = new Map();
+
+            const typeSelector = createGroupTypeSelector({
+                selectedFeatures,
+                onTypeSelect: (selectedType, featuresOfType) => {
+                    // Clear previous tabs content
+                    typeTabsContainer.innerHTML = '';
+
+                    // Get control for this type
+                    const typeControl = this._selectionManager?.controls.get(selectedType);
+
+                    // Store initial properties for this type if not already stored
+                    if (!editedTypesState.has(selectedType)) {
+                        editedTypesState.set(selectedType, {
+                            control: typeControl,
+                            features: featuresOfType,
+                            initialPropertiesMap: new Map(
+                                featuresOfType.map(f => [f.properties.id, { ...f.properties }])
+                            )
+                        });
+                    }
+
+                    // Create tabs for this type (multi-selection mode)
+                    const typeTabs = createFeatureTabs({
+                        featureId: featuresOfType[0]?.properties?.id,
+                        featureType: selectedType,
+                        singleSelection: false
+                    });
+                    typeTabsContainer.appendChild(typeTabs.container);
+
+                    // Inject style controls for this type (hide buttons, we'll add global ones)
+                    if (typeControl && typeControl.hasAttributePanel && typeControl.hasAttributePanel()) {
+                        try {
+                            typeControl.createAttributePanel(
+                                typeTabs.styleTab,
+                                featuresOfType,
+                                this._selectionManager,
+                                this._uiManager,
+                                { hideHeader: true, hideButtons: true }
+                            );
+                        } catch (error) {
+                            console.error(`Error creating attribute panel for ${selectedType}:`, error);
+                        }
+                    }
+                }
+            });
+
+            container.appendChild(typeSelector.element);
+            container.appendChild(typeTabsContainer);
+
+            // Save all edited types function
+            const saveAllEditedTypes = async () => {
+                for (const [_type, state] of editedTypesState) {
+                    const { control, features, initialPropertiesMap } = state;
+                    if (control && typeof control.saveFeatures === 'function') {
+                        await control.saveFeatures(features, initialPropertiesMap);
+                    }
+                }
+            };
+
+            // Discard all edited types function
+            const discardAllEditedTypes = async () => {
+                for (const [_type, state] of editedTypesState) {
+                    const { control, features, initialPropertiesMap } = state;
+                    if (control && typeof control.discardChangeFeatures === 'function') {
+                        await control.discardChangeFeatures(features, initialPropertiesMap);
+                    }
+                }
+            };
+
+            // Create global Save/Discard buttons for all types
+            const globalButtonsContainer = document.createElement('div');
+            globalButtonsContainer.className = 'group-type-global-buttons';
+
+            const globalButtonsRow = document.createElement('div');
+            globalButtonsRow.className = 'attr-modern-buttons-row';
+
+            const globalSaveButton = document.createElement('button');
+            globalSaveButton.textContent = 'Salvar';
+            globalSaveButton.className = 'group-type-btn-save';
+            globalSaveButton.type = 'button';
+            globalSaveButton.addEventListener('click', async () => {
+                await saveAllEditedTypes();
+                this._selectionManager?.deselectAllFeatures();
+            });
+            globalButtonsRow.appendChild(globalSaveButton);
+
+            const globalDiscardButton = document.createElement('button');
+            globalDiscardButton.textContent = 'Descartar';
+            globalDiscardButton.className = 'group-type-btn-discard';
+            globalDiscardButton.type = 'button';
+            globalDiscardButton.addEventListener('click', async () => {
+                await discardAllEditedTypes();
+                this._selectionManager?.deselectAllFeatures();
+            });
+            globalButtonsRow.appendChild(globalDiscardButton);
+
+            globalButtonsContainer.appendChild(globalButtonsRow);
+            container.appendChild(globalButtonsContainer);
+
+            // Cleanup: save all edited types before destroying
+            cleanupFunctions.push(() => {
+                // Save synchronously to avoid race conditions
+                // Note: saveAllEditedTypes is async but we call it without await
+                // since cleanup functions are called synchronously
+                saveAllEditedTypes();
+                typeSelector.cleanup();
+            });
         }
 
         // 4. Location section (only for single selection)

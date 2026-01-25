@@ -158,6 +158,7 @@ export function addArrowAttributesToPanel(panel, selectedFeatures, arrowControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => arrowControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => arrowControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

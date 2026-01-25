@@ -1,8 +1,6 @@
 // Path: js/coordinates/mouse-coordinates.control.js
 import {
     COORDINATE_FORMATS,
-    getPlaceholderForFormat,
-    parseCoordinates,
     formatCoordinates,
     getDisplayFormat
 } from '../utilities';
@@ -11,6 +9,7 @@ import { GridControl } from '../grid';
 import { FrameControl } from '../frame';
 import config from '../config.js';
 import { getStateManager } from '../store';
+import { GoToCoordinatesModal } from '../modals/goto-coordinates.modal.js';
 
 /** Throttle interval for coordinate updates (50ms = ~20 FPS, sufficient for display) */
 const COORDINATE_UPDATE_THROTTLE_MS = 50;
@@ -45,6 +44,9 @@ class MouseCoordinatesControl {
 
         /** @type {Array<Function>} Cleanup functions for StateManager subscriptions */
         this._unsubscribers = [];
+
+        /** @type {GoToCoordinatesModal|null} Go to coordinates modal instance */
+        this._goToModal = null;
 
         /** @type {number} Counter to track latest update request and prevent race conditions */
         this._updateRequestId = 0;
@@ -351,7 +353,7 @@ class MouseCoordinatesControl {
         this._container.appendChild(this._innerContainer);
         this._container.appendChild(this._formatSelector);
 
-        this._createFlyToModal();
+        this._initGoToModal();
 
         document.addEventListener('click', this._closeFormatSelector.bind(this));
 
@@ -442,173 +444,19 @@ class MouseCoordinatesControl {
         });
     }
 
-    _createFlyToModal() {
-        this._modal = document.createElement('div');
-        this._modal.className = 'coordinates-modal';
-        this._modal.style.display = 'none';
-
-        const modalContent = document.createElement('div');
-        modalContent.className = 'coordinates-modal-content';
-
-        const modalHeader = document.createElement('div');
-        modalHeader.className = 'coordinates-modal-header';
-        const modalTitle = document.createElement('h3');
-        modalTitle.textContent = 'Ir para coordenadas';
-        const closeButton = document.createElement('span');
-        closeButton.className = 'coordinates-modal-close';
-        closeButton.innerHTML = '&times;';
-        closeButton.addEventListener('click', () => {
-            this._modal.style.display = 'none';
+    /**
+     * Initializes the go to coordinates modal.
+     * @private
+     */
+    _initGoToModal() {
+        this._goToModal = new GoToCoordinatesModal({
+            currentFormat: this._currentFormat,
+            onFlyTo: (lng, lat) => this._flyToCoordinates(lng, lat),
+            onCreatePoint: (lng, lat) => this._createPointAtCoordinates(lng, lat),
+            onCreateMilitarySymbol: (lng, lat) => this._createMilitarySymbolAtCoordinates(lng, lat),
+            onCreateCoordinationMeasure: (lng, lat) => this._createCoordinationMeasureAtCoordinates(lng, lat)
         });
-        modalHeader.appendChild(modalTitle);
-        modalHeader.appendChild(closeButton);
-
-        const formatContainer = document.createElement('div');
-        formatContainer.className = 'coordinates-modal-format';
-        const formatLabel = document.createElement('label');
-        formatLabel.textContent = 'Formato:';
-        const formatSelect = document.createElement('select');
-        formatSelect.id = 'coordinates-format-select';
-
-        this._formatOptions.forEach(format => {
-            const option = document.createElement('option');
-            option.value = format.id;
-            option.textContent = format.label;
-            if (format.id === this._currentFormat) {
-                option.selected = true;
-            }
-            formatSelect.appendChild(option);
-        });
-
-        formatContainer.appendChild(formatLabel);
-        formatContainer.appendChild(formatSelect);
-
-        const inputContainer = document.createElement('div');
-        inputContainer.className = 'coordinates-modal-input';
-        const inputLabel = document.createElement('label');
-        inputLabel.textContent = 'Coordenadas:';
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.id = 'coordinates-input';
-        input.placeholder = getPlaceholderForFormat(this._currentFormat);
-
-        formatSelect.addEventListener('change', (e) => {
-            input.placeholder = getPlaceholderForFormat(e.target.value);
-        });
-
-        inputContainer.appendChild(inputLabel);
-        inputContainer.appendChild(input);
-
-        const validationMessage = document.createElement('div');
-        validationMessage.className = 'coordinates-validation-message';
-        validationMessage.id = 'coordinates-validation';
-
-        const buttonContainer = document.createElement('div');
-        buttonContainer.className = 'coordinates-modal-buttons';
-
-        const flyButton = document.createElement('button');
-        flyButton.textContent = 'Ir para';
-        flyButton.classList.add('tool-button', 'pure-material-tool-button-contained');
-        flyButton.addEventListener('click', async () => {
-            const formatId = formatSelect.value;
-            const inputValue = input.value.trim();
-            const coordinates = await parseCoordinates(inputValue, formatId);
-
-            if (coordinates) {
-                this._flyToCoordinates(coordinates.lng, coordinates.lat);
-                this._modal.style.display = 'none';
-                input.value = '';
-                validationMessage.textContent = '';
-                validationMessage.className = 'coordinates-validation-message';
-            } else {
-                validationMessage.textContent = 'Coordenadas inválidas para o formato selecionado';
-                validationMessage.className = 'coordinates-validation-message error';
-            }
-        });
-
-        const createTypeSelect = document.createElement('select');
-        createTypeSelect.id = 'coordinates-create-type';
-        createTypeSelect.style.cssText = 'margin-left: 8px; padding: 8px; border-radius: 4px; border: 1px solid #ccc;';
-
-        const pointOption = document.createElement('option');
-        pointOption.value = 'point';
-        pointOption.textContent = 'Ponto';
-
-        const militaryOption = document.createElement('option');
-        militaryOption.value = 'military';
-        militaryOption.textContent = 'Simbologia militar';
-
-        const coordinationOption = document.createElement('option');
-        coordinationOption.value = 'coordination';
-        coordinationOption.textContent = 'Medida de coordenação';
-
-        createTypeSelect.appendChild(pointOption);
-        createTypeSelect.appendChild(militaryOption);
-        createTypeSelect.appendChild(coordinationOption);
-
-        const createButton = document.createElement('button');
-        createButton.textContent = 'Criar';
-        createButton.classList.add('tool-button', 'pure-material-tool-button-contained');
-        createButton.addEventListener('click', async () => {
-            const formatId = formatSelect.value;
-            const inputValue = input.value.trim();
-            const coordinates = await parseCoordinates(inputValue, formatId);
-
-            if (!coordinates) {
-                validationMessage.textContent = 'Coordenadas inválidas para o formato selecionado';
-                validationMessage.className = 'coordinates-validation-message error';
-                return;
-            }
-
-            const createType = createTypeSelect.value;
-
-            switch (createType) {
-                case 'point':
-                    this._createPointAtCoordinates(coordinates.lng, coordinates.lat);
-                    break;
-                case 'military':
-                    this._createMilitarySymbolAtCoordinates(coordinates.lng, coordinates.lat);
-                    break;
-                case 'coordination':
-                    this._createCoordinationMeasureAtCoordinates(coordinates.lng, coordinates.lat);
-                    break;
-            }
-
-            this._modal.style.display = 'none';
-            input.value = '';
-            validationMessage.textContent = '';
-            validationMessage.className = 'coordinates-validation-message';
-        });
-
-        const cancelButton = document.createElement('button');
-        cancelButton.textContent = 'Cancelar';
-        cancelButton.classList.add('tool-button', 'pure-material-tool-button-contained');
-        cancelButton.addEventListener('click', () => {
-            this._modal.style.display = 'none';
-            input.value = '';
-            validationMessage.textContent = '';
-            validationMessage.className = 'coordinates-validation-message';
-        });
-
-        buttonContainer.appendChild(flyButton);
-        buttonContainer.appendChild(createButton);
-        buttonContainer.appendChild(createTypeSelect);
-        buttonContainer.appendChild(cancelButton);
-
-        modalContent.appendChild(modalHeader);
-        modalContent.appendChild(formatContainer);
-        modalContent.appendChild(inputContainer);
-        modalContent.appendChild(validationMessage);
-        modalContent.appendChild(buttonContainer);
-        this._modal.appendChild(modalContent);
-
-        document.body.appendChild(this._modal);
-
-        this._modal.addEventListener('click', (e) => {
-            if (e.target === this._modal) {
-                this._modal.style.display = 'none';
-            }
-        });
+        this._goToModal.render();
     }
 
     async _createPointAtCoordinates(lng, lat) {
@@ -634,24 +482,14 @@ class MouseCoordinatesControl {
         }
     }
 
+    /**
+     * Opens the go to coordinates modal.
+     * @private
+     */
     _openFlyToModal() {
-        if (this._modal) {
-            const formatSelect = document.getElementById('coordinates-format-select');
-            formatSelect.value = this._currentFormat;
-
-            const input = document.getElementById('coordinates-input');
-            input.placeholder = getPlaceholderForFormat(this._currentFormat);
-            input.value = '';
-
-            const validationMessage = document.getElementById('coordinates-validation');
-            validationMessage.textContent = '';
-            validationMessage.className = 'coordinates-validation-message';
-
-            this._modal.style.display = 'block';
-
-            setTimeout(() => {
-                input.focus();
-            }, 100);
+        if (this._goToModal) {
+            this._goToModal.setCurrentFormat(this._currentFormat);
+            this._goToModal.show(this._currentFormat);
         }
     }
 
@@ -903,8 +741,10 @@ class MouseCoordinatesControl {
         this._map.off('mousemove', this._onMouseMove);
         this._map.off('terrain', this._onTerrainChange);
 
-        if (this._modal && this._modal.parentNode) {
-            this._modal.parentNode.removeChild(this._modal);
+        // Destroy the go to coordinates modal
+        if (this._goToModal) {
+            this._goToModal.destroy();
+            this._goToModal = null;
         }
 
         this._container.parentNode.removeChild(this._container);

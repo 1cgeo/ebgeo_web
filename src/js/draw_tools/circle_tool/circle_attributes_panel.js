@@ -161,6 +161,7 @@ export function addCircleAttributesToPanel(panel, selectedFeatures, circleContro
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => circleControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => circleControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

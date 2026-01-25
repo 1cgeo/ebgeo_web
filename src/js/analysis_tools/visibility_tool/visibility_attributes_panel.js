@@ -99,32 +99,35 @@ export function addVisibilityAttributesToPanel(panel, selectedFeatures, visibili
     }));
 
     // Custom buttons for visibility (with special save/discard behavior)
-    const buttonContainer = document.createElement('div');
-    buttonContainer.className = 'attr-modern-buttons';
+    // Skip if hidden (for group type editing)
+    if (!options.hideButtons) {
+        const buttonContainer = document.createElement('div');
+        buttonContainer.className = 'attr-modern-buttons';
 
-    const buttonRow = document.createElement('div');
-    buttonRow.className = 'attr-modern-buttons-row';
+        const buttonRow = document.createElement('div');
+        buttonRow.className = 'attr-modern-buttons-row';
 
-    const saveButton = document.createElement('button');
-    saveButton.className = 'attr-modern-btn attr-modern-btn-save';
-    saveButton.textContent = 'Salvar';
-    saveButton.onclick = () => {
-        clearTimeout(observerHeightDebounceTimer);
-        visibilityControl.saveFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
-    };
+        const saveButton = document.createElement('button');
+        saveButton.className = 'attr-modern-btn attr-modern-btn-save';
+        saveButton.textContent = 'Salvar';
+        saveButton.onclick = () => {
+            clearTimeout(observerHeightDebounceTimer);
+            visibilityControl.saveFeatures(selectedFeatures, initialPropertiesMap);
+            selectionManager.deselectAllFeatures();
+        };
 
-    const discardButton = document.createElement('button');
-    discardButton.className = 'attr-modern-btn attr-modern-btn-discard';
-    discardButton.textContent = 'Descartar';
-    discardButton.onclick = () => {
-        clearTimeout(observerHeightDebounceTimer);
-        visibilityControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
-        selectionManager.deselectAllFeatures();
-    };
+        const discardButton = document.createElement('button');
+        discardButton.className = 'attr-modern-btn attr-modern-btn-discard';
+        discardButton.textContent = 'Descartar';
+        discardButton.onclick = () => {
+            clearTimeout(observerHeightDebounceTimer);
+            visibilityControl.discardChangeFeatures(selectedFeatures, initialPropertiesMap);
+            selectionManager.deselectAllFeatures();
+        };
 
-    buttonRow.appendChild(saveButton);
-    buttonRow.appendChild(discardButton);
-    buttonContainer.appendChild(buttonRow);
-    panel.appendChild(buttonContainer);
+        buttonRow.appendChild(saveButton);
+        buttonRow.appendChild(discardButton);
+        buttonContainer.appendChild(buttonRow);
+        panel.appendChild(buttonContainer);
+    }
 }

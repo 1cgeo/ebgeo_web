@@ -154,6 +154,7 @@ export function addPolygonAttributesToPanel(panel, selectedFeatures, polygonCont
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => polygonControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => polygonControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

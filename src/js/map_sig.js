@@ -448,6 +448,7 @@ registerControl('Add3DModelsViewerControl', add3DModelsViewerControl);
 registerControl('AddStreetViewControl', addStreetViewControl);
 registerControl('RectangleSelectionControl', rectangleSelectionControl);
 registerControl('VectorTileInfoControl', vectorTileInfoControl);
+registerControl('MapControl', mapControl);
 
 // ===== GLOBAL ERROR HANDLING =====
 

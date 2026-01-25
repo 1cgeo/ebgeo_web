@@ -139,6 +139,7 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => lineControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => lineControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

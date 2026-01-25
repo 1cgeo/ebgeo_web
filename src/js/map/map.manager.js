@@ -15,7 +15,9 @@ import {
     getMapDataStore,
     getColorUsage,
     getMapNotes,
-    setMapOrder
+    setMapOrder,
+    getLayerManager,
+    getLayersRepo
 } from '../store';
 
 import { IDUtils, showError as _showError, showWarning } from '../utilities';
@@ -136,13 +138,18 @@ class MapManager {
             const originalColorUsage = await getColorUsage(mapName);
             const originalNotes = await getMapNotes(mapName);
 
-            const { newMapData } = await IDUtils.regenerateMapIds(originalMapData, newMapName.trim());
+            // Duplicate layers first to get the layer ID mapping
+            const layerManager = getLayerManager();
+            const layerIdMapping = await layerManager.duplicateMapLayers(mapName, newMapName.trim());
+
+            // Regenerate map IDs with layer ID mapping to update feature layerIds
+            const { newMapData, idMapping } = await IDUtils.regenerateMapIds(originalMapData, newMapName.trim(), layerIdMapping);
 
             // Pass colors and notes to optimize and preserve data
             await addMap(newMapName.trim(), newMapData, originalColorUsage, originalNotes);
 
-            // Duplicate groups from original map
-            await groupManager.duplicateMapGroups(mapName, newMapName.trim());
+            // Duplicate groups from original map with feature ID mapping
+            await groupManager.duplicateMapGroups(mapName, newMapName.trim(), idMapping);
 
             setCurrentMap(newMapName.trim());
 
@@ -198,16 +205,20 @@ class MapManager {
 
         try {
             let totalFeatures = 0;
+            const layerManager = getLayerManager();
 
             for (const mapName of selectedMapNames) {
                 const mapData = await getMapDataStore(mapName);
                 if (mapData && mapData.features) {
-                    // Use regenerateMapIds to regenerate IDs and duplicate resources
-                    const { newMapData, idMapping } = await IDUtils.regenerateMapIds(mapData, targetMapName);
-                    idMappings[mapName] = idMapping;
-
-                    // Set context ONCE before loop
+                    // Set context to target map
                     setCurrentMap(targetMapName);
+
+                    // Merge layers from source map to target map and get mapping
+                    const layerIdMapping = await this._mergeLayersFromMap(layerManager, mapName, targetMapName);
+
+                    // Use regenerateMapIds with layer mapping to update feature layerIds
+                    const { newMapData, idMapping } = await IDUtils.regenerateMapIds(mapData, targetMapName, layerIdMapping);
+                    idMappings[mapName] = idMapping;
 
                     // Add main features
                     for (const [featureType, features] of Object.entries(newMapData.features)) {
@@ -251,6 +262,57 @@ class MapManager {
             // Always ensure context restoration
             setCurrentMap(originalCurrentMap);
         }
+    }
+
+    /**
+     * Merge layers from source map to target map
+     * If a layer with the same name exists in target, reuse it
+     * Otherwise, create a new layer in target
+     * @param {Object} layerManager - Layer manager instance
+     * @param {string} sourceMapName - Source map name
+     * @param {string} targetMapName - Target map name
+     * @returns {Map} Mapping of oldLayerId -> newLayerId
+     */
+    async _mergeLayersFromMap(layerManager, sourceMapName, targetMapName) {
+        const layerIdMapping = new Map();
+
+        try {
+            // Load source map layers from repository
+            const sourceLayers = await getLayersRepo(sourceMapName);
+            const targetLayers = layerManager.getLayers(targetMapName);
+
+            // Create a map of target layer names to IDs
+            const targetLayersByName = new Map();
+            for (const layer of targetLayers) {
+                targetLayersByName.set(layer.name, layer.id);
+            }
+
+            // For each source layer, find or create matching layer in target
+            for (const sourceLayer of sourceLayers) {
+                const existingLayerId = targetLayersByName.get(sourceLayer.name);
+
+                if (existingLayerId) {
+                    // Layer with same name exists, reuse it
+                    layerIdMapping.set(sourceLayer.id, existingLayerId);
+                } else {
+                    // Create new layer in target
+                    const newLayer = layerManager.createLayerForImport(sourceLayer.name, targetMapName);
+                    layerIdMapping.set(sourceLayer.id, newLayer.id);
+                    targetLayersByName.set(newLayer.name, newLayer.id);
+                }
+            }
+
+            // Default layer mapping - if source has 'default', map to target's 'default'
+            if (!layerIdMapping.has('default')) {
+                layerIdMapping.set('default', 'default');
+            }
+        } catch (error) {
+            console.warn('Error merging layers:', error);
+            // Fallback: map everything to 'default'
+            layerIdMapping.set('default', 'default');
+        }
+
+        return layerIdMapping;
     }
 
     // ===== FEATURE MOVEMENT =====

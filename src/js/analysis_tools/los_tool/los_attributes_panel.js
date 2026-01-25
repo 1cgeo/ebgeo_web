@@ -121,6 +121,7 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: false,
-        onSetDefault: null
+        onSetDefault: null,
+        hidden: options.hideButtons
     }));
 }

@@ -123,6 +123,7 @@ export function addBrushAttributesToPanel(panel, selectedFeatures, brushControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => brushControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => brushControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

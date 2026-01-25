@@ -167,6 +167,7 @@ export function addMilitarySymbolAttributesToPanel(panel, selectedFeatures, mili
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => militarySymbolControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => militarySymbolControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

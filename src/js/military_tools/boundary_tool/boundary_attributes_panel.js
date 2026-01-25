@@ -130,6 +130,7 @@ export function addBoundaryAttributesToPanel(panel, selectedFeatures, boundaryCo
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => boundaryControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => boundaryControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

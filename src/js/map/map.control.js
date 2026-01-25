@@ -22,6 +22,7 @@ import { ExportImportService, PDFExportTab } from '../import_export';
 import { FeaturesTab } from '../features_tab';
 import { MapNotesManager } from './map-notes.panel.js';
 import { showPrompt } from '../modals/prompt.modal.js';
+import { CombineMapsModal } from '../modals/combine-maps.modal.js';
 
 class MapControl {
     constructor(baseLayerControl, analysisLayersManager) {
@@ -547,135 +548,42 @@ class MapControl {
     // MODAL MANAGEMENT
     // =========================================================================
 
+    /**
+     * Shows the combine maps modal.
+     * @param {string} targetMapName - Target map to combine into
+     */
     async showCombineMapsModal(targetMapName) {
         const allMapNames = await getAllMapNamesStore();
         const availableMaps = allMapNames.filter(name => name !== targetMapName);
 
         if (availableMaps.length === 0) {
-            alert("Não há outros mapas para combinar.");
+            this.showToast('Não há outros mapas para combinar', 'warning');
             return;
         }
 
-        const modal = document.createElement('div');
-        modal.className = 'combine-maps-modal';
-        modal.style.cssText = `
-            display: block;
-            position: fixed;
-            z-index: 1001;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgba(0, 0, 0, 0.4);
-        `;
-
-        const modalContent = document.createElement('div');
-        modalContent.className = 'modal-content';
-        modalContent.style.cssText = `
-            background-color: white;
-            margin: 10% auto;
-            padding: 20px;
-            border: 1px solid #888;
-            border-radius: 8px;
-            width: 90%;
-            max-width: 400px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        `;
-
-        modalContent.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h3 style="margin: 0; font-size: 1.1em;">Puxar outros mapas para "${targetMapName}"</h3>
-                <span class="modal-close" style="color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
-            </div>
-            <p style="margin-bottom: 15px; font-size: 0.9em; color: #666;">Selecione os mapas que deseja combinar com "${targetMapName}":</p>
-            <div class="maps-selection" style="max-height: 200px; overflow-y: auto; margin-bottom: 20px;"></div>
-            <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                <button class="cancel-btn" style="padding: 8px 16px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; background: white;">Cancelar</button>
-                <button class="confirm-btn" style="padding: 8px 16px; border: none; border-radius: 4px; cursor: not-allowed; background-color: #508D4E; color: white; opacity: 0.5;" disabled>Combinar</button>
-            </div>
-        `;
-
-        const mapsSelection = modalContent.querySelector('.maps-selection');
-        const confirmBtn = modalContent.querySelector('.confirm-btn');
-        const selectedMaps = new Set();
-
-        availableMaps.forEach(mapName => {
-            const mapItem = document.createElement('div');
-            mapItem.style.cssText = 'display: flex; align-items: center; padding: 8px; border: 1px solid #eee; margin-bottom: 5px; border-radius: 4px;';
-
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.id = `map-${mapName}`;
-            checkbox.style.cursor = 'pointer';
-            checkbox.style.marginRight = '10px';
-
-            const label = document.createElement('label');
-            label.htmlFor = `map-${mapName}`;
-            label.textContent = mapName;
-            label.style.flexGrow = '1';
-
-            mapItem.appendChild(checkbox);
-            mapItem.appendChild(label);
-
-            mapItem.addEventListener('click', (e) => {
-                if (e.target !== checkbox) {
-                    checkbox.checked = !checkbox.checked;
-                }
-
-                if (checkbox.checked) {
-                    selectedMaps.add(mapName);
-                    mapItem.style.backgroundColor = '#f0f8f0';
-                } else {
-                    selectedMaps.delete(mapName);
-                    mapItem.style.backgroundColor = '';
-                }
-
-                confirmBtn.disabled = selectedMaps.size === 0;
-                confirmBtn.style.cursor = selectedMaps.size === 0 ? 'not-allowed' : 'pointer';
-                confirmBtn.style.opacity = selectedMaps.size === 0 ? '0.5' : '1';
-            });
-
-            mapsSelection.appendChild(mapItem);
-        });
-
-        modal.appendChild(modalContent);
-        document.body.appendChild(modal);
-
-        modalContent.querySelector('.modal-close').addEventListener('click', () => {
-            document.body.removeChild(modal);
-        });
-
-        modalContent.querySelector('.cancel-btn').addEventListener('click', () => {
-            document.body.removeChild(modal);
-        });
-
-        modalContent.querySelector('.confirm-btn').addEventListener('click', async () => {
-            if (selectedMaps.size > 0) {
+        const modal = new CombineMapsModal({
+            targetMapName,
+            availableMaps,
+            onCombine: async (selectedMaps) => {
                 try {
-                    const result = await this.mapManager.combineSelectedMapsIntoTarget(Array.from(selectedMaps), targetMapName);
-                    document.body.removeChild(modal);
+                    const result = await this.mapManager.combineSelectedMapsIntoTarget(selectedMaps, targetMapName);
 
                     const message = result.totalFeatures > 0
-                        ? `${selectedMaps.size} mapa(s) combinado(s): ${result.totalFeatures} feições adicionadas a "${targetMapName}"`
+                        ? `${selectedMaps.length} mapa(s) combinado(s): ${result.totalFeatures} feições adicionadas a "${targetMapName}"`
                         : `Mapas combinados mas nenhuma feição foi encontrada`;
 
                     this.showToast(message, result.totalFeatures > 0 ? 'success' : 'info');
                     await this.updateMapList();
                 } catch (error) {
                     console.error('Error combining maps:', error);
-
                     const errorMsg = error.message || 'Erro desconhecido ao combinar mapas';
                     this.showToast(`Erro: ${errorMsg}`, 'error');
                 }
             }
         });
 
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                document.body.removeChild(modal);
-            }
-        });
+        modal.render();
+        modal.show();
     }
 
     // =========================================================================

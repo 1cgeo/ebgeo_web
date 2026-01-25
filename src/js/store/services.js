@@ -114,3 +114,23 @@ export function getEventBus() {
 export function getStateManager() {
     return getServices().stateManager;
 }
+
+/**
+ * Get LayerManager instance.
+ * Convenience function for common use case.
+ * @throws {Error} If services not initialized
+ * @returns {import('../layers/layer.manager.js').LayerManager}
+ */
+export function getLayerManager() {
+    return getServices().layerManager;
+}
+
+/**
+ * Get GroupManager instance.
+ * Convenience function for common use case.
+ * @throws {Error} If services not initialized
+ * @returns {import('../tool_manager/group_manager.js').GroupManager}
+ */
+export function getGroupManager() {
+    return getServices().groupManager;
+}

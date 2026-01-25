@@ -1,5 +1,5 @@
 // Path: js/context-menu/context-menu.control.js
-import { formatCoordinates, showSuccess } from '../utilities';
+import { formatCoordinates, showSuccess, showWarning } from '../utilities';
 import { createLongPressHandler } from '../utilities/pointer-utils';
 import {
     getFeatureGroup,
@@ -10,7 +10,9 @@ import {
     moveFeaturesToLayer,
     getActiveLayerIdSync,
     getCurrentMapNameSync,
-    getEventBus
+    getEventBus,
+    getAllMapNamesStore,
+    getControl
 } from '../store';
 import { EventTypes } from '../events';
 
@@ -143,9 +145,10 @@ class ContextMenuControl {
 
         if (hasSelectedFeatures) {
             const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
+            const mapOptionsAdded = await this._addMapMoveOptions(groupingAnalysis.selectedFeatures);
 
             // Só adiciona separador se algo foi realmente adicionado
-            if (layerOptionsAdded) {
+            if (layerOptionsAdded || mapOptionsAdded) {
                 const separator = this._createSeparator();
                 this._contextMenu.appendChild(separator);
             }
@@ -324,6 +327,159 @@ class ContextMenuControl {
             });
         } catch (error) {
             console.error('Error moving features:', error);
+            alert('Erro ao mover feições: ' + error.message);
+        }
+    }
+
+    /**
+     * Adds map move submenu options
+     * @param {Array} selectedFeatures - Selected features
+     * @returns {boolean} Whether options were added
+     */
+    async _addMapMoveOptions(selectedFeatures) {
+        const allMaps = await getAllMapNamesStore();
+        const currentMapName = getCurrentMapNameSync();
+
+        // Filter out current map
+        const availableMaps = allMaps.filter(name => name !== currentMapName);
+
+        if (availableMaps.length === 0) {
+            return false;
+        }
+
+        const submenuContainer = document.createElement('div');
+        submenuContainer.className = 'context-menu-submenu-container';
+        submenuContainer.style.cssText = `
+            position: relative;
+        `;
+
+        const moveToMapItem = document.createElement('div');
+        moveToMapItem.className = 'context-menu-item';
+        moveToMapItem.innerHTML = `
+            <span>Mover para mapa</span>
+            <span style="float: right; margin-left: 8px;">▶</span>
+        `;
+        moveToMapItem.style.cssText = `
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            user-select: none;
+            transition: background-color 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        `;
+
+        const submenu = document.createElement('div');
+        submenu.className = 'context-submenu';
+        submenu.style.cssText = `
+            position: absolute;
+            left: 100%;
+            top: -8px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 8px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            min-width: 150px;
+            display: none;
+            z-index: 10001;
+            max-height: 300px;
+            overflow-y: auto;
+        `;
+
+        availableMaps.forEach(mapName => {
+            const mapItem = document.createElement('div');
+            mapItem.className = 'context-menu-item';
+
+            const initial = mapName.charAt(0).toUpperCase();
+            mapItem.innerHTML = `
+                <span style="
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 4px;
+                    background: #e0e0e0;
+                    font-size: 11px;
+                    font-weight: 600;
+                    margin-right: 8px;
+                ">${initial}</span>
+                <span>${mapName}</span>
+            `;
+            mapItem.style.cssText = `
+                padding: 8px 16px;
+                cursor: pointer;
+                font-size: 13px;
+                user-select: none;
+                transition: background-color 0.2s;
+                display: flex;
+                align-items: center;
+            `;
+
+            mapItem.addEventListener('mouseenter', () => {
+                mapItem.style.backgroundColor = '#f5f5f5';
+            });
+
+            mapItem.addEventListener('mouseleave', () => {
+                mapItem.style.backgroundColor = '';
+            });
+
+            mapItem.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._handleMoveToMap(selectedFeatures, mapName);
+                this._hideMenu();
+            });
+
+            submenu.appendChild(mapItem);
+        });
+
+        moveToMapItem.addEventListener('mouseenter', () => {
+            moveToMapItem.style.backgroundColor = '#f5f5f5';
+            submenu.style.display = 'block';
+
+            const rect = submenu.getBoundingClientRect();
+            const windowWidth = window.innerWidth;
+            if (rect.right > windowWidth) {
+                submenu.style.left = 'auto';
+                submenu.style.right = '100%';
+            }
+        });
+
+        submenuContainer.addEventListener('mouseleave', () => {
+            moveToMapItem.style.backgroundColor = '';
+            submenu.style.display = 'none';
+        });
+
+        submenuContainer.appendChild(moveToMapItem);
+        submenuContainer.appendChild(submenu);
+        this._contextMenu.appendChild(submenuContainer);
+
+        return true;
+    }
+
+    /**
+     * Handles moving features to another map
+     * @param {Array} features - Features to move
+     * @param {string} targetMapName - Target map name
+     */
+    async _handleMoveToMap(features, targetMapName) {
+        try {
+            const mapControl = getControl('MapControl');
+            if (!mapControl || !mapControl.mapManager) {
+                throw new Error('MapManager não disponível');
+            }
+
+            const result = await mapControl.mapManager.moveFeaturesToMap(features, targetMapName);
+
+            if (result.success) {
+                showSuccess(result.message);
+            } else {
+                showWarning(result.message);
+            }
+        } catch (error) {
+            console.error('Error moving features to map:', error);
             alert('Erro ao mover feições: ' + error.message);
         }
     }

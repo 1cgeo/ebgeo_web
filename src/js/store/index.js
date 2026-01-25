@@ -12,7 +12,9 @@ export {
     initServices,
     getServices,
     getEventBus,
-    getStateManager
+    getStateManager,
+    getLayerManager,
+    getGroupManager
 } from './services.js';
 
 // Control Registry (centralized access to tool controls)

@@ -14,7 +14,7 @@ import { FeatureNavigationUtils } from '../../utilities/feature_navigation_utils
 const TYPES_WITH_COORDINATES = ['point', 'text', 'coordination_measure', 'image', 'military_symbol', 'circle'];
 
 // Feature types that allow coordinate editing (point-based features and circle center)
-const EDITABLE_COORDINATE_TYPES = ['point', 'coordination_measure', 'military_symbol', 'circle'];
+const EDITABLE_COORDINATE_TYPES = ['point', 'coordination_measure', 'military_symbol', 'circle', 'text', 'image'];
 
 /**
  * Creates the location section for the feature panel.

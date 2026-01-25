@@ -129,9 +129,10 @@ export class IDUtils {
      *
      * @param {Object} mapData - Map data object
      * @param {string} mapName - New map name
+     * @param {Map} [layerIdMapping=null] - Optional layer ID mapping (oldLayerId -> newLayerId)
      * @returns {Object} Object containing newMapData and idMapping
      */
-    static async regenerateMapIds(mapData, mapName) {
+    static async regenerateMapIds(mapData, mapName, layerIdMapping = null) {
         const idMapping = new Map();
         const newMapData = JSON.parse(JSON.stringify(mapData));
 
@@ -166,7 +167,7 @@ export class IDUtils {
             );
         }
 
-        // PHASE 3: Apply new IDs to features
+        // PHASE 3: Apply new IDs to features and update layerId if mapping provided
         for (const [_featureType, features] of Object.entries(newMapData.features)) {
             if (!Array.isArray(features)) continue;
 
@@ -177,6 +178,15 @@ export class IDUtils {
                 if (newId) {
                     feature.properties.id = newId;
                     feature.id = this.generateGeoJSONId();
+                }
+
+                // Update layerId if mapping is provided
+                if (layerIdMapping && feature.properties.layerId) {
+                    const oldLayerId = feature.properties.layerId;
+                    const newLayerId = layerIdMapping.get(oldLayerId);
+                    if (newLayerId) {
+                        feature.properties.layerId = newLayerId;
+                    }
                 }
             }
         }

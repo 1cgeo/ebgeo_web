@@ -100,7 +100,8 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => textControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => textControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }
 
@@ -108,6 +109,12 @@ export function addTextAttributesToPanel(panel, selectedFeatures, textControl, s
  * Build the text tab content
  */
 function buildTextTabContent(container, feature, selectedFeatures, textControl, uiManager, onTextChange) {
+    // Reference to alignment component for dynamic enable/disable
+    let alignmentComponent = null;
+
+    // Helper to check if text has multiple lines
+    const checkMultipleLines = (text) => text.split('\n').length > 1;
+
     // Text input (single selection only)
     if (selectedFeatures.length === 1) {
         container.appendChild(createModernTextarea({
@@ -117,6 +124,11 @@ function buildTextTabContent(container, feature, selectedFeatures, textControl, 
             onChange: (value) => {
                 textControl.updateFeaturesProperty(selectedFeatures, 'text', value);
                 onTextChange(value);
+
+                // Update alignment buttons enabled state based on line count
+                if (alignmentComponent) {
+                    alignmentComponent.setDisabled(!checkMultipleLines(value));
+                }
             }
         }));
     }
@@ -215,15 +227,16 @@ function buildTextTabContent(container, feature, selectedFeatures, textControl, 
     }));
 
     // Text alignment
-    const hasMultipleLines = feature.properties.text.split('\n').length > 1;
-    container.appendChild(createModernTextAlignment({
+    const hasMultipleLines = checkMultipleLines(feature.properties.text);
+    alignmentComponent = createModernTextAlignment({
         label: 'Alinhamento',
         value: feature.properties.justify || 'center',
         disabled: !hasMultipleLines,
         onChange: (value) => {
             textControl.updateFeaturesProperty(selectedFeatures, 'justify', value);
         }
-    }));
+    });
+    container.appendChild(alignmentComponent);
 }
 
 /**

@@ -38,6 +38,7 @@ const ALIGNMENTS = [
 export function createModernTextAlignment(config) {
     const { value, onChange, label = 'Alinhamento', disabled = false } = config;
     let currentValue = value || 'center';
+    let isDisabled = disabled;
 
     const container = document.createElement('div');
     container.className = 'attr-modern-alignment';
@@ -58,7 +59,7 @@ export function createModernTextAlignment(config) {
         if (alignment.id === currentValue) {
             btn.classList.add('selected');
         }
-        if (disabled) {
+        if (isDisabled) {
             btn.disabled = true;
             btn.style.opacity = '0.5';
             btn.style.cursor = 'not-allowed';
@@ -69,7 +70,7 @@ export function createModernTextAlignment(config) {
 
         btn.addEventListener('click', (e) => {
             e.preventDefault();
-            if (disabled) return;
+            if (isDisabled) return;
 
             currentValue = alignment.id;
 
@@ -87,11 +88,12 @@ export function createModernTextAlignment(config) {
     container.appendChild(buttonsContainer);
 
     // Add method to update disabled state
-    container.setDisabled = (isDisabled) => {
+    container.setDisabled = (newDisabledState) => {
+        isDisabled = newDisabledState;
         buttonsContainer.querySelectorAll('.attr-modern-alignment-btn').forEach(btn => {
-            btn.disabled = isDisabled;
-            btn.style.opacity = isDisabled ? '0.5' : '';
-            btn.style.cursor = isDisabled ? 'not-allowed' : '';
+            btn.disabled = newDisabledState;
+            btn.style.opacity = newDisabledState ? '0.5' : '';
+            btn.style.cursor = newDisabledState ? 'not-allowed' : '';
         });
     };
 

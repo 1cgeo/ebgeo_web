@@ -176,6 +176,7 @@ export function addCoordinationMeasureAttributesToPanel(
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => coordinationMeasureControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => coordinationMeasureControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

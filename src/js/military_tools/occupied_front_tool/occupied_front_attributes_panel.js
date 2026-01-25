@@ -108,6 +108,7 @@ export function addOccupiedFrontAttributesToPanel(panel, selectedFeatures, occup
             color: feature.properties.color,
             lineWidth: feature.properties.lineWidth,
             opacity: feature.properties.opacity
-        })
+        }),
+        hidden: options.hideButtons
     }));
 }

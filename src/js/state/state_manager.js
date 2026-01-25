@@ -157,6 +157,7 @@ const DEFAULT_STATE = Object.freeze({
     sidebar: {
         expanded: false,            // UI Redesign: starts collapsed
         activeTab: null,            // 'mapas' | 'camadas' | 'importar' | 'exportar' | null
+        previousTab: null,          // Tab that was active before feature panel opened
         width: 320,
         collapsedLayers: [],        // Array<string> layer IDs that are collapsed
         collapsedGroups: [],        // Array<string> group IDs that are collapsed
@@ -926,6 +927,12 @@ class StateManager {
      * @param {string} featureType - Type of the feature
      */
     openFeaturePanel(featureId, featureType) {
+        // Save the current active tab before collapsing
+        const activeTab = this.get('sidebar.activeTab');
+        if (this.get('sidebar.expanded') && activeTab) {
+            this.set('sidebar.previousTab', activeTab);
+        }
+
         // Collapse sidebar first (mutual exclusivity)
         if (this.get('sidebar.expanded')) {
             this.collapseSidebar();
@@ -947,13 +954,22 @@ class StateManager {
 
     /**
      * Close feature panel.
+     * Restores the previously active sidebar tab if one existed.
      */
     closeFeaturePanel() {
         if (this.get('ui.featurePanelOpen')) {
             this.set('ui.featurePanelOpen', false);
             this.set('ui.currentFeatureType', null);
             this._emitEvent(EventTypes.FEATURE_PANEL_CLOSED, {});
-            this._emitLayoutChanged();
+
+            // Restore previous sidebar tab if one was saved
+            const previousTab = this.get('sidebar.previousTab');
+            if (previousTab) {
+                this.set('sidebar.previousTab', null);
+                this.expandSidebar(previousTab);
+            } else {
+                this._emitLayoutChanged();
+            }
         }
     }
 

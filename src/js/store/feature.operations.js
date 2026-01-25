@@ -399,6 +399,9 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
         throw new Error(`Target map "${targetMapName}" not found`);
     }
 
+    // Build layer ID mapping for features being moved
+    const layerIdMapping = await buildLayerMappingForMove(features, sourceMapName, targetMapName);
+
     const featuresByType = features.reduce((acc, feature) => {
         const type = getFeatureType(feature);
         if (!acc[type]) acc[type] = [];
@@ -420,6 +423,13 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
             for (const feature of featuresOfType) {
                 const removedData = await removeFeatureFromMap(type, feature.properties.id, sourceMapName);
                 if (removedData) {
+                    // Update layerId if mapping exists
+                    const oldLayerId = feature.properties.layerId || 'default';
+                    const newLayerId = layerIdMapping.get(oldLayerId);
+                    if (newLayerId && newLayerId !== oldLayerId) {
+                        feature.properties.layerId = newLayerId;
+                    }
+
                     const addedFeature = await addFeatureToMap(type, feature, targetMapName);
                     if (addedFeature) {
                         typeOperations.mainFeatures.push({
@@ -433,6 +443,12 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
 
                         if (removedData.processedFeatures) {
                             for (const pf of removedData.processedFeatures.features) {
+                                // Update layerId for processed features too
+                                const pfOldLayerId = pf.properties.layerId || 'default';
+                                const pfNewLayerId = layerIdMapping.get(pfOldLayerId);
+                                if (pfNewLayerId && pfNewLayerId !== pfOldLayerId) {
+                                    pf.properties.layerId = pfNewLayerId;
+                                }
                                 await addFeatureToMap(removedData.processedFeatures.type, pf, targetMapName);
                             }
                         }
@@ -453,6 +469,75 @@ export const moveFeaturesToMap = async (features, targetMapName) => {
         throw error;
     }
 };
+
+/**
+ * Builds layer ID mapping for moving features between maps.
+ * Creates layers in target map if they don't exist (matching by name).
+ * @param {Array} features - Features being moved
+ * @param {string} sourceMapName - Source map name
+ * @param {string} targetMapName - Target map name
+ * @returns {Map} Mapping of source layerId to target layerId
+ */
+async function buildLayerMappingForMove(features, sourceMapName, targetMapName) {
+    const layerIdMapping = new Map();
+
+    if (!deps.layerManager) {
+        // Fallback: map everything to default
+        layerIdMapping.set('default', 'default');
+        return layerIdMapping;
+    }
+
+    try {
+        // Get unique layer IDs from features
+        const sourceLayerIds = new Set();
+        for (const feature of features) {
+            const layerId = feature.properties?.layerId || 'default';
+            sourceLayerIds.add(layerId);
+        }
+
+        // Get source layers info (need to load from repository for non-current map)
+        const { getLayers: getLayersRepo } = await import('./repository.js');
+        const sourceLayers = await getLayersRepo(sourceMapName);
+        const sourceLayersById = new Map(sourceLayers.map(l => [l.id, l]));
+
+        // Get target layers
+        const targetLayers = deps.layerManager.getLayers(targetMapName);
+        const targetLayersByName = new Map(targetLayers.map(l => [l.name, l.id]));
+
+        // For each source layer ID used by features, find or create target layer
+        for (const sourceLayerId of sourceLayerIds) {
+            if (sourceLayerId === 'default') {
+                layerIdMapping.set('default', 'default');
+                continue;
+            }
+
+            const sourceLayer = sourceLayersById.get(sourceLayerId);
+            if (!sourceLayer) {
+                // Layer not found in source, map to default
+                layerIdMapping.set(sourceLayerId, 'default');
+                continue;
+            }
+
+            // Check if target has layer with same name
+            const existingTargetLayerId = targetLayersByName.get(sourceLayer.name);
+            if (existingTargetLayerId) {
+                // Reuse existing layer
+                layerIdMapping.set(sourceLayerId, existingTargetLayerId);
+            } else {
+                // Create new layer in target with same name
+                const newLayer = deps.layerManager.createLayerForImport(sourceLayer.name, targetMapName);
+                layerIdMapping.set(sourceLayerId, newLayer.id);
+                targetLayersByName.set(newLayer.name, newLayer.id);
+            }
+        }
+    } catch (error) {
+        console.warn('Error building layer mapping for move:', error);
+        // Fallback: map everything to default
+        layerIdMapping.set('default', 'default');
+    }
+
+    return layerIdMapping;
+}
 
 // ===== BATCH OPERATIONS FOR LOS/VISIBILITY =====
 

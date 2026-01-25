@@ -144,6 +144,7 @@ export function addEllipseAttributesToPanel(panel, selectedFeatures, ellipseCont
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => ellipseControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => ellipseControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

@@ -12,6 +12,7 @@
  * @property {Map} initialPropertiesMap - Initial properties for comparison
  * @property {boolean} [hasSetDefault=false] - Show "set as default" button
  * @property {Function} [onSetDefault] - Callback for set default
+ * @property {boolean} [hidden=false] - If true, return empty container (for group type editing)
  */
 
 /**
@@ -27,8 +28,16 @@ export function createModernButtons(config) {
         selectionManager,
         initialPropertiesMap,
         hasSetDefault = false,
-        onSetDefault = null
+        onSetDefault = null,
+        hidden = false
     } = config;
+
+    // Return empty container if hidden (used for group type editing)
+    if (hidden) {
+        const emptyContainer = document.createElement('div');
+        emptyContainer.className = 'attr-modern-buttons attr-modern-buttons-hidden';
+        return emptyContainer;
+    }
 
     const container = document.createElement('div');
     container.className = 'attr-modern-buttons';

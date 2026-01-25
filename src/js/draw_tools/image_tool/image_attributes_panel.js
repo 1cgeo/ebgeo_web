@@ -138,6 +138,7 @@ export function addImageAttributesToPanel(panel, selectedFeatures, imageControl,
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: false,
-        onSetDefault: null
+        onSetDefault: null,
+        hidden: options.hideButtons
     }));
 }

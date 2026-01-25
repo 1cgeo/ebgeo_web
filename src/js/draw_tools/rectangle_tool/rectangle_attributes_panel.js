@@ -168,6 +168,7 @@ export function addRectangleAttributesToPanel(panel, selectedFeatures, rectangle
         selectionManager,
         initialPropertiesMap,
         hasSetDefault: selectedFeatures.length === 1,
-        onSetDefault: () => rectangleControl.setDefaultProperties(feature.properties)
+        onSetDefault: () => rectangleControl.setDefaultProperties(feature.properties),
+        hidden: options.hideButtons
     }));
 }

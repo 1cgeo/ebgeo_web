@@ -1203,6 +1203,11 @@
     color: var(--primary-color);
 }
 
+/* Hidden buttons container */
+.attr-modern-buttons-hidden {
+    display: none;
+}
+
 /* ----- Modern Tabs ----- */
 .attr-modern-tabs-wrapper {
     width: 100%;
