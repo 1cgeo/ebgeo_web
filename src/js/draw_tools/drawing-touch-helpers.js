@@ -1,3 +1,4 @@
+// Path: js/draw_tools/drawing-touch-helpers.js
 /**
  * Touch helpers for drawing tools (line, polygon, etc.)
  * Provides finish button and touch-specific interactions

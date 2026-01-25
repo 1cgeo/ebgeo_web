@@ -125,11 +125,9 @@ export function addLineAttributesToPanel(panel, selectedFeatures, lineControl, s
             id: 'profile-toggle',
             label: 'Perfil do terreno',
             checked: feature.properties.profile === true,
-            onChange: (checked) => {
-                lineControl.updateFeaturesProperty(selectedFeatures, 'profile', checked);
-                if (checked) {
-                    selectionManager.updateProfile();
-                }
+            onChange: async (checked) => {
+                await lineControl.updateFeaturesProperty(selectedFeatures, 'profile', checked);
+                selectionManager.updateProfile();
             }
         }));
     }

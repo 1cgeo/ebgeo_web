@@ -107,8 +107,8 @@ export function addLOSAttributesToPanel(panel, selectedFeatures, losControl, sel
             id: 'profile-toggle',
             label: 'Mostrar Perfil',
             checked: feature.properties.profile || false,
-            onChange: (checked) => {
-                losControl.updateFeaturesProperty(selectedFeatures, 'profile', checked);
+            onChange: async (checked) => {
+                await losControl.updateFeaturesProperty(selectedFeatures, 'profile', checked);
                 selectionManager.updateProfile();
             }
         }));

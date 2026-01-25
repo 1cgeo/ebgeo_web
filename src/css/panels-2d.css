@@ -79,7 +79,7 @@
     bottom: 20px;
     right: 20px;
     width: 450px;
-    height: 320px;
+    height: 360px;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -146,6 +146,88 @@
 /* Adjust canvas height when alert is present */
 .profile-panel:has(.profile-slope-alert) canvas {
     height: calc(100% - 85px) !important;
+}
+
+/* ----- Profile Panel Coordinates Section ----- */
+.profile-coordinates-section {
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    background-color: rgba(0, 0, 0, 0.03);
+    border-radius: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.profile-coordinates-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.profile-coordinates-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.profile-coordinate-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.profile-coordinate-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.profile-coordinate-indicator.green {
+    background-color: #00c853;
+    box-shadow: 0 0 4px rgba(0, 200, 83, 0.5);
+}
+
+.profile-coordinate-indicator.red {
+    background-color: #ff5252;
+    box-shadow: 0 0 4px rgba(255, 82, 82, 0.5);
+}
+
+.profile-coordinate-label {
+    font-weight: 500;
+    color: #666;
+    min-width: 70px;
+}
+
+.profile-coordinate-value {
+    font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+    color: #333;
+    padding: 2px 6px;
+    background-color: rgba(255, 255, 255, 0.7);
+    border-radius: 3px;
+    transition: all 0.2s ease;
+}
+
+.profile-coordinate-value:hover {
+    background-color: var(--primary-light);
+    color: var(--primary-color);
+}
+
+.profile-coordinate-value.copied {
+    background-color: #00c853;
+    color: white;
+}
+
+/* Adjust canvas height when coordinates section is present */
+.profile-panel:has(.profile-coordinates-section) canvas {
+    height: calc(100% - 100px) !important;
+}
+
+.profile-panel:has(.profile-slope-alert):has(.profile-coordinates-section) canvas {
+    height: calc(100% - 140px) !important;
 }
 
 /* ----- Profile Panel Buttons ----- */

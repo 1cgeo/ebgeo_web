@@ -20,6 +20,7 @@ import { cleanupFeatureDropdownListeners } from './helpers';
 import { getStateManager, getEventBus } from '../store';
 import { injectTabbedPanelStyles } from './tabbed_attribute_panel.js';
 import { EventTypes } from '../events/event_types.js';
+import { formatCoordinates } from '../utilities/coordinate_converter.js';
 
 // Register Chart.js components (tree-shaking)
 Chart.register(
@@ -678,9 +679,9 @@ class UIManager {
         const hasProfileData = feature.properties.profileData && feature.properties.profile;
 
         if (source === 'los' && hasProfileData) {
-            this.createProfilePanel(feature.properties.profileData, true);
+            this.createProfilePanel(feature.properties.profileData, true, feature);
         } else if (source === 'line' && isLineFeature && hasProfileData) {
-            this.createProfilePanel(feature.properties.profileData, false);
+            this.createProfilePanel(feature.properties.profileData, false, feature);
         } else {
             this.hideProfilePanel();
         }
@@ -696,8 +697,9 @@ class UIManager {
      * Create elevation profile panel with chart including slope percentage.
      * @param {string} profileData - JSON string of profile data
      * @param {boolean} [linkFirstLast=false] - Whether to show line of sight
+     * @param {Object} [feature=null] - The feature for coordinate display
      */
-    createProfilePanel(profileData, linkFirstLast = false) {
+    createProfilePanel(profileData, linkFirstLast = false, feature = null) {
         let panel = document.querySelector('.profile-panel');
         if (!panel) {
             panel = document.createElement('div');
@@ -767,6 +769,11 @@ class UIManager {
                 <span>Inclinação máxima: ${maxSlope.toFixed(1)}% (limite: ${UIManager.SLOPE_THRESHOLD}%)</span>
             `;
             panel.appendChild(alertDiv);
+        }
+
+        // Add coordinates section for LOS features
+        if (linkFirstLast && feature) {
+            this._addCoordinatesSectionToProfile(panel, feature);
         }
 
         const canvas = document.createElement('canvas');
@@ -992,6 +999,119 @@ class UIManager {
         }
 
         this.hideProfilePanel();
+    }
+
+    /**
+     * Add coordinates section to profile panel for LOS features.
+     * @param {HTMLElement} panel - The panel element
+     * @param {Object} feature - The LOS feature
+     * @private
+     */
+    _addCoordinatesSectionToProfile(panel, feature) {
+        // Extract coordinates from LOS geometry
+        let startCoords = null;
+        let endCoords = null;
+        let intersectionCoords = null;
+
+        const geometry = feature.geometry;
+        if (geometry.type === 'MultiLineString') {
+            // Has obstruction: first line is visible, second is obstructed
+            const visibleLine = geometry.coordinates[0];
+            const obstructedLine = geometry.coordinates[1];
+            startCoords = visibleLine[0];
+            endCoords = obstructedLine[obstructedLine.length - 1];
+            // Intersection is where visible line ends and obstructed begins
+            intersectionCoords = visibleLine[visibleLine.length - 1];
+        } else if (geometry.type === 'LineString') {
+            // No obstruction: full line is visible
+            startCoords = geometry.coordinates[0];
+            endCoords = geometry.coordinates[geometry.coordinates.length - 1];
+        }
+
+        if (!startCoords || !endCoords) return;
+
+        // Create coordinates section
+        const coordsSection = document.createElement('div');
+        coordsSection.className = 'profile-coordinates-section';
+
+        const coordsTitle = document.createElement('div');
+        coordsTitle.className = 'profile-coordinates-title';
+        coordsTitle.textContent = 'Coordenadas';
+        coordsSection.appendChild(coordsTitle);
+
+        const coordsGrid = document.createElement('div');
+        coordsGrid.className = 'profile-coordinates-grid';
+
+        // Start coordinate
+        const startRow = this._createCoordinateRow('Inicial', startCoords, 'green');
+        coordsGrid.appendChild(startRow);
+
+        // Intersection coordinate (if exists)
+        if (intersectionCoords) {
+            const intersectionRow = this._createCoordinateRow('Interseção', intersectionCoords, 'red');
+            coordsGrid.appendChild(intersectionRow);
+        }
+
+        // End coordinate
+        const endRow = this._createCoordinateRow('Final', endCoords, intersectionCoords ? 'red' : 'green');
+        coordsGrid.appendChild(endRow);
+
+        coordsSection.appendChild(coordsGrid);
+        panel.appendChild(coordsSection);
+    }
+
+    /**
+     * Create a coordinate row for the profile panel.
+     * @param {string} label - Row label
+     * @param {Array} coords - [lng, lat] coordinates
+     * @param {string} color - Color indicator ('green' or 'red')
+     * @returns {HTMLElement}
+     * @private
+     */
+    _createCoordinateRow(label, coords, color) {
+        const row = document.createElement('div');
+        row.className = 'profile-coordinate-row';
+
+        const indicator = document.createElement('span');
+        indicator.className = `profile-coordinate-indicator ${color}`;
+        row.appendChild(indicator);
+
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'profile-coordinate-label';
+        labelSpan.textContent = label + ':';
+        row.appendChild(labelSpan);
+
+        const valueSpan = document.createElement('span');
+        valueSpan.className = 'profile-coordinate-value';
+        valueSpan.textContent = 'Carregando...';
+        valueSpan.title = 'Clique para copiar';
+        valueSpan.style.cursor = 'pointer';
+
+        // Format and display coordinates
+        const [lng, lat] = coords;
+        formatCoordinates(lat, lng, 'latlong').then(formatted => {
+            valueSpan.textContent = formatted;
+        });
+
+        // Copy on click
+        valueSpan.addEventListener('click', async () => {
+            const text = valueSpan.textContent;
+            try {
+                await navigator.clipboard.writeText(text);
+                const original = valueSpan.textContent;
+                valueSpan.textContent = 'Copiado!';
+                valueSpan.classList.add('copied');
+                setTimeout(() => {
+                    valueSpan.textContent = original;
+                    valueSpan.classList.remove('copied');
+                }, 1500);
+            } catch (e) {
+                console.warn('Failed to copy coordinates:', e);
+            }
+        });
+
+        row.appendChild(valueSpan);
+        return row;
     }
 
     /**

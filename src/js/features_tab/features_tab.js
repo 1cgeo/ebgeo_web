@@ -663,6 +663,12 @@ export class FeaturesTab {
             if (featureIndex !== -1) {
                 data.features[featureIndex].properties[property] = value;
                 source.setData(data);
+
+                // For LOS and visibility features, also update processed sources
+                if ((property === 'visivel' || property === 'bloqueado') &&
+                    (featureType === 'los' || featureType === 'visibility')) {
+                    await this._propagatePropertyToProcessedSource(featureType, featureId, property, value);
+                }
             } else {
                 console.warn(`Feature ${featureId} not found in source ${featureType}`);
             }
@@ -672,6 +678,45 @@ export class FeaturesTab {
             setTimeout(() => {
                 this._suppressRefresh = false;
             }, 50);
+        }
+    }
+
+    /**
+     * Propagates property change to processed sources (LOS, visibility).
+     * @param {string} featureType - Feature type ('los' or 'visibility')
+     * @param {string} featureId - Feature ID
+     * @param {string} property - Property name
+     * @param {*} value - Property value
+     * @private
+     */
+    async _propagatePropertyToProcessedSource(featureType, featureId, property, value) {
+        const processedSourceName = `processed-${featureType}`;
+        const processedSource = this.map.getSource(processedSourceName);
+
+        if (!processedSource) {
+            return;
+        }
+
+        try {
+            const processedData = await processedSource.getData();
+
+            // Update all processed features that belong to this main feature
+            // Processed features have IDs like "featureId-visible" and "featureId-obstructed"
+            let updated = false;
+            for (const feature of processedData.features) {
+                if (feature.properties.id?.startsWith(featureId + '-') ||
+                    feature.properties.id === featureId + '-visible' ||
+                    feature.properties.id === featureId + '-obstructed') {
+                    feature.properties[property] = value;
+                    updated = true;
+                }
+            }
+
+            if (updated) {
+                processedSource.setData(processedData);
+            }
+        } catch (error) {
+            console.error(`Error propagating property to processed source ${processedSourceName}:`, error);
         }
     }
 

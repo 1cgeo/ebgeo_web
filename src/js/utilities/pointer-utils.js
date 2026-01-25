@@ -1,3 +1,4 @@
+// Path: js/utilities/pointer-utils.js
 /**
  * Pointer/Touch Utilities
  * Utilitários para suporte unificado a mouse e touch
