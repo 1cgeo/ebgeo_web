@@ -419,7 +419,8 @@
 }
 
 .visibility-toggle,
-.lock-toggle {
+.lock-toggle,
+.table-toggle {
     background: none;
     border: none;
     padding: 4px;
@@ -434,18 +435,21 @@
 }
 
 .visibility-toggle:hover,
-.lock-toggle:hover {
+.lock-toggle:hover,
+.table-toggle:hover {
     background-color: rgba(0, 0, 0, 0.1);
     transform: scale(1.1);
 }
 
 .visibility-toggle:active,
-.lock-toggle:active {
+.lock-toggle:active,
+.table-toggle:active {
     transform: scale(0.9);
 }
 
 .visibility-toggle svg,
-.lock-toggle svg {
+.lock-toggle svg,
+.table-toggle svg {
     width: 12px;
     height: 12px;
     transition: color 0.2s ease;
@@ -454,7 +458,8 @@
 }
 
 .visibility-toggle:hover svg,
-.lock-toggle:hover svg {
+.lock-toggle:hover svg,
+.table-toggle:hover svg {
     color: var(--primary-color);
 }
 

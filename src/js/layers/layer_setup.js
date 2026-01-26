@@ -136,7 +136,7 @@ async function loadSingleImage(imageId, mapInstance) {
 
             setTimeout(() => {
                 URL.revokeObjectURL(url);
-                //console.warn(`Timeout ao carregar imagem ${imageId}, usando imagem de erro`);
+                // console.warn(`Timeout ao carregar imagem ${imageId}, usando imagem de erro`);
                 createErrorImage()
                     .then(errorImage => {
                         if (!mapInstance.hasImage(imageId)) {

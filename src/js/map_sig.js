@@ -27,6 +27,7 @@ import { GridControl } from './grid';
 import { FrameControl } from './frame';
 import { URLRouter } from './url_router.js';
 import { ToolbarControl, ActiveToolChip } from './toolbar';
+import { AttributeTableControl } from './attribute_table';
 
 // Draw tools
 import {
@@ -299,6 +300,20 @@ const sidebarControl = new SidebarControl({
 });
 sidebarControl.init(document.body);
 
+// ===== ATTRIBUTE TABLE CONTROL =====
+
+const attributeTableControl = new AttributeTableControl({
+    map: map,
+    eventBus: getEventBus(),
+    stateManager: getStateManager(),
+    selectionManager: selectionManager,
+});
+
+// Connect attribute table to features tab
+if (featuresTab) {
+    featuresTab.setAttributeTableControl(attributeTableControl);
+}
+
 // ===== INITIALIZE MAP REFERENCE FOR TOOLBAR-MANAGED CONTROLS =====
 // These controls are not added to the map via addControl() anymore,
 // but they still need the map reference for their functionality.
@@ -474,4 +489,5 @@ window.addEventListener('beforeunload', () => {
     searchBarComponent.destroy();
     bottomControlsControl.destroy();
     baseLayerSelectorControl.destroy();
+    attributeTableControl.destroy();
 });

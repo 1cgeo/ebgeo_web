@@ -4,7 +4,7 @@
  * @fileoverview Feature CRUD operations.
  */
 
-import { cleanFeature, getMapData, updateMapData } from './repository.js';
+import { cleanFeature, getMapData, updateMapData, getLayers as getLayersRepo } from './repository.js';
 import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes } from './store.constants.js';
 import mapManager from './store-state-manager.js';
 
@@ -497,7 +497,6 @@ async function buildLayerMappingForMove(features, sourceMapName, targetMapName) 
         }
 
         // Get source layers info (need to load from repository for non-current map)
-        const { getLayers: getLayersRepo } = await import('./repository.js');
         const sourceLayers = await getLayersRepo(sourceMapName);
         const sourceLayersById = new Map(sourceLayers.map(l => [l.id, l]));
 

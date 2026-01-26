@@ -61,7 +61,9 @@
       "Bash(findstr:*)",
       "Bash(Select-String -Pattern \"eqeqeq\")",
       "Bash(npm run lint:fix:*)",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

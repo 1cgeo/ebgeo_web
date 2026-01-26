@@ -26,6 +26,7 @@ import { createGroupItemInLayer } from './group-item.component.js';
  * @property {Function} onToggleFeatureVisibility - Called to toggle feature visibility
  * @property {Function} onToggleFeatureLock - Called to toggle feature lock
  * @property {Function} propagatePropertyToSource - Called to propagate property
+ * @property {Function} onOpenAttributeTable - Called to open attribute table for layer
  */
 
 /**
@@ -56,6 +57,7 @@ export function createLayerContainer(layerInfo, callbacks) {
         onLayersChanged: callbacks.onLayersChanged,
         onRefresh: callbacks.onRefresh,
         onSyncMapSources: callbacks.onSyncMapSources,
+        onOpenAttributeTable: callbacks.onOpenAttributeTable,
     };
 
     const header = createLayerHeader(layer, isActive, featureCount, headerCallbacks);
@@ -140,6 +142,14 @@ function attachHeaderEventHandlers(header, layerId, callbacks) {
         lockBtn.onclick = (e) => {
             e.stopPropagation();
             callbacks.onToggleLayerLock(layerId);
+        };
+    }
+
+    const tableBtn = header.querySelector('.table-toggle');
+    if (tableBtn) {
+        tableBtn.onclick = (e) => {
+            e.stopPropagation();
+            callbacks.onOpenAttributeTable?.(layerId);
         };
     }
 

@@ -82,10 +82,12 @@ export default defineConfig({
           }
 
           // ===== UI COMPONENTS (depende de core) =====
-          // Inclui: sidebar, features_tab, user_data, search, bottom-controls, base-layer-selector, context-menu
+          // Inclui: sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu
 
-          // Features tab e user data
-          if (id.includes('src/js/features_tab/') || id.includes('src/js/user_data/')) {
+          // Features tab, user data and attribute table
+          if (id.includes('src/js/features_tab/') ||
+              id.includes('src/js/user_data/') ||
+              id.includes('src/js/attribute_table/')) {
             return 'ui-components';
           }
           // UI components (sidebar, etc. - NÃO inclui toolbar que está em core)

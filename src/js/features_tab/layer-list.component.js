@@ -114,6 +114,15 @@ function createLayerControls(layer, callbacks) {
         handleToggleLayerLock(layer.id, callbacks);
     };
 
+    const tableBtn = document.createElement('button');
+    tableBtn.className = 'table-toggle';
+    tableBtn.innerHTML = FEATURES_TAB_ICONS.TABLE;
+    tableBtn.title = 'Tabela de atributos';
+    tableBtn.onclick = (e) => {
+        e.stopPropagation();
+        callbacks.onOpenAttributeTable?.(layer.id);
+    };
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'layer-delete-btn';
     deleteBtn.innerHTML = FEATURES_TAB_ICONS.DELETE;
@@ -125,6 +134,7 @@ function createLayerControls(layer, callbacks) {
 
     controls.appendChild(visBtn);
     controls.appendChild(lockBtn);
+    controls.appendChild(tableBtn);
     controls.appendChild(deleteBtn);
 
     return controls;

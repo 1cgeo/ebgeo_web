@@ -90,7 +90,18 @@ export class FeaturesTab {
         this.INLINE_ICONS = FEATURES_TAB_ICONS;
         this.FEATURE_SOURCES = FEATURE_SOURCES;
 
+        // Attribute table control reference (set by external code)
+        this._attributeTableControl = null;
+
         injectAllFeaturesTabStyles();
+    }
+
+    /**
+     * Sets the attribute table control reference.
+     * @param {Object} control - AttributeTableControl instance
+     */
+    setAttributeTableControl(control) {
+        this._attributeTableControl = control;
     }
 
     // =========================================================================
@@ -585,7 +596,18 @@ export class FeaturesTab {
             onToggleFeatureLock: (id, type) => this.toggleLock(id, type),
             propagatePropertyToSource: (type, id, prop, val) =>
                 this._propagateFeaturePropertyToSource(type, id, prop, val),
+            onOpenAttributeTable: (layerId) => this._handleOpenAttributeTable(layerId),
         };
+    }
+
+    /**
+     * Handles opening the attribute table for a layer.
+     * @param {string} layerId - Layer ID
+     */
+    _handleOpenAttributeTable(layerId) {
+        if (this._attributeTableControl) {
+            this._attributeTableControl.toggle(layerId);
+        }
     }
 
     /**
