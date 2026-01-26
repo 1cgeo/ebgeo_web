@@ -125,38 +125,129 @@
     <!-- 3D CONTAINER - LAZY LOADED -->
     <div id="map-3d-container" style="display: none;" role="application" aria-label="Mapa 3D">
         <div id="map-3d"></div>
-        <div id="map-3d-tool-bar" class="card" role="toolbar">
 
-            <div id="tool-3d-container">
-                <p><b>Ferramentas</b></p>
-                <hr class="solid">
-                <div class="tools-3d-bar">
-                    <div>
-                        <a id="visualizacao" class="button-tool-3d icon-tool-3d" aria-label="Análise de visibilidade">
-                            <img src="/images/viewshed_icon.svg" alt="Viewshed" width="30" height="30" loading="lazy">
-                        </a>
+        <!-- Active Tool Chip 3D -->
+        <div id="active-tool-chip-3d" class="active-tool-chip-3d" style="display: none;">
+            <div class="active-tool-chip-3d-inner">
+                <span class="active-tool-chip-3d-label">Ferramenta ativa:</span>
+                <span id="active-tool-chip-3d-name" class="active-tool-chip-3d-name"></span>
+                <button id="active-tool-chip-3d-close" class="active-tool-chip-3d-close" title="Desativar ferramenta (ESC)" aria-label="Desativar ferramenta">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- 3D Toolbar - Vertical sidebar on the right -->
+        <div id="toolbar-3d" role="toolbar" aria-label="Ferramentas 3D">
+            <button id="visualizacao" class="button-tool-3d" aria-label="Análise de visibilidade">
+                <img src="/images/viewshed_icon.svg" alt="" width="22" height="22" loading="lazy">
+            </button>
+            <button id="distancia" class="button-tool-3d" aria-label="Medir distância">
+                <img src="/images/distance_icon.svg" alt="" width="22" height="22" loading="lazy">
+            </button>
+            <button id="area" class="button-tool-3d" aria-label="Medir área">
+                <img src="/images/area_icon.svg" alt="" width="22" height="22" loading="lazy">
+            </button>
+            <button id="limpar" class="button-tool-3d" aria-label="Limpar">
+                <img src="/images/clear_icon.svg" alt="" width="22" height="22" loading="lazy">
+            </button>
+            <div class="toolbar-3d-separator"></div>
+            <button id="screenshot-3d" class="button-tool-3d" aria-label="Capturar tela">
+                <img src="/images/icon_screenshot_black.svg" alt="" width="22" height="22" loading="lazy">
+            </button>
+            <div class="toolbar-3d-separator"></div>
+            <button id="help-3d" class="button-tool-3d" aria-label="Ajuda" aria-expanded="false">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M9.5 9a3 3 0 0 1 5.5 1.5c0 2-3 3-3 3"/>
+                    <circle cx="12" cy="17" r="0.5" fill="currentColor"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Navigation Help Popup -->
+        <div id="nav-help-popup" class="nav-help-popup" role="dialog" aria-label="Ajuda de navegação" hidden>
+            <div class="nav-help-tabs" role="tablist">
+                <button class="nav-help-tab active" role="tab" aria-selected="true" data-tab="mouse">
+                    <img src="/images/nav-help/mouse.svg" alt="" width="24" height="24">
+                    Mouse
+                </button>
+                <button class="nav-help-tab" role="tab" aria-selected="false" data-tab="touch">
+                    <img src="/images/nav-help/touch.svg" alt="" width="24" height="24">
+                    Touch
+                </button>
+            </div>
+            <div class="nav-help-content">
+                <!-- Mouse Tab -->
+                <div class="nav-help-panel active" data-panel="mouse">
+                    <div class="nav-help-item">
+                        <div class="nav-help-icon">
+                            <img src="/images/nav-help/mouse-left.svg" alt="Botão esquerdo do mouse">
+                        </div>
+                        <div class="nav-help-text">
+                            <strong>Mover visão</strong>
+                            <span>Clique esquerdo + arrastar</span>
+                        </div>
                     </div>
-                    <div>
-                        <a id="distancia" class="button-tool-3d icon-tool-3d" aria-label="Medir distância">
-                            <img src="/images/distance_icon.svg" alt="distance" width="30" height="30" loading="lazy">
-                        </a>
+                    <div class="nav-help-item">
+                        <div class="nav-help-icon">
+                            <img src="/images/nav-help/mouse-right.svg" alt="Botão direito do mouse">
+                        </div>
+                        <div class="nav-help-text">
+                            <strong>Rotacionar visão</strong>
+                            <span>Clique direito + arrastar</span>
+                        </div>
                     </div>
-                    <div>
-                        <a id="area" class="button-tool-3d icon-tool-3d" aria-label="Medir área">
-                            <img src="/images/area_icon.svg" alt="area" width="30" height="30" loading="lazy">
-                        </a>
+                    <div class="nav-help-item">
+                        <div class="nav-help-icon">
+                            <img src="/images/nav-help/mouse-middle.svg" alt="Roda do mouse">
+                        </div>
+                        <div class="nav-help-text">
+                            <strong>Ampliar visão</strong>
+                            <span>Rolagem da roda do mouse</span>
+                        </div>
                     </div>
-                    <div>
-                        <a id="screenshot-3d" class="button-tool-3d icon-tool-3d" title="Salvar tela"
-                            aria-label="Salvar tela">
-                            <img src="/images/icon_screenshot_black.svg" alt="Screenshot" width="30" height="30"
-                                loading="lazy">
-                        </a>
+                </div>
+                <!-- Touch Tab -->
+                <div class="nav-help-panel" data-panel="touch">
+                    <div class="nav-help-item">
+                        <div class="nav-help-icon">
+                            <img src="/images/nav-help/touch-drag.svg" alt="Arrastar com um dedo">
+                        </div>
+                        <div class="nav-help-text">
+                            <strong>Mover visão</strong>
+                            <span>Arrastar com um dedo</span>
+                        </div>
                     </div>
-                    <div>
-                        <a id="limpar" class="button-tool-3d icon-tool-3d" aria-label="Limpar ferramentas">
-                            <img src="/images/clear_icon.svg" alt="clear" width="30" height="30" loading="lazy">
-                        </a>
+                    <div class="nav-help-item">
+                        <div class="nav-help-icon">
+                            <img src="/images/nav-help/touch-zoom.svg" alt="Pinçar com dois dedos">
+                        </div>
+                        <div class="nav-help-text">
+                            <strong>Ampliar visão</strong>
+                            <span>Pinçar com dois dedos</span>
+                        </div>
+                    </div>
+                    <div class="nav-help-item">
+                        <div class="nav-help-icon">
+                            <img src="/images/nav-help/touch-tilt.svg" alt="Arrastar com dois dedos">
+                        </div>
+                        <div class="nav-help-text">
+                            <strong>Inclinar visão</strong>
+                            <span>Arrastar com dois dedos na mesma direção</span>
+                        </div>
+                    </div>
+                    <div class="nav-help-item">
+                        <div class="nav-help-icon">
+                            <img src="/images/nav-help/touch-rotate.svg" alt="Rotacionar com dois dedos">
+                        </div>
+                        <div class="nav-help-text">
+                            <strong>Rotacionar visão</strong>
+                            <span>Arrastar com dois dedos em direções opostas</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -178,12 +269,12 @@
             <path d="M15 9l-6 6M9 9l6 6" />
         </svg>
     </a>
-    <a id="close-3d-viewer-button" href="#" style="display: none;" aria-label="Fechar visualização 3D">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M15 9l-6 6M9 9l6 6" />
+    <button id="close-3d-viewer-button" type="button" style="display: none;" aria-label="Fechar visualização 3D">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M18 6L6 18M6 6l12 12" />
         </svg>
-    </a>
+        <span>Fechar</span>
+    </button>
 
     <!-- LAZY LOADED CONTAINERS -->
     <div id="mini-map-street-view" style="display: none;" role="application" aria-label="Mini mapa street view"></div>

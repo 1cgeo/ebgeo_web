@@ -61,6 +61,15 @@ class KeyboardShortcuts {
     }
 
     /**
+     * Check if 3D viewer is open
+     * @returns {boolean} True if 3D viewer is open
+     */
+    is3DViewerOpen() {
+        const map3dContainer = document.getElementById('map-3d-container');
+        return map3dContainer && map3dContainer.style.display !== 'none';
+    }
+
+    /**
      * Main keyboard event handler
      * @param {KeyboardEvent} e - Keyboard event
      */
@@ -70,6 +79,17 @@ class KeyboardShortcuts {
         }
 
         if (this.isStreetViewOpen()) {
+            return;
+        }
+
+        // Block shortcuts when 3D viewer is open (except ESC to close it)
+        if (this.is3DViewerOpen()) {
+            // Only allow ESC to close the 3D viewer
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                const close3dBtn = document.getElementById('close-3d-viewer-button');
+                if (close3dBtn) close3dBtn.click();
+            }
             return;
         }
 
@@ -124,12 +144,6 @@ class KeyboardShortcuts {
 
             case 'escape': {
                 e.preventDefault();
-                const map3dContainer = document.getElementById('map-3d-container');
-                if (map3dContainer && map3dContainer.style.display !== 'none') {
-                    const close3dBtn = document.getElementById('close-3d-viewer-button');
-                    if (close3dBtn) close3dBtn.click();
-                    return true;
-                }
                 this.toolManager.deactivateCurrentTool();
                 this.selectionManager.deselectAllFeatures();
                 return true;

@@ -32,141 +32,37 @@
     overflow: hidden;
 }
 
-/* ===== 3D MAIN TOOLBAR ===== */
-#map-3d-tool-bar {
-    padding: 15px !important;
-    position: absolute !important;
-    display: flex !important;
-    flex-direction: column !important;
-    top: 20px !important;
-    left: 20px !important;
-    background: rgba(255, 255, 255, 0.95) !important;
-    backdrop-filter: blur(8px) !important;
-    width: 300px !important;
-    border-radius: 8px !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
-    border: 1px solid rgba(0, 0, 0, 0.1) !important;
-    z-index: var(--z-3d-controls, 110) !important;
-    gap: 20px !important;
-    transition: all 0.3s ease !important;
-}
-
-/* ----- Card Class Override ----- */
-#map-3d-tool-bar.card {
-    background: rgba(255, 255, 255, 0.95) !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
-    border: 1px solid rgba(0, 0, 0, 0.1) !important;
-}
-
-#map-3d-tool-bar:hover {
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
-}
-
-/* ===== 3D MODELS CONTAINER ===== */
-#model-3d-container {
-    width: 100%;
-    color: #333;
-}
-
-#model-3d-container p {
-    margin: 0 0 10px !important;
-    font-weight: 600 !important;
-    color: #000 !important;
-    font-size: 16px !important;
-    text-align: center !important;
-}
-
-/* ===== 3D LOCATION CONTAINER ===== */
-#locate-3d-container {
+/* ===== 3D TOOLBAR - VERTICAL SIDEBAR ===== */
+#toolbar-3d {
+    position: fixed;
+    top: 80px;
+    right: 16px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    align-items: center;
-    width: 100%;
-}
-
-#locate-3d-container button {
-    width: 90%;
-    min-height: 40px;
-    background-color: var(--primary-color);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    padding: 8px 16px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-#locate-3d-container button:hover {
-    background-color: var(--primary-dark);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-}
-
-#locate-3d-container button:active {
-    transform: translateY(0);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-/* ===== 3D TOOLS CONTAINER ===== */
-#tool-3d-container {
-    width: 100%;
-    color: #333;
-}
-
-#tool-3d-container p {
-    margin: 0 0 10px !important;
-    font-weight: 600 !important;
-
-    /* Force black text */
-    color: #000 !important;
-    font-size: 16px !important;
-    text-align: center !important;
-}
-
-/* ===== 3D TOOLS GRID ===== */
-.tools-3d-bar {
-    display: grid;
-
-    /* Force 5 columns in a single row */
-    grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
-    width: 100%;
-    padding: 4px 0;
+    z-index: var(--z-3d-controls, 110);
 }
 
 /* ===== 3D TOOL BUTTONS ===== */
 .button-tool-3d {
-    text-decoration: none;
+    width: 44px;
+    height: 44px;
     border: none;
-    font-family: inherit;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     cursor: pointer;
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
-    align-self: start;
-    font-size: 1.5rem;
-    color: #fff;
-    text-align: center;
-    line-height: 1.1;
+    color: var(--gray-600, #4b5563);
     transition: all 0.2s ease;
-    background-color: transparent;
-    border-radius: 6px;
-
-    /* Reduced button padding */
-    padding: 4px;
-    min-width: 50px;
-    min-height: 50px;
     position: relative;
-    overflow: hidden;
 }
 
 .button-tool-3d:hover {
-    background-color: rgba(80, 141, 78, 0.1);
-    transform: scale(1.05);
+    background: var(--gray-50, #f9fafb);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .button-tool-3d:active {
@@ -175,84 +71,39 @@
 
 .button-tool-3d.active,
 .button-tool-3d.active-button {
-    background-color: var(--primary-color);
+    background: var(--primary-color, #508D4E);
     color: white;
-    box-shadow: 0 2px 8px rgba(80, 141, 78, 0.3);
 }
 
 .button-tool-3d img {
-    width: 26px;
-    height: 26px;
-    transition: filter 0.2s ease;
+    width: 22px;
+    height: 22px;
+    transition: all 0.2s ease;
 }
 
-.button-tool-3d:hover img {
-    filter: brightness(1.1);
+.button-tool-3d.active img,
+.button-tool-3d.active-button img {
+    filter: brightness(0) invert(1);
 }
 
-/* ===== 3D SCREENSHOT BUTTON ===== */
-#screenshot-3d {
-    position: relative;
-    overflow: hidden;
-}
-
-#screenshot-3d img {
-    width: 26px;
-    height: 26px;
-    transition: transform 0.2s ease;
-}
-
-#screenshot-3d:hover img {
-    transform: scale(1.1);
-}
-
-#screenshot-3d:active {
-    transform: scale(0.9);
-}
-
-/* ===== LOADING STATES ===== */
-#map-3d-tool-bar.loading {
-    opacity: 0.7;
-    pointer-events: none;
-}
-
-#map-3d-tool-bar.loading::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 24px;
-    height: 24px;
-    margin: -12px 0 0 -12px;
-    border: 2px solid var(--primary-light);
-    border-top: 2px solid var(--primary-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-
-/* ===== TOOL TOOLTIPS ===== */
+/* ===== TOOL TOOLTIPS - LEFT SIDE ===== */
 .button-tool-3d::after {
     content: attr(aria-label);
     position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: rgba(0, 0, 0, 0.8);
+    top: 50%;
+    right: calc(100% + 10px);
+    transform: translateY(-50%);
+    background: var(--gray-900, #111827);
     color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
+    padding: 6px 10px;
+    border-radius: 6px;
     font-size: 12px;
+    font-weight: 500;
     white-space: nowrap;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.2s ease;
-    margin-bottom: 5px;
-    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .button-tool-3d:hover::after {
@@ -260,56 +111,281 @@
 }
 
 /* ===== ACCESSIBILITY ===== */
-.button-tool-3d:focus,
-#locate-3d-container button:focus {
-    outline: 2px solid var(--primary-color);
+.button-tool-3d:focus {
+    outline: 2px solid var(--primary-color, #508D4E);
     outline-offset: 2px;
 }
 
 /* ===== PERFORMANCE ===== */
-.button-tool-3d,
-#locate-3d-container button {
+.button-tool-3d {
     will-change: transform, background-color;
 }
 
-/* ===== Z-INDEX MANAGEMENT =====
-   Note: z-index values defined in base rules above */
-
-.cesium-navigationHelpButton-wrapper button[title*="Instruções de navegação"] {
-    margin-top: 80px !important;
+/* ===== TOOLBAR SEPARATOR ===== */
+.toolbar-3d-separator {
+    width: 32px;
+    height: 1px;
+    background: var(--gray-300, #d1d5db);
+    margin: 4px auto;
 }
 
-.cesium-navigation-help {
-   margin-top: 80px !important;
+/* ===== HIDE NATIVE CESIUM NAVIGATION HELP ===== */
+.cesium-navigationHelpButton-wrapper {
+    display: none !important;
+}
+
+/* ===== NAVIGATION HELP POPUP ===== */
+.nav-help-popup {
+    position: fixed;
+    top: 80px;
+    right: 72px;
+    width: 280px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    z-index: var(--z-3d-controls, 110);
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(10px);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+
+.nav-help-popup:not([hidden]) {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+}
+
+.nav-help-popup[hidden] {
+    display: block !important;
+}
+
+/* ----- Tabs ----- */
+.nav-help-tabs {
+    display: flex;
+    border-radius: 12px 12px 0 0;
+    overflow: hidden;
+}
+
+.nav-help-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--gray-300, #d1d5db);
+    border: none;
+    color: var(--gray-700, #374151);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.nav-help-tab.active {
+    background: var(--primary-color, #508D4E);
+    color: white;
+}
+
+.nav-help-tab svg {
+    flex-shrink: 0;
+    stroke: currentColor;
+}
+
+.nav-help-tab img {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
+/* ----- Content ----- */
+.nav-help-content {
+    padding: 8px 0;
+}
+
+.nav-help-panel {
+    display: none;
+}
+
+.nav-help-panel.active {
+    display: block;
+}
+
+/* ----- Items ----- */
+.nav-help-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    transition: background 0.15s ease;
+}
+
+.nav-help-item:hover {
+    background: var(--gray-50, #f9fafb);
+}
+
+.nav-help-icon {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary-color, #508D4E);
+    border-radius: 8px;
+    color: white;
+}
+
+.nav-help-icon svg {
+    width: 32px;
+    height: 32px;
+}
+
+.nav-help-icon img {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+}
+
+.nav-help-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.nav-help-text strong {
+    display: block;
+    color: var(--gray-900, #111827);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.nav-help-text span {
+    display: block;
+    color: var(--gray-500, #6b7280);
+    font-size: 12px;
+    line-height: 1.4;
 }
 
 /* ===== 3D VIEWER CLOSE BUTTON ===== */
 #close-3d-viewer-button {
     position: fixed;
-    top: 20px;
-    right: 20px;
-    width: 30px;
-    height: 30px;
-    color: #FFF;
-    background: linear-gradient(135deg, #508d4e 0%, #3d6e3b 100%);
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    text-align: center;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    z-index: var(--z-3d-controls, 110);
+    top: 16px;
+    right: 16px;
     display: none;
     align-items: center;
-    justify-content: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--primary-color, #508D4E);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
+    color: #fff;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.3s ease;
-    backdrop-filter: blur(10px);
+    z-index: var(--z-3d-controls, 110);
+    transition: all 0.2s ease;
 }
 
+#close-3d-viewer-button:hover {
+    background: var(--primary-dark, #3d6e3b);
+    box-shadow: 0 6px 20px rgba(80, 141, 78, 0.4);
+    transform: translateY(-1px);
+}
+
+#close-3d-viewer-button:active {
+    transform: translateY(0) scale(0.98);
+}
+
+#close-3d-viewer-button:focus {
+    outline: 2px solid rgba(255, 255, 255, 0.5);
+    outline-offset: 2px;
+}
 
 #close-3d-viewer-button svg {
-    stroke-width: 2.5;
-    width: 30px;
-    height: 30px;
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    flex-shrink: 0;
 }
 
+#close-3d-viewer-button span {
+    line-height: 1;
+}
 
+/* ===== ACTIVE TOOL CHIP 3D ===== */
+.active-tool-chip-3d {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-3d-controls, 110);
+    pointer-events: none;
+}
+
+.active-tool-chip-3d-inner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--primary-color, #508D4E);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 9999px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    white-space: nowrap;
+    pointer-events: auto;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.active-tool-chip-3d.visible .active-tool-chip-3d-inner {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.active-tool-chip-3d-label {
+    font-weight: 400;
+    opacity: 0.9;
+}
+
+.active-tool-chip-3d-name {
+    font-weight: 600;
+}
+
+.active-tool-chip-3d-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-left: 4px;
+    border: none;
+    background: transparent;
+    color: white;
+    border-radius: 9999px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.active-tool-chip-3d-close:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.active-tool-chip-3d-close:active {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.active-tool-chip-3d-close svg {
+    width: 16px;
+    height: 16px;
+}

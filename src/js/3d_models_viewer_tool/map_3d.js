@@ -13,6 +13,15 @@ let cesiumState = {
     modules: {}
 };
 
+// Track if navigation help has been initialized
+let navHelpInitialized = false;
+
+// Store event handler references for cleanup
+let navHelpHandlers = {
+    documentClick: null,
+    documentKeydown: null
+};
+
 // ===== LAZY LOADING =====
 function loadScript(src) {
     return new Promise((resolve, reject) => {
@@ -405,13 +414,64 @@ function init3DFeatures() {
     }
 }
 
+// Track currently active tool
+let activeToolId = null;
+
+// Tool display names for the active chip
+const TOOL_NAMES_3D = {
+    'visualizacao': 'Análise de Visibilidade',
+    'distancia': 'Medir Distância',
+    'area': 'Medir Área'
+};
+
 function activeTool() {
     const toolId = this.id;
     if (!toolId || !cesiumState.viewer) return;
+
+    // Skip help button - handled separately
+    if (toolId === 'help-3d') return;
+
+    // Skip non-toggleable tools
+    const nonToggleable = ['limpar', 'screenshot-3d'];
+
+    if (nonToggleable.includes(toolId)) {
+        // Execute action without toggle
+        switch (toolId) {
+            case 'limpar':
+                removeAllTools();
+                deactivateAllToolButtons();
+                activeToolId = null;
+                hideActiveToolChip3D();
+                break;
+            case 'screenshot-3d':
+                handleScreenshot();
+                break;
+        }
+        return;
+    }
+
+    // Toggle logic for toggleable tools
+    const isCurrentlyActive = this.classList.contains('active');
+
+    if (isCurrentlyActive) {
+        // Deactivate current tool
+        this.classList.remove('active');
+        activeToolId = null;
+        removeAllTools();
+        hideActiveToolChip3D();
+        return;
+    }
+
+    // Deactivate all other tools first
+    deactivateAllToolButtons();
+    removeAllTools();
+
+    // Activate this tool
+    this.classList.add('active');
+    activeToolId = toolId;
+    showActiveToolChip3D(toolId);
+
     switch (toolId) {
-        case 'limpar':
-            removeAllTools();
-            break;
         case 'distancia':
             if (window.measure && window.measure.drawLineMeasureGraphics) {
                 window.measure.drawLineMeasureGraphics({
@@ -433,10 +493,41 @@ function activeTool() {
                 cesiumState.modules.viewshed.addViewField(cesiumState.viewer);
             }
             break;
-        case 'screenshot-3d':
-            handleScreenshot();
-            break;
     }
+}
+
+function showActiveToolChip3D(toolId) {
+    const chip = document.getElementById('active-tool-chip-3d');
+    const nameSpan = document.getElementById('active-tool-chip-3d-name');
+
+    if (!chip || !nameSpan) return;
+
+    nameSpan.textContent = TOOL_NAMES_3D[toolId] || toolId;
+    chip.style.display = 'block';
+
+    // Trigger animation
+    requestAnimationFrame(() => {
+        chip.classList.add('visible');
+    });
+}
+
+function hideActiveToolChip3D() {
+    const chip = document.getElementById('active-tool-chip-3d');
+    if (!chip) return;
+
+    chip.classList.remove('visible');
+
+    // Hide after animation
+    setTimeout(() => {
+        if (!chip.classList.contains('visible')) {
+            chip.style.display = 'none';
+        }
+    }, 200);
+}
+
+function deactivateAllToolButtons() {
+    const buttons = document.querySelectorAll('#toolbar-3d .button-tool-3d');
+    buttons.forEach(btn => btn.classList.remove('active'));
 }
 
 function handleClickGoTo() {
@@ -608,8 +699,135 @@ function registerToolEventListeners() {
             btn.addEventListener('click', activeTool);
         });
 
+        // Initialize navigation help popup
+        initNavigationHelp();
+
+        // Initialize active tool chip close button
+        initActiveToolChip3D();
+
         console.log(`${buttons.length} 3D tool buttons registered`);
     }, 100);
+}
+
+/**
+ * Initializes the active tool chip close button and ESC key handler
+ */
+function initActiveToolChip3D() {
+    const closeBtn = document.getElementById('active-tool-chip-3d-close');
+
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            deactivateCurrentTool3D();
+        });
+    }
+}
+
+/**
+ * Deactivates the currently active 3D tool
+ */
+function deactivateCurrentTool3D() {
+    if (activeToolId) {
+        const activeBtn = document.getElementById(activeToolId);
+        if (activeBtn) {
+            activeBtn.classList.remove('active');
+        }
+        activeToolId = null;
+        removeAllTools();
+        hideActiveToolChip3D();
+    }
+}
+
+/**
+ * Initializes the navigation help popup functionality
+ */
+function initNavigationHelp() {
+    // Prevent multiple initializations
+    if (navHelpInitialized) return;
+
+    const helpBtn = document.getElementById('help-3d');
+    const popup = document.getElementById('nav-help-popup');
+
+    if (!helpBtn || !popup) return;
+
+    // Toggle popup on button click
+    helpBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = !popup.hidden;
+
+        if (isOpen) {
+            closeNavHelp();
+        } else {
+            openNavHelp();
+        }
+    });
+
+    // Tab switching
+    const tabs = popup.querySelectorAll('.nav-help-tab');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const targetTab = tab.dataset.tab;
+
+            // Update tabs
+            tabs.forEach(t => {
+                t.classList.toggle('active', t.dataset.tab === targetTab);
+                t.setAttribute('aria-selected', t.dataset.tab === targetTab);
+            });
+
+            // Update panels
+            popup.querySelectorAll('.nav-help-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.dataset.panel === targetTab);
+            });
+        });
+    });
+
+    // Close on outside click - store reference for potential cleanup
+    navHelpHandlers.documentClick = (e) => {
+        const popup = document.getElementById('nav-help-popup');
+        const helpBtn = document.getElementById('help-3d');
+        if (popup && !popup.hidden && !popup.contains(e.target) && e.target !== helpBtn && !helpBtn?.contains(e.target)) {
+            closeNavHelp();
+        }
+    };
+    document.addEventListener('click', navHelpHandlers.documentClick);
+
+    // Close on Escape key - store reference for potential cleanup
+    navHelpHandlers.documentKeydown = (e) => {
+        if (e.key === 'Escape') {
+            const popup = document.getElementById('nav-help-popup');
+            // First close nav help if open
+            if (popup && !popup.hidden) {
+                closeNavHelp();
+                return;
+            }
+            // Then deactivate active tool if any
+            if (activeToolId) {
+                deactivateCurrentTool3D();
+            }
+        }
+    };
+    document.addEventListener('keydown', navHelpHandlers.documentKeydown);
+
+    navHelpInitialized = true;
+}
+
+function openNavHelp() {
+    const helpBtn = document.getElementById('help-3d');
+    const popup = document.getElementById('nav-help-popup');
+
+    if (!popup) return;
+
+    popup.hidden = false;
+    helpBtn?.setAttribute('aria-expanded', 'true');
+}
+
+function closeNavHelp() {
+    const helpBtn = document.getElementById('help-3d');
+    const popup = document.getElementById('nav-help-popup');
+
+    if (!popup) return;
+
+    popup.hidden = true;
+    helpBtn?.setAttribute('aria-expanded', 'false');
 }
 
 /**
