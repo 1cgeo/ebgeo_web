@@ -10,7 +10,7 @@ EBGeo (Sistema de Informacao Geografica do Exercito Brasileiro) is a web-based G
 - **Map Libraries**: MapLibre GL JS (2D), Cesium (3D)
 - **Military Symbols**: milsymbol library with Brazilian extensions
 - **Geometry**: Turf.js for geospatial operations
-- **UI**: Vanilla JS with Feather Icons, Quill (rich text), Chart.js, SortableJS
+- **UI**: Vanilla JS with Quill (rich text), Chart.js, SortableJS
 - **Storage**: LocalForage (IndexedDB wrapper)
 - **Server**: Restify (production server)
 

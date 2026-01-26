@@ -230,10 +230,6 @@ export default defineConfig({
       '@turf/turf',
       'milsymbol',
       'cesium'
-    ],
-    // Pre-bundle dependências npm para dev mais rápido
-    include: [
-      'feather-icons'
     ]
   },
 

@@ -25,7 +25,6 @@ export default [
                 milsymbol: 'readonly',
                 Cesium: 'readonly',
                 localforage: 'readonly',
-                feather: 'readonly',
                 Sortable: 'readonly',
                 proj4: 'readonly',
                 // Node.js globals for config files

@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /**
  * Hides the loading screen with fade-out animation
- * Shows elements marked with 'loading-hidden' class and initializes Feather icons
+ * Shows elements marked with 'loading-hidden' class
  */
 export function hideLoadingScreen() {
     const loadingBg = document.querySelector('.loading-background');
