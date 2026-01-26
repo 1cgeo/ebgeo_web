@@ -739,6 +739,9 @@ export class MapsTab {
             }
 
             this._loadMaps();
+
+            // Emit event to update sidebar recent maps display
+            this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
         } catch (_error) {
             showError('Erro ao selecionar mapa');
         }

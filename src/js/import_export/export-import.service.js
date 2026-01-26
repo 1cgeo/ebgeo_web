@@ -34,6 +34,7 @@ import JSZip from 'jszip';
 import config from '../config.js';
 import { groupManager } from '../tool_manager';
 import { showExportModal } from '../modals/export.modal.js';
+import { EventTypes } from '../events/event_types.js';
 
 /**
  * Normalizes mapData structure to current version
@@ -60,10 +61,11 @@ const normalizeMapDataForCurrentVersion = (mapData) => {
 };
 
 export class ExportImportService {
-    constructor(baseLayerControl, mapControl, mapManager) {
+    constructor(baseLayerControl, mapControl, mapManager, eventBus = null) {
         this.baseLayerControl = baseLayerControl;
         this.mapControl = mapControl;
         this.mapManager = mapManager;
+        this._eventBus = eventBus;
     }
 
     /**
@@ -476,6 +478,7 @@ export class ExportImportService {
                 }
 
                 const mapNameMapping = new Map();
+                const newlyCreatedMaps = new Set();
 
                 for (const [originalMapName, mapData] of Object.entries(data.maps)) {
                     // Find unique name
@@ -487,6 +490,7 @@ export class ExportImportService {
                     }
 
                     mapNameMapping.set(originalMapName, finalMapName);
+                    newlyCreatedMaps.add(finalMapName);
 
                     // Regenerate feature IDs
                     const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
@@ -508,8 +512,8 @@ export class ExportImportService {
                 // Import groups with updated map names
                 await this.importGroupsAdditively(data.groups, mapNameMapping);
 
-                // Import layers with updated map names
-                await this.importLayersAdditively(data.layers, mapNameMapping);
+                // Import layers with updated map names (pass newlyCreatedMaps to avoid creating extra default layers)
+                await this.importLayersAdditively(data.layers, mapNameMapping, newlyCreatedMaps);
 
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
@@ -555,6 +559,11 @@ export class ExportImportService {
 
             await this.baseLayerControl.switchMap();
             await this.mapControl.updateMapList();
+
+            // Emit event to update sidebar recent maps display
+            if (this._eventBus) {
+                this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
+            }
 
             const importType = isAdditiveImport ? 'adicionados' : 'carregados';
             this.showLoadSuccess(importedMapsCount, importType);
@@ -699,8 +708,9 @@ export class ExportImportService {
      * Imports layers additively (additive import - with conflict resolution)
      * @param {Object} layersData - Layers data to import
      * @param {Map} mapNameMapping - Mapping of original to final map names
+     * @param {Set} newlyCreatedMaps - Set of map names that were just created during import
      */
-    async importLayersAdditively(layersData, mapNameMapping) {
+    async importLayersAdditively(layersData, mapNameMapping, newlyCreatedMaps) {
         if (!layersData || Object.keys(layersData).length === 0) {
             return;
         }
@@ -713,6 +723,22 @@ export class ExportImportService {
                     continue;
                 }
 
+                // If this map was just created during import, set layers directly
+                // (don't try to merge with the auto-created default layer)
+                if (newlyCreatedMaps.has(finalMapName)) {
+                    const processedLayers = layers.map(layer => {
+                        // Generate new ID to avoid conflicts, but keep 'default' if present
+                        const newId = layer.id === 'default' ? 'default' : IDUtils.generateUniqueId();
+                        return {
+                            ...layer,
+                            id: newId
+                        };
+                    });
+                    await setMapLayers(finalMapName, { layers: processedLayers });
+                    continue;
+                }
+
+                // For existing maps, merge with existing layers
                 const existingLayers = await getLayers(finalMapName) || [];
                 const existingNames = new Set(existingLayers.map(l => l.name));
                 const existingIds = new Set(existingLayers.map(l => l.id));

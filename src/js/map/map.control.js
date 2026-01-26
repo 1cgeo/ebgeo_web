@@ -31,7 +31,7 @@ class MapControl {
         this.selectionManager = null;
 
         this.mapManager = new MapManager(baseLayerControl, this.selectionManager);
-        this.exportImportService = new ExportImportService(baseLayerControl, this, this.mapManager);
+        this.exportImportService = new ExportImportService(baseLayerControl, this, this.mapManager, getEventBus());
 
         this.reopenButton = null;
         this.pdfExportTab = null;
