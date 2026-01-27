@@ -2883,3 +2883,171 @@ body:has(.sidebar-container) .unified-attributes-panel {
     background: #f9fafb;
     border-color: #9ca3af;
 }
+
+/* =========================================================================
+   3D MODELS SECTION
+   ========================================================================= */
+
+.models3d-section {
+    margin-bottom: var(--space-2);
+}
+
+.models3d-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* Tileset Item */
+.models3d-tileset-item {
+    background: white;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.models3d-tileset-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.models3d-tileset-header:hover {
+    background: var(--gray-50);
+}
+
+.models3d-tileset-toggle {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-500);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color var(--transition-fast);
+}
+
+.models3d-tileset-toggle:hover {
+    color: var(--gray-700);
+}
+
+.models3d-tileset-icon {
+    width: 20px;
+    height: 20px;
+    color: var(--primary);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.models3d-tileset-name {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.models3d-marker-count {
+    padding: 2px 8px;
+    background: var(--gray-100);
+    border-radius: 9999px;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    flex-shrink: 0;
+}
+
+.models3d-open-viewer {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-400);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.models3d-open-viewer:hover {
+    color: var(--primary);
+    background: var(--gray-100);
+}
+
+/* Markers List */
+.models3d-markers-list {
+    display: flex;
+    flex-direction: column;
+    padding-left: 20px;
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+}
+
+.models3d-markers-list.collapsed {
+    max-height: 0 !important;
+    padding: 0;
+}
+
+/* Marker Item */
+.models3d-marker-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border-left: 2px solid var(--gray-200);
+    margin-left: var(--space-2);
+}
+
+.models3d-marker-item:hover {
+    background: var(--gray-50);
+    border-left-color: var(--primary);
+}
+
+.models3d-marker-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--primary);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.models3d-marker-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.models3d-marker-name {
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.models3d-marker-label {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

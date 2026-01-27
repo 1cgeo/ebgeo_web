@@ -21,6 +21,7 @@ import {
     clearAllAppSettings,
     clearAllGroupData,
     clearAllLayerData,
+    clearAllCesium3dData,
     setAppSetting,
     getColorUsage
 } from './repository.js';
@@ -49,6 +50,7 @@ import {
     deleteLayerOnly
 } from './layer.operations.js';
 import { setGroupDependencies } from './group.operations.js';
+import { setCesium3dDependencies, loadCesium3dDataToMemory, clearCesium3dCache } from './cesium3d.operations.js';
 
 // ===== DEPENDENCY INJECTION =====
 
@@ -84,6 +86,7 @@ export function initStoreEvents(eventBus, groupManager, layerManager) {
     setMapDependencies(dependencies);
     setLayerDependencies(dependencies);
     setGroupDependencies(dependencies);
+    setCesium3dDependencies({ eventBus });
 }
 
 // ===== INITIALIZATION =====
@@ -99,6 +102,7 @@ export const initializeWithLastActiveMap = async () => {
     await mapManager.initializeProjectColorCache();
     await deps.groupManager.loadGroupsToMemory(lastActiveMap);
     await deps.layerManager.loadLayersToMemory(lastActiveMap);
+    await loadCesium3dDataToMemory(lastActiveMap);
 
     return lastActiveMap;
 };
@@ -117,11 +121,13 @@ export const clearAllDataStore = async () => {
     await clearAllAppSettings();
     await clearAllGroupData();
     await clearAllLayerData();
+    await clearAllCesium3dData();
 
     await mapManager.clearAllColorCaches();
     resetColorCache();
 
     deps.layerManager.clearLayersCache();
+    clearCesium3dCache();
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
 
@@ -130,6 +136,7 @@ export const clearAllDataStore = async () => {
     await mapManager.setCurrentMap(defaultMap);
     await deps.groupManager.loadGroupsToMemory(defaultMap);
     await deps.layerManager.loadLayersToMemory(defaultMap);
+    await loadCesium3dDataToMemory(defaultMap);
 
     deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 };
@@ -324,6 +331,31 @@ export {
     processCatalogLayersOnImport,
     updateCatalogLayerStatus
 } from './catalog.operations.js';
+
+// ===== RE-EXPORTS FROM CESIUM 3D OPERATIONS =====
+
+export {
+    saveCameraPosition,
+    getCameraPosition,
+    hasSavedCameraPosition,
+    clearCameraPosition,
+    getAllCameraPositions,
+    addMarker,
+    getMarkers,
+    getAllMarkers,
+    getMarkerById,
+    updateMarker,
+    removeMarker,
+    removeMarkersByTileset,
+    loadCesium3dDataToMemory,
+    clearCesium3dCache,
+    setCesium3dDataForImport,
+    getCesium3dDataForExport,
+    DEFAULT_MARKER_STYLE,
+    addMarkerImage,
+    getMarkerImages,
+    removeMarkerImage
+} from './cesium3d.operations.js';
 
 // ===== LEGACY COMPATIBILITY EXPORTS =====
 

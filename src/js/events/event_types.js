@@ -172,6 +172,55 @@ export const EventTypes = Object.freeze({
      * NOTE: Uses hardcoded string 'CATALOG_ADD_LAYER' in code, not this constant.
      */
     CATALOG_ADD_LAYER: 'CATALOG_ADD_LAYER',
+
+    // ===== 3D VIEWER =====
+    /**
+     * Emitted when 3D viewer opens with a tileset.
+     * Payload: { tilesetId: string }
+     * Subscribers: Sidebar, UI components
+     * Emitters: map_3d.js
+     */
+    VIEWER_3D_OPENED: 'viewer3d:opened',
+
+    /**
+     * Emitted when 3D viewer closes.
+     * Payload: {}
+     * Subscribers: Sidebar, UI components
+     * Emitters: map_3d.js
+     */
+    VIEWER_3D_CLOSED: 'viewer3d:closed',
+
+    /**
+     * Emitted when a 3D marker is clicked.
+     * Payload: { marker: Cesium3DMarker, tilesetId: string }
+     * Subscribers: Sidebar (to open marker panel)
+     * Emitters: marker_tool_3d.js
+     */
+    MARKER_3D_CLICKED: 'marker3d:clicked',
+
+    /**
+     * Emitted when a 3D marker is deselected (clicking empty area).
+     * Payload: { tilesetId: string }
+     * Subscribers: Sidebar (to close marker panel)
+     * Emitters: marker_tool_3d.js
+     */
+    MARKER_3D_DESELECTED: 'marker3d:deselected',
+
+    /**
+     * Emitted when 3D markers change (add/update/delete).
+     * Payload: { mapName: string }
+     * Subscribers: Sidebar markers section
+     * Emitters: cesium3d.operations.js
+     */
+    MARKERS_3D_CHANGED: 'markers3d:changed',
+
+    /**
+     * Emitted when camera position is saved for a tileset.
+     * Payload: { tilesetId: string, mapName: string }
+     * Subscribers: 3D toolbar buttons
+     * Emitters: cesium3d.operations.js
+     */
+    CAMERA_3D_SAVED: 'camera3d:saved',
 });
 
 /**

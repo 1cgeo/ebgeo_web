@@ -13,6 +13,11 @@ import {
     initCatalogLayerListeners,
 } from './catalog-layers.component.js';
 import {
+    createModels3dSectionContainer,
+    renderModels3dSection,
+    initModels3dSectionListeners,
+} from './models3d-section.component.js';
+import {
     handleSetActiveLayer,
     handleAddLayer,
     updateActiveLayerIndicators,
@@ -86,6 +91,7 @@ export class FeaturesTab {
         this._unsubscribers = [];
         this._collapseManager = getCollapseStateManager();
         this._catalogLayerUnsubscriber = null;
+        this._models3dSectionUnsubscriber = null;
 
         this.INLINE_ICONS = FEATURES_TAB_ICONS;
         this.FEATURE_SOURCES = FEATURE_SOURCES;
@@ -121,6 +127,10 @@ export class FeaturesTab {
         const catalogLayersContainer = createCatalogLayersContainer();
         this.container.appendChild(catalogLayersContainer);
 
+        // 3D models section (shows tilesets with markers)
+        const models3dContainer = createModels3dSectionContainer();
+        this.container.appendChild(models3dContainer);
+
         const header = this._createHeader();
         this.container.appendChild(header);
 
@@ -133,6 +143,12 @@ export class FeaturesTab {
             this.map,
             this._eventBus,
             this.analysisLayersManager
+        );
+
+        // Initialize 3D models section listeners
+        this._models3dSectionUnsubscriber = initModels3dSectionListeners(
+            this.container.querySelector('.models3d-section'),
+            this._eventBus
         );
 
         return this.container;
@@ -156,6 +172,12 @@ export class FeaturesTab {
                 this.map,
                 this._eventBus,
                 this.analysisLayersManager
+            );
+
+            // Render 3D models section
+            await renderModels3dSection(
+                this.container.querySelector('.models3d-section'),
+                this._eventBus
             );
 
             await this.loadFeatures();
@@ -186,6 +208,12 @@ export class FeaturesTab {
         if (this._catalogLayerUnsubscriber) {
             this._catalogLayerUnsubscriber();
             this._catalogLayerUnsubscriber = null;
+        }
+
+        // Cleanup 3D models section listener
+        if (this._models3dSectionUnsubscriber) {
+            this._models3dSectionUnsubscriber();
+            this._models3dSectionUnsubscriber = null;
         }
     }
 
@@ -816,6 +844,11 @@ export class FeaturesTab {
                 this.map,
                 this._eventBus,
                 this.analysisLayersManager
+            );
+            // Re-render 3D models section
+            await renderModels3dSection(
+                this.container.querySelector('.models3d-section'),
+                this._eventBus
             );
             // Re-render features
             await this.loadFeatures();

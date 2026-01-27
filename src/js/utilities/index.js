@@ -38,3 +38,12 @@ export {
     cleanup,
     removeElement
 } from './event-cleanup.js';
+
+// Image processing utilities
+export {
+    IMAGE_CONFIG,
+    validateImageFile,
+    compressImage,
+    createThumbnail,
+    processImageFile
+} from './image_utils.js';

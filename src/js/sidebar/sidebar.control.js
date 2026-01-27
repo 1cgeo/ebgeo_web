@@ -41,6 +41,9 @@ import { createFeatureTabs } from './components/feature-tabs.js';
 import { createLocationSection } from './components/feature-location-section.js';
 import { createGroupTypeSelector } from './components/group-type-selector.js';
 
+// 3D marker panel (lazy imported)
+let markerPanel3dModule = null;
+
 /**
  * Main sidebar controller class.
  * Manages the sidebar UI and coordinates between collapsed, expanded, and feature panel states.
@@ -195,6 +198,14 @@ export class SidebarControl {
         // Listen for search result panel requests
         subscribe(this, this._eventBus, EventTypes.SEARCH_RESULT_PANEL_REQUESTED,
             (payload) => this._onSearchResultPanelRequested(payload));
+
+        // Listen for 3D marker clicks
+        subscribe(this, this._eventBus, EventTypes.MARKER_3D_CLICKED,
+            (payload) => this._onMarker3dClicked(payload));
+
+        // Listen for 3D marker deselection
+        subscribe(this, this._eventBus, EventTypes.MARKER_3D_DESELECTED,
+            () => this._onMarker3dDeselected());
     }
 
     /**
@@ -243,17 +254,28 @@ export class SidebarControl {
      * Saves changes before closing the panel.
      * @private
      */
-    _handleFeaturePanelClose() {
-        // Check if we're closing the notes panel
+    async _handleFeaturePanelClose() {
+        // Check if we're closing the notes panel or 3D marker panel
         const featureType = this._stateManager.get('ui.currentFeatureType');
         const isNotes = featureType === 'notes';
+        const isMarker3d = featureType === 'marker3d';
 
         // Save changes before closing (this triggers save button click)
         // Must happen BEFORE deselecting features
         this._featurePanel.hide(true);
 
+        // Deselect 3D marker if closing a marker panel
+        if (isMarker3d) {
+            try {
+                const { deselectCurrentMarker } = await import('../3d_models_viewer_tool/tools/marker_tool_3d.js');
+                deselectCurrentMarker();
+            } catch (error) {
+                console.warn('Could not deselect 3D marker:', error);
+            }
+        }
+
         // Only clear selection if we're not showing notes
-        if (!isNotes && this._selectionManager) {
+        if (!isNotes && !isMarker3d && this._selectionManager) {
             this._selectionManager.deselectAllFeatures();
         }
 
@@ -445,6 +467,86 @@ export class SidebarControl {
 
         // Show in feature panel with title
         this._featurePanel.show(contentWrapper, `Atributos: ${title}`);
+    }
+
+    /**
+     * Called when a 3D marker is clicked.
+     * @private
+     * @param {Object} payload - Event payload with marker and tilesetId
+     */
+    async _onMarker3dClicked(payload) {
+        const { marker, tilesetId } = payload;
+        if (!marker) return;
+
+        // Collapse sidebar panel first
+        this._collapsePanel();
+
+        // Update state to reflect feature panel is open
+        this._stateManager.set('ui.featurePanelOpen', true);
+        this._stateManager.set('ui.currentFeatureType', 'marker3d');
+
+        // Emit layout changed
+        this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+            sidebarExpanded: false,
+            featurePanelOpen: true,
+            contentLeftOffset: 376
+        });
+
+        // Load marker panel module lazily
+        if (!markerPanel3dModule) {
+            markerPanel3dModule = await import('../3d_models_viewer_tool/components/marker-panel-3d.js');
+            markerPanel3dModule.injectMarkerPanelStyles();
+        }
+
+        // Cleanup previous content
+        this._cleanupFeaturePanelContent();
+
+        // Create marker panel content
+        const { element, cleanup } = markerPanel3dModule.createMarkerPanelContent(
+            marker,
+            tilesetId,
+            () => this._handleFeaturePanelClose()
+        );
+
+        // Register cleanup
+        this._currentFeaturePanelCleanup = cleanup;
+
+        // Show in feature panel
+        const markerName = marker.properties?.nome || 'Marcador 3D';
+        this._featurePanel.show(element, markerName);
+    }
+
+    /**
+     * Called when a 3D marker is deselected.
+     * @private
+     */
+    _onMarker3dDeselected() {
+        // Only close if the feature panel is currently showing a 3D marker
+        const featureType = this._stateManager.get('ui.currentFeatureType');
+        const isMarker3dPanel = featureType === 'marker3d' ||
+            (this._stateManager.get('ui.featurePanelOpen') &&
+             document.querySelector('.marker-3d-panel-content'));
+
+        if (isMarker3dPanel) {
+            // Close the panel without restoring previous sidebar state
+            // This prevents layout issues when closing the 3D viewer
+            this._featurePanel.hide(false);
+            this._cleanupFeaturePanelContent();
+
+            // Clear feature panel state without triggering sidebar restore
+            this._stateManager.set('ui.featurePanelOpen', false);
+            this._stateManager.set('ui.currentFeatureType', null);
+            // Clear previousTab to prevent automatic restore
+            this._stateManager.set('sidebar.previousTab', null);
+
+            // Emit events for consistency
+            this._eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED, {});
+            this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+                sidebarExpanded: false,
+                featurePanelOpen: false,
+                contentLeftOffset: 56
+            });
+        }
     }
 
     /**

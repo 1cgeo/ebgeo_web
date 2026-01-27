@@ -168,9 +168,9 @@
     --z-modal: 60;
     --z-toast: 70;
 
-    /* 3D viewer must be above all legacy z-indexes (some go up to 10000+) */
-    --z-3d-viewer: 50000;
-    --z-3d-controls: 50010;
+    /* 3D viewer - reasonable value, sidebar will be higher in 3D mode */
+    --z-3d-viewer: 200;
+    --z-3d-controls: 210;
 }
 
 /* =========================================================================

@@ -14,6 +14,11 @@
 import { getMapData, updateMapData, getCurrentMapNameSync, getStorageTypeFromSource, FEATURE_TYPE_MAPPINGS as _FEATURE_TYPE_MAPPINGS, getEventBus } from '../store';
 import { IDUtils } from '../utilities';
 import { EventTypes, FeatureUpdateProperty } from '../events';
+import {
+    IMAGE_CONFIG,
+    validateImageFile,
+    processImageFile
+} from '../utilities/image_utils.js';
 
 /**
  * System properties that should NOT be extracted as user attributes during import.
@@ -78,18 +83,7 @@ const SYSTEM_PROPERTIES = new Set([
     '_keys', '_values', '_z', '_x', '_y',
 ]);
 
-/**
- * Configuration for image handling.
- * @constant {Object}
- */
-const IMAGE_CONFIG = {
-    maxSizeBytes: 10 * 1024 * 1024,  // 10MB max upload
-    compressionThreshold: 2 * 1024 * 1024,  // Compress above 2MB
-    compressionQuality: 0.8,
-    thumbnailSize: 150,
-    allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-    allowedExtensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp'],
-};
+// IMAGE_CONFIG is imported from utilities/image_utils.js
 
 /**
  * User Data Manager - Singleton instance for managing custom attributes and images.
@@ -283,14 +277,16 @@ const userDataManager = {
      * @returns {Promise<Object|null>} Created image object or null on failure
      */
     async addImage(featureId, featureType, file) {
-        const validation = this.validateImageFile(file);
+        // Use shared validation utility
+        const validation = validateImageFile(file);
         if (!validation.valid) {
             console.warn(`UserDataManager: Invalid image file - ${validation.reason}`);
             return null;
         }
 
         try {
-            const processedImage = await this._processImageFile(file);
+            // Use shared processing utility
+            const processedImage = await processImageFile(file);
             const imageId = IDUtils.generateUniqueId();
 
             const imageData = {
@@ -404,138 +400,7 @@ const userDataManager = {
         document.body.removeChild(link);
     },
 
-    // ===== IMAGE PROCESSING =====
-
-    /**
-     * Processes an image file - compresses if needed and generates thumbnail.
-     * @private
-     * @param {File} file - Image file
-     * @returns {Promise<Object>} Object with data (base64) and thumbnail (base64)
-     */
-    async _processImageFile(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-
-            reader.onload = async (e) => {
-                try {
-                    let imageData = e.target.result;
-
-                    // Compress if above threshold
-                    if (file.size > IMAGE_CONFIG.compressionThreshold) {
-                        imageData = await this._compressImage(imageData);
-                    }
-
-                    // Generate thumbnail
-                    const thumbnail = await this._createThumbnail(imageData);
-
-                    resolve({
-                        data: imageData,
-                        thumbnail: thumbnail,
-                    });
-                } catch (error) {
-                    reject(error);
-                }
-            };
-
-            reader.onerror = () => reject(new Error('Failed to read file'));
-            reader.readAsDataURL(file);
-        });
-    },
-
-    /**
-     * Compresses an image using canvas.
-     * @private
-     * @param {string} base64Data - Base64 encoded image
-     * @returns {Promise<string>} Compressed base64 image
-     */
-    async _compressImage(base64Data) {
-        return new Promise((resolve, _reject) => {
-            const img = new Image();
-
-            img.onload = () => {
-                try {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-
-                    // Maintain aspect ratio, limit max dimension to 2048px
-                    const maxDimension = 2048;
-                    let { width, height } = img;
-
-                    if (width > maxDimension || height > maxDimension) {
-                        if (width > height) {
-                            height = (height / width) * maxDimension;
-                            width = maxDimension;
-                        } else {
-                            width = (width / height) * maxDimension;
-                            height = maxDimension;
-                        }
-                    }
-
-                    canvas.width = width;
-                    canvas.height = height;
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    const compressed = canvas.toDataURL('image/jpeg', IMAGE_CONFIG.compressionQuality);
-                    resolve(compressed);
-                } catch (_error) {
-                    // Fallback to original on compression failure
-                    console.warn('UserDataManager: Compression failed, using original');
-                    resolve(base64Data);
-                }
-            };
-
-            img.onerror = () => {
-                // Fallback to original on load failure
-                console.warn('UserDataManager: Image load failed for compression');
-                resolve(base64Data);
-            };
-
-            img.src = base64Data;
-        });
-    },
-
-    /**
-     * Creates a thumbnail from an image.
-     * @private
-     * @param {string} base64Data - Base64 encoded image
-     * @returns {Promise<string>} Thumbnail as base64
-     */
-    async _createThumbnail(base64Data) {
-        return new Promise((resolve, _reject) => {
-            const img = new Image();
-
-            img.onload = () => {
-                try {
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    const size = IMAGE_CONFIG.thumbnailSize;
-
-                    // Create square thumbnail (crop to center)
-                    const minDimension = Math.min(img.width, img.height);
-                    const sx = (img.width - minDimension) / 2;
-                    const sy = (img.height - minDimension) / 2;
-
-                    canvas.width = size;
-                    canvas.height = size;
-                    ctx.drawImage(img, sx, sy, minDimension, minDimension, 0, 0, size, size);
-
-                    const thumbnail = canvas.toDataURL('image/jpeg', 0.7);
-                    resolve(thumbnail);
-                } catch (_error) {
-                    // Return original as fallback
-                    console.warn('UserDataManager: Thumbnail creation failed');
-                    resolve(base64Data);
-                }
-            };
-
-            img.onerror = () => {
-                console.warn('UserDataManager: Image load failed for thumbnail');
-                resolve(base64Data);
-            };
-
-            img.src = base64Data;
-        });
-    },
+    // Image processing is now handled by utilities/image_utils.js
 
     // ===== IMPORT UTILITIES =====
 
@@ -623,24 +488,12 @@ const userDataManager = {
 
     /**
      * Validates an image file.
+     * Delegates to shared utility function.
      * @param {File} file - File to validate
      * @returns {Object} Validation result with valid (boolean) and reason (string)
      */
     validateImageFile(file) {
-        if (!file) {
-            return { valid: false, reason: 'Nenhum arquivo selecionado' };
-        }
-
-        if (file.size > IMAGE_CONFIG.maxSizeBytes) {
-            const maxMB = IMAGE_CONFIG.maxSizeBytes / (1024 * 1024);
-            return { valid: false, reason: `Arquivo muito grande (máximo ${maxMB}MB)` };
-        }
-
-        if (!IMAGE_CONFIG.allowedTypes.includes(file.type)) {
-            return { valid: false, reason: 'Tipo de arquivo não suportado (use JPEG, PNG, GIF ou WebP)' };
-        }
-
-        return { valid: true };
+        return validateImageFile(file);
     },
 
     /**

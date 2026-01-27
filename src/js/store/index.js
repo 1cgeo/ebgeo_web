@@ -34,5 +34,9 @@ export {
     getLayers as getLayersRepo,
     setActiveLayerId as setActiveLayerIdRepo,
     getActiveLayerId as getActiveLayerIdRepo,
-    getDefaultLayer
+    getDefaultLayer,
+    // Cesium 3D (for import/export service)
+    getCesium3dData,
+    setCesium3dData,
+    getEmptyCesium3dData
 } from './repository.js';

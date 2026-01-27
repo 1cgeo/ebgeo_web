@@ -1,5 +1,12 @@
 // Path: js/3d_models_viewer_tool/map_3d.js
 import config from '../config.js';
+import {
+    saveCameraPosition,
+    getCameraPosition,
+    hasSavedCameraPosition,
+    clearCameraPosition
+} from '../store/index.js';
+import { showSuccess } from '../utilities/index.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -10,14 +17,15 @@ let cesiumState = {
     viewer: null,
     loadedTilesets: {},
     resizeObserver: null,
-    modules: {}
+    modules: {},
+    currentTilesetId: null  // Track currently active tileset
 };
 
 // Track if navigation help has been initialized
 let navHelpInitialized = false;
 
 // Store event handler references for cleanup
-let navHelpHandlers = {
+const navHelpHandlers = {
     documentClick: null,
     documentKeydown: null
 };
@@ -286,6 +294,14 @@ async function setupTools(viewer) {
         const screenshotModule = await import('./tools/screenshot_tool.js');
         cesiumState.modules.screenshot = screenshotModule;
 
+        const markerModule = await import('./tools/marker_tool_3d.js');
+        cesiumState.modules.markers = markerModule;
+
+        // Initialize marker tool event listeners for map change detection
+        if (markerModule.initMarkerToolListeners) {
+            markerModule.initMarkerToolListeners();
+        }
+
     } catch (error) {
         console.warn('Some 3D modules failed to load:', error);
     }
@@ -303,6 +319,9 @@ function pauseRendering() {
     cesiumState.isPaused = true;
     cesiumState.isVisible = false;
 
+    // Remove class from body for sidebar visibility
+    document.body.classList.remove('cesium-active');
+
     const scene = cesiumState.viewer.scene;
 
     scene.requestRenderMode = true;
@@ -317,7 +336,16 @@ function pauseRendering() {
  * Re-enables camera controls and shows primitives
  */
 function resumeRendering() {
-    if (!cesiumState.viewer || !cesiumState.isPaused) return;
+    if (!cesiumState.viewer) return;
+
+    // Always add class to body for sidebar visibility (even on first open)
+    document.body.classList.add('cesium-active');
+
+    // If not paused, just ensure visibility state is correct
+    if (!cesiumState.isPaused) {
+        cesiumState.isVisible = true;
+        return;
+    }
 
     cesiumState.isPaused = false;
     cesiumState.isVisible = true;
@@ -421,7 +449,8 @@ let activeToolId = null;
 const TOOL_NAMES_3D = {
     'visualizacao': 'Análise de Visibilidade',
     'distancia': 'Medir Distância',
-    'area': 'Medir Área'
+    'area': 'Medir Área',
+    'add-marker-3d': 'Adicionar Marcador'
 };
 
 function activeTool() {
@@ -431,8 +460,8 @@ function activeTool() {
     // Skip help button - handled separately
     if (toolId === 'help-3d') return;
 
-    // Skip non-toggleable tools
-    const nonToggleable = ['limpar', 'screenshot-3d'];
+    // Skip non-toggleable tools and camera buttons (handled separately)
+    const nonToggleable = ['limpar', 'screenshot-3d', 'salvar-camera', 'limpar-camera'];
 
     if (nonToggleable.includes(toolId)) {
         // Execute action without toggle
@@ -491,6 +520,11 @@ function activeTool() {
         case 'visualizacao':
             if (cesiumState.modules.viewshed) {
                 cesiumState.modules.viewshed.addViewField(cesiumState.viewer);
+            }
+            break;
+        case 'add-marker-3d':
+            if (cesiumState.modules.markers && _currentTilesetId) {
+                cesiumState.modules.markers.activateMarkerTool(cesiumState.viewer, _currentTilesetId);
             }
             break;
     }
@@ -553,21 +587,28 @@ function handleClickGoTo() {
 // ===== UTILITIES =====
 
 function removeAllTools() {
-    if (!window.measure) return;
-
     try {
-        if (window.measure._drawLayer) {
-            window.measure._drawLayer.entities.removeAll();
-        }
-        if (window.measure.removeDrawLineMeasureGraphics) {
-            window.measure.removeDrawLineMeasureGraphics();
-        }
-        if (window.measure.removeDrawAreaMeasureGraphics) {
-            window.measure.removeDrawAreaMeasureGraphics();
+        // Remove measure tools
+        if (window.measure) {
+            if (window.measure._drawLayer) {
+                window.measure._drawLayer.entities.removeAll();
+            }
+            if (window.measure.removeDrawLineMeasureGraphics) {
+                window.measure.removeDrawLineMeasureGraphics();
+            }
+            if (window.measure.removeDrawAreaMeasureGraphics) {
+                window.measure.removeDrawAreaMeasureGraphics();
+            }
         }
 
+        // Clear viewshed
         if (cesiumState.modules.viewshed) {
             cesiumState.modules.viewshed.clearAllViewField();
+        }
+
+        // Deactivate marker tool
+        if (cesiumState.modules.markers) {
+            cesiumState.modules.markers.deactivateMarkerTool();
         }
 
     } catch (error) {
@@ -619,6 +660,110 @@ function initCesiumEventHandlers() {
 let currentTileset = null;
 let _currentTilesetId = null;
 
+// ===== CAMERA POSITION FUNCTIONS =====
+
+/**
+ * Saves the current camera position for the active tileset.
+ * @returns {Promise<boolean>} True if position was saved
+ */
+export async function saveCurrentCameraPosition() {
+    if (!cesiumState.viewer || !_currentTilesetId) {
+        console.warn('Cannot save camera: no viewer or tileset');
+        return false;
+    }
+
+    const camera = cesiumState.viewer.camera;
+    const cartographic = camera.positionCartographic;
+
+    const position = {
+        longitude: Cesium.Math.toDegrees(cartographic.longitude),
+        latitude: Cesium.Math.toDegrees(cartographic.latitude),
+        height: cartographic.height
+    };
+
+    const orientation = {
+        heading: camera.heading,
+        pitch: camera.pitch,
+        roll: camera.roll
+    };
+
+    await saveCameraPosition(_currentTilesetId, position, orientation);
+    updateCameraButtonState(true);
+    return true;
+}
+
+/**
+ * Restores saved camera position for a tileset.
+ * @param {string} tilesetId - Tileset ID
+ * @returns {Promise<boolean>} True if position was restored
+ */
+async function restoreCameraPosition(tilesetId) {
+    const savedPosition = await getCameraPosition(tilesetId);
+
+    if (savedPosition && cesiumState.viewer) {
+        cesiumState.viewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(
+                savedPosition.position.longitude,
+                savedPosition.position.latitude,
+                savedPosition.position.height
+            ),
+            orientation: {
+                heading: savedPosition.orientation.heading,
+                pitch: savedPosition.orientation.pitch,
+                roll: savedPosition.orientation.roll
+            },
+            duration: 2.0
+        });
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Clears the saved camera position for the active tileset.
+ * @returns {Promise<boolean>} True if position was cleared
+ */
+export async function clearCurrentCameraPosition() {
+    if (!_currentTilesetId) {
+        return false;
+    }
+
+    const result = await clearCameraPosition(_currentTilesetId);
+    if (result) {
+        updateCameraButtonState(false);
+    }
+    return result;
+}
+
+/**
+ * Checks if current tileset has a saved camera position.
+ * @returns {Promise<boolean>} True if position exists
+ */
+export async function currentTilesetHasSavedPosition() {
+    if (!_currentTilesetId) {
+        return false;
+    }
+    return await hasSavedCameraPosition(_currentTilesetId);
+}
+
+/**
+ * Updates the visual state of camera buttons based on saved position.
+ * @param {boolean} hasSavedPosition - Whether position is saved
+ */
+function updateCameraButtonState(hasSavedPosition) {
+    const saveBtn = document.getElementById('salvar-camera');
+    const clearBtn = document.getElementById('limpar-camera');
+
+    if (saveBtn) {
+        saveBtn.classList.toggle('has-saved', hasSavedPosition);
+        saveBtn.title = hasSavedPosition ? 'Atualizar posição da câmera' : 'Salvar posição da câmera';
+    }
+
+    if (clearBtn) {
+        clearBtn.style.display = hasSavedPosition ? 'flex' : 'none';
+    }
+}
+
 /**
  * Loads a single tileset and flies to its location
  * @param {Cesium.Viewer} viewer - The Cesium viewer instance
@@ -646,15 +791,30 @@ async function loadSingleTileset(viewer, tilesetId) {
 
     currentTileset = await createOptimizedTileset(viewer, tilesetConfig);
     _currentTilesetId = tilesetId;
+    cesiumState.currentTilesetId = tilesetId;
 
-    viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-            tilesetConfig.locate.lon,
-            tilesetConfig.locate.lat,
-            tilesetConfig.locate.height
-        ),
-        duration: 2.0
-    });
+    // Check for saved camera position
+    const hasSavedPosition = await restoreCameraPosition(tilesetId);
+
+    if (!hasSavedPosition) {
+        // Use default location from config
+        viewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(
+                tilesetConfig.locate.lon,
+                tilesetConfig.locate.lat,
+                tilesetConfig.locate.height
+            ),
+            duration: 2.0
+        });
+    }
+
+    // Update button state
+    updateCameraButtonState(hasSavedPosition);
+
+    // Render markers for this tileset (without activating the tool)
+    if (cesiumState.modules.markers) {
+        await cesiumState.modules.markers.renderMarkersForTileset(viewer, tilesetId);
+    }
 
     return currentTileset;
 }
@@ -705,8 +865,47 @@ function registerToolEventListeners() {
         // Initialize active tool chip close button
         initActiveToolChip3D();
 
+        // Initialize camera buttons
+        initCameraButtons();
+
         console.log(`${buttons.length} 3D tool buttons registered`);
     }, 100);
+}
+
+/**
+ * Initializes camera save/clear button handlers
+ */
+function initCameraButtons() {
+    const saveBtn = document.getElementById('salvar-camera');
+    const clearBtn = document.getElementById('limpar-camera');
+
+    if (saveBtn) {
+        // Remove existing listeners
+        saveBtn.replaceWith(saveBtn.cloneNode(true));
+        const newSaveBtn = document.getElementById('salvar-camera');
+
+        newSaveBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const success = await saveCurrentCameraPosition();
+            if (success) {
+                showSuccess('Posição da câmera salva!');
+            }
+        });
+    }
+
+    if (clearBtn) {
+        // Remove existing listeners
+        clearBtn.replaceWith(clearBtn.cloneNode(true));
+        const newClearBtn = document.getElementById('limpar-camera');
+
+        newClearBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const success = await clearCurrentCameraPosition();
+            if (success) {
+                showSuccess('Posição da câmera removida');
+            }
+        });
+    }
 }
 
 /**
@@ -835,6 +1034,16 @@ function closeNavHelp() {
  * @param {string} tilesetId - ID of the tileset to display
  */
 export async function openViewerWithTileset(tilesetId) {
+    // Clear 2D map selection and close feature panel before opening 3D viewer
+    try {
+        const { getStateManagerInstance } = await import('../state/state_manager.js');
+        const stateManager = getStateManagerInstance();
+        stateManager.clearSelection();
+        stateManager.closeFeaturePanel();
+    } catch (error) {
+        console.warn('Could not clear selection:', error);
+    }
+
     const viewerExists = cesiumState.viewer && !cesiumState.viewer.isDestroyed();
 
     if (viewerExists) {
@@ -856,8 +1065,28 @@ export async function openViewerWithTileset(tilesetId) {
  */
 export function closeViewer() {
     if (cesiumState.viewer && !cesiumState.viewer.isDestroyed() && cesiumState.isVisible) {
+        // Deselect any selected marker and close its panel
+        if (cesiumState.modules.markers && cesiumState.modules.markers.deselectCurrentMarker) {
+            cesiumState.modules.markers.deselectCurrentMarker();
+        }
+
         pauseRendering();
         cesiumState.isVisible = false;
+    }
+}
+
+/**
+ * Deactivates the currently active 3D tool and hides the tool chip.
+ * Called after completing a tool action (e.g., adding a marker).
+ */
+export function deactivateActiveTool3D() {
+    deactivateAllToolButtons();
+    removeAllTools();
+    hideActiveToolChip3D();
+
+    // Deactivate marker tool if active
+    if (cesiumState.modules.markers) {
+        cesiumState.modules.markers.deactivateMarkerTool();
     }
 }
 

@@ -3,15 +3,16 @@
 import localforage from 'localforage';
 import _config from '../config.js';
 
-const SCHEMA_VERSION = '1.6';
+const SCHEMA_VERSION = '1.7';
 const MIN_SCHEMA_VERSION = '1.3';
-const MAX_SCHEMA_VERSION = '1.6';
+const MAX_SCHEMA_VERSION = '1.7';
 
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
 const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
 const groupStore = localforage.createInstance({ name: 'ebgeo_groups' });
 const layerStore = localforage.createInstance({ name: 'ebgeo_layers' });
+const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
 
 const memoryStore = {
     maps: {
@@ -26,7 +27,12 @@ const memoryStore = {
     groups: {},
     // Layer system cache
     layers: {},
-    activeLayerId: 'default'
+    activeLayerId: 'default',
+    // Cesium 3D cache
+    cesium3d: {
+        cameraPositions: {},  // { tilesetId: TilesetCameraPosition }
+        markers: []           // Cesium3DMarker[]
+    }
 };
 
 /**
@@ -181,6 +187,10 @@ const resetMemoryStore = () => {
     memoryStore.groups = {};
     memoryStore.layers = {};
     memoryStore.activeLayerId = 'default';
+    memoryStore.cesium3d = {
+        cameraPositions: {},
+        markers: []
+    };
 };
 
 // ===== MAP CRUD OPERATIONS =====
@@ -205,6 +215,7 @@ const deleteMapData = async (mapName) => {
     await removeMapNotes(mapName);
     await removeMapGroups(mapName);
     await removeMapLayers(mapName);
+    await removeCesium3dData(mapName);
 };
 
 const getAllMapNames = async () => {
@@ -241,6 +252,12 @@ const renameMapData = async (oldName, newName) => {
             await setLayers(newName, layersData);
             await setActiveLayerId(newName, activeLayerId);
             await removeMapLayers(oldName);
+        }
+
+        const cesium3dData = await getCesium3dData(oldName);
+        if (cesium3dData && (Object.keys(cesium3dData.cameraPositions).length > 0 || cesium3dData.markers.length > 0)) {
+            await setCesium3dData(newName, cesium3dData);
+            await removeCesium3dData(oldName);
         }
     }
 };
@@ -338,6 +355,7 @@ const clearAllAppSettings = async () => {
             await removeMapNotes(mapName);
             await removeMapGroups(mapName);
             await removeMapLayers(mapName);
+            await removeCesium3dData(mapName);
         } catch (error) {
             console.warn(`Error clearing data for map ${mapName}:`, error);
         }
@@ -489,6 +507,38 @@ const migrateAllMapsTo16 = async () => {
     }
 };
 
+/**
+ * Migrates a single map to v1.7 (ensures cesium3d data exists)
+ * @param {string} mapName - Map name
+ * @returns {Promise<boolean>} True if migration was performed
+ */
+const migrateMapTo17 = async (mapName) => {
+    const existingData = await getCesium3dData(mapName);
+    // If data doesn't exist or is missing required properties, initialize it
+    if (!existingData || existingData.cameraPositions === undefined || existingData.markers === undefined) {
+        await setCesium3dData(mapName, getEmptyCesium3dData());
+        return true;
+    }
+    return false;
+};
+
+/**
+ * Migrates all maps to v1.7
+ */
+const migrateAllMapsTo17 = async () => {
+    const mapNames = await getAllMapNames();
+    let migratedCount = 0;
+
+    for (const mapName of mapNames) {
+        const wasMigrated = await migrateMapTo17(mapName);
+        if (wasMigrated) migratedCount++;
+    }
+
+    if (migratedCount > 0) {
+        console.log(`Migrated ${migratedCount} map(s) to v1.7 (initialized cesium3d data)`);
+    }
+};
+
 // ===== INITIALIZATION =====
 
 const initializeRepository = async () => {
@@ -501,13 +551,19 @@ const initializeRepository = async () => {
             await migrateAllMapsTo14();
             await migrateAllMapsTo15();
             await migrateAllMapsTo16();
+            await migrateAllMapsTo17();
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         } else if (currentSchemaVersion === '1.4') {
             await migrateAllMapsTo15();
             await migrateAllMapsTo16();
+            await migrateAllMapsTo17();
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         } else if (currentSchemaVersion === '1.5') {
             await migrateAllMapsTo16();
+            await migrateAllMapsTo17();
+            await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        } else if (currentSchemaVersion === '1.6') {
+            await migrateAllMapsTo17();
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         } else if (!currentSchemaVersion) {
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
@@ -677,6 +733,53 @@ const removeMapLayers = async (mapName) => {
     await layerStore.removeItem(activeKey);
 };
 
+// ===== CESIUM 3D OPERATIONS =====
+
+/**
+ * Returns empty Cesium 3D data structure
+ * @returns {Object} Empty cesium3d data
+ */
+const getEmptyCesium3dData = () => ({
+    cameraPositions: {},
+    markers: []
+});
+
+/**
+ * Saves Cesium 3D data for a map to IndexedDB
+ * @param {string} mapName - Map name
+ * @param {Object} cesium3dData - Cesium 3D data
+ */
+const setCesium3dData = async (mapName, cesium3dData) => {
+    const key = `cesium3d_${mapName}`;
+    await cesium3dStore.setItem(key, cesium3dData);
+};
+
+/**
+ * Loads Cesium 3D data for a map from IndexedDB
+ * @param {string} mapName - Map name
+ * @returns {Object} Cesium 3D data or empty structure
+ */
+const getCesium3dData = async (mapName) => {
+    const key = `cesium3d_${mapName}`;
+    return await cesium3dStore.getItem(key) || getEmptyCesium3dData();
+};
+
+/**
+ * Removes Cesium 3D data for a map
+ * @param {string} mapName - Map name
+ */
+const removeCesium3dData = async (mapName) => {
+    const key = `cesium3d_${mapName}`;
+    await cesium3dStore.removeItem(key);
+};
+
+/**
+ * Clears all Cesium 3D data
+ */
+const clearAllCesium3dData = async () => {
+    await cesium3dStore.clear();
+};
+
 // ===== EXPORTS =====
 
 export {
@@ -724,5 +827,11 @@ export {
     getLayers,
     setActiveLayerId,
     getActiveLayerId,
-    getDefaultLayer
+    getDefaultLayer,
+    // Cesium 3D
+    getEmptyCesium3dData,
+    setCesium3dData,
+    getCesium3dData,
+    removeCesium3dData,
+    clearAllCesium3dData
 };

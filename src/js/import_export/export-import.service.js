@@ -27,6 +27,9 @@ import {
     setMapOrder,
     // Catalog imports
     processCatalogLayersOnImport,
+    // Cesium 3D imports
+    getCesium3dDataForExport,
+    setCesium3dDataForImport,
 } from '../store';
 
 import { IDUtils, showToast, showSuccess } from '../utilities';
@@ -266,6 +269,7 @@ export class ExportImportService {
                 mapNotes: {},
                 groups: {},
                 layers: {},
+                cesium3d: {},
             };
 
             // Export map data with optimization
@@ -329,6 +333,16 @@ export class ExportImportService {
                     }
                 } catch (error) {
                     console.warn(`Could not export layers from map ${mapName}:`, error);
+                }
+
+                // Export cesium 3D data (camera positions and markers)
+                try {
+                    const cesium3dData = await getCesium3dDataForExport(mapName);
+                    if (cesium3dData) {
+                        data.cesium3d[mapName] = cesium3dData;
+                    }
+                } catch (error) {
+                    console.warn(`Could not export 3D data from map ${mapName}:`, error);
                 }
             }
 
@@ -515,6 +529,9 @@ export class ExportImportService {
                 // Import layers with updated map names (pass newlyCreatedMaps to avoid creating extra default layers)
                 await this.importLayersAdditively(data.layers, mapNameMapping, newlyCreatedMaps);
 
+                // Import cesium 3D data additively
+                await this.importCesium3dAdditively(data.cesium3d, mapNameMapping);
+
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     // Normalizar estrutura para versão atual
@@ -534,6 +551,9 @@ export class ExportImportService {
 
                 // Import layers directly (normal import)
                 await this.importLayersDirectly(data.layers);
+
+                // Import cesium 3D data directly (normal import)
+                await this.importCesium3dDirectly(data.cesium3d);
 
                 // Restore map order if available
                 if (data.mapOrder && Array.isArray(data.mapOrder) && data.mapOrder.length > 0) {
@@ -776,6 +796,53 @@ export class ExportImportService {
             }
         } catch (error) {
             console.error('Error importing layers additively:', error);
+        }
+    }
+
+    /**
+     * Imports cesium 3D data directly (normal import - replaces everything)
+     * @param {Object} cesium3dData - Cesium 3D data to import
+     */
+    async importCesium3dDirectly(cesium3dData) {
+        if (!cesium3dData || Object.keys(cesium3dData).length === 0) {
+            return;
+        }
+
+        try {
+            for (const [mapName, data] of Object.entries(cesium3dData)) {
+                if (data) {
+                    await setCesium3dDataForImport(mapName, data);
+                }
+            }
+        } catch (error) {
+            console.error('Error importing cesium 3D data directly:', error);
+        }
+    }
+
+    /**
+     * Imports cesium 3D data additively (additive import - with map name mapping)
+     * @param {Object} cesium3dData - Cesium 3D data to import
+     * @param {Map} mapNameMapping - Mapping of original to final map names
+     */
+    async importCesium3dAdditively(cesium3dData, mapNameMapping) {
+        if (!cesium3dData || Object.keys(cesium3dData).length === 0) {
+            return;
+        }
+
+        try {
+            for (const [originalMapName, data] of Object.entries(cesium3dData)) {
+                const finalMapName = mapNameMapping.get(originalMapName);
+
+                if (!finalMapName || !data) {
+                    continue;
+                }
+
+                // For additive import, we just set the data with the new map name
+                // since the map was just created and has no existing 3D data
+                await setCesium3dDataForImport(finalMapName, data);
+            }
+        } catch (error) {
+            console.error('Error importing cesium 3D data additively:', error);
         }
     }
 

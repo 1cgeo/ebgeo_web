@@ -3,24 +3,28 @@
 /* ===== 3D MAIN CONTAINER ===== */
 #map-3d-container {
     display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100vw;
-    height: 100vh;
+    position: fixed !important;
+    top: 0 !important;
+    left: 56px !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: auto !important;
+    height: 100vh !important;
     overflow: hidden;
-    z-index: var(--z-3d-viewer, 100);
+    z-index: 200 !important;
     background: #000;
+
+    /* Create isolated stacking context to prevent Cesium elements from escaping */
+    isolation: isolate;
 }
 
-/* Ensure z-index when visible */
-#map-3d-container[style*="display: block"],
-#map-3d-container[style*="display:block"],
-#map-3d-container.active,
-#map-3d-container.visible {
-    z-index: var(--z-3d-viewer, 100) !important;
+/* ===== SIDEBAR VISIBILITY IN 3D MODE ===== */
+
+/* Make entire sidebar visible above Cesium viewer */
+
+/* Keep the same behavior as 2D mode, just ensure proper z-index */
+body.cesium-active .sidebar-container {
+    z-index: 300 !important;
 }
 
 #map-3d {
@@ -30,6 +34,15 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+
+    /* Keep Cesium elements contained */
+    isolation: isolate;
+}
+
+/* Ensure Cesium canvas and widgets stay within container */
+#map-3d .cesium-viewer,
+#map-3d .cesium-widget {
+    z-index: auto !important;
 }
 
 /* ===== 3D TOOLBAR - VERTICAL SIDEBAR ===== */
@@ -116,10 +129,7 @@
     outline-offset: 2px;
 }
 
-/* ===== PERFORMANCE ===== */
-.button-tool-3d {
-    will-change: transform, background-color;
-}
+/* Performance is already defined above */
 
 /* ===== TOOLBAR SEPARATOR ===== */
 .toolbar-3d-separator {
@@ -127,6 +137,24 @@
     height: 1px;
     background: var(--gray-300, #d1d5db);
     margin: 4px auto;
+}
+
+/* ===== CAMERA BUTTONS ===== */
+#salvar-camera.has-saved {
+    border: 3px solid var(--primary-color, #508D4E);
+    box-shadow: 0 0 0 1px rgba(80, 141, 78, 0.3);
+}
+
+#limpar-camera {
+    background: #fff;
+}
+
+#limpar-camera:hover {
+    background: #fee2e2;
+}
+
+#limpar-camera svg {
+    stroke: #dc2626;
 }
 
 /* ===== HIDE NATIVE CESIUM NAVIGATION HELP ===== */
@@ -192,7 +220,7 @@
 
 .nav-help-tab svg {
     flex-shrink: 0;
-    stroke: currentColor;
+    stroke: currentcolor;
 }
 
 .nav-help-tab img {
@@ -311,7 +339,7 @@
 #close-3d-viewer-button svg {
     width: 16px;
     height: 16px;
-    stroke: currentColor;
+    stroke: currentcolor;
     flex-shrink: 0;
 }
 
