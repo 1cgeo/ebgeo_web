@@ -118,7 +118,8 @@ export class ChipsComponent {
             this._catalogModal = new CatalogModal({
                 toolManager: this._toolManager,
                 map: this._map,
-                eventBus: this._eventBus
+                eventBus: this._eventBus,
+                stateManager: this._stateManager
             });
             document.body.appendChild(this._catalogModal.render());
         }

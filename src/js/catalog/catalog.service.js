@@ -27,16 +27,36 @@ import { CATALOG_ITEM_TYPES, DEFAULT_THUMBNAILS } from './catalog.constants.js';
  */
 export class CatalogService {
     /**
-     * Returns all catalog items normalized.
+     * Returns all catalog items normalized and sorted by date (descending).
+     * Items without dates are placed at the end.
      * @returns {CatalogItem[]}
      */
     static getAllItems() {
-        return [
+        const items = [
             ...this._getModels3D(),
             ...this._getPanoramic360(),
             ...this._getHillshade(),
             ...this._getAnalysisLayers()
         ];
+
+        // Sort by date descending (most recent first)
+        // Items without dates go to the end
+        return items.sort((a, b) => {
+            if (!a.date && !b.date) return 0;
+            if (!a.date) return 1;
+            if (!b.date) return -1;
+
+            // Parse DD/MM/YYYY format
+            const parseDate = (dateStr) => {
+                const [day, month, year] = dateStr.split('/').map(Number);
+                return new Date(year, month - 1, day);
+            };
+
+            const dateA = parseDate(a.date);
+            const dateB = parseDate(b.date);
+
+            return dateB - dateA; // Descending order
+        });
     }
 
     /**
@@ -49,7 +69,7 @@ export class CatalogService {
     }
 
     /**
-     * Searches items by name and description.
+     * Searches items by name, description, and location.
      * @param {string} query - Search term
      * @param {CatalogItem[]} items - Items to filter
      * @returns {CatalogItem[]}
@@ -62,8 +82,11 @@ export class CatalogService {
         return items.filter(item => {
             const name = this._normalizeText(item.name || '');
             const description = this._normalizeText(item.description || '');
+            const local = this._normalizeText(item.local || '');
 
-            return name.includes(normalizedQuery) || description.includes(normalizedQuery);
+            return name.includes(normalizedQuery) ||
+                   description.includes(normalizedQuery) ||
+                   local.includes(normalizedQuery);
         });
     }
 

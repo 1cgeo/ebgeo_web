@@ -1,5 +1,8 @@
 // Path: js/terrain/terrain.control.js
 
+import { getEventBus } from '../store';
+import { EventTypes } from '../events/event_types.js';
+
 // Hillshade is managed via catalog - no automatic state needed
 
 /**
@@ -41,7 +44,24 @@ class TerrainControl {
         // UI is now handled by BottomControlsControl - return empty container
         this._container = document.createElement('div');
         this._container.style.display = 'none';
+
+        // Listen for base layer changes to restore terrain if it was active
+        getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
+
         return this._container;
+    }
+
+    /**
+     * Handles base layer change event.
+     * Restores terrain if it was active before the base layer change.
+     * @private
+     */
+    _handleBaseLayerChanged = async () => {
+        if (this._wasTerrainActive) {
+            // Re-add terrain source and restore terrain
+            await this._setupTerrainSources();
+            this._map.setTerrain(this.terrainConfig);
+        }
     }
 
     onRemove() {

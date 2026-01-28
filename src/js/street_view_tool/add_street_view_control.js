@@ -5,6 +5,8 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { DragControls } from '../../vendor/three/addons/controls/DragControls.js';
 import config from '../config.js';
 import StreetviewMarkers from './streetview_markers.js';
+import { getEventBus } from '../store';
+import { EventTypes } from '../events/event_types.js';
 
 class AddStreetViewControl {
 
@@ -69,6 +71,7 @@ class AddStreetViewControl {
         this.setCurrentMouse = this.setCurrentMouse.bind(this);
         this.onMouseMove = this.onMouseMove.bind(this);
         this.onStreetViewKeyDown = this.onStreetViewKeyDown.bind(this);
+        this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
 
         this.photosSourceId = 'pmtiles-photos';
 
@@ -340,7 +343,28 @@ class AddStreetViewControl {
             this.setupMiniMapWithPMTiles();
         }
 
+        // Listen for base layer changes to reload layers if active
+        getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
+
         return this.container;
+    }
+
+    /**
+     * Handles base layer change event.
+     * Reloads photo layers if the viewer is active.
+     * @private
+     */
+    _handleBaseLayerChanged = async () => {
+        if (this.isActive) {
+            // Layers were removed by setStyle, need to reload
+            await this.reload();
+
+            // Also reload streetview markers if they exist
+            if (this.streetviewMarkers) {
+                await this.streetviewMarkers.loadMarkers();
+                this.streetviewMarkers.show();
+            }
+        }
     }
 
     setupMiniMapWithPMTiles = async () => {

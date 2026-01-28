@@ -1728,6 +1728,213 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 /* =========================================================================
+   QUILL EDITOR IN SIDEBAR NOTES
+   ========================================================================= */
+
+/* Quill container */
+.map-notes-quill-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+/* Quill editor wrapper */
+.map-notes-quill-editor {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 200px;
+}
+
+/* Quill toolbar styling */
+.map-notes-quill-container .ql-toolbar {
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--gray-50);
+    padding: var(--space-2);
+    flex-shrink: 0;
+}
+
+.map-notes-quill-container .ql-toolbar .ql-formats {
+    margin-right: var(--space-2);
+}
+
+/* Quill editor container */
+.map-notes-quill-container .ql-container {
+    border: none;
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Quill editor content area */
+.map-notes-quill-container .ql-editor {
+    flex: 1;
+    padding: var(--space-3);
+    line-height: 1.6;
+    overflow-y: auto;
+    min-height: 150px;
+}
+
+.map-notes-quill-container .ql-editor.ql-blank::before {
+    color: var(--gray-400);
+    font-style: italic;
+    left: var(--space-3);
+}
+
+/* Quill content display (view mode) */
+.map-notes-quill-content {
+    line-height: 1.6;
+}
+
+.map-notes-quill-content p {
+    margin: 0 0 0.75em;
+}
+
+.map-notes-quill-content p:last-child {
+    margin-bottom: 0;
+}
+
+.map-notes-quill-content h1 {
+    font-size: 1.5em;
+    font-weight: bold;
+    margin: 0 0 0.5em;
+    color: var(--gray-900);
+}
+
+.map-notes-quill-content h2 {
+    font-size: 1.25em;
+    font-weight: bold;
+    margin: 0 0 0.5em;
+    color: var(--gray-900);
+}
+
+.map-notes-quill-content h3 {
+    font-size: 1.1em;
+    font-weight: bold;
+    margin: 0 0 0.5em;
+    color: var(--gray-900);
+}
+
+.map-notes-quill-content ul,
+.map-notes-quill-content ol {
+    margin: 0 0 0.75em;
+    padding-left: 1.5em;
+}
+
+.map-notes-quill-content ul {
+    list-style-type: disc;
+}
+
+.map-notes-quill-content ol {
+    list-style-type: decimal;
+}
+
+.map-notes-quill-content li {
+    margin: 0.25em 0;
+}
+
+.map-notes-quill-content strong {
+    font-weight: 600;
+}
+
+.map-notes-quill-content em {
+    font-style: italic;
+}
+
+.map-notes-quill-content u {
+    text-decoration: underline;
+}
+
+.map-notes-quill-content s {
+    text-decoration: line-through;
+}
+
+.map-notes-quill-content a {
+    color: var(--primary);
+    text-decoration: none;
+}
+
+.map-notes-quill-content a:hover {
+    text-decoration: underline;
+}
+
+.map-notes-quill-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+    margin: 0.5em 0;
+    display: block;
+}
+
+.map-notes-quill-content blockquote {
+    border-left: 3px solid var(--primary);
+    margin: 0.75em 0;
+    padding: 0.5em 0 0.5em 1em;
+    font-style: italic;
+    background: var(--gray-50);
+    color: var(--gray-600);
+}
+
+/* Quill alignment classes */
+.map-notes-quill-content .ql-align-center {
+    text-align: center;
+}
+
+.map-notes-quill-content .ql-align-right {
+    text-align: right;
+}
+
+.map-notes-quill-content .ql-align-justify {
+    text-align: justify;
+}
+
+/* Quill indent classes */
+.map-notes-quill-content .ql-indent-1 {
+    padding-left: 2em;
+}
+
+.map-notes-quill-content .ql-indent-2 {
+    padding-left: 4em;
+}
+
+.map-notes-quill-content .ql-indent-3 {
+    padding-left: 6em;
+}
+
+.map-notes-quill-content .ql-indent-4 {
+    padding-left: 8em;
+}
+
+/* Edit container flex fix */
+.map-notes-edit-container {
+    display: none;
+    flex-direction: column;
+    gap: var(--space-4);
+    height: 100%;
+}
+
+.map-notes-edit-container[style*="display: flex"],
+.map-notes-edit-container[style*="display:flex"] {
+    display: flex !important;
+}
+
+/* View container flex fix */
+.map-notes-view-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    height: 100%;
+}
+
+/* =========================================================================
    NEW FEATURE PANEL REDESIGN - Google Maps Inspired
    ========================================================================= */
 

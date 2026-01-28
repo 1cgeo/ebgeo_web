@@ -15,6 +15,7 @@ import {
     getEventBus,
     getStateManager
 } from '../store';
+import { EventTypes } from '../events/event_types.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import cartaTopografica from './carta_topografica.js';
 import cartaOrtoimagem from './carta_ortoimagem.js';
@@ -260,6 +261,9 @@ class BaseLayerControl {
         if(applyPosition){
             await this.applyMapSavedPosition(currentMapName);
         }
+
+        // Emit event for viewers to reload their layers
+        getEventBus().emit(EventTypes.BASE_LAYER_CHANGED, { layer: baseLayer });
     }
 
     async applyMapSavedPosition(mapName = null) {

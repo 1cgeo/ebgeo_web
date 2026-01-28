@@ -16,6 +16,7 @@ import {
 import { createCatalogHeader } from './components/catalog-header.js';
 import { createCatalogFilters } from './components/catalog-filters.js';
 import { createCatalogGrid } from './components/catalog-grid.js';
+import { SIDEBAR_TABS } from '../sidebar/sidebar.constants.js';
 
 /**
  * Catalog modal class.
@@ -26,6 +27,7 @@ export class CatalogModal extends ModalBase {
      * @param {Object} dependencies.toolManager - ToolManager instance
      * @param {Object} dependencies.map - MapLibre map instance
      * @param {Object} dependencies.eventBus - EventBus instance
+     * @param {Object} [dependencies.stateManager] - StateManager instance
      */
     constructor(dependencies) {
         super({
@@ -37,6 +39,7 @@ export class CatalogModal extends ModalBase {
         this._toolManager = dependencies.toolManager;
         this._map = dependencies.map;
         this._eventBus = dependencies.eventBus;
+        this._stateManager = dependencies.stateManager;
 
         // Internal state
         this._allItems = [];
@@ -229,18 +232,23 @@ export class CatalogModal extends ModalBase {
     }
 
     /**
-     * Opens a 3D model.
-     * Uses the navigateToModel method which:
-     * 1. Activates the 3D viewer tool if not active
-     * 2. Flies to the location
-     * 3. Opens the preview popup
+     * Opens a 3D model directly in the 3D viewer.
+     * Activates the viewer tool (enabling markers) and opens the 3D viewer immediately.
      * @private
      * @param {CatalogItem} item
      */
     async _openModel3D(item) {
         const modelsViewerControl = window.modelsViewerControl;
-        if (modelsViewerControl?.navigateToModel) {
-            await modelsViewerControl.navigateToModel(item.originalData.id);
+        if (modelsViewerControl) {
+            // Activate the tool to enable markers if not already active
+            if (!modelsViewerControl.isActive && this._toolManager?.toggleViewer) {
+                this._toolManager.toggleViewer(modelsViewerControl);
+            }
+
+            // Open the 3D viewer directly
+            if (modelsViewerControl.openViewer) {
+                await modelsViewerControl.openViewer(item.originalData.id);
+            }
         }
     }
 
@@ -271,6 +279,11 @@ export class CatalogModal extends ModalBase {
             type: CATALOG_ITEM_TYPES.HILLSHADE,
             item: item
         });
+
+        // Open the layers sidebar tab to show the added layer
+        if (this._stateManager) {
+            this._stateManager.expandSidebar(SIDEBAR_TABS.CAMADAS);
+        }
     }
 
     /**
@@ -284,6 +297,11 @@ export class CatalogModal extends ModalBase {
             type: CATALOG_ITEM_TYPES.ANALYSIS_LAYER,
             item: item
         });
+
+        // Open the layers sidebar tab to show the added layer
+        if (this._stateManager) {
+            this._stateManager.expandSidebar(SIDEBAR_TABS.CAMADAS);
+        }
 
         // Zoom to bounds if available
         if (item.location?.bounds) {

@@ -228,11 +228,9 @@ class MouseCoordinatesControl {
         if (!this._elevationButton) return;
 
         if (enabled && this._terrainAvailable) {
-            this._elevationButton.style.backgroundColor = '#4CAF50';
-            this._elevationButton.style.color = 'white';
+            this._elevationButton.classList.add('active');
         } else {
-            this._elevationButton.style.backgroundColor = '';
-            this._elevationButton.style.color = '';
+            this._elevationButton.classList.remove('active');
         }
 
         // Update display if enabled state changed
@@ -399,7 +397,7 @@ class MouseCoordinatesControl {
         }
     }
 
-    _toggleElevation() {
+    async _toggleElevation() {
         if (!this._terrainAvailable) {
             return;
         }
@@ -408,9 +406,13 @@ class MouseCoordinatesControl {
         const newEnabled = !this._elevationEnabled;
         this._elevationEnabled = newEnabled;
 
-        // Clear elevation value when disabling
+        // Clear elevation value when disabling, or fetch immediately when enabling
         if (!newEnabled) {
             this._currentElevation = null;
+        } else {
+            // Fetch elevation immediately when enabling
+            const { lat, lng } = this._currentCoordinates;
+            this._currentElevation = await this._getElevationDebounced(lat, lng);
         }
 
         // Immediate UI update for responsive feel
@@ -429,10 +431,9 @@ class MouseCoordinatesControl {
                 }
 
                 this._elevationAbortController = new AbortController();
-                const signal = this._elevationAbortController.signal;
 
                 try {
-                    const elevation = await getTerrainElevation(this._map, lat, lng, signal);
+                    const elevation = await getTerrainElevation(this._map, [lng, lat]);
                     resolve(elevation);
                 } catch (error) {
                     if (error.name !== 'AbortError') {

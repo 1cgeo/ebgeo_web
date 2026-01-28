@@ -26,7 +26,7 @@ export function createCatalogHeader({ onSearch }) {
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'catalog-search-input';
-    input.placeholder = 'Buscar por nome ou descricao...';
+    input.placeholder = 'Buscar por nome, descrição ou localização...';
 
     let debounceTimer;
     input.addEventListener('input', (e) => {

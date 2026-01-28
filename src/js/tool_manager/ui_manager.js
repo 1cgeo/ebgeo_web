@@ -681,6 +681,17 @@ class UIManager {
     static SLOPE_THRESHOLD = 30;
 
     /**
+     * Check if profile data has valid (non-zero) elevation values.
+     * @param {Array} profileData - Array of profile data points
+     * @returns {boolean} True if all elevations are zero or null
+     * @private
+     */
+    _isProfileDataEmpty(profileData) {
+        if (!profileData || profileData.length === 0) return true;
+        return profileData.every(d => d.elevation === 0 || d.elevation == null);
+    }
+
+    /**
      * Create elevation profile panel with chart including slope percentage.
      * @param {string} profileData - JSON string of profile data
      * @param {boolean} [linkFirstLast=false] - Whether to show line of sight
@@ -736,6 +747,23 @@ class UIManager {
         panel.appendChild(header);
 
         const profileDataParsed = JSON.parse(profileData);
+
+        // Check if profile data is empty (all zeros) - terrain not enabled
+        if (this._isProfileDataEmpty(profileDataParsed)) {
+            const emptyMessage = document.createElement('div');
+            emptyMessage.className = 'profile-empty-message';
+            emptyMessage.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <p>Dados de elevação não disponíveis</p>
+                <span>Habilite o terreno 3D para visualizar o perfil de elevação</span>
+            `;
+            panel.appendChild(emptyMessage);
+            return;
+        }
         const labels = profileDataParsed.map(d => d.distance.toFixed(0));
         const elevation = profileDataParsed.map(d => d.elevation);
         const slopes = profileDataParsed.map(d => d.slope ?? 0);

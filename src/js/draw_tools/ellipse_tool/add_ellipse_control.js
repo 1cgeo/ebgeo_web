@@ -203,6 +203,7 @@ class AddEllipseControl extends BaseControl {
         this.isActive = true;
         this.drawPoints = [];
         this.map.getCanvas().style.cursor = 'crosshair';
+        this.setupRightClickListener();
     }
 
     deactivate = () => {
@@ -211,6 +212,35 @@ class AddEllipseControl extends BaseControl {
         this.map.getCanvas().style.cursor = '';
         this.clearPreview();
         this.deselectFeature();
+        this.removeRightClickListener();
+    }
+
+    // ===== RIGHT-CLICK FINISH SUPPORT =====
+
+    setupRightClickListener = () => {
+        this.map.getCanvas().addEventListener('contextmenu', this.handleRightClick);
+    }
+
+    removeRightClickListener = () => {
+        this.map.getCanvas().removeEventListener('contextmenu', this.handleRightClick);
+    }
+
+    handleRightClick = async (e) => {
+        if (!this.isActive || this.drawPoints.length === 0) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
+        const finalPoint = [coordinates.lng, coordinates.lat];
+
+        this.drawPoints.push(finalPoint);
+
+        if (this.drawPoints.length === 2) {
+            this.map.off('mousemove', this.handlePreviewMouseMove);
+            await this.createFeature();
+            this.toolManager.deactivateCurrentTool();
+        }
     }
 
     // ===== SELECTION SYSTEM INTEGRATION =====
@@ -965,6 +995,7 @@ class AddEllipseControl extends BaseControl {
         this.map.off('mousemove', this.handlePreviewMouseMove);
         this.removeEditEventListeners();
         this.removeHoverListeners();
+        this.removeRightClickListener();
         this.cancelPendingUpdates();
     }
 }

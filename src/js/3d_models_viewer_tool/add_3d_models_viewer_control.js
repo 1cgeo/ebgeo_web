@@ -2,6 +2,8 @@
 
 import config from '../config.js';
 import { URLRouter } from '../url_router.js';
+import { getEventBus } from '../store';
+import { EventTypes } from '../events/event_types.js';
 
 // Clustering configuration
 const CLUSTER_CONFIG = {
@@ -63,6 +65,7 @@ class Add3DModelsViewerControl {
         this.hideHoverCursor = this.hideHoverCursor.bind(this);
         this.closeViewer = this.closeViewer.bind(this);
         this.handlePopupClose = this.handlePopupClose.bind(this);
+        this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
     }
 
     /**
@@ -75,7 +78,24 @@ class Add3DModelsViewerControl {
         // UI is now handled by BottomControlsControl - return empty container
         this.container = document.createElement('div');
         this.container.style.display = 'none';
+
+        // Listen for base layer changes to reload layers if active
+        getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
+
         return this.container;
+    }
+
+    /**
+     * Handles base layer change event.
+     * Reloads marker layers if the viewer is active.
+     * @private
+     */
+    async _handleBaseLayerChanged() {
+        if (this.isActive && this.markersVisible) {
+            // Layers were removed by setStyle, need to reload
+            await this.loadMarkers();
+            this.showMarkers();
+        }
     }
 
     /**

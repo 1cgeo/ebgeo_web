@@ -794,6 +794,7 @@ export class SidebarControl {
     /**
      * Shows map notes content in the feature panel.
      * Starts in view mode (read-only) with an edit button.
+     * Uses Quill.js for rich text editing.
      * @private
      * @param {string} mapName - Map name to show notes for
      */
@@ -818,8 +819,8 @@ export class SidebarControl {
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'map-notes-sidebar-content';
 
-        // Track edit mode state
-        let _isEditMode = false;
+        // Track Quill instance
+        let quillInstance = null;
 
         // --- VIEW MODE ELEMENTS ---
         const viewContainer = document.createElement('div');
@@ -844,13 +845,13 @@ export class SidebarControl {
             titleDisplay.classList.add('map-notes-sidebar-placeholder');
         }
 
-        // Description display (view mode)
+        // Description display (view mode) - renders HTML from Quill
         const descDisplay = document.createElement('div');
-        descDisplay.className = 'map-notes-sidebar-desc-display';
-        const descText = this._stripHtml(notesData.description);
-        descDisplay.textContent = descText || 'Clique em editar para adicionar uma descrição...';
-        if (!descText) {
-            descDisplay.classList.add('map-notes-sidebar-placeholder');
+        descDisplay.className = 'map-notes-sidebar-desc-display map-notes-quill-content';
+        if (notesData.description) {
+            descDisplay.innerHTML = notesData.description;
+        } else {
+            descDisplay.innerHTML = '<p class="map-notes-sidebar-placeholder">Clique em editar para adicionar uma descrição...</p>';
         }
 
         viewContainer.appendChild(editBtn);
@@ -880,7 +881,7 @@ export class SidebarControl {
         titleSection.appendChild(titleLabel);
         titleSection.appendChild(titleInput);
 
-        // Description section
+        // Description section with Quill editor
         const descSection = document.createElement('div');
         descSection.className = 'map-notes-sidebar-desc-section';
 
@@ -888,14 +889,16 @@ export class SidebarControl {
         descLabel.textContent = 'Descrição';
         descLabel.className = 'map-notes-sidebar-label';
 
-        const descTextarea = document.createElement('textarea');
-        descTextarea.className = 'map-notes-sidebar-desc-input';
-        descTextarea.placeholder = 'Digite a descrição...';
-        descTextarea.value = this._stripHtml(notesData.description);
-        descTextarea.rows = 10;
+        // Quill editor container
+        const quillContainer = document.createElement('div');
+        quillContainer.className = 'map-notes-quill-container';
 
+        const quillEditor = document.createElement('div');
+        quillEditor.className = 'map-notes-quill-editor';
+
+        quillContainer.appendChild(quillEditor);
         descSection.appendChild(descLabel);
-        descSection.appendChild(descTextarea);
+        descSection.appendChild(quillContainer);
 
         // Buttons container
         const buttonsContainer = document.createElement('div');
@@ -918,27 +921,74 @@ export class SidebarControl {
         editContainer.appendChild(descSection);
         editContainer.appendChild(buttonsContainer);
 
+        // --- QUILL INITIALIZATION ---
+        const initQuill = async () => {
+            if (quillInstance) return;
+
+            // Dynamic import Quill and its CSS
+            const [{ default: Quill }] = await Promise.all([
+                import('quill'),
+                import('quill/dist/quill.snow.css')
+            ]);
+
+            quillInstance = new Quill(quillEditor, {
+                theme: 'snow',
+                placeholder: 'Digite a descrição...',
+                modules: {
+                    toolbar: [
+                        [{ 'header': [1, 2, 3, false] }],
+                        ['bold', 'italic', 'underline', 'strike'],
+                        [{ 'color': [] }, { 'background': [] }],
+                        [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                        [{ 'indent': '-1' }, { 'indent': '+1' }],
+                        [{ 'align': [] }],
+                        ['link', 'image'],
+                        ['clean']
+                    ]
+                }
+            });
+
+            // Set initial content
+            if (notesData.description) {
+                quillInstance.root.innerHTML = notesData.description;
+            }
+
+            // Setup image handler for compression
+            const toolbar = quillInstance.getModule('toolbar');
+            toolbar.addHandler('image', () => this._handleQuillImageUpload(quillInstance));
+        };
+
         // --- MODE SWITCHING ---
-        const switchToEditMode = () => {
-            _isEditMode = true;
+        const switchToEditMode = async () => {
             viewContainer.style.display = 'none';
-            editContainer.style.display = 'block';
+            editContainer.style.display = 'flex';
+
+            // Initialize Quill on first edit
+            await initQuill();
+
+            // Reset content to current stored data
+            if (quillInstance) {
+                quillInstance.root.innerHTML = notesData.description || '';
+            }
+
             titleInput.focus();
         };
 
         const switchToViewMode = (updatedData = null) => {
-            _isEditMode = false;
             editContainer.style.display = 'none';
-            viewContainer.style.display = 'block';
+            viewContainer.style.display = 'flex';
 
             if (updatedData) {
                 // Update view with new data
                 titleDisplay.textContent = updatedData.title || 'Sem título';
                 titleDisplay.classList.toggle('map-notes-sidebar-placeholder', !updatedData.title);
 
-                const newDescText = updatedData.description || '';
-                descDisplay.textContent = newDescText || 'Clique em editar para adicionar uma descrição...';
-                descDisplay.classList.toggle('map-notes-sidebar-placeholder', !newDescText);
+                if (updatedData.description) {
+                    descDisplay.innerHTML = updatedData.description;
+                    descDisplay.classList.remove('map-notes-sidebar-placeholder');
+                } else {
+                    descDisplay.innerHTML = '<p class="map-notes-sidebar-placeholder">Clique em editar para adicionar uma descrição...</p>';
+                }
             }
         };
 
@@ -949,16 +999,19 @@ export class SidebarControl {
         cancelBtn.onclick = () => {
             // Reset inputs to original values
             titleInput.value = notesData.title;
-            descTextarea.value = this._stripHtml(notesData.description);
+            if (quillInstance) {
+                quillInstance.root.innerHTML = notesData.description || '';
+            }
             switchToViewMode();
         };
 
         // Save button click
         saveBtn.onclick = async () => {
             try {
+                const description = quillInstance ? this._cleanQuillContent(quillInstance.root.innerHTML) : '';
                 const notes = {
                     title: titleInput.value.trim(),
-                    description: descTextarea.value.trim()
+                    description: description
                 };
                 await setMapNotes(mapName, notes);
 
@@ -982,8 +1035,117 @@ export class SidebarControl {
         contentWrapper.appendChild(viewContainer);
         contentWrapper.appendChild(editContainer);
 
+        // Store quill cleanup function
+        this._notesQuillCleanup = () => {
+            if (quillInstance) {
+                quillInstance = null;
+            }
+        };
+
         // Show in feature panel
         this._featurePanel.show(contentWrapper, `Notas: ${mapName}`);
+    }
+
+    /**
+     * Handles image upload for Quill editor with compression.
+     * @private
+     * @param {Object} quillInstance - Quill editor instance
+     */
+    _handleQuillImageUpload(quillInstance) {
+        const input = document.createElement('input');
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/png, image/gif, image/jpeg, image/webp');
+        input.click();
+
+        input.onchange = async () => {
+            const file = input.files[0];
+            if (file) {
+                try {
+                    const compressedBase64 = await this._compressImage(file);
+                    const range = quillInstance.getSelection(true);
+                    quillInstance.insertEmbed(range.index, 'image', compressedBase64);
+                    quillInstance.setSelection(range.index + 1);
+                } catch (error) {
+                    console.error('Error processing image:', error);
+                    const { showError } = await import('../utilities/index.js');
+                    showError('Erro ao adicionar imagem');
+                }
+            }
+        };
+    }
+
+    /**
+     * Compresses image before embedding in Quill.
+     * @private
+     * @param {File} file - Image file to compress
+     * @returns {Promise<string>} Base64 encoded compressed image
+     */
+    _compressImage(file) {
+        return new Promise((resolve, reject) => {
+            if (file.size > 5 * 1024 * 1024) {
+                reject(new Error('Image too large (max 5MB)'));
+                return;
+            }
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+
+            img.onload = () => {
+                const MAX_WIDTH = 800;
+                const MAX_HEIGHT = 600;
+
+                let { width, height } = img;
+
+                if (width > MAX_WIDTH) {
+                    height = (height * MAX_WIDTH) / width;
+                    width = MAX_WIDTH;
+                }
+
+                if (height > MAX_HEIGHT) {
+                    width = (width * MAX_HEIGHT) / height;
+                    height = MAX_HEIGHT;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const quality = 0.8;
+                const base64 = canvas.toDataURL('image/jpeg', quality);
+                URL.revokeObjectURL(img.src);
+                resolve(base64);
+            };
+
+            img.onerror = () => {
+                URL.revokeObjectURL(img.src);
+                reject(new Error('Error loading image'));
+            };
+            img.src = URL.createObjectURL(file);
+        });
+    }
+
+    /**
+     * Cleans Quill HTML content to avoid empty paragraphs.
+     * @private
+     * @param {string} html - HTML content from Quill editor
+     * @returns {string} Cleaned HTML content
+     */
+    _cleanQuillContent(html) {
+        if (!html || html.trim() === '') return '';
+
+        let cleaned = html.replace(/<p><br><\/p>/g, '');
+        cleaned = cleaned.replace(/<p>\s*<\/p>/g, '');
+
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = cleaned;
+        const textContent = tempDiv.textContent || tempDiv.innerText || '';
+
+        if (textContent.trim() === '') {
+            return '';
+        }
+
+        return cleaned;
     }
 
     /**
@@ -1329,6 +1491,11 @@ export class SidebarControl {
         if (this._currentFeaturePanelCleanup) {
             this._currentFeaturePanelCleanup();
             this._currentFeaturePanelCleanup = null;
+        }
+        // Cleanup Quill instance for notes panel
+        if (this._notesQuillCleanup) {
+            this._notesQuillCleanup();
+            this._notesQuillCleanup = null;
         }
     }
 

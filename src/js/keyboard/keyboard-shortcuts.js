@@ -14,7 +14,6 @@ class KeyboardShortcuts {
         this.baseLayerControl = config.baseLayerControl;
         this.clipboardManager = config.clipboardManager;
         this.addStreetViewControl = config.addStreetViewControl;
-        this.mapControl = config.mapControl;
 
         this.controls = config.controls;
 
@@ -44,12 +43,24 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Check if user is typing in an input field
+     * Check if user is typing in an input field or rich text editor
      * @param {HTMLElement} target - Event target
      * @returns {boolean} True if typing in input
      */
     isTypingInInput(target) {
-        return ['INPUT', 'TEXTAREA'].includes(target.tagName);
+        // Standard form inputs
+        if (['INPUT', 'TEXTAREA'].includes(target.tagName)) {
+            return true;
+        }
+        // Rich text editors (Quill uses contenteditable)
+        if (target.isContentEditable || target.closest('[contenteditable="true"]')) {
+            return true;
+        }
+        // Quill editor container
+        if (target.closest('.ql-editor')) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -82,20 +93,13 @@ class KeyboardShortcuts {
             return;
         }
 
-        // Block shortcuts when 3D viewer is open
+        // Handle 3D viewer shortcuts separately
         if (this.is3DViewerOpen()) {
-            return;
-        }
-
-        if (this.isNotesPanel() && !(e.ctrlKey && e.key.toLowerCase() === 's')) {
+            await this.handle3DShortcuts(e);
             return;
         }
 
         await this.processShortcut(e);
-    }
-
-    isNotesPanel() {
-        return this.mapControl && this.mapControl.isNotesPanel && this.mapControl.isNotesPanel();
     }
 
     /**
@@ -215,34 +219,55 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Handle Ctrl shortcuts (Copy/Paste/Save)
+     * Handle Ctrl shortcuts (Copy/Paste)
      * @param {KeyboardEvent} e - Keyboard event
      * @param {string} key - Pressed key
      */
     async handleCtrlShortcuts(e, key) {
         switch (key) {
             case 'c':
-                if (!this.isNotesPanel()) {
-                    e.preventDefault();
-                    this.clipboardManager.copy();
-                }
+                e.preventDefault();
+                this.clipboardManager.copy();
                 break;
 
             case 'v':
-                if (!this.isNotesPanel()) {
-                    e.preventDefault();
-                    await this.clipboardManager.paste();
-                }
+                e.preventDefault();
+                await this.clipboardManager.paste();
                 break;
+        }
+    }
 
-            case 's':
-                if (this.isNotesPanel()) {
-                    e.preventDefault();
-                    if (this.mapControl && this.mapControl.saveCurrentMapNotes) {
-                        await this.mapControl.saveCurrentMapNotes();
-                    }
-                }
-                break;
+    /**
+     * Handle 3D viewer shortcuts
+     * @param {KeyboardEvent} e - Keyboard event
+     */
+    async handle3DShortcuts(e) {
+        const key = e.key.toLowerCase();
+
+        // 3D tool shortcuts
+        const tool3DMapping = {
+            'v': 'visualizacao',   // Visibility analysis
+            'd': 'distancia',      // Measure distance
+            'a': 'area',           // Measure area
+            'm': 'add-marker-3d'   // Add marker
+        };
+
+        if (tool3DMapping[key]) {
+            e.preventDefault();
+            const toolId = tool3DMapping[key];
+            const button = document.getElementById(toolId);
+            if (button) {
+                button.click();
+            }
+        }
+
+        // Escape to deactivate current 3D tool
+        if (key === 'escape') {
+            e.preventDefault();
+            const activeButton = document.querySelector('#toolbar-3d .button-tool-3d.active');
+            if (activeButton) {
+                activeButton.click();
+            }
         }
     }
 

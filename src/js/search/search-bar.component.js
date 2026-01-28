@@ -127,7 +127,7 @@ export class SearchBarComponent {
         this._input = document.createElement('input');
         this._input.type = 'text';
         this._input.className = 'search-bar-input';
-        this._input.placeholder = 'Buscar lugares, modelos, coordenadas...';
+        this._input.placeholder = 'Buscar lugares, modelos, elementos...';
         this._input.autocomplete = 'off';
         this._input.spellcheck = false;
 

@@ -18,6 +18,7 @@ const SHORTCUT_ICONS = {
     military: TOOLBAR_ICONS.military,
     analysis: TOOLBAR_ICONS.analysis,
     other: TOOLBAR_ICONS.featureInfo,
+    viewer3d: TOOLBAR_ICONS.viewer3d,
 };
 
 /**
@@ -77,6 +78,16 @@ const SHORTCUTS_DATA = {
         icon: SHORTCUT_ICONS.other,
         shortcuts: [
             { key: 'N', icon: TOOLBAR_ICONS.featureInfo, description: 'Informações da carta' },
+        ],
+    },
+    viewer3d: {
+        title: 'Visualizador 3D',
+        icon: SHORTCUT_ICONS.viewer3d,
+        shortcuts: [
+            { key: 'V', icon: TOOLBAR_ICONS.visibility, description: 'Análise de visibilidade' },
+            { key: 'D', icon: TOOLBAR_ICONS.measureDistance, description: 'Medir distância' },
+            { key: 'A', icon: TOOLBAR_ICONS.measureArea, description: 'Medir área' },
+            { key: 'M', icon: TOOLBAR_ICONS.marker3d, description: 'Adicionar marcador' },
         ],
     },
 };

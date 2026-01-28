@@ -47,7 +47,7 @@ export class InfoModal extends ModalBase {
         super({
             id: 'info-modal-new',
             title: 'Informações e Suporte',
-            icon: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+            icon: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg>`,
         });
         setupCleanup(this);
     }
@@ -123,7 +123,7 @@ export class InfoModal extends ModalBase {
                     <h3>Sugestões para o Sistema</h3>
                 </div>
                 <p class="info-description">
-                    Entre em contato com o <strong>1° Centro de Geoinformação</strong>, responsável pelo desenvolvimento do sistema:
+                    Entre em contato com a <strong>Diretoria de Serviço Geográfico</strong>, responsável pelo desenvolvimento do sistema:
                 </p>
                 <div class="email-box">
                     <div class="email-display">
@@ -131,9 +131,9 @@ export class InfoModal extends ModalBase {
                             <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
                             <polyline points="22,6 12,13 2,6"/>
                         </svg>
-                        <span>ebgeo@1cgeo.eb.mil.br</span>
+                        <span>ebgeo@dsg.eb.mil.br</span>
                     </div>
-                    <button class="copy-btn" data-email="ebgeo@1cgeo.eb.mil.br" aria-label="Copiar email">
+                    <button class="copy-btn" data-email="ebgeo@dsg.eb.mil.br" aria-label="Copiar email">
                         <svg class="copy-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>

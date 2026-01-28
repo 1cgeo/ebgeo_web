@@ -203,7 +203,7 @@ export class BaseLayerSelectorControl {
         // Name
         const name = document.createElement('div');
         name.className = 'base-layer-option-name';
-        name.textContent = thumbnailConfig?.shortLabel || layerConfig.name;
+        name.textContent = thumbnailConfig?.label || layerConfig.name;
 
         option.appendChild(thumb);
         option.appendChild(name);
@@ -260,6 +260,10 @@ export class BaseLayerSelectorControl {
         // Close on any popup close event
         subscribe(this, this._eventBus, EventTypes.UI_CLOSE_ALL_POPUPS,
             () => this._collapse());
+
+        // Listen for base layer changes to sync the selector
+        subscribe(this, this._eventBus, EventTypes.BASE_LAYER_CHANGED,
+            (payload) => this._setActiveLayer(payload.layer));
     }
 
     /**
@@ -374,7 +378,7 @@ export class BaseLayerSelectorControl {
                 'linear-gradient(135deg, #ccc 0%, #999 100%)';
         }
 
-        label.textContent = thumbnailConfig?.shortLabel ||
+        label.textContent = thumbnailConfig?.label ||
             layerInfo?.config?.name || layerId;
     }
 

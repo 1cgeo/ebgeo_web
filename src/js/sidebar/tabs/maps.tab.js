@@ -470,15 +470,6 @@ export class MapsTab {
             handler: () => this._handleCombineMaps(mapName)
         });
 
-        // Move features (only if not current map)
-        if (!isCurrentMap) {
-            menuItems.push({
-                icon: MAPS_ICONS.move,
-                label: 'Mover feições selecionadas',
-                handler: () => this._handleMoveFeatures(mapName)
-            });
-        }
-
         // Separator
         menuItems.push({ separator: true });
 
@@ -884,37 +875,6 @@ export class MapsTab {
             await this._mapManager.mapControl.showCombineMapsModal(targetMapName);
         } else {
             showWarning('Funcao de combinar mapas nao disponivel');
-        }
-    }
-
-    /**
-     * Handles moving selected features to another map.
-     * @private
-     * @param {string} targetMapName - Target map to move features to
-     */
-    async _handleMoveFeatures(targetMapName) {
-        // Check if we have a selection manager
-        if (!this._mapManager?.selectionManager) {
-            showWarning('Selecione feições primeiro');
-            return;
-        }
-
-        const selectedFeatures = this._mapManager.selectionManager.getAllSelectedFeatures();
-        if (selectedFeatures.length === 0) {
-            showWarning('Nenhuma feição selecionada');
-            return;
-        }
-
-        try {
-            const result = await this._mapManager.moveFeaturesToMap(selectedFeatures, targetMapName);
-            if (result.success) {
-                showSuccess(result.message);
-                this._loadMaps();
-            } else {
-                showWarning(result.message);
-            }
-        } catch (_error) {
-            showError('Erro ao mover feições');
         }
     }
 

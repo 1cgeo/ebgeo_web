@@ -111,6 +111,15 @@ export const EventTypes = Object.freeze({
      */
     TOOLBAR_GROUP_CLOSED: 'toolbar:groupClosed',
 
+    // ===== BASE LAYER =====
+    /**
+     * Emitted when base layer (basemap) changes.
+     * Payload: { layer: string }
+     * Subscribers: Add3DModelsViewerControl, AddStreetViewControl, BaseLayerSelectorControl
+     * Emitters: BaseLayerControl.switchMap()
+     */
+    BASE_LAYER_CHANGED: 'baseLayer:changed',
+
     // ===== BASE LAYER SELECTOR =====
     /**
      * Emitted when base layer selector expands.

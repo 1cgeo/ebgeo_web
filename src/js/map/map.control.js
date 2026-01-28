@@ -20,7 +20,6 @@ import Sortable from 'sortablejs';
 import MapManager from './map.manager.js';
 import { ExportImportService, PDFExportTab } from '../import_export';
 import { FeaturesTab } from '../features_tab';
-import { MapNotesManager } from './map-notes.panel.js';
 import { showPrompt } from '../modals/prompt.modal.js';
 import { CombineMapsModal } from '../modals/combine-maps.modal.js';
 
@@ -37,7 +36,6 @@ class MapControl {
         this.pdfExportTab = null;
         this.featuresTab = null;
         this.mapsActionsContainer = null;
-        this.mapNotesManager = null;
 
         /** @type {Array<Function>} Cleanup functions for subscriptions */
         this._unsubscribers = [];
@@ -95,9 +93,6 @@ class MapControl {
         this.pdfExportTab = new PDFExportTab(map);
 
         this.featuresTab = new FeaturesTab(map, this.selectionManager, this.analysisLayersManager, getEventBus());
-
-        this.mapNotesManager = new MapNotesManager(this, this.mapManager);
-        this.mapNotesManager.createPanels();
 
         this.container = document.createElement('div');
         this.container.id = 'map-list'
@@ -606,21 +601,6 @@ class MapControl {
         toastServiceShow(message, type);
     }
 
-    async showMapNotes(mapName) {
-        this.deactivateActiveTools();
-        await this.mapNotesManager.showViewPanel(mapName);
-    }
-
-    async saveCurrentMapNotes() {
-        if (this.mapNotesManager) {
-            await this.mapNotesManager.saveCurrentMapNotes();
-        }
-    }
-
-    isNotesPanel() {
-        return this.mapNotesManager && this.mapNotesManager.isVisible;
-    }
-
     /**
      * Cleanup resources.
      */
@@ -641,11 +621,6 @@ class MapControl {
 
         if (this.container && this.container.parentNode) {
             this.container.parentNode.removeChild(this.container);
-        }
-
-        if (this.mapNotesManager) {
-            this.mapNotesManager.destroy();
-            this.mapNotesManager = null;
         }
 
         this.map = undefined;
