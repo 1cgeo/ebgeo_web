@@ -19,9 +19,15 @@ import {
     createModernSlider,
     createModernColorPicker,
     createModernToggle,
+    createModernTextarea,
     createSectionDivider
 } from '../../tool_manager/helpers/index.js';
 import config from '../../config.js';
+
+/**
+ * Icon for description tab.
+ */
+const ICON_DESCRIPTION = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`;
 
 /**
  * Icons used in the component.
@@ -79,14 +85,21 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
     // Load photo gallery asynchronously
     buildPhotoGallerySection(photoGalleryPlaceholder, currentMarker.id, cleanupFunctions);
 
-    // 3. Style tabs (Marcador / Etiqueta)
+    // 3. Style tabs (Marcador / Etiqueta / Descrição)
     buildStyleTabs(container, currentMarker, async (styleUpdates) => {
         currentMarker.style = { ...currentMarker.style, ...styleUpdates };
         // Auto-save style changes
         await updateMarkerProperties(currentMarker.id, { style: currentMarker.style });
+    }, async (propertyUpdates) => {
+        // Callback for properties updates (description)
+        currentMarker.properties = { ...currentMarker.properties, ...propertyUpdates };
+        await updateMarkerProperties(currentMarker.id, { properties: currentMarker.properties });
     });
 
-    // 4. Location section - create placeholder to maintain order
+    // 4. Save/Discard/Set Default buttons (before location)
+    buildActionButtons(container, currentMarker, initialProperties, initialStyle, initialPosition, onClose);
+
+    // 5. Location section - create placeholder to maintain order
     const locationPlaceholder = document.createElement('div');
     locationPlaceholder.className = 'location-section-placeholder';
     container.appendChild(locationPlaceholder);
@@ -96,9 +109,6 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
         currentMarker.position = { ...currentMarker.position, ...positionUpdates };
         await updateMarkerProperties(currentMarker.id, { position: currentMarker.position });
     });
-
-    // 5. Save/Discard/Set Default buttons
-    buildActionButtons(container, currentMarker, initialProperties, initialStyle, initialPosition, onClose);
 
     // 6. Delete button at the end
     buildDeleteButton(container, currentMarker, onClose);
@@ -421,9 +431,9 @@ function openMarkerImageViewer(imageData) {
 }
 
 /**
- * Builds the style tabs (Marcador / Etiqueta) using 2D tab pattern.
+ * Builds the style tabs (Marcador / Etiqueta / Descrição) using 2D tab pattern.
  */
-function buildStyleTabs(container, marker, onStyleChange) {
+function buildStyleTabs(container, marker, onStyleChange, onPropertiesChange) {
     const style = marker.style;
 
     // Tabs container
@@ -446,8 +456,15 @@ function buildStyleTabs(container, marker, onStyleChange) {
     labelTabBtn.innerHTML = `${ICONS.LABEL}<span>Etiqueta</span>`;
     labelTabBtn.dataset.tabId = 'label';
 
+    const descTabBtn = document.createElement('button');
+    descTabBtn.type = 'button';
+    descTabBtn.className = 'feature-tab-btn';
+    descTabBtn.innerHTML = `${ICON_DESCRIPTION}<span>Descrição</span>`;
+    descTabBtn.dataset.tabId = 'description';
+
     tabButtonsContainer.appendChild(markerTabBtn);
     tabButtonsContainer.appendChild(labelTabBtn);
+    tabButtonsContainer.appendChild(descTabBtn);
     tabsContainer.appendChild(tabButtonsContainer);
 
     // Tab contents
@@ -459,14 +476,22 @@ function buildStyleTabs(container, marker, onStyleChange) {
     labelTabContent.className = 'feature-tab-content';
     labelTabContent.dataset.tabId = 'label';
 
+    const descTabContent = document.createElement('div');
+    descTabContent.className = 'feature-tab-content';
+    descTabContent.dataset.tabId = 'description';
+
     // Build marker style tab
     buildMarkerStyleTab(markerTabContent, style, onStyleChange);
 
     // Build label style tab
     buildLabelStyleTab(labelTabContent, style, onStyleChange);
 
+    // Build description tab
+    buildDescriptionTab(descTabContent, marker, onPropertiesChange);
+
     tabsContainer.appendChild(markerTabContent);
     tabsContainer.appendChild(labelTabContent);
+    tabsContainer.appendChild(descTabContent);
 
     // Tab switching
     tabButtonsContainer.addEventListener('click', (e) => {
@@ -483,6 +508,7 @@ function buildStyleTabs(container, marker, onStyleChange) {
         // Update contents
         markerTabContent.classList.toggle('active', tabId === 'marker');
         labelTabContent.classList.toggle('active', tabId === 'label');
+        descTabContent.classList.toggle('active', tabId === 'description');
     });
 
     container.appendChild(tabsContainer);
@@ -568,17 +594,18 @@ function buildLabelStyleTab(container, style, onStyleChange) {
     });
     container.appendChild(showLabelToggle);
 
-    // Label text input
-    const textField = document.createElement('div');
-    textField.className = 'attr-modern-field';
-    textField.innerHTML = `
-        <label class="attr-modern-label">Texto da Etiqueta</label>
-        <input type="text" class="attr-modern-input" value="${escapeHtml(style.labelText || '')}" placeholder="Texto visível no modelo">
-    `;
-    const textInput = textField.querySelector('input');
-    textInput.addEventListener('input', () => {
-        onStyleChange({ labelText: textInput.value });
+    // Label text input using the modern textarea pattern (single line)
+    const textField = createModernTextarea({
+        label: 'Texto da Etiqueta',
+        value: style.labelText || '',
+        rows: 1,
+        placeholder: 'Texto visível no modelo',
+        onChange: (value) => onStyleChange({ labelText: value })
     });
+    // Apply single-line style
+    const textarea = textField.getTextarea();
+    textarea.style.minHeight = '38px';
+    textarea.style.resize = 'none';
     container.appendChild(textField);
 
     container.appendChild(createSectionDivider('Estilo do Texto'));
@@ -652,7 +679,7 @@ function buildLabelStyleTab(container, style, onStyleChange) {
 
     function toggleLabelControls(enabled) {
         controlElements.forEach(el => {
-            const inputs = el.querySelectorAll('input, button');
+            const inputs = el.querySelectorAll('input, button, textarea');
             inputs.forEach(input => {
                 input.disabled = !enabled;
             });
@@ -663,6 +690,21 @@ function buildLabelStyleTab(container, style, onStyleChange) {
 
     // Initialize state
     toggleLabelControls(style.showLabel !== false);
+}
+
+/**
+ * Builds the description tab content with a large textarea.
+ */
+function buildDescriptionTab(container, marker, onPropertiesChange) {
+    // Description textarea
+    const descTextarea = createModernTextarea({
+        label: 'Descrição do Marcador',
+        value: marker.properties?.descricao || '',
+        rows: 8,
+        placeholder: 'Adicione uma descrição detalhada para este marcador...',
+        onChange: (value) => onPropertiesChange({ descricao: value })
+    });
+    container.appendChild(descTextarea);
 }
 
 /**

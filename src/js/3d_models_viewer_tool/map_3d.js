@@ -302,6 +302,22 @@ async function setupTools(viewer) {
             markerModule.initMarkerToolListeners();
         }
 
+        // Load new measurement tool
+        const measurementModule = await import('./tools/measurement_tool_3d.js');
+        cesiumState.modules.measurements = measurementModule;
+
+        if (measurementModule.initMeasurementToolListeners) {
+            measurementModule.initMeasurementToolListeners();
+        }
+
+        // Load new viewshed tool
+        const viewshedToolModule = await import('./tools/viewshed_tool_3d.js');
+        cesiumState.modules.viewshedTool = viewshedToolModule;
+
+        if (viewshedToolModule.initViewshedToolListeners) {
+            viewshedToolModule.initViewshedToolListeners();
+        }
+
     } catch (error) {
         console.warn('Some 3D modules failed to load:', error);
     }
@@ -461,17 +477,11 @@ function activeTool() {
     if (toolId === 'help-3d') return;
 
     // Skip non-toggleable tools and camera buttons (handled separately)
-    const nonToggleable = ['limpar', 'screenshot-3d', 'salvar-camera', 'limpar-camera'];
+    const nonToggleable = ['screenshot-3d', 'salvar-camera', 'limpar-camera'];
 
     if (nonToggleable.includes(toolId)) {
         // Execute action without toggle
         switch (toolId) {
-            case 'limpar':
-                removeAllTools();
-                deactivateAllToolButtons();
-                activeToolId = null;
-                hideActiveToolChip3D();
-                break;
             case 'screenshot-3d':
                 handleScreenshot();
                 break;
@@ -486,14 +496,14 @@ function activeTool() {
         // Deactivate current tool
         this.classList.remove('active');
         activeToolId = null;
-        removeAllTools();
+        deactivateAllActiveTools();
         hideActiveToolChip3D();
         return;
     }
 
     // Deactivate all other tools first
     deactivateAllToolButtons();
-    removeAllTools();
+    deactivateAllActiveTools();
 
     // Activate this tool
     this.classList.add('active');
@@ -502,24 +512,24 @@ function activeTool() {
 
     switch (toolId) {
         case 'distancia':
-            if (window.measure && window.measure.drawLineMeasureGraphics) {
-                window.measure.drawLineMeasureGraphics({
-                    clampToGround: true,
-                    callback: () => { }
-                });
+            if (cesiumState.modules.measurements && _currentTilesetId) {
+                cesiumState.modules.measurements.activateMeasurementTool(
+                    cesiumState.viewer, _currentTilesetId, 'distance'
+                );
             }
             break;
         case 'area':
-            if (window.measure && window.measure.drawAreaMeasureGraphics) {
-                window.measure.drawAreaMeasureGraphics({
-                    clampToGround: true,
-                    callback: () => { }
-                });
+            if (cesiumState.modules.measurements && _currentTilesetId) {
+                cesiumState.modules.measurements.activateMeasurementTool(
+                    cesiumState.viewer, _currentTilesetId, 'area'
+                );
             }
             break;
         case 'visualizacao':
-            if (cesiumState.modules.viewshed) {
-                cesiumState.modules.viewshed.addViewField(cesiumState.viewer);
+            if (cesiumState.modules.viewshedTool && _currentTilesetId) {
+                cesiumState.modules.viewshedTool.activateViewshedTool(
+                    cesiumState.viewer, _currentTilesetId
+                );
             }
             break;
         case 'add-marker-3d':
@@ -586,13 +596,28 @@ function handleClickGoTo() {
 
 // ===== UTILITIES =====
 
-function removeAllTools() {
+/**
+ * Deactivates all active tools without removing persisted features.
+ */
+function deactivateAllActiveTools() {
     try {
-        // Remove measure tools
+        // Deactivate measurement tool
+        if (cesiumState.modules.measurements) {
+            cesiumState.modules.measurements.deactivateMeasurementTool();
+        }
+
+        // Deactivate viewshed tool
+        if (cesiumState.modules.viewshedTool) {
+            cesiumState.modules.viewshedTool.deactivateViewshedTool();
+        }
+
+        // Deactivate marker tool
+        if (cesiumState.modules.markers) {
+            cesiumState.modules.markers.deactivateMarkerTool();
+        }
+
+        // Clear any measure library state (for ephemeral drawing)
         if (window.measure) {
-            if (window.measure._drawLayer) {
-                window.measure._drawLayer.entities.removeAll();
-            }
             if (window.measure.removeDrawLineMeasureGraphics) {
                 window.measure.removeDrawLineMeasureGraphics();
             }
@@ -601,19 +626,17 @@ function removeAllTools() {
             }
         }
 
-        // Clear viewshed
-        if (cesiumState.modules.viewshed) {
-            cesiumState.modules.viewshed.clearAllViewField();
-        }
-
-        // Deactivate marker tool
-        if (cesiumState.modules.markers) {
-            cesiumState.modules.markers.deactivateMarkerTool();
-        }
-
     } catch (error) {
-        console.warn('Error removing tools:', error);
+        console.warn('Error deactivating tools:', error);
     }
+}
+
+/**
+ * Legacy function - now just deactivates tools.
+ * @deprecated Use deactivateAllActiveTools instead
+ */
+function removeAllTools() {
+    deactivateAllActiveTools();
 }
 
 function handleScreenshot() {
@@ -814,6 +837,16 @@ async function loadSingleTileset(viewer, tilesetId) {
     // Render markers for this tileset (without activating the tool)
     if (cesiumState.modules.markers) {
         await cesiumState.modules.markers.renderMarkersForTileset(viewer, tilesetId);
+    }
+
+    // Render measurements for this tileset
+    if (cesiumState.modules.measurements) {
+        await cesiumState.modules.measurements.renderMeasurementsForTileset(viewer, tilesetId);
+    }
+
+    // Render viewsheds for this tileset
+    if (cesiumState.modules.viewshedTool) {
+        await cesiumState.modules.viewshedTool.renderViewshedsForTileset(viewer, tilesetId);
     }
 
     return currentTileset;

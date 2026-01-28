@@ -354,7 +354,27 @@ export {
     DEFAULT_MARKER_STYLE,
     addMarkerImage,
     getMarkerImages,
-    removeMarkerImage
+    removeMarkerImage,
+    // Measurement operations
+    addMeasurement,
+    getMeasurements,
+    getAllMeasurements,
+    getMeasurementById,
+    updateMeasurement,
+    removeMeasurement,
+    addMeasurementImage,
+    getMeasurementImages,
+    removeMeasurementImage,
+    // Viewshed operations
+    addViewshed,
+    getViewsheds,
+    getAllViewsheds,
+    getViewshedById,
+    updateViewshed,
+    removeViewshed,
+    addViewshedImage,
+    getViewshedImages,
+    removeViewshedImage
 } from './cesium3d.operations.js';
 
 // ===== LEGACY COMPATIBILITY EXPORTS =====

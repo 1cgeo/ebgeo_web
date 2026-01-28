@@ -221,6 +221,58 @@ export const EventTypes = Object.freeze({
      * Emitters: cesium3d.operations.js
      */
     CAMERA_3D_SAVED: 'camera3d:saved',
+
+    // ===== 3D MEASUREMENTS =====
+
+    /**
+     * Emitted when a 3D measurement is clicked.
+     * Payload: { measurement: Cesium3DMeasurement, tilesetId: string }
+     * Subscribers: Sidebar (to open measurement panel)
+     * Emitters: measurement_tool_3d.js
+     */
+    MEASUREMENT_3D_CLICKED: 'measurement3d:clicked',
+
+    /**
+     * Emitted when a 3D measurement is deselected (clicking empty area).
+     * Payload: { tilesetId: string }
+     * Subscribers: Sidebar (to close measurement panel)
+     * Emitters: measurement_tool_3d.js
+     */
+    MEASUREMENT_3D_DESELECTED: 'measurement3d:deselected',
+
+    /**
+     * Emitted when 3D measurements change (add/update/delete).
+     * Payload: { mapName: string }
+     * Subscribers: Sidebar measurements section
+     * Emitters: cesium3d.operations.js
+     */
+    MEASUREMENTS_3D_CHANGED: 'measurements3d:changed',
+
+    // ===== 3D VIEWSHEDS =====
+
+    /**
+     * Emitted when a 3D viewshed is clicked.
+     * Payload: { viewshed: Cesium3DViewshed, tilesetId: string }
+     * Subscribers: Sidebar (to open viewshed panel)
+     * Emitters: viewshed_tool_3d.js
+     */
+    VIEWSHED_3D_CLICKED: 'viewshed3d:clicked',
+
+    /**
+     * Emitted when a 3D viewshed is deselected (clicking empty area).
+     * Payload: { tilesetId: string }
+     * Subscribers: Sidebar (to close viewshed panel)
+     * Emitters: viewshed_tool_3d.js
+     */
+    VIEWSHED_3D_DESELECTED: 'viewshed3d:deselected',
+
+    /**
+     * Emitted when 3D viewsheds change (add/update/delete).
+     * Payload: { mapName: string }
+     * Subscribers: Sidebar viewsheds section
+     * Emitters: cesium3d.operations.js
+     */
+    VIEWSHEDS_3D_CHANGED: 'viewsheds3d:changed',
 });
 
 /**

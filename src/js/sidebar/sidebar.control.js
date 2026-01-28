@@ -41,8 +41,10 @@ import { createFeatureTabs } from './components/feature-tabs.js';
 import { createLocationSection } from './components/feature-location-section.js';
 import { createGroupTypeSelector } from './components/group-type-selector.js';
 
-// 3D marker panel (lazy imported)
+// 3D panel modules (lazy imported)
 let markerPanel3dModule = null;
+let measurementPanel3dModule = null;
+let viewshedPanel3dModule = null;
 
 /**
  * Main sidebar controller class.
@@ -206,6 +208,22 @@ export class SidebarControl {
         // Listen for 3D marker deselection
         subscribe(this, this._eventBus, EventTypes.MARKER_3D_DESELECTED,
             () => this._onMarker3dDeselected());
+
+        // Listen for 3D measurement clicks
+        subscribe(this, this._eventBus, EventTypes.MEASUREMENT_3D_CLICKED,
+            (payload) => this._onMeasurement3dClicked(payload));
+
+        // Listen for 3D measurement deselection
+        subscribe(this, this._eventBus, EventTypes.MEASUREMENT_3D_DESELECTED,
+            () => this._onMeasurement3dDeselected());
+
+        // Listen for 3D viewshed clicks
+        subscribe(this, this._eventBus, EventTypes.VIEWSHED_3D_CLICKED,
+            (payload) => this._onViewshed3dClicked(payload));
+
+        // Listen for 3D viewshed deselection
+        subscribe(this, this._eventBus, EventTypes.VIEWSHED_3D_DESELECTED,
+            () => this._onViewshed3dDeselected());
     }
 
     /**
@@ -255,16 +273,19 @@ export class SidebarControl {
      * @private
      */
     async _handleFeaturePanelClose() {
-        // Check if we're closing the notes panel or 3D marker panel
+        // Check if we're closing the notes panel or 3D feature panels
         const featureType = this._stateManager.get('ui.currentFeatureType');
         const isNotes = featureType === 'notes';
         const isMarker3d = featureType === 'marker3d';
+        const isMeasurement3d = featureType === 'measurement3d';
+        const isViewshed3d = featureType === 'viewshed3d';
+        const is3dFeature = isMarker3d || isMeasurement3d || isViewshed3d;
 
         // Save changes before closing (this triggers save button click)
         // Must happen BEFORE deselecting features
         this._featurePanel.hide(true);
 
-        // Deselect 3D marker if closing a marker panel
+        // Deselect 3D features if closing their panels
         if (isMarker3d) {
             try {
                 const { deselectCurrentMarker } = await import('../3d_models_viewer_tool/tools/marker_tool_3d.js');
@@ -274,8 +295,26 @@ export class SidebarControl {
             }
         }
 
-        // Only clear selection if we're not showing notes
-        if (!isNotes && !isMarker3d && this._selectionManager) {
+        if (isMeasurement3d) {
+            try {
+                const { deselectCurrentMeasurement } = await import('../3d_models_viewer_tool/tools/measurement_tool_3d.js');
+                deselectCurrentMeasurement();
+            } catch (error) {
+                console.warn('Could not deselect 3D measurement:', error);
+            }
+        }
+
+        if (isViewshed3d) {
+            try {
+                const { deselectCurrentViewshed } = await import('../3d_models_viewer_tool/tools/viewshed_tool_3d.js');
+                deselectCurrentViewshed();
+            } catch (error) {
+                console.warn('Could not deselect 3D viewshed:', error);
+            }
+        }
+
+        // Only clear selection if we're not showing notes or 3D features
+        if (!isNotes && !is3dFeature && this._selectionManager) {
             this._selectionManager.deselectAllFeatures();
         }
 
@@ -540,6 +579,154 @@ export class SidebarControl {
             this._stateManager.set('sidebar.previousTab', null);
 
             // Emit events for consistency
+            this._eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED, {});
+            this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+                sidebarExpanded: false,
+                featurePanelOpen: false,
+                contentLeftOffset: 56
+            });
+        }
+    }
+
+    /**
+     * Called when a 3D measurement is clicked.
+     * @private
+     * @param {Object} payload - Event payload with measurement and tilesetId
+     */
+    async _onMeasurement3dClicked(payload) {
+        const { measurement, tilesetId } = payload;
+        if (!measurement) return;
+
+        // Collapse sidebar panel first
+        this._collapsePanel();
+
+        // Update state to reflect feature panel is open
+        this._stateManager.set('ui.featurePanelOpen', true);
+        this._stateManager.set('ui.currentFeatureType', 'measurement3d');
+
+        // Emit layout changed
+        this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+            sidebarExpanded: false,
+            featurePanelOpen: true,
+            contentLeftOffset: 376
+        });
+
+        // Load measurement panel module lazily
+        if (!measurementPanel3dModule) {
+            measurementPanel3dModule = await import('../3d_models_viewer_tool/components/measurement-panel-3d.js');
+            measurementPanel3dModule.injectMeasurementPanelStyles();
+        }
+
+        // Cleanup previous content
+        this._cleanupFeaturePanelContent();
+
+        // Create measurement panel content
+        const { element, cleanup } = measurementPanel3dModule.createMeasurementPanelContent(
+            measurement,
+            tilesetId,
+            () => this._handleFeaturePanelClose()
+        );
+
+        // Register cleanup
+        this._currentFeaturePanelCleanup = cleanup;
+
+        // Show in feature panel
+        const measurementName = measurement.properties?.nome || (measurement.type === 'area' ? 'Medição de Área' : 'Medição de Distância');
+        this._featurePanel.show(element, measurementName);
+    }
+
+    /**
+     * Called when a 3D measurement is deselected.
+     * @private
+     */
+    _onMeasurement3dDeselected() {
+        const featureType = this._stateManager.get('ui.currentFeatureType');
+        const isMeasurement3dPanel = featureType === 'measurement3d' ||
+            (this._stateManager.get('ui.featurePanelOpen') &&
+             document.querySelector('.measurement-3d-panel-content'));
+
+        if (isMeasurement3dPanel) {
+            this._featurePanel.hide(false);
+            this._cleanupFeaturePanelContent();
+
+            this._stateManager.set('ui.featurePanelOpen', false);
+            this._stateManager.set('ui.currentFeatureType', null);
+            this._stateManager.set('sidebar.previousTab', null);
+
+            this._eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED, {});
+            this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+                sidebarExpanded: false,
+                featurePanelOpen: false,
+                contentLeftOffset: 56
+            });
+        }
+    }
+
+    /**
+     * Called when a 3D viewshed is clicked.
+     * @private
+     * @param {Object} payload - Event payload with viewshed and tilesetId
+     */
+    async _onViewshed3dClicked(payload) {
+        const { viewshed, tilesetId } = payload;
+        if (!viewshed) return;
+
+        // Collapse sidebar panel first
+        this._collapsePanel();
+
+        // Update state to reflect feature panel is open
+        this._stateManager.set('ui.featurePanelOpen', true);
+        this._stateManager.set('ui.currentFeatureType', 'viewshed3d');
+
+        // Emit layout changed
+        this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+            sidebarExpanded: false,
+            featurePanelOpen: true,
+            contentLeftOffset: 376
+        });
+
+        // Load viewshed panel module lazily
+        if (!viewshedPanel3dModule) {
+            viewshedPanel3dModule = await import('../3d_models_viewer_tool/components/viewshed-panel-3d.js');
+            viewshedPanel3dModule.injectViewshedPanelStyles();
+        }
+
+        // Cleanup previous content
+        this._cleanupFeaturePanelContent();
+
+        // Create viewshed panel content
+        const { element, cleanup } = viewshedPanel3dModule.createViewshedPanelContent(
+            viewshed,
+            tilesetId,
+            () => this._handleFeaturePanelClose()
+        );
+
+        // Register cleanup
+        this._currentFeaturePanelCleanup = cleanup;
+
+        // Show in feature panel
+        const viewshedName = viewshed.properties?.nome || 'Análise de Visibilidade';
+        this._featurePanel.show(element, viewshedName);
+    }
+
+    /**
+     * Called when a 3D viewshed is deselected.
+     * @private
+     */
+    _onViewshed3dDeselected() {
+        const featureType = this._stateManager.get('ui.currentFeatureType');
+        const isViewshed3dPanel = featureType === 'viewshed3d' ||
+            (this._stateManager.get('ui.featurePanelOpen') &&
+             document.querySelector('.viewshed-3d-panel-content'));
+
+        if (isViewshed3dPanel) {
+            this._featurePanel.hide(false);
+            this._cleanupFeaturePanelContent();
+
+            this._stateManager.set('ui.featurePanelOpen', false);
+            this._stateManager.set('ui.currentFeatureType', null);
+            this._stateManager.set('sidebar.previousTab', null);
+
             this._eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED, {});
             this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
                 sidebarExpanded: false,

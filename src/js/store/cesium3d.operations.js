@@ -415,6 +415,8 @@ export const clearCesium3dCache = () => {
     memoryStore.cesium3d = {
         cameraPositions: {},
         markers: [],
+        measurements: [],
+        viewsheds: [],
         _mapName: null
     };
 };
@@ -432,7 +434,9 @@ export const setCesium3dDataForImport = async (mapName, cesium3dData) => {
     // Ensure data has correct structure
     const normalizedData = {
         cameraPositions: cesium3dData.cameraPositions || {},
-        markers: cesium3dData.markers || []
+        markers: cesium3dData.markers || [],
+        measurements: cesium3dData.measurements || [],
+        viewsheds: cesium3dData.viewsheds || []
     };
 
     await setCesium3dData(mapName, normalizedData);
@@ -442,6 +446,8 @@ export const setCesium3dDataForImport = async (mapName, cesium3dData) => {
         memoryStore.cesium3d = { ...normalizedData, _mapName: mapName };
         if (deps.eventBus) {
             deps.eventBus.emit(EventTypes.MARKERS_3D_CHANGED, { mapName });
+            deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName });
+            deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName });
         }
     }
 };
@@ -456,13 +462,20 @@ export const getCesium3dDataForExport = async (mapName) => {
     const data = await getCesium3dData(mapName);
 
     // Return null if no data
-    if (Object.keys(data.cameraPositions).length === 0 && data.markers.length === 0) {
+    const hasData = Object.keys(data.cameraPositions).length > 0 ||
+        data.markers.length > 0 ||
+        (data.measurements && data.measurements.length > 0) ||
+        (data.viewsheds && data.viewsheds.length > 0);
+
+    if (!hasData) {
         return null;
     }
 
     return {
         cameraPositions: data.cameraPositions,
-        markers: data.markers
+        markers: data.markers,
+        measurements: data.measurements || [],
+        viewsheds: data.viewsheds || []
     };
 };
 
@@ -569,6 +582,590 @@ export const removeMarkerImage = async (markerId, imageId, mapName = null) => {
 
         if (deps.eventBus) {
             deps.eventBus.emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
+        }
+        return true;
+    }
+    return false;
+};
+
+// ===== MEASUREMENT OPERATIONS =====
+
+/**
+ * Generates unique measurement ID.
+ * @returns {string} Unique ID
+ */
+const generateMeasurementId = () => {
+    return Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+};
+
+/**
+ * Gets the next measurement number for auto-naming.
+ * @param {Array} measurements - Existing measurements
+ * @param {string} type - Measurement type ('distance' or 'area')
+ * @returns {number} Next measurement number
+ */
+const getNextMeasurementNumber = (measurements, type) => {
+    let maxNumber = 0;
+    const prefix = type === 'distance' ? 'Distância' : 'Área';
+    const regex = new RegExp(`^${prefix} #(\\d+)$`);
+
+    for (const measurement of measurements) {
+        if (measurement.type !== type) continue;
+        const match = measurement.properties?.nome?.match(regex);
+        if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxNumber) {
+                maxNumber = num;
+            }
+        }
+    }
+
+    return maxNumber + 1;
+};
+
+/**
+ * Adds a new measurement to a tileset.
+ *
+ * @param {string} tilesetId - Tileset ID
+ * @param {Object} measurementData - Measurement data { type, positions, result, properties }
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Object>} Created measurement
+ */
+export const addMeasurement = async (tilesetId, measurementData, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    // Ensure measurements array exists
+    if (!data.measurements) {
+        data.measurements = [];
+    }
+
+    // Get next measurement number for auto-naming
+    const type = measurementData.type || 'distance';
+    const nextNumber = getNextMeasurementNumber(data.measurements, type);
+    const prefix = type === 'distance' ? 'Distância' : 'Área';
+    const defaultName = `${prefix} #${nextNumber}`;
+
+    const measurement = {
+        id: generateMeasurementId(),
+        tilesetId,
+        type: type,
+        positions: measurementData.positions || [],
+        result: measurementData.result || { value: 0, formatted: '' },
+        properties: {
+            nome: measurementData.properties?.nome || defaultName,
+            descricao: measurementData.properties?.descricao || ''
+        },
+        images: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+    };
+
+    data.measurements.push(measurement);
+    await saveCesium3dData(targetMap, data);
+
+    if (deps.eventBus) {
+        deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+    }
+
+    return measurement;
+};
+
+/**
+ * Gets all measurements for a specific tileset.
+ *
+ * @param {string} tilesetId - Tileset ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Array>} Array of measurements
+ */
+export const getMeasurements = async (tilesetId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+    return (data.measurements || []).filter(m => m.tilesetId === tilesetId);
+};
+
+/**
+ * Gets all measurements for the current map.
+ *
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Array>} Array of all measurements
+ */
+export const getAllMeasurements = async (mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+    return data.measurements || [];
+};
+
+/**
+ * Gets a measurement by ID.
+ *
+ * @param {string} measurementId - Measurement ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Object|null>} Measurement or null
+ */
+export const getMeasurementById = async (measurementId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+    return (data.measurements || []).find(m => m.id === measurementId) || null;
+};
+
+/**
+ * Updates a measurement's properties.
+ *
+ * @param {string} measurementId - Measurement ID
+ * @param {Object} updates - Properties to update { properties }
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Object|null>} Updated measurement or null if not found
+ */
+export const updateMeasurement = async (measurementId, updates, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    if (!data.measurements) return null;
+
+    const measurementIndex = data.measurements.findIndex(m => m.id === measurementId);
+    if (measurementIndex === -1) return null;
+
+    const measurement = data.measurements[measurementIndex];
+
+    // Update properties
+    if (updates.properties) {
+        measurement.properties = { ...measurement.properties, ...updates.properties };
+    }
+    measurement.updatedAt = Date.now();
+
+    data.measurements[measurementIndex] = measurement;
+    await saveCesium3dData(targetMap, data);
+
+    if (deps.eventBus) {
+        deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+    }
+
+    return measurement;
+};
+
+/**
+ * Removes a measurement.
+ *
+ * @param {string} measurementId - Measurement ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<boolean>} True if measurement was removed
+ */
+export const removeMeasurement = async (measurementId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    if (!data.measurements) return false;
+
+    const initialLength = data.measurements.length;
+    data.measurements = data.measurements.filter(m => m.id !== measurementId);
+
+    if (data.measurements.length < initialLength) {
+        await saveCesium3dData(targetMap, data);
+
+        if (deps.eventBus) {
+            deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+        }
+        return true;
+    }
+    return false;
+};
+
+/**
+ * Adds an image to a measurement.
+ *
+ * @param {string} measurementId - Measurement ID
+ * @param {File} file - Image file to add
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Object|null>} Created image object or null on failure
+ */
+export const addMeasurementImage = async (measurementId, file, mapName = null) => {
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+        console.warn(`Invalid image: ${validation.reason}`);
+        return null;
+    }
+
+    try {
+        const targetMap = getTargetMapName(mapName);
+        const data = await getCesium3dDataWithCache(targetMap);
+
+        if (!data.measurements) return null;
+
+        const measurementIndex = data.measurements.findIndex(m => m.id === measurementId);
+        if (measurementIndex === -1) {
+            console.warn(`Measurement not found: ${measurementId}`);
+            return null;
+        }
+
+        const processedImage = await processImageFile(file);
+        const imageId = Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+
+        const imageData = {
+            id: imageId,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            data: processedImage.data,
+            thumbnail: processedImage.thumbnail,
+            addedAt: Date.now()
+        };
+
+        if (!data.measurements[measurementIndex].images) {
+            data.measurements[measurementIndex].images = [];
+        }
+        data.measurements[measurementIndex].images.push(imageData);
+        data.measurements[measurementIndex].updatedAt = Date.now();
+
+        await saveCesium3dData(targetMap, data);
+
+        if (deps.eventBus) {
+            deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+        }
+
+        return imageData;
+    } catch (error) {
+        console.error('Error adding measurement image:', error);
+        return null;
+    }
+};
+
+/**
+ * Gets all images for a measurement.
+ *
+ * @param {string} measurementId - Measurement ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Array>} Array of image objects
+ */
+export const getMeasurementImages = async (measurementId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+    const measurement = (data.measurements || []).find(m => m.id === measurementId);
+    return measurement?.images || [];
+};
+
+/**
+ * Removes an image from a measurement.
+ *
+ * @param {string} measurementId - Measurement ID
+ * @param {string} imageId - Image ID to remove
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<boolean>} True if image was removed
+ */
+export const removeMeasurementImage = async (measurementId, imageId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    if (!data.measurements) return false;
+
+    const measurementIndex = data.measurements.findIndex(m => m.id === measurementId);
+    if (measurementIndex === -1) return false;
+
+    const measurement = data.measurements[measurementIndex];
+    if (!measurement.images) return false;
+
+    const initialLength = measurement.images.length;
+    measurement.images = measurement.images.filter(img => img.id !== imageId);
+
+    if (measurement.images.length < initialLength) {
+        measurement.updatedAt = Date.now();
+        await saveCesium3dData(targetMap, data);
+
+        if (deps.eventBus) {
+            deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+        }
+        return true;
+    }
+    return false;
+};
+
+// ===== VIEWSHED OPERATIONS =====
+
+/**
+ * Generates unique viewshed ID.
+ * @returns {string} Unique ID
+ */
+const generateViewshedId = () => {
+    return Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+};
+
+/**
+ * Gets the next viewshed number for auto-naming.
+ * @param {Array} viewsheds - Existing viewsheds
+ * @returns {number} Next viewshed number
+ */
+const getNextViewshedNumber = (viewsheds) => {
+    let maxNumber = 0;
+    const regex = /^Visibilidade #(\d+)$/;
+
+    for (const viewshed of viewsheds) {
+        const match = viewshed.properties?.nome?.match(regex);
+        if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxNumber) {
+                maxNumber = num;
+            }
+        }
+    }
+
+    return maxNumber + 1;
+};
+
+/**
+ * Adds a new viewshed to a tileset.
+ *
+ * @param {string} tilesetId - Tileset ID
+ * @param {Object} viewshedData - Viewshed data { position, direction, parameters, properties }
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Object>} Created viewshed
+ */
+export const addViewshed = async (tilesetId, viewshedData, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    // Ensure viewsheds array exists
+    if (!data.viewsheds) {
+        data.viewsheds = [];
+    }
+
+    // Get next viewshed number for auto-naming
+    const nextNumber = getNextViewshedNumber(data.viewsheds);
+    const defaultName = `Visibilidade #${nextNumber}`;
+
+    const viewshed = {
+        id: generateViewshedId(),
+        tilesetId,
+        position: viewshedData.position || { longitude: 0, latitude: 0, height: 0 },
+        targetPosition: viewshedData.targetPosition || null, // Second click position for accurate recreation
+        terrainBaseHeight: viewshedData.terrainBaseHeight ?? null, // Terrain height at click point (without observer)
+        direction: viewshedData.direction || { heading: 0, pitch: 0 },
+        parameters: viewshedData.parameters || { horizontalAngle: 150, verticalAngle: 120, distance: 10 },
+        observerHeight: viewshedData.observerHeight ?? 1.5, // Height above terrain in meters
+        properties: {
+            nome: viewshedData.properties?.nome || defaultName,
+            descricao: viewshedData.properties?.descricao || ''
+        },
+        images: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+    };
+
+    data.viewsheds.push(viewshed);
+    await saveCesium3dData(targetMap, data);
+
+    if (deps.eventBus) {
+        deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+    }
+
+    return viewshed;
+};
+
+/**
+ * Gets all viewsheds for a specific tileset.
+ *
+ * @param {string} tilesetId - Tileset ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Array>} Array of viewsheds
+ */
+export const getViewsheds = async (tilesetId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+    return (data.viewsheds || []).filter(v => v.tilesetId === tilesetId);
+};
+
+/**
+ * Gets all viewsheds for the current map.
+ *
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Array>} Array of all viewsheds
+ */
+export const getAllViewsheds = async (mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+    return data.viewsheds || [];
+};
+
+/**
+ * Gets a viewshed by ID.
+ *
+ * @param {string} viewshedId - Viewshed ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Object|null>} Viewshed or null
+ */
+export const getViewshedById = async (viewshedId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+    return (data.viewsheds || []).find(v => v.id === viewshedId) || null;
+};
+
+/**
+ * Updates a viewshed's properties.
+ *
+ * @param {string} viewshedId - Viewshed ID
+ * @param {Object} updates - Properties to update { properties, observerHeight }
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Object|null>} Updated viewshed or null if not found
+ */
+export const updateViewshed = async (viewshedId, updates, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    if (!data.viewsheds) return null;
+
+    const viewshedIndex = data.viewsheds.findIndex(v => v.id === viewshedId);
+    if (viewshedIndex === -1) return null;
+
+    const viewshed = data.viewsheds[viewshedIndex];
+
+    // Update properties
+    if (updates.properties) {
+        viewshed.properties = { ...viewshed.properties, ...updates.properties };
+    }
+    // Update observer height
+    if (updates.observerHeight !== undefined) {
+        viewshed.observerHeight = updates.observerHeight;
+    }
+    viewshed.updatedAt = Date.now();
+
+    data.viewsheds[viewshedIndex] = viewshed;
+    await saveCesium3dData(targetMap, data);
+
+    if (deps.eventBus) {
+        deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+    }
+
+    return viewshed;
+};
+
+/**
+ * Removes a viewshed.
+ *
+ * @param {string} viewshedId - Viewshed ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<boolean>} True if viewshed was removed
+ */
+export const removeViewshed = async (viewshedId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    if (!data.viewsheds) return false;
+
+    const initialLength = data.viewsheds.length;
+    data.viewsheds = data.viewsheds.filter(v => v.id !== viewshedId);
+
+    if (data.viewsheds.length < initialLength) {
+        await saveCesium3dData(targetMap, data);
+
+        if (deps.eventBus) {
+            deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+        }
+        return true;
+    }
+    return false;
+};
+
+/**
+ * Adds an image to a viewshed.
+ *
+ * @param {string} viewshedId - Viewshed ID
+ * @param {File} file - Image file to add
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Object|null>} Created image object or null on failure
+ */
+export const addViewshedImage = async (viewshedId, file, mapName = null) => {
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+        console.warn(`Invalid image: ${validation.reason}`);
+        return null;
+    }
+
+    try {
+        const targetMap = getTargetMapName(mapName);
+        const data = await getCesium3dDataWithCache(targetMap);
+
+        if (!data.viewsheds) return null;
+
+        const viewshedIndex = data.viewsheds.findIndex(v => v.id === viewshedId);
+        if (viewshedIndex === -1) {
+            console.warn(`Viewshed not found: ${viewshedId}`);
+            return null;
+        }
+
+        const processedImage = await processImageFile(file);
+        const imageId = Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+
+        const imageData = {
+            id: imageId,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            data: processedImage.data,
+            thumbnail: processedImage.thumbnail,
+            addedAt: Date.now()
+        };
+
+        if (!data.viewsheds[viewshedIndex].images) {
+            data.viewsheds[viewshedIndex].images = [];
+        }
+        data.viewsheds[viewshedIndex].images.push(imageData);
+        data.viewsheds[viewshedIndex].updatedAt = Date.now();
+
+        await saveCesium3dData(targetMap, data);
+
+        if (deps.eventBus) {
+            deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+        }
+
+        return imageData;
+    } catch (error) {
+        console.error('Error adding viewshed image:', error);
+        return null;
+    }
+};
+
+/**
+ * Gets all images for a viewshed.
+ *
+ * @param {string} viewshedId - Viewshed ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<Array>} Array of image objects
+ */
+export const getViewshedImages = async (viewshedId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+    const viewshed = (data.viewsheds || []).find(v => v.id === viewshedId);
+    return viewshed?.images || [];
+};
+
+/**
+ * Removes an image from a viewshed.
+ *
+ * @param {string} viewshedId - Viewshed ID
+ * @param {string} imageId - Image ID to remove
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<boolean>} True if image was removed
+ */
+export const removeViewshedImage = async (viewshedId, imageId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    if (!data.viewsheds) return false;
+
+    const viewshedIndex = data.viewsheds.findIndex(v => v.id === viewshedId);
+    if (viewshedIndex === -1) return false;
+
+    const viewshed = data.viewsheds[viewshedIndex];
+    if (!viewshed.images) return false;
+
+    const initialLength = viewshed.images.length;
+    viewshed.images = viewshed.images.filter(img => img.id !== imageId);
+
+    if (viewshed.images.length < initialLength) {
+        viewshed.updatedAt = Date.now();
+        await saveCesium3dData(targetMap, data);
+
+        if (deps.eventBus) {
+            deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
         }
         return true;
     }

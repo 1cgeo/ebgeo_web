@@ -27,6 +27,13 @@ body.cesium-active .sidebar-container {
     z-index: 300 !important;
 }
 
+/* ===== MODALS VISIBILITY IN 3D MODE ===== */
+
+/* Ensure modals appear above Cesium viewer */
+body.cesium-active .modal-overlay {
+    z-index: 400 !important;
+}
+
 #map-3d {
     position: absolute;
     top: 0;

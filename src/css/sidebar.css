@@ -2987,8 +2987,9 @@ body:has(.sidebar-container) .unified-attributes-panel {
     background: var(--gray-100);
 }
 
-/* Markers List */
-.models3d-markers-list {
+/* Features List */
+.models3d-markers-list,
+.models3d-features-list {
     display: flex;
     flex-direction: column;
     padding-left: 20px;
@@ -2996,7 +2997,8 @@ body:has(.sidebar-container) .unified-attributes-panel {
     transition: max-height 0.2s ease;
 }
 
-.models3d-markers-list.collapsed {
+.models3d-markers-list.collapsed,
+.models3d-features-list.collapsed {
     max-height: 0 !important;
     padding: 0;
 }
@@ -3045,6 +3047,152 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 .models3d-marker-label {
+    font-size: var(--font-size-xs);
+    color: var(--gray-500);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Categories List (for organized features) */
+.models3d-categories-list {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+}
+
+.models3d-categories-list.collapsed {
+    max-height: 0 !important;
+    padding: 0;
+}
+
+/* Category */
+.models3d-category {
+    display: flex;
+    flex-direction: column;
+}
+
+.models3d-category-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    padding-left: 28px;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.models3d-category-header:hover {
+    background: var(--gray-50);
+}
+
+.models3d-category-toggle {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-400);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color var(--transition-fast);
+}
+
+.models3d-category-header:hover .models3d-category-toggle {
+    color: var(--gray-600);
+}
+
+.models3d-category-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--gray-500);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.models3d-category-name {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-600);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.models3d-category-count {
+    padding: 1px 6px;
+    background: var(--gray-100);
+    border-radius: 9999px;
+    font-size: 10px;
+    color: var(--gray-500);
+    flex-shrink: 0;
+}
+
+/* Category Items */
+.models3d-category-items {
+    display: flex;
+    flex-direction: column;
+    padding-left: 20px;
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+}
+
+.models3d-category-items.collapsed {
+    max-height: 0 !important;
+    padding: 0;
+}
+
+/* Feature Item (generic for marker, measurement, viewshed) */
+.models3d-feature-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border-left: 2px solid var(--gray-200);
+    margin-left: var(--space-2);
+}
+
+.models3d-feature-item:hover {
+    background: var(--gray-50);
+    border-left-color: var(--primary);
+}
+
+.models3d-feature-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--primary);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.models3d-feature-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.models3d-feature-name {
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.models3d-feature-label {
     font-size: var(--font-size-xs);
     color: var(--gray-500);
     white-space: nowrap;

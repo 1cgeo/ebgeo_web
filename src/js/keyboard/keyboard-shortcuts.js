@@ -82,14 +82,8 @@ class KeyboardShortcuts {
             return;
         }
 
-        // Block shortcuts when 3D viewer is open (except ESC to close it)
+        // Block shortcuts when 3D viewer is open
         if (this.is3DViewerOpen()) {
-            // Only allow ESC to close the 3D viewer
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                const close3dBtn = document.getElementById('close-3d-viewer-button');
-                if (close3dBtn) close3dBtn.click();
-            }
             return;
         }
 

@@ -31,7 +31,9 @@ const memoryStore = {
     // Cesium 3D cache
     cesium3d: {
         cameraPositions: {},  // { tilesetId: TilesetCameraPosition }
-        markers: []           // Cesium3DMarker[]
+        markers: [],          // Cesium3DMarker[]
+        measurements: [],     // Cesium3DMeasurement[]
+        viewsheds: []         // Cesium3DViewshed[]
     }
 };
 
@@ -741,7 +743,9 @@ const removeMapLayers = async (mapName) => {
  */
 const getEmptyCesium3dData = () => ({
     cameraPositions: {},
-    markers: []
+    markers: [],
+    measurements: [],
+    viewsheds: []
 });
 
 /**
