@@ -900,8 +900,6 @@ function registerToolEventListeners() {
 
         // Initialize camera buttons
         initCameraButtons();
-
-        console.log(`${buttons.length} 3D tool buttons registered`);
     }, 100);
 }
 

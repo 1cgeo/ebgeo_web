@@ -2,7 +2,7 @@
 
 import config from '../config.js';
 import { URLRouter } from '../url_router.js';
-import { getEventBus } from '../store';
+import { getEventBus, getAllMarkers, getAllMeasurements, getAllViewsheds } from '../store';
 import { EventTypes } from '../events/event_types.js';
 
 // Clustering configuration
@@ -28,6 +28,47 @@ const _VIDEO_POPUP_HEIGHT = 180;
 // Marker pin vertical offset for popup positioning
 const MARKER_POPUP_OFFSET = 55;
 
+// Badge color for feature count
+const BADGE_COLOR = '#e53935';
+
+/**
+ * Gets feature counts grouped by tilesetId.
+ * @returns {Promise<Map<string, number>>} Map of tilesetId to feature count
+ */
+async function getFeatureCountsByTileset() {
+    const counts = new Map();
+
+    try {
+        const [markers, measurements, viewsheds] = await Promise.all([
+            getAllMarkers(),
+            getAllMeasurements(),
+            getAllViewsheds()
+        ]);
+
+        // Count markers
+        for (const marker of (markers || [])) {
+            const current = counts.get(marker.tilesetId) || 0;
+            counts.set(marker.tilesetId, current + 1);
+        }
+
+        // Count measurements
+        for (const measurement of (measurements || [])) {
+            const current = counts.get(measurement.tilesetId) || 0;
+            counts.set(measurement.tilesetId, current + 1);
+        }
+
+        // Count viewsheds
+        for (const viewshed of (viewsheds || [])) {
+            const current = counts.get(viewshed.tilesetId) || 0;
+            counts.set(viewshed.tilesetId, current + 1);
+        }
+    } catch (error) {
+        console.warn('Error getting feature counts:', error);
+    }
+
+    return counts;
+}
+
 /**
  * Control for viewing 3D models on the map.
  * Displays clustered markers with video preview popups.
@@ -49,6 +90,8 @@ class Add3DModelsViewerControl {
         this.clusterCountLayer = '3d-models-cluster-count';
         this.markersLayer = '3d-models-markers';
         this.labelsLayer = '3d-models-labels';
+        this.badgeCircleLayer = '3d-models-badge-circle';
+        this.badgeTextLayer = '3d-models-badge-text';
 
         // Popup state
         this.previewPopup = null;
@@ -66,6 +109,7 @@ class Add3DModelsViewerControl {
         this.closeViewer = this.closeViewer.bind(this);
         this.handlePopupClose = this.handlePopupClose.bind(this);
         this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
+        this._handleFeaturesChanged = this._handleFeaturesChanged.bind(this);
     }
 
     /**
@@ -82,7 +126,56 @@ class Add3DModelsViewerControl {
         // Listen for base layer changes to reload layers if active
         getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
 
+        // Listen for 3D feature changes to update badges
+        getEventBus().on(EventTypes.MARKERS_3D_CHANGED, this._handleFeaturesChanged);
+        getEventBus().on(EventTypes.MEASUREMENTS_3D_CHANGED, this._handleFeaturesChanged);
+        getEventBus().on(EventTypes.VIEWSHEDS_3D_CHANGED, this._handleFeaturesChanged);
+
         return this.container;
+    }
+
+    /**
+     * Handles 3D feature changes to update badge counts.
+     * @private
+     */
+    async _handleFeaturesChanged() {
+        if (this.markersVisible && this.map.getSource(this.sourceId)) {
+            await this._updateBadgeCounts();
+        }
+    }
+
+    /**
+     * Updates badge counts by refreshing the source data.
+     * @private
+     */
+    async _updateBadgeCounts() {
+        const featureCounts = await getFeatureCountsByTileset();
+
+        const features = config.tilesets.map(tileset => ({
+            type: 'Feature',
+            geometry: {
+                type: 'Point',
+                coordinates: [tileset.locate.lon, tileset.locate.lat]
+            },
+            properties: {
+                tilesetId: tileset.id,
+                name: tileset.name,
+                dataCaptura: tileset.data_captura || null,
+                previewVideo: tileset.previewVideo || null,
+                previewThumbnail: tileset.previewThumbnail || null,
+                featureCount: featureCounts.get(tileset.id) || 0
+            }
+        }));
+
+        const geojson = {
+            type: 'FeatureCollection',
+            features: features
+        };
+
+        const source = this.map.getSource(this.sourceId);
+        if (source) {
+            source.setData(geojson);
+        }
     }
 
     /**
@@ -175,6 +268,9 @@ class Add3DModelsViewerControl {
      * Load markers from config and create map layers with clustering
      */
     async loadMarkers() {
+        // Get feature counts for badges
+        const featureCounts = await getFeatureCountsByTileset();
+
         const features = config.tilesets.map(tileset => ({
             type: 'Feature',
             geometry: {
@@ -186,7 +282,8 @@ class Add3DModelsViewerControl {
                 name: tileset.name,
                 dataCaptura: tileset.data_captura || null,
                 previewVideo: tileset.previewVideo || null,
-                previewThumbnail: tileset.previewThumbnail || null
+                previewThumbnail: tileset.previewThumbnail || null,
+                featureCount: featureCounts.get(tileset.id) || 0
             }
         }));
 
@@ -291,6 +388,51 @@ class Add3DModelsViewerControl {
                     'text-halo-blur': 1
                 }
             });
+
+            // Layer 5: Badge circle (only show when featureCount > 0)
+            this.map.addLayer({
+                id: this.badgeCircleLayer,
+                type: 'circle',
+                source: this.sourceId,
+                filter: ['all',
+                    ['!', ['has', 'point_count']],
+                    ['>', ['get', 'featureCount'], 0]
+                ],
+                paint: {
+                    'circle-color': BADGE_COLOR,
+                    'circle-radius': 10,
+                    'circle-stroke-width': 1.5,
+                    'circle-stroke-color': '#ffffff',
+                    'circle-translate': [14, -42]
+                },
+                layout: {
+                    'visibility': 'none'
+                }
+            });
+
+            // Layer 6: Badge text (feature count number)
+            this.map.addLayer({
+                id: this.badgeTextLayer,
+                type: 'symbol',
+                source: this.sourceId,
+                filter: ['all',
+                    ['!', ['has', 'point_count']],
+                    ['>', ['get', 'featureCount'], 0]
+                ],
+                layout: {
+                    'text-field': ['to-string', ['get', 'featureCount']],
+                    'text-font': ['Noto Sans Bold'],
+                    'text-size': 11,
+                    'text-anchor': 'center',
+                    'text-offset': [1.27, -3.82],
+                    'text-allow-overlap': true,
+                    'text-ignore-placement': true,
+                    'visibility': 'none'
+                },
+                paint: {
+                    'text-color': '#ffffff'
+                }
+            });
         } else {
             this.map.getSource(this.sourceId).setData(geojson);
         }
@@ -317,6 +459,8 @@ class Add3DModelsViewerControl {
         this.map.setLayoutProperty(this.clusterCountLayer, 'visibility', 'visible');
         this.map.setLayoutProperty(this.markersLayer, 'visibility', 'visible');
         this.map.setLayoutProperty(this.labelsLayer, 'visibility', 'visible');
+        this.map.setLayoutProperty(this.badgeCircleLayer, 'visibility', 'visible');
+        this.map.setLayoutProperty(this.badgeTextLayer, 'visibility', 'visible');
 
         this.markersVisible = true;
     }
@@ -345,6 +489,8 @@ class Add3DModelsViewerControl {
         this.map.setLayoutProperty(this.clusterCountLayer, 'visibility', 'none');
         this.map.setLayoutProperty(this.markersLayer, 'visibility', 'none');
         this.map.setLayoutProperty(this.labelsLayer, 'visibility', 'none');
+        this.map.setLayoutProperty(this.badgeCircleLayer, 'visibility', 'none');
+        this.map.setLayoutProperty(this.badgeTextLayer, 'visibility', 'none');
 
         this.markersVisible = false;
     }

@@ -29,43 +29,39 @@ class FrameControl {
             return;
         }
 
-         try {
+        // Sync internal state from saved state (without changing visibility)
+        try {
             const mapName = getCurrentMapNameSync();
             const savedFrame = await getFrameStyle(mapName);
             if (savedFrame) {
                 this.currentScale = savedFrame.scale || 'scale_25k';
                 this.frameVisible = !!savedFrame.visible;
-                this._fillVisible = savedFrame.fillVisible || false;
-                if (this.frameVisible) {
-                    this._fillMode = this._fillVisible ? 'normal' : 'sem_fill';
-                    this._getFrame(this.currentScale);
-                }
-            } else{
-                this.currentScale = 'scale_25k';
-                this.frameVisible = false;
-                this._fillVisible = true;
+                this._fillVisible = savedFrame.fillVisible ?? true;
+                this._fillMode = this._fillVisible ? 'normal' : 'sem_fill';
             }
         } catch (err) {
             console.warn('Error checking frame state:', err);
         }
-        const items = this._contextMenu.querySelectorAll('.coordinates-format-option');
+
+        // Update menu items to reflect current state
+        const items = this._contextMenu.querySelectorAll('.frame-format-option');
         items.forEach(item => {
             const scale = item.dataset.format;
 
-            if (scale === 'off' && !this.frameVisible) {
+            // Reset classes first
+            item.classList.remove('active', 'disabled');
+
+            if (scale === 'toggle_fill') {
+                // Toggle fill option - disabled when frame is not visible
+                if (!this.frameVisible) {
+                    item.classList.add('disabled');
+                }
+                // Update toggle text based on current fill state
+                item.textContent = this._fillVisible ? 'Ocultar produtos disp.' : 'Mostrar produtos disp.';
+            } else if (scale === 'off' && !this.frameVisible) {
                 item.classList.add('active');
-                item.style.backgroundColor = '#e6f7ff';
-                item.style.fontWeight = 'bold';
             } else if (scale === this.currentScale && this.frameVisible) {
                 item.classList.add('active');
-                item.style.backgroundColor = '#e6f7ff';
-                item.style.fontWeight = 'bold';
-            } else if (scale === 'toggle_fill' && (!this._fillVisible || !this.frameVisible)) {
-                item.classList.add('disabled');
-            } else {
-                item.classList.remove('active');
-                item.style.backgroundColor = '';
-                item.style.fontWeight = '';
             }
         });
 
@@ -122,15 +118,13 @@ class FrameControl {
 
     _createMenuItem(label, scale) {
         const item = document.createElement('div');
-        item.className = 'coordinates-format-option';
+        item.className = 'frame-format-option';
         item.textContent = label;
         item.dataset.format = scale;
 
-        // Marca o item ativo
-        if (scale === this.currentScale) {
+        // Mark active only if it's the current scale AND frame is visible
+        if (scale === this.currentScale && this.frameVisible) {
             item.classList.add('active');
-            item.style.backgroundColor = '#e6f7ff';
-            item.style.fontWeight = 'bold';
         }
 
         item.addEventListener('click', async(e) => {
@@ -188,15 +182,8 @@ class FrameControl {
         const toggleItem = this._contextMenu.querySelector('[data-format="toggle_fill"]');
         if (!toggleItem) return;
 
-        if (!frameVisible) {
-            toggleItem.classList.add('disabled');
-            toggleItem.style.opacity = 0.4;
-            toggleItem.style.pointerEvents = 'none';
-        } else {
-            toggleItem.classList.remove('disabled');
-            toggleItem.style.opacity = 1;
-            toggleItem.style.pointerEvents = 'auto';
-        }
+        // Use CSS class for disabled state instead of inline styles
+        toggleItem.classList.toggle('disabled', !frameVisible);
     }
 
     setButton(frameButton) {
@@ -207,6 +194,20 @@ class FrameControl {
 
     _initFrameLayers() {
         initFrameLayers(this._map);
+    }
+
+    /**
+     * Synchronizes internal state with provided values.
+     * Used when restoring frame state from storage.
+     * @param {string} scale - Frame scale ('scale_25k', 'scale_50k', etc.)
+     * @param {boolean} visible - Whether frame is visible
+     * @param {boolean} fillVisible - Whether fill is visible
+     */
+    syncState(scale, visible, fillVisible) {
+        this.currentScale = scale;
+        this.frameVisible = visible;
+        this._fillVisible = fillVisible;
+        this._fillMode = fillVisible ? 'normal' : 'sem_fill';
     }
 
     _getFrame(scale, frameVisible=this.frameVisible, fillVisible=this._fillVisible) {

@@ -108,7 +108,7 @@ export const updateFeature = async (type, feature, mapName = null) => {
             mapManager.updateColorUsage(oldColor, newColor, targetMap);
         }
 
-        // Preserve user data (images and attributes) from the stored feature
+        // Preserve user data (images, attributes, descricao) from the stored feature
         // These are managed separately by userDataManager and should not be overwritten
         // by updates from the MapLibre source (which doesn't have these properties)
         // Check for actual content: oldFeature has data AND newFeature is empty/missing
@@ -124,6 +124,13 @@ export const updateFeature = async (type, feature, mapName = null) => {
         if (oldAttributes && Object.keys(oldAttributes).length > 0 &&
             (!newAttributes || Object.keys(newAttributes).length === 0)) {
             cleanedFeature.properties.attributes = oldAttributes;
+        }
+
+        // Preserve description (descricao) from the stored feature
+        const oldDescricao = oldFeature.properties.descricao;
+        const newDescricao = cleanedFeature.properties.descricao;
+        if (oldDescricao && !newDescricao) {
+            cleanedFeature.properties.descricao = oldDescricao;
         }
 
         if (JSON.stringify(oldFeature) !== JSON.stringify(cleanedFeature)) {

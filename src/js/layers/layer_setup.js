@@ -421,8 +421,10 @@ async function setupFrameLayers(mapInstance) {
             visible = savedFrame.visible ?? false;
             fillVisible = savedFrame.fillVisible ?? true;
         }
+
+        // Sync internal state before applying visibility
+        frameControl.syncState(scale, visible, fillVisible);
         frameControl._getFrame(scale, visible, fillVisible);
-        frameControl._toggleFillVisibility(null, scale, fillVisible, visible);
         frameControl._updateButtonState(visible);
         console.info(`Moldura restaurada: scale = ${scale}, fillVisible = ${fillVisible}, visível=${visible}`);
 
@@ -461,6 +463,9 @@ async function setupGridLayers(mapInstance) {
             format = savedGrid.format ?? 'latlong';
             visible = savedGrid.visible ?? false;
         }
+
+        // Sync internal state before applying visibility
+        gridControl.syncState(format, visible);
         gridControl._getGrid(format, visible, false);
         gridControl._updateButtonState(visible);
         console.info(`Grid restaurado: format = ${format}, visível=${visible}`);

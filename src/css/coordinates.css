@@ -175,6 +175,7 @@
 }
 
 .grid-format-option,
+.frame-format-option,
 .coordinates-format-option {
     padding: 8px 16px !important;
     cursor: pointer !important;
@@ -185,7 +186,8 @@
     background-color: white !important;
 }
 
-.grid-format-option,
+.grid-format-option::before,
+.frame-format-option::before,
 .coordinates-format-option::before {
     content: '' !important;
     position: absolute !important;
@@ -198,26 +200,37 @@
     z-index: -1 !important;
 }
 
-.grid-format-option,
+.grid-format-option:hover::before,
+.frame-format-option:hover::before,
 .coordinates-format-option:hover::before {
     background-color: rgba(0, 0, 0, 0.05) !important;
 }
 
-.grid-format-option,
+.grid-format-option.active::before,
+.frame-format-option.active::before,
 .coordinates-format-option.active::before {
     background-color: rgba(80, 141, 78, 0.1) !important;
 }
 
-.grid-format-option,
+.grid-format-option:hover,
+.frame-format-option:hover,
 .coordinates-format-option:hover {
     background-color: rgba(0, 0, 0, 0.05) !important;
 }
 
-.grid-format-option,
+.grid-format-option.active,
+.frame-format-option.active,
 .coordinates-format-option.active {
     background-color: rgba(80, 141, 78, 0.1) !important;
     color: var(--primary-color, #508D4E) !important;
     font-weight: 600 !important;
+}
+
+.grid-format-option.disabled,
+.frame-format-option.disabled,
+.coordinates-format-option.disabled {
+    opacity: 0.4 !important;
+    pointer-events: none !important;
 }
 
 .toggle-fill-option {

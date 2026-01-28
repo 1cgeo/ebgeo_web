@@ -23,8 +23,6 @@ import { hideLoadingScreen } from './index.js';
 import { ContextMenuControl } from './context-menu';
 import { RectangleSelectionControl } from './selection_tools';
 import { KeyboardShortcuts } from './keyboard';
-import { GridControl } from './grid';
-import { FrameControl } from './frame';
 import { URLRouter } from './url_router.js';
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
@@ -77,9 +75,6 @@ if (config.map2d.maxBounds) {
 
 const analysisLayersManager = new AnalysisLayersManager(map);
 
-const _gridControl = new GridControl(map);
-const _frameControl = new FrameControl(map);
-
 // Promise to track when IndexedDB initialization is complete.
 // This prevents a race condition where map.on('load') could call switchMap()
 // before the store is fully initialized, causing features to not load.
@@ -103,6 +98,10 @@ map.on('load', async () => {
     if (config.map2d.globe_projection) {
         map.setProjection({ type: 'globe' });
     }
+
+    // Always disable sky/fog
+    map.setSky(undefined);
+
     hideLoadingScreen();
 
     // Execute URL deep linking after map is ready
@@ -110,9 +109,6 @@ map.on('load', async () => {
         modelsControl: add3DModelsViewerControl,
         map: map
     });
-
-    // gridControl._initGridLayers();
-    // frameControl._initFrameLayers();
 });
 
 // ===== CONTROLS INITIALIZATION =====

@@ -2136,6 +2136,156 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 /* =========================================================================
+   FEATURE DESCRIPTION SECTION
+   ========================================================================= */
+
+.feature-description-section {
+    width: 100%;
+    margin-top: var(--space-2);
+}
+
+.feature-description-display {
+    width: 100%;
+}
+
+.feature-description-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1) 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--primary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.feature-description-add-btn:hover {
+    color: var(--primary-dark);
+}
+
+.feature-description-add-btn svg {
+    flex-shrink: 0;
+}
+
+.feature-description-text-wrapper {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    width: 100%;
+}
+
+.feature-description-text {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+    line-height: 1.5;
+    cursor: pointer;
+    transition: color var(--transition-fast);
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.feature-description-text:hover {
+    color: var(--gray-800);
+}
+
+.feature-description-edit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    color: var(--gray-400);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.feature-description-edit-btn:hover {
+    color: var(--primary);
+    background: var(--gray-100);
+}
+
+.feature-description-edit-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.feature-description-edit {
+    width: 100%;
+}
+
+.feature-description-textarea {
+    width: 100%;
+    padding: var(--space-2);
+    font-size: var(--font-size-sm);
+    font-family: inherit;
+    line-height: 1.5;
+    color: var(--gray-800);
+    background: var(--white);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    resize: vertical;
+    min-height: 70px;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.feature-description-textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.15);
+}
+
+.feature-description-textarea::placeholder {
+    color: var(--gray-400);
+}
+
+.feature-description-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.feature-description-save-btn,
+.feature-description-cancel-btn {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.feature-description-save-btn {
+    color: #fff;
+    background-color: var(--primary);
+    border: none;
+}
+
+.feature-description-save-btn:hover {
+    background-color: var(--primary-dark);
+}
+
+.feature-description-cancel-btn {
+    color: var(--gray-600);
+    background: var(--white);
+    border: 1px solid var(--gray-300);
+}
+
+.feature-description-cancel-btn:hover {
+    background: var(--gray-50);
+    border-color: var(--gray-400);
+}
+
+/* =========================================================================
    FEATURE PHOTO GALLERY
    ========================================================================= */
 

@@ -25,34 +25,24 @@ class GridControl {
             return;
         }
 
+        // Sync internal state from saved state (without changing visibility)
         try {
             const mapName = getCurrentMapNameSync();
             const savedGrid = await getGridStyle(mapName);
             if (savedGrid) {
                 this._currentFormat = savedGrid.format || 'latlong';
                 this._gridVisible = !!savedGrid.visible;
-                this._getGrid(this._currentFormat);
             }
         } catch (err) {
             console.warn('Error checking grid state:', err);
         }
-        const items = this._contextMenu.querySelectorAll('.coordinates-format-option');
+        const items = this._contextMenu.querySelectorAll('.grid-format-option');
         items.forEach(item => {
             const format = item.dataset.format;
+            const isActive = (format === 'off' && !this._gridVisible) ||
+                           (format === this._currentFormat && this._gridVisible);
 
-            if (format === 'off' && !this._gridVisible) {
-                item.classList.add('active');
-                item.style.backgroundColor = '#e6f7ff';
-                item.style.fontWeight = 'bold';
-            } else if (format === this._currentFormat && this._gridVisible) {
-                item.classList.add('active');
-                item.style.backgroundColor = '#e6f7ff';
-                item.style.fontWeight = 'bold';
-            } else {
-                item.classList.remove('active');
-                item.style.backgroundColor = '';
-                item.style.fontWeight = '';
-            }
+            item.classList.toggle('active', isActive);
         });
 
         this._contextMenu.style.display = 'block';
@@ -86,17 +76,12 @@ class GridControl {
 
     _createMenuItem(label, format) {
         const item = document.createElement('div');
-        item.className = 'coordinates-format-option';
+        item.className = 'grid-format-option';
         item.textContent = label;
         item.dataset.format = format;
 
-        if (format === this._currentFormat) {
+        if (format === this._currentFormat && this._gridVisible) {
             item.classList.add('active');
-        }
-
-        if (format === this._currentFormat) {
-            item.style.backgroundColor = '#e6f7ff';
-            item.style.fontWeight = 'bold';
         }
 
         item.addEventListener('click', async(e) => {
@@ -144,6 +129,17 @@ class GridControl {
 
     _initGridLayers() {
         initGridLayers(this._map);
+    }
+
+    /**
+     * Synchronizes internal state with provided values.
+     * Used when restoring grid state from storage.
+     * @param {string} format - Grid format ('latlong' or 'utm')
+     * @param {boolean} visible - Whether grid is visible
+     */
+    syncState(format, visible) {
+        this._currentFormat = format;
+        this._gridVisible = visible;
     }
 
     _getGrid(format, gridVisible=this._gridVisible, zoomin=true) {

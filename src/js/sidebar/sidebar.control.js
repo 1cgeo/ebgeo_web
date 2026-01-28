@@ -1263,7 +1263,7 @@ export class SidebarControl {
             cleanupFunctions.push(photoGallery.cleanup);
         }
 
-        // 3. Tabs (Estilo / Atributos) - only show for single selection or multiple same-type
+        // 3. Tabs (Estilo / Descrição / Atributos) - only show for single selection or multiple same-type
         // For mixed types, show group type selector to edit by type
         if (!isMixedTypes) {
             const featureTabs = createFeatureTabs({
