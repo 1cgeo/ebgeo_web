@@ -15,6 +15,7 @@
 import { updateViewshedProperties, deleteViewshed, flyToViewshed, deselectCurrentViewshed, updateViewshedObserverHeight } from '../tools/viewshed_tool_3d.js';
 import { addViewshedImage, getViewshedImages, removeViewshedImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
+import { showConfirm } from '../../modals/index.js';
 import { createModernTextarea } from '../../tool_manager/helpers/index.js';
 import config from '../../config.js';
 
@@ -471,7 +472,8 @@ function createImageCard(imageData, viewshedId, onUpdate) {
 
     deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Remover esta imagem?')) {
+        const confirmed = await showConfirm('Remover esta imagem?', { destructive: true });
+        if (confirmed) {
             await removeViewshedImage(viewshedId, imageData.id);
             if (onUpdate) onUpdate();
         }
@@ -630,7 +632,10 @@ function buildDeleteButton(container, viewshed, onClose) {
     deleteBtn.innerHTML = `${ICONS.TRASH}<span>Deletar</span>`;
 
     deleteBtn.addEventListener('click', async () => {
-        const confirmed = confirm('Deletar esta análise de visibilidade?\n\nEsta ação não pode ser desfeita.');
+        const confirmed = await showConfirm('Deletar esta análise de visibilidade?', {
+            message: 'Esta ação não pode ser desfeita.',
+            destructive: true
+        });
         if (!confirmed) return;
 
         try {

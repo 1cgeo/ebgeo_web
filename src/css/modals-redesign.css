@@ -680,6 +680,111 @@
 /* Mobile prompt modal styles removed - to be redesigned */
 
 /* =========================================================================
+   CONFIRM MODAL
+   ========================================================================= */
+
+.confirm-modal-container {
+    max-width: 400px;
+    overflow: hidden;
+}
+
+.confirm-modal-container .modal-header {
+    display: none;
+}
+
+.confirm-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+}
+
+.confirm-modal-title {
+    margin: 0;
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--gray-800);
+}
+
+.confirm-modal-message {
+    font-size: var(--font-size-sm);
+    color: var(--gray-600);
+    line-height: 1.5;
+}
+
+.confirm-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.confirm-modal-btn {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.confirm-modal-btn-cancel {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--gray-600);
+}
+
+.confirm-modal-btn-cancel:hover {
+    background: var(--gray-50);
+    border-color: var(--gray-300);
+}
+
+.confirm-modal-btn-confirm {
+    background: var(--primary, #15803d);
+    border: 1px solid var(--primary, #15803d);
+    color: white;
+}
+
+.confirm-modal-btn-confirm:hover {
+    background: var(--primary-600, #166534);
+    border-color: var(--primary-600, #166534);
+}
+
+/* Destructive variant (for delete actions) */
+.confirm-modal-btn-destructive {
+    background: var(--danger, #dc2626);
+    border: 1px solid var(--danger, #dc2626);
+    color: white;
+}
+
+.confirm-modal-btn-destructive:hover {
+    background: var(--danger-600, #b91c1c);
+    border-color: var(--danger-600, #b91c1c);
+}
+
+/* Focus states for accessibility */
+.confirm-modal-btn:focus {
+    outline: 2px solid var(--primary, #15803d);
+    outline-offset: 2px;
+}
+
+.confirm-modal-btn-destructive:focus {
+    outline-color: var(--danger, #dc2626);
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+    .confirm-modal-container {
+        max-width: 90vw;
+    }
+
+    .confirm-modal-btn {
+        min-height: var(--touch-target-min, 44px);
+        padding: var(--space-3) var(--space-4);
+    }
+}
+
+/* =========================================================================
    EXPORT MODAL
    ========================================================================= */
 

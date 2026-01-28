@@ -82,7 +82,7 @@ Dentro das opções de cada camada é possível marcar para que as feições daq
 
 O bloqueio de edição/visualização pode ser feito tanto em todas as feições daquela camada, quanto indivudalmente por camada.
 
-A opção de deletar, deleta todos os elementos daquela camada, sem possibilidade de recuperação.
+A opção de deletar, deleta todos as feições daquela camada, sem possibilidade de recuperação.
 
 #### Importar
 

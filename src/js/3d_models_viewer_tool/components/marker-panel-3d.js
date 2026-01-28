@@ -14,6 +14,7 @@
 import { updateMarkerProperties, deleteMarker, flyToMarker, deselectCurrentMarker } from '../tools/marker_tool_3d.js';
 import { DEFAULT_MARKER_STYLE, addMarkerImage, getMarkerImages, removeMarkerImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
+import { showConfirm } from '../../modals/index.js';
 import { formatCoordinates } from '../../utilities/coordinate_converter.js';
 import {
     createModernSlider,
@@ -361,7 +362,8 @@ function createMarkerImageCard(imageData, markerId, onUpdate) {
 
     deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Remover esta imagem?')) {
+        const confirmed = await showConfirm('Remover esta imagem?', { destructive: true });
+        if (confirmed) {
             await removeMarkerImage(markerId, imageData.id);
             if (onUpdate) onUpdate();
         }
@@ -1003,7 +1005,10 @@ function buildDeleteButton(container, marker, onClose) {
     deleteBtn.innerHTML = `${ICONS.TRASH}<span>Deletar</span>`;
 
     deleteBtn.addEventListener('click', async () => {
-        const confirmed = confirm('Deletar este marcador?\n\nEsta ação não pode ser desfeita.');
+        const confirmed = await showConfirm('Deletar este marcador?', {
+            message: 'Esta ação não pode ser desfeita.',
+            destructive: true
+        });
         if (!confirmed) return;
 
         try {

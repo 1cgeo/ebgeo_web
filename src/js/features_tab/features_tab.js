@@ -59,6 +59,7 @@ import {
     getCurrentMapNameSync,
 } from '../store';
 import { EventTypes } from '../events';
+import { showConfirm } from '../modals/index.js';
 
 /**
  * FeaturesTab class - Main orchestrator for the features panel.
@@ -334,11 +335,14 @@ export class FeaturesTab {
         if (!layer) return;
 
         const isLastLayer = layers.length <= 1;
-        const warningMessage = isLastLayer
-            ? `Excluir a camada "${layer.name}"?\n\n⚠️ ATENÇÃO: Todas as feições desta camada serão PERMANENTEMENTE excluídas!\n\nUma nova camada "Padrão" vazia será criada automaticamente.`
-            : `Excluir a camada "${layer.name}"?\n\n⚠️ ATENÇÃO: Todas as feições desta camada serão PERMANENTEMENTE excluídas!`;
+        const message = isLastLayer
+            ? 'Todas as feições desta camada serão PERMANENTEMENTE excluídas!\n\nUma nova camada "Padrão" vazia será criada automaticamente.'
+            : 'Todas as feições desta camada serão PERMANENTEMENTE excluídas!';
 
-        const confirmed = confirm(warningMessage);
+        const confirmed = await showConfirm(`Excluir a camada "${layer.name}"?`, {
+            message,
+            destructive: true
+        });
         if (!confirmed) return;
 
         try {

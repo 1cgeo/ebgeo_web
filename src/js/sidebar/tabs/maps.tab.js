@@ -27,7 +27,7 @@ import {
 } from '../../store/index.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '../../utilities/index.js';
-import { showPrompt } from '../../modals/prompt.modal.js';
+import { showPrompt, showConfirm } from '../../modals/index.js';
 
 /**
  * Icons specific to maps tab.
@@ -660,13 +660,10 @@ export class MapsTab {
      * @private
      */
     async _handleClearAll() {
-        const confirmed = confirm(
-            'Tem certeza que deseja limpar TODOS os dados?\n\n' +
-            'Esta acao ira:\n' +
-            '- Deletar todos os mapas\n' +
-            '- Remover todas as feições\n' +
-            '- Esta acao NAO pode ser desfeita!'
-        );
+        const confirmed = await showConfirm('Limpar TODOS os dados?', {
+            message: 'Esta ação irá:\n- Deletar todos os mapas\n- Remover todas as feições\n\nEsta ação NÃO pode ser desfeita!',
+            destructive: true
+        });
 
         if (!confirmed) return;
 
@@ -769,7 +766,7 @@ export class MapsTab {
      * @param {string} mapName - Map to delete
      */
     async _handleDeleteMap(mapName) {
-        const confirmed = confirm(`Tem certeza que deseja deletar o mapa "${mapName}"?`);
+        const confirmed = await showConfirm(`Deletar o mapa "${mapName}"?`, { destructive: true });
         if (!confirmed) return;
 
         try {
@@ -834,7 +831,7 @@ export class MapsTab {
      * @param {string} mapName - Map to clear position for
      */
     async _handleClearMapPosition(mapName) {
-        const confirmed = confirm(`Limpar a posicao salva do mapa "${mapName}"?`);
+        const confirmed = await showConfirm(`Limpar a posição salva do mapa "${mapName}"?`);
         if (!confirmed) return;
 
         try {

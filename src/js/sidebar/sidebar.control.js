@@ -33,6 +33,7 @@ import {
     getMapOrder,
     getAllMapBadgeColors
 } from '../store/index.js';
+import { showConfirm } from '../modals/index.js';
 
 // New feature panel components
 import { createFeatureIdentification, createMultiSelectionHeader } from './components/feature-identification.js';
@@ -1427,11 +1428,12 @@ export class SidebarControl {
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             ${deleteLabel}
         `;
-        const confirmMsg = isSingleSelection
-            ? 'Deseja realmente deletar esta feição?'
-            : `Deseja realmente deletar ${selectedFeatures.length} feições?`;
-        deleteButton.onclick = () => {
-            if (confirm(confirmMsg)) {
+        const confirmTitle = isSingleSelection
+            ? 'Deletar esta feição?'
+            : `Deletar ${selectedFeatures.length} feições?`;
+        deleteButton.onclick = async () => {
+            const confirmed = await showConfirm(confirmTitle, { destructive: true });
+            if (confirmed) {
                 this._selectionManager?.deleteSelectedFeatures();
             }
         };

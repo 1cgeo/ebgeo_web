@@ -22,7 +22,7 @@ import {
 
 import { IDUtils, showError as _showError, showWarning } from '../utilities';
 import { groupManager } from '../tool_manager';
-import { showPrompt } from '../modals/prompt.modal.js';
+import { showPrompt, showConfirm } from '../modals/index.js';
 
 class MapManager {
     constructor(baseLayerControl, selectionManager) {
@@ -558,7 +558,8 @@ class MapManager {
                 e.preventDefault();
                 e.stopPropagation();
 
-                if (confirm(`Tem certeza que deseja limpar a posição salva do mapa "${mapName}"?`)) {
+                const confirmed = await showConfirm(`Limpar a posição salva do mapa "${mapName}"?`, { destructive: true });
+                if (confirmed) {
                     const result = await this.clearMapPosition(mapName);
                     this.closeAllDropdowns();
 
@@ -704,11 +705,15 @@ class MapManager {
             e.stopPropagation();
 
             const isCurrentMap = mapName === currentMapName;
-            const warningMessage = isCurrentMap
-                ? `Tem certeza que deseja deletar o mapa atual "${mapName}"?\n\nVocê será redirecionado para outro mapa.`
-                : `Tem certeza que deseja deletar o mapa "${mapName}"?`;
+            const title = isCurrentMap
+                ? `Deletar o mapa atual "${mapName}"?`
+                : `Deletar o mapa "${mapName}"?`;
+            const message = isCurrentMap
+                ? 'Você será redirecionado para outro mapa.'
+                : undefined;
 
-            if (confirm(warningMessage)) {
+            const confirmed = await showConfirm(title, { message, destructive: true });
+            if (confirmed) {
                 const result = await this.deleteMap(mapName);
                 this.closeAllDropdowns();
 

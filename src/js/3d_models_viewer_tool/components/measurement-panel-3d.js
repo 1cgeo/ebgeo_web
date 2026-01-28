@@ -15,6 +15,7 @@
 import { updateMeasurementProperties, deleteMeasurement, flyToMeasurement, deselectCurrentMeasurement } from '../tools/measurement_tool_3d.js';
 import { addMeasurementImage, getMeasurementImages, removeMeasurementImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
+import { showConfirm } from '../../modals/index.js';
 import { createModernTextarea } from '../../tool_manager/helpers/index.js';
 import config from '../../config.js';
 
@@ -369,7 +370,8 @@ function createImageCard(imageData, measurementId, onUpdate) {
 
     deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Remover esta imagem?')) {
+        const confirmed = await showConfirm('Remover esta imagem?', { destructive: true });
+        if (confirmed) {
             await removeMeasurementImage(measurementId, imageData.id);
             if (onUpdate) onUpdate();
         }
@@ -529,7 +531,10 @@ function buildDeleteButton(container, measurement, onClose) {
 
     deleteBtn.addEventListener('click', async () => {
         const typeLabel = measurement.type === 'area' ? 'medição de área' : 'medição de distância';
-        const confirmed = confirm(`Deletar esta ${typeLabel}?\n\nEsta ação não pode ser desfeita.`);
+        const confirmed = await showConfirm(`Deletar esta ${typeLabel}?`, {
+            message: 'Esta ação não pode ser desfeita.',
+            destructive: true
+        });
         if (!confirmed) return;
 
         try {

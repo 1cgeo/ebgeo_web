@@ -5,6 +5,7 @@
  */
 
 import { ATTRIBUTE_TABLE_ICONS } from '../attribute-table.constants.js';
+import { showConfirm } from '../../modals/index.js';
 
 /**
  * @typedef {Object} ContextMenuCallbacks
@@ -36,14 +37,15 @@ export function showColumnContextMenu(columnKey, event, callbacks) {
     removeItem.innerHTML = `${ATTRIBUTE_TABLE_ICONS.DELETE}<span>Remover atributo</span>`;
     removeItem.title = `Remover "${columnKey}" de todas as feições`;
 
-    removeItem.addEventListener('click', (e) => {
+    removeItem.addEventListener('click', async (e) => {
         e.stopPropagation();
         hideColumnContextMenu();
 
         // Confirm before removing
-        const confirmed = confirm(
-            `Remover o atributo "${columnKey}" de todas as feições desta camada?\n\nEsta ação não pode ser desfeita.`
-        );
+        const confirmed = await showConfirm(`Remover o atributo "${columnKey}"?`, {
+            message: 'Esta ação removerá o atributo de todas as feições desta camada e não pode ser desfeita.',
+            destructive: true
+        });
 
         if (confirmed && callbacks.onRemoveColumn) {
             callbacks.onRemoveColumn(columnKey);

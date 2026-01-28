@@ -8,6 +8,7 @@
 import userDataManager from '../../user_data/user_data_manager.js';
 import { getEventBus } from '../../store/index.js';
 import { EventTypes, FeatureUpdateProperty } from '../../events/index.js';
+import { showConfirm } from '../../modals/index.js';
 
 /**
  * Creates the photo gallery section for the feature panel.
@@ -170,7 +171,8 @@ function createImageCard(imageData, featureId, featureType, onDelete) {
 
     deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Remover esta imagem?')) {
+        const confirmed = await showConfirm('Remover esta imagem?', { destructive: true });
+        if (confirmed) {
             await userDataManager.removeImage(featureId, featureType, imageData.id);
             if (onDelete) onDelete();
         }

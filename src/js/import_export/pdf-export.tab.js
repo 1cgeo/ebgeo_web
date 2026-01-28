@@ -667,7 +667,7 @@ export default class PDFExportTab {
 
             await new Promise(resolve => hiddenMap.once('idle', resolve));
 
-            this.updateProgress(70, 'Corrigindo elementos...');
+            this.updateProgress(70, 'Corrigindo feições...');
 
             const finalZoom = hiddenMap.getZoom();
             const hadChanges = await this.correctZoomInvariantFeatures(hiddenMap, finalZoom);

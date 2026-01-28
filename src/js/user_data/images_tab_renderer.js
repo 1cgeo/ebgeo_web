@@ -5,6 +5,7 @@
  */
 
 import userDataManager from './user_data_manager.js';
+import { showConfirm } from '../modals/index.js';
 
 /**
  * Renderiza o conteúdo da tab de Imagens.
@@ -133,7 +134,8 @@ function createImageCard(imageData, featureId, featureType) {
 
     deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Remover esta imagem?')) {
+        const confirmed = await showConfirm('Remover esta imagem?', { destructive: true });
+        if (confirmed) {
             await userDataManager.removeImage(featureId, featureType, imageData.id);
         }
     });

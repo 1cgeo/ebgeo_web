@@ -20,7 +20,7 @@ import Sortable from 'sortablejs';
 import MapManager from './map.manager.js';
 import { ExportImportService, PDFExportTab } from '../import_export';
 import { FeaturesTab } from '../features_tab';
-import { showPrompt } from '../modals/prompt.modal.js';
+import { showPrompt, showConfirm } from '../modals/index.js';
 import { CombineMapsModal } from '../modals/combine-maps.modal.js';
 
 class MapControl {
@@ -586,7 +586,11 @@ class MapControl {
     // =========================================================================
 
     async clearAllData() {
-        if (confirm('Tem certeza que deseja limpar todos os dados? Esta ação é irreversível.')) {
+        const confirmed = await showConfirm('Limpar todos os dados?', {
+            message: 'Esta ação é irreversível.',
+            destructive: true
+        });
+        if (confirmed) {
             this.deactivateActiveTools();
 
             const result = await this.mapManager.clearAllData();
