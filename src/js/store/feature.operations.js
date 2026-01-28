@@ -5,7 +5,7 @@
  */
 
 import { cleanFeature, getMapData, updateMapData, getLayers as getLayersRepo } from './repository.js';
-import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes } from './store.constants.js';
+import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource } from './store.constants.js';
 import mapManager from './store-state-manager.js';
 
 // ===== DEPENDENCY INJECTION =====
@@ -696,9 +696,11 @@ export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = 
                 const featureLayerId = feature.properties?.layerId || 'default';
                 shouldMove = featureRefs.includes(featureLayerId);
             } else {
-                shouldMove = featureRefs.some(ref =>
-                    ref.type === storageType && ref.id === feature.properties?.id
-                );
+                shouldMove = featureRefs.some(ref => {
+                    // ref.type is source type (e.g., 'point'), storageType is storage type (e.g., 'points')
+                    const refStorageType = getStorageTypeFromSource(ref.type);
+                    return refStorageType === storageType && ref.id === feature.properties?.id;
+                });
             }
 
             if (shouldMove) {

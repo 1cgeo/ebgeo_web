@@ -65,7 +65,6 @@ function createViewshedOriginEntity(viewshed) {
     );
 
     const isSelected = selectedViewshedId === viewshed.id;
-    const color = isSelected ? Cesium.Color.CYAN : Cesium.Color.ORANGE;
 
     const entity = currentViewer.entities.add({
         id: entityId,
@@ -148,9 +147,6 @@ function createCesiumViewshed(viewshed) {
             // Fallback: calculate target position based on direction and distance (legacy data)
             // This uses a simple forward projection from the camera position
             const distance = viewshed.parameters?.distance || DEFAULT_VIEWSHED_PARAMS.distance;
-
-            // Get surface normal at camera position for "up" direction
-            const surfaceNormal = Cesium.Ellipsoid.WGS84.geodeticSurfaceNormal(cameraPosition, new Cesium.Cartesian3());
 
             // Create a local east-north-up frame
             const transform = Cesium.Transforms.eastNorthUpToFixedFrame(cameraPosition);

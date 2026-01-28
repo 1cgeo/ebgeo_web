@@ -16,7 +16,8 @@ import {
 import { createCatalogHeader } from './components/catalog-header.js';
 import { createCatalogFilters } from './components/catalog-filters.js';
 import { createCatalogGrid } from './components/catalog-grid.js';
-import { SIDEBAR_TABS } from '../sidebar/sidebar.constants.js';
+// Note: Using literal 'camadas' to avoid circular dependency with sidebar/sidebar.constants.js
+// SIDEBAR_TABS.CAMADAS === 'camadas'
 
 /**
  * Catalog modal class.
@@ -282,7 +283,7 @@ export class CatalogModal extends ModalBase {
 
         // Open the layers sidebar tab to show the added layer
         if (this._stateManager) {
-            this._stateManager.expandSidebar(SIDEBAR_TABS.CAMADAS);
+            this._stateManager.expandSidebar('camadas');
         }
     }
 
@@ -300,7 +301,7 @@ export class CatalogModal extends ModalBase {
 
         // Open the layers sidebar tab to show the added layer
         if (this._stateManager) {
-            this._stateManager.expandSidebar(SIDEBAR_TABS.CAMADAS);
+            this._stateManager.expandSidebar('camadas');
         }
 
         // Zoom to bounds if available

@@ -49,6 +49,8 @@ export default defineConfig({
           // NOTA: Apenas map_3d.js e tools/* são lazy-loaded.
           // add_3d_models_viewer_control.js é importado estaticamente,
           // então não vai para este chunk (fica no main).
+          // Os painéis (marker-panel-3d, measurement-panel-3d, viewshed-panel-3d)
+          // usam dynamic imports para evitar conflitos.
           if (id.includes('3d_models_viewer_tool/map_3d') ||
               id.includes('3d_models_viewer_tool/tools/')) {
             return 'cesium-integration';

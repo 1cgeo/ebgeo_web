@@ -773,7 +773,7 @@
 }
 
 /* Responsive adjustments */
-@media (max-width: 480px) {
+@media (width <= 480px) {
     .confirm-modal-container {
         max-width: 90vw;
     }

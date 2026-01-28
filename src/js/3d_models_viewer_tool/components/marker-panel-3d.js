@@ -11,7 +11,14 @@
  * - Delete button
  */
 
-import { updateMarkerProperties, deleteMarker, flyToMarker, deselectCurrentMarker } from '../tools/marker_tool_3d.js';
+// Lazy-loaded tool functions to avoid static/dynamic import conflicts
+let _markerTool = null;
+async function getMarkerTool() {
+    if (!_markerTool) {
+        _markerTool = await import('../tools/marker_tool_3d.js');
+    }
+    return _markerTool;
+}
 import { DEFAULT_MARKER_STYLE, addMarkerImage, getMarkerImages, removeMarkerImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
 import { showConfirm } from '../../modals/index.js';
@@ -90,10 +97,12 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
     buildStyleTabs(container, currentMarker, async (styleUpdates) => {
         currentMarker.style = { ...currentMarker.style, ...styleUpdates };
         // Auto-save style changes
+        const { updateMarkerProperties } = await getMarkerTool();
         await updateMarkerProperties(currentMarker.id, { style: currentMarker.style });
     }, async (propertyUpdates) => {
         // Callback for properties updates (description)
         currentMarker.properties = { ...currentMarker.properties, ...propertyUpdates };
+        const { updateMarkerProperties } = await getMarkerTool();
         await updateMarkerProperties(currentMarker.id, { properties: currentMarker.properties });
     });
 
@@ -108,6 +117,7 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
     // Load location section asynchronously into placeholder
     buildLocationSection(locationPlaceholder, currentMarker, async (positionUpdates) => {
         currentMarker.position = { ...currentMarker.position, ...positionUpdates };
+        const { updateMarkerProperties } = await getMarkerTool();
         await updateMarkerProperties(currentMarker.id, { position: currentMarker.position });
     });
 
@@ -189,6 +199,7 @@ function buildIdentificationSection(container, marker, tilesetId, onUpdate) {
 
         if (newName !== marker.properties?.nome) {
             onUpdate({ properties: { nome: newName } });
+            const { updateMarkerProperties } = await getMarkerTool();
             await updateMarkerProperties(marker.id, { properties: { nome: newName } });
         }
     };
@@ -754,7 +765,10 @@ async function buildLocationSection(placeholder, marker, onPositionUpdate) {
     const centerButton = document.createElement('button');
     centerButton.className = 'feature-location-center-btn';
     centerButton.innerHTML = `${ICONS.NAVIGATE} Centralizar no modelo`;
-    centerButton.addEventListener('click', () => flyToMarker(marker));
+    centerButton.addEventListener('click', async () => {
+        const { flyToMarker } = await getMarkerTool();
+        flyToMarker(marker);
+    });
     section.appendChild(centerButton);
 
     // Replace placeholder content with section
@@ -951,8 +965,9 @@ function buildActionButtons(container, marker, initialProperties, initialStyle, 
     saveButton.textContent = 'Salvar';
     saveButton.className = 'attr-modern-btn-save';
     saveButton.type = 'submit';
-    saveButton.addEventListener('click', () => {
+    saveButton.addEventListener('click', async () => {
         // Close the panel and deselect marker
+        const { deselectCurrentMarker } = await getMarkerTool();
         deselectCurrentMarker();
         if (onClose) onClose();
     });
@@ -964,6 +979,7 @@ function buildActionButtons(container, marker, initialProperties, initialStyle, 
     discardButton.type = 'button';
     discardButton.addEventListener('click', async () => {
         // Restore initial properties, style and position
+        const { updateMarkerProperties, deselectCurrentMarker } = await getMarkerTool();
         await updateMarkerProperties(marker.id, {
             properties: initialProperties,
             style: initialStyle,
@@ -1013,6 +1029,7 @@ function buildDeleteButton(container, marker, onClose) {
 
         try {
             // Images are stored in the marker itself and will be deleted with it
+            const { deleteMarker } = await getMarkerTool();
             const result = await deleteMarker(marker.id);
             if (result) {
                 showSuccess('Marcador deletado!');
@@ -1058,15 +1075,6 @@ function showCopyFeedback(element) {
         element.textContent = originalText;
         element.classList.remove('copied');
     }, 1500);
-}
-
-/**
- * Escapes HTML special characters.
- */
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text || '';
-    return div.innerHTML;
 }
 
 /**

@@ -425,8 +425,6 @@ export class MapsTab {
         menu.className = 'map-context-menu';
         this._contextMenu = menu;
 
-        const isCurrentMap = mapName === this._currentMapName;
-
         // Menu items
         const menuItems = [
             {

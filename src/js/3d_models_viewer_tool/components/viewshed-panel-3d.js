@@ -12,7 +12,14 @@
  * NO location or style sections (viewsheds have fixed visualization).
  */
 
-import { updateViewshedProperties, deleteViewshed, flyToViewshed, deselectCurrentViewshed, updateViewshedObserverHeight } from '../tools/viewshed_tool_3d.js';
+// Lazy-loaded tool functions to avoid static/dynamic import conflicts
+let _viewshedTool = null;
+async function getViewshedTool() {
+    if (!_viewshedTool) {
+        _viewshedTool = await import('../tools/viewshed_tool_3d.js');
+    }
+    return _viewshedTool;
+}
 import { addViewshedImage, getViewshedImages, removeViewshedImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
 import { showConfirm } from '../../modals/index.js';
@@ -64,6 +71,7 @@ export function createViewshedPanelContent(viewshed, tilesetId, onClose) {
     // 2. Parameters section (with editable observer height)
     buildParametersSection(container, currentViewshed, async (newHeight) => {
         currentViewshed.observerHeight = newHeight;
+        const { updateViewshedObserverHeight } = await getViewshedTool();
         await updateViewshedObserverHeight(currentViewshed.id, newHeight);
     });
 
@@ -76,6 +84,7 @@ export function createViewshedPanelContent(viewshed, tilesetId, onClose) {
     // 4. Description section
     buildDescriptionSection(container, currentViewshed, async (propertyUpdates) => {
         currentViewshed.properties = { ...currentViewshed.properties, ...propertyUpdates };
+        const { updateViewshedProperties } = await getViewshedTool();
         await updateViewshedProperties(currentViewshed.id, { properties: currentViewshed.properties });
     });
 
@@ -163,6 +172,7 @@ function buildIdentificationSection(container, viewshed, tilesetId, onUpdate) {
 
         if (newName !== viewshed.properties?.nome) {
             onUpdate({ properties: { nome: newName } });
+            const { updateViewshedProperties } = await getViewshedTool();
             await updateViewshedProperties(viewshed.id, { properties: { nome: newName } });
         }
     };
@@ -580,7 +590,8 @@ function buildActionButtons(container, viewshed, initialProperties, onClose) {
     saveButton.textContent = 'Salvar';
     saveButton.className = 'attr-modern-btn-save';
     saveButton.type = 'submit';
-    saveButton.addEventListener('click', () => {
+    saveButton.addEventListener('click', async () => {
+        const { deselectCurrentViewshed } = await getViewshedTool();
         deselectCurrentViewshed();
         if (onClose) onClose();
     });
@@ -592,6 +603,7 @@ function buildActionButtons(container, viewshed, initialProperties, onClose) {
     discardButton.type = 'button';
     discardButton.addEventListener('click', async () => {
         // Restore initial properties
+        const { updateViewshedProperties, deselectCurrentViewshed } = await getViewshedTool();
         await updateViewshedProperties(viewshed.id, {
             properties: initialProperties
         });
@@ -614,7 +626,10 @@ function buildNavigateButton(container, viewshed) {
     const navigateBtn = document.createElement('button');
     navigateBtn.className = 'feature-location-center-btn';
     navigateBtn.innerHTML = `${ICONS.NAVIGATE} Centralizar no modelo`;
-    navigateBtn.addEventListener('click', () => flyToViewshed(viewshed));
+    navigateBtn.addEventListener('click', async () => {
+        const { flyToViewshed } = await getViewshedTool();
+        flyToViewshed(viewshed);
+    });
 
     section.appendChild(navigateBtn);
     container.appendChild(section);
@@ -639,6 +654,7 @@ function buildDeleteButton(container, viewshed, onClose) {
         if (!confirmed) return;
 
         try {
+            const { deleteViewshed } = await getViewshedTool();
             const result = await deleteViewshed(viewshed.id);
             if (result) {
                 showSuccess('Análise de visibilidade deletada!');

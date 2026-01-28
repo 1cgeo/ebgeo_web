@@ -28,23 +28,6 @@ let selectionHandler = null;
 // ===== UTILITY FUNCTIONS =====
 
 /**
- * Converts hex color to Cesium.Color.
- * @param {string} hex - Hex color string
- * @param {number} [alpha=1] - Alpha value
- * @returns {Cesium.Color} Cesium color
- */
-function hexToCesiumColor(hex, alpha = 1) {
-    if (!hex) return Cesium.Color.YELLOW.withAlpha(alpha);
-
-    hex = hex.replace('#', '');
-    const r = parseInt(hex.substring(0, 2), 16) / 255;
-    const g = parseInt(hex.substring(2, 4), 16) / 255;
-    const b = parseInt(hex.substring(4, 6), 16) / 255;
-
-    return new Cesium.Color(r, g, b, alpha);
-}
-
-/**
  * Formats distance value.
  * @param {number} meters - Distance in meters
  * @returns {string} Formatted distance
@@ -355,7 +338,7 @@ export function deactivateMeasurementTool() {
  * Handles measurement completion from cesium-measure.
  * @param {Object} result - Measurement result from cesium-measure
  */
-async function handleMeasurementComplete(result) {
+async function handleMeasurementComplete(_result) {
     if (!currentViewer || !currentTilesetId || !currentToolType) return;
 
     // Extract positions from measure entities
@@ -469,16 +452,6 @@ function calculateDistance(positions) {
 function calculateArea(positions) {
     if (positions.length < 3) return 0;
 
-    // Convert to Cartesian3 for area calculation
-    const cartesians = positions.map(pos =>
-        Cesium.Cartesian3.fromDegrees(pos.longitude, pos.latitude, pos.height || 0)
-    );
-
-    // Use Cesium's polygon area calculation
-    const polygon = new Cesium.PolygonGeometry({
-        polygonHierarchy: new Cesium.PolygonHierarchy(cartesians)
-    });
-
     // Calculate area using geodesic method
     let area = 0;
     const n = positions.length;
@@ -509,7 +482,6 @@ function calculateArea(positions) {
 function selectMeasurement(measurementId) {
     // Deselect previous
     if (selectedMeasurementId && measurementEntities.has(selectedMeasurementId)) {
-        const measurement = measurementEntities.get(selectedMeasurementId);
         // Refresh visuals without selection
         getMeasurementById(selectedMeasurementId).then(m => {
             if (m) updateMeasurementEntityVisuals(selectedMeasurementId, m);
@@ -623,7 +595,7 @@ function setupMeasurementSelectionHandler(viewer) {
                     selectMeasurement(measurementId);
                     emitMeasurementClicked(measurementData);
                 }
-                return;
+
             }
         }
 

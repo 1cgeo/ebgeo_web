@@ -1914,24 +1914,9 @@ body:has(.sidebar-container) .unified-attributes-panel {
 }
 
 /* Edit container flex fix */
-.map-notes-edit-container {
-    display: none;
-    flex-direction: column;
-    gap: var(--space-4);
-    height: 100%;
-}
-
 .map-notes-edit-container[style*="display: flex"],
 .map-notes-edit-container[style*="display:flex"] {
     display: flex !important;
-}
-
-/* View container flex fix */
-.map-notes-view-container {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-    height: 100%;
 }
 
 /* =========================================================================

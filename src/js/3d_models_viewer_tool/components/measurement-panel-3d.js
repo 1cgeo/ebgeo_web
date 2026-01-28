@@ -12,7 +12,14 @@
  * NO location or style sections (measurements have fixed visualization).
  */
 
-import { updateMeasurementProperties, deleteMeasurement, flyToMeasurement, deselectCurrentMeasurement } from '../tools/measurement_tool_3d.js';
+// Lazy-loaded tool functions to avoid static/dynamic import conflicts
+let _measurementTool = null;
+async function getMeasurementTool() {
+    if (!_measurementTool) {
+        _measurementTool = await import('../tools/measurement_tool_3d.js');
+    }
+    return _measurementTool;
+}
 import { addMeasurementImage, getMeasurementImages, removeMeasurementImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
 import { showConfirm } from '../../modals/index.js';
@@ -74,6 +81,7 @@ export function createMeasurementPanelContent(measurement, tilesetId, onClose) {
     // 4. Description section
     buildDescriptionSection(container, currentMeasurement, async (propertyUpdates) => {
         currentMeasurement.properties = { ...currentMeasurement.properties, ...propertyUpdates };
+        const { updateMeasurementProperties } = await getMeasurementTool();
         await updateMeasurementProperties(currentMeasurement.id, { properties: currentMeasurement.properties });
     });
 
@@ -179,6 +187,7 @@ function buildIdentificationSection(container, measurement, tilesetId, onUpdate)
 
         if (newName !== measurement.properties?.nome) {
             onUpdate({ properties: { nome: newName } });
+            const { updateMeasurementProperties } = await getMeasurementTool();
             await updateMeasurementProperties(measurement.id, { properties: { nome: newName } });
         }
     };
@@ -478,7 +487,8 @@ function buildActionButtons(container, measurement, initialProperties, onClose) 
     saveButton.textContent = 'Salvar';
     saveButton.className = 'attr-modern-btn-save';
     saveButton.type = 'submit';
-    saveButton.addEventListener('click', () => {
+    saveButton.addEventListener('click', async () => {
+        const { deselectCurrentMeasurement } = await getMeasurementTool();
         deselectCurrentMeasurement();
         if (onClose) onClose();
     });
@@ -490,6 +500,7 @@ function buildActionButtons(container, measurement, initialProperties, onClose) 
     discardButton.type = 'button';
     discardButton.addEventListener('click', async () => {
         // Restore initial properties
+        const { updateMeasurementProperties, deselectCurrentMeasurement } = await getMeasurementTool();
         await updateMeasurementProperties(measurement.id, {
             properties: initialProperties
         });
@@ -512,7 +523,10 @@ function buildNavigateButton(container, measurement) {
     const navigateBtn = document.createElement('button');
     navigateBtn.className = 'feature-location-center-btn';
     navigateBtn.innerHTML = `${ICONS.NAVIGATE} Centralizar no modelo`;
-    navigateBtn.addEventListener('click', () => flyToMeasurement(measurement));
+    navigateBtn.addEventListener('click', async () => {
+        const { flyToMeasurement } = await getMeasurementTool();
+        flyToMeasurement(measurement);
+    });
 
     section.appendChild(navigateBtn);
     container.appendChild(section);
@@ -538,6 +552,7 @@ function buildDeleteButton(container, measurement, onClose) {
         if (!confirmed) return;
 
         try {
+            const { deleteMeasurement } = await getMeasurementTool();
             const result = await deleteMeasurement(measurement.id);
             if (result) {
                 showSuccess('Medição deletada!');
