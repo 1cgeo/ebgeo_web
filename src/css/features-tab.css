@@ -6,34 +6,13 @@
     background: inherit;
 }
 
+/* Scroll removido - agora está no container pai (features-tab-content) */
 .features-list {
-    max-height: calc(12 * 28px + 100px);
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--primary-color) transparent;
-    overscroll-behavior: contain;
+    max-height: none;
+    overflow: visible;
 }
 
-.features-list::-webkit-scrollbar {
-    width: 6px;
-}
-
-.features-list::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.features-list::-webkit-scrollbar-thumb {
-    background-color: var(--primary-color);
-    border-radius: 3px;
-    opacity: 0.7;
-}
-
-.features-list::-webkit-scrollbar-thumb:hover {
-    background-color: var(--primary-dark);
-    opacity: 1;
-}
-
-/* ===== LAYER STYLES ===== */
+/* ===== LAYER STYLES - Design flat como modelos 3D ===== */
 
 .new-layer-btn {
     width: 100%;
@@ -54,52 +33,65 @@
     background-color: rgba(80, 141, 78, 0.05);
 }
 
+/* Container de cada layer - design flat sem bordas */
 .layer-container {
-    border: 1px solid #e0e0e0;
+    background: white;
     border-radius: 6px;
-    margin-bottom: 8px;
     overflow: hidden;
-    background-color: #fff;
 }
 
 .layer-container.layer-hidden {
     opacity: 0.6;
 }
 
-.layer-container.layer-locked {
-    border-color: #ffc107;
+.layer-container.layer-locked .layer-header {
+    background-color: #fffbf0;
 }
 
+/* Layer header - estilo flat similar ao models3d */
 .layer-header {
     display: flex;
     align-items: center;
-    padding: 10px 12px;
-    background-color: #f5f5f5;
+    padding: 8px 12px;
+    background: transparent;
     cursor: pointer;
     user-select: none;
-    border-bottom: 1px solid #e0e0e0;
-    transition: background-color 0.2s ease;
+    gap: 8px;
+    transition: background 0.15s ease;
 }
 
 .layer-header:hover {
-    background-color: #e9ecef;
+    background: #f8f9fa;
 }
 
 .layer-header.active {
-    background-color: rgba(80, 141, 78, 0.15);
-    border-left: 4px solid var(--primary-color);
-    padding-left: 8px;
+    border-left: 3px solid var(--primary-color);
+    padding-left: 9px;
+    background: transparent;
 }
 
 .layer-header.active:hover {
-    background-color: rgba(80, 141, 78, 0.2);
+    background: #f8f9fa;
 }
 
 .layer-expand-icon {
-    margin-right: 8px;
+    width: 28px;
+    height: 28px;
     color: #666;
-    transition: transform 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease;
     cursor: pointer;
+}
+
+.layer-expand-icon:hover {
+    color: #333;
+}
+
+.layer-expand-icon svg {
+    width: 18px;
+    height: 18px;
 }
 
 .layer-expand-icon.collapsed {
@@ -107,18 +99,20 @@
 }
 
 .layer-icon {
-    margin-right: 8px;
-    color: var(--primary-color);
+    color: #666;
+    display: flex;
+    align-items: center;
 }
 
 .layer-name {
     flex: 1;
-    font-weight: 600;
-    font-size: 14px;
+    font-weight: 500;
+    font-size: 13px;
     color: #333;
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .layer-active-indicator {
@@ -127,39 +121,38 @@
 }
 
 .layer-count {
-    margin-left: 8px;
-    font-size: 12px;
-    color: #666;
-    background-color: #e9ecef;
     padding: 2px 8px;
-    border-radius: 10px;
-    min-width: 24px;
-    text-align: center;
+    background: #f0f0f0;
+    border-radius: 9999px;
+    font-size: 11px;
+    color: #666;
+    flex-shrink: 0;
 }
 
 .layer-controls {
     display: flex;
     align-items: center;
-    gap: 4px;
-    margin-left: 8px;
+    gap: 2px;
 }
 
 .layer-controls button {
+    width: 24px;
+    height: 24px;
+    padding: 0;
     background: none;
     border: none;
-    cursor: pointer;
-    padding: 4px 6px;
     border-radius: 4px;
+    cursor: pointer;
     color: #666;
-    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: color 0.15s ease, background 0.15s ease;
 }
 
 .layer-controls button:hover {
-    background-color: #fff;
     color: var(--primary-color);
+    background: #f0f0f0;
 }
 
 .layer-controls button:disabled {
@@ -171,18 +164,24 @@
     color: #dc3545;
 }
 
-.layer-controls .delete-btn:hover {
-    color: #dc3545;
+.layer-controls .delete-btn:hover,
+.layer-controls .layer-delete-btn:hover {
+    color: #dc3545 !important;
 }
 
+/* Layer content - design flat */
 .layer-content {
-    max-height: 2000px;
+    display: flex;
+    flex-direction: column;
+    padding-left: 20px;
     overflow: hidden;
-    transition: max-height 0.3s ease;
+    transition: max-height 0.2s ease;
+    max-height: 2000px;
 }
 
 .layer-content.collapsed {
     max-height: 0;
+    display: none;
 }
 
 .layer-name-input {
@@ -195,39 +194,31 @@
     max-width: 150px;
 }
 
-/* ===== GROUP STYLES ===== */
+/* ===== GROUP STYLES - Design flat ===== */
 
+/* Group container - design flat sem bordas */
 .group-container {
-    border: 1px solid #e0e0e0;
-    border-radius: 4px;
-    background-color: #f8f9fa;
+    background: transparent;
     overflow: hidden;
 }
 
 .layer-content .group-container {
     margin: 0;
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
-    border-top: none;
 }
 
-.layer-content .group-container:last-child {
-    border-bottom: none;
-}
-
+/* Group header - estilo flat */
 .group-header {
     display: flex;
     align-items: center;
-    padding: 8px 12px;
-    background-color: #f0f0f0;
-    border-bottom: 1px solid #e0e0e0;
+    gap: 8px;
+    padding: 6px 12px;
     cursor: pointer;
     user-select: none;
+    transition: background 0.15s ease;
 }
 
 .group-header:hover {
-    background-color: #e9ecef;
+    background: #f8f9fa;
 }
 
 .group-header.group-hidden {
@@ -235,13 +226,21 @@
 }
 
 .group-header.group-locked {
-    background-color: #ffeaa7;
+    background-color: #fffbf0;
 }
 
 .group-expand-icon {
-    margin-right: 8px;
+    width: 16px;
+    height: 16px;
     color: #666;
-    transition: transform 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s ease;
+}
+
+.group-header:hover .group-expand-icon {
+    color: #333;
 }
 
 .group-expand-icon.expanded {
@@ -253,24 +252,30 @@
 }
 
 .group-icon {
-    margin-right: 8px;
-    color: var(--primary-color);
+    width: 14px;
+    height: 14px;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .group-name {
     flex: 1;
     font-weight: 500;
-    font-size: 14px;
+    font-size: 13px;
     color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .group-count {
-    margin-left: 8px;
-    font-size: 12px;
+    padding: 1px 6px;
+    background: #f0f0f0;
+    border-radius: 9999px;
+    font-size: 11px;
     color: #666;
-    background-color: #e9ecef;
-    padding: 2px 6px;
-    border-radius: 10px;
 }
 
 .group-split-indicator {
@@ -282,25 +287,27 @@
 .group-controls {
     display: flex;
     align-items: center;
-    gap: 4px;
-    margin-left: 8px;
+    gap: 2px;
+    margin-left: 4px;
 }
 
 .group-controls button {
+    width: 22px;
+    height: 22px;
+    padding: 0;
     background: none;
     border: none;
+    border-radius: 4px;
     cursor: pointer;
-    padding: 4px;
-    border-radius: 3px;
     color: #666;
-    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: color 0.15s ease, background 0.15s ease;
 }
 
 .group-controls button:hover {
-    background-color: #fff;
+    background: #f0f0f0;
     color: var(--primary-color);
 }
 
@@ -309,30 +316,33 @@
 }
 
 .group-features-list {
-    max-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding-left: 20px;
     overflow: hidden;
-    transition: max-height 0.3s ease;
-    background-color: #fff;
+    transition: max-height 0.2s ease;
+    max-height: 0;
 }
 
 .group-features-list.expanded {
-    max-height: 500px;
+    max-height: 1000px;
 }
 
+/* Group feature item - design flat com linha cinza como models3d */
 .group-feature-item {
     display: flex;
     align-items: center;
-    padding: 6px 12px 6px 32px;
-    border-bottom: 1px solid #f0f0f0;
-    background-color: #fff;
-}
-
-.group-feature-item:last-child {
-    border-bottom: none;
+    gap: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    border-left: 2px solid #e0e0e0;
+    margin-left: 8px;
+    transition: background 0.15s ease, border-left-color 0.15s ease;
 }
 
 .group-feature-item:hover {
-    background-color: #f8f9fa;
+    background: #f8f9fa;
+    border-left-color: var(--primary-color);
 }
 
 .group-feature-item.feature-hidden {
@@ -344,107 +354,104 @@
     align-items: center;
     flex: 1;
     cursor: pointer;
+    min-width: 0;
 }
 
 .group-feature-type-icon {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
     margin-right: 8px;
+    color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
 }
 
 .group-feature-name {
     font-size: 13px;
-    color: #555;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-/* ===== FEATURE ITEM STYLES ===== */
+/* ===== FEATURE ITEM STYLES - Design flat ===== */
 
+/* Feature item - design flat com linha cinza como models3d */
 .feature-item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 4px 8px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-    transition: background-color 0.2s ease;
-    min-height: 28px;
-    background: rgba(255, 255, 255, 0.95);
+    gap: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    border-left: 2px solid #e0e0e0;
+    margin-left: 8px;
+    transition: background 0.15s ease, border-left-color 0.15s ease;
 }
 
-.layer-content > .feature-item {
-    border-left: none;
-    border-right: none;
-}
-
-.layer-content > .feature-item:last-child {
-    border-bottom: none;
+.feature-item:hover {
+    background: #f8f9fa;
+    border-left-color: var(--primary-color);
 }
 
 .feature-main {
     display: flex;
     align-items: center;
-    gap: 6px;
-    flex-grow: 1;
+    flex: 1;
+    cursor: pointer;
+    min-width: 0;
 }
 
 .feature-type-icon {
-    width: 12px;
-    height: 12px;
-    opacity: 0.6;
+    width: 14px;
+    height: 14px;
+    margin-right: 8px;
+    color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
-    transition: opacity 0.2s ease;
 }
 
 .feature-name {
-    flex-grow: 1;
     font-size: 13px;
     color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     cursor: pointer;
     user-select: none;
-    padding: 2px 0;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    font-weight: 500;
-}
-
-.feature-name:hover {
-    background-color: rgba(80, 141, 78, 0.1);
-    padding-left: 4px;
-    color: var(--primary-color);
 }
 
 .feature-controls {
     display: flex;
-    gap: 4px;
     align-items: center;
+    gap: 2px;
 }
 
 .visibility-toggle,
 .lock-toggle,
 .table-toggle {
+    width: 22px;
+    height: 22px;
+    padding: 0;
     background: none;
     border: none;
-    padding: 4px;
-    cursor: pointer;
     border-radius: 4px;
-    transition: all 0.2s ease;
+    cursor: pointer;
+    color: #666;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    transition: color 0.15s ease, background 0.15s ease;
 }
 
 .visibility-toggle:hover,
 .lock-toggle:hover,
 .table-toggle:hover {
-    background-color: rgba(0, 0, 0, 0.1);
-    transform: scale(1.1);
-}
-
-.visibility-toggle:active,
-.lock-toggle:active,
-.table-toggle:active {
-    transform: scale(0.9);
+    background: #f0f0f0;
+    color: var(--primary-color);
 }
 
 .visibility-toggle svg,
@@ -452,7 +459,7 @@
 .table-toggle svg {
     width: 12px;
     height: 12px;
-    transition: color 0.2s ease;
+    transition: color 0.15s ease;
     pointer-events: none;
     color: #666;
 }
@@ -464,26 +471,21 @@
 }
 
 /* ----- Feature States ----- */
-.feature-item.feature-hidden .feature-name {
+.feature-item.feature-hidden {
     opacity: 0.5;
+}
+
+.feature-item.feature-hidden .feature-name {
     color: #999;
     font-style: italic;
+}
+
+.feature-item.feature-locked {
+    background-color: #fffbf0;
 }
 
 .feature-item.feature-locked .feature-name {
     color: #666;
-}
-
-.feature-item.feature-locked .feature-name::after {
-    content: ' (bloqueada)';
-    font-size: 11px;
-    opacity: 0.7;
-}
-
-.feature-item.feature-hidden.feature-locked .feature-name {
-    opacity: 0.3;
-    color: #999;
-    font-style: italic;
 }
 
 .feature-item.feature-hidden .visibility-toggle svg {
@@ -496,17 +498,6 @@
 
 .feature-item.feature-locked .lock-toggle:hover svg {
     color: #c82333;
-}
-
-/* ----- Performance Optimizations ----- */
-.feature-item,
-.visibility-toggle,
-.lock-toggle,
-.feature-name,
-.feature-type-icon,
-.visibility-toggle svg,
-.lock-toggle svg {
-    will-change: transform, background-color, color;
 }
 
 /* ----- Accessibility ----- */

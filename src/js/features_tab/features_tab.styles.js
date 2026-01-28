@@ -78,25 +78,25 @@ export function injectGroupStyles() {
     const style = document.createElement('style');
     style.id = 'group-styles';
     style.textContent = `
+        /* Group container - design flat sem bordas */
         .group-container {
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
-            background-color: #f8f9fa;
+            background: transparent;
             overflow: hidden;
         }
 
+        /* Group header - estilo similar ao models3d-category-header */
         .group-header {
             display: flex;
             align-items: center;
-            padding: 8px 12px;
-            background-color: #f0f0f0;
-            border-bottom: 1px solid #e0e0e0;
+            gap: 8px;
+            padding: 6px 12px;
             cursor: pointer;
             user-select: none;
+            transition: background 0.15s ease;
         }
 
         .group-header:hover {
-            background-color: #e9ecef;
+            background: #f8f9fa;
         }
 
         .group-header.group-hidden {
@@ -104,13 +104,21 @@ export function injectGroupStyles() {
         }
 
         .group-header.group-locked {
-            background-color: #ffeaa7;
+            background-color: #fffbf0;
         }
 
         .group-expand-icon {
-            margin-right: 8px;
+            width: 16px;
+            height: 16px;
             color: #666;
-            transition: transform 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.15s ease;
+        }
+
+        .group-header:hover .group-expand-icon {
+            color: #333;
         }
 
         .group-expand-icon.expanded {
@@ -122,49 +130,57 @@ export function injectGroupStyles() {
         }
 
         .group-icon {
-            margin-right: 8px;
-            color: #007bff;
-        }
-
-        .group-name {
-            flex: 1;
-            font-weight: 500;
-            font-size: 14px;
-            color: #333;
-        }
-
-        .group-count {
-            margin-left: 8px;
-            font-size: 12px;
+            width: 14px;
+            height: 14px;
             color: #666;
-            background-color: #e9ecef;
-            padding: 2px 6px;
-            border-radius: 10px;
-        }
-
-        .group-controls {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            margin-left: 8px;
-        }
-
-        .group-controls button {
-            background: none;
-            border: none;
-            cursor: pointer;
-            padding: 4px;
-            border-radius: 3px;
-            color: #666;
-            transition: all 0.2s ease;
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
+        .group-name {
+            flex: 1;
+            font-weight: 500;
+            font-size: 13px;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .group-count {
+            padding: 1px 6px;
+            background: #f0f0f0;
+            border-radius: 9999px;
+            font-size: 11px;
+            color: #666;
+        }
+
+        .group-controls {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            margin-left: 4px;
+        }
+
+        .group-controls button {
+            width: 22px;
+            height: 22px;
+            padding: 0;
+            background: none;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.15s ease, background 0.15s ease;
+        }
+
         .group-controls button:hover {
-            background-color: #ffffff;
-            color: #007bff;
+            background: #f0f0f0;
+            color: #28a745;
         }
 
         .group-controls .lock-toggle svg {
@@ -172,30 +188,32 @@ export function injectGroupStyles() {
         }
 
         .group-features-list {
-            max-height: 0;
+            display: flex;
+            flex-direction: column;
+            padding-left: 20px;
             overflow: hidden;
-            transition: max-height 0.3s ease;
-            background-color: #ffffff;
+            transition: max-height 0.2s ease;
         }
 
         .group-features-list.expanded {
-            max-height: 500px;
+            max-height: 1000px;
         }
 
+        /* Group feature item - design flat com linha cinza */
         .group-feature-item {
             display: flex;
             align-items: center;
-            padding: 6px 12px 6px 32px;
-            border-bottom: 1px solid #f0f0f0;
-            background-color: #ffffff;
-        }
-
-        .group-feature-item:last-child {
-            border-bottom: none;
+            gap: 8px;
+            padding: 6px 12px;
+            cursor: pointer;
+            border-left: 2px solid #e0e0e0;
+            margin-left: 8px;
+            transition: background 0.15s ease, border-left-color 0.15s ease;
         }
 
         .group-feature-item:hover {
-            background-color: #f8f9fa;
+            background: #f8f9fa;
+            border-left-color: #28a745;
         }
 
         .group-feature-item.feature-hidden {
@@ -207,31 +225,43 @@ export function injectGroupStyles() {
             align-items: center;
             flex: 1;
             cursor: pointer;
+            min-width: 0;
         }
 
         .group-feature-type-icon {
-            width: 16px;
-            height: 16px;
+            width: 14px;
+            height: 14px;
             margin-right: 8px;
+            color: #28a745;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
         }
 
         .group-feature-name {
             font-size: 13px;
-            color: #555;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
+        /* Feature item - design flat com linha cinza */
         .feature-item {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            padding: 8px 12px;
-            border-bottom: 1px solid #f0f0f0;
-            background-color: #ffffff;
-            transition: background-color 0.2s ease;
+            gap: 8px;
+            padding: 6px 12px;
+            cursor: pointer;
+            border-left: 2px solid #e0e0e0;
+            margin-left: 8px;
+            transition: background 0.15s ease, border-left-color 0.15s ease;
         }
 
         .feature-item:hover {
-            background-color: #f8f9fa;
+            background: #f8f9fa;
+            border-left-color: #28a745;
         }
 
         .feature-item.feature-hidden {
@@ -239,7 +269,7 @@ export function injectGroupStyles() {
         }
 
         .feature-item.feature-locked {
-            background-color: #ffeaa7;
+            background-color: #fffbf0;
         }
 
         .feature-main {
@@ -247,41 +277,52 @@ export function injectGroupStyles() {
             align-items: center;
             flex: 1;
             cursor: pointer;
+            min-width: 0;
         }
 
         .feature-type-icon {
-            width: 16px;
-            height: 16px;
+            width: 14px;
+            height: 14px;
             margin-right: 8px;
+            color: #28a745;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
         }
 
         .feature-name {
-            font-size: 14px;
+            font-size: 13px;
             color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .feature-controls {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 2px;
         }
 
         .feature-controls button {
+            width: 22px;
+            height: 22px;
+            padding: 0;
             background: none;
             border: none;
+            border-radius: 4px;
             cursor: pointer;
-            padding: 4px;
-            border-radius: 3px;
             color: #666;
-            transition: all 0.2s ease;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: color 0.15s ease, background 0.15s ease;
         }
 
         .feature-controls button:hover {
-            background-color: #e9ecef;
-            color: #007bff;
+            background: #f0f0f0;
+            color: #28a745;
         }
 
         .feature-controls .lock-toggle svg {
@@ -300,57 +341,69 @@ export function injectLayerStyles() {
     const style = document.createElement('style');
     style.id = 'layer-styles';
     style.textContent = `
-        /* Container de cada layer na lista */
+        /* Container de cada layer na lista - design flat como modelos 3D */
         .layer-container {
-            margin-bottom: 2px;
-            border: 1px solid #e0e0e0;
-            border-radius: 4px;
+            background: white;
+            border-radius: 6px;
             overflow: hidden;
-            background-color: #fff;
         }
 
-        .layer-container.layer-active {
-            border-color: #28a745;
+        .layer-container.layer-active .layer-header {
             border-left: 3px solid #28a745;
+            padding-left: 9px;
         }
 
         .layer-container.layer-hidden {
             opacity: 0.6;
         }
 
-        .layer-container.layer-locked {
+        .layer-container.layer-locked .layer-header {
             background-color: #fffbf0;
         }
 
-        /* Header da layer */
+        /* Header da layer - estilo similar ao models3d-tileset-header */
         .layer-header {
             display: flex;
             align-items: center;
-            padding: 6px 8px;
-            background-color: #f5f5f5;
+            padding: 8px 12px;
+            background: transparent;
             cursor: pointer;
             user-select: none;
-            gap: 4px;
+            gap: 8px;
+            transition: background 0.15s ease;
         }
 
         .layer-header:hover {
-            background-color: #e9ecef;
+            background: #f8f9fa;
         }
 
         .layer-header.active {
-            background-color: #d4edda;
+            background: transparent;
         }
 
         .layer-radio {
             margin: 0;
             cursor: pointer;
+            accent-color: #28a745;
         }
 
         .layer-expand-icon {
+            width: 28px;
+            height: 28px;
             color: #666;
             display: flex;
             align-items: center;
-            transition: transform 0.2s ease;
+            justify-content: center;
+            transition: color 0.15s ease;
+        }
+
+        .layer-expand-icon:hover {
+            color: #333;
+        }
+
+        .layer-expand-icon svg {
+            width: 18px;
+            height: 18px;
         }
 
         .layer-expand-icon.collapsed {
@@ -376,12 +429,12 @@ export function injectLayerStyles() {
         }
 
         .layer-count {
+            padding: 2px 8px;
+            background: #f0f0f0;
+            border-radius: 9999px;
             font-size: 11px;
             color: #666;
-            background-color: #e9ecef;
-            padding: 1px 6px;
-            border-radius: 10px;
-            margin-right: 4px;
+            flex-shrink: 0;
         }
 
         .layer-controls {
@@ -391,20 +444,23 @@ export function injectLayerStyles() {
         }
 
         .layer-controls button {
+            width: 24px;
+            height: 24px;
+            padding: 0;
             background: none;
             border: none;
+            border-radius: 4px;
             cursor: pointer;
-            padding: 3px;
-            border-radius: 3px;
             color: #666;
             display: flex;
             align-items: center;
-            transition: all 0.2s;
+            justify-content: center;
+            transition: color 0.15s ease, background 0.15s ease;
         }
 
         .layer-controls button:hover:not(:disabled) {
-            background-color: #fff;
-            color: #007bff;
+            color: #28a745;
+            background: #f0f0f0;
         }
 
         .layer-controls button:disabled {
@@ -416,10 +472,13 @@ export function injectLayerStyles() {
             color: #dc3545 !important;
         }
 
-        /* Layer content (features and groups) */
+        /* Layer content - design flat */
         .layer-content {
-            padding: 4px 4px 4px 16px;
-            background-color: #fff;
+            display: flex;
+            flex-direction: column;
+            padding-left: 20px;
+            overflow: hidden;
+            transition: max-height 0.2s ease;
         }
 
         .layer-content.collapsed {
@@ -434,20 +493,20 @@ export function injectLayerStyles() {
 
         /* Drag handle for layer reordering */
         .layer-drag-handle {
+            width: 24px;
+            height: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 20px;
             cursor: grab;
             color: #999;
             user-select: none;
             flex-shrink: 0;
-            transition: color 0.2s ease;
-            padding: 0 2px;
+            transition: color 0.15s ease;
         }
 
         .layer-drag-handle:hover {
-            color: #007bff;
+            color: #28a745;
         }
 
         .layer-drag-handle:active {
@@ -473,10 +532,10 @@ export function injectLayerStyles() {
 
         /* Empty layer message */
         .layer-empty-message {
-            padding: 8px 4px;
+            padding: 8px 12px;
             text-align: center;
             color: #999;
-            font-size: 14px;
+            font-size: 13px;
             font-style: italic;
         }
     `;

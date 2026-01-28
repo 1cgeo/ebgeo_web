@@ -981,23 +981,44 @@
     overflow: hidden;
 }
 
+/* Scroll no painel inteiro (features-tab-content) */
 .layers-tab .features-tab-content {
     display: flex !important;
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     padding: var(--space-4);
     box-sizing: border-box;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) transparent;
 }
 
-/* Override fixed max-height to use flex layout */
+.layers-tab .features-tab-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.layers-tab .features-tab-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.layers-tab .features-tab-content::-webkit-scrollbar-thumb {
+    background-color: var(--primary);
+    border-radius: 3px;
+}
+
+.layers-tab .features-tab-content::-webkit-scrollbar-thumb:hover {
+    background-color: var(--primary-700, #166534);
+}
+
+/* Features list não tem scroll próprio */
 .layers-tab .features-list {
     max-height: none;
-    flex: 1;
-    overflow-y: auto;
+    flex: none;
+    overflow: visible;
     min-height: 0;
-    scrollbar-gutter: stable;
 }
 
 /* Ensure hillshade and analysis controls don't grow */
