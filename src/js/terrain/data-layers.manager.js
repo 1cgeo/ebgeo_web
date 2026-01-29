@@ -1,5 +1,6 @@
 // Path: js/terrain/data-layers.manager.js
 // Manages vector data layers (molduras, etc.) from config.dataLayers
+// Note: Data layer state is now managed via catalogLayers, not separate settings
 import config from '../config.js';
 
 /**
@@ -19,6 +20,33 @@ class DataLayersManager {
     isEnabled() {
         return config.dataLayers?.enabled === true &&
                config.dataLayers.layers?.length > 0;
+    }
+
+    /**
+     * Initial setup of data layers
+     * Adds sources and layers in correct position with visibility: 'none'.
+     * Layers are only made visible when explicitly added via catalog.
+     */
+    async setupDataLayers() {
+        if (!this.isEnabled()) {
+            return;
+        }
+
+        try {
+            // Clear initialized layers tracking (important for style changes/basemap switches)
+            this._initializedLayers.clear();
+
+            for (const layerConfig of config.dataLayers.layers) {
+                this.addDataLayer(layerConfig.id);
+            }
+
+            // Note: restoreLayersState() is NOT called here anymore.
+            // Data layers are restored via restoreCatalogLayers() in layer_setup.js
+            // which only activates layers that were explicitly added via catalog.
+
+        } catch (error) {
+            console.error('Error setting up data layers:', error);
+        }
     }
 
     /**
@@ -43,6 +71,7 @@ class DataLayersManager {
      * Creates sources and layers with visibility: 'none' initially
      * @param {string} layerId - Layer ID (without 'data-' prefix)
      * @param {string} beforeId - ID of layer to insert before (default: features-separator)
+     * @returns {boolean} true if layer was added successfully
      */
     addDataLayer(layerId, beforeId = 'features-separator') {
         const layerConfig = this.getLayerConfig(layerId);
@@ -160,18 +189,26 @@ class DataLayersManager {
     }
 
     /**
-     * Toggles visibility of a data layer on the map
+     * Toggles visibility of a data layer on the map.
+     * Note: State persistence is handled by catalogLayers, not by this method.
      * @param {string} layerId - Layer ID (without 'data-' prefix)
      * @param {boolean} enabled - true to show, false to hide
      */
-    toggleLayer(layerId, enabled) {
-        // Initialize layer if not already done
-        if (!this._initializedLayers.has(layerId)) {
-            const added = this.addDataLayer(layerId);
-            if (!added) return;
-        }
+    async toggleLayer(layerId, enabled) {
+        try {
+            // Initialize layer if not already done (fallback for lazy init)
+            if (!this._initializedLayers.has(layerId)) {
+                const added = this.addDataLayer(layerId);
+                if (!added) return;
+            }
 
-        this.applyLayerState(layerId, enabled);
+            // State is managed via catalogLayers (toggleCatalogLayerVisibility)
+            // This method only applies the visual change to the map
+            this.applyLayerState(layerId, enabled);
+
+        } catch (error) {
+            console.error(`Error toggling data layer ${layerId}:`, error);
+        }
     }
 
     /**
@@ -200,17 +237,134 @@ class DataLayersManager {
     }
 
     /**
+     * Zooms to the extent of a data layer's visible features
+     * Calculates bounds from currently loaded vector tiles
+     * @param {string} layerId - Layer ID (without 'data-' prefix)
+     */
+    zoomToLayer(layerId) {
+        try {
+            const layerConfig = this.getLayerConfig(layerId);
+            if (!layerConfig) {
+                console.warn(`Layer config not found for: ${layerId}`);
+                return;
+            }
+
+            // Try to get bounds from rendered features
+            const borderLayerId = `data-${layerId}-border`;
+            const fillLayerId = `data-${layerId}-fill`;
+
+            // Query rendered features from the layer
+            let features = [];
+            if (this.map.getLayer(borderLayerId)) {
+                features = this.map.queryRenderedFeatures({ layers: [borderLayerId] });
+            }
+            if (features.length === 0 && this.map.getLayer(fillLayerId)) {
+                features = this.map.queryRenderedFeatures({ layers: [fillLayerId] });
+            }
+
+            if (features.length > 0) {
+                // Calculate bounds from features
+                const bounds = this._calculateBoundsFromFeatures(features);
+                if (bounds) {
+                    this.map.fitBounds(bounds, {
+                        padding: 20,
+                        duration: 1000,
+                        essential: true
+                    });
+                    return;
+                }
+            }
+
+            // Fallback: query source features if available
+            const sourceId = `data-${layerId}`;
+            const source = this.map.getSource(sourceId);
+            if (source) {
+                // For vector tile sources, we need to query source features
+                const sourceFeatures = this.map.querySourceFeatures(sourceId, {
+                    sourceLayer: layerConfig.sourceLayer
+                });
+
+                if (sourceFeatures.length > 0) {
+                    const bounds = this._calculateBoundsFromFeatures(sourceFeatures);
+                    if (bounds) {
+                        this.map.fitBounds(bounds, {
+                            padding: 20,
+                            duration: 1000,
+                            essential: true
+                        });
+                        return;
+                    }
+                }
+            }
+
+            console.warn(`No features found for layer "${layerId}" to calculate bounds`);
+
+        } catch (error) {
+            console.error(`Error zooming to data layer ${layerId}:`, error);
+        }
+    }
+
+    /**
+     * Calculates bounding box from an array of GeoJSON features
+     * @param {Array} features - Array of GeoJSON features
+     * @returns {Array|null} Bounds as [[west, south], [east, north]] or null
+     * @private
+     */
+    _calculateBoundsFromFeatures(features) {
+        if (!features || features.length === 0) return null;
+
+        let minLng = Infinity;
+        let minLat = Infinity;
+        let maxLng = -Infinity;
+        let maxLat = -Infinity;
+
+        const processCoordinates = (coords) => {
+            if (typeof coords[0] === 'number') {
+                // It's a point [lng, lat]
+                const [lng, lat] = coords;
+                if (lng < minLng) minLng = lng;
+                if (lng > maxLng) maxLng = lng;
+                if (lat < minLat) minLat = lat;
+                if (lat > maxLat) maxLat = lat;
+            } else {
+                // It's an array of coordinates
+                coords.forEach(processCoordinates);
+            }
+        };
+
+        for (const feature of features) {
+            if (feature.geometry && feature.geometry.coordinates) {
+                processCoordinates(feature.geometry.coordinates);
+            }
+        }
+
+        if (minLng === Infinity || minLat === Infinity ||
+            maxLng === -Infinity || maxLat === -Infinity) {
+            return null;
+        }
+
+        return [[minLng, minLat], [maxLng, maxLat]];
+    }
+
+    /**
      * Gets current state of a specific layer
      * @param {string} layerId - Layer ID (without 'data-' prefix)
      * @returns {boolean} true if layer is visible
      */
     isLayerVisible(layerId) {
         const borderLayerId = `data-${layerId}-border`;
-        const layer = this.map.getLayer(borderLayerId);
+        const fillLayerId = `data-${layerId}-fill`;
 
+        // Check border layer first, then fill layer
+        let layerToCheck = borderLayerId;
+        if (!this.map.getLayer(borderLayerId)) {
+            layerToCheck = fillLayerId;
+        }
+
+        const layer = this.map.getLayer(layerToCheck);
         if (!layer) return false;
 
-        const visibility = this.map.getLayoutProperty(borderLayerId, 'visibility');
+        const visibility = this.map.getLayoutProperty(layerToCheck, 'visibility');
         return visibility === 'visible';
     }
 
@@ -254,8 +408,11 @@ class DataLayersManager {
 
     /**
      * Removes all data layers from the map
+     * Useful for cleanup or reconfiguration
      */
     removeAllLayers() {
+        if (!this.isEnabled()) return;
+
         for (const layerId of this._initializedLayers) {
             this.removeLayer(layerId);
         }

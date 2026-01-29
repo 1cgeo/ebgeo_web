@@ -14,8 +14,10 @@ class AddLOSGeometry extends BaseGeometry {
 
         this.VISIBLE_COLOR = '#00FF00';
         this.OBSTRUCTED_COLOR = '#FF0000';
-        this.SAMPLE_DISTANCE = 60;
-        this.OBSERVER_HEIGHT = 2;
+        // Default parameters - can be overridden per feature
+        this.DEFAULT_OBSERVER_HEIGHT = 1.5;
+        this.DEFAULT_TARGET_HEIGHT = 0;
+        this.DEFAULT_SAMPLE_POINTS = 100;
         this.PROFILE_STEPS = 25;
     }
 
@@ -74,23 +76,32 @@ class AddLOSGeometry extends BaseGeometry {
      * Calculate Line of Sight with terrain obstruction analysis
      * @param {Array} coordinates - [startPoint, endPoint]
      * @param {Object} map - MapLibre map instance for terrain queries
-     * @returns {Object} {visible: Feature, obstructed: Feature|null}
+     * @param {Object} options - Calculation options
+     * @param {number} options.observerHeight - Height of observer above ground (default 1.5m)
+     * @param {number} options.targetHeight - Height of target above ground (default 0m)
+     * @param {number} options.samplePoints - Number of sample points for calculation (default 100)
+     * @returns {Object} {visible: Feature, obstructed: Feature|null, visibleLength: number, obstructedLength: number, totalLength: number}
      */
-    async calculateLOS(coordinates, map) {
+    async calculateLOS(coordinates, map, options = {}) {
         if (!this.validate(coordinates)) {
             throw new Error('Invalid coordinates for LOS calculation');
         }
 
+        const observerHeight = options.observerHeight ?? this.DEFAULT_OBSERVER_HEIGHT;
+        const targetHeight = options.targetHeight ?? this.DEFAULT_TARGET_HEIGHT;
+        const samplePoints = options.samplePoints ?? this.DEFAULT_SAMPLE_POINTS;
+
         const [startCoordinates, endCoordinates] = coordinates;
         const line = turf.lineString(coordinates);
-        const length = turf.length(line, { units: 'meters' });
-        const steps = Math.ceil(length / this.SAMPLE_DISTANCE);
-        const stepLength = length / steps;
+        const totalLength = turf.length(line, { units: 'meters' });
+        const steps = Math.max(2, samplePoints);
+        const stepLength = totalLength / steps;
 
-        const startElevation = await getTerrainElevation(map, startCoordinates) + this.OBSERVER_HEIGHT;
-        const endElevation = await getTerrainElevation(map, endCoordinates);
+        const startElevation = await getTerrainElevation(map, startCoordinates) + observerHeight;
+        const endElevation = await getTerrainElevation(map, endCoordinates) + targetHeight;
 
         let firstObstructedPoint = null;
+        let obstructionDistance = 0;
 
         for (let i = 1; i <= steps; i++) {
             const segment = turf.along(line, i * stepLength, { units: 'meters' });
@@ -101,6 +112,7 @@ class AddLOSGeometry extends BaseGeometry {
 
             if (actualElevation > expectedElevation) {
                 firstObstructedPoint = segmentCoordinates;
+                obstructionDistance = i * stepLength;
                 break;
             }
         }
@@ -113,9 +125,15 @@ class AddLOSGeometry extends BaseGeometry {
             ? turf.lineString([firstObstructedPoint, endCoordinates])
             : null;
 
+        const visibleLength = firstObstructedPoint ? obstructionDistance : totalLength;
+        const obstructedLength = firstObstructedPoint ? (totalLength - obstructionDistance) : 0;
+
         return {
             visible: visibleLine,
-            obstructed: obstructedLine
+            obstructed: obstructedLine,
+            visibleLength,
+            obstructedLength,
+            totalLength
         };
     }
 
@@ -223,15 +241,16 @@ class AddLOSGeometry extends BaseGeometry {
      * Recalculate LOS from moved coordinates
      * @param {Array} newCoordinates - New [startPoint, endPoint]
      * @param {Object} map - MapLibre map instance
-     * @returns {Object} New geometry and profile data
+     * @param {Object} options - Calculation options (observerHeight, targetHeight, samplePoints)
+     * @returns {Object} New geometry, profile data, and length information
      */
-    async recalculateFromCoordinates(newCoordinates, map) {
+    async recalculateFromCoordinates(newCoordinates, map, options = {}) {
         if (!this.validate(newCoordinates)) {
             throw new Error('Invalid coordinates for LOS recalculation');
         }
 
         try {
-            const losResult = await this.calculateLOS(newCoordinates, map);
+            const losResult = await this.calculateLOS(newCoordinates, map, options);
 
             let newGeometry;
             if (losResult.obstructed) {
@@ -253,7 +272,10 @@ class AddLOSGeometry extends BaseGeometry {
 
             return {
                 geometry: newGeometry,
-                profileData: profileData
+                profileData: profileData,
+                visibleLength: losResult.visibleLength,
+                obstructedLength: losResult.obstructedLength,
+                totalLength: losResult.totalLength
             };
         } catch (error) {
             console.error('Error recalculating LOS:', error);
@@ -264,16 +286,22 @@ class AddLOSGeometry extends BaseGeometry {
     /**
      * Create complete LOS feature from coordinates
      * @param {Array} coordinates - [startPoint, endPoint]
-     * @param {Object} properties - Feature properties
+     * @param {Object} properties - Feature properties (includes observerHeight, targetHeight, samplePoints)
      * @param {Object} map - MapLibre map instance
-     * @returns {Object} Complete LOS feature with geometry and profile
+     * @returns {Object} Complete LOS feature with geometry, profile, and length data
      */
     async createLOSFeature(coordinates, properties, map) {
         if (!this.validate(coordinates)) {
             throw new Error('Invalid coordinates for LOS feature creation');
         }
 
-        const losResult = await this.calculateLOS(coordinates, map);
+        const options = {
+            observerHeight: properties.observerHeight ?? this.DEFAULT_OBSERVER_HEIGHT,
+            targetHeight: properties.targetHeight ?? this.DEFAULT_TARGET_HEIGHT,
+            samplePoints: properties.samplePoints ?? this.DEFAULT_SAMPLE_POINTS
+        };
+
+        const losResult = await this.calculateLOS(coordinates, map, options);
         const profileData = await this.calculateProfile(coordinates, map);
 
         let geometry;
@@ -297,6 +325,12 @@ class AddLOSGeometry extends BaseGeometry {
             id: Date.now().toString(),
             properties: {
                 ...properties,
+                observerHeight: options.observerHeight,
+                targetHeight: options.targetHeight,
+                samplePoints: options.samplePoints,
+                visibleLength: losResult.visibleLength,
+                obstructedLength: losResult.obstructedLength,
+                totalLength: losResult.totalLength,
                 profileData: JSON.stringify(profileData)
             },
             geometry: geometry

@@ -148,7 +148,10 @@ function createLayerItem(layer, map, eventBus, analysisLayersManager, dataLayers
  */
 function createActiveLayerHTML(layer) {
     const icon = getLayerIcon(layer.type);
+    // Analysis layers require bounds in config, data layers calculate bounds dynamically
     const hasLocation = layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && layer.config?.bounds;
+    // Data layers always support zoom (bounds calculated from vector features)
+    const isDataLayer = layer.type === CATALOG_ITEM_TYPES.DATA_LAYER;
 
     return `
         <div class="catalog-layer-info">
@@ -156,7 +159,7 @@ function createActiveLayerHTML(layer) {
             <span class="catalog-layer-name" title="${layer.name}">${layer.name}</span>
         </div>
         <div class="catalog-layer-actions">
-            ${hasLocation ? `
+            ${(hasLocation || isDataLayer) ? `
                 <button class="catalog-layer-btn catalog-layer-zoom" title="Ir para camada">
                     ${ICONS.ZOOM}
                 </button>
@@ -211,7 +214,7 @@ function attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManag
     if (zoomBtn) {
         zoomBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            zoomToLayer(map, layer, analysisLayersManager);
+            zoomToLayer(map, layer, analysisLayersManager, dataLayersManager);
         });
     }
 
@@ -294,10 +297,13 @@ function attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager, da
  * @param {Object} map - MapLibre map instance
  * @param {Object} layer - Layer data
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  */
-function zoomToLayer(map, layer, analysisLayersManager) {
+function zoomToLayer(map, layer, analysisLayersManager, dataLayersManager) {
     if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
         analysisLayersManager.zoomToLayer(layer.config?.id);
+    } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
+        dataLayersManager.zoomToLayer(layer.config?.id);
     }
 }
 

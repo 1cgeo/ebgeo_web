@@ -6,10 +6,12 @@
  * allowing navigation to features in 3D viewer.
  */
 
-import { getAllMarkers, getAllMeasurements, getAllViewsheds } from '../store';
+import { getAllMarkers, getAllMeasurements, getAllViewsheds, removeAllFeaturesByTileset } from '../store';
 import { getStateManager } from '../store/services.js';
 import { EventTypes } from '../events/index.js';
 import config from '../config.js';
+import { showConfirm } from '../modals/confirm.modal.js';
+import { showSuccess, showError } from '../utilities/toast_service.js';
 
 /**
  * Icons used in the component.
@@ -22,7 +24,8 @@ const ICONS = {
     VIEWSHED: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
     CHEVRON_DOWN: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
     CHEVRON_RIGHT: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`,
-    EXTERNAL: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`
+    EXTERNAL: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`,
+    TRASH: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`
 };
 
 // Module state for collapse states
@@ -197,6 +200,9 @@ function createTilesetItem(tilesetId, tilesetName, features, eventBus) {
             <span class="models3d-tileset-icon">${ICONS.MODEL_3D}</span>
             <span class="models3d-tileset-name" title="${tilesetName}">${tilesetName}</span>
             <span class="models3d-marker-count">${features.length}</span>
+            <button class="models3d-delete-all" title="Deletar todas as feições">
+                ${ICONS.TRASH}
+            </button>
             <button class="models3d-open-viewer" title="Abrir no visualizador 3D">
                 ${ICONS.EXTERNAL}
             </button>
@@ -248,6 +254,13 @@ function attachTilesetEvents(item, tilesetId, features, _eventBus) {
         openTilesetInViewer(tilesetId);
     });
 
+    // Delete all features button
+    const deleteAllBtn = item.querySelector('.models3d-delete-all');
+    deleteAllBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await handleDeleteAllFeatures(tilesetId, features.length);
+    });
+
     // Feature clicks
     const featureItems = item.querySelectorAll('.models3d-feature-item');
     featureItems.forEach((featureItem) => {
@@ -271,6 +284,40 @@ function attachTilesetEvents(item, tilesetId, features, _eventBus) {
             }
         });
     });
+}
+
+/**
+ * Handles the deletion of all features for a tileset.
+ * Shows a confirmation modal before deleting.
+ * @param {string} tilesetId - Tileset ID
+ * @param {number} featureCount - Number of features to delete
+ */
+async function handleDeleteAllFeatures(tilesetId, featureCount) {
+    const tilesetConfigs = config?.tilesets || [];
+    const tilesetConfig = tilesetConfigs.find(t => t.id === tilesetId);
+    const tilesetName = tilesetConfig?.name || tilesetId;
+
+    const confirmed = await showConfirm(
+        `Deletar todas as feições de "${tilesetName}"?`,
+        {
+            message: `${featureCount} feição(ões) serão permanentemente excluídas.\nEsta ação não pode ser desfeita.`,
+            confirmText: 'Deletar',
+            destructive: true
+        }
+    );
+
+    if (!confirmed) return;
+
+    try {
+        const result = await removeAllFeaturesByTileset(tilesetId);
+
+        if (result.total > 0) {
+            showSuccess(`${result.total} feição(ões) deletadas com sucesso!`);
+        }
+    } catch (error) {
+        console.error('Error deleting features:', error);
+        showError('Erro ao deletar feições.');
+    }
 }
 
 /**

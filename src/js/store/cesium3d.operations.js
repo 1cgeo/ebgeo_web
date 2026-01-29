@@ -1171,3 +1171,115 @@ export const removeViewshedImage = async (viewshedId, imageId, mapName = null) =
     }
     return false;
 };
+
+// ===== BULK REMOVAL OPERATIONS =====
+
+/**
+ * Removes all measurements for a specific tileset.
+ *
+ * @param {string} tilesetId - Tileset ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<number>} Number of measurements removed
+ */
+export const removeMeasurementsByTileset = async (tilesetId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    if (!data.measurements) return 0;
+
+    const initialLength = data.measurements.length;
+    data.measurements = data.measurements.filter(m => m.tilesetId !== tilesetId);
+    const removedCount = initialLength - data.measurements.length;
+
+    if (removedCount > 0) {
+        await saveCesium3dData(targetMap, data);
+
+        if (deps.eventBus) {
+            deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+        }
+    }
+    return removedCount;
+};
+
+/**
+ * Removes all viewsheds for a specific tileset.
+ *
+ * @param {string} tilesetId - Tileset ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<number>} Number of viewsheds removed
+ */
+export const removeViewshedsByTileset = async (tilesetId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    if (!data.viewsheds) return 0;
+
+    const initialLength = data.viewsheds.length;
+    data.viewsheds = data.viewsheds.filter(v => v.tilesetId !== tilesetId);
+    const removedCount = initialLength - data.viewsheds.length;
+
+    if (removedCount > 0) {
+        await saveCesium3dData(targetMap, data);
+
+        if (deps.eventBus) {
+            deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+        }
+    }
+    return removedCount;
+};
+
+/**
+ * Removes all features (markers, measurements, viewsheds) for a specific tileset.
+ *
+ * @param {string} tilesetId - Tileset ID
+ * @param {string|null} mapName - Map name (null = current)
+ * @returns {Promise<{markers: number, measurements: number, viewsheds: number, total: number}>} Count of removed features
+ */
+export const removeAllFeaturesByTileset = async (tilesetId, mapName = null) => {
+    const targetMap = getTargetMapName(mapName);
+    const data = await getCesium3dDataWithCache(targetMap);
+
+    // Count markers to remove
+    const initialMarkersLength = data.markers.length;
+    data.markers = data.markers.filter(m => m.tilesetId !== tilesetId);
+    const markersRemoved = initialMarkersLength - data.markers.length;
+
+    // Count measurements to remove
+    const initialMeasurementsLength = data.measurements?.length || 0;
+    if (data.measurements) {
+        data.measurements = data.measurements.filter(m => m.tilesetId !== tilesetId);
+    }
+    const measurementsRemoved = initialMeasurementsLength - (data.measurements?.length || 0);
+
+    // Count viewsheds to remove
+    const initialViewshedsLength = data.viewsheds?.length || 0;
+    if (data.viewsheds) {
+        data.viewsheds = data.viewsheds.filter(v => v.tilesetId !== tilesetId);
+    }
+    const viewshedsRemoved = initialViewshedsLength - (data.viewsheds?.length || 0);
+
+    const totalRemoved = markersRemoved + measurementsRemoved + viewshedsRemoved;
+
+    if (totalRemoved > 0) {
+        await saveCesium3dData(targetMap, data);
+
+        if (deps.eventBus) {
+            if (markersRemoved > 0) {
+                deps.eventBus.emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
+            }
+            if (measurementsRemoved > 0) {
+                deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
+            }
+            if (viewshedsRemoved > 0) {
+                deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
+            }
+        }
+    }
+
+    return {
+        markers: markersRemoved,
+        measurements: measurementsRemoved,
+        viewsheds: viewshedsRemoved,
+        total: totalRemoved
+    };
+};

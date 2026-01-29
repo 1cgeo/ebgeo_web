@@ -1296,7 +1296,19 @@ export class SidebarControl {
             cleanupFunctions.push(photoGallery.cleanup);
         }
 
-        // 3. Tabs (Estilo / Descrição / Atributos) - only show for single selection or multiple same-type
+        // 3. Info section before tabs (for LOS and similar analysis tools)
+        if (isSingleSelection && control && typeof control.createInfoSection === 'function') {
+            try {
+                const infoSection = control.createInfoSection(selectedFeatures[0]);
+                if (infoSection) {
+                    container.appendChild(infoSection);
+                }
+            } catch (error) {
+                console.error(`Error creating info section for ${featureType}:`, error);
+            }
+        }
+
+        // 4. Tabs (Estilo / Parâmetros / Atributos) - only show for single selection or multiple same-type
         // For mixed types, show group type selector to edit by type
         if (!isMixedTypes) {
             const featureTabs = createFeatureTabs({
@@ -1319,6 +1331,20 @@ export class SidebarControl {
                     );
                 } catch (error) {
                     console.error(`Error creating attribute panel for ${featureType}:`, error);
+                }
+            }
+
+            // Inject parameters controls into Parameters tab (for LOS and similar tools)
+            if (featureTabs.parametersTab && control && typeof control.createParametersPanel === 'function') {
+                try {
+                    control.createParametersPanel(
+                        featureTabs.parametersTab,
+                        selectedFeatures,
+                        this._selectionManager,
+                        this._uiManager
+                    );
+                } catch (error) {
+                    console.error(`Error creating parameters panel for ${featureType}:`, error);
                 }
             }
         } else {

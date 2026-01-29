@@ -2,7 +2,7 @@
 
 import { addFeature, updateFeature, removeFeature, getCurrentMapFeatures, batchUpdateLOSFeatures, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
-import { addLOSAttributesToPanel } from './los_attributes_panel.js';
+import { addLOSAttributesToPanel, createLOSInfoSection, addLOSParametersToPanel } from './los_attributes_panel.js';
 import AddLOSGeometry from './add_los_geometry.js';
 import { BaseControl } from '../../tool_manager';
 
@@ -32,7 +32,10 @@ class AddLOSControl extends BaseControl {
         nome: '',
         descricao: '',
         visivel: true,
-        bloqueado: false
+        bloqueado: false,
+        observerHeight: 1.5,
+        targetHeight: 0,
+        samplePoints: 100
     };
 
     // ===== SINGLE SOURCE OF TRUTH =====
@@ -83,6 +86,33 @@ class AddLOSControl extends BaseControl {
             container.appendChild(sectionPanel);
         } catch (error) {
             console.error('Error creating LOS attribute panel:', error);
+        }
+    }
+
+    /**
+     * Creates the info section displayed before tabs (shows length information)
+     * @param {Object} feature - The selected LOS feature
+     * @returns {HTMLElement|null} Info section element or null
+     */
+    createInfoSection(feature) {
+        if (!feature || !feature.properties) {
+            return null;
+        }
+        return createLOSInfoSection(feature);
+    }
+
+    /**
+     * Creates the parameters panel content (for Parameters tab)
+     * @param {HTMLElement} container - Container to add parameters to
+     * @param {Array} features - Selected LOS features
+     * @param {Object} _selectionManager - Selection manager instance (unused)
+     * @param {Object} _uiManager - UI manager instance (unused)
+     */
+    createParametersPanel(container, features, _selectionManager, _uiManager) {
+        try {
+            addLOSParametersToPanel(container, features, this);
+        } catch (error) {
+            console.error('Error creating LOS parameters panel:', error);
         }
     }
 
@@ -147,14 +177,23 @@ class AddLOSControl extends BaseControl {
         ]);
 
         try {
+            const options = {
+                observerHeight: feature.properties.observerHeight ?? 1.5,
+                targetHeight: feature.properties.targetHeight ?? 0,
+                samplePoints: feature.properties.samplePoints ?? 100
+            };
+
             // Recalculate LOS with new position (async)
-            const result = await this.geometry.recalculateFromCoordinates(newCoords, this.map);
+            const result = await this.geometry.recalculateFromCoordinates(newCoords, this.map, options);
 
             return {
                 ...feature,
                 properties: {
                     ...feature.properties,
-                    profileData: JSON.stringify(result.profileData)
+                    profileData: JSON.stringify(result.profileData),
+                    visibleLength: result.visibleLength,
+                    obstructedLength: result.obstructedLength,
+                    totalLength: result.totalLength
                 },
                 geometry: result.geometry
             };
@@ -320,10 +359,19 @@ class AddLOSControl extends BaseControl {
                 try {
                     const coordinates = this.geometry.extractCoordinatesFromGeometry(movedFeature.geometry);
                     if (coordinates) {
-                        const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map);
+                        const options = {
+                            observerHeight: movedFeature.properties.observerHeight ?? 1.5,
+                            targetHeight: movedFeature.properties.targetHeight ?? 0,
+                            samplePoints: movedFeature.properties.samplePoints ?? 100
+                        };
+
+                        const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map, options);
 
                         movedFeature.geometry = result.geometry;
                         movedFeature.properties.profileData = JSON.stringify(result.profileData);
+                        movedFeature.properties.visibleLength = result.visibleLength;
+                        movedFeature.properties.obstructedLength = result.obstructedLength;
+                        movedFeature.properties.totalLength = result.totalLength;
 
                         await updateFeature('los', movedFeature);
 
@@ -485,6 +533,14 @@ class AddLOSControl extends BaseControl {
     // ===== FEATURE MANAGEMENT INTERFACE =====
 
     updateFeaturesProperty = async (features, property, value) => {
+        // Check if property requires recalculation
+        const requiresRecalculation = ['observerHeight', 'targetHeight', 'samplePoints'].includes(property);
+
+        if (requiresRecalculation) {
+            await this.updateFeaturesWithRecalculation(features, property, value);
+            return;
+        }
+
         const data = await this.map.getSource('los').getData();
         const processedData = await this.map.getSource('processed-los').getData();
 
@@ -519,6 +575,122 @@ class AddLOSControl extends BaseControl {
         });
 
         this.updateSelectionManagerFeatures(freshFeatures);
+    }
+
+    /**
+     * Update features with recalculation (for observer height, target height, sample points)
+     * Uses debounce to wait for user to finish dragging slider before recalculating
+     * @param {Array} features - Features to update
+     * @param {string} property - Property being changed
+     * @param {*} value - New property value
+     */
+    updateFeaturesWithRecalculation = async (features, property, value) => {
+        // Store pending values for debounced recalculation
+        if (!this._pendingRecalculation) {
+            this._pendingRecalculation = new Map();
+        }
+
+        // Update the pending value for each feature
+        for (const feature of features) {
+            const featureId = feature.properties.id;
+            if (!this._pendingRecalculation.has(featureId)) {
+                this._pendingRecalculation.set(featureId, {});
+            }
+            this._pendingRecalculation.get(featureId)[property] = value;
+
+            // Update the feature property immediately for UI feedback
+            feature.properties[property] = value;
+        }
+
+        // Clear existing debounce timer
+        clearTimeout(this._recalculationDebounceTimer);
+
+        // Debounce: wait for user to stop dragging (500ms delay)
+        this._recalculationDebounceTimer = setTimeout(async () => {
+            await this._performRecalculation(features);
+        }, 500);
+    }
+
+    /**
+     * Perform the actual recalculation after debounce
+     * @private
+     */
+    _performRecalculation = async (features) => {
+        this.showRecalculatingState();
+
+        try {
+            const data = await this.map.getSource('los').getData();
+            const processedData = await this.map.getSource('processed-los').getData();
+
+            for (const feature of features) {
+                const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
+                if (sourceFeature) {
+                    // Apply all pending property changes
+                    const pendingChanges = this._pendingRecalculation?.get(feature.properties.id) || {};
+                    Object.assign(sourceFeature.properties, pendingChanges);
+                    Object.assign(feature.properties, pendingChanges);
+
+                    // Get coordinates for recalculation
+                    const coordinates = this.geometry.extractCoordinatesFromGeometry(sourceFeature.geometry);
+                    if (coordinates) {
+                        const options = {
+                            observerHeight: sourceFeature.properties.observerHeight,
+                            targetHeight: sourceFeature.properties.targetHeight,
+                            samplePoints: sourceFeature.properties.samplePoints
+                        };
+
+                        // Recalculate LOS with new parameters
+                        const result = await this.geometry.recalculateFromCoordinates(coordinates, this.map, options);
+
+                        // Update geometry and length data
+                        sourceFeature.geometry = result.geometry;
+                        sourceFeature.properties.profileData = JSON.stringify(result.profileData);
+                        sourceFeature.properties.visibleLength = result.visibleLength;
+                        sourceFeature.properties.obstructedLength = result.obstructedLength;
+                        sourceFeature.properties.totalLength = result.totalLength;
+
+                        feature.geometry = result.geometry;
+                        feature.properties.profileData = sourceFeature.properties.profileData;
+                        feature.properties.visibleLength = result.visibleLength;
+                        feature.properties.obstructedLength = result.obstructedLength;
+                        feature.properties.totalLength = result.totalLength;
+
+                        // Remove old processed features
+                        processedData.features = processedData.features.filter(f =>
+                            f.properties.id !== feature.properties.id + '-visible' &&
+                            f.properties.id !== feature.properties.id + '-obstructed'
+                        );
+
+                        // Add new processed features
+                        const newProcessedFeatures = this.geometry.generateProcessedFeatures(sourceFeature);
+                        processedData.features.push(...newProcessedFeatures);
+
+                        // Update measurement if enabled
+                        if (sourceFeature.properties.measure) {
+                            this.updateFeatureMeasurement(sourceFeature);
+                        }
+                    }
+                }
+            }
+
+            this.map.getSource('los').setData(data);
+            this.map.getSource('processed-los').setData(processedData);
+
+            const freshFeatures = features.map(feature => {
+                const sourceFeature = data.features.find(f => f.properties.id === feature.properties.id);
+                return sourceFeature || feature;
+            });
+
+            this.updateSelectionManagerFeatures(freshFeatures);
+            this.selectionManager.updateUI();
+
+            // Clear pending recalculation data
+            this._pendingRecalculation?.clear();
+        } catch (error) {
+            console.error('Error recalculating LOS:', error);
+        } finally {
+            this.hideRecalculatingState();
+        }
     }
 
     saveFeatures = async (features, initialPropertiesMap) => {
@@ -632,7 +804,10 @@ class AddLOSControl extends BaseControl {
             feature.properties.nome !== initialProperties.nome ||
             feature.properties.descricao !== initialProperties.descricao ||
             feature.properties.visivel !== initialProperties.visivel ||
-            feature.properties.bloqueado !== initialProperties.bloqueado
+            feature.properties.bloqueado !== initialProperties.bloqueado ||
+            feature.properties.observerHeight !== initialProperties.observerHeight ||
+            feature.properties.targetHeight !== initialProperties.targetHeight ||
+            feature.properties.samplePoints !== initialProperties.samplePoints
         );
     }
 
@@ -792,6 +967,11 @@ class AddLOSControl extends BaseControl {
         if (this.dragRecalculateTimeout) {
             clearTimeout(this.dragRecalculateTimeout);
             this.dragRecalculateTimeout = null;
+        }
+
+        if (this._recalculationDebounceTimer) {
+            clearTimeout(this._recalculationDebounceTimer);
+            this._recalculationDebounceTimer = null;
         }
     }
 

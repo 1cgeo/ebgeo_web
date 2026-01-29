@@ -369,7 +369,12 @@ export {
     removeViewshed,
     addViewshedImage,
     getViewshedImages,
-    removeViewshedImage
+    removeViewshedImage,
+    // Bulk removal operations
+    removeMarkersByTileset,
+    removeMeasurementsByTileset,
+    removeViewshedsByTileset,
+    removeAllFeaturesByTileset
 } from './cesium3d.operations.js';
 
 // ===== LEGACY COMPATIBILITY EXPORTS =====

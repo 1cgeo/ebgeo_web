@@ -249,7 +249,7 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLaye
             } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
                 await analysisLayersManager.toggleLayer(layer.config?.id, true);
             } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
-                dataLayersManager.toggleLayer(layer.config?.id, true);
+                await dataLayersManager.toggleLayer(layer.config?.id, true);
             }
         }
     } catch (error) {
@@ -462,6 +462,7 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, dataL
         await restoreTerrainState(mapInstance);
 
         await analysisLayersManager.setupAnalysisLayers();
+        await dataLayersManager.setupDataLayers();
 
         // Restore catalog layers (hillshade, analysis, data) from saved state
         await restoreCatalogLayers(mapInstance, analysisLayersManager, dataLayersManager);
