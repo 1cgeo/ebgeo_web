@@ -161,8 +161,17 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]'
       },
       // Vendors externos (não bundlear)
+      // CORREÇÃO: Regex específica para excluir apenas o vendor Cesium,
+      // não arquivos do projeto como cesium3d.operations.js
       external: [
-        /cesium/i
+        // Match exato do módulo 'cesium' (import 'cesium')
+        /^cesium$/i,
+        // Match subpaths do módulo cesium (import 'cesium/Source/...')
+        /^cesium\//i,
+        // Match paths de vendors locais do Cesium
+        /vendors\/cesium/i,
+        // Match paths em node_modules (caso use npm install cesium)
+        /node_modules\/cesium/i
       ]
     },
 
