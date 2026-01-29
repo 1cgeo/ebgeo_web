@@ -242,7 +242,7 @@ function updateTempVisualization() {
                 positions: cartesians,
                 width: 3,
                 material: COLORS.TEMP_LINE,
-                clampToGround: true,
+                clampToGround: false,
                 disableDepthTestDistance: Number.POSITIVE_INFINITY
             }
         });
@@ -293,7 +293,7 @@ function updateTempVisualization() {
                 positions: [...cartesians, cartesians[0]], // Close the loop
                 width: 3,
                 material: COLORS.TEMP_LINE,
-                clampToGround: true,
+                clampToGround: false,
                 disableDepthTestDistance: Number.POSITIVE_INFINITY
             }
         });
@@ -356,7 +356,7 @@ function createMeasurementEntities(measurement) {
                 positions: positions,
                 width: isSelected ? 4 : 2,
                 material: lineColor,
-                clampToGround: true,
+                clampToGround: false,
                 disableDepthTestDistance: Number.POSITIVE_INFINITY
             },
             properties: {
@@ -443,7 +443,7 @@ function createMeasurementEntities(measurement) {
                     positions: [...polygonPositions, polygonPositions[0]], // Close the loop
                     width: isSelected ? 4 : 2,
                     material: lineColor,
-                    clampToGround: true,
+                    clampToGround: false,
                     disableDepthTestDistance: Number.POSITIVE_INFINITY
                 },
                 properties: {
