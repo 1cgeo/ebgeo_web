@@ -33,11 +33,6 @@ import {
 import config from '../../config.js';
 
 /**
- * Icon for description tab.
- */
-const ICON_DESCRIPTION = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`;
-
-/**
  * Icons used in the component.
  */
 const ICONS = {
@@ -77,10 +72,12 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
     // Track cleanup functions
     const cleanupFunctions = [];
 
-    // 1. Identification section
+    // 1. Identification section (includes description)
     buildIdentificationSection(container, currentMarker, tilesetId, async (updates) => {
         if (updates.properties) {
             currentMarker.properties = { ...currentMarker.properties, ...updates.properties };
+            const { updateMarkerProperties } = await getMarkerTool();
+            await updateMarkerProperties(currentMarker.id, { properties: currentMarker.properties });
         }
     });
 
@@ -93,17 +90,12 @@ export function createMarkerPanelContent(marker, tilesetId, onClose) {
     // Load photo gallery asynchronously
     buildPhotoGallerySection(photoGalleryPlaceholder, currentMarker.id, cleanupFunctions);
 
-    // 3. Style tabs (Marcador / Etiqueta / Descrição)
+    // 3. Style tabs (Marcador / Etiqueta)
     buildStyleTabs(container, currentMarker, async (styleUpdates) => {
         currentMarker.style = { ...currentMarker.style, ...styleUpdates };
         // Auto-save style changes
         const { updateMarkerProperties } = await getMarkerTool();
         await updateMarkerProperties(currentMarker.id, { style: currentMarker.style });
-    }, async (propertyUpdates) => {
-        // Callback for properties updates (description)
-        currentMarker.properties = { ...currentMarker.properties, ...propertyUpdates };
-        const { updateMarkerProperties } = await getMarkerTool();
-        await updateMarkerProperties(currentMarker.id, { properties: currentMarker.properties });
     });
 
     // 4. Save/Discard/Set Default buttons (before location)
@@ -229,13 +221,130 @@ function buildIdentificationSection(container, marker, tilesetId, onUpdate) {
     modelLabel.className = 'feature-identification-layer';
     modelLabel.textContent = `Modelo: ${getTilesetName(tilesetId)}`;
 
+    // Description section (following 2D pattern)
+    const descriptionSection = createDescriptionSection2D(marker, onUpdate);
+
     infoContainer.appendChild(nameContainer);
     infoContainer.appendChild(typeLabel);
     infoContainer.appendChild(modelLabel);
+    infoContainer.appendChild(descriptionSection);
 
     section.appendChild(iconContainer);
     section.appendChild(infoContainer);
     container.appendChild(section);
+}
+
+/**
+ * Creates description section following the 2D pattern.
+ * Shows a button to add description when empty, or the description text when filled.
+ */
+function createDescriptionSection2D(marker, onUpdate) {
+    let currentDescription = marker.properties?.descricao || '';
+
+    const section = document.createElement('div');
+    section.className = 'feature-description-section';
+
+    const displayContainer = document.createElement('div');
+    displayContainer.className = 'feature-description-display';
+
+    const editContainer = document.createElement('div');
+    editContainer.className = 'feature-description-edit';
+    editContainer.style.display = 'none';
+
+    function renderDisplay() {
+        displayContainer.innerHTML = '';
+
+        if (!currentDescription) {
+            const addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.className = 'feature-description-add-btn';
+            addButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Adicionar descrição</span>
+            `;
+            addButton.addEventListener('click', enterEditMode);
+            displayContainer.appendChild(addButton);
+        } else {
+            const textWrapper = document.createElement('div');
+            textWrapper.className = 'feature-description-text-wrapper';
+
+            const descText = document.createElement('div');
+            descText.className = 'feature-description-text';
+            descText.textContent = currentDescription;
+            descText.title = 'Clique para editar';
+            descText.addEventListener('click', enterEditMode);
+
+            const editButton = document.createElement('button');
+            editButton.type = 'button';
+            editButton.className = 'feature-description-edit-btn';
+            editButton.title = 'Editar descrição';
+            editButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+            editButton.addEventListener('click', enterEditMode);
+
+            textWrapper.appendChild(descText);
+            textWrapper.appendChild(editButton);
+            displayContainer.appendChild(textWrapper);
+        }
+    }
+
+    function renderEdit() {
+        editContainer.innerHTML = '';
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'feature-description-textarea';
+        textarea.value = currentDescription;
+        textarea.placeholder = 'Digite uma descrição para este marcador...';
+        textarea.rows = 4;
+
+        const buttonsContainer = document.createElement('div');
+        buttonsContainer.className = 'feature-description-buttons';
+
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'feature-description-save-btn';
+        saveButton.textContent = 'Salvar';
+        saveButton.addEventListener('click', () => saveDescription(textarea.value));
+
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'feature-description-cancel-btn';
+        cancelButton.textContent = 'Cancelar';
+        cancelButton.addEventListener('click', exitEditMode);
+
+        buttonsContainer.appendChild(cancelButton);
+        buttonsContainer.appendChild(saveButton);
+
+        editContainer.appendChild(textarea);
+        editContainer.appendChild(buttonsContainer);
+
+        setTimeout(() => textarea.focus(), 0);
+    }
+
+    function enterEditMode() {
+        displayContainer.style.display = 'none';
+        editContainer.style.display = 'block';
+        renderEdit();
+    }
+
+    function exitEditMode() {
+        editContainer.style.display = 'none';
+        displayContainer.style.display = 'block';
+        renderDisplay();
+    }
+
+    function saveDescription(newValue) {
+        const trimmedValue = newValue.trim();
+        currentDescription = trimmedValue;
+        onUpdate({ properties: { descricao: trimmedValue } });
+        exitEditMode();
+    }
+
+    renderDisplay();
+
+    section.appendChild(displayContainer);
+    section.appendChild(editContainer);
+
+    return section;
 }
 
 /**
@@ -444,9 +553,9 @@ function openMarkerImageViewer(imageData) {
 }
 
 /**
- * Builds the style tabs (Marcador / Etiqueta / Descrição) using 2D tab pattern.
+ * Builds the style tabs (Marcador / Etiqueta) using 2D tab pattern.
  */
-function buildStyleTabs(container, marker, onStyleChange, onPropertiesChange) {
+function buildStyleTabs(container, marker, onStyleChange) {
     const style = marker.style;
 
     // Tabs container
@@ -469,15 +578,8 @@ function buildStyleTabs(container, marker, onStyleChange, onPropertiesChange) {
     labelTabBtn.innerHTML = `${ICONS.LABEL}<span>Etiqueta</span>`;
     labelTabBtn.dataset.tabId = 'label';
 
-    const descTabBtn = document.createElement('button');
-    descTabBtn.type = 'button';
-    descTabBtn.className = 'feature-tab-btn';
-    descTabBtn.innerHTML = `${ICON_DESCRIPTION}<span>Descrição</span>`;
-    descTabBtn.dataset.tabId = 'description';
-
     tabButtonsContainer.appendChild(markerTabBtn);
     tabButtonsContainer.appendChild(labelTabBtn);
-    tabButtonsContainer.appendChild(descTabBtn);
     tabsContainer.appendChild(tabButtonsContainer);
 
     // Tab contents
@@ -489,22 +591,14 @@ function buildStyleTabs(container, marker, onStyleChange, onPropertiesChange) {
     labelTabContent.className = 'feature-tab-content';
     labelTabContent.dataset.tabId = 'label';
 
-    const descTabContent = document.createElement('div');
-    descTabContent.className = 'feature-tab-content';
-    descTabContent.dataset.tabId = 'description';
-
     // Build marker style tab
     buildMarkerStyleTab(markerTabContent, style, onStyleChange);
 
     // Build label style tab
     buildLabelStyleTab(labelTabContent, style, onStyleChange);
 
-    // Build description tab
-    buildDescriptionTab(descTabContent, marker, onPropertiesChange);
-
     tabsContainer.appendChild(markerTabContent);
     tabsContainer.appendChild(labelTabContent);
-    tabsContainer.appendChild(descTabContent);
 
     // Tab switching
     tabButtonsContainer.addEventListener('click', (e) => {
@@ -521,7 +615,6 @@ function buildStyleTabs(container, marker, onStyleChange, onPropertiesChange) {
         // Update contents
         markerTabContent.classList.toggle('active', tabId === 'marker');
         labelTabContent.classList.toggle('active', tabId === 'label');
-        descTabContent.classList.toggle('active', tabId === 'description');
     });
 
     container.appendChild(tabsContainer);
@@ -703,21 +796,6 @@ function buildLabelStyleTab(container, style, onStyleChange) {
 
     // Initialize state
     toggleLabelControls(style.showLabel !== false);
-}
-
-/**
- * Builds the description tab content with a large textarea.
- */
-function buildDescriptionTab(container, marker, onPropertiesChange) {
-    // Description textarea
-    const descTextarea = createModernTextarea({
-        label: 'Descrição do Marcador',
-        value: marker.properties?.descricao || '',
-        rows: 8,
-        placeholder: 'Adicione uma descrição detalhada para este marcador...',
-        onChange: (value) => onPropertiesChange({ descricao: value })
-    });
-    container.appendChild(descTextarea);
 }
 
 /**
@@ -966,10 +1044,9 @@ function buildActionButtons(container, marker, initialProperties, initialStyle, 
     saveButton.className = 'attr-modern-btn-save';
     saveButton.type = 'submit';
     saveButton.addEventListener('click', async () => {
-        // Close the panel and deselect marker
+        // Deselect marker - this emits MARKER_3D_DESELECTED which closes panel
         const { deselectCurrentMarker } = await getMarkerTool();
         deselectCurrentMarker();
-        if (onClose) onClose();
     });
     row.appendChild(saveButton);
 
@@ -985,9 +1062,8 @@ function buildActionButtons(container, marker, initialProperties, initialStyle, 
             style: initialStyle,
             position: initialPosition
         });
-        // Deselect marker and close
+        // Deselect marker - this emits MARKER_3D_DESELECTED which closes panel
         deselectCurrentMarker();
-        if (onClose) onClose();
     });
     row.appendChild(discardButton);
 

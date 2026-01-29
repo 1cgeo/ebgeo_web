@@ -225,6 +225,39 @@ export class SidebarControl {
         // Listen for 3D viewshed deselection
         subscribe(this, this._eventBus, EventTypes.VIEWSHED_3D_DESELECTED,
             () => this._onViewshed3dDeselected());
+
+        // Listen for base layer changes (map switch) to close 3D panels
+        subscribe(this, this._eventBus, EventTypes.BASE_LAYER_CHANGED,
+            () => this._onBaseLayerChanged());
+    }
+
+    /**
+     * Called when base layer changes (usually during map switch).
+     * Closes any open 3D feature panels to prevent stale data.
+     * @private
+     */
+    _onBaseLayerChanged() {
+        const featureType = this._stateManager.get('ui.currentFeatureType');
+
+        // Check if a 3D panel is open
+        const is3dPanel = ['marker3d', 'measurement3d', 'viewshed3d'].includes(featureType);
+
+        if (is3dPanel && this._stateManager.get('ui.featurePanelOpen')) {
+            // Close the panel and cleanup
+            this._featurePanel.hide(false);
+            this._cleanupFeaturePanelContent();
+
+            this._stateManager.set('ui.featurePanelOpen', false);
+            this._stateManager.set('ui.currentFeatureType', null);
+            this._stateManager.set('sidebar.previousTab', null);
+
+            this._eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED, {});
+            this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+                sidebarExpanded: false,
+                featurePanelOpen: false,
+                contentLeftOffset: 56
+            });
+        }
     }
 
     /**

@@ -23,7 +23,6 @@ async function getMeasurementTool() {
 import { addMeasurementImage, getMeasurementImages, removeMeasurementImage } from '../../store/index.js';
 import { showSuccess, showToast } from '../../utilities/index.js';
 import { showConfirm } from '../../modals/index.js';
-import { createModernTextarea } from '../../tool_manager/helpers/index.js';
 import config from '../../config.js';
 
 /**
@@ -37,10 +36,6 @@ const ICONS = {
     RULER: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>`
 };
 
-/**
- * Icon for description tab.
- */
-const ICON_DESCRIPTION = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>`;
 
 /**
  * Creates the content for the 3D measurement panel.
@@ -62,10 +57,12 @@ export function createMeasurementPanelContent(measurement, tilesetId, onClose) {
     // Track cleanup functions
     const cleanupFunctions = [];
 
-    // 1. Identification section
+    // 1. Identification section (includes description)
     buildIdentificationSection(container, currentMeasurement, tilesetId, async (updates) => {
         if (updates.properties) {
             currentMeasurement.properties = { ...currentMeasurement.properties, ...updates.properties };
+            const { updateMeasurementProperties } = await getMeasurementTool();
+            await updateMeasurementProperties(currentMeasurement.id, { properties: currentMeasurement.properties });
         }
     });
 
@@ -78,20 +75,13 @@ export function createMeasurementPanelContent(measurement, tilesetId, onClose) {
     container.appendChild(photoGalleryPlaceholder);
     buildPhotoGallerySection(photoGalleryPlaceholder, currentMeasurement.id, cleanupFunctions);
 
-    // 4. Description section
-    buildDescriptionSection(container, currentMeasurement, async (propertyUpdates) => {
-        currentMeasurement.properties = { ...currentMeasurement.properties, ...propertyUpdates };
-        const { updateMeasurementProperties } = await getMeasurementTool();
-        await updateMeasurementProperties(currentMeasurement.id, { properties: currentMeasurement.properties });
-    });
-
-    // 5. Action buttons (Save/Discard)
+    // 4. Action buttons (Save/Discard)
     buildActionButtons(container, currentMeasurement, initialProperties, onClose);
 
-    // 6. Navigate button
+    // 5. Navigate button
     buildNavigateButton(container, currentMeasurement);
 
-    // 7. Delete button at the end
+    // 6. Delete button at the end
     buildDeleteButton(container, currentMeasurement, onClose);
 
     // Cleanup function
@@ -217,13 +207,130 @@ function buildIdentificationSection(container, measurement, tilesetId, onUpdate)
     modelLabel.className = 'feature-identification-layer';
     modelLabel.textContent = `Modelo: ${getTilesetName(tilesetId)}`;
 
+    // Description section (following 2D pattern)
+    const descriptionSection = createDescriptionSection2D(measurement, onUpdate);
+
     infoContainer.appendChild(nameContainer);
     infoContainer.appendChild(typeLabel);
     infoContainer.appendChild(modelLabel);
+    infoContainer.appendChild(descriptionSection);
 
     section.appendChild(iconContainer);
     section.appendChild(infoContainer);
     container.appendChild(section);
+}
+
+/**
+ * Creates description section following the 2D pattern.
+ * Shows a button to add description when empty, or the description text when filled.
+ */
+function createDescriptionSection2D(measurement, onUpdate) {
+    let currentDescription = measurement.properties?.descricao || '';
+
+    const section = document.createElement('div');
+    section.className = 'feature-description-section';
+
+    const displayContainer = document.createElement('div');
+    displayContainer.className = 'feature-description-display';
+
+    const editContainer = document.createElement('div');
+    editContainer.className = 'feature-description-edit';
+    editContainer.style.display = 'none';
+
+    function renderDisplay() {
+        displayContainer.innerHTML = '';
+
+        if (!currentDescription) {
+            const addButton = document.createElement('button');
+            addButton.type = 'button';
+            addButton.className = 'feature-description-add-btn';
+            addButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Adicionar descrição</span>
+            `;
+            addButton.addEventListener('click', enterEditMode);
+            displayContainer.appendChild(addButton);
+        } else {
+            const textWrapper = document.createElement('div');
+            textWrapper.className = 'feature-description-text-wrapper';
+
+            const descText = document.createElement('div');
+            descText.className = 'feature-description-text';
+            descText.textContent = currentDescription;
+            descText.title = 'Clique para editar';
+            descText.addEventListener('click', enterEditMode);
+
+            const editButton = document.createElement('button');
+            editButton.type = 'button';
+            editButton.className = 'feature-description-edit-btn';
+            editButton.title = 'Editar descrição';
+            editButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+            editButton.addEventListener('click', enterEditMode);
+
+            textWrapper.appendChild(descText);
+            textWrapper.appendChild(editButton);
+            displayContainer.appendChild(textWrapper);
+        }
+    }
+
+    function renderEdit() {
+        editContainer.innerHTML = '';
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'feature-description-textarea';
+        textarea.value = currentDescription;
+        textarea.placeholder = 'Digite uma descrição para esta medição...';
+        textarea.rows = 4;
+
+        const buttonsContainer = document.createElement('div');
+        buttonsContainer.className = 'feature-description-buttons';
+
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'feature-description-save-btn';
+        saveButton.textContent = 'Salvar';
+        saveButton.addEventListener('click', () => saveDescription(textarea.value));
+
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'feature-description-cancel-btn';
+        cancelButton.textContent = 'Cancelar';
+        cancelButton.addEventListener('click', exitEditMode);
+
+        buttonsContainer.appendChild(cancelButton);
+        buttonsContainer.appendChild(saveButton);
+
+        editContainer.appendChild(textarea);
+        editContainer.appendChild(buttonsContainer);
+
+        setTimeout(() => textarea.focus(), 0);
+    }
+
+    function enterEditMode() {
+        displayContainer.style.display = 'none';
+        editContainer.style.display = 'block';
+        renderEdit();
+    }
+
+    function exitEditMode() {
+        editContainer.style.display = 'none';
+        displayContainer.style.display = 'block';
+        renderDisplay();
+    }
+
+    function saveDescription(newValue) {
+        const trimmedValue = newValue.trim();
+        currentDescription = trimmedValue;
+        onUpdate({ properties: { descricao: trimmedValue } });
+        exitEditMode();
+    }
+
+    renderDisplay();
+
+    section.appendChild(displayContainer);
+    section.appendChild(editContainer);
+
+    return section;
 }
 
 /**
@@ -450,30 +557,6 @@ function openImageViewer(imageData) {
 }
 
 /**
- * Builds the description section.
- */
-function buildDescriptionSection(container, measurement, onPropertiesChange) {
-    const section = document.createElement('div');
-    section.className = 'measurement-description-section';
-
-    const header = document.createElement('div');
-    header.className = 'measurement-section-header';
-    header.innerHTML = `${ICON_DESCRIPTION}<span>Descrição</span>`;
-    section.appendChild(header);
-
-    const descTextarea = createModernTextarea({
-        label: '',
-        value: measurement.properties?.descricao || '',
-        rows: 4,
-        placeholder: 'Adicione uma descrição para esta medição...',
-        onChange: (value) => onPropertiesChange({ descricao: value })
-    });
-    section.appendChild(descTextarea);
-
-    container.appendChild(section);
-}
-
-/**
  * Builds the action buttons section (Save, Discard).
  */
 function buildActionButtons(container, measurement, initialProperties, onClose) {
@@ -610,29 +693,6 @@ export function injectMeasurementPanelStyles() {
             font-weight: 700;
             color: var(--primary, #16a34a);
             font-family: 'SF Mono', 'Consolas', monospace;
-        }
-
-        /* Description Section */
-        .measurement-description-section {
-            padding: 12px 16px;
-            border-bottom: 1px solid var(--border-color, #e5e7eb);
-        }
-
-        .measurement-section-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            font-weight: 500;
-            color: var(--gray-500, #6b7280);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 8px;
-        }
-
-        .measurement-section-header svg {
-            width: 14px;
-            height: 14px;
         }
 
         /* Navigate Section */
