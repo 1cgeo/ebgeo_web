@@ -1031,6 +1031,11 @@ class AddStreetViewControl {
         // Ignore if tool is not active
         if (!this.isActive) return;
 
+        // Skip if click was already consumed by a marker handler
+        if (window._markerClickConsumed) {
+            return;
+        }
+
         // Prevent event from propagating to other map handlers
         if (e.originalEvent) {
             e.originalEvent.stopPropagation();

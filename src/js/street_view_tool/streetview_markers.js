@@ -2,6 +2,10 @@
 
 import config from '../config.js';
 
+// Flag to prevent click propagation to line layer when marker is clicked
+// Shared between streetview markers and 3D viewer markers via window object
+window._markerClickConsumed = false;
+
 // Streetview marker clustering configuration
 const SV_CLUSTER_CONFIG = {
     maxZoom: 14,
@@ -286,6 +290,17 @@ class StreetviewMarkers {
     async handleClusterClick(e) {
         if (!this.isActive) return;
 
+        // Skip if click was already consumed by another marker handler
+        if (window._markerClickConsumed) return;
+
+        // Mark click as consumed to prevent line handler and other markers from processing
+        window._markerClickConsumed = true;
+
+        // Reset flag after current event loop to allow future clicks
+        setTimeout(() => {
+            window._markerClickConsumed = false;
+        }, 0);
+
         e.originalEvent.stopPropagation();
         e.originalEvent.preventDefault();
 
@@ -315,6 +330,17 @@ class StreetviewMarkers {
      */
     handleMarkerClick(e) {
         if (!this.isActive) return;
+
+        // Skip if click was already consumed by another marker handler
+        if (window._markerClickConsumed) return;
+
+        // Mark click as consumed to prevent line handler and other markers from processing
+        window._markerClickConsumed = true;
+
+        // Reset flag after current event loop to allow future clicks
+        setTimeout(() => {
+            window._markerClickConsumed = false;
+        }, 0);
 
         e.originalEvent.stopPropagation();
         e.originalEvent.preventDefault();

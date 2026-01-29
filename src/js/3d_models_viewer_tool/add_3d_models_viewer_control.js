@@ -5,6 +5,12 @@ import { URLRouter } from '../url_router.js';
 import { getEventBus, getAllMarkers, getAllMeasurements, getAllViewsheds } from '../store';
 import { EventTypes } from '../events/event_types.js';
 
+// Initialize click consumed flag if not already set
+// This flag prevents click propagation between overlapping marker layers
+if (typeof window._markerClickConsumed === 'undefined') {
+    window._markerClickConsumed = false;
+}
+
 // Clustering configuration
 const CLUSTER_CONFIG = {
     maxZoom: 14,
@@ -503,6 +509,17 @@ class Add3DModelsViewerControl {
         // Ignore if tool is not active
         if (!this.isActive) return;
 
+        // Skip if click was already consumed by another marker handler
+        if (window._markerClickConsumed) return;
+
+        // Mark click as consumed to prevent other marker handlers from processing
+        window._markerClickConsumed = true;
+
+        // Reset flag after current event loop to allow future clicks
+        setTimeout(() => {
+            window._markerClickConsumed = false;
+        }, 0);
+
         // Prevent event from propagating to other map handlers
         e.originalEvent.stopPropagation();
         e.originalEvent.preventDefault();
@@ -534,6 +551,17 @@ class Add3DModelsViewerControl {
     handleMarkerClick(e) {
         // Ignore if tool is not active
         if (!this.isActive) return;
+
+        // Skip if click was already consumed by another marker handler
+        if (window._markerClickConsumed) return;
+
+        // Mark click as consumed to prevent other marker handlers from processing
+        window._markerClickConsumed = true;
+
+        // Reset flag after current event loop to allow future clicks
+        setTimeout(() => {
+            window._markerClickConsumed = false;
+        }, 0);
 
         // Prevent event from propagating to other map handlers
         e.originalEvent.stopPropagation();
