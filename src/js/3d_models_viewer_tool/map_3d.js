@@ -391,18 +391,23 @@ export function cleanup3DFeatures() {
         if (cesiumState.modules.mouseCoordinates) {
             cesiumState.modules.mouseCoordinates.cleanupMouseCoordinates3D();
         }
+
+        // Cleanup marker tool
+        if (cesiumState.modules.markers && cesiumState.modules.markers.cleanupMarkerTool) {
+            cesiumState.modules.markers.cleanupMarkerTool();
+        }
+
+        // Cleanup measurement tool
+        if (cesiumState.modules.measurements && cesiumState.modules.measurements.cleanupMeasurementTool) {
+            cesiumState.modules.measurements.cleanupMeasurementTool();
+        }
+
+        // Cleanup viewshed tool
+        if (cesiumState.modules.viewshedTool && cesiumState.modules.viewshedTool.cleanupViewshedTool) {
+            cesiumState.modules.viewshedTool.cleanupViewshedTool();
+        }
     } catch (error) {
         console.warn('Error cleaning modules:', error);
-    }
-
-    if (window.measure && window.measure._drawLayer) {
-        window.measure._drawLayer.entities.removeAll();
-        if (window.measure.removeDrawLineMeasureGraphics) {
-            window.measure.removeDrawLineMeasureGraphics();
-        }
-        if (window.measure.removeDrawAreaMeasureGraphics) {
-            window.measure.removeDrawAreaMeasureGraphics();
-        }
     }
 
     if (cesiumState.viewer && !cesiumState.viewer.isDestroyed()) {
@@ -1101,6 +1106,16 @@ export function closeViewer() {
             cesiumState.modules.markers.deselectCurrentMarker();
         }
 
+        // Deselect any selected measurement and close its panel
+        if (cesiumState.modules.measurements && cesiumState.modules.measurements.deselectCurrentMeasurement) {
+            cesiumState.modules.measurements.deselectCurrentMeasurement();
+        }
+
+        // Deselect any selected viewshed and close its panel
+        if (cesiumState.modules.viewshedTool && cesiumState.modules.viewshedTool.deselectCurrentViewshed) {
+            cesiumState.modules.viewshedTool.deselectCurrentViewshed();
+        }
+
         pauseRendering();
         cesiumState.isVisible = false;
     }
@@ -1118,6 +1133,16 @@ export function deactivateActiveTool3D() {
     // Deactivate marker tool if active
     if (cesiumState.modules.markers) {
         cesiumState.modules.markers.deactivateMarkerTool();
+    }
+
+    // Deactivate measurement tool if active
+    if (cesiumState.modules.measurements) {
+        cesiumState.modules.measurements.deactivateMeasurementTool();
+    }
+
+    // Deactivate viewshed tool if active
+    if (cesiumState.modules.viewshedTool) {
+        cesiumState.modules.viewshedTool.deactivateViewshedTool();
     }
 }
 

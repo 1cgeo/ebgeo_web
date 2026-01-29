@@ -489,8 +489,7 @@ function buildActionButtons(container, measurement, initialProperties, onClose) 
     saveButton.type = 'submit';
     saveButton.addEventListener('click', async () => {
         const { deselectCurrentMeasurement } = await getMeasurementTool();
-        deselectCurrentMeasurement();
-        if (onClose) onClose();
+        deselectCurrentMeasurement(); // Emits MEASUREMENT_3D_DESELECTED which closes panel
     });
     row.appendChild(saveButton);
 
@@ -504,8 +503,7 @@ function buildActionButtons(container, measurement, initialProperties, onClose) 
         await updateMeasurementProperties(measurement.id, {
             properties: initialProperties
         });
-        deselectCurrentMeasurement();
-        if (onClose) onClose();
+        deselectCurrentMeasurement(); // Emits MEASUREMENT_3D_DESELECTED which closes panel
     });
     row.appendChild(discardButton);
 
@@ -556,7 +554,7 @@ function buildDeleteButton(container, measurement, onClose) {
             const result = await deleteMeasurement(measurement.id);
             if (result) {
                 showSuccess('Medição deletada!');
-                if (onClose) onClose();
+                // deleteMeasurement() already emits MEASUREMENT_3D_DESELECTED which closes panel
             }
         } catch (error) {
             console.error('Error deleting measurement:', error);
