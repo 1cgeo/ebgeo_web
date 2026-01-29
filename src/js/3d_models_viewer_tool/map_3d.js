@@ -784,7 +784,6 @@ function updateCameraButtonState(hasSavedPosition) {
 
     if (saveBtn) {
         saveBtn.classList.toggle('has-saved', hasSavedPosition);
-        saveBtn.title = hasSavedPosition ? 'Atualizar posição da câmera' : 'Salvar posição da câmera';
     }
 
     if (clearBtn) {
