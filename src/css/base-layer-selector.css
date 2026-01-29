@@ -43,6 +43,11 @@
     box-shadow: var(--shadow-lg);
     border: 3px solid white;
     transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+/* Gradient fallback only when no image */
+.base-layer-thumbnail:has(img:not([src])),
+.base-layer-thumbnail:has(img[src=""]) {
     background: linear-gradient(135deg, #f5f5dc 0%, #ddd8c4 100%);
 }
 
@@ -149,6 +154,11 @@
     border: 2px solid var(--gray-200);
     transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
     margin-bottom: var(--space-1);
+}
+
+/* Gradient fallback only when no image */
+.base-layer-option-thumb:has(img:not([src])),
+.base-layer-option-thumb:has(img[src=""]) {
     background: linear-gradient(135deg, #ccc 0%, #999 100%);
 }
 
