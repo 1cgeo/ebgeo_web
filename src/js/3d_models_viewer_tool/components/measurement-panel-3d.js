@@ -559,7 +559,7 @@ function openImageViewer(imageData) {
 /**
  * Builds the action buttons section (Save, Discard).
  */
-function buildActionButtons(container, measurement, initialProperties, onClose) {
+function buildActionButtons(container, measurement, initialProperties, _onClose) {
     const section = document.createElement('div');
     section.className = 'attr-modern-buttons';
 
@@ -616,7 +616,7 @@ function buildNavigateButton(container, measurement) {
 /**
  * Builds the delete button at the end.
  */
-function buildDeleteButton(container, measurement, onClose) {
+function buildDeleteButton(container, measurement, _onClose) {
     const section = document.createElement('div');
     section.className = 'feature-panel-delete-section';
 

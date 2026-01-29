@@ -6,7 +6,6 @@ import {
 } from '../utilities';
 import { getTerrainElevation } from '../terrain';
 import { GridControl } from '../grid';
-import { FrameControl } from '../frame';
 import config from '../config.js';
 import { getStateManager } from '../store';
 
@@ -33,7 +32,6 @@ class MouseCoordinatesControl {
         this._debounceTimer = null;
         this._elevationAbortController = null;
 
-        this.frameControl = null;
         this.gridControl = null;
         this._name = 'MouseCoordinatesControl';
 
@@ -284,17 +282,6 @@ class MouseCoordinatesControl {
             gridContainer.appendChild(gridButton);
         }
 
-        if (config.features.frame){
-            this.frameControl = new FrameControl(map, gridContainer);
-            const frameButton = document.createElement('div');
-            frameButton.className = 'coordinates-button coordinates-grid-button';
-            frameButton.title = "Ligar/desligar Produtos";
-            frameButton.innerHTML = `<img src="./images/frame_icon.svg" alt="Toogle frame" width="16" height="16" />`;
-            frameButton.addEventListener('click', this.frameControl._showFrameMenu.bind(this.frameControl));
-            this.frameControl.setButton(frameButton);
-            gridContainer.appendChild(frameButton);
-        }
-
         this._formatSelector = document.createElement('div');
         this._formatSelector.className = 'coordinates-format-selector';
 
@@ -328,7 +315,7 @@ class MouseCoordinatesControl {
 
         controlsContainer.appendChild(this._elevationButton);
         controlsContainer.appendChild(gearButton)
-        if (config.features.grid || config.features.frame) {
+        if (config.features.grid) {
             this._innerContainer.appendChild(gridContainer);
         }
         this._innerContainer.appendChild(this._coordinatesText);

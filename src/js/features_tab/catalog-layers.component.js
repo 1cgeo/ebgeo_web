@@ -53,8 +53,9 @@ export function createCatalogLayersContainer() {
  * @param {Object} map - MapLibre map instance
  * @param {Object} eventBus - EventBus instance
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  */
-export async function renderCatalogLayers(container, map, eventBus, analysisLayersManager) {
+export async function renderCatalogLayers(container, map, eventBus, analysisLayersManager, dataLayersManager) {
     if (!container) return;
 
     const layers = await getCatalogLayers();
@@ -65,20 +66,51 @@ export async function renderCatalogLayers(container, map, eventBus, analysisLaye
         return;
     }
 
+    // Separate layers by type for different sections
+    const analysisLayers = layers.filter(l =>
+        l.type === CATALOG_ITEM_TYPES.HILLSHADE ||
+        l.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER
+    );
+    const dataLayers = layers.filter(l => l.type === CATALOG_ITEM_TYPES.DATA_LAYER);
+
     container.style.display = 'block';
-    container.innerHTML = `
-        <div class="sidebar-section-header">
-            <span>Análise</span>
-        </div>
-        <div class="catalog-layers-list"></div>
-    `;
+    container.innerHTML = '';
 
-    const list = container.querySelector('.catalog-layers-list');
+    // Render Analysis section if has layers
+    if (analysisLayers.length > 0) {
+        const analysisSection = document.createElement('div');
+        analysisSection.className = 'catalog-layers-analysis-section';
+        analysisSection.innerHTML = `
+            <div class="sidebar-section-header">
+                <span>Análise</span>
+            </div>
+            <div class="catalog-layers-list"></div>
+        `;
+        const analysisList = analysisSection.querySelector('.catalog-layers-list');
+        analysisLayers.forEach(layer => {
+            const item = createLayerItem(layer, map, eventBus, analysisLayersManager, dataLayersManager);
+            analysisList.appendChild(item);
+        });
+        container.appendChild(analysisSection);
+    }
 
-    layers.forEach(layer => {
-        const item = createLayerItem(layer, map, eventBus, analysisLayersManager);
-        list.appendChild(item);
-    });
+    // Render Data section if has layers
+    if (dataLayers.length > 0) {
+        const dataSection = document.createElement('div');
+        dataSection.className = 'catalog-layers-data-section';
+        dataSection.innerHTML = `
+            <div class="sidebar-section-header">
+                <span>Dados</span>
+            </div>
+            <div class="catalog-layers-list"></div>
+        `;
+        const dataList = dataSection.querySelector('.catalog-layers-list');
+        dataLayers.forEach(layer => {
+            const item = createLayerItem(layer, map, eventBus, analysisLayersManager, dataLayersManager);
+            dataList.appendChild(item);
+        });
+        container.appendChild(dataSection);
+    }
 }
 
 /**
@@ -87,9 +119,10 @@ export async function renderCatalogLayers(container, map, eventBus, analysisLaye
  * @param {Object} map - MapLibre map instance
  * @param {Object} eventBus - EventBus instance
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  * @returns {HTMLElement}
  */
-function createLayerItem(layer, map, eventBus, analysisLayersManager) {
+function createLayerItem(layer, map, eventBus, analysisLayersManager, dataLayersManager) {
     const isUnavailable = layer.status === 'unavailable';
 
     const item = document.createElement('div');
@@ -99,10 +132,10 @@ function createLayerItem(layer, map, eventBus, analysisLayersManager) {
 
     if (isUnavailable) {
         item.innerHTML = createUnavailableLayerHTML(layer);
-        attachUnavailableLayerEvents(item, layer, map, eventBus, analysisLayersManager);
+        attachUnavailableLayerEvents(item, layer, map, eventBus, analysisLayersManager, dataLayersManager);
     } else {
         item.innerHTML = createActiveLayerHTML(layer);
-        attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManager);
+        attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManager, dataLayersManager);
     }
 
     return item;
@@ -170,8 +203,9 @@ function createUnavailableLayerHTML(layer) {
  * @param {Object} map - MapLibre map instance
  * @param {Object} eventBus - EventBus instance
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  */
-function attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManager) {
+function attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManager, dataLayersManager) {
     // Zoom button
     const zoomBtn = item.querySelector('.catalog-layer-zoom');
     if (zoomBtn) {
@@ -191,14 +225,14 @@ function attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManag
         visBtn.innerHTML = newVisibility ? ICONS.VISIBLE : ICONS.HIDDEN;
 
         // Apply visibility to map
-        applyLayerVisibility(map, layer, newVisibility, analysisLayersManager);
+        applyLayerVisibility(map, layer, newVisibility, analysisLayersManager, dataLayersManager);
 
         // Emit event
         eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
     });
 
     // Remove layer
-    attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager);
+    attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager, dataLayersManager);
 }
 
 /**
@@ -208,17 +242,18 @@ function attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManag
  * @param {Object} map - MapLibre map instance
  * @param {Object} eventBus - EventBus instance
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  */
-function attachUnavailableLayerEvents(item, layer, map, eventBus, analysisLayersManager) {
+function attachUnavailableLayerEvents(item, layer, map, eventBus, analysisLayersManager, dataLayersManager) {
     // Info button - shows popover with details
     const infoBtn = item.querySelector('.catalog-layer-info-btn');
     infoBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        showUnavailableLayerPopover(layer, infoBtn, map, eventBus, analysisLayersManager);
+        showUnavailableLayerPopover(layer, infoBtn, map, eventBus, analysisLayersManager, dataLayersManager);
     });
 
     // Remove layer
-    attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager);
+    attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager, dataLayersManager);
 }
 
 /**
@@ -228,8 +263,9 @@ function attachUnavailableLayerEvents(item, layer, map, eventBus, analysisLayers
  * @param {Object} map - MapLibre map instance
  * @param {Object} eventBus - EventBus instance
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  */
-function attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager) {
+function attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager, dataLayersManager) {
     const removeBtn = item.querySelector('.catalog-layer-remove');
     removeBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -238,7 +274,7 @@ function attachRemoveEvent(item, layer, map, eventBus, analysisLayersManager) {
 
         // Remove from map (only if was active)
         if (layer.status !== 'unavailable') {
-            removeLayerFromMap(map, layer, analysisLayersManager);
+            removeLayerFromMap(map, layer, analysisLayersManager, dataLayersManager);
         }
 
         // Check if any layers remaining
@@ -280,8 +316,9 @@ function getLayerIcon(type) {
  * @param {Object} layer - Layer data
  * @param {boolean} visible - Visibility state
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  */
-function applyLayerVisibility(map, layer, visible, analysisLayersManager) {
+function applyLayerVisibility(map, layer, visible, analysisLayersManager, dataLayersManager) {
     if (layer.type === CATALOG_ITEM_TYPES.HILLSHADE) {
         // Use terrain control for hillshade
         const terrainControl = map._controls?.find(
@@ -293,6 +330,9 @@ function applyLayerVisibility(map, layer, visible, analysisLayersManager) {
     } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
         // Use analysis layers manager
         analysisLayersManager.toggleLayer(layer.config?.id, visible);
+    } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
+        // Use data layers manager
+        dataLayersManager.toggleLayer(layer.config?.id, visible);
     }
 }
 
@@ -301,10 +341,11 @@ function applyLayerVisibility(map, layer, visible, analysisLayersManager) {
  * @param {Object} map - MapLibre map instance
  * @param {Object} layer - Layer data
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  */
-function removeLayerFromMap(map, layer, analysisLayersManager) {
+function removeLayerFromMap(map, layer, analysisLayersManager, dataLayersManager) {
     // Set visibility to false first
-    applyLayerVisibility(map, layer, false, analysisLayersManager);
+    applyLayerVisibility(map, layer, false, analysisLayersManager, dataLayersManager);
 }
 
 /**
@@ -314,8 +355,9 @@ function removeLayerFromMap(map, layer, analysisLayersManager) {
  * @param {Object} map - MapLibre map instance
  * @param {Object} eventBus - EventBus instance
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  */
-function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analysisLayersManager) {
+function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analysisLayersManager, dataLayersManager) {
     // Remove any existing popover
     const existingPopover = document.querySelector('.catalog-layer-popover');
     if (existingPopover) {
@@ -380,6 +422,8 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
                 }
             } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
                 await analysisLayersManager.toggleLayer(layer.config?.id, true);
+            } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
+                dataLayersManager.toggleLayer(layer.config?.id, true);
             }
 
             // Emit event to refresh UI
@@ -448,8 +492,9 @@ function positionPopover(popover, anchor) {
  * @param {Object} map - MapLibre map instance
  * @param {Object} eventBus - EventBus instance
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  */
-export async function handleCatalogAddLayer(payload, map, eventBus, analysisLayersManager) {
+export async function handleCatalogAddLayer(payload, map, eventBus, analysisLayersManager, dataLayersManager) {
     const { type, item } = payload;
 
     // Check if already added
@@ -458,7 +503,7 @@ export async function handleCatalogAddLayer(payload, map, eventBus, analysisLaye
         const layers = await getCatalogLayers();
         const existingLayer = layers.find(l => l.id === item.id);
         if (existingLayer) {
-            applyLayerVisibility(map, existingLayer, true, analysisLayersManager);
+            applyLayerVisibility(map, existingLayer, true, analysisLayersManager, dataLayersManager);
             await toggleCatalogLayerVisibility(item.id, true);
         }
         return;
@@ -488,6 +533,8 @@ export async function handleCatalogAddLayer(payload, map, eventBus, analysisLaye
         // State is now managed via catalogLayers, no separate hillshadeEnabled needed
     } else if (type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
         await analysisLayersManager.toggleLayer(item.originalData.id, true);
+    } else if (type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
+        dataLayersManager.toggleLayer(item.originalData.id, true);
     }
 
     // Emit event to refresh UI
@@ -499,11 +546,12 @@ export async function handleCatalogAddLayer(payload, map, eventBus, analysisLaye
  * @param {Object} map - MapLibre map instance
  * @param {Object} eventBus - EventBus instance
  * @param {Object} [analysisLayersManager] - Analysis layers manager instance
+ * @param {Object} [dataLayersManager] - Data layers manager instance
  * @returns {Function} Unsubscriber function
  */
-export function initCatalogLayerListeners(map, eventBus, analysisLayersManager) {
+export function initCatalogLayerListeners(map, eventBus, analysisLayersManager, dataLayersManager) {
     const handler = (payload) => {
-        handleCatalogAddLayer(payload, map, eventBus, analysisLayersManager);
+        handleCatalogAddLayer(payload, map, eventBus, analysisLayersManager, dataLayersManager);
     };
 
     eventBus.on('CATALOG_ADD_LAYER', handler);

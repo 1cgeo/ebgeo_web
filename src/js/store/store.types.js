@@ -66,13 +66,6 @@
  */
 
 /**
- * @typedef {Object} FrameStyle
- * @property {boolean} [visible] - Frame visibility
- * @property {string} [color] - Frame color
- * @property {number} [width] - Frame width
- */
-
-/**
  * @typedef {Object} GridStyle
  * @property {boolean} [visible] - Grid visibility
  * @property {string} [type] - Grid type

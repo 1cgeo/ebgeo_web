@@ -4,9 +4,8 @@
  * @fileoverview Main layer setup orchestrator for MapLibre.
  */
 
-import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getFrameStyle, getGridStyle, getCatalogLayers, getControl } from '../store';
+import { getCurrentMapFeatures, getImage, getCurrentMapNameSync, getGridStyle, getCatalogLayers, getControl } from '../store';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
-import { initFrameLayers } from '../frame/index.js';
 import { initGridLayers } from '../grid/index.js';
 import config from '../config.js';
 import { EventTypes } from '../events';
@@ -216,12 +215,13 @@ async function restoreTerrainState(_mapInstance) {
 }
 
 /**
- * Restores catalog layers (hillshade, analysis layers) from saved state.
+ * Restores catalog layers (hillshade, analysis layers, data layers) from saved state.
  * Only activates layers that were explicitly added via the catalog.
  * @param {Object} mapInstance - MapLibre map instance
  * @param {Object} analysisLayersManager - Analysis layers manager
+ * @param {Object} dataLayersManager - Data layers manager
  */
-async function restoreCatalogLayers(mapInstance, analysisLayersManager) {
+async function restoreCatalogLayers(mapInstance, analysisLayersManager, dataLayersManager) {
     try {
         const catalogLayers = await getCatalogLayers();
 
@@ -248,6 +248,8 @@ async function restoreCatalogLayers(mapInstance, analysisLayersManager) {
                 }
             } else if (layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && analysisLayersManager) {
                 await analysisLayersManager.toggleLayer(layer.config?.id, true);
+            } else if (layer.type === CATALOG_ITEM_TYPES.DATA_LAYER && dataLayersManager) {
+                dataLayersManager.toggleLayer(layer.config?.id, true);
             }
         }
     } catch (error) {
@@ -389,51 +391,6 @@ function restoreBoundaryDependentFeatures(features, mapInstance) {
 }
 
 /**
- * Sets up frame layers on the map.
- * @param {Object} mapInstance - MapLibre map instance
- */
-async function setupFrameLayers(mapInstance) {
-    initFrameLayers(mapInstance);
-
-    try {
-        const mouseCoordinatesControl = getControl('MouseCoordinatesControl');
-
-        if (!mouseCoordinatesControl) {
-            console.log('Nenhum controle de mouse encontrado');
-            return;
-        }
-
-        const frameControl = mouseCoordinatesControl.frameControl;
-
-        if (!frameControl) {
-            console.log('Nenhum controle de moldura encontrado');
-            return;
-        }
-        const mapName = getCurrentMapNameSync();
-        const savedFrame = await getFrameStyle(mapName);
-
-        let scale = 'scale_25k';
-        let visible = false;
-        let fillVisible = true;
-
-        if (savedFrame) {
-            scale = savedFrame.scale ?? 'scale_25k';
-            visible = savedFrame.visible ?? false;
-            fillVisible = savedFrame.fillVisible ?? true;
-        }
-
-        // Sync internal state before applying visibility
-        frameControl.syncState(scale, visible, fillVisible);
-        frameControl._getFrame(scale, visible, fillVisible);
-        frameControl._updateButtonState(visible);
-        console.info(`Moldura restaurada: scale = ${scale}, fillVisible = ${fillVisible}, visível=${visible}`);
-
-    } catch (error) {
-        console.warn('Error restoring frame:', error);
-    }
-}
-
-/**
  * Sets up grid layers on the map.
  * @param {Object} mapInstance - MapLibre map instance
  */
@@ -493,9 +450,10 @@ function setupLayerVisibilityListener(mapInstance, eventBus) {
  * Sets up all map feature layers and visibility system.
  * @param {Object} mapInstance - MapLibre map instance
  * @param {Object} analysisLayersManager - Analysis layers manager
+ * @param {Object} dataLayersManager - Data layers manager
  * @param {import('../events/event_bus.js').EventBus} eventBus - Event bus instance
  */
-export async function setupMapFeatures(mapInstance, analysisLayersManager, eventBus) {
+export async function setupMapFeatures(mapInstance, analysisLayersManager, dataLayersManager, eventBus) {
     try {
         invalidateFilterCache();
 
@@ -505,8 +463,8 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, event
 
         await analysisLayersManager.setupAnalysisLayers();
 
-        // Restore catalog layers (hillshade, analysis) from saved state
-        await restoreCatalogLayers(mapInstance, analysisLayersManager);
+        // Restore catalog layers (hillshade, analysis, data) from saved state
+        await restoreCatalogLayers(mapInstance, analysisLayersManager, dataLayersManager);
 
         const features = await getCurrentMapFeatures();
         await setImages(features, mapInstance);
@@ -531,9 +489,6 @@ export async function setupMapFeatures(mapInstance, analysisLayersManager, event
 
         if (config.features.grid) {
             setupGridLayers(mapInstance);
-        }
-        if (config.features.frame) {
-            setupFrameLayers(mapInstance);
         }
 
         setupLayerVisibilityListener(mapInstance, eventBus);

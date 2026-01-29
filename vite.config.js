@@ -149,9 +149,8 @@ export default defineConfig({
           if (id.includes('src/js/ui/')) {
             return 'core';
           }
-          // Utilitários de mapa (grid, frame, coordinates)
+          // Utilitários de mapa (grid, coordinates)
           if (id.includes('src/js/grid/') ||
-              id.includes('src/js/frame/') ||
               id.includes('src/js/coordinates/')) {
             return 'core';
           }

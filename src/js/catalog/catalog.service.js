@@ -36,7 +36,8 @@ export class CatalogService {
             ...this._getModels3D(),
             ...this._getPanoramic360(),
             ...this._getHillshade(),
-            ...this._getAnalysisLayers()
+            ...this._getAnalysisLayers(),
+            ...this._getDataLayers()
         ];
 
         // Sort by date descending (most recent first)
@@ -209,6 +210,28 @@ export class CatalogService {
             date: null,
             local: layer.local || null,
             location: layer.bounds ? { bounds: layer.bounds } : null,
+            originalData: layer
+        }));
+    }
+
+    /**
+     * Gets data layers (molduras, etc.) from config.
+     * @private
+     * @returns {CatalogItem[]}
+     */
+    static _getDataLayers() {
+        const dataConfig = config.dataLayers;
+        if (!dataConfig?.enabled || !dataConfig.layers?.length) return [];
+
+        return dataConfig.layers.map(layer => ({
+            id: `data-${layer.id}`,
+            type: CATALOG_ITEM_TYPES.DATA_LAYER,
+            name: layer.name,
+            description: layer.description || null,
+            thumbnail: layer.thumbnail || DEFAULT_THUMBNAILS[CATALOG_ITEM_TYPES.DATA_LAYER],
+            date: null,
+            local: null,
+            location: null,
             originalData: layer
         }));
     }

@@ -662,7 +662,7 @@ function openImageViewer(imageData) {
 /**
  * Builds the action buttons section (Save, Discard).
  */
-function buildActionButtons(container, viewshed, initialProperties, onClose) {
+function buildActionButtons(container, viewshed, initialProperties, _onClose) {
     const section = document.createElement('div');
     section.className = 'attr-modern-buttons';
 

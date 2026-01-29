@@ -897,16 +897,6 @@ function updateMeasurementEntityVisualsToSelected(measurementId) {
 }
 
 /**
- * Gets a measurement by ID (async wrapper).
- * @param {string} measurementId - Measurement ID
- * @returns {Promise<Object|null>} Measurement or null
- */
-async function getMeasurementByIdAsync(measurementId) {
-    const { getMeasurementById } = await import('../../store/index.js');
-    return await getMeasurementById(measurementId);
-}
-
-/**
  * Emits measurement clicked event.
  * @param {Object} measurement - Measurement data
  */

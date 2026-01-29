@@ -70,13 +70,15 @@ export class FeaturesTab {
      * @param {Object} map - MapLibre map instance
      * @param {Object} selectionManager - Selection manager instance
      * @param {Object} analysisLayersManager - Analysis layers manager instance
+     * @param {Object} dataLayersManager - Data layers manager instance
      * @param {import('../events/event_bus.js').EventBus} eventBus - Event bus instance
      */
-    constructor(map, selectionManager, analysisLayersManager, eventBus) {
+    constructor(map, selectionManager, analysisLayersManager, dataLayersManager, eventBus) {
         this.map = map;
         this.selectionManager = selectionManager;
         this.container = null;
         this.analysisLayersManager = analysisLayersManager;
+        this.dataLayersManager = dataLayersManager;
         this._eventBus = eventBus;
 
         this._sourceDataHandler = null;
@@ -143,7 +145,8 @@ export class FeaturesTab {
         this._catalogLayerUnsubscriber = initCatalogLayerListeners(
             this.map,
             this._eventBus,
-            this.analysisLayersManager
+            this.analysisLayersManager,
+            this.dataLayersManager
         );
 
         // Initialize 3D models section listeners
@@ -167,12 +170,13 @@ export class FeaturesTab {
                 this._setupEventListeners();
             }
 
-            // Render catalog layers from store (analysis section)
+            // Render catalog layers from store (analysis + data sections)
             await renderCatalogLayers(
                 this.container.querySelector('.catalog-layers-section'),
                 this.map,
                 this._eventBus,
-                this.analysisLayersManager
+                this.analysisLayersManager,
+                this.dataLayersManager
             );
 
             // Render 3D models section
@@ -842,12 +846,13 @@ export class FeaturesTab {
         if (!this._isVisible) return;
         clearTimeout(this._debounceTimer);
         this._debounceTimer = setTimeout(async () => {
-            // Re-render catalog layers (analysis section)
+            // Re-render catalog layers (analysis + data sections)
             await renderCatalogLayers(
                 this.container.querySelector('.catalog-layers-section'),
                 this.map,
                 this._eventBus,
-                this.analysisLayersManager
+                this.analysisLayersManager,
+                this.dataLayersManager
             );
             // Re-render 3D models section
             await renderModels3dSection(

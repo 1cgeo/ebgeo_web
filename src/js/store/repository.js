@@ -628,18 +628,6 @@ const removeMapNotes = async (mapName) => {
     await appStore.removeItem(key);
 };
 
-// ===== FRAME STYLE OPERATIONS =====
-
-const setFrameStyle = async (mapName, frameStyle) => {
-    const key = `frameStyle_${mapName}`;
-    await appStore.setItem(key, frameStyle);
-};
-
-const getFrameStyle = async (mapName) => {
-    const key = `frameStyle_${mapName}`;
-    return await appStore.getItem(key);
-};
-
 // ===== GRID STYLE OPERATIONS =====
 
 const setGridStyle = async (mapName, gridStyle) => {
@@ -819,8 +807,6 @@ export {
     setMapNotes,
     getMapNotes,
     removeMapNotes,
-    setFrameStyle,
-    getFrameStyle,
     setGridStyle,
     getGridStyle,
     getMapOrder,

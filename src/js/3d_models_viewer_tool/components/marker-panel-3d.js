@@ -1031,7 +1031,7 @@ function showCoordinateEditModal3D(marker, onPositionUpdate, sectionContainer) {
 /**
  * Builds the action buttons section (Save, Discard, Set Default).
  */
-function buildActionButtons(container, marker, initialProperties, initialStyle, initialPosition, onClose) {
+function buildActionButtons(container, marker, initialProperties, initialStyle, initialPosition, _onClose) {
     const section = document.createElement('div');
     section.className = 'attr-modern-buttons';
 

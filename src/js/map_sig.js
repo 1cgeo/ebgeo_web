@@ -15,7 +15,7 @@ import { FeatureSearchControl, SearchBarComponent } from './search';
 import { ChipsComponent, SidebarControl } from './sidebar';
 import { BaseLayerSelectorControl } from './base-layer-selector';
 import { MouseCoordinatesControl } from './coordinates';
-import { TerrainControl, AnalysisLayersManager } from './terrain';
+import { TerrainControl, AnalysisLayersManager, DataLayersManager } from './terrain';
 import { BottomControlsControl } from './bottom-controls';
 import config from './config.js';
 import baseStyle from './baselayers/carta_topografica.js';
@@ -74,6 +74,7 @@ if (config.map2d.maxBounds) {
 }
 
 const analysisLayersManager = new AnalysisLayersManager(map);
+const dataLayersManager = new DataLayersManager(map);
 
 // Promise to track when IndexedDB initialization is complete.
 // This prevents a race condition where map.on('load') could call switchMap()
@@ -176,7 +177,7 @@ const vectorTileInfoControl = new VectorTileInfoControl(toolManager, uiManager);
 selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
 const baseLayerControl = new BaseLayerControl(uiManager, config.map2d.hillshade);
 
-const mapControl = new MapControl(baseLayerControl, analysisLayersManager);
+const mapControl = new MapControl(baseLayerControl, analysisLayersManager, dataLayersManager);
 mapControl.setSelectionManager(selectionManager);
 
 baseLayerControl.setMapControl(mapControl);

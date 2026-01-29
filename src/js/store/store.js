@@ -307,8 +307,6 @@ export {
 export {
     getMapNotes,
     setMapNotes,
-    getFrameStyle,
-    setFrameStyle,
     getGridStyle,
     setGridStyle,
     getMapAnalysisLayersStates,

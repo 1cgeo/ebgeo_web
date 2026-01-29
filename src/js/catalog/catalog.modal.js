@@ -227,6 +227,9 @@ export class CatalogModal extends ModalBase {
             case CATALOG_ITEM_TYPES.ANALYSIS_LAYER:
                 await this._addAnalysisLayer(item);
                 break;
+            case CATALOG_ITEM_TYPES.DATA_LAYER:
+                await this._addDataLayer(item);
+                break;
         }
 
         this.hide();
@@ -311,6 +314,24 @@ export class CatalogModal extends ModalBase {
                 padding: 50,
                 duration: 1000
             });
+        }
+    }
+
+    /**
+     * Adds data layer (molduras, etc.).
+     * @private
+     * @param {CatalogItem} item
+     */
+    async _addDataLayer(item) {
+        // Emit event to add data layer
+        this._eventBus.emit('CATALOG_ADD_LAYER', {
+            type: CATALOG_ITEM_TYPES.DATA_LAYER,
+            item: item
+        });
+
+        // Open the layers sidebar tab to show the added layer
+        if (this._stateManager) {
+            this._stateManager.expandSidebar('camadas');
         }
     }
 }

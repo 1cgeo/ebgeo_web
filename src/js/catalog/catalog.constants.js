@@ -14,7 +14,8 @@ export const CATALOG_ITEM_TYPES = Object.freeze({
     MODEL_3D: 'model_3d',
     PANORAMIC_360: 'panoramic_360',
     HILLSHADE: 'hillshade',
-    ANALYSIS_LAYER: 'analysis_layer'
+    ANALYSIS_LAYER: 'analysis_layer',
+    DATA_LAYER: 'data_layer'
 });
 
 /**
@@ -32,7 +33,10 @@ export const CATALOG_ICONS = Object.freeze({
     [CATALOG_ITEM_TYPES.HILLSHADE]: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>`,
 
     // Analysis Layer - layers icon
-    [CATALOG_ITEM_TYPES.ANALYSIS_LAYER]: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`
+    [CATALOG_ITEM_TYPES.ANALYSIS_LAYER]: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+
+    // Data Layer - database/grid icon
+    [CATALOG_ITEM_TYPES.DATA_LAYER]: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>`
 });
 
 /**
@@ -71,6 +75,13 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
         hasLocation: true,
         // This filter includes both analysis layers AND hillshade
         includesHillshade: true
+    },
+    [CATALOG_ITEM_TYPES.DATA_LAYER]: {
+        label: 'Dados',
+        icon: CATALOG_ICONS[CATALOG_ITEM_TYPES.DATA_LAYER],
+        color: '#508D4E',
+        hasDate: false,
+        hasLocation: false
     }
 });
 
@@ -82,7 +93,8 @@ export const CATALOG_TYPE_CONFIG = Object.freeze({
 export const CATALOG_MODAL_FILTERS = Object.freeze([
     CATALOG_ITEM_TYPES.MODEL_3D,
     CATALOG_ITEM_TYPES.PANORAMIC_360,
-    CATALOG_ITEM_TYPES.ANALYSIS_LAYER
+    CATALOG_ITEM_TYPES.ANALYSIS_LAYER,
+    CATALOG_ITEM_TYPES.DATA_LAYER
 ]);
 
 /**
@@ -121,6 +133,16 @@ export const DEFAULT_THUMBNAILS = Object.freeze({
             <polygon points="100,25 150,45 100,65 50,45" fill="none" stroke="#f59e0b" stroke-width="2"/>
             <polygon points="100,45 150,65 100,85 50,65" fill="none" stroke="#f59e0b" stroke-width="2" opacity="0.7"/>
             <polygon points="100,65 150,85 100,105 50,85" fill="none" stroke="#f59e0b" stroke-width="2" opacity="0.4"/>
+        </svg>
+    `),
+    [CATALOG_ITEM_TYPES.DATA_LAYER]: 'data:image/svg+xml,' + encodeURIComponent(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">
+            <rect fill="#f3f4f6" width="200" height="120"/>
+            <rect x="40" y="25" width="120" height="70" fill="none" stroke="#508D4E" stroke-width="2" rx="4"/>
+            <line x1="40" y1="48" x2="160" y2="48" stroke="#508D4E" stroke-width="1.5"/>
+            <line x1="40" y1="72" x2="160" y2="72" stroke="#508D4E" stroke-width="1.5"/>
+            <line x1="80" y1="25" x2="80" y2="95" stroke="#508D4E" stroke-width="1.5"/>
+            <line x1="120" y1="25" x2="120" y2="95" stroke="#508D4E" stroke-width="1.5"/>
         </svg>
     `)
 });

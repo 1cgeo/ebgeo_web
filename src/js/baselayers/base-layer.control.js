@@ -256,7 +256,8 @@ class BaseLayerControl {
         await this.switchLayer(baseLayer);
 
         const analysisLayersManager = this.mapControl.getAnalysisLayersManager();
-        await setupMapFeatures(this.map, analysisLayersManager, getEventBus());
+        const dataLayersManager = this.mapControl.getDataLayersManager();
+        await setupMapFeatures(this.map, analysisLayersManager, dataLayersManager, getEventBus());
 
         if(applyPosition){
             await this.applyMapSavedPosition(currentMapName);

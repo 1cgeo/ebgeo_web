@@ -1,7 +1,7 @@
 // Path: js/store/settings.operations.js
 
 /**
- * @fileoverview Settings, notes, frame, grid, hillshade, and image operations.
+ * @fileoverview Settings, notes, grid, hillshade, and image operations.
  */
 
 import {
@@ -13,8 +13,6 @@ import {
     hasImageData,
     setMapNotes as setMapNotesRepo,
     getMapNotes as getMapNotesRepo,
-    setFrameStyle as setFrameStyleRepo,
-    getFrameStyle as getFrameStyleRepo,
     setGridStyle as setGridStyleRepo,
     getGridStyle as getGridStyleRepo
 } from './repository.js';
@@ -45,29 +43,6 @@ export const getMapNotes = async (mapName = null) => {
 export const setMapNotes = async (mapName, notes) => {
     const targetMap = mapName || mapManager.getCurrentMapName();
     await setMapNotesRepo(targetMap, notes);
-};
-
-// ===== FRAME STYLE =====
-
-/**
- * Gets frame style.
- *
- * @param {string} mapName - Map name
- * @returns {Promise<import('./store.types.js').FrameStyle>} Frame style
- */
-export const getFrameStyle = async (mapName) => {
-    return await getFrameStyleRepo(mapName);
-};
-
-/**
- * Sets frame style.
- *
- * @param {string} mapName - Map name
- * @param {import('./store.types.js').FrameStyle} frameStyle - Frame style
- * @returns {Promise<void>}
- */
-export const setFrameStyle = async (mapName, frameStyle) => {
-    await setFrameStyleRepo(mapName, frameStyle);
 };
 
 // ===== GRID STYLE =====

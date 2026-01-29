@@ -14,7 +14,6 @@ const config = {
     imagens_panoramicas: true,    // Habilita/desabilita street view control
     apisearch: false,              // Habilita/desabilita busca via API externa
     grid: false,                  // Habilita/desabilita grid
-    frame: false,                 // Habilita/desabilita moldura
   },
 
   url_paths: {
@@ -65,6 +64,123 @@ const config = {
   analysisLayers: {
     enabled: true, // Feature flag global
     layers: [
+    ]
+  },
+
+  // ===== DATA LAYERS (Molduras, etc.) =====
+  // Camadas de dados vetoriais exibidas no catálogo na categoria "Dados"
+  // Campos opcionais: labelSource, labelSourceLayer, labelMinzoom, style.fill, style.label
+  dataLayers: {
+    enabled: true, // Feature flag global
+    layers: [
+      // ===== EXEMPLO SIMPLES (apenas borda) =====
+      // Configuração mínima: apenas source, sourceLayer e border
+      // {
+      //   id: 'rodovias',
+      //   name: 'Rodovias Federais',
+      //   description: 'Malha rodoviária federal',
+      //   source: {
+      //     type: 'vector',
+      //     url: 'http://IP:PORT/rodovias'
+      //   },
+      //   sourceLayer: 'rodovias',
+      //   minzoom: 4,
+      //   maxzoom: 18,
+      //   style: {
+      //     border: {
+      //       color: '#E74C3C',
+      //       width: 2,
+      //       opacity: 1
+      //     }
+      //   }
+      // },
+
+      // ===== EXEMPLO COM RÓTULO (mesmo datasource) =====
+      // Borda + rótulo usando o mesmo source (sem labelSource separado)
+      // {
+      //   id: 'limites_municipais',
+      //   name: 'Limites Municipais',
+      //   description: 'Divisão político-administrativa municipal',
+      //   source: {
+      //     type: 'vector',
+      //     url: 'http://IP:PORT/limites_municipais'
+      //   },
+      //   sourceLayer: 'municipios',
+      //   minzoom: 4,
+      //   maxzoom: 18,
+      //   labelMinzoom: 8,  // Rótulos aparecem a partir do zoom 8
+      //   style: {
+      //     border: {
+      //       color: '#666666',
+      //       width: 1.5,
+      //       opacity: 0.8
+      //     },
+      //     label: {
+      //       textField: ['get', 'nome'],  // Campo com o nome do município
+      //       paint: {
+      //         'text-color': '#333333',
+      //         'text-halo-color': '#ffffff',
+      //         'text-halo-width': 1
+      //       }
+      //     }
+      //   }
+      // },
+
+      // ===== EXEMPLO COMPLETO (com labelSource separado) =====
+      // Configuração avançada: fill, border, label com source separado
+      // {
+      //   id: 'moldura_25k',
+      //   name: 'Moldura 1:25.000',
+      //   description: 'Grade de articulação de cartas na escala 1:25.000',
+      //   thumbnail: null,  // Usa thumbnail padrão
+      //   source: {
+      //     type: 'vector',
+      //     url: 'http://IP:PORT/moldura_25k'
+      //   },
+      //   sourceLayer: 'situacao_25k',
+      //   // labelSource é OPCIONAL - se omitido, usa o mesmo source principal
+      //   labelSource: {
+      //     type: 'vector',
+      //     url: 'http://IP:PORT/moldura_ponto_25k'
+      //   },
+      //   labelSourceLayer: 'situacao_ponto_25k',
+      //   minzoom: 5,
+      //   maxzoom: 17,
+      //   labelMinzoom: 9.8,
+      //   style: {
+      //     // fill é OPCIONAL
+      //     fill: {
+      //       color: [
+      //         "case",
+      //         ["==", ["get", "situacao_topo"], "Concluído"],
+      //         "rgba(145,207,96,0.5)",
+      //         ["==", ["get", "situacao_topo"], "Múltiplas edições"],
+      //         "rgba(102,178,255,0.5)",
+      //         "rgba(255, 0, 0, 0)"
+      //       ]
+      //     },
+      //     border: {
+      //       color: [
+      //         'step', ['length', ['get', 'edicoes_orto']], '#aaaaaaff',
+      //         8, 'rgba(145,207,96,1)',
+      //         14, 'rgba(102,178,255,1)'
+      //       ],
+      //       width: [
+      //         'step', ['length', ['get', 'edicoes_orto']], 0.5,
+      //         8, 5,
+      //         14, 5
+      //       ]
+      //     },
+      //     // label é OPCIONAL
+      //     label: {
+      //       textField: [
+      //         "concat",
+      //         "MI ", ["get", "identificadorMI"], "\n",
+      //         "INOM ", ["get", "identificadorINOM"]
+      //       ]
+      //     }
+      //   }
+      // }
     ]
   },
 

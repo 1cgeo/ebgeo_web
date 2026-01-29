@@ -24,9 +24,10 @@ import { showPrompt, showConfirm } from '../modals/index.js';
 import { CombineMapsModal } from '../modals/combine-maps.modal.js';
 
 class MapControl {
-    constructor(baseLayerControl, analysisLayersManager) {
+    constructor(baseLayerControl, analysisLayersManager, dataLayersManager) {
         this.baseLayerControl = baseLayerControl;
         this.analysisLayersManager = analysisLayersManager;
+        this.dataLayersManager = dataLayersManager;
         this.selectionManager = null;
 
         this.mapManager = new MapManager(baseLayerControl, this.selectionManager);
@@ -92,7 +93,7 @@ class MapControl {
         this.mapManager.setMap(map);
         this.pdfExportTab = new PDFExportTab(map);
 
-        this.featuresTab = new FeaturesTab(map, this.selectionManager, this.analysisLayersManager, getEventBus());
+        this.featuresTab = new FeaturesTab(map, this.selectionManager, this.analysisLayersManager, this.dataLayersManager, getEventBus());
 
         this.container = document.createElement('div');
         this.container.id = 'map-list'
@@ -537,6 +538,10 @@ class MapControl {
 
     getAnalysisLayersManager() {
         return this.analysisLayersManager;
+    }
+
+    getDataLayersManager() {
+        return this.dataLayersManager;
     }
 
     // =========================================================================
