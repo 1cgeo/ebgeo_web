@@ -187,11 +187,7 @@ const terrainControl = new TerrainControl(config.map2d);
 const screenshotControl = new ScreenshotControl();
 screenshotControl.setMap(map);
 
-const mouseCoordinatesControl = new MouseCoordinatesControl(
-    pointControl,
-    coordinationMeasureControl,
-    militarySymbolControl
-);
+const mouseCoordinatesControl = new MouseCoordinatesControl();
 uiManager.setMouseCoordinatesControl(mouseCoordinatesControl);
 
 const contextMenuControl = new ContextMenuControl(mouseCoordinatesControl, toolManager, selectionManager);

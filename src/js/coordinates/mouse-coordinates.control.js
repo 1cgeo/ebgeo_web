@@ -9,7 +9,6 @@ import { GridControl } from '../grid';
 import { FrameControl } from '../frame';
 import config from '../config.js';
 import { getStateManager } from '../store';
-import { GoToCoordinatesModal } from '../modals/goto-coordinates.modal.js';
 
 /** Throttle interval for coordinate updates (50ms = ~20 FPS, sufficient for display) */
 const COORDINATE_UPDATE_THROTTLE_MS = 50;
@@ -18,7 +17,7 @@ const COORDINATE_UPDATE_THROTTLE_MS = 50;
 const MAX_COORDINATE_PARTS = 6;
 
 class MouseCoordinatesControl {
-    constructor(pointControl, coordinationMeasureControl, militarySymbolControl) {
+    constructor() {
         this._map = null;
         this._container = null;
         this._innerContainer = null;
@@ -26,11 +25,7 @@ class MouseCoordinatesControl {
         this._coordinatesText = null;
         // Note: _currentFormat now delegated to StateManager via getter/setter
         this._formatOptions = COORDINATE_FORMATS;
-        this._modal = null;
         this._currentCoordinates = { lat: 0, lng: 0 };
-        this._pointControl = pointControl;
-        this._coordinationMeasureControl = coordinationMeasureControl;
-        this._militarySymbolControl = militarySymbolControl;
 
         // Note: _elevationEnabled and _currentElevation now delegated to StateManager
         this._terrainAvailable = false;
@@ -44,9 +39,6 @@ class MouseCoordinatesControl {
 
         /** @type {Array<Function>} Cleanup functions for StateManager subscriptions */
         this._unsubscribers = [];
-
-        /** @type {GoToCoordinatesModal|null} Go to coordinates modal instance */
-        this._goToModal = null;
 
         /** @type {number} Counter to track latest update request and prevent race conditions */
         this._updateRequestId = 0;
@@ -268,12 +260,6 @@ class MouseCoordinatesControl {
         const gridContainer = document.createElement('div');
         gridContainer.className = 'coordinates-controls';
 
-        const flyToButton = document.createElement('div');
-        flyToButton.className = 'coordinates-button coordinates-flyto-button';
-        flyToButton.title = "Ir para coordenadas";
-        flyToButton.innerHTML = `<img src="./images/fly_to_icon.svg" alt="Fly to" width="16" height="16" />`;
-        flyToButton.addEventListener('click', this._openFlyToModal.bind(this));
-
         this._elevationButton = document.createElement('div');
         this._elevationButton.className = 'coordinates-button coordinates-elevation-button';
         this._elevationButton.title = "Mostrar elevação (terreno necessário)";
@@ -340,7 +326,6 @@ class MouseCoordinatesControl {
             this._formatSelector.appendChild(option);
         });
 
-        controlsContainer.appendChild(flyToButton);
         controlsContainer.appendChild(this._elevationButton);
         controlsContainer.appendChild(gearButton)
         if (config.features.grid || config.features.frame) {
@@ -350,8 +335,6 @@ class MouseCoordinatesControl {
         this._innerContainer.appendChild(controlsContainer);
         this._container.appendChild(this._innerContainer);
         this._container.appendChild(this._formatSelector);
-
-        this._initGoToModal();
 
         document.addEventListener('click', this._closeFormatSelector.bind(this));
 
@@ -443,66 +426,6 @@ class MouseCoordinatesControl {
                 }
             }, 50);
         });
-    }
-
-    /**
-     * Initializes the go to coordinates modal.
-     * @private
-     */
-    _initGoToModal() {
-        this._goToModal = new GoToCoordinatesModal({
-            currentFormat: this._currentFormat,
-            onFlyTo: (lng, lat) => this._flyToCoordinates(lng, lat),
-            onCreatePoint: (lng, lat) => this._createPointAtCoordinates(lng, lat),
-            onCreateMilitarySymbol: (lng, lat) => this._createMilitarySymbolAtCoordinates(lng, lat),
-            onCreateCoordinationMeasure: (lng, lat) => this._createCoordinationMeasureAtCoordinates(lng, lat)
-        });
-        this._goToModal.render();
-    }
-
-    async _createPointAtCoordinates(lng, lat) {
-        const feature = await this._pointControl.createPointAtCoordinates(lng, lat);
-        if (feature) {
-            this._flyToCoordinates(lng, lat);
-        }
-    }
-
-    async _createCoordinationMeasureAtCoordinates(lng, lat) {
-        const lngLat = { lng, lat };
-        const feature = await this._coordinationMeasureControl.createCoordinationMeasureFeature(lngLat);
-        if (feature) {
-            this._flyToCoordinates(lng, lat);
-        }
-    }
-
-    async _createMilitarySymbolAtCoordinates(lng, lat) {
-        const lngLat = { lng, lat };
-        const feature = await this._militarySymbolControl.createMilitarySymbolFeature(lngLat);
-        if (feature) {
-            this._flyToCoordinates(lng, lat);
-        }
-    }
-
-    /**
-     * Opens the go to coordinates modal.
-     * @private
-     */
-    _openFlyToModal() {
-        if (this._goToModal) {
-            this._goToModal.setCurrentFormat(this._currentFormat);
-            this._goToModal.show(this._currentFormat);
-        }
-    }
-
-    _flyToCoordinates(lng, lat) {
-        const zoomOptions = {
-            center: [lng, lat],
-            zoom: Math.max(this._map.getZoom(), 14),
-            duration: 1500,
-            essential: true
-        };
-
-        this._map.easeTo(zoomOptions);
     }
 
     _toggleFormatSelector(e) {
@@ -741,12 +664,6 @@ class MouseCoordinatesControl {
         document.removeEventListener('click', this._closeFormatSelector);
         this._map.off('mousemove', this._onMouseMove);
         this._map.off('terrain', this._onTerrainChange);
-
-        // Destroy the go to coordinates modal
-        if (this._goToModal) {
-            this._goToModal.destroy();
-            this._goToModal = null;
-        }
 
         this._container.parentNode.removeChild(this._container);
         this._map = undefined;

@@ -10,6 +10,5 @@ export { InfoModal } from './info.modal.js';
 export { PromptModal, showPrompt } from './prompt.modal.js';
 export { ConfirmModal, showConfirm } from './confirm.modal.js';
 export { ExportModal, showExportModal } from './export.modal.js';
-export { GoToCoordinatesModal, showGoToCoordinatesModal } from './goto-coordinates.modal.js';
 export { CombineMapsModal, showCombineMapsModal } from './combine-maps.modal.js';
 export { CoordinateEditModal, showCoordinateEditModal } from './coordinate-edit.modal.js';

@@ -1,8 +1,6 @@
 // Path: js/3d_models_viewer_tool/tools/mouse_coordinates_3d.js
 import {
     COORDINATE_FORMATS,
-    getPlaceholderForFormat,
-    parseCoordinates,
     formatCoordinates,
     getDisplayFormat
 } from '../../utilities';
@@ -15,7 +13,6 @@ let formatSelector = null;
 let currentFormat = 'latlong';
 let currentCoordinates = { lat: 0, lng: 0 };
 let mouseMoveHandler = null;
-let flyToModal = null;
 
 function initMouseCoordinates3D(viewer) {
     if (!viewer) return;
@@ -84,26 +81,6 @@ function initMouseCoordinates3D(viewer) {
     copyButton.addEventListener('mouseenter', () => { copyButton.style.opacity = '1'; });
     copyButton.addEventListener('mouseleave', () => { copyButton.style.opacity = '0.7'; });
 
-    // Fly to button
-    const flyToButton = document.createElement('div');
-    flyToButton.innerHTML = `<img src="./images/fly_to_icon.svg" alt="Fly to" width="16" height="16" />`;
-    flyToButton.title = 'Ir para coordenadas';
-    flyToButton.style.cssText = `
-        opacity: 0.7;
-        cursor: pointer;
-        transition: opacity 0.2s;
-        display: flex;
-        align-items: center;
-        width: 16px;
-        height: 16px;
-    `;
-    flyToButton.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openFlyToModal();
-    });
-    flyToButton.addEventListener('mouseenter', () => { flyToButton.style.opacity = '1'; });
-    flyToButton.addEventListener('mouseleave', () => { flyToButton.style.opacity = '0.7'; });
-
     // Format button
     const formatButton = document.createElement('div');
     formatButton.innerHTML = `<img src="./images/gear_icon.svg" alt="Settings" width="16" height="16" />`;
@@ -159,7 +136,6 @@ function initMouseCoordinates3D(viewer) {
 
     // Assemble components
     controlsContainer.appendChild(copyButton);
-    controlsContainer.appendChild(flyToButton);
     controlsContainer.appendChild(formatButton);
     coordinatesContainer.appendChild(coordinatesText);
     coordinatesContainer.appendChild(controlsContainer);
@@ -167,9 +143,6 @@ function initMouseCoordinates3D(viewer) {
 
     // Add to map container
     document.getElementById('map-3d-container').appendChild(coordinatesContainer);
-
-    // Create modal
-    createFlyToModal();
 
     // Setup mouse move listener
     mouseMoveHandler = onMouseMove;
@@ -191,11 +164,6 @@ function cleanupMouseCoordinates3D() {
     if (coordinatesContainer && coordinatesContainer.parentNode) {
         coordinatesContainer.parentNode.removeChild(coordinatesContainer);
         coordinatesContainer = null;
-    }
-
-    if (flyToModal && flyToModal.parentNode) {
-        flyToModal.parentNode.removeChild(flyToModal);
-        flyToModal = null;
     }
 
     document.removeEventListener('click', closeFormatSelector);
@@ -330,146 +298,6 @@ function setFormat(formatId) {
 
     formatSelector.style.display = 'none';
     updateCoordinates(currentCoordinates.lat, currentCoordinates.lng);
-}
-
-function createFlyToModal() {
-    flyToModal = document.createElement('div');
-    flyToModal.id = 'fly-to-modal-3d';
-    flyToModal.className = 'modal-overlay';
-    flyToModal.setAttribute('data-visible', 'false');
-    // Override position to absolute for 3D container context
-    flyToModal.style.cssText = `
-        position: absolute;
-        z-index: 1000;
-    `;
-
-    const modalContent = document.createElement('div');
-    modalContent.className = 'modal-container goto-modal-container';
-
-    modalContent.innerHTML = `
-        <div class="modal-header">
-            <div class="modal-title-wrap">
-                <div class="modal-title-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polygon points="3 11 22 2 13 21 11 13 3 11"/>
-                    </svg>
-                </div>
-                <h2 class="modal-title">Ir para Coordenadas</h2>
-            </div>
-            <button type="button" class="modal-close-btn" id="modal-close-3d" aria-label="Fechar">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18"/>
-                    <line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-            </button>
-        </div>
-        <div class="modal-body">
-            <div class="goto-modal-content">
-                <div class="goto-modal-field">
-                    <label class="goto-modal-label" for="goto-format-select-3d">Formato</label>
-                    <select id="goto-format-select-3d" class="goto-modal-select">
-                        ${COORDINATE_FORMATS.map(f => `<option value="${f.id}">${f.label}</option>`).join('')}
-                    </select>
-                </div>
-                <div class="goto-modal-field">
-                    <label class="goto-modal-label" for="goto-coords-input-3d">Coordenadas</label>
-                    <div class="goto-modal-input-row">
-                        <input type="text" id="goto-coords-input-3d" class="goto-modal-input" autocomplete="off">
-                        <button type="button" class="goto-modal-btn goto-modal-btn-primary" id="fly-btn-3d">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                                <circle cx="12" cy="10" r="3"/>
-                            </svg>
-                            <span>Ir para</span>
-                        </button>
-                    </div>
-                    <div class="goto-validation-message" id="validation-msg-3d"></div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    flyToModal.appendChild(modalContent);
-    // Append to 3D container to ensure proper z-index stacking
-    const map3dContainer = document.getElementById('map-3d-container');
-    if (map3dContainer) {
-        map3dContainer.appendChild(flyToModal);
-    } else {
-        document.body.appendChild(flyToModal);
-    }
-
-    // Event listeners
-    flyToModal.querySelector('#modal-close-3d').addEventListener('click', closeFlyToModal);
-    flyToModal.querySelector('#fly-btn-3d').addEventListener('click', handleFlyTo);
-    flyToModal.addEventListener('click', (e) => {
-        if (e.target === flyToModal) closeFlyToModal();
-    });
-
-    // Enter key to submit
-    flyToModal.querySelector('#goto-coords-input-3d').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            handleFlyTo();
-        }
-    });
-
-    // Update placeholder on format change
-    const formatSelect = flyToModal.querySelector('#goto-format-select-3d');
-    const coordsInput = flyToModal.querySelector('#goto-coords-input-3d');
-    formatSelect.addEventListener('change', (e) => {
-        coordsInput.placeholder = getPlaceholderForFormat(e.target.value);
-    });
-}
-
-function openFlyToModal() {
-    // Create modal if it doesn't exist
-    if (!flyToModal) {
-        createFlyToModal();
-    }
-
-    if (flyToModal) {
-        const formatSelect = flyToModal.querySelector('#goto-format-select-3d');
-        const coordsInput = flyToModal.querySelector('#goto-coords-input-3d');
-        const validationMsg = flyToModal.querySelector('#validation-msg-3d');
-
-        formatSelect.value = currentFormat;
-        coordsInput.value = '';
-        coordsInput.placeholder = getPlaceholderForFormat(currentFormat);
-        validationMsg.textContent = '';
-        validationMsg.classList.remove('error');
-        coordsInput.classList.remove('input-error');
-
-        // Show modal using data-visible attribute (required by modal-overlay CSS)
-        flyToModal.setAttribute('data-visible', 'true');
-        setTimeout(() => coordsInput.focus(), 100);
-    }
-}
-
-function closeFlyToModal() {
-    if (flyToModal) {
-        flyToModal.setAttribute('data-visible', 'false');
-    }
-}
-
-async function handleFlyTo() {
-    if (!viewerInstance || !flyToModal) return;
-
-    const formatSelect = flyToModal.querySelector('#goto-format-select-3d');
-    const coordsInput = flyToModal.querySelector('#goto-coords-input-3d');
-    const validationMsg = flyToModal.querySelector('#validation-msg-3d');
-
-    const coordinates = await parseCoordinates(coordsInput.value.trim(), formatSelect.value);
-
-    if (coordinates) {
-        viewerInstance.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(coordinates.lng, coordinates.lat, 1000),
-            duration: 2.0
-        });
-        closeFlyToModal();
-    } else {
-        validationMsg.textContent = 'Coordenadas inválidas para o formato selecionado';
-        validationMsg.classList.add('error');
-        coordsInput.classList.add('input-error');
-    }
 }
 
 export { initMouseCoordinates3D, cleanupMouseCoordinates3D };

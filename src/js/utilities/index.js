@@ -14,7 +14,8 @@ export {
     getPlaceholderForFormat,
     parseCoordinates,
     formatCoordinates,
-    getDisplayFormat
+    getDisplayFormat,
+    tryParseCoordinates
 } from './coordinate_converter.js';
 
 // Feature navigation utilities

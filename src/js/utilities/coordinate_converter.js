@@ -476,3 +476,61 @@ function formatMGRSString(mgrsString) {
 
     return `${zone} ${square} ${easting} ${northing}`;
 }
+
+/**
+ * Tries to auto-detect coordinate format and parse the input.
+ * Returns the parsed coordinates and detected format if successful.
+ * @param {string} input - Input coordinate string
+ * @returns {Promise<{lat: number, lng: number, format: string, formatLabel: string}|null>} Parsed result or null
+ */
+export async function tryParseCoordinates(input) {
+    if (!input || typeof input !== 'string') return null;
+
+    const trimmed = input.trim();
+    if (trimmed.length < 3) return null;
+
+    // Try each format in order of likelihood/specificity
+    // Order: MGRS (most specific), UTM, DMS, Decimal (most generic)
+
+    // 1. Try MGRS first (most specific pattern)
+    // MGRS pattern: zone + letter + 2 letters + numbers (e.g., 23KTP8083416602 or 23K TP 80834 16602)
+    const mgrsPattern = /^\d{1,2}[A-Z]\s*[A-Z]{2}\s*\d+\s*\d*$/i;
+    if (mgrsPattern.test(trimmed.replace(/\s+/g, ' '))) {
+        const result = parseMGRS(trimmed);
+        if (result) {
+            return { ...result, format: 'mgrs', formatLabel: 'MGRS' };
+        }
+    }
+
+    // 2. Try UTM (zone + hemisphere + easting + northing)
+    // Pattern: 23N 680834 7516602 or 23 S 680834 7516602
+    const utmPattern = /^\s*\d{1,2}\s*[NS]?\s+\d+\s+\d+\s*$/i;
+    if (utmPattern.test(trimmed)) {
+        const result = await parseUTMWGS84(trimmed);
+        if (result) {
+            return { ...result, format: 'utm_wgs84', formatLabel: 'UTM' };
+        }
+    }
+
+    // 3. Try DMS (degrees, minutes, seconds with direction)
+    // Pattern: 30º07'56.8" S 55º01'04.3" O or similar
+    const dmsPattern = /[º°'"\s]+[NSLOEW]/i;
+    if (dmsPattern.test(trimmed)) {
+        const result = parseLatLongDMS(trimmed);
+        if (result) {
+            return { ...result, format: 'latlong_dms', formatLabel: 'Lat/Long (GMS)' };
+        }
+    }
+
+    // 4. Try Decimal lat/long (most generic)
+    // Pattern: -22.455921, -44.449655 or -22.455921 -44.449655
+    const decimalPattern = /^-?\d+\.?\d*\s*[,\s]\s*-?\d+\.?\d*$/;
+    if (decimalPattern.test(trimmed)) {
+        const result = parseLatLong(trimmed);
+        if (result) {
+            return { ...result, format: 'latlong', formatLabel: 'Lat/Long (Decimal)' };
+        }
+    }
+
+    return null;
+}

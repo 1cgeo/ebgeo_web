@@ -22,6 +22,8 @@ import { getAllStorageTypes, getFeatureDisplayNameFromStorage } from '../store/s
 import { FeatureNavigationUtils } from '../utilities/feature_navigation_utils.js';
 import { IDUtils } from '../utilities/id_utils.js';
 import { getEventBus } from '../store/services.js';
+import { getControl } from '../store/control.registry.js';
+import { tryParseCoordinates, formatCoordinates, COORDINATE_FORMATS } from '../utilities/coordinate_converter.js';
 
 /**
  * SVG Icons for search bar.
@@ -55,6 +57,7 @@ const MAX_RESULTS = {
     models3d: 3,
     streetview: 3,
     places: 3,
+    coordinates: 1,
 };
 
 /**
@@ -243,7 +246,7 @@ export class SearchBarComponent {
 
     /**
      * Performs the search with progressive results display.
-     * Shows local features, 3D models and Streetview markers first, then loads API results.
+     * Shows coordinates (if detected), local features, 3D models and Streetview markers first, then loads API results.
      * @private
      * @param {string} query - Search query
      */
@@ -251,6 +254,14 @@ export class SearchBarComponent {
         if (this._isSearching) return;
         this._isSearching = true;
         this._container.classList.add('searching');
+
+        // Try to detect coordinates first (highest priority)
+        let coordinateResults = [];
+        try {
+            coordinateResults = await this._searchCoordinates(query);
+        } catch (error) {
+            console.warn('[SearchBar] Coordinate search failed:', error);
+        }
 
         // Search 3D models and Streetview markers immediately (synchronous)
         const model3dResults = this._search3DModels(query);
@@ -264,8 +275,8 @@ export class SearchBarComponent {
             console.warn('[SearchBar] Local features search failed:', error);
         }
 
-        // Combine local results: features first, then 3D models, then streetview
-        const localResults = [...featureResults, ...model3dResults, ...streetviewResults];
+        // Combine local results: coordinates first, then features, then 3D models, then streetview
+        const localResults = [...coordinateResults, ...featureResults, ...model3dResults, ...streetviewResults];
 
         // Show local results if found, otherwise show loading
         if (localResults.length > 0) {
@@ -275,9 +286,9 @@ export class SearchBarComponent {
         }
 
         // Search API (places/coordinates) - async
-        // Only search API if apisearch feature is enabled
+        // Only search API if apisearch feature is enabled and no coordinate was detected
         let apiResults = [];
-        if (config.features?.apisearch !== false && config.search?.apiUrl) {
+        if (coordinateResults.length === 0 && config.features?.apisearch !== false && config.search?.apiUrl) {
             try {
                 apiResults = await this._searchAPI(query);
             } catch (error) {
@@ -305,6 +316,41 @@ export class SearchBarComponent {
         } else {
             this._showNoResults();
         }
+    }
+
+    /**
+     * Searches for coordinates in the query string.
+     * Auto-detects coordinate format (Lat/Long, DMS, UTM, MGRS).
+     * @private
+     * @param {string} query - Search query
+     * @returns {Promise<Array>} Search results
+     */
+    async _searchCoordinates(query) {
+        try {
+            const parsed = await tryParseCoordinates(query);
+            if (parsed) {
+                // Format the coordinates for display
+                const formattedCoords = await formatCoordinates(parsed.lat, parsed.lng, parsed.format);
+
+                return [{
+                    type: 'coordinate',
+                    name: formattedCoords,
+                    description: `Coordenada ${parsed.formatLabel}`,
+                    coordinates: [parsed.lng, parsed.lat],
+                    format: parsed.format,
+                    formatLabel: parsed.formatLabel,
+                    original: {
+                        lat: parsed.lat,
+                        lng: parsed.lng,
+                        format: parsed.format,
+                        formatLabel: parsed.formatLabel
+                    }
+                }];
+            }
+        } catch (error) {
+            console.warn('[SearchBar] Error parsing coordinates:', error);
+        }
+        return [];
     }
 
     /**
@@ -607,6 +653,27 @@ export class SearchBarComponent {
             return;
         }
 
+        // Handle coordinate results - fly to coordinates, add marker, and open sidepanel
+        if (result.type === 'coordinate' && result.coordinates) {
+            this._map.flyTo({
+                center: result.coordinates,
+                zoom: Math.max(this._map.getZoom(), 14),
+                essential: true,
+            });
+
+            // Store the current result for later use
+            this._currentApiResult = result;
+
+            // Create marker (without popup)
+            this._marker = new maplibregl.Marker()
+                .setLngLat(result.coordinates)
+                .addTo(this._map);
+
+            // Open sidepanel with coordinate result content
+            this._openCoordinateResultInSidepanel(result);
+            return;
+        }
+
         // Handle API results (places) - fly to coordinates, add marker, and open sidepanel
         if (result.coordinates) {
             this._map.flyTo({
@@ -645,6 +712,318 @@ export class SearchBarComponent {
                 result: result,
                 content: this._createApiResultSidepanelContent(result)
             });
+        }
+    }
+
+    /**
+     * Opens the coordinate search result in the sidebar feature panel.
+     * @private
+     * @param {Object} result - Coordinate search result
+     */
+    _openCoordinateResultInSidepanel(result) {
+        // Mark that we opened the panel for a coordinate result
+        this._apiResultPanelOpen = true;
+
+        // Emit event to open the feature panel with coordinate result content
+        const eventBus = getEventBus();
+        if (eventBus) {
+            eventBus.emit(EventTypes.SEARCH_RESULT_PANEL_REQUESTED, {
+                result: result,
+                content: this._createCoordinateResultSidepanelContent(result)
+            });
+        }
+    }
+
+    /**
+     * Creates sidepanel content for coordinate search results.
+     * @private
+     * @param {Object} result - Coordinate search result
+     * @returns {HTMLElement} Sidepanel content element
+     */
+    _createCoordinateResultSidepanelContent(result) {
+        const container = document.createElement('div');
+        container.className = 'search-result-sidepanel-content coordinate-result-content';
+
+        // Identification section
+        const identification = document.createElement('div');
+        identification.className = 'feature-identification';
+
+        // Icon
+        const iconContainer = document.createElement('div');
+        iconContainer.className = 'feature-identification-icon feature-icon-bg-blue';
+        iconContainer.innerHTML = SEARCH_ICONS.coordinate;
+
+        // Info
+        const info = document.createElement('div');
+        info.className = 'feature-identification-info';
+
+        const nameContainer = document.createElement('div');
+        nameContainer.className = 'feature-identification-name-container';
+
+        const name = document.createElement('div');
+        name.className = 'feature-identification-name';
+        name.textContent = 'Coordenada';
+        nameContainer.appendChild(name);
+
+        const typeText = document.createElement('div');
+        typeText.className = 'feature-identification-type';
+        typeText.textContent = result.formatLabel || 'Coordenada';
+
+        const layerText = document.createElement('div');
+        layerText.className = 'feature-identification-layer';
+        layerText.textContent = result.name || '';
+
+        info.appendChild(nameContainer);
+        info.appendChild(typeText);
+        info.appendChild(layerText);
+
+        identification.appendChild(iconContainer);
+        identification.appendChild(info);
+        container.appendChild(identification);
+
+        // Coordinate conversion section
+        const conversionSection = document.createElement('div');
+        conversionSection.className = 'coordinate-conversion-section';
+
+        const conversionHeader = document.createElement('div');
+        conversionHeader.className = 'search-result-section-header';
+        conversionHeader.textContent = 'Converter para outros formatos';
+        conversionSection.appendChild(conversionHeader);
+
+        const conversionList = document.createElement('div');
+        conversionList.className = 'coordinate-conversion-list';
+
+        // Add conversion items for all formats (async)
+        this._populateConversionList(conversionList, result.original.lat, result.original.lng);
+
+        conversionSection.appendChild(conversionList);
+        container.appendChild(conversionSection);
+
+        // Create feature section - similar to GoToCoordinatesModal
+        const createSection = document.createElement('div');
+        createSection.className = 'coordinate-create-section';
+
+        const createHeader = document.createElement('div');
+        createHeader.className = 'search-result-section-header';
+        createHeader.textContent = 'Criar feição nesta coordenada';
+        createSection.appendChild(createHeader);
+
+        const createButtons = document.createElement('div');
+        createButtons.className = 'coordinate-create-buttons';
+
+        // Create Point button
+        const createPointBtn = document.createElement('button');
+        createPointBtn.className = 'coordinate-create-btn';
+        createPointBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                <circle cx="12" cy="10" r="3"/>
+            </svg>
+            <span>Ponto</span>
+        `;
+        createPointBtn.title = 'Criar ponto nesta coordenada';
+        createPointBtn.onclick = () => this._createPointAtCoordinate(result);
+        createButtons.appendChild(createPointBtn);
+
+        // Create Military Symbol button
+        const createMilitaryBtn = document.createElement('button');
+        createMilitaryBtn.className = 'coordinate-create-btn';
+        createMilitaryBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span>Simbologia Militar</span>
+        `;
+        createMilitaryBtn.title = 'Criar simbologia militar nesta coordenada';
+        createMilitaryBtn.onclick = () => this._createMilitarySymbolAtCoordinate(result);
+        createButtons.appendChild(createMilitaryBtn);
+
+        // Create Coordination Measure button
+        const createCoordMeasureBtn = document.createElement('button');
+        createCoordMeasureBtn.className = 'coordinate-create-btn';
+        createCoordMeasureBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 2v4"/>
+                <path d="M12 18v4"/>
+                <path d="M2 12h4"/>
+                <path d="M18 12h4"/>
+            </svg>
+            <span>Medida de Coordenação</span>
+        `;
+        createCoordMeasureBtn.title = 'Criar medida de coordenação nesta coordenada';
+        createCoordMeasureBtn.onclick = () => this._createCoordinationMeasureAtCoordinate(result);
+        createButtons.appendChild(createCoordMeasureBtn);
+
+        createSection.appendChild(createButtons);
+        container.appendChild(createSection);
+
+        return container;
+    }
+
+    /**
+     * Creates a point at the coordinate result location.
+     * @private
+     * @param {Object} result - Coordinate search result
+     */
+    async _createPointAtCoordinate(result) {
+        const [lng, lat] = result.coordinates;
+
+        // Close panel before creating the feature
+        this._closeCoordinatePanel();
+
+        try {
+            const pointControl = getControl('AddPointControl');
+            if (pointControl && typeof pointControl.createPointAtCoordinates === 'function') {
+                await pointControl.createPointAtCoordinates(lng, lat);
+            } else {
+                console.warn('[SearchBar] PointControl not available');
+            }
+        } catch (error) {
+            console.error('[SearchBar] Error creating point:', error);
+        }
+    }
+
+    /**
+     * Creates a military symbol at the coordinate result location.
+     * @private
+     * @param {Object} result - Coordinate search result
+     */
+    async _createMilitarySymbolAtCoordinate(result) {
+        const [lng, lat] = result.coordinates;
+
+        // Close panel before creating the feature
+        this._closeCoordinatePanel();
+
+        try {
+            const militarySymbolControl = getControl('AddMilitarySymbolControl');
+            if (militarySymbolControl && typeof militarySymbolControl.createMilitarySymbolFeature === 'function') {
+                const lngLat = { lng, lat };
+                await militarySymbolControl.createMilitarySymbolFeature(lngLat);
+            } else {
+                console.warn('[SearchBar] MilitarySymbolControl not available');
+            }
+        } catch (error) {
+            console.error('[SearchBar] Error creating military symbol:', error);
+        }
+    }
+
+    /**
+     * Creates a coordination measure at the coordinate result location.
+     * @private
+     * @param {Object} result - Coordinate search result
+     */
+    async _createCoordinationMeasureAtCoordinate(result) {
+        const [lng, lat] = result.coordinates;
+
+        // Close panel before creating the feature
+        this._closeCoordinatePanel();
+
+        try {
+            const coordinationMeasureControl = getControl('AddCoordinationMeasureControl');
+            if (coordinationMeasureControl && typeof coordinationMeasureControl.createCoordinationMeasureFeature === 'function') {
+                const lngLat = { lng, lat };
+                await coordinationMeasureControl.createCoordinationMeasureFeature(lngLat);
+            } else {
+                console.warn('[SearchBar] CoordinationMeasureControl not available');
+            }
+        } catch (error) {
+            console.error('[SearchBar] Error creating coordination measure:', error);
+        }
+    }
+
+    /**
+     * Populates the conversion list with all coordinate formats.
+     * @private
+     * @param {HTMLElement} container - Container element for the list
+     * @param {number} lat - Latitude
+     * @param {number} lng - Longitude
+     */
+    async _populateConversionList(container, lat, lng) {
+        for (const format of COORDINATE_FORMATS) {
+            try {
+                const formatted = await formatCoordinates(lat, lng, format.id);
+
+                const item = document.createElement('div');
+                item.className = 'coordinate-conversion-item';
+
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'coordinate-conversion-label';
+                labelSpan.textContent = format.label;
+
+                const valueContainer = document.createElement('div');
+                valueContainer.className = 'coordinate-conversion-value-container';
+
+                const valueSpan = document.createElement('span');
+                valueSpan.className = 'coordinate-conversion-value';
+                valueSpan.textContent = formatted;
+
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'coordinate-copy-btn';
+                copyBtn.title = 'Copiar';
+                copyBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                `;
+                copyBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    this._copyToClipboard(formatted, copyBtn);
+                };
+
+                valueContainer.appendChild(valueSpan);
+                valueContainer.appendChild(copyBtn);
+
+                item.appendChild(labelSpan);
+                item.appendChild(valueContainer);
+
+                container.appendChild(item);
+            } catch (error) {
+                console.warn(`[SearchBar] Error formatting coordinate as ${format.id}:`, error);
+            }
+        }
+    }
+
+    /**
+     * Copies text to clipboard and shows feedback.
+     * @private
+     * @param {string} text - Text to copy
+     * @param {HTMLElement} button - Button element for feedback
+     */
+    async _copyToClipboard(text, button) {
+        try {
+            await navigator.clipboard.writeText(text);
+
+            // Show success feedback
+            const originalHTML = button.innerHTML;
+            button.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+            `;
+            button.classList.add('copied');
+
+            setTimeout(() => {
+                button.innerHTML = originalHTML;
+                button.classList.remove('copied');
+            }, 1500);
+        } catch (error) {
+            console.warn('[SearchBar] Failed to copy to clipboard:', error);
+        }
+    }
+
+    /**
+     * Closes the coordinate panel and cleans up.
+     * @private
+     */
+    _closeCoordinatePanel() {
+        this._apiResultPanelOpen = false;
+        this._removeMarker();
+        this._currentApiResult = null;
+
+        if (this._stateManager) {
+            this._stateManager.closeFeaturePanel();
         }
     }
 

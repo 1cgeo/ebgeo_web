@@ -194,6 +194,11 @@
     color: #f57c00;
 }
 
+.search-result-item[data-type="coordinate"] .search-result-icon {
+    background: #e8eaf6;
+    color: #3949ab;
+}
+
 .search-result-icon svg {
     width: 16px;
     height: 16px;
@@ -442,6 +447,146 @@
     width: 18px;
     height: 18px;
     flex-shrink: 0;
+}
+
+/* =========================================================================
+   COORDINATE RESULT STYLES
+   ========================================================================= */
+
+/* Blue icon background for coordinates */
+.coordinate-result-content .feature-icon-bg-blue {
+    background: linear-gradient(135deg, #3949ab 0%, #5c6bc0 100%);
+}
+
+/* Create feature section */
+.coordinate-create-section {
+    padding: var(--space-4);
+    border-top: 1px solid var(--border-color);
+}
+
+.coordinate-create-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.coordinate-create-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--gray-50);
+    color: var(--gray-700);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-align: left;
+}
+
+.coordinate-create-btn:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-300);
+    transform: translateY(-1px);
+}
+
+.coordinate-create-btn:active {
+    transform: translateY(0);
+    background: var(--gray-200);
+}
+
+.coordinate-create-btn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: var(--gray-500);
+}
+
+.coordinate-create-btn:hover svg {
+    color: var(--gray-700);
+}
+
+.coordinate-create-btn span {
+    flex: 1;
+}
+
+/* Coordinate conversion section */
+.coordinate-conversion-section {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.coordinate-conversion-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.coordinate-conversion-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
+    background: var(--gray-50);
+    border-radius: var(--radius-md);
+}
+
+.coordinate-conversion-label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.coordinate-conversion-value-container {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.coordinate-conversion-value {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    color: var(--gray-800);
+    word-break: break-all;
+}
+
+.coordinate-copy-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: white;
+    color: var(--gray-500);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.coordinate-copy-btn:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-300);
+    color: var(--gray-700);
+}
+
+.coordinate-copy-btn.copied {
+    background: var(--color-success, #22c55e);
+    border-color: var(--color-success, #22c55e);
+    color: white;
+}
+
+.coordinate-copy-btn svg {
+    width: 14px;
+    height: 14px;
 }
 
 /* =========================================================================
