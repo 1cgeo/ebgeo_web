@@ -154,7 +154,7 @@ map.on('load', async () => {
         map.setProjection({ type: 'globe' });
     }
 
-    // Always disable sky/fog
+    // Disable sky/fog - universe background is set via CSS on #map-sig container
     map.setSky(undefined);
 
     hideLoadingScreen();
