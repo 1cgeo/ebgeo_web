@@ -4,6 +4,8 @@ import { initServices, getEventBus, getStateManager, registerControl } from './s
 // Initialize all application services before any component is created
 initServices();
 
+import { showConfirm } from './modals';
+
 import { BaseLayerControl } from './baselayers';
 import { AddImportControl, ScreenshotControl, DragDropHandler } from './import_export';
 import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager } from './tool_manager';
@@ -72,6 +74,58 @@ map.setSourceTileLodParams(...config.map2d.sourceTileLodParams);
 if (config.map2d.maxBounds) {
     map.setMaxBounds(config.map2d.maxBounds);
 }
+
+// ===== TILE ERROR HANDLING =====
+// Detect certificate errors and show modal with instructions
+const CERTIFICATE_ERROR_SOURCES = {
+    'bdgex.eb.mil.br': {
+        sourceId: 'bdgex',
+        name: 'BDGEx',
+        url: 'https://bdgex.eb.mil.br'
+    }
+};
+
+// Track which sources have shown error to avoid spamming
+const shownCertificateErrors = new Set();
+
+map.on('error', async (e) => {
+    // Check if it's a tile loading error
+    if (e.error && e.sourceId) {
+        const errorMessage = e.error.message || '';
+        const url = e.error.url || '';
+
+        // Check for certificate/fetch errors
+        if (errorMessage.includes('Failed to fetch') ||
+            errorMessage.includes('ERR_CERT') ||
+            errorMessage.includes('NetworkError')) {
+
+            // Find which known source has the issue
+            for (const [domain, sourceConfig] of Object.entries(CERTIFICATE_ERROR_SOURCES)) {
+                if (url.includes(domain) || e.sourceId === sourceConfig.sourceId) {
+                    // Only show once per source per session
+                    if (shownCertificateErrors.has(sourceConfig.sourceId)) {
+                        break;
+                    }
+                    shownCertificateErrors.add(sourceConfig.sourceId);
+
+                    const confirmed = await showConfirm(
+                        `Erro ao carregar ${sourceConfig.name}`,
+                        {
+                            message: `O servidor ${sourceConfig.name} possui um certificado nao reconhecido pelo navegador.\n\nPara visualizar este mapa, clique em "Abrir Site", aceite o certificado no navegador e recarregue a pagina.`,
+                            confirmText: 'Abrir Site',
+                            cancelText: 'Fechar'
+                        }
+                    );
+
+                    if (confirmed) {
+                        window.open(sourceConfig.url, '_blank');
+                    }
+                    break;
+                }
+            }
+        }
+    }
+});
 
 const analysisLayersManager = new AnalysisLayersManager(map);
 const dataLayersManager = new DataLayersManager(map);
