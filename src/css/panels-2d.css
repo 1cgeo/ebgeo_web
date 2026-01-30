@@ -79,7 +79,7 @@
     bottom: 20px;
     right: 20px;
     width: 450px;
-    height: 360px;
+    height: 380px;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(0, 0, 0, 0.1);
@@ -88,6 +88,8 @@
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
     z-index: 100;
     animation: slideInFromRight 0.3s ease;
+    display: flex;
+    flex-direction: column;
 }
 
 /* ----- Profile Panel Header ----- */
@@ -113,121 +115,93 @@
     align-items: center;
 }
 
-.profile-panel canvas {
-    width: 100% !important;
-    height: calc(100% - 45px) !important;
-    border-radius: 4px;
-}
-
-/* ----- Profile Panel Slope Alert ----- */
-.profile-slope-alert {
+/* ----- Profile Panel Slope Info ----- */
+.profile-slope-info {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
-    margin-bottom: 10px;
-    background-color: rgba(255, 82, 82, 0.1);
-    border: 1px solid rgba(255, 82, 82, 0.3);
-    border-left: 3px solid #ff5252;
+    padding: 6px 10px;
+    margin-bottom: 8px;
     border-radius: 4px;
     font-size: 12px;
+    border-left: 3px solid;
+}
+
+.profile-slope-info.green {
+    background-color: rgba(102, 187, 106, 0.1);
+    border-color: #66bb6a;
+    color: #2e7d32;
+}
+
+.profile-slope-info.green svg {
+    color: #66bb6a;
+}
+
+.profile-slope-info.yellow {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-color: #ffc107;
+    color: #f57f17;
+}
+
+.profile-slope-info.yellow svg {
+    color: #ffc107;
+}
+
+.profile-slope-info.red {
+    background-color: rgba(255, 82, 82, 0.1);
+    border-color: #ff5252;
     color: #c62828;
 }
 
-.profile-slope-alert svg {
-    flex-shrink: 0;
+.profile-slope-info.red svg {
     color: #ff5252;
 }
 
-.profile-slope-alert span {
-    font-weight: 500;
-}
-
-/* Adjust canvas height when alert is present */
-.profile-panel:has(.profile-slope-alert) canvas {
-    height: calc(100% - 85px) !important;
-}
-
-/* ----- Profile Panel Coordinates Section ----- */
-.profile-coordinates-section {
-    margin-bottom: 10px;
-    padding: 8px 10px;
-    background-color: rgba(0, 0, 0, 0.03);
-    border-radius: 6px;
-    border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.profile-coordinates-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: #666;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 8px;
-}
-
-.profile-coordinates-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.profile-coordinate-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-}
-
-.profile-coordinate-indicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
+.profile-slope-info svg {
     flex-shrink: 0;
 }
 
-.profile-coordinate-indicator.green {
-    background-color: #00c853;
-    box-shadow: 0 0 4px rgba(0, 200, 83, 0.5);
-}
-
-.profile-coordinate-indicator.red {
-    background-color: #ff5252;
-    box-shadow: 0 0 4px rgba(255, 82, 82, 0.5);
-}
-
-.profile-coordinate-label {
+.profile-slope-info span {
     font-weight: 500;
+}
+
+/* ----- Profile Panel Slope Toggle ----- */
+.profile-slope-toggle {
+    margin-bottom: 8px;
+}
+
+.profile-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 12px;
     color: #666;
-    min-width: 70px;
+    user-select: none;
 }
 
-.profile-coordinate-value {
-    font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
-    color: #333;
-    padding: 2px 6px;
-    background-color: rgba(255, 255, 255, 0.7);
-    border-radius: 3px;
-    transition: all 0.2s ease;
+.profile-toggle-label input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--primary-color);
 }
 
-.profile-coordinate-value:hover {
-    background-color: var(--primary-light);
-    color: var(--primary-color);
+.profile-toggle-text {
+    font-weight: 500;
 }
 
-.profile-coordinate-value.copied {
-    background-color: #00c853;
-    color: white;
+/* ----- Profile Chart Container ----- */
+.profile-chart-container {
+    flex: 1;
+    min-height: 0;
+    position: relative;
 }
 
-/* Adjust canvas height when coordinates section is present */
-.profile-panel:has(.profile-coordinates-section) canvas {
-    height: calc(100% - 100px) !important;
-}
-
-.profile-panel:has(.profile-slope-alert):has(.profile-coordinates-section) canvas {
-    height: calc(100% - 140px) !important;
+.profile-chart-container canvas {
+    width: 100% !important;
+    height: 100% !important;
 }
 
 /* ----- Profile Panel Empty Message ----- */
@@ -236,7 +210,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: calc(100% - 50px);
+    flex: 1;
     text-align: center;
     padding: 20px;
     color: #666;

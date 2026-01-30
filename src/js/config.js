@@ -61,6 +61,26 @@ const config = {
   },
 
   // ===== ANALYSIS LAYERS =====
+  // Camadas de análise raster (DEM, declive, etc.)
+  // Campos opcionais: legend (para exibir legenda na lista de camadas)
+  // Exemplo:
+  // {
+  //   id: 'slope',
+  //   name: 'Declividade',
+  //   description: 'Mapa de declividade do terreno',
+  //   source: { type: 'raster-dem', url: 'http://...' },
+  //   bounds: [-45, -23, -44, -22],  // [west, south, east, north]
+  //   paint: { 'raster-opacity': 0.7 },
+  //   legend: {
+  //     title: 'Classes de Declividade',
+  //     items: [
+  //       { type: 'polygon', color: '#00ff00', label: '0-5% (Plano)' },
+  //       { type: 'polygon', color: '#ffff00', label: '5-15% (Suave)' },
+  //       { type: 'polygon', color: '#ff9900', label: '15-30% (Moderado)' },
+  //       { type: 'polygon', color: '#ff0000', label: '>30% (Forte)' }
+  //     ]
+  //   }
+  // }
   analysisLayers: {
     enabled: true, // Feature flag global
     layers: [
@@ -69,7 +89,7 @@ const config = {
 
   // ===== DATA LAYERS (Molduras, etc.) =====
   // Camadas de dados vetoriais exibidas no catálogo na categoria "Dados"
-  // Campos opcionais: labelSource, labelSourceLayer, labelMinzoom, style.fill, style.label
+  // Campos opcionais: labelSource, labelSourceLayer, labelMinzoom, style.fill, style.label, legend
   dataLayers: {
     enabled: true, // Feature flag global
     layers: [
@@ -92,6 +112,13 @@ const config = {
       //       width: 2,
       //       opacity: 1
       //     }
+      //   },
+      //   // legend é OPCIONAL - exibe botão de legenda na lista de camadas
+      //   legend: {
+      //     title: 'Rodovias',  // Título opcional (usa nome da camada se omitido)
+      //     items: [
+      //       { type: 'line', color: '#E74C3C', borderWidth: 2, label: 'Rodovia Federal' }
+      //     ]
       //   }
       // },
 
@@ -126,7 +153,7 @@ const config = {
       //   }
       // },
 
-      // ===== EXEMPLO COMPLETO (com labelSource separado) =====
+      // ===== EXEMPLO COMPLETO (com labelSource separado e legenda) =====
       // Configuração avançada: fill, border, label com source separado
       // {
       //   id: 'moldura_25k',
@@ -179,6 +206,16 @@ const config = {
       //         "INOM ", ["get", "identificadorINOM"]
       //       ]
       //     }
+      //   },
+      //   // ===== LEGENDA =====
+      //   // Propriedades do item: type ('point'|'line'|'polygon'), color, borderColor, borderWidth, label, size
+      //   legend: {
+      //     title: 'Situação da Carta',
+      //     items: [
+      //       { type: 'polygon', color: 'rgba(145,207,96,0.5)', borderColor: '#91CF60', label: 'Concluído' },
+      //       { type: 'polygon', color: 'rgba(102,178,255,0.5)', borderColor: '#66B2FF', label: 'Múltiplas edições' },
+      //       { type: 'polygon', color: 'transparent', borderColor: '#aaaaaa', label: 'Não mapeado' }
+      //     ]
       //   }
       // }
     ]

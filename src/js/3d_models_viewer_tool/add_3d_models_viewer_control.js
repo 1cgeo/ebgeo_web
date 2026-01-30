@@ -192,8 +192,15 @@ class Add3DModelsViewerControl {
     async _handleBaseLayerChanged() {
         if (this.isActive && this.markersVisible) {
             // Layers were removed by setStyle, need to reload
-            await this.loadMarkers();
-            this.showMarkers();
+            // Reset markersVisible flag since layers no longer exist
+            this.markersVisible = false;
+
+            try {
+                await this.loadMarkers();
+                this.showMarkers();
+            } catch (error) {
+                console.error('Error reloading 3D model markers after base layer change:', error);
+            }
         }
     }
 
@@ -448,7 +455,19 @@ class Add3DModelsViewerControl {
      * Show markers and enable event listeners
      */
     showMarkers() {
-        if (!this.map.getLayer(this.markersLayer)) return;
+        if (!this.map.getLayer(this.markersLayer)) {
+            console.warn('3D Models Viewer: markers layer not found, cannot show markers');
+            return;
+        }
+
+        // First remove any existing listeners to prevent duplicates
+        // (these calls are safe even if listeners don't exist)
+        this.map.off('click', this.clustersLayer, this.handleClusterClick);
+        this.map.off('mouseenter', this.clustersLayer, this.showHoverCursor);
+        this.map.off('mouseleave', this.clustersLayer, this.hideHoverCursor);
+        this.map.off('click', this.markersLayer, this.handleMarkerClick);
+        this.map.off('mouseenter', this.markersLayer, this.showHoverCursor);
+        this.map.off('mouseleave', this.markersLayer, this.hideHoverCursor);
 
         // Cluster events
         this.map.on('click', this.clustersLayer, this.handleClusterClick);
@@ -475,28 +494,26 @@ class Add3DModelsViewerControl {
      * Hide markers and remove event listeners
      */
     hideMarkers() {
-        if (!this.map.getLayer(this.markersLayer)) return;
-
-        // Remove popup
+        // Remove popup first
         this.removePreviewPopup();
 
-        // Cluster events
+        // Always remove event listeners (safe even if they don't exist)
         this.map.off('click', this.clustersLayer, this.handleClusterClick);
         this.map.off('mouseenter', this.clustersLayer, this.showHoverCursor);
         this.map.off('mouseleave', this.clustersLayer, this.hideHoverCursor);
-
-        // Individual marker events
         this.map.off('click', this.markersLayer, this.handleMarkerClick);
         this.map.off('mouseenter', this.markersLayer, this.showHoverCursor);
         this.map.off('mouseleave', this.markersLayer, this.hideHoverCursor);
 
-        // Set visibility
-        this.map.setLayoutProperty(this.clustersLayer, 'visibility', 'none');
-        this.map.setLayoutProperty(this.clusterCountLayer, 'visibility', 'none');
-        this.map.setLayoutProperty(this.markersLayer, 'visibility', 'none');
-        this.map.setLayoutProperty(this.labelsLayer, 'visibility', 'none');
-        this.map.setLayoutProperty(this.badgeCircleLayer, 'visibility', 'none');
-        this.map.setLayoutProperty(this.badgeTextLayer, 'visibility', 'none');
+        // Only set visibility if layers exist
+        if (this.map.getLayer(this.markersLayer)) {
+            this.map.setLayoutProperty(this.clustersLayer, 'visibility', 'none');
+            this.map.setLayoutProperty(this.clusterCountLayer, 'visibility', 'none');
+            this.map.setLayoutProperty(this.markersLayer, 'visibility', 'none');
+            this.map.setLayoutProperty(this.labelsLayer, 'visibility', 'none');
+            this.map.setLayoutProperty(this.badgeCircleLayer, 'visibility', 'none');
+            this.map.setLayoutProperty(this.badgeTextLayer, 'visibility', 'none');
+        }
 
         this.markersVisible = false;
     }

@@ -32,7 +32,8 @@ const ICONS = {
     WARNING: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
     INFO: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
     CLOSE: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
-    REFRESH: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`
+    REFRESH: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`,
+    LEGEND: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><line x1="14" y1="6" x2="21" y2="6"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="17" x2="21" y2="17"/></svg>`
 };
 
 /**
@@ -152,6 +153,8 @@ function createActiveLayerHTML(layer) {
     const hasLocation = layer.type === CATALOG_ITEM_TYPES.ANALYSIS_LAYER && layer.config?.bounds;
     // Data layers always support zoom (bounds calculated from vector features)
     const isDataLayer = layer.type === CATALOG_ITEM_TYPES.DATA_LAYER;
+    // Check if layer has legend configured
+    const hasLegend = layer.config?.legend?.items?.length > 0;
 
     return `
         <div class="catalog-layer-info">
@@ -159,6 +162,11 @@ function createActiveLayerHTML(layer) {
             <span class="catalog-layer-name" title="${layer.name}">${layer.name}</span>
         </div>
         <div class="catalog-layer-actions">
+            ${hasLegend ? `
+                <button class="catalog-layer-btn catalog-layer-legend" title="Ver legenda">
+                    ${ICONS.LEGEND}
+                </button>
+            ` : ''}
             ${(hasLocation || isDataLayer) ? `
                 <button class="catalog-layer-btn catalog-layer-zoom" title="Ir para camada">
                     ${ICONS.ZOOM}
@@ -209,6 +217,15 @@ function createUnavailableLayerHTML(layer) {
  * @param {Object} [dataLayersManager] - Data layers manager instance
  */
 function attachActiveLayerEvents(item, layer, map, eventBus, analysisLayersManager, dataLayersManager) {
+    // Legend button
+    const legendBtn = item.querySelector('.catalog-layer-legend');
+    if (legendBtn) {
+        legendBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleLegendPanel(layer, item);
+        });
+    }
+
     // Zoom button
     const zoomBtn = item.querySelector('.catalog-layer-zoom');
     if (zoomBtn) {
@@ -489,6 +506,78 @@ function positionPopover(popover, anchor) {
 
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
+}
+
+/**
+ * Creates an SVG symbol for a legend item.
+ * @param {Object} item - Legend item configuration
+ * @returns {string} SVG string
+ */
+function createLegendSymbol(item) {
+    const { type, color, borderColor, borderWidth = 1, size = 8 } = item;
+
+    switch (type) {
+        case 'point':
+            return `<svg width="16" height="16" viewBox="0 0 16 16">
+                <circle cx="8" cy="8" r="${size / 2}" fill="${color}" />
+            </svg>`;
+
+        case 'line':
+            return `<svg width="24" height="16" viewBox="0 0 24 16">
+                <line x1="2" y1="8" x2="22" y2="8" stroke="${color}" stroke-width="${borderWidth + 1}" stroke-linecap="round" />
+            </svg>`;
+
+        case 'polygon':
+            return `<svg width="16" height="16" viewBox="0 0 16 16">
+                <rect x="2" y="2" width="12" height="12"
+                    fill="${color}"
+                    stroke="${borderColor || color}"
+                    stroke-width="${borderWidth}" />
+            </svg>`;
+
+        default:
+            return '';
+    }
+}
+
+/**
+ * Toggles the inline legend panel below the layer item.
+ * @param {Object} layer - Layer data
+ * @param {HTMLElement} layerItem - The layer item element
+ */
+function toggleLegendPanel(layer, layerItem) {
+    // Look for existing panel that follows this item
+    const existingPanel = layerItem.nextElementSibling?.classList.contains('legend-panel')
+        ? layerItem.nextElementSibling
+        : null;
+
+    // If panel exists, toggle it
+    if (existingPanel) {
+        existingPanel.remove();
+        layerItem.classList.remove('legend-expanded');
+        return;
+    }
+
+    const legend = layer.config?.legend;
+    if (!legend?.items?.length) return;
+
+    const panel = document.createElement('div');
+    panel.className = 'legend-panel';
+    panel.dataset.layerId = layer.id;
+    panel.innerHTML = `
+        <div class="legend-panel-body">
+            ${legend.items.map(item => `
+                <div class="legend-item">
+                    <span class="legend-symbol">${createLegendSymbol(item)}</span>
+                    <span class="legend-label">${item.label}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+
+    // Insert after the layer item
+    layerItem.after(panel);
+    layerItem.classList.add('legend-expanded');
 }
 
 /**

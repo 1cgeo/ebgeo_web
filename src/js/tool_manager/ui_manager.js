@@ -20,7 +20,6 @@ import { cleanupFeatureDropdownListeners } from './helpers';
 import { getStateManager, getEventBus } from '../store';
 import { injectTabbedPanelStyles } from './tabbed_attribute_panel.js';
 import { EventTypes } from '../events/event_types.js';
-import { formatCoordinates } from '../utilities/coordinate_converter.js';
 
 // Register Chart.js components (tree-shaking)
 Chart.register(
@@ -770,30 +769,49 @@ class UIManager {
 
         // Check for critical slopes and calculate max slope
         const maxSlope = Math.max(...slopes.map(s => Math.abs(s)));
-        const hasCriticalSlope = maxSlope > UIManager.SLOPE_THRESHOLD;
+        const isCriticalSlope = maxSlope > UIManager.SLOPE_THRESHOLD;
 
-        // Show slope alert if critical slopes detected
-        if (hasCriticalSlope) {
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'profile-slope-alert';
-            alertDiv.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                </svg>
-                <span>Inclinação máxima: ${maxSlope.toFixed(1)}% (limite: ${UIManager.SLOPE_THRESHOLD}%)</span>
-            `;
-            panel.appendChild(alertDiv);
-        }
+        // Determine color based on slope value
+        const getSlopeAlertColor = (slope) => {
+            if (slope > UIManager.SLOPE_THRESHOLD) return 'red';
+            if (slope > UIManager.SLOPE_THRESHOLD * 0.6) return 'yellow';
+            return 'green';
+        };
+        const slopeColor = getSlopeAlertColor(maxSlope);
 
-        // Add coordinates section for LOS features
-        if (linkFirstLast && feature) {
-            this._addCoordinatesSectionToProfile(panel, feature);
-        }
+        // Always show max slope info with color coding
+        const slopeInfoDiv = document.createElement('div');
+        slopeInfoDiv.className = `profile-slope-info ${slopeColor}`;
+        slopeInfoDiv.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                ${isCriticalSlope ?
+                    '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' :
+                    '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'
+                }
+            </svg>
+            <span>Inclinação máxima: ${maxSlope.toFixed(1)}%</span>
+        `;
+        panel.appendChild(slopeInfoDiv);
+
+        // Toggle for slope visibility (starts OFF)
+        const toggleContainer = document.createElement('div');
+        toggleContainer.className = 'profile-slope-toggle';
+        toggleContainer.innerHTML = `
+            <label class="profile-toggle-label">
+                <input type="checkbox" id="slopeToggle">
+                <span class="profile-toggle-text">Mostrar inclinação</span>
+            </label>
+        `;
+        panel.appendChild(toggleContainer);
+
+        // Chart container for proper sizing
+        const chartContainer = document.createElement('div');
+        chartContainer.className = 'profile-chart-container';
+        panel.appendChild(chartContainer);
 
         const canvas = document.createElement('canvas');
         canvas.id = 'profileChart';
-        panel.appendChild(canvas);
+        chartContainer.appendChild(canvas);
 
         // Color function for slope segments based on threshold
         const getSlopeColor = (slope) => {
@@ -804,6 +822,27 @@ class UIManager {
                 return 'rgba(255, 193, 7, 0.8)'; // Warning - yellow
             }
             return 'rgba(102, 187, 106, 0.8)'; // Normal - green
+        };
+
+        // Slope dataset definition (will be added/removed based on toggle)
+        const slopeDataset = {
+            label: 'Inclinação (%)',
+            data: slopes,
+            borderColor: 'rgba(156, 39, 176, 0.8)',
+            backgroundColor: slopes.map(s => getSlopeColor(s)),
+            fill: false,
+            tension: 0.1,
+            pointRadius: 4,
+            pointHoverRadius: 7,
+            pointBackgroundColor: slopes.map(s => getSlopeColor(s)),
+            pointBorderColor: slopes.map(s => getSlopeColor(s)),
+            yAxisID: 'y1',
+            segment: {
+                borderColor: ctx => {
+                    const slope = slopes[ctx.p1DataIndex];
+                    return getSlopeColor(slope);
+                }
+            }
         };
 
         const datasets = [
@@ -817,26 +856,8 @@ class UIManager {
                 pointRadius: 3,
                 pointHoverRadius: 6,
                 yAxisID: 'y'
-            },
-            {
-                label: 'Inclinação (%)',
-                data: slopes,
-                borderColor: 'rgba(156, 39, 176, 0.8)',
-                backgroundColor: slopes.map(s => getSlopeColor(s)),
-                fill: false,
-                tension: 0.1,
-                pointRadius: 4,
-                pointHoverRadius: 7,
-                pointBackgroundColor: slopes.map(s => getSlopeColor(s)),
-                pointBorderColor: slopes.map(s => getSlopeColor(s)),
-                yAxisID: 'y1',
-                segment: {
-                    borderColor: ctx => {
-                        const slope = slopes[ctx.p1DataIndex];
-                        return getSlopeColor(slope);
-                    }
-                }
             }
+            // Slope dataset is NOT added by default (starts OFF)
         ];
 
         if (linkFirstLast) {
@@ -940,6 +961,7 @@ class UIManager {
                     y1: {
                         type: 'linear',
                         position: 'right',
+                        display: false, // Hidden by default
                         title: {
                             display: true,
                             text: 'Inclinação (%)',
@@ -957,6 +979,28 @@ class UIManager {
                 }
             }
         });
+
+        // Toggle event listener for slope visibility
+        const slopeToggle = document.getElementById('slopeToggle');
+        if (slopeToggle) {
+            slopeToggle.addEventListener('change', (e) => {
+                if (!this.activeChart) return;
+
+                if (e.target.checked) {
+                    // Add slope dataset
+                    this.activeChart.data.datasets.push(slopeDataset);
+                    this.activeChart.options.scales.y1.display = true;
+                } else {
+                    // Remove slope dataset
+                    const slopeIndex = this.activeChart.data.datasets.findIndex(d => d.label === 'Inclinação (%)');
+                    if (slopeIndex !== -1) {
+                        this.activeChart.data.datasets.splice(slopeIndex, 1);
+                    }
+                    this.activeChart.options.scales.y1.display = false;
+                }
+                this.activeChart.update();
+            });
+        }
     }
 
     /**
@@ -1014,119 +1058,6 @@ class UIManager {
         }
 
         this.hideProfilePanel();
-    }
-
-    /**
-     * Add coordinates section to profile panel for LOS features.
-     * @param {HTMLElement} panel - The panel element
-     * @param {Object} feature - The LOS feature
-     * @private
-     */
-    _addCoordinatesSectionToProfile(panel, feature) {
-        // Extract coordinates from LOS geometry
-        let startCoords = null;
-        let endCoords = null;
-        let intersectionCoords = null;
-
-        const geometry = feature.geometry;
-        if (geometry.type === 'MultiLineString') {
-            // Has obstruction: first line is visible, second is obstructed
-            const visibleLine = geometry.coordinates[0];
-            const obstructedLine = geometry.coordinates[1];
-            startCoords = visibleLine[0];
-            endCoords = obstructedLine[obstructedLine.length - 1];
-            // Intersection is where visible line ends and obstructed begins
-            intersectionCoords = visibleLine[visibleLine.length - 1];
-        } else if (geometry.type === 'LineString') {
-            // No obstruction: full line is visible
-            startCoords = geometry.coordinates[0];
-            endCoords = geometry.coordinates[geometry.coordinates.length - 1];
-        }
-
-        if (!startCoords || !endCoords) return;
-
-        // Create coordinates section
-        const coordsSection = document.createElement('div');
-        coordsSection.className = 'profile-coordinates-section';
-
-        const coordsTitle = document.createElement('div');
-        coordsTitle.className = 'profile-coordinates-title';
-        coordsTitle.textContent = 'Coordenadas';
-        coordsSection.appendChild(coordsTitle);
-
-        const coordsGrid = document.createElement('div');
-        coordsGrid.className = 'profile-coordinates-grid';
-
-        // Start coordinate
-        const startRow = this._createCoordinateRow('Inicial', startCoords, 'green');
-        coordsGrid.appendChild(startRow);
-
-        // Intersection coordinate (if exists)
-        if (intersectionCoords) {
-            const intersectionRow = this._createCoordinateRow('Interseção', intersectionCoords, 'red');
-            coordsGrid.appendChild(intersectionRow);
-        }
-
-        // End coordinate
-        const endRow = this._createCoordinateRow('Final', endCoords, intersectionCoords ? 'red' : 'green');
-        coordsGrid.appendChild(endRow);
-
-        coordsSection.appendChild(coordsGrid);
-        panel.appendChild(coordsSection);
-    }
-
-    /**
-     * Create a coordinate row for the profile panel.
-     * @param {string} label - Row label
-     * @param {Array} coords - [lng, lat] coordinates
-     * @param {string} color - Color indicator ('green' or 'red')
-     * @returns {HTMLElement}
-     * @private
-     */
-    _createCoordinateRow(label, coords, color) {
-        const row = document.createElement('div');
-        row.className = 'profile-coordinate-row';
-
-        const indicator = document.createElement('span');
-        indicator.className = `profile-coordinate-indicator ${color}`;
-        row.appendChild(indicator);
-
-        const labelSpan = document.createElement('span');
-        labelSpan.className = 'profile-coordinate-label';
-        labelSpan.textContent = label + ':';
-        row.appendChild(labelSpan);
-
-        const valueSpan = document.createElement('span');
-        valueSpan.className = 'profile-coordinate-value';
-        valueSpan.textContent = 'Carregando...';
-        valueSpan.title = 'Clique para copiar';
-        valueSpan.style.cursor = 'pointer';
-
-        // Format and display coordinates
-        const [lng, lat] = coords;
-        formatCoordinates(lat, lng, 'latlong').then(formatted => {
-            valueSpan.textContent = formatted;
-        });
-
-        // Copy on click
-        valueSpan.addEventListener('click', async () => {
-            const text = valueSpan.textContent;
-            try {
-                await navigator.clipboard.writeText(text);
-                const original = valueSpan.textContent;
-                valueSpan.textContent = 'Copiado!';
-                valueSpan.classList.add('copied');
-                setTimeout(() => {
-                    valueSpan.textContent = original;
-                    valueSpan.classList.remove('copied');
-                }, 1500);
-            } catch (e) {
-                console.warn('Failed to copy coordinates:', e);
-            }
-        });
-
-        row.appendChild(valueSpan);
-        return row;
     }
 
     /**

@@ -8,6 +8,7 @@ import {
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
 } from '../../tool_manager/helpers/index.js';
+import { formatCoordinates } from '../../utilities/coordinate_converter.js';
 
 /**
  * Format distance for display
@@ -21,6 +22,115 @@ function formatDistance(distanceMeters) {
     return distanceMeters >= 1000
         ? `${(distanceMeters / 1000).toFixed(2)} km`
         : `${distanceMeters.toFixed(1)} m`;
+}
+
+/**
+ * Extract coordinates from LOS geometry
+ * @param {Object} geometry - GeoJSON geometry
+ * @returns {Object} {start, end, intersection}
+ */
+function extractLOSCoordinates(geometry) {
+    let startCoords = null;
+    let endCoords = null;
+    let intersectionCoords = null;
+
+    if (geometry.type === 'MultiLineString') {
+        // Has obstruction: first line is visible, second is obstructed
+        const visibleLine = geometry.coordinates[0];
+        const obstructedLine = geometry.coordinates[1];
+        startCoords = visibleLine[0];
+        endCoords = obstructedLine[obstructedLine.length - 1];
+        // Intersection is where visible line ends and obstructed begins
+        intersectionCoords = visibleLine[visibleLine.length - 1];
+    } else if (geometry.type === 'LineString') {
+        // No obstruction: full line is visible
+        startCoords = geometry.coordinates[0];
+        endCoords = geometry.coordinates[geometry.coordinates.length - 1];
+    }
+
+    return { start: startCoords, end: endCoords, intersection: intersectionCoords };
+}
+
+/**
+ * Create a clickable coordinate row
+ * @param {string} label - Row label
+ * @param {Array} coords - [lng, lat] coordinates
+ * @param {string} color - Color for indicator ('green' or 'red')
+ * @returns {HTMLElement}
+ */
+function createCoordinateRow(label, coords, color) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display: flex; align-items: center; gap: 8px; font-size: 12px;';
+
+    // Color indicator
+    const indicator = document.createElement('span');
+    indicator.style.cssText = `
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background-color: ${color === 'green' ? '#00c853' : '#ff5252'};
+        box-shadow: 0 0 4px ${color === 'green' ? 'rgba(0, 200, 83, 0.5)' : 'rgba(255, 82, 82, 0.5)'};
+    `;
+    row.appendChild(indicator);
+
+    // Label
+    const labelSpan = document.createElement('span');
+    labelSpan.style.cssText = 'font-weight: 500; color: #666; min-width: 65px;';
+    labelSpan.textContent = label + ':';
+    row.appendChild(labelSpan);
+
+    // Value (clickable)
+    const valueSpan = document.createElement('span');
+    valueSpan.style.cssText = `
+        font-family: 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
+        color: #333;
+        padding: 2px 6px;
+        background-color: rgba(255, 255, 255, 0.7);
+        border-radius: 3px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    `;
+    valueSpan.textContent = 'Carregando...';
+    valueSpan.title = 'Clique para copiar';
+
+    // Format and display coordinates
+    const [lng, lat] = coords;
+    formatCoordinates(lat, lng, 'latlong').then(formatted => {
+        valueSpan.textContent = formatted;
+    });
+
+    // Hover effect
+    valueSpan.addEventListener('mouseenter', () => {
+        valueSpan.style.backgroundColor = 'var(--primary-light, #e3f2fd)';
+        valueSpan.style.color = 'var(--primary-color, #1976d2)';
+    });
+    valueSpan.addEventListener('mouseleave', () => {
+        valueSpan.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
+        valueSpan.style.color = '#333';
+    });
+
+    // Copy on click
+    valueSpan.addEventListener('click', async () => {
+        const text = valueSpan.textContent;
+        try {
+            await navigator.clipboard.writeText(text);
+            const original = valueSpan.textContent;
+            valueSpan.textContent = 'Copiado!';
+            valueSpan.style.backgroundColor = '#00c853';
+            valueSpan.style.color = 'white';
+            setTimeout(() => {
+                valueSpan.textContent = original;
+                valueSpan.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
+                valueSpan.style.color = '#333';
+            }, 1500);
+        } catch (e) {
+            console.warn('Failed to copy coordinates:', e);
+        }
+    });
+
+    row.appendChild(valueSpan);
+    return row;
 }
 
 /**
@@ -48,6 +158,45 @@ export function createLOSInfoSection(feature) {
         border-radius: 6px;
         margin-bottom: 12px;
     `;
+
+    // Extract coordinates from geometry
+    const coords = extractLOSCoordinates(feature.geometry);
+
+    // Coordinates section (before length info)
+    if (coords.start && coords.end) {
+        const coordsTitle = document.createElement('div');
+        coordsTitle.style.cssText = `
+            font-size: 11px;
+            font-weight: 600;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        `;
+        coordsTitle.textContent = 'Coordenadas';
+        container.appendChild(coordsTitle);
+
+        const coordsGrid = document.createElement('div');
+        coordsGrid.style.cssText = 'display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px;';
+
+        // Start coordinate
+        coordsGrid.appendChild(createCoordinateRow('Inicial', coords.start, 'green'));
+
+        // Intersection coordinate (if exists)
+        if (coords.intersection) {
+            coordsGrid.appendChild(createCoordinateRow('Interseção', coords.intersection, 'red'));
+        }
+
+        // End coordinate
+        coordsGrid.appendChild(createCoordinateRow('Final', coords.end, coords.intersection ? 'red' : 'green'));
+
+        container.appendChild(coordsGrid);
+
+        // Separator between coordinates and lengths
+        const separator = document.createElement('div');
+        separator.style.cssText = 'border-top: 1px solid rgba(0,0,0,0.08); margin: 4px 0;';
+        container.appendChild(separator);
+    }
 
     const totalLength = feature.properties.totalLength;
     const visibleLength = feature.properties.visibleLength;

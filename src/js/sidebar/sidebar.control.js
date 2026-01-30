@@ -551,19 +551,8 @@ export class SidebarControl {
         const { marker, tilesetId } = payload;
         if (!marker) return;
 
-        // Collapse sidebar panel first
-        this._collapsePanel();
-
-        // Update state to reflect feature panel is open
-        this._stateManager.set('ui.featurePanelOpen', true);
-        this._stateManager.set('ui.currentFeatureType', 'marker3d');
-
-        // Emit layout changed
-        this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
-            sidebarExpanded: false,
-            featurePanelOpen: true,
-            contentLeftOffset: 376
-        });
+        // Use StateManager's openFeaturePanel to properly save previous sidebar state
+        this._stateManager.openFeaturePanel(marker.id, 'marker3d');
 
         // Load marker panel module lazily
         if (!markerPanel3dModule) {
@@ -596,29 +585,15 @@ export class SidebarControl {
     _onMarker3dDeselected() {
         // Only close if the feature panel is currently showing a 3D marker
         const featureType = this._stateManager.get('ui.currentFeatureType');
-        const isMarker3dPanel = featureType === 'marker3d' ||
-            (this._stateManager.get('ui.featurePanelOpen') &&
-             document.querySelector('.marker-3d-panel-content'));
+        const isPanelOpen = this._stateManager.get('ui.featurePanelOpen');
 
-        if (isMarker3dPanel) {
-            // Close the panel without restoring previous sidebar state
-            // This prevents layout issues when closing the 3D viewer
+        if (featureType === 'marker3d' && isPanelOpen) {
+            // Hide panel UI without triggering save
             this._featurePanel.hide(false);
             this._cleanupFeaturePanelContent();
 
-            // Clear feature panel state without triggering sidebar restore
-            this._stateManager.set('ui.featurePanelOpen', false);
-            this._stateManager.set('ui.currentFeatureType', null);
-            // Clear previousTab to prevent automatic restore
-            this._stateManager.set('sidebar.previousTab', null);
-
-            // Emit events for consistency
-            this._eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED, {});
-            this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
-                sidebarExpanded: false,
-                featurePanelOpen: false,
-                contentLeftOffset: 56
-            });
+            // Use StateManager's closeFeaturePanel to properly restore previous state
+            this._stateManager.closeFeaturePanel();
         }
     }
 
@@ -631,19 +606,8 @@ export class SidebarControl {
         const { measurement, tilesetId } = payload;
         if (!measurement) return;
 
-        // Collapse sidebar panel first
-        this._collapsePanel();
-
-        // Update state to reflect feature panel is open
-        this._stateManager.set('ui.featurePanelOpen', true);
-        this._stateManager.set('ui.currentFeatureType', 'measurement3d');
-
-        // Emit layout changed
-        this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
-            sidebarExpanded: false,
-            featurePanelOpen: true,
-            contentLeftOffset: 376
-        });
+        // Use StateManager's openFeaturePanel to properly save previous sidebar state
+        this._stateManager.openFeaturePanel(measurement.id, 'measurement3d');
 
         // Load measurement panel module lazily
         if (!measurementPanel3dModule) {
@@ -674,25 +638,17 @@ export class SidebarControl {
      * @private
      */
     _onMeasurement3dDeselected() {
+        // Only close if the feature panel is currently showing a 3D measurement
         const featureType = this._stateManager.get('ui.currentFeatureType');
-        const isMeasurement3dPanel = featureType === 'measurement3d' ||
-            (this._stateManager.get('ui.featurePanelOpen') &&
-             document.querySelector('.measurement-3d-panel-content'));
+        const isPanelOpen = this._stateManager.get('ui.featurePanelOpen');
 
-        if (isMeasurement3dPanel) {
+        if (featureType === 'measurement3d' && isPanelOpen) {
+            // Hide panel UI without triggering save
             this._featurePanel.hide(false);
             this._cleanupFeaturePanelContent();
 
-            this._stateManager.set('ui.featurePanelOpen', false);
-            this._stateManager.set('ui.currentFeatureType', null);
-            this._stateManager.set('sidebar.previousTab', null);
-
-            this._eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED, {});
-            this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
-                sidebarExpanded: false,
-                featurePanelOpen: false,
-                contentLeftOffset: 56
-            });
+            // Use StateManager's closeFeaturePanel to properly restore previous state
+            this._stateManager.closeFeaturePanel();
         }
     }
 
@@ -705,19 +661,8 @@ export class SidebarControl {
         const { viewshed, tilesetId } = payload;
         if (!viewshed) return;
 
-        // Collapse sidebar panel first
-        this._collapsePanel();
-
-        // Update state to reflect feature panel is open
-        this._stateManager.set('ui.featurePanelOpen', true);
-        this._stateManager.set('ui.currentFeatureType', 'viewshed3d');
-
-        // Emit layout changed
-        this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
-            sidebarExpanded: false,
-            featurePanelOpen: true,
-            contentLeftOffset: 376
-        });
+        // Use StateManager's openFeaturePanel to properly save previous sidebar state
+        this._stateManager.openFeaturePanel(viewshed.id, 'viewshed3d');
 
         // Load viewshed panel module lazily
         if (!viewshedPanel3dModule) {
@@ -748,25 +693,17 @@ export class SidebarControl {
      * @private
      */
     _onViewshed3dDeselected() {
+        // Only close if the feature panel is currently showing a 3D viewshed
         const featureType = this._stateManager.get('ui.currentFeatureType');
-        const isViewshed3dPanel = featureType === 'viewshed3d' ||
-            (this._stateManager.get('ui.featurePanelOpen') &&
-             document.querySelector('.viewshed-3d-panel-content'));
+        const isPanelOpen = this._stateManager.get('ui.featurePanelOpen');
 
-        if (isViewshed3dPanel) {
+        if (featureType === 'viewshed3d' && isPanelOpen) {
+            // Hide panel UI without triggering save
             this._featurePanel.hide(false);
             this._cleanupFeaturePanelContent();
 
-            this._stateManager.set('ui.featurePanelOpen', false);
-            this._stateManager.set('ui.currentFeatureType', null);
-            this._stateManager.set('sidebar.previousTab', null);
-
-            this._eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED, {});
-            this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
-                sidebarExpanded: false,
-                featurePanelOpen: false,
-                contentLeftOffset: 56
-            });
+            // Use StateManager's closeFeaturePanel to properly restore previous state
+            this._stateManager.closeFeaturePanel();
         }
     }
 
