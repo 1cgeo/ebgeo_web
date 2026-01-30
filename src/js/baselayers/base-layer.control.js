@@ -217,6 +217,11 @@ class BaseLayerControl {
             this.map.setStyle(styleUrl);
             await styleLoadPromise;
             this.currentLayer = layer;
+
+            // Reapply globe projection after style change (setStyle resets projection)
+            if (config.map2d.globe_projection) {
+                this.map.setProjection({ type: 'globe' });
+            }
         }
         await this._updateHillshadeVisibility(layer);
         this.syncVisualState(layer);
