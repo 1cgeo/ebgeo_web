@@ -12,7 +12,8 @@ import {
     validateCatalogLayerAvailability,
     updateCatalogLayerStatus,
     addCatalogLayer,
-    hasCatalogLayer
+    hasCatalogLayer,
+    revalidateCatalogLayers
 } from '../store';
 import { EventTypes } from '../events';
 import {
@@ -58,6 +59,10 @@ export function createCatalogLayersContainer() {
  */
 export async function renderCatalogLayers(container, map, eventBus, analysisLayersManager, dataLayersManager) {
     if (!container) return;
+
+    // Revalidate catalog layers against current config before rendering
+    // This ensures layers that are no longer in config are marked as unavailable
+    await revalidateCatalogLayers();
 
     const layers = await getCatalogLayers();
 

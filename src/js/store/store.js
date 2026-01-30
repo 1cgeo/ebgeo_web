@@ -327,7 +327,8 @@ export {
     hasCatalogLayer,
     validateCatalogLayerAvailability,
     processCatalogLayersOnImport,
-    updateCatalogLayerStatus
+    updateCatalogLayerStatus,
+    revalidateCatalogLayers
 } from './catalog.operations.js';
 
 // ===== RE-EXPORTS FROM CESIUM 3D OPERATIONS =====

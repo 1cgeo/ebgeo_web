@@ -29,7 +29,9 @@ import config from '../config.js';
 /** Item types matching catalog.constants.js */
 const ITEM_TYPES = {
     HILLSHADE: 'hillshade',
-    ANALYSIS_LAYER: 'analysis_layer'
+    ANALYSIS_LAYER: 'analysis_layer',
+    DATA_LAYER: 'data_layer',
+    MODEL_3D: 'model_3d'
 };
 
 // ===== CATALOG LAYERS =====
@@ -179,6 +181,26 @@ export const validateCatalogLayerAvailability = (layer) => {
                 l => l.id === (layer.originalId || layer.config?.id)
             );
             return layerExists ? 'active' : 'unavailable';
+        }
+
+        case ITEM_TYPES.DATA_LAYER: {
+            const dataConfig = config.dataLayers;
+            if (!dataConfig?.enabled) return 'unavailable';
+
+            const layerExists = dataConfig.layers?.some(
+                l => l.id === (layer.originalId || layer.config?.id)
+            );
+            return layerExists ? 'active' : 'unavailable';
+        }
+
+        case ITEM_TYPES.MODEL_3D: {
+            const tilesets = config.tilesets;
+            if (!tilesets || tilesets.length === 0) return 'unavailable';
+
+            const tilesetExists = tilesets.some(
+                t => t.id === (layer.originalId || layer.config?.id)
+            );
+            return tilesetExists ? 'active' : 'unavailable';
         }
 
         default:

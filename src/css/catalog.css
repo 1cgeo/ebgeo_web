@@ -448,18 +448,18 @@
         -45deg,
         transparent,
         transparent 4px,
-        var(--gray-100) 4px,
-        var(--gray-100) 8px
+        color-mix(in srgb, var(--color-error) 8%, white) 4px,
+        color-mix(in srgb, var(--color-error) 8%, white) 8px
     );
-    border-left: 3px solid var(--color-warning);
+    border-left: 3px solid var(--color-error);
 }
 
 .catalog-layer-unavailable .catalog-layer-name {
-    color: var(--gray-400);
+    color: var(--color-error);
 }
 
 .catalog-layer-unavailable .catalog-layer-icon-warning {
-    color: var(--color-warning);
+    color: var(--color-error);
 }
 
 .catalog-layer-status-text {
@@ -486,13 +486,13 @@
     background: transparent;
     border: none;
     border-radius: var(--radius-sm);
-    color: var(--color-warning);
+    color: var(--color-error);
     cursor: pointer;
     transition: all var(--transition-fast);
 }
 
 .catalog-layer-info-btn:hover {
-    background: var(--color-warning);
+    background: var(--color-error);
     color: white;
 }
 
@@ -529,7 +529,7 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--space-3) var(--space-4);
-    background: var(--color-warning);
+    background: var(--color-error);
     color: white;
     font-weight: var(--font-weight-semibold);
     font-size: var(--font-size-sm);

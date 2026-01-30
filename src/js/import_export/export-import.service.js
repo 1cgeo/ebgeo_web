@@ -27,6 +27,7 @@ import {
     setMapOrder,
     // Catalog imports
     processCatalogLayersOnImport,
+    getCatalogLayers,
     // Cesium 3D imports
     getCesium3dDataForExport,
     setCesium3dDataForImport,
@@ -279,12 +280,16 @@ export class ExportImportService {
                     // Get saved map position
                     const position = await getMapPosition(mapName);
 
+                    // Get catalog layers (analysis, data, hillshade)
+                    const catalogLayers = await getCatalogLayers(mapName);
+
                     // Rebuild complete map structure with actual position
                     const fullMapData = {
                         baseLayer: await getCurrentBaseLayer(mapName),
                         hillshadeEnabled: true,
                         analysisLayers: {},
                         features: mapData,
+                        catalogLayers: catalogLayers.length > 0 ? catalogLayers : undefined,
                         zoom: position.zoom,
                         center_lat: position.center_lat,
                         center_long: position.center_long,
