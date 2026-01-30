@@ -19,11 +19,14 @@ const SV_CLUSTER_SIZE_STEPS = {
     large: { radius: 26 }
 };
 
-// Streetview primary color (blue - distinct from 3D green)
-const SV_MARKER_COLOR = '#0d6efd';
+// Streetview primary color (orange - contrasts well with blue line)
+const SV_MARKER_COLOR = '#ff6b00';
 
 // Marker popup offset
 const SV_MARKER_POPUP_OFFSET = 55;
+
+// Separator layer ID - markers are added before this layer to ensure correct z-order
+const STREETVIEW_MARKERS_SEPARATOR = 'streetview-markers-separator';
 
 /**
  * Manages streetview markers on the map.
@@ -142,7 +145,12 @@ class StreetviewMarkers {
                 clusterRadius: SV_CLUSTER_CONFIG.radius
             });
 
-            // Layer 1: Cluster circles (blue)
+            // Get separator layer for z-ordering (markers added before separator = above lines)
+            const beforeId = this.map.getLayer(STREETVIEW_MARKERS_SEPARATOR)
+                ? STREETVIEW_MARKERS_SEPARATOR
+                : undefined;
+
+            // Layer 1: Cluster circles
             this.map.addLayer({
                 id: this.clustersLayer,
                 type: 'circle',
@@ -165,7 +173,7 @@ class StreetviewMarkers {
                 layout: {
                     'visibility': 'none'
                 }
-            });
+            }, beforeId);
 
             // Layer 2: Cluster count labels
             this.map.addLayer({
@@ -182,7 +190,7 @@ class StreetviewMarkers {
                 paint: {
                     'text-color': '#ffffff'
                 }
-            });
+            }, beforeId);
 
             // Load marker icon
             await this.loadMarkerImage();
@@ -204,7 +212,7 @@ class StreetviewMarkers {
                 paint: {
                     'icon-opacity': 1.0
                 }
-            });
+            }, beforeId);
 
             // Layer 4: Marker labels
             this.map.addLayer({
@@ -227,7 +235,7 @@ class StreetviewMarkers {
                     'text-halo-width': 2,
                     'text-halo-blur': 1
                 }
-            });
+            }, beforeId);
         } else {
             // Update existing source data
             this.map.getSource(this.sourceId).setData(geojson);

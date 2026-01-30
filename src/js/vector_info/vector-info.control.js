@@ -70,7 +70,11 @@ class VectorTileInfoControl {
     handleMapClick(e) {
         if (this.isActive) {
             const features = this.map.queryRenderedFeatures(e.point);
-            const vectorTileFeatures = features.filter(f => f.sourceLayer && !f.properties.source && !f.sourceLayer.startsWith('grid') && !f.sourceLayer.startsWith('situacao_ponto') && !f.sourceLayer.startsWith('fotos'));
+            const filteredFeatures = features.filter(f => f.sourceLayer && !f.properties.source && !f.sourceLayer.startsWith('grid') && !f.sourceLayer.startsWith('situacao_ponto') && !f.sourceLayer.startsWith('fotos'));
+
+            // Remove duplicates caused by multiple layers (fill, border, etc.) sharing the same source
+            const vectorTileFeatures = this._deduplicateFeatures(filteredFeatures);
+
             if (vectorTileFeatures.length > 0) {
                 const preferenceOrder = ['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon'];
 
@@ -210,6 +214,30 @@ class VectorTileInfoControl {
             this.contextMenu = null;
             this.pendingVectorTileFeatures = null;
         }
+    }
+
+    /**
+     * Removes duplicate features caused by multiple layers (fill, border, label, etc.)
+     * sharing the same source and sourceLayer.
+     * Uses sourceLayer + feature id or properties hash as unique key.
+     * @param {Array} features - Array of features from queryRenderedFeatures
+     * @returns {Array} Deduplicated features array
+     */
+    _deduplicateFeatures(features) {
+        const seen = new Map();
+
+        for (const feature of features) {
+            // Create a unique key combining sourceLayer and feature identity
+            // Feature id is preferred, but fallback to properties hash if not available
+            const featureId = feature.id ?? JSON.stringify(feature.properties);
+            const uniqueKey = `${feature.sourceLayer}::${featureId}`;
+
+            if (!seen.has(uniqueKey)) {
+                seen.set(uniqueKey, feature);
+            }
+        }
+
+        return Array.from(seen.values());
     }
 }
 

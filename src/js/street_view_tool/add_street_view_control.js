@@ -103,7 +103,7 @@ class AddStreetViewControl {
             'source-layer': 'fotos_linha',
             'paint': {
                 'line-color': '#0d6efd',
-                'line-width': 5
+                'line-width': 3
             }
         }
         };
@@ -1143,12 +1143,25 @@ class AddStreetViewControl {
         }
 
         if (this.map.getLayer(this.streetViewLinesLayer['id'])) {
-
             this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'visible');
         } else {
             this.map.addLayer(this.streetViewLinesLayer);
-
             this.map.setLayoutProperty(this.streetViewLinesLayer['id'], 'visibility', 'visible');
+        }
+
+        // Add separator layer for marker z-ordering (markers are added before this separator)
+        if (!this.map.getSource('streetview-markers-separator-source')) {
+            this.map.addSource('streetview-markers-separator-source', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+            this.map.addLayer({
+                id: 'streetview-markers-separator',
+                type: 'circle',
+                source: 'streetview-markers-separator-source',
+                layout: { visibility: 'none' },
+                paint: { 'circle-opacity': 0 }
+            });
         }
     }
 
