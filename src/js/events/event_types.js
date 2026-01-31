@@ -360,6 +360,15 @@ export const EventTypes = Object.freeze({
      * Emitters: navigator.js
      */
     MARKER_360_POSITION_CLICKED: 'marker360:positionClicked',
+
+    // ===== STORE =====
+    /**
+     * Emitted when all data is cleared from storage.
+     * Payload: {}
+     * Subscribers: color-picker.helpers.js
+     * Emitters: store.js (clearAllDataStore)
+     */
+    ALL_DATA_CLEARED: 'store:allDataCleared',
 });
 
 /**

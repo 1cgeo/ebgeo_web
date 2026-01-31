@@ -6,7 +6,8 @@
  * Uses a global color usage tracking system across all features and attributes.
  */
 
-import { getFrequentColors } from '../../store';
+import { getFrequentColors, getEventBus } from '../../store';
+import { EventTypes } from '../../events';
 
 /**
  * Maximum number of frequent colors to show.
@@ -461,6 +462,33 @@ export function resetColorCache() {
     localStorage.removeItem(COLOR_USAGE_KEY);
     // Clear registered pickers (they will be re-registered when rebuilt)
     registeredColorPickers.clear();
+}
+
+// ===== EVENT SUBSCRIPTION =====
+
+/**
+ * Flag to track if we've subscribed to events.
+ * @type {boolean}
+ */
+let _eventSubscribed = false;
+
+/**
+ * Initializes event subscriptions for the color picker system.
+ * Must be called after services are initialized.
+ * Subscribes to ALL_DATA_CLEARED to reset color cache when data is cleared.
+ */
+export function initColorPickerEvents() {
+    if (_eventSubscribed) return;
+
+    try {
+        const eventBus = getEventBus();
+        eventBus.on(EventTypes.ALL_DATA_CLEARED, () => {
+            resetColorCache();
+        });
+        _eventSubscribed = true;
+    } catch (_e) {
+        // EventBus not yet initialized, will be called again later
+    }
 }
 
 /**

@@ -20,7 +20,7 @@
  */
 
 import { createEventBus } from '../events';
-import { createGroupManager, groupManagerHolder } from '../tool_manager';
+import { createGroupManager, groupManagerHolder, initColorPickerEvents } from '../tool_manager';
 import { createLayerManager, layerManagerHolder } from '../layers';
 import { initStoreEvents } from './store.js';
 import { createStateManager } from '../state';
@@ -65,6 +65,9 @@ export function initServices() {
 
     // Initialize store module with all dependencies
     initStoreEvents(eventBus, groupManager, layerManager);
+
+    // Initialize color picker event subscriptions
+    initColorPickerEvents();
 
     // Freeze services object to prevent modification
     services = Object.freeze({

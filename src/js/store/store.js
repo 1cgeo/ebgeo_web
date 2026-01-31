@@ -29,7 +29,6 @@ import {
 
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
-import { resetColorCache } from '../tool_manager/helpers/color-picker.helpers.js';
 
 // Import specialized operation modules
 import {
@@ -129,13 +128,15 @@ export const clearAllDataStore = async () => {
     await clearAllStreetview360Data();
 
     await mapManager.clearAllColorCaches();
-    resetColorCache();
 
     deps.layerManager.clearLayersCache();
     clearCesium3dCache();
     clearStreetview360Cache();
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
+
+    // Notify subscribers that all data was cleared
+    deps.eventBus.emit(EventTypes.ALL_DATA_CLEARED);
 
     // Reinitialize with default map and layers
     const defaultMap = await initializeRepository();

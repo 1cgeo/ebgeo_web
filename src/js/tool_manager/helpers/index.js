@@ -23,7 +23,8 @@ export {
 export {
     createModernColorPicker,
     resetColorCache,
-    trackColorUsage
+    trackColorUsage,
+    initColorPickerEvents
 } from './color-picker.helpers.js';
 
 // Form controls
