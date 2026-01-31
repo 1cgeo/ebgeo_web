@@ -625,6 +625,19 @@ export function inject3DViewerModeStyles() {
             font-weight: 600;
         }
 
+        /* Active 360 section highlight */
+        .active-360-mode {
+            background: #f0f4ff;
+            border-left: 3px solid #0d6efd;
+            margin-left: -3px;
+            padding-left: 3px;
+        }
+
+        .active-360-mode .sidebar-section-header {
+            color: #0d6efd;
+            font-weight: 600;
+        }
+
         /* Disabled section header tooltip */
         .disabled-3d-mode .sidebar-section-header::after {
             content: 'Desabilitado no modo 3D';

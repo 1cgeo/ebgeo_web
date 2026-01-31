@@ -44,6 +44,14 @@ class KeyboardShortcuts {
     }
 
     /**
+     * Check if keyboard shortcuts are enabled
+     * @returns {boolean} True if enabled
+     */
+    isEnabled() {
+        return this.enabled;
+    }
+
+    /**
      * Check if user is typing in an input field or rich text editor
      * @param {HTMLElement} target - Event target
      * @returns {boolean} True if typing in input

@@ -47,6 +47,9 @@ let markerPanel3dModule = null;
 let measurementPanel3dModule = null;
 let viewshedPanel3dModule = null;
 
+// 360 panel modules (lazy imported)
+let markerPanel360Module = null;
+
 /**
  * Main sidebar controller class.
  * Manages the sidebar UI and coordinates between collapsed, expanded, and feature panel states.
@@ -226,6 +229,18 @@ export class SidebarControl {
         subscribe(this, this._eventBus, EventTypes.VIEWSHED_3D_DESELECTED,
             () => this._onViewshed3dDeselected());
 
+        // Listen for 360 marker clicks
+        subscribe(this, this._eventBus, EventTypes.MARKER_360_CLICKED,
+            (payload) => this._onMarker360Clicked(payload));
+
+        // Listen for 360 marker deselection
+        subscribe(this, this._eventBus, EventTypes.MARKER_360_DESELECTED,
+            () => this._onMarker360Deselected());
+
+        // Listen for 360 viewer closed to close any open 360 panels
+        subscribe(this, this._eventBus, EventTypes.STREETVIEW_360_CLOSED,
+            () => this._onStreetview360Closed());
+
         // Listen for base layer changes (map switch) to close 3D panels
         subscribe(this, this._eventBus, EventTypes.BASE_LAYER_CHANGED,
             () => this._onBaseLayerChanged());
@@ -239,8 +254,8 @@ export class SidebarControl {
     _onBaseLayerChanged() {
         const featureType = this._stateManager.get('ui.currentFeatureType');
 
-        // Check if a 3D panel is open
-        const is3dPanel = ['marker3d', 'measurement3d', 'viewshed3d'].includes(featureType);
+        // Check if a 3D or 360 panel is open
+        const is3dPanel = ['marker3d', 'measurement3d', 'viewshed3d', 'marker360'].includes(featureType);
 
         if (is3dPanel && this._stateManager.get('ui.featurePanelOpen')) {
             // Close the panel and cleanup
@@ -698,6 +713,80 @@ export class SidebarControl {
         const isPanelOpen = this._stateManager.get('ui.featurePanelOpen');
 
         if (featureType === 'viewshed3d' && isPanelOpen) {
+            // Hide panel UI without triggering save
+            this._featurePanel.hide(false);
+            this._cleanupFeaturePanelContent();
+
+            // Use StateManager's closeFeaturePanel to properly restore previous state
+            this._stateManager.closeFeaturePanel();
+        }
+    }
+
+    /**
+     * Called when a 360 marker is clicked.
+     * @private
+     * @param {Object} payload - Event payload with marker and photoName
+     */
+    async _onMarker360Clicked(payload) {
+        const { marker, photoName } = payload;
+        if (!marker) return;
+
+        // Use StateManager's openFeaturePanel to properly save previous sidebar state
+        this._stateManager.openFeaturePanel(marker.id, 'marker360');
+
+        // Load marker panel module lazily
+        if (!markerPanel360Module) {
+            markerPanel360Module = await import('../street_view_tool/components/marker-panel-360.js');
+            markerPanel360Module.injectMarkerPanel360Styles();
+        }
+
+        // Cleanup previous content
+        this._cleanupFeaturePanelContent();
+
+        // Create marker panel content
+        const { element, cleanup } = markerPanel360Module.createMarkerPanel360Content(
+            marker,
+            photoName,
+            () => this._handleFeaturePanelClose()
+        );
+
+        // Register cleanup
+        this._currentFeaturePanelCleanup = cleanup;
+
+        // Show in feature panel
+        const markerName = marker.properties?.nome || 'Marcador 360';
+        this._featurePanel.show(element, markerName);
+    }
+
+    /**
+     * Called when a 360 marker is deselected.
+     * @private
+     */
+    _onMarker360Deselected() {
+        // Only close if the feature panel is currently showing a 360 marker
+        const featureType = this._stateManager.get('ui.currentFeatureType');
+        const isPanelOpen = this._stateManager.get('ui.featurePanelOpen');
+
+        if (featureType === 'marker360' && isPanelOpen) {
+            // Hide panel UI without triggering save
+            this._featurePanel.hide(false);
+            this._cleanupFeaturePanelContent();
+
+            // Use StateManager's closeFeaturePanel to properly restore previous state
+            this._stateManager.closeFeaturePanel();
+        }
+    }
+
+    /**
+     * Called when the 360 viewer is closed.
+     * @private
+     */
+    _onStreetview360Closed() {
+        // Close any open 360 marker panel when the viewer closes
+        const featureType = this._stateManager.get('ui.currentFeatureType');
+        const isPanelOpen = this._stateManager.get('ui.featurePanelOpen');
+
+        if (featureType === 'marker360' && isPanelOpen) {
             // Hide panel UI without triggering save
             this._featurePanel.hide(false);
             this._cleanupFeaturePanelContent();

@@ -12,7 +12,7 @@ const config = {
   features: {
     map_3d: true,                 // Habilita/desabilita visualizador 3D
     imagens_panoramicas: true,    // Habilita/desabilita street view control
-    apisearch: false,              // Habilita/desabilita busca via API externa
+    apisearch: false,             // Habilita/desabilita busca via API externa
     grid: false,                  // Habilita/desabilita grid
   },
 
@@ -384,21 +384,18 @@ const config = {
   // ===== STREETVIEW MARKERS =====
   // Markers for specific panoramic photo locations
   // These markers appear on the map when the streetview tool is activated
-  streetViewMarkers: [
-  //   {
-  //     id: "obs-norte-01",
-  //     name: "Observatório Norte - Ponto Alto",
-  //     description: "Vista panorâmica 360° do ponto de observação norte com visada para o vale",
-  //     data_captura: "10/01/2025",
-  //     local: "Resende, RJ",
-  //     locate: {
-  //       lon: -44.47332,
-  //       lat: -22.43976
-  //     },
-  //     previewThumbnail: "/street_view/thumbnails/obs-norte-01.jpg",
-  //     photoName: "IMG_0001"
-  //   },
-  ]
+  // Formato:
+  // {
+  //   id: "unique-id",
+  //   name: "Nome do Ponto",
+  //   description: "Descrição do ponto",
+  //   data_captura: "DD/MM/YYYY",
+  //   local: "Cidade, Estado",
+  //   locate: { lon: -00.0000, lat: -00.0000 },
+  //   previewThumbnail: "./street_view/IMG/NOME_FOTO.jpg",
+  //   photoName: "NOME_FOTO"
+  // }
+  streetViewMarkers: []
 };
 
 export default config;

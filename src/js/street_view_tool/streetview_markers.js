@@ -469,12 +469,14 @@ class StreetviewMarkers {
      * Open streetview 360° photo
      * @param {string} photoName - Photo name for loadImageByName
      */
-    openStreetView(photoName) {
+    async openStreetView(photoName) {
         this.removePreviewPopup();
-        if (this.streetViewControl) {
-            this.streetViewControl.setFullMap(false);
-            this.streetViewControl.loadImageByName(photoName);
-        }
+        // Use the new viewer API
+        const { openViewer360WithPhoto } = await import('./street_view_viewer.js');
+        await openViewer360WithPhoto(photoName, {
+            miniMap: this.streetViewControl?.miniMap,
+            controlInstance: this.streetViewControl
+        });
     }
 
     /**

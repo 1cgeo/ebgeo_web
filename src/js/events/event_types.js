@@ -282,6 +282,84 @@ export const EventTypes = Object.freeze({
      * Emitters: cesium3d.operations.js
      */
     VIEWSHEDS_3D_CHANGED: 'viewsheds3d:changed',
+
+    // ===== STREET VIEW 360 EVENTS =====
+
+    /**
+     * Emitted when 360 viewer opens.
+     * Payload: { photoName: string }
+     * Subscribers: Sidebar, UI components
+     * Emitters: street_view_viewer.js
+     */
+    STREETVIEW_360_OPENED: 'streetview360:opened',
+
+    /**
+     * Emitted when 360 viewer closes.
+     * Payload: {}
+     * Subscribers: Sidebar, UI components
+     * Emitters: street_view_viewer.js
+     */
+    STREETVIEW_360_CLOSED: 'streetview360:closed',
+
+    /**
+     * Emitted when photo changes in 360 viewer.
+     * Payload: { previousPhoto: string, currentPhoto: string }
+     * Subscribers: UI components
+     * Emitters: street_view_viewer.js
+     */
+    STREETVIEW_360_PHOTO_CHANGED: 'streetview360:photoChanged',
+
+    // ===== ORIENTATION 360 EVENTS =====
+
+    /**
+     * Emitted when orientation is saved for a photo.
+     * Payload: { photoName: string, mapName: string }
+     * Subscribers: 360 toolbar buttons, features tab
+     * Emitters: streetview360_operations.js
+     */
+    ORIENTATION_360_SAVED: 'orientation360:saved',
+
+    /**
+     * Emitted when orientation is cleared for a photo.
+     * Payload: { photoName: string, mapName: string }
+     * Subscribers: 360 toolbar buttons, features tab
+     * Emitters: streetview360_operations.js
+     */
+    ORIENTATION_360_CLEARED: 'orientation360:cleared',
+
+    // ===== MARKER 360 EVENTS =====
+
+    /**
+     * Emitted when a 360 marker is clicked.
+     * Payload: { marker: Marker360, photoName: string }
+     * Subscribers: Sidebar (to open marker panel)
+     * Emitters: navigator.js
+     */
+    MARKER_360_CLICKED: 'marker360:clicked',
+
+    /**
+     * Emitted when a 360 marker is deselected.
+     * Payload: { photoName: string }
+     * Subscribers: Sidebar (to close marker panel)
+     * Emitters: navigator.js
+     */
+    MARKER_360_DESELECTED: 'marker360:deselected',
+
+    /**
+     * Emitted when 360 markers change (add/update/delete).
+     * Payload: { mapName: string }
+     * Subscribers: Sidebar markers section, map badges
+     * Emitters: streetview360_operations.js
+     */
+    MARKERS_360_CHANGED: 'markers360:changed',
+
+    /**
+     * Emitted when user clicks to place a new 360 marker.
+     * Payload: { position: { heading: number, pitch: number, distance: number }, photoName: string }
+     * Subscribers: marker_tool_360.js
+     * Emitters: navigator.js
+     */
+    MARKER_360_POSITION_CLICKED: 'marker360:positionClicked',
 });
 
 /**

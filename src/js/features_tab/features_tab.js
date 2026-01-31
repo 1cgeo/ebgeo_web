@@ -18,6 +18,11 @@ import {
     initModels3dSectionListeners,
 } from './models3d-section.component.js';
 import {
+    createStreetview360SectionContainer,
+    renderStreetview360Section,
+    initStreetview360SectionListeners,
+} from './streetview360-section.component.js';
+import {
     handleSetActiveLayer,
     handleAddLayer,
     updateActiveLayerIndicators,
@@ -61,6 +66,7 @@ import {
 import { EventTypes } from '../events';
 import { showConfirm } from '../modals/index.js';
 import { isViewer3DOpen } from '../utilities/viewer3d-state.js';
+import { isStreetView360Open } from '../utilities/streetview360-state.js';
 
 /**
  * FeaturesTab class - Main orchestrator for the features panel.
@@ -96,9 +102,12 @@ export class FeaturesTab {
         this._collapseManager = getCollapseStateManager();
         this._catalogLayerUnsubscriber = null;
         this._models3dSectionUnsubscriber = null;
+        this._streetview360SectionUnsubscriber = null;
 
         // Track 3D viewer state
         this._is3DViewerOpen = false;
+        // Track 360 viewer state
+        this._is360ViewerOpen = false;
 
         this.INLINE_ICONS = FEATURES_TAB_ICONS;
         this.FEATURE_SOURCES = FEATURE_SOURCES;
@@ -138,6 +147,10 @@ export class FeaturesTab {
         const models3dContainer = createModels3dSectionContainer();
         this.container.appendChild(models3dContainer);
 
+        // Street View 360 section (shows photos with orientations and markers)
+        const streetview360Container = createStreetview360SectionContainer();
+        this.container.appendChild(streetview360Container);
+
         const header = this._createHeader();
         this.container.appendChild(header);
 
@@ -159,6 +172,12 @@ export class FeaturesTab {
             this._eventBus
         );
 
+        // Initialize Street View 360 section listeners
+        this._streetview360SectionUnsubscriber = initStreetview360SectionListeners(
+            this.container.querySelector('.streetview360-section'),
+            this._eventBus
+        );
+
         return this.container;
     }
 
@@ -174,8 +193,9 @@ export class FeaturesTab {
                 this._setupEventListeners();
             }
 
-            // Check initial 3D viewer state
+            // Check initial 3D and 360 viewer state
             this._is3DViewerOpen = isViewer3DOpen();
+            this._is360ViewerOpen = isStreetView360Open();
 
             // Render catalog layers from store (analysis + data sections)
             await renderCatalogLayers(
@@ -192,10 +212,16 @@ export class FeaturesTab {
                 this._eventBus
             );
 
+            // Render Street View 360 section
+            await renderStreetview360Section(
+                this.container.querySelector('.streetview360-section'),
+                this._eventBus
+            );
+
             await this.loadFeatures();
 
-            // Apply 3D viewer mode UI after content is loaded
-            this._update3DViewerModeUI();
+            // Apply viewer mode UI after content is loaded
+            this._updateViewerModeUI();
         }
     }
 
@@ -229,6 +255,12 @@ export class FeaturesTab {
         if (this._models3dSectionUnsubscriber) {
             this._models3dSectionUnsubscriber();
             this._models3dSectionUnsubscriber = null;
+        }
+
+        // Cleanup Street View 360 section listener
+        if (this._streetview360SectionUnsubscriber) {
+            this._streetview360SectionUnsubscriber();
+            this._streetview360SectionUnsubscriber = null;
         }
     }
 
@@ -824,7 +856,7 @@ export class FeaturesTab {
         // Listen for 3D viewer state changes
         this._viewer3DOpenedHandler = () => {
             this._is3DViewerOpen = true;
-            this._update3DViewerModeUI();
+            this._updateViewerModeUI();
         };
         this._unsubscribers.push(
             this._eventBus.on(EventTypes.VIEWER_3D_OPENED, this._viewer3DOpenedHandler)
@@ -832,10 +864,27 @@ export class FeaturesTab {
 
         this._viewer3DClosedHandler = () => {
             this._is3DViewerOpen = false;
-            this._update3DViewerModeUI();
+            this._updateViewerModeUI();
         };
         this._unsubscribers.push(
             this._eventBus.on(EventTypes.VIEWER_3D_CLOSED, this._viewer3DClosedHandler)
+        );
+
+        // Listen for 360 viewer state changes
+        this._viewer360OpenedHandler = () => {
+            this._is360ViewerOpen = true;
+            this._updateViewerModeUI();
+        };
+        this._unsubscribers.push(
+            this._eventBus.on(EventTypes.STREETVIEW_360_OPENED, this._viewer360OpenedHandler)
+        );
+
+        this._viewer360ClosedHandler = () => {
+            this._is360ViewerOpen = false;
+            this._updateViewerModeUI();
+        };
+        this._unsubscribers.push(
+            this._eventBus.on(EventTypes.STREETVIEW_360_CLOSED, this._viewer360ClosedHandler)
         );
     }
 
@@ -855,19 +904,22 @@ export class FeaturesTab {
         this._layersChangedHandler = null;
         this._viewer3DOpenedHandler = null;
         this._viewer3DClosedHandler = null;
+        this._viewer360OpenedHandler = null;
+        this._viewer360ClosedHandler = null;
     }
 
     /**
-     * Updates UI based on 3D viewer mode.
-     * When 3D viewer is open, disable non-3D sections (analysis, data, layers)
-     * and move 3D models section to top.
+     * Updates UI based on 3D or 360 viewer mode.
+     * When 3D viewer is open, disable non-3D sections and move 3D models section to top.
+     * When 360 viewer is open, disable non-360 sections and move 360 section to top.
      * @private
      */
-    _update3DViewerModeUI() {
+    _updateViewerModeUI() {
         if (!this.container) return;
 
         const catalogSection = this.container.querySelector('.catalog-layers-section');
         const models3dSection = this.container.querySelector('.models3d-section');
+        const streetview360Section = this.container.querySelector('.streetview360-section');
         const layersHeader = this.container.querySelector('.sidebar-section-header-with-action');
         const featuresList = this.container.querySelector('.features-list');
 
@@ -875,6 +927,9 @@ export class FeaturesTab {
             // Disable non-3D sections
             if (catalogSection) {
                 catalogSection.classList.add('disabled-3d-mode');
+            }
+            if (streetview360Section) {
+                streetview360Section.classList.add('disabled-3d-mode');
             }
             if (layersHeader) {
                 layersHeader.classList.add('disabled-3d-mode');
@@ -889,10 +944,37 @@ export class FeaturesTab {
                 // Move to top of container
                 this.container.insertBefore(models3dSection, this.container.firstChild);
             }
+        } else if (this._is360ViewerOpen) {
+            // Disable non-360 sections
+            if (catalogSection) {
+                catalogSection.classList.add('disabled-3d-mode');
+            }
+            if (models3dSection) {
+                models3dSection.classList.add('disabled-3d-mode');
+            }
+            if (layersHeader) {
+                layersHeader.classList.add('disabled-3d-mode');
+            }
+            if (featuresList) {
+                featuresList.classList.add('disabled-3d-mode');
+            }
+            // Ensure 360 section is enabled and at top
+            if (streetview360Section) {
+                streetview360Section.classList.remove('disabled-3d-mode');
+                streetview360Section.classList.add('active-360-mode');
+                // Move to top of container
+                this.container.insertBefore(streetview360Section, this.container.firstChild);
+            }
         } else {
             // Re-enable all sections
             if (catalogSection) {
                 catalogSection.classList.remove('disabled-3d-mode');
+            }
+            if (models3dSection) {
+                models3dSection.classList.remove('disabled-3d-mode');
+            }
+            if (streetview360Section) {
+                streetview360Section.classList.remove('disabled-3d-mode');
             }
             if (layersHeader) {
                 layersHeader.classList.remove('disabled-3d-mode');
@@ -900,6 +982,7 @@ export class FeaturesTab {
             if (featuresList) {
                 featuresList.classList.remove('disabled-3d-mode');
             }
+            // Reset positions
             if (models3dSection) {
                 models3dSection.classList.remove('active-3d-mode');
                 // Move back to original position (after catalog section)
@@ -907,7 +990,22 @@ export class FeaturesTab {
                     catalogSection.after(models3dSection);
                 }
             }
+            if (streetview360Section) {
+                streetview360Section.classList.remove('active-360-mode');
+                // Move back to original position (after 3D models section)
+                if (models3dSection && models3dSection.nextSibling !== streetview360Section) {
+                    models3dSection.after(streetview360Section);
+                }
+            }
         }
+    }
+
+    /**
+     * @deprecated Use _updateViewerModeUI instead
+     * @private
+     */
+    _update3DViewerModeUI() {
+        this._updateViewerModeUI();
     }
 
     /**
@@ -939,6 +1037,11 @@ export class FeaturesTab {
             // Re-render 3D models section
             await renderModels3dSection(
                 this.container.querySelector('.models3d-section'),
+                this._eventBus
+            );
+            // Re-render Street View 360 section
+            await renderStreetview360Section(
+                this.container.querySelector('.streetview360-section'),
                 this._eventBus
             );
             // Re-render features

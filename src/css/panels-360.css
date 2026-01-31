@@ -1,0 +1,502 @@
+/* Path: css/panels-360.css */
+
+/* ===== STREET VIEW 360 MAIN CONTAINER ===== */
+#street-view-container {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 56px !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: auto !important;
+    height: 100vh !important;
+    overflow: hidden;
+    z-index: 200 !important;
+    background: #000;
+
+    /* Create isolated stacking context */
+    isolation: isolate;
+}
+
+/* ===== SIDEBAR VISIBILITY IN STREET VIEW MODE ===== */
+
+/* Keep the same behavior as 2D mode, just ensure proper z-index */
+body.streetview-active .sidebar-container {
+    z-index: 300 !important;
+}
+
+/* ===== MODALS VISIBILITY IN STREET VIEW MODE ===== */
+
+/* Ensure modals appear above Street View viewer */
+body.streetview-active .modal-overlay {
+    z-index: 400 !important;
+}
+
+/* ===== MINI MAP ===== */
+#mini-map-street-view {
+    display: none;
+    position: fixed;
+    bottom: 16px;
+    left: 72px;
+    width: 320px;
+    height: 240px;
+    border-radius: 8px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    z-index: 250;
+    overflow: hidden;
+}
+
+#mini-map-street-view .maplibregl-canvas {
+    border-radius: 6px;
+}
+
+/* ===== 360 TOOLBAR - VERTICAL SIDEBAR ===== */
+#toolbar-360 {
+    position: fixed;
+    top: 80px;
+    right: 16px;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 250;
+}
+
+/* ===== 360 TOOL BUTTONS ===== */
+.button-tool-360 {
+    width: 44px;
+    height: 44px;
+    border: none;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-600, #4b5563);
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.button-tool-360:hover {
+    background: var(--gray-50, #f9fafb);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.button-tool-360:active {
+    transform: scale(0.95);
+}
+
+.button-tool-360.active,
+.button-tool-360.active-button {
+    background: var(--primary-color, #508D4E);
+    color: white;
+}
+
+.button-tool-360 svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentcolor;
+    fill: none;
+    transition: all 0.2s ease;
+}
+
+.button-tool-360.active svg,
+.button-tool-360.active-button svg {
+    stroke: white;
+}
+
+/* ===== TOOL TOOLTIPS - LEFT SIDE ===== */
+.button-tool-360::after {
+    content: attr(aria-label);
+    position: absolute;
+    top: 50%;
+    right: calc(100% + 10px);
+    transform: translateY(-50%);
+    background: var(--gray-900, #111827);
+    color: white;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.button-tool-360:hover::after {
+    opacity: 1;
+}
+
+/* ===== ACCESSIBILITY ===== */
+.button-tool-360:focus {
+    outline: 2px solid var(--primary-color, #508D4E);
+    outline-offset: 2px;
+}
+
+/* ===== TOOLBAR SEPARATOR ===== */
+.toolbar-360-separator {
+    width: 32px;
+    height: 1px;
+    background: var(--gray-300, #d1d5db);
+    margin: 4px auto;
+}
+
+/* ===== ORIENTATION BUTTONS ===== */
+#salvar-orientacao.has-saved {
+    border: 3px solid var(--primary-color, #508D4E);
+    box-shadow: 0 0 0 1px rgba(80, 141, 78, 0.3);
+}
+
+#limpar-orientacao {
+    background: #fff;
+}
+
+#limpar-orientacao:hover {
+    background: #fee2e2;
+}
+
+#limpar-orientacao svg {
+    stroke: #dc2626;
+}
+
+/* ===== CLOSE BUTTON ===== */
+#close-street-view-button {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--primary-color, #508D4E);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(80, 141, 78, 0.3);
+    color: #fff;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    z-index: 250;
+    transition: all 0.2s ease;
+}
+
+#close-street-view-button:hover {
+    background: var(--primary-dark, #3d6e3b);
+    box-shadow: 0 6px 20px rgba(80, 141, 78, 0.4);
+    transform: translateY(-1px);
+}
+
+#close-street-view-button:active {
+    transform: translateY(0) scale(0.98);
+}
+
+#close-street-view-button:focus {
+    outline: 2px solid rgba(255, 255, 255, 0.5);
+    outline-offset: 2px;
+}
+
+#close-street-view-button svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentcolor;
+    flex-shrink: 0;
+}
+
+#close-street-view-button span {
+    line-height: 1;
+}
+
+/* ===== ACTIVE TOOL CHIP 360 ===== */
+.active-tool-chip-360 {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: var(--z-3d-controls, 110);
+    pointer-events: none;
+}
+
+.active-tool-chip-360-inner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--primary-color, #508D4E);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 9999px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    white-space: nowrap;
+    pointer-events: auto;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.active-tool-chip-360.visible .active-tool-chip-360-inner {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.active-tool-chip-360-label {
+    font-weight: 400;
+    opacity: 0.9;
+}
+
+.active-tool-chip-360-name {
+    font-weight: 600;
+}
+
+.active-tool-chip-360-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-left: 4px;
+    border: none;
+    background: transparent;
+    color: white;
+    border-radius: 9999px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.active-tool-chip-360-close:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.active-tool-chip-360-close:active {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.active-tool-chip-360-close svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* ===== NAVIGATION HELP POPUP ===== */
+.nav-help-popup-360 {
+    position: fixed;
+    top: 80px;
+    right: 72px;
+    width: 280px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+    z-index: var(--z-3d-controls, 110);
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(10px);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+
+.nav-help-popup-360:not([hidden]) {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+}
+
+.nav-help-popup-360[hidden] {
+    display: block !important;
+}
+
+/* ----- Tabs ----- */
+.nav-help-tabs-360 {
+    display: flex;
+    border-radius: 12px 12px 0 0;
+    overflow: hidden;
+}
+
+.nav-help-tab-360 {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--gray-300, #d1d5db);
+    border: none;
+    color: var(--gray-700, #374151);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.nav-help-tab-360.active {
+    background: var(--primary-color, #508D4E);
+    color: white;
+}
+
+.nav-help-tab-360 svg {
+    flex-shrink: 0;
+    stroke: currentcolor;
+    width: 18px;
+    height: 18px;
+}
+
+/* ----- Content ----- */
+.nav-help-content-360 {
+    padding: 8px 0;
+}
+
+.nav-help-panel-360 {
+    display: none;
+}
+
+.nav-help-panel-360.active {
+    display: block;
+}
+
+/* ----- Items ----- */
+.nav-help-item-360 {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    transition: background 0.15s ease;
+}
+
+.nav-help-item-360:hover {
+    background: var(--gray-50, #f9fafb);
+}
+
+.nav-help-icon-360 {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary-color, #508D4E);
+    border-radius: 8px;
+    color: white;
+}
+
+.nav-help-icon-360 svg {
+    width: 28px;
+    height: 28px;
+}
+
+.nav-help-text-360 {
+    flex: 1;
+    min-width: 0;
+}
+
+.nav-help-text-360 strong {
+    display: block;
+    color: var(--gray-900, #111827);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.nav-help-text-360 span {
+    display: block;
+    color: var(--gray-500, #6b7280);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* ===== NAVIGATION CANVAS OVERLAY ===== */
+#streetview-nav-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: auto;
+    z-index: 10;
+}
+
+/* ===== CURSOR STYLES FOR 360 VIEW ===== */
+
+/* Default grab cursor for panning */
+#street-view-container canvas {
+    cursor: grab;
+}
+
+#street-view-container canvas:active {
+    cursor: grabbing;
+}
+
+/* Pointer cursor when hovering navigation markers */
+#street-view-container.nav-hover canvas {
+    cursor: pointer;
+}
+
+/* Crosshair cursor when marker tool is active */
+#street-view-container.marker-tool-active canvas {
+    cursor: crosshair !important;
+}
+
+/* ===== RESPONSIVE ADJUSTMENTS ===== */
+@media (width <= 768px) {
+    #street-view-container {
+        left: 0 !important;
+    }
+
+    #mini-map-street-view {
+        left: 16px;
+        width: 200px;
+        height: 150px;
+    }
+
+    #toolbar-360 {
+        top: auto;
+        bottom: 16px;
+        right: 16px;
+        flex-direction: row;
+    }
+
+    .toolbar-360-separator {
+        width: 1px;
+        height: 32px;
+        margin: 0 4px;
+    }
+
+    .button-tool-360::after {
+        top: auto;
+        bottom: calc(100% + 10px);
+        right: 50%;
+        transform: translateX(50%);
+    }
+
+    #close-street-view-button {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    #close-street-view-button span {
+        display: none;
+    }
+}
+
+/* ===== HIGH CONTRAST / ACCESSIBILITY ===== */
+@media (prefers-reduced-motion: reduce) {
+    .button-tool-360,
+    .active-tool-chip-360-inner,
+    .nav-help-popup-360 {
+        transition: none;
+    }
+}
+
+@media (prefers-contrast: high) {
+    .button-tool-360 {
+        border: 2px solid currentcolor;
+    }
+
+    .active-tool-chip-360-inner {
+        border: 2px solid white;
+    }
+}

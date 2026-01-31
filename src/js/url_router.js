@@ -4,6 +4,8 @@ import config from './config.js';
 
 // URL parameter name for 3D model deep linking
 const MODEL_PARAM = 'model';
+// URL parameter name for Street View 360 photo deep linking
+const PHOTO_360_PARAM = 'foto360';
 
 /**
  * URL Router for handling deep linking to 3D models.
@@ -37,6 +39,18 @@ const URLRouter = {
             return null;
         }
         return this._params.get(MODEL_PARAM);
+    },
+
+    /**
+     * Gets the 360 photo name from URL parameters.
+     * @returns {string|null} The photo name or null if not present
+     */
+    getPhoto360Id() {
+        if (!this._initialized) {
+            console.warn('URLRouter.parse() not called before getPhoto360Id()');
+            return null;
+        }
+        return this._params.get(PHOTO_360_PARAM);
     },
 
     /**
@@ -88,10 +102,65 @@ const URLRouter = {
     },
 
     /**
+     * Updates the URL with a 360 photo parameter without page reload.
+     * Uses history.replaceState to avoid creating browser history entries.
+     * @param {string} photoName - The photo name to set
+     * @returns {void}
+     */
+    setPhoto360(photoName) {
+        if (!photoName) return;
+
+        const url = new URL(window.location.href);
+        url.searchParams.set(PHOTO_360_PARAM, photoName);
+        window.history.replaceState({}, '', url.toString());
+
+        // Update internal state
+        this._params = url.searchParams;
+    },
+
+    /**
+     * Removes the 360 photo parameter from the URL without page reload.
+     * @returns {void}
+     */
+    clearPhoto360() {
+        const url = new URL(window.location.href);
+        url.searchParams.delete(PHOTO_360_PARAM);
+
+        // Clean URL: remove trailing '?' if no params remain
+        const newUrl = url.searchParams.toString()
+            ? url.toString()
+            : url.origin + url.pathname;
+
+        window.history.replaceState({}, '', newUrl);
+
+        // Update internal state
+        this._params = new URLSearchParams(url.search);
+    },
+
+    /**
+     * Validates if a 360 photo exists by attempting to fetch its metadata.
+     * @param {string} photoName - The photo name to validate
+     * @returns {Promise<boolean>} True if the photo metadata exists
+     */
+    async validatePhoto360(photoName) {
+        if (!photoName) return false;
+
+        try {
+            const mockMode = config.features?.street_view_mock ?? false;
+            const metadataPath = mockMode ? './360/METADATA' : './street_view/METADATA';
+            const response = await fetch(`${metadataPath}/${photoName}.json`, { method: 'HEAD' });
+            return response.ok;
+        } catch {
+            return false;
+        }
+    },
+
+    /**
      * Executes deep link actions based on parsed URL parameters.
      * Should be called after the map is fully loaded.
      * @param {Object} deps - Dependencies required for execution
      * @param {Object} deps.modelsControl - The Add3DModelsViewerControl instance
+     * @param {Object} [deps.streetViewControl] - The AddStreetViewControl instance
      * @param {Object} [deps.map] - The MapLibre map instance (optional)
      * @returns {Promise<boolean>} True if a deep link action was executed
      */
@@ -101,42 +170,73 @@ const URLRouter = {
             return false;
         }
 
-        const { modelsControl } = deps;
-        if (!modelsControl) {
-            console.warn('URLRouter.execute() called without modelsControl');
-            return false;
-        }
+        const { modelsControl, streetViewControl } = deps;
 
+        // Try 3D model deep link first
         const modelId = this.getModelId();
-        if (!modelId) {
-            return false;
+        if (modelId && modelsControl) {
+            // Check if 3D map feature is enabled
+            const isMap3dEnabled = config.features?.map_3d ?? true;
+            if (!isMap3dEnabled) {
+                console.info(`URLRouter: 3D map disabled, ignoring model param "${modelId}"`);
+                this.clearModel();
+            } else if (!this.validateModel(modelId)) {
+                console.warn(`URLRouter: Model "${modelId}" not found in config.tilesets`);
+                this.clearModel();
+            } else {
+                // Execute deep link: open 3D viewer with the specified model
+                try {
+                    console.info(`URLRouter: Opening 3D viewer with model "${modelId}"`);
+                    await modelsControl.openViewer(modelId);
+                    return true;
+                } catch (error) {
+                    console.error(`URLRouter: Failed to open model "${modelId}"`, error);
+                    this.clearModel();
+                }
+            }
         }
 
-        // Check if 3D map feature is enabled
-        const isMap3dEnabled = config.features?.map_3d ?? true;
-        if (!isMap3dEnabled) {
-            console.info(`URLRouter: 3D map disabled, ignoring model param "${modelId}"`);
-            this.clearModel();
-            return false;
+        // Try 360 photo deep link
+        const photoId = this.getPhoto360Id();
+        if (photoId && streetViewControl) {
+            // Check if Street View feature is enabled
+            const isStreetViewEnabled = config.features?.imagens_panoramicas ?? true;
+            if (!isStreetViewEnabled) {
+                console.info(`URLRouter: Street View disabled, ignoring photo param "${photoId}"`);
+                this.clearPhoto360();
+                return false;
+            }
+
+            // Validate photo exists
+            const photoValid = await this.validatePhoto360(photoId);
+            if (!photoValid) {
+                console.warn(`URLRouter: Photo "${photoId}" not found`);
+                this.clearPhoto360();
+                return false;
+            }
+
+            // Execute deep link: open 360 viewer with the specified photo
+            try {
+                console.info(`URLRouter: Opening 360 viewer with photo "${photoId}"`);
+
+                // Open the viewer directly without activating the street view tool
+                // (we don't want to show the 2D map markers, just open the 360 viewer)
+                const { openViewer360WithPhoto } = await import('./street_view_tool/street_view_viewer.js');
+                await openViewer360WithPhoto(photoId, {
+                    miniMap: streetViewControl.miniMap,
+                    controlInstance: streetViewControl
+                });
+
+                streetViewControl.isOpen = true;
+                return true;
+            } catch (error) {
+                console.error(`URLRouter: Failed to open photo "${photoId}"`, error);
+                this.clearPhoto360();
+                return false;
+            }
         }
 
-        // Validate model exists in config
-        if (!this.validateModel(modelId)) {
-            console.warn(`URLRouter: Model "${modelId}" not found in config.tilesets`);
-            this.clearModel();
-            return false;
-        }
-
-        // Execute deep link: open 3D viewer with the specified model
-        try {
-            console.info(`URLRouter: Opening 3D viewer with model "${modelId}"`);
-            await modelsControl.openViewer(modelId);
-            return true;
-        } catch (error) {
-            console.error(`URLRouter: Failed to open model "${modelId}"`, error);
-            this.clearModel();
-            return false;
-        }
+        return false;
     }
 };
 

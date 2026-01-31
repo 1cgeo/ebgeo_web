@@ -13,6 +13,7 @@ const appStore = localforage.createInstance({ name: 'ebgeo_app_settings' });
 const groupStore = localforage.createInstance({ name: 'ebgeo_groups' });
 const layerStore = localforage.createInstance({ name: 'ebgeo_layers' });
 const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
+const streetview360Store = localforage.createInstance({ name: 'ebgeo_streetview360' });
 
 const memoryStore = {
     maps: {
@@ -34,6 +35,12 @@ const memoryStore = {
         markers: [],          // Cesium3DMarker[]
         measurements: [],     // Cesium3DMeasurement[]
         viewsheds: []         // Cesium3DViewshed[]
+    },
+    // Street View 360 cache
+    streetview360: {
+        orientations: {},     // { photoName: PhotoOrientation }
+        markers: [],          // Marker360[]
+        _mapName: null        // Current map name for cache validation
     }
 };
 
@@ -193,6 +200,11 @@ const resetMemoryStore = () => {
         cameraPositions: {},
         markers: []
     };
+    memoryStore.streetview360 = {
+        orientations: {},
+        markers: [],
+        _mapName: null
+    };
 };
 
 // ===== MAP CRUD OPERATIONS =====
@@ -218,6 +230,7 @@ const deleteMapData = async (mapName) => {
     await removeMapGroups(mapName);
     await removeMapLayers(mapName);
     await removeCesium3dData(mapName);
+    await removeStreetview360Data(mapName);
 };
 
 const getAllMapNames = async () => {
@@ -260,6 +273,12 @@ const renameMapData = async (oldName, newName) => {
         if (cesium3dData && (Object.keys(cesium3dData.cameraPositions).length > 0 || cesium3dData.markers.length > 0)) {
             await setCesium3dData(newName, cesium3dData);
             await removeCesium3dData(oldName);
+        }
+
+        const streetview360Data = await getStreetview360Data(oldName);
+        if (streetview360Data && (Object.keys(streetview360Data.orientations).length > 0 || streetview360Data.markers.length > 0)) {
+            await setStreetview360Data(newName, streetview360Data);
+            await removeStreetview360Data(oldName);
         }
     }
 };
@@ -358,6 +377,7 @@ const clearAllAppSettings = async () => {
             await removeMapGroups(mapName);
             await removeMapLayers(mapName);
             await removeCesium3dData(mapName);
+            await removeStreetview360Data(mapName);
         } catch (error) {
             console.warn(`Error clearing data for map ${mapName}:`, error);
         }
@@ -772,6 +792,53 @@ const clearAllCesium3dData = async () => {
     await cesium3dStore.clear();
 };
 
+// ===== STREET VIEW 360 OPERATIONS =====
+
+/**
+ * Returns empty Street View 360 data structure
+ * @returns {Object} Empty streetview360 data
+ */
+const getEmptyStreetview360Data = () => ({
+    orientations: {},
+    markers: []
+});
+
+/**
+ * Saves Street View 360 data for a map to IndexedDB
+ * @param {string} mapName - Map name
+ * @param {Object} streetview360Data - Street View 360 data
+ */
+const setStreetview360Data = async (mapName, streetview360Data) => {
+    const key = `streetview360_${mapName}`;
+    await streetview360Store.setItem(key, streetview360Data);
+};
+
+/**
+ * Loads Street View 360 data for a map from IndexedDB
+ * @param {string} mapName - Map name
+ * @returns {Object} Street View 360 data or empty structure
+ */
+const getStreetview360Data = async (mapName) => {
+    const key = `streetview360_${mapName}`;
+    return await streetview360Store.getItem(key) || getEmptyStreetview360Data();
+};
+
+/**
+ * Removes Street View 360 data for a map
+ * @param {string} mapName - Map name
+ */
+const removeStreetview360Data = async (mapName) => {
+    const key = `streetview360_${mapName}`;
+    await streetview360Store.removeItem(key);
+};
+
+/**
+ * Clears all Street View 360 data
+ */
+const clearAllStreetview360Data = async () => {
+    await streetview360Store.clear();
+};
+
 // ===== EXPORTS =====
 
 export {
@@ -823,5 +890,11 @@ export {
     setCesium3dData,
     getCesium3dData,
     removeCesium3dData,
-    clearAllCesium3dData
+    clearAllCesium3dData,
+    // Street View 360
+    getEmptyStreetview360Data,
+    setStreetview360Data,
+    getStreetview360Data,
+    removeStreetview360Data,
+    clearAllStreetview360Data
 };

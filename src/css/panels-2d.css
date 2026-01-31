@@ -1,77 +1,6 @@
 /* Path: css/panels-2d.css */
 
-/* ===== STREET VIEW SYSTEM ===== */
-#mini-map-street-view {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 30%;
-    height: 30%;
-    border: 2px solid rgba(255, 255, 255, 0.8);
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    overflow: hidden;
-    z-index: 1001;
-    backdrop-filter: blur(4px);
-    transition: all 0.3s ease;
-}
-
-#mini-map-street-view:hover {
-    border-color: var(--primary-color);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
-    transform: scale(1.02);
-}
-
-#street-view-container {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1000;
-    background-color: #000;
-    overflow: hidden;
-}
-
-/* ===== STREET VIEW CLOSE BUTTON ===== */
-#close-street-view-button {
-    position: fixed;
-    width: 60px;
-    height: 60px;
-    bottom: 40px;
-    right: 40px;
-    color: #FFF;
-    background-color: rgba(0, 0, 0, 0.7);
-    border-radius: 50px;
-    text-align: center;
-    box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
-    z-index: 1001;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    backdrop-filter: blur(8px);
-}
-
-#close-street-view-button:hover {
-    background-color: rgba(0, 0, 0, 0.9);
-    transform: scale(1.1);
-    box-shadow: 2px 2px 12px rgba(0, 0, 0, 0.5);
-}
-
-#close-street-view-button:active {
-    transform: scale(0.95);
-}
-
-#close-street-view-button svg {
-    stroke-width: 2;
-    transition: stroke-width 0.2s ease;
-}
-
-#close-street-view-button:hover svg {
-    stroke-width: 3;
-}
+/* Note: All Street View 360 styles are in panels-360.css */
 
 /* ===== PROFILE PANEL ===== */
 .profile-panel {
@@ -549,8 +478,7 @@
 
 /* ===== ACCESSIBILITY ===== */
 .profile-panel .close-button:focus,
-.feature-search-panel button:focus,
-#close-street-view-button:focus {
+.feature-search-panel button:focus {
     outline: 2px solid var(--primary-color);
     outline-offset: 2px;
 }

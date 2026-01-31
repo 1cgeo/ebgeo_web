@@ -3583,3 +3583,156 @@ body:has(.sidebar-container) .unified-attributes-panel {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+/* =========================================================================
+   STREET VIEW 360 SECTION
+   ========================================================================= */
+
+.streetview360-section {
+    margin-bottom: var(--space-2);
+}
+
+.streetview360-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* Photo Item (equivalent to tileset-item) */
+.streetview360-photo-item {
+    background: white;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.streetview360-photo-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.streetview360-photo-header:hover {
+    background: var(--gray-50);
+}
+
+.streetview360-photo-toggle {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-500);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color var(--transition-fast);
+}
+
+.streetview360-photo-toggle:hover {
+    color: var(--gray-700);
+}
+
+.streetview360-photo-icon {
+    width: 20px;
+    height: 20px;
+    color: var(--primary);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.streetview360-photo-name {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.streetview360-feature-count {
+    padding: 2px 8px;
+    background: var(--gray-100);
+    border-radius: 9999px;
+    font-size: var(--font-size-xs);
+    color: var(--gray-600);
+    flex-shrink: 0;
+}
+
+.streetview360-open-viewer {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--gray-400);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.streetview360-open-viewer:hover {
+    color: var(--primary);
+    background: var(--gray-100);
+}
+
+/* Features List */
+.streetview360-features-list {
+    display: flex;
+    flex-direction: column;
+    padding-left: 20px;
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+}
+
+.streetview360-features-list.collapsed {
+    max-height: 0 !important;
+    padding: 0;
+}
+
+/* Feature Item */
+.streetview360-feature-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border-left: 2px solid var(--gray-200);
+    margin-left: var(--space-2);
+}
+
+.streetview360-feature-item:hover {
+    background: var(--gray-50);
+    border-left-color: var(--primary);
+}
+
+.streetview360-feature-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--primary);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.streetview360-feature-name {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--gray-800);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

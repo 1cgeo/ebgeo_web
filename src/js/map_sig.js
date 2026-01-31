@@ -162,6 +162,7 @@ map.on('load', async () => {
     // Execute URL deep linking after map is ready
     URLRouter.execute({
         modelsControl: add3DModelsViewerControl,
+        streetViewControl: addStreetViewControl,
         map: map
     });
 });

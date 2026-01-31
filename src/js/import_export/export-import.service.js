@@ -31,6 +31,9 @@ import {
     // Cesium 3D imports
     getCesium3dDataForExport,
     setCesium3dDataForImport,
+    // Street View 360 imports
+    getStreetview360DataForExport,
+    setStreetview360DataForImport,
 } from '../store';
 
 import { IDUtils, showToast, showSuccess } from '../utilities';
@@ -271,6 +274,7 @@ export class ExportImportService {
                 groups: {},
                 layers: {},
                 cesium3d: {},
+                streetview360: {},
             };
 
             // Export map data with optimization
@@ -348,6 +352,16 @@ export class ExportImportService {
                     }
                 } catch (error) {
                     console.warn(`Could not export 3D data from map ${mapName}:`, error);
+                }
+
+                // Export street view 360 data (orientations and markers)
+                try {
+                    const streetview360Data = await getStreetview360DataForExport(mapName);
+                    if (streetview360Data) {
+                        data.streetview360[mapName] = streetview360Data;
+                    }
+                } catch (error) {
+                    console.warn(`Could not export 360 data from map ${mapName}:`, error);
                 }
             }
 
@@ -537,6 +551,9 @@ export class ExportImportService {
                 // Import cesium 3D data additively
                 await this.importCesium3dAdditively(data.cesium3d, mapNameMapping);
 
+                // Import street view 360 data additively
+                await this.importStreetview360Additively(data.streetview360, mapNameMapping);
+
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     // Normalizar estrutura para versão atual
@@ -559,6 +576,9 @@ export class ExportImportService {
 
                 // Import cesium 3D data directly (normal import)
                 await this.importCesium3dDirectly(data.cesium3d);
+
+                // Import street view 360 data directly (normal import)
+                await this.importStreetview360Directly(data.streetview360);
 
                 // Restore map order if available
                 if (data.mapOrder && Array.isArray(data.mapOrder) && data.mapOrder.length > 0) {
@@ -848,6 +868,53 @@ export class ExportImportService {
             }
         } catch (error) {
             console.error('Error importing cesium 3D data additively:', error);
+        }
+    }
+
+    /**
+     * Imports street view 360 data directly (normal import - replaces everything)
+     * @param {Object} streetview360Data - Street view 360 data to import
+     */
+    async importStreetview360Directly(streetview360Data) {
+        if (!streetview360Data || Object.keys(streetview360Data).length === 0) {
+            return;
+        }
+
+        try {
+            for (const [mapName, data] of Object.entries(streetview360Data)) {
+                if (data) {
+                    await setStreetview360DataForImport(mapName, data);
+                }
+            }
+        } catch (error) {
+            console.error('Error importing street view 360 data directly:', error);
+        }
+    }
+
+    /**
+     * Imports street view 360 data additively (additive import - with map name mapping)
+     * @param {Object} streetview360Data - Street view 360 data to import
+     * @param {Map} mapNameMapping - Mapping of original to final map names
+     */
+    async importStreetview360Additively(streetview360Data, mapNameMapping) {
+        if (!streetview360Data || Object.keys(streetview360Data).length === 0) {
+            return;
+        }
+
+        try {
+            for (const [originalMapName, data] of Object.entries(streetview360Data)) {
+                const finalMapName = mapNameMapping.get(originalMapName);
+
+                if (!finalMapName || !data) {
+                    continue;
+                }
+
+                // For additive import, we just set the data with the new map name
+                // since the map was just created and has no existing 360 data
+                await setStreetview360DataForImport(finalMapName, data);
+            }
+        } catch (error) {
+            console.error('Error importing street view 360 data additively:', error);
         }
     }
 

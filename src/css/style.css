@@ -38,6 +38,9 @@
 /* ===== 7. 3D MODE PANELS ===== */
 @import url('./panels-3d.css');
 
+/* ===== 7B. 360 MODE PANELS ===== */
+@import url('./panels-360.css');
+
 /* ===== 8. ATTRIBUTES SYSTEM ===== */
 @import url('./attributes-panel.css');
 

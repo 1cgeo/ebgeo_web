@@ -1,10 +1,18 @@
 // Path: js/street_view_tool/add_street_view_control.js
+
+/**
+ * @fileoverview MapLibre control for Street View 360 functionality.
+ * Manages the 2D map integration: photo markers, line layers, popup preview,
+ * and activation/deactivation of the Street View feature.
+ *
+ * NOTE: Three.js viewer logic has been moved to street_view_viewer.js
+ */
+
 /* global PMTiles */
 
-import * as THREE from '../../vendor/three/three.module.js';
-import { DragControls } from '../../vendor/three/addons/controls/DragControls.js';
 import config from '../config.js';
 import StreetviewMarkers from './streetview_markers.js';
+import SavedPhotosMarkers from './saved_photos_markers.js';
 import { getEventBus } from '../store';
 import { EventTypes } from '../events/event_types.js';
 
@@ -12,34 +20,11 @@ class AddStreetViewControl {
 
     constructor(toolManager) {
         this.toolManager = toolManager;
-        this.queryMobile = window.matchMedia("(max-width: 650px)")
+        this.queryMobile = window.matchMedia("(max-width: 650px)");
         this.isActive = false;
-        this.IMAGES_LOCATION = "./street_view/IMG"
-        this.METADATA_LOCATION = "./street_view/METADATA"
-        this.arrows = []
-        this.camera = null
-        this.scene = null
-        this.renderer = null
-        this.offsetRad = null
-        this.material = null
-        this.mesh = null
-        this.control = null
-        this.controls = null
-        this.nextTarget = null
-        this.lastClickAt = null
-        this.currentLookAt = null
-        this.isUserInteracting = false
-        this.onPointerDownMouseX = 0
-        this.onPointerDownMouseY = 0
-        this.currentHoveElement = null
-        this.raycaster = new THREE.Raycaster()
-        this.mouse = new THREE.Vector2()
-        this.currentHeading = null
-        this.currentMouseLocation = { x: 0, y: 0 }
-        this.currentInfo = null
-        this.currentPhotoName = ''
-        this.nextPhotoTarget = null
-        this.isDrag = false
+        this.isOpen = false;
+
+        // Mini-map for street view navigation
         this.miniMap = new maplibregl.Map({
             container: 'mini-map-street-view',
             style: './street_view/street-view-mini-map-style.json',
@@ -49,231 +34,155 @@ class AddStreetViewControl {
             maxZoom: 17.9,
             validateStyle: false
         });
-        this.isOpen = false;
-
-        // Performance optimization properties
-        this.animationId = null
-        this.documentListeners = []
-        this.arrowGeometry = null
-        this.arrowTexture = null
-
-        // High-impact performance caches
-        this.textureCache = new Map()
-        this.metadataCache = new Map()
-        this.sphereGeometry = null
-        this.miniMapHovered = false
-
-        this.animate = this.animate.bind(this);
-        this.update = this.update.bind(this);
-        this.onPointerMove = this.onPointerMove.bind(this);
-        this.onPointerUp = this.onPointerUp.bind(this);
-        this.onDocumentMouseWheel = this.onDocumentMouseWheel.bind(this);
-        this.setCurrentMouse = this.setCurrentMouse.bind(this);
-        this.onMouseMove = this.onMouseMove.bind(this);
-        this.onStreetViewKeyDown = this.onStreetViewKeyDown.bind(this);
-        this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
 
         this.photosSourceId = 'pmtiles-photos';
 
+        // PMTiles nearby features cache
         this.nearbyFeaturesCache = new Map();
         this.cacheRadius = 1000;
 
         // Streetview markers manager (initialized in onAdd)
         this.streetviewMarkers = null;
 
-        if (config.features.imagens_panoramicas){
-            this.streetViewPointsLayer= {
-            'id': 'street-view',
-            'type': 'circle',
-            'source': 'streetViewPointsSource',
-            'visibility': 'none',
-            'source-layer': config.map2d.streetViewPointsSourceLayer,
-            'paint': {
-                'circle-radius': 0,
-                'circle-color': '#0d6efd',
-                'circle-stroke-width': 0,
-                'circle-stroke-color': '#0d6efd'
-            }
-        };
+        // Saved photos markers manager (photos with orientations/markers saved)
+        this.savedPhotosMarkers = null;
 
-        this.streetViewLinesLayer= {
-            'id': 'street-view-lines',
-            'type': 'line',
-            'source': config.map2d.streetViewLinesSourceLayer,
-            'source-layer': 'fotos_linha',
-            'paint': {
-                'line-color': '#0d6efd',
-                'line-width': 3
-            }
-        }
-        };
+        // Bind event handlers
+        this._handleBaseLayerChanged = this._handleBaseLayerChanged.bind(this);
 
-    }
-
-    onStreetViewKeyDown = (e) => {
-        if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
-            return;
-        }
-
-        const rotationSpeed = 0.1;
-        let cameraRotated = false;
-
-        switch (e.key) {
-            case 'Escape':
-                e.preventDefault();
-                this.closeStreetView();
-                break;
-
-            case 'ArrowLeft':
-            case 'a':
-            case 'A':
-                e.preventDefault();
-                this.camera.rotation.y += rotationSpeed;
-                cameraRotated = true;
-                break;
-            case 'ArrowRight':
-            case 'd':
-            case 'D':
-                e.preventDefault();
-                this.camera.rotation.y -= rotationSpeed;
-                cameraRotated = true;
-                break;
-            case 'ArrowUp':
-            case 'w':
-            case 'W':
-                e.preventDefault();
-                this.camera.rotation.x = THREE.MathUtils.clamp(
-                    this.camera.rotation.x + rotationSpeed,
-                    -Math.PI / 2, Math.PI / 2
-                );
-                cameraRotated = true;
-                break;
-            case 'ArrowDown':
-            case 's':
-            case 'S':
-                e.preventDefault();
-                this.camera.rotation.x = THREE.MathUtils.clamp(
-                    this.camera.rotation.x - rotationSpeed,
-                    -Math.PI / 2, Math.PI / 2
-                );
-                cameraRotated = true;
-                break;
-        }
-
-        if (cameraRotated) {
-            this.setCurrentMouse();
-        }
-    }
-
-    // Cached metadata loader for performance
-    loadMetadataWithCache = async (name) => {
-        if (this.metadataCache.has(name)) {
-            return this.metadataCache.get(name);
-        }
-
-        const response = await fetch(`${this.METADATA_LOCATION}/${name}.json`);
-        const data = await response.json();
-        this.metadataCache.set(name, data);
-        return data;
-    }
-
-    // Helper method for tracking document listeners
-    addDocumentListener = (event, handler, options = false) => {
-        document.addEventListener(event, handler, options);
-        this.documentListeners.push({ event, handler, options });
-    }
-
-    // Remove all tracked document listeners
-    removeAllDocumentListeners = () => {
-        this.documentListeners.forEach(({ event, handler, options }) => {
-            document.removeEventListener(event, handler, options);
-        });
-        this.documentListeners = [];
-    }
-
-    // Named method for mouse move instead of anonymous function
-    onMouseMove = (event) => {
-        event.preventDefault();
-        this.mouse.x = (event.clientX / this.renderer.domElement.clientWidth) * 2 - 1;
-        this.mouse.y = - (event.clientY / this.renderer.domElement.clientHeight) * 2 + 1;
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-    }
-
-    // Complete Three.js cleanup method
-    cleanupThreeJS = () => {
-        // Stop animation loop
-        if (this.animationId) {
-            cancelAnimationFrame(this.animationId);
-            this.animationId = null;
-        }
-
-        // Remove all document listeners
-        this.removeAllDocumentListeners();
-
-        // Cleanup Three.js resources
-        if (this.scene) {
-            // Clean arrows
-            this.cleanArrows(this.arrows.map(i => i.arrow));
-            this.arrows = [];
-
-            // Clean main mesh
-            if (this.mesh) {
-                if (this.mesh.geometry) this.mesh.geometry.dispose();
-                if (this.mesh.material) {
-                    if (this.mesh.material.map) this.mesh.material.map.dispose();
-                    this.mesh.material.dispose();
+        // Layer definitions for PMTiles
+        if (config.features.imagens_panoramicas) {
+            this.streetViewPointsLayer = {
+                'id': 'street-view',
+                'type': 'circle',
+                'source': 'streetViewPointsSource',
+                'source-layer': config.map2d.streetViewPointsSourceLayer,
+                'visibility': 'none',
+                'paint': {
+                    'circle-radius': 0,
+                    'circle-color': '#0d6efd',
+                    'circle-stroke-width': 0,
+                    'circle-stroke-color': '#0d6efd'
                 }
-                this.scene.remove(this.mesh);
-                this.mesh = null;
-            }
+            };
 
-            // Clean controls
-            if (this.controls) {
-                this.controls.deactivate();
-                this.controls = null;
-            }
+            this.streetViewLinesLayer = {
+                'id': 'street-view-lines',
+                'type': 'line',
+                'source': config.map2d.streetViewLinesSourceLayer,
+                'source-layer': config.map2d.streetViewLinesSourceLayer,
+                'paint': {
+                    'line-color': '#0d6efd',
+                    'line-width': 3
+                }
+            };
         }
-
-        // Clean renderer
-        if (this.renderer) {
-            const container = document.getElementById('street-view-container');
-            if (container && this.renderer.domElement.parentNode === container) {
-                container.removeChild(this.renderer.domElement);
-            }
-            this.renderer.dispose();
-            this.renderer = null;
-        }
-
-        // Clean cached resources
-        if (this.arrowGeometry) {
-            this.arrowGeometry.dispose();
-            this.arrowGeometry = null;
-        }
-        if (this.arrowTexture) {
-            this.arrowTexture.dispose();
-            this.arrowTexture = null;
-        }
-        if (this.sphereGeometry) {
-            this.sphereGeometry.dispose();
-            this.sphereGeometry = null;
-        }
-
-        // Clean texture cache
-        this.textureCache.forEach(texture => texture.dispose());
-        this.textureCache.clear();
-
-        // Clear metadata cache
-        this.metadataCache.clear();
-
-        // Clear PMTiles cache
-        this.nearbyFeaturesCache.clear();
-
-        // Reset state
-        this.scene = null;
-        this.camera = null;
-        this.material = null;
     }
 
+    onAdd(map) {
+        this.map = map;
+
+        // Initialize streetview markers manager
+        this.streetviewMarkers = new StreetviewMarkers(map, this);
+
+        // Initialize saved photos markers manager
+        this.savedPhotosMarkers = new SavedPhotosMarkers(map, this);
+
+        // Expose globally for search integration
+        window.streetViewControl = this;
+
+        // Register PMTiles protocol
+        if (typeof PMTiles !== 'undefined' && !this.map._pmtilesRegistered) {
+            const protocol = new PMTiles.Protocol();
+            maplibregl.addProtocol("pmtiles", protocol.tile);
+            this.map._pmtilesRegistered = true;
+        }
+
+        // UI is handled by BottomControlsControl - return empty container
+        this.container = document.createElement('div');
+        this.container.style.display = 'none';
+
+        if (config.features.imagens_panoramicas) {
+            this.setupMiniMapWithPMTiles();
+        }
+
+        // Listen for base layer changes to reload layers if active
+        getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
+
+        return this.container;
+    }
+
+    /**
+     * Handles base layer change event.
+     * Reloads photo layers if the viewer is active.
+     * @private
+     */
+    async _handleBaseLayerChanged() {
+        if (this.isActive) {
+            // Layers were removed by setStyle, need to reload
+            await this.reload();
+
+            // Also reload streetview markers if they exist
+            if (this.streetviewMarkers) {
+                await this.streetviewMarkers.loadMarkers();
+                this.streetviewMarkers.show();
+            }
+
+            // Reload saved photos markers
+            if (this.savedPhotosMarkers) {
+                await this.savedPhotosMarkers.loadMarkers();
+                this.savedPhotosMarkers.show();
+            }
+        }
+    }
+
+    setupMiniMapWithPMTiles = async () => {
+        this.miniMap.on('load', async () => {
+            try {
+                // Register PMTiles protocol
+                if (typeof PMTiles !== 'undefined') {
+                    const protocol = new PMTiles.Protocol();
+                    maplibregl.addProtocol("pmtiles", protocol.tile);
+                }
+
+                this.miniMap.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
+
+                const pointImage = await this.miniMap.loadImage('./street_view/point.png');
+                await this.miniMap.addImage('point', pointImage.data);
+
+                const pointSelectedImage = await this.miniMap.loadImage('./street_view/point-selected-v2.png');
+                this.miniMap.addImage('point-selected', pointSelectedImage.data);
+
+                this.miniMap.addLayer({
+                    'id': 'points',
+                    'type': 'symbol',
+                    'source': this.streetViewPointsLayer['source'],
+                    'source-layer': config.map2d.streetViewPointsSourceLayer,
+                    'layout': {
+                        'icon-image': 'point'
+                    }
+                });
+
+                // Click on minimap point to navigate
+                this.miniMap.on('click', 'points', async (e) => {
+                    const properties = e.features[0].properties;
+                    const { navigateToTarget } = await import('./street_view_viewer.js');
+                    await navigateToTarget(properties.nome_img);
+                });
+
+                this.miniMap.on('mouseenter', 'points', () => {
+                    this.miniMap.getCanvas().style.cursor = 'pointer';
+                });
+
+                this.miniMap.on('mouseleave', 'points', () => {
+                    this.miniMap.getCanvas().style.cursor = '';
+                });
+
+            } catch (error) {
+                console.error('Error setting up minimap:', error);
+            }
+        });
+    }
 
     loadData = async () => {
         try {
@@ -293,7 +202,6 @@ class AddStreetViewControl {
                 this.showLayers();
             }
 
-
             if (!this.map.getSource(this.streetViewLinesLayer['source'])) {
                 this.map.addSource(this.streetViewLinesLayer['source'], config.map2d.streetViewLinesSource);
 
@@ -311,126 +219,23 @@ class AddStreetViewControl {
                 this.showLayers();
             }
         } catch (error) {
-            console.error('Error loading PMTiles data:', error);
-        }
-
-    }
-
-    getMeshRotationY = (data) => {
-        return data.camera?.mesh_rotation_y ? data.camera.mesh_rotation_y : 270
-    }
-
-    onAdd(map) {
-        this.map = map;
-
-        // Initialize streetview markers manager
-        this.streetviewMarkers = new StreetviewMarkers(map, this);
-
-        // Expose globally for search integration
-        window.streetViewControl = this;
-
-        if (typeof PMTiles !== 'undefined' && !this.map._pmtilesRegistered) {
-            const protocol = new PMTiles.Protocol();
-            maplibregl.addProtocol("pmtiles", protocol.tile);
-            this.map._pmtilesRegistered = true;
-        }
-
-        // UI is now handled by BottomControlsControl - return empty container
-        this.container = document.createElement('div');
-        this.container.style.display = 'none';
-
-        if (config.features.imagens_panoramicas) {
-            this.setupMiniMapWithPMTiles();
-        }
-
-        // Listen for base layer changes to reload layers if active
-        getEventBus().on(EventTypes.BASE_LAYER_CHANGED, this._handleBaseLayerChanged);
-
-        return this.container;
-    }
-
-    /**
-     * Handles base layer change event.
-     * Reloads photo layers if the viewer is active.
-     * @private
-     */
-    _handleBaseLayerChanged = async () => {
-        if (this.isActive) {
-            // Layers were removed by setStyle, need to reload
-            await this.reload();
-
-            // Also reload streetview markers if they exist
-            if (this.streetviewMarkers) {
-                await this.streetviewMarkers.loadMarkers();
-                this.streetviewMarkers.show();
-            }
+            console.error('Error loading data:', error);
         }
     }
-
-    setupMiniMapWithPMTiles = async () => {
-        this.miniMap.on('load', async () => {
-            try {
-                if (typeof PMTiles !== 'undefined') {
-                    const protocol = new PMTiles.Protocol();
-                    maplibregl.addProtocol("pmtiles", protocol.tile);
-                }
-
-                this.miniMap.addSource(this.streetViewPointsLayer['source'], config.map2d.streetViewPointsSource);
-
-                const pointImage = await this.miniMap.loadImage('./street_view/point.png');
-                await this.miniMap.addImage('point', pointImage.data);
-
-                const pointSelectedImage = await this.miniMap.loadImage('./street_view/point-selected-v2.png');
-                this.miniMap.addImage('point-selected', pointSelectedImage.data);
-
-                this.miniMap.addLayer({
-                    'id': 'points',
-                    'type': 'symbol',
-                    'source': this.streetViewPointsLayer['source'],
-                    'source-layer': this.streetViewPointsLayer['source-layer'],
-                    'layout': {
-                        'icon-image': 'point'
-                    }
-                });
-
-                this.miniMap.on('click', 'points', (e) => {
-                    const properties = e.features[0].properties;
-                    this.loadTarget(properties.nome_img, () => {
-                        this.setIconDirection(this.currentInfo.camera.heading);
-                    });
-                });
-
-                this.miniMap.on('mouseenter', 'points', () => {
-                    this.miniMap.getCanvas().style.cursor = 'pointer';
-                });
-
-                this.miniMap.on('mouseleave', 'points', () => {
-                    this.miniMap.getCanvas().style.cursor = '';
-                });
-
-                this.miniMap.getCanvas().addEventListener('mouseenter', () => {
-                    this.miniMapHovered = true;
-                });
-                this.miniMap.getCanvas().addEventListener('mouseleave', () => {
-                    this.miniMapHovered = false;
-                });
-
-            } catch (error) {
-                console.error('Error setting up PMTiles minimap:', error);
-            }
-        });
-    }
-
 
     reload = async () => {
         if (this.isActive) {
-            await this.loadData()
-            this.showPhotos()
+            await this.loadData();
+            this.showPhotos();
         }
     }
 
     onRemove() {
-        this.cleanupThreeJS();
+        // Cleanup streetview viewer if open
+        if (this.isOpen) {
+            this.closeStreetView();
+        }
+
         if (this.container?.parentNode) {
             this.container.parentNode.removeChild(this.container);
         }
@@ -445,13 +250,19 @@ class AddStreetViewControl {
         const closeBtn = document.getElementById('close-street-view-button');
         if (closeBtn) closeBtn.addEventListener('click', this.closeStreetView);
         this.isActive = true;
-        await this.loadData()
-        this.showPhotos()
+        await this.loadData();
+        this.showPhotos();
 
         // Load and show streetview markers
         if (this.streetviewMarkers) {
             await this.streetviewMarkers.loadMarkers();
             this.streetviewMarkers.show();
+        }
+
+        // Load and show saved photos markers
+        if (this.savedPhotosMarkers) {
+            await this.savedPhotosMarkers.loadMarkers();
+            this.savedPhotosMarkers.show();
         }
     }
 
@@ -463,7 +274,6 @@ class AddStreetViewControl {
         this.toolManager.toggleViewer(this);
     }
 
-
     showPhotos = async () => {
         this.map.on('click', this.streetViewLinesLayer['id'], this.loadPoint);
         this.map.on('mouseenter', this.streetViewLinesLayer['id'], this.showHoverCursor);
@@ -472,12 +282,13 @@ class AddStreetViewControl {
         if (this.miniMap.getLayer('selected')) {
             this.miniMap.removeLayer('selected');
         }
+
         this.miniMap.addLayer({
             'id': 'selected',
             'type': 'symbol',
             'source': this.streetViewPointsLayer['source'],
-            'source-layer': this.streetViewPointsLayer['source-layer'],
-            "filter": ["==", "nome_img", this.currentPhotoName || ""],
+            'source-layer': config.map2d.streetViewPointsSourceLayer,
+            "filter": ["==", "nome_img", ""],
             'layout': {
                 'icon-image': 'point-selected'
             }
@@ -545,10 +356,12 @@ class AddStreetViewControl {
                 point.lat + bufferDistance
             ];
 
-            const features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], {
-                sourceLayer: this.streetViewPointsLayer['source-layer'],
-                bbox: bbox
-            });
+            const queryOptions = {
+                bbox: bbox,
+                sourceLayer: config.map2d.streetViewPointsSourceLayer
+            };
+
+            const features = this.map.querySourceFeatures(this.streetViewPointsLayer['source'], queryOptions);
 
             if (features.length === 0) {
                 return null;
@@ -577,456 +390,10 @@ class AddStreetViewControl {
         }
     }
 
-    loadImageByName = async (name) => {
-        const data = await this.loadMetadataWithCache(name);
-        this.currentInfo = data
-        this.loadStreetView(data)
-        this.animate()
-    };
-
-    loadStreetView = (info) => {
-        this.isOpen = true
-        const container = document.getElementById('street-view-container');
-
-        this.addDocumentListener('keydown', this.onStreetViewKeyDown);
-        this.addDocumentListener('pointermove', this.setCurrentMouse, { passive: true });
-        this.addDocumentListener('mousemove', this.onMouseMove, false);
-
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        this.camera.position.set(0, -0.1, 0)
-        this.camera.rotation.order = 'YXZ';
-
-        this.scene = new THREE.Scene();
-        this.scene.add(this.camera)
-
-        if (!this.sphereGeometry) {
-            this.sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
-            this.sphereGeometry.scale(- 1, 1, 1);
-        }
-
-        this.setCurrentPhotoName(info.camera.img)
-
-        const imagePath = `${this.IMAGES_LOCATION}/${info.camera.img}.jpg`;
-
-        if (this.textureCache.has(imagePath)) {
-            const texture = this.textureCache.get(imagePath);
-            this.material = new THREE.MeshBasicMaterial({ map: texture });
-            this.mesh = new THREE.Mesh(this.sphereGeometry, this.material);
-            this.mesh.name = 'IMAGE_360';
-        } else {
-            const texture = new THREE.TextureLoader().load(
-                imagePath,
-                (loadedTexture) => {
-                    loadedTexture.colorSpace = THREE.SRGBColorSpace;
-                    this.textureCache.set(imagePath, loadedTexture);
-                    if (this.material) {
-                        this.material.map = loadedTexture;
-                        this.material.needsUpdate = true;
-                    }
-                }
-            );
-            this.material = new THREE.MeshBasicMaterial({ map: texture });
-            this.mesh = new THREE.Mesh(this.sphereGeometry, this.material);
-            this.mesh.name = 'IMAGE_360';
-        }
-
-        this.setIconDirection(info.camera.heading)
-        this.offsetRad = THREE.MathUtils.degToRad(this.getMeshRotationY(info) - info.camera.heading);
-        this.mesh.rotation.y = this.offsetRad
-
-        this.scene.add(this.mesh);
-
-        this.renderer = new THREE.WebGLRenderer({
-            antialias: true,
-            alpha: true
-        });
-        this.renderer.setPixelRatio(window.devicePixelRatio);
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        container.appendChild(this.renderer.domElement);
-
-        this.createControl()
-
-        container.style.touchAction = 'none';
-        container.addEventListener('pointerdown', this.onPointerDown);
-
-        this.addDocumentListener('wheel', this.onDocumentMouseWheel, { passive: true });
-
-        this.addDocumentListener('dragover', function (event) {
-
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'copy';
-
-        });
-
-        this.addDocumentListener('dragenter', function () {
-
-            document.body.style.opacity = 0.5;
-
-        });
-
-        this.addDocumentListener('dragleave', function () {
-
-            document.body.style.opacity = 1;
-
-        });
-
-        this.addDocumentListener('drop', function (event) {
-
-            event.preventDefault();
-
-            const reader = new FileReader();
-            reader.addEventListener('load', (event) => {
-
-                this.material.map.image.src = event.target.result;
-                this.material.map.needsUpdate = true;
-
-            });
-            reader.readAsDataURL(event.dataTransfer.files[0]);
-
-            document.body.style.opacity = 1;
-
-        });
-
-        window.addEventListener('resize', this.onWindowResize);
-
-        const pt = turf.point([info.camera.lon, info.camera.lat])
-        const distance = 50
-        const bearing = info.camera.heading
-        const destination = turf.rhumbDestination(pt, distance, bearing)
-        const [x, y, z] = this.calculateTargetPositionInMeters(
-            {
-                latitude: info.camera.lat,
-                longitude: info.camera.lon
-            },
-            {
-                latitude: destination.geometry.coordinates[1],
-                longitude: destination.geometry.coordinates[0]
-            }
-        )
-        this.camera.lookAt(x, y, z)
-        this.renderer.render(this.scene, this.camera);
-        this.setCurrentMiniMap()
-        this.setCurrentMouse()
-        this.drawControl()
-        this.setCurrentMouse()
-
-    }
-
-    setCurrentMouse = (_event) => {
-        if (!this.camera) return
-        const heading = this.camera.rotation.y;
-        const radians = heading > 0 ? heading : (2 * Math.PI) + heading;
-        let degrees = THREE.MathUtils.radToDeg(radians);
-        degrees = -1 * degrees
-        this.currentHeading = (degrees + 360) % 360
-        this.setIconDirection(this.currentHeading)
-    }
-
-    setIconDirection = (degrees) => {
-        if (this.miniMap) this.miniMap.setLayoutProperty('selected', 'icon-rotate', degrees)
-    }
-
-
-    setCurrentPhotoName = (name) => {
-        this.currentPhotoName = name
-
-        if (this.miniMap.getLayer('selected')) {
-            this.miniMap.setFilter('selected', ["==", "nome_img", this.currentPhotoName]);
-        }
-
-    }
-
-    createControl = () => {
-        this.cleanArrows(this.arrows.map(i => i.arrow));
-        this.arrows = [];
-
-        if (!this.arrowGeometry) {
-            this.arrowGeometry = new THREE.CircleGeometry(0.5, 70);
-        }
-        if (!this.arrowTexture) {
-            this.arrowTexture = new THREE.TextureLoader().load("./street_view/arrow.png");
-        }
-
-        const material = new THREE.MeshBasicMaterial({
-            map: this.arrowTexture,
-            side: THREE.DoubleSide,
-            transparent: true
-        });
-
-        for (const target of this.currentInfo.targets) {
-            const control = new THREE.Mesh(this.arrowGeometry, material);
-            control.imgId = () => target.id;
-            control.callback = () => this.loadTarget(target.id);
-            this.arrows.push({ ...target, arrow: control });
-            this.scene.add(control);
-        }
-
-        if (this.controls) this.controls.deactivate();
-        this.controls = new DragControls(this.arrows.map(i => i.arrow), this.camera, this.renderer.domElement);
-        this.controls.addEventListener('drag', (_event) => {
-            this.isDrag = true;
-        });
-        this.controls.addEventListener('dragstart', (event) => {
-            this.dragStartTime = Date.now();
-            this.dragStartPosition = { x: event.object.position.x, y: event.object.position.y };
-        });
-        this.controls.addEventListener('dragend', (event) => {
-            const dragEndTime = Date.now();
-            const dragDuration = dragEndTime - this.dragStartTime;
-            const dragDistance = Math.sqrt(
-                Math.pow(event.object.position.x - this.dragStartPosition.x, 2) +
-                Math.pow(event.object.position.y - this.dragStartPosition.y, 2)
-            );
-
-            if (dragDuration < 200 && dragDistance < 5) {
-                // This was likely intended as a click, not a drag
-                this.clickObj(event.object);
-            }
-
-            this.isDrag = false;
-            this.dragStartTime = null;
-            this.dragStartPosition = null;
-        });
-
-        this.updateArrowsVisibility();
-    }
-
-    clickObj = (_event) => {
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects(this.arrows.filter(i => i.arrow.visible).map(i => i.arrow));
-        if (intersects.length > 0) {
-            intersects[0].object.callback();
-        }
-    }
-
-    cleanArrows = (objects) => {
-        for (const mesh of objects) {
-            const object = this.scene.getObjectByProperty('uuid', mesh.uuid);
-            if (!object) continue
-            if (object.geometry !== this.arrowGeometry && object.geometry !== this.sphereGeometry) {
-                object.geometry.dispose();
-            }
-            if (object.material && object.material.map &&
-                object.material.map !== this.arrowTexture &&
-                !Array.from(this.textureCache.values()).includes(object.material.map)) {
-                object.material.dispose();
-            }
-            this.scene.remove(object);
-        }
-    }
-
-    loadTarget = async (name, cb = () => { }) => {
-        const data = await this.loadMetadataWithCache(name);
-        this.currentInfo = data
-        this.setCurrentMiniMap()
-        this.createControl()
-        this.setCurrentMouse()
-        this.drawControl()
-        this.setCurrentPhotoName(data.camera.img)
-
-        const imagePath = `${this.IMAGES_LOCATION}/${data.camera.img}.jpg`;
-
-        if (this.textureCache.has(imagePath)) {
-            const texture = this.textureCache.get(imagePath);
-            this.material.map = texture;
-            this.offsetRad = THREE.MathUtils.degToRad(this.getMeshRotationY(data) - data.camera.heading);
-            this.mesh.rotation.y = this.offsetRad;
-            cb();
-        } else {
-            const _texture = new THREE.TextureLoader().load(
-                imagePath,
-                (loadedTexture) => {
-                    loadedTexture.colorSpace = THREE.SRGBColorSpace;
-                    this.textureCache.set(imagePath, loadedTexture);
-                    this.material.map = loadedTexture;
-                    this.offsetRad = THREE.MathUtils.degToRad(this.getMeshRotationY(data) - data.camera.heading);
-                    this.mesh.rotation.y = this.offsetRad;
-                    cb();
-                }
-            );
-        }
-    };
-
-    onPointerDown = (event) => {
-        if (event.isPrimary === false || this.nextTarget) return;
-        this.isUserInteracting = true;
-        this.onPointerDownMouseX = event.clientX;
-        this.onPointerDownMouseY = event.clientY;
-        this.mouse.x = event.clientX / window.innerWidth * 2 - 1;
-        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
-        if (intersects.length > 0) {
-            this.lastClickAt = intersects[0].point
-        }
-        document.addEventListener('pointermove', this.onPointerMove);
-        document.addEventListener('pointerup', this.onPointerUp);
-    }
-
-    onPointerMove = (event) => {
-        if (event.isPrimary === false || !this.isUserInteracting) return;
-        const factor = 0.00005
-        this.mouse.x = (this.onPointerDownMouseX - event.clientX) * factor
-        this.mouse.y = (event.clientY - this.onPointerDownMouseY) * factor * 0.8
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObjects([this.scene.getObjectByName('IMAGE_360')], true);
-        if (intersects.length > 0) {
-            this.currentLookAt = intersects[0].point
-        }
-    }
-
-    onPointerUp = (event) => {
-        if (event.isPrimary === false) return;
-        this.isUserInteracting = false;
-        document.removeEventListener('pointermove', this.onPointerMove);
-        document.removeEventListener('pointerup', this.onPointerUp);
-    }
-
-    onDocumentMouseWheel = (event) => {
-        if (this.miniMapHovered || !this.isOpen) return
-
-        const fov = this.camera.fov + event.deltaY * 0.05;
-        this.camera.fov = THREE.MathUtils.clamp(fov, 10, 75);
-        this.camera.updateProjectionMatrix();
-
-        this.updateArrowsVisibility();
-    }
-
-    updateArrowsVisibility = () => {
-        if (!this.arrows || this.arrows.length === 0) return;
-
-        const HIDE_ARROWS_FOV = 35;
-        const SCALE_ARROWS_FOV = 45;
-
-        const currentFOV = this.camera.fov;
-
-        this.arrows.forEach(item => {
-            const arrow = item.arrow;
-
-            if (currentFOV <= HIDE_ARROWS_FOV) {
-                arrow.visible = false;
-            } else if (currentFOV <= SCALE_ARROWS_FOV) {
-                arrow.visible = true;
-                const scaleFactor = (currentFOV - HIDE_ARROWS_FOV) / (SCALE_ARROWS_FOV - HIDE_ARROWS_FOV);
-                const scale = 0.3 + (scaleFactor * 0.7);
-                arrow.scale.setScalar(scale);
-            } else {
-                arrow.visible = true;
-                arrow.scale.setScalar(1.0);
-            }
-        });
-    }
-
-    animate = () => {
-        if (this.isOpen && this.isActive) {
-            this.animationId = requestAnimationFrame(this.animate);
-            this.update();
-        } else {
-            this.animationId = null;
-        }
-    }
-
-    update = () => {
-        const target = this.nextTarget || this.currentLookAt;
-        if (target) {
-            this.setCurrentMouse();
-            this.drawControl();
-            this.setCurrentMouse();
-            this.camera.lookAt(target.x, THREE.MathUtils.clamp(target.y, -360, 250), target.z);
-        }
-        this.nextTarget = null;
-        this.currentLookAt = null;
-        this.renderer.render(this.scene, this.camera);
-    }
-
-    setFullMap = (full) => {
-        const mapSig = document.getElementById('map-sig');
-        const miniMap = document.getElementById('mini-map-street-view');
-        const streetViewContainer = document.getElementById('street-view-container');
-        const closeBtn = document.getElementById('close-street-view-button');
-
-        if (mapSig) mapSig.style.display = full ? 'block' : 'none';
-        if (miniMap) miniMap.style.display = full ? 'none' : 'block';
-        if (streetViewContainer) streetViewContainer.style.display = full ? 'none' : 'block';
-        if (closeBtn) closeBtn.style.display = full ? 'none' : 'flex';
-    }
-
-    onWindowResize = () => {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    calculateTargetPositionInMeters = (
-        cameraLocation,
-        targetLocation
-    ) => {
-        const cameraLocationGeojson = turf.point([
-            cameraLocation.longitude,
-            cameraLocation.latitude
-        ]);
-        const xDest = {
-            longitude: targetLocation.longitude,
-            latitude: cameraLocation.latitude
-        };
-        const xDestGeojson = turf.point([xDest.longitude, xDest.latitude]);
-        let x = turf.distance(cameraLocationGeojson, xDestGeojson);
-        x = x * 1000
-        x *= targetLocation.longitude > cameraLocation.longitude ? 1 : -1;
-        const zDest = {
-            longitude: cameraLocation.longitude,
-            latitude: targetLocation.latitude
-        };
-        const zDestGeojson = turf.point([zDest.longitude, zDest.latitude]);
-        let z = turf.distance(cameraLocationGeojson, zDestGeojson);
-        z = z * 1000
-        z *= targetLocation.latitude > cameraLocation.latitude ? -1 : 1;
-        return [x, 0, z];
-    };
-
-    setCurrentMiniMap = () => {
-        const pt = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat])
-        const buffered = turf.buffer(pt, 0.04)
-        const bbox = turf.bbox(buffered)
-        this.miniMap.fitBounds(bbox, {
-            maxZoom: 15
-        })
-    }
-
-    drawControl = () => {
-        for (const [_idx, item] of this.arrows.entries()) {
-            const arrow = item.arrow;
-
-            if (!arrow.visible) continue;
-
-            const heading = this.camera.rotation.y;
-            const radians = heading > 0 ? heading : (2 * Math.PI) + heading;
-            const degrees = THREE.MathUtils.radToDeg(radians);
-            const point1 = turf.point([this.currentInfo.camera.lon, this.currentInfo.camera.lat]);
-            const point2 = turf.point([item.lon, item.lat]);
-            const bearing = (turf.rhumbBearing(point1, point2) + degrees + 360) % 360;
-
-            const center = turf.point([0, -0.4]);
-            const distance = this.queryMobile.matches ? 55 : 35;
-            const destination = turf.rhumbDestination(center, distance, bearing);
-
-            const vector = new THREE.Vector3(
-                destination.geometry.coordinates[0],
-                destination.geometry.coordinates[1],
-                0.5
-            );
-
-            vector.unproject(this.camera);
-            const dir = vector.sub(this.camera.position).normalize();
-            const distanceFromCamera = 5;
-            const pos = this.camera.position.clone().add(dir.multiplyScalar(distanceFromCamera));
-            arrow.position.copy(pos);
-            arrow.lookAt(this.camera.position);
-            arrow.rotation.z -= THREE.MathUtils.degToRad(bearing);
-
-        }
-    }
-
+    /**
+     * Handles click on street view line to open the viewer.
+     * Delegates to street_view_viewer.js for actual viewer management.
+     */
     loadPoint = async (e) => {
         // Ignore if tool is not active
         if (!this.isActive) return;
@@ -1050,14 +417,21 @@ class AddStreetViewControl {
             }
 
             if (feature && feature.properties && feature.properties.nome_img) {
-                this.setFullMap(false);
+                this.isOpen = true;
 
-                if (this.scene) {
-                    this.loadTarget(feature.properties.nome_img);
-                    return;
+                // Import and open viewer dynamically
+                const { openViewer360WithPhoto, isStreetView360Open } = await import('./street_view_viewer.js');
+
+                // If already open, just navigate to new photo
+                if (isStreetView360Open()) {
+                    const { navigateToTarget } = await import('./street_view_viewer.js');
+                    await navigateToTarget(feature.properties.nome_img);
+                } else {
+                    await openViewer360WithPhoto(feature.properties.nome_img, {
+                        miniMap: this.miniMap,
+                        controlInstance: this
+                    });
                 }
-
-                this.loadImageByName(feature.properties.nome_img);
             } else {
                 console.warn('No photo found near clicked point');
             }
@@ -1091,7 +465,7 @@ class AddStreetViewControl {
 
         // Safe hidePhotos call
         try {
-            this.hidePhotos()
+            this.hidePhotos();
         } catch (_e) {
             console.warn('Error hiding photos:', _e);
         }
@@ -1101,33 +475,37 @@ class AddStreetViewControl {
             this.streetviewMarkers.hide();
         }
 
+        // Hide saved photos markers
+        if (this.savedPhotosMarkers) {
+            this.savedPhotosMarkers.hide();
+        }
+
         const closeBtn = document.getElementById('close-street-view-button');
         if (closeBtn) closeBtn.removeEventListener('click', this.closeStreetView);
+
         if (this.isOpen) {
-            this.setFullMap(true);
-            this.isOpen = false;
+            this.closeStreetView();
         }
+    }
 
-        // Safe cleanup
+    closeStreetView = async () => {
+        if (!this.isOpen) return;
+
+        this.isOpen = false;
+
+        // Delegate to viewer for cleanup
         try {
-            this.cleanupThreeJS()
-        } catch (_e) {
-            console.warn('Error cleaning up ThreeJS:', _e);
+            const { closeViewer360 } = await import('./street_view_viewer.js');
+            await closeViewer360();
+        } catch (error) {
+            console.warn('Error closing viewer:', error);
         }
     }
-
-    closeStreetView = () => {
-        this.setFullMap(true)
-        this.isOpen = false
-        this.cleanupThreeJS()
-    }
-
 
     hidePhotos = () => {
         this.map.off('click', this.streetViewLinesLayer['id'], this.loadPoint);
         this.map.off('mouseenter', this.streetViewLinesLayer['id'], this.showHoverCursor);
         this.map.off('mouseleave', this.streetViewLinesLayer['id'], this.hideHoverCursor);
-
 
         if (this.map.getLayer(this.streetViewPointsLayer['id'])) {
             this.map.setLayoutProperty(this.streetViewPointsLayer['id'], 'visibility', 'none');
@@ -1170,11 +548,11 @@ class AddStreetViewControl {
     }
 
     handleMapClick(_e) {
-
+        // Placeholder for future click handling
     }
 
     handleMouseDown(_e) {
-
+        // Placeholder for future mouse handling
     }
 
     /**

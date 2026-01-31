@@ -15,6 +15,7 @@ import {
 import { showSuccess, showError } from '../../utilities/index.js';
 import { EventTypes } from '../../events/event_types.js';
 import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
+import { isStreetView360Open } from '../../utilities/streetview360-state.js';
 
 /**
  * Export option configurations.
@@ -57,6 +58,7 @@ export class ExportTab {
         this._pdfOptionButton = null;
         this._imageOptionButton = null;
         this._is3DViewerOpen = false;
+        this._is360ViewerOpen = false;
 
         setupCleanup(this);
     }
@@ -102,9 +104,13 @@ export class ExportTab {
         // Setup 3D viewer state listeners
         this._setup3DViewerListeners();
 
-        // Check initial 3D state
+        // Setup 360 viewer state listeners
+        this._setup360ViewerListeners();
+
+        // Check initial 3D and 360 state
         this._is3DViewerOpen = isViewer3DOpen();
-        this._update3DViewerModeUI();
+        this._is360ViewerOpen = isStreetView360Open();
+        this._updateViewerModeUI();
 
         return container;
     }
@@ -118,35 +124,59 @@ export class ExportTab {
 
         subscribe(this, this._eventBus, EventTypes.VIEWER_3D_OPENED, () => {
             this._is3DViewerOpen = true;
-            this._update3DViewerModeUI();
+            this._updateViewerModeUI();
         });
 
         subscribe(this, this._eventBus, EventTypes.VIEWER_3D_CLOSED, () => {
             this._is3DViewerOpen = false;
-            this._update3DViewerModeUI();
+            this._updateViewerModeUI();
         });
     }
 
     /**
-     * Updates UI based on 3D viewer mode.
-     * Disables PDF export when 3D viewer is open.
+     * Sets up listeners for 360 viewer state changes.
+     * @private
+     */
+    _setup360ViewerListeners() {
+        if (!this._eventBus) return;
+
+        subscribe(this, this._eventBus, EventTypes.STREETVIEW_360_OPENED, () => {
+            this._is360ViewerOpen = true;
+            this._updateViewerModeUI();
+        });
+
+        subscribe(this, this._eventBus, EventTypes.STREETVIEW_360_CLOSED, () => {
+            this._is360ViewerOpen = false;
+            this._updateViewerModeUI();
+        });
+    }
+
+    /**
+     * Updates UI based on 3D or 360 viewer mode.
+     * Disables PDF export when either viewer is open.
      * Updates image export description based on mode.
      * @private
      */
-    _update3DViewerModeUI() {
+    _updateViewerModeUI() {
         if (!this._pdfOptionButton) return;
 
-        // Update image export description based on 3D state
+        const isSpecialViewerOpen = this._is3DViewerOpen || this._is360ViewerOpen;
+
+        // Update image export description based on viewer state
         if (this._imageOptionButton) {
             const descElement = this._imageOptionButton.querySelector('.export-option-desc');
             if (descElement) {
-                descElement.textContent = this._is3DViewerOpen
-                    ? 'Capturar screenshot do modelo 3D'
-                    : 'Capturar screenshot do mapa atual';
+                if (this._is3DViewerOpen) {
+                    descElement.textContent = 'Capturar screenshot do modelo 3D';
+                } else if (this._is360ViewerOpen) {
+                    descElement.textContent = 'Capturar screenshot da imagem 360';
+                } else {
+                    descElement.textContent = 'Capturar screenshot do mapa atual';
+                }
             }
         }
 
-        if (this._is3DViewerOpen) {
+        if (isSpecialViewerOpen) {
             // Disable PDF export option
             this._pdfOptionButton.classList.add('disabled-3d-mode');
 
@@ -168,6 +198,14 @@ export class ExportTab {
             // Re-enable PDF export option
             this._pdfOptionButton.classList.remove('disabled-3d-mode');
         }
+    }
+
+    /**
+     * @deprecated Use _updateViewerModeUI instead
+     * @private
+     */
+    _update3DViewerModeUI() {
+        this._updateViewerModeUI();
     }
 
     /**
@@ -205,9 +243,13 @@ export class ExportTab {
      * @private
      */
     _togglePdfContent() {
-        // Block PDF export when 3D viewer is open
+        // Block PDF export when 3D or 360 viewer is open
         if (this._is3DViewerOpen) {
             showError('Exportar PDF desabilitado no modo 3D');
+            return;
+        }
+        if (this._is360ViewerOpen) {
+            showError('Exportar PDF desabilitado no modo 360');
             return;
         }
 
@@ -408,7 +450,8 @@ export class ExportTab {
 
     /**
      * Handles image/screenshot export.
-     * Uses 3D screenshot when 3D viewer is open, otherwise uses 2D map screenshot.
+     * Uses 3D screenshot when 3D viewer is open, 360 screenshot when 360 viewer is open,
+     * otherwise uses 2D map screenshot.
      * @private
      */
     async _handleImageExport() {
@@ -422,6 +465,11 @@ export class ExportTab {
                 } else {
                     showError('Erro ao capturar screenshot 3D');
                 }
+            } else if (this._is360ViewerOpen) {
+                // Use 360 screenshot - dynamically import to avoid circular dependency
+                // Note: takeScreenshot360 handles its own success/error messages
+                const { takeScreenshot360 } = await import('../../street_view_tool/tools/screenshot_tool_360.js');
+                await takeScreenshot360();
             } else {
                 // Use 2D map screenshot
                 if (!this._screenshotControl) {

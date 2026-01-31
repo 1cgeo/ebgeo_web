@@ -22,6 +22,7 @@ import {
     clearAllGroupData,
     clearAllLayerData,
     clearAllCesium3dData,
+    clearAllStreetview360Data,
     setAppSetting,
     getColorUsage
 } from './repository.js';
@@ -51,6 +52,7 @@ import {
 } from './layer.operations.js';
 import { setGroupDependencies } from './group.operations.js';
 import { setCesium3dDependencies, loadCesium3dDataToMemory, clearCesium3dCache } from './cesium3d.operations.js';
+import { setStreetview360Dependencies, loadStreetview360DataToMemory, clearStreetview360Cache } from './streetview360.operations.js';
 
 // ===== DEPENDENCY INJECTION =====
 
@@ -87,6 +89,7 @@ export function initStoreEvents(eventBus, groupManager, layerManager) {
     setLayerDependencies(dependencies);
     setGroupDependencies(dependencies);
     setCesium3dDependencies({ eventBus });
+    setStreetview360Dependencies({ eventBus });
 }
 
 // ===== INITIALIZATION =====
@@ -103,6 +106,7 @@ export const initializeWithLastActiveMap = async () => {
     await deps.groupManager.loadGroupsToMemory(lastActiveMap);
     await deps.layerManager.loadLayersToMemory(lastActiveMap);
     await loadCesium3dDataToMemory(lastActiveMap);
+    await loadStreetview360DataToMemory(lastActiveMap);
 
     return lastActiveMap;
 };
@@ -122,12 +126,14 @@ export const clearAllDataStore = async () => {
     await clearAllGroupData();
     await clearAllLayerData();
     await clearAllCesium3dData();
+    await clearAllStreetview360Data();
 
     await mapManager.clearAllColorCaches();
     resetColorCache();
 
     deps.layerManager.clearLayersCache();
     clearCesium3dCache();
+    clearStreetview360Cache();
 
     await setAppSetting('schemaVersion', SCHEMA_VERSION);
 
@@ -137,6 +143,7 @@ export const clearAllDataStore = async () => {
     await deps.groupManager.loadGroupsToMemory(defaultMap);
     await deps.layerManager.loadLayersToMemory(defaultMap);
     await loadCesium3dDataToMemory(defaultMap);
+    await loadStreetview360DataToMemory(defaultMap);
 
     deps.eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 };
@@ -377,6 +384,37 @@ export {
     removeViewshedsByTileset,
     removeAllFeaturesByTileset
 } from './cesium3d.operations.js';
+
+// ===== RE-EXPORTS FROM STREET VIEW 360 OPERATIONS =====
+
+export {
+    // Orientation operations
+    saveOrientation,
+    getOrientation,
+    hasOrientation,
+    clearOrientation,
+    getAllOrientations,
+    // Marker operations
+    addMarker360,
+    getMarkers360,
+    getAllMarkers360,
+    getMarker360ById,
+    updateMarker360,
+    removeMarker360,
+    removeMarkers360ByPhoto,
+    // Marker image operations
+    addMarker360Image,
+    getMarker360Images,
+    removeMarker360Image,
+    // Memory operations
+    loadStreetview360DataToMemory,
+    clearStreetview360Cache,
+    // Export/Import
+    getStreetview360DataForExport,
+    setStreetview360DataForImport,
+    // Constants
+    DEFAULT_MARKER_360_STYLE
+} from './streetview360.operations.js';
 
 // ===== LEGACY COMPATIBILITY EXPORTS =====
 
