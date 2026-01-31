@@ -8,10 +8,13 @@
 import {
     setupCleanup,
     addDomListener,
+    subscribe,
     cleanup,
     removeElement
 } from '../../utilities/event-cleanup.js';
-import { showSuccess as _showSuccess, showError } from '../../utilities/index.js';
+import { showSuccess, showError } from '../../utilities/index.js';
+import { EventTypes } from '../../events/event_types.js';
+import { isViewer3DOpen, take3DScreenshot } from '../../3d_models_viewer_tool/map_3d.js';
 
 /**
  * Export option configurations.
@@ -51,6 +54,9 @@ export class ExportTab {
         this._container = null;
         this._pdfContentExpanded = false;
         this._pdfContentContainer = null;
+        this._pdfOptionButton = null;
+        this._imageOptionButton = null;
+        this._is3DViewerOpen = false;
 
         setupCleanup(this);
     }
@@ -80,8 +86,8 @@ export class ExportTab {
         container.className = 'export-options';
 
         // PDF Export option
-        const pdfOption = this._createExportOption(EXPORT_OPTIONS.pdf, () => this._togglePdfContent());
-        container.appendChild(pdfOption);
+        this._pdfOptionButton = this._createExportOption(EXPORT_OPTIONS.pdf, () => this._togglePdfContent());
+        container.appendChild(this._pdfOptionButton);
 
         // PDF expanded content container
         this._pdfContentContainer = document.createElement('div');
@@ -90,10 +96,78 @@ export class ExportTab {
         container.appendChild(this._pdfContentContainer);
 
         // Image Export option
-        const imageOption = this._createExportOption(EXPORT_OPTIONS.image, () => this._handleImageExport());
-        container.appendChild(imageOption);
+        this._imageOptionButton = this._createExportOption(EXPORT_OPTIONS.image, () => this._handleImageExport());
+        container.appendChild(this._imageOptionButton);
+
+        // Setup 3D viewer state listeners
+        this._setup3DViewerListeners();
+
+        // Check initial 3D state
+        this._is3DViewerOpen = isViewer3DOpen();
+        this._update3DViewerModeUI();
 
         return container;
+    }
+
+    /**
+     * Sets up listeners for 3D viewer state changes.
+     * @private
+     */
+    _setup3DViewerListeners() {
+        if (!this._eventBus) return;
+
+        subscribe(this, this._eventBus, EventTypes.VIEWER_3D_OPENED, () => {
+            this._is3DViewerOpen = true;
+            this._update3DViewerModeUI();
+        });
+
+        subscribe(this, this._eventBus, EventTypes.VIEWER_3D_CLOSED, () => {
+            this._is3DViewerOpen = false;
+            this._update3DViewerModeUI();
+        });
+    }
+
+    /**
+     * Updates UI based on 3D viewer mode.
+     * Disables PDF export when 3D viewer is open.
+     * Updates image export description based on mode.
+     * @private
+     */
+    _update3DViewerModeUI() {
+        if (!this._pdfOptionButton) return;
+
+        // Update image export description based on 3D state
+        if (this._imageOptionButton) {
+            const descElement = this._imageOptionButton.querySelector('.export-option-desc');
+            if (descElement) {
+                descElement.textContent = this._is3DViewerOpen
+                    ? 'Capturar screenshot do modelo 3D'
+                    : 'Capturar screenshot do mapa atual';
+            }
+        }
+
+        if (this._is3DViewerOpen) {
+            // Disable PDF export option
+            this._pdfOptionButton.classList.add('disabled-3d-mode');
+
+            // If PDF content was expanded, collapse it
+            if (this._pdfContentExpanded) {
+                this._pdfContentExpanded = false;
+                if (this._pdfContentContainer) {
+                    this._pdfContentContainer.dataset.visible = 'false';
+                }
+                // Reset arrow direction
+                const arrow = this._pdfOptionButton.querySelector('.export-option-arrow svg');
+                if (arrow) {
+                    arrow.style.transform = 'rotate(0deg)';
+                }
+                // Hide PDF preview
+                this._hidePdfPreview();
+            }
+        } else {
+            // Re-enable PDF export option
+            this._pdfOptionButton.classList.remove('disabled-3d-mode');
+        }
     }
 
     /**
@@ -131,6 +205,12 @@ export class ExportTab {
      * @private
      */
     _togglePdfContent() {
+        // Block PDF export when 3D viewer is open
+        if (this._is3DViewerOpen) {
+            showError('Exportar PDF desabilitado no modo 3D');
+            return;
+        }
+
         this._pdfContentExpanded = !this._pdfContentExpanded;
         this._pdfContentContainer.dataset.visible = this._pdfContentExpanded.toString();
 
@@ -328,22 +408,33 @@ export class ExportTab {
 
     /**
      * Handles image/screenshot export.
+     * Uses 3D screenshot when 3D viewer is open, otherwise uses 2D map screenshot.
      * @private
      */
     async _handleImageExport() {
-        if (!this._screenshotControl) {
-            showError('Serviço de captura não disponível');
-            return;
-        }
-
-        // Check if screenshotControl has a valid map reference
-        if (!this._screenshotControl.map) {
-            showError('Mapa não disponível para captura');
-            return;
-        }
-
         try {
-            await this._screenshotControl.takeScreenshot();
+            if (this._is3DViewerOpen) {
+                // Use 3D screenshot
+                const success = await take3DScreenshot();
+                if (success) {
+                    showSuccess('Screenshot 3D capturado com sucesso');
+                } else {
+                    showError('Erro ao capturar screenshot 3D');
+                }
+            } else {
+                // Use 2D map screenshot
+                if (!this._screenshotControl) {
+                    showError('Serviço de captura não disponível');
+                    return;
+                }
+
+                if (!this._screenshotControl.map) {
+                    showError('Mapa não disponível para captura');
+                    return;
+                }
+
+                await this._screenshotControl.takeScreenshot();
+            }
         } catch (error) {
             console.error('Screenshot error:', error);
             showError('Erro ao capturar imagem');
@@ -403,5 +494,7 @@ export class ExportTab {
         removeElement(this._container);
         this._container = null;
         this._pdfContentContainer = null;
+        this._pdfOptionButton = null;
+        this._imageOptionButton = null;
     }
 }

@@ -87,6 +87,12 @@ export class BottomControlsControl {
         // Listen to UI layout changes for positioning
         subscribe(this, this._eventBus, EventTypes.UI_LAYOUT_CHANGED,
             (payload) => this._onLayoutChanged(payload));
+
+        // Listen to 3D viewer state changes for sync
+        subscribe(this, this._eventBus, EventTypes.VIEWER_3D_OPENED,
+            () => this._on3DViewerOpened());
+        subscribe(this, this._eventBus, EventTypes.VIEWER_3D_CLOSED,
+            () => this._on3DViewerClosed());
     }
 
     /**
@@ -504,6 +510,27 @@ export class BottomControlsControl {
     _onLayoutChanged(_payload) {
         // Feature toggles are now positioned on the right side
         // No need to adjust left offset based on sidebar state
+    }
+
+    /**
+     * Handles 3D viewer opened event.
+     * Note: This doesn't affect the models3d toggle - that controls marker visibility on 2D map.
+     * The 3D viewer can be open independently of whether markers are shown on 2D map.
+     * @private
+     */
+    _on3DViewerOpened() {
+        // The 3D viewer opening doesn't change the toggle state
+        // The toggle controls marker visibility on 2D map, not the Cesium viewer
+    }
+
+    /**
+     * Handles 3D viewer closed event.
+     * Note: This doesn't affect the models3d toggle - that controls marker visibility on 2D map.
+     * @private
+     */
+    _on3DViewerClosed() {
+        // The 3D viewer closing doesn't change the toggle state
+        // The toggle controls marker visibility on 2D map, not the Cesium viewer
     }
 
     /**

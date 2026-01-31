@@ -696,7 +696,7 @@ class UIManager {
      * @param {boolean} [linkFirstLast=false] - Whether to show line of sight
      * @param {Object} [feature=null] - The feature for coordinate display
      */
-    createProfilePanel(profileData, linkFirstLast = false, feature = null) {
+    createProfilePanel(profileData, linkFirstLast = false, _feature = null) {
         let panel = document.querySelector('.profile-panel');
         if (!panel) {
             panel = document.createElement('div');

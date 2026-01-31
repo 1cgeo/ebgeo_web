@@ -301,10 +301,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     transition: background-color var(--transition-fast, 150ms ease);
+    background: var(--gray-100, #f3f4f6);
 }
 
 .attribute-table-head th:hover {
     background: var(--gray-200, #e5e7eb);
+}
+
+.attribute-table-head th:focus,
+.attribute-table-head th:active {
+    background: var(--gray-100, #f3f4f6);
+    outline: none;
 }
 
 .attribute-table-head th.attribute-table-col-checkbox,

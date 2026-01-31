@@ -8,10 +8,13 @@
 import {
     setupCleanup,
     addDomListener,
+    subscribe,
     cleanup,
     removeElement
 } from '../../utilities/event-cleanup.js';
 import { showSuccess, showError } from '../../utilities/index.js';
+import { EventTypes } from '../../events/event_types.js';
+import { isViewer3DOpen } from '../../3d_models_viewer_tool/map_3d.js';
 
 /**
  * Import format configurations.
@@ -70,6 +73,8 @@ export class ImportTab {
         this._dropZone = null;
         this._fileInput = null;
         this._currentFormat = null;
+        this._optionsContainer = null;
+        this._is3DViewerOpen = false;
 
         setupCleanup(this);
     }
@@ -89,8 +94,8 @@ export class ImportTab {
         this._container.appendChild(header);
 
         // Import options
-        const optionsContainer = this._createImportOptions();
-        this._container.appendChild(optionsContainer);
+        this._optionsContainer = this._createImportOptions();
+        this._container.appendChild(this._optionsContainer);
 
         // Drop zone
         this._dropZone = this._createDropZone();
@@ -104,7 +109,59 @@ export class ImportTab {
         addDomListener(this, this._fileInput, 'change', (e) => this._handleFileSelect(e));
         this._container.appendChild(this._fileInput);
 
+        // Setup 3D viewer state listeners
+        this._setup3DViewerListeners();
+
+        // Check initial 3D state
+        this._is3DViewerOpen = isViewer3DOpen();
+        this._update3DViewerModeUI();
+
         return this._container;
+    }
+
+    /**
+     * Sets up listeners for 3D viewer state changes.
+     * @private
+     */
+    _setup3DViewerListeners() {
+        if (!this._eventBus) return;
+
+        subscribe(this, this._eventBus, EventTypes.VIEWER_3D_OPENED, () => {
+            this._is3DViewerOpen = true;
+            this._update3DViewerModeUI();
+        });
+
+        subscribe(this, this._eventBus, EventTypes.VIEWER_3D_CLOSED, () => {
+            this._is3DViewerOpen = false;
+            this._update3DViewerModeUI();
+        });
+    }
+
+    /**
+     * Updates UI based on 3D viewer mode.
+     * Disables import functionality when 3D viewer is open.
+     * @private
+     */
+    _update3DViewerModeUI() {
+        if (!this._container) return;
+
+        if (this._is3DViewerOpen) {
+            // Disable import options and drop zone
+            if (this._optionsContainer) {
+                this._optionsContainer.classList.add('disabled-3d-mode');
+            }
+            if (this._dropZone) {
+                this._dropZone.classList.add('disabled-3d-mode');
+            }
+        } else {
+            // Re-enable import options and drop zone
+            if (this._optionsContainer) {
+                this._optionsContainer.classList.remove('disabled-3d-mode');
+            }
+            if (this._dropZone) {
+                this._dropZone.classList.remove('disabled-3d-mode');
+            }
+        }
     }
 
     /**
@@ -199,6 +256,12 @@ export class ImportTab {
      * @param {Object} format - Selected format
      */
     _handleFormatClick(format) {
+        // Block import when 3D viewer is open
+        if (this._is3DViewerOpen) {
+            showError('Importação desabilitada no modo 3D');
+            return;
+        }
+
         this._currentFormat = format;
         this._fileInput.accept = format.accept;
         this._fileInput.click();
@@ -226,6 +289,12 @@ export class ImportTab {
      * @param {DragEvent} e - Drop event
      */
     async _handleFileDrop(e) {
+        // Block import when 3D viewer is open
+        if (this._is3DViewerOpen) {
+            showError('Importação desabilitada no modo 3D');
+            return;
+        }
+
         const file = e.dataTransfer?.files[0];
         if (!file) return;
 
@@ -290,5 +359,6 @@ export class ImportTab {
         this._container = null;
         this._dropZone = null;
         this._fileInput = null;
+        this._optionsContainer = null;
     }
 }

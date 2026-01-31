@@ -585,6 +585,79 @@ export function injectSpinnerStyles() {
 }
 
 /**
+ * Injects CSS styles for 3D viewer mode (disabled sections).
+ */
+export function inject3DViewerModeStyles() {
+    if (document.getElementById('features-3d-mode-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'features-3d-mode-styles';
+    style.textContent = `
+        /* Disabled sections when 3D viewer is open */
+        .disabled-3d-mode {
+            pointer-events: none;
+            opacity: 0.4;
+            filter: grayscale(30%);
+            position: relative;
+        }
+
+        .disabled-3d-mode::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.1);
+            cursor: not-allowed;
+        }
+
+        /* Active 3D section highlight */
+        .active-3d-mode {
+            background: #f0f9f0;
+            border-left: 3px solid #28a745;
+            margin-left: -3px;
+            padding-left: 3px;
+        }
+
+        .active-3d-mode .sidebar-section-header {
+            color: #28a745;
+            font-weight: 600;
+        }
+
+        /* Disabled section header tooltip */
+        .disabled-3d-mode .sidebar-section-header::after {
+            content: 'Desabilitado no modo 3D';
+            position: absolute;
+            bottom: -18px;
+            left: 12px;
+            font-size: 10px;
+            color: #999;
+            font-weight: normal;
+            white-space: nowrap;
+        }
+
+        /* Make sure the features-list shows disabled message clearly */
+        .features-list.disabled-3d-mode .layer-container,
+        .features-list.disabled-3d-mode .feature-item,
+        .features-list.disabled-3d-mode .group-container {
+            opacity: 0.6;
+        }
+
+        /* Sidebar section header disabled state */
+        .sidebar-section-header-with-action.disabled-3d-mode {
+            position: relative;
+        }
+
+        .sidebar-section-header-with-action.disabled-3d-mode button {
+            pointer-events: none;
+            opacity: 0.3;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+/**
  * Injects all features tab styles.
  * Call once during initialization.
  */
@@ -593,4 +666,5 @@ export function injectAllFeaturesTabStyles() {
     injectGroupStyles();
     injectLayerStyles();
     injectSpinnerStyles();
+    inject3DViewerModeStyles();
 }

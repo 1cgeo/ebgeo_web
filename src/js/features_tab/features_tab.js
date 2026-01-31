@@ -60,6 +60,7 @@ import {
 } from '../store';
 import { EventTypes } from '../events';
 import { showConfirm } from '../modals/index.js';
+import { isViewer3DOpen } from '../3d_models_viewer_tool/map_3d.js';
 
 /**
  * FeaturesTab class - Main orchestrator for the features panel.
@@ -95,6 +96,9 @@ export class FeaturesTab {
         this._collapseManager = getCollapseStateManager();
         this._catalogLayerUnsubscriber = null;
         this._models3dSectionUnsubscriber = null;
+
+        // Track 3D viewer state
+        this._is3DViewerOpen = false;
 
         this.INLINE_ICONS = FEATURES_TAB_ICONS;
         this.FEATURE_SOURCES = FEATURE_SOURCES;
@@ -170,6 +174,9 @@ export class FeaturesTab {
                 this._setupEventListeners();
             }
 
+            // Check initial 3D viewer state
+            this._is3DViewerOpen = isViewer3DOpen();
+
             // Render catalog layers from store (analysis + data sections)
             await renderCatalogLayers(
                 this.container.querySelector('.catalog-layers-section'),
@@ -186,6 +193,9 @@ export class FeaturesTab {
             );
 
             await this.loadFeatures();
+
+            // Apply 3D viewer mode UI after content is loaded
+            this._update3DViewerModeUI();
         }
     }
 
@@ -810,6 +820,23 @@ export class FeaturesTab {
         this._unsubscribers.push(
             this._eventBus.on(EventTypes.LAYERS_CHANGED, this._layersChangedHandler)
         );
+
+        // Listen for 3D viewer state changes
+        this._viewer3DOpenedHandler = () => {
+            this._is3DViewerOpen = true;
+            this._update3DViewerModeUI();
+        };
+        this._unsubscribers.push(
+            this._eventBus.on(EventTypes.VIEWER_3D_OPENED, this._viewer3DOpenedHandler)
+        );
+
+        this._viewer3DClosedHandler = () => {
+            this._is3DViewerOpen = false;
+            this._update3DViewerModeUI();
+        };
+        this._unsubscribers.push(
+            this._eventBus.on(EventTypes.VIEWER_3D_CLOSED, this._viewer3DClosedHandler)
+        );
     }
 
     /**
@@ -826,6 +853,61 @@ export class FeaturesTab {
 
         this._groupsChangedHandler = null;
         this._layersChangedHandler = null;
+        this._viewer3DOpenedHandler = null;
+        this._viewer3DClosedHandler = null;
+    }
+
+    /**
+     * Updates UI based on 3D viewer mode.
+     * When 3D viewer is open, disable non-3D sections (analysis, data, layers)
+     * and move 3D models section to top.
+     * @private
+     */
+    _update3DViewerModeUI() {
+        if (!this.container) return;
+
+        const catalogSection = this.container.querySelector('.catalog-layers-section');
+        const models3dSection = this.container.querySelector('.models3d-section');
+        const layersHeader = this.container.querySelector('.sidebar-section-header-with-action');
+        const featuresList = this.container.querySelector('.features-list');
+
+        if (this._is3DViewerOpen) {
+            // Disable non-3D sections
+            if (catalogSection) {
+                catalogSection.classList.add('disabled-3d-mode');
+            }
+            if (layersHeader) {
+                layersHeader.classList.add('disabled-3d-mode');
+            }
+            if (featuresList) {
+                featuresList.classList.add('disabled-3d-mode');
+            }
+            // Ensure 3D section is enabled and at top
+            if (models3dSection) {
+                models3dSection.classList.remove('disabled-3d-mode');
+                models3dSection.classList.add('active-3d-mode');
+                // Move to top of container
+                this.container.insertBefore(models3dSection, this.container.firstChild);
+            }
+        } else {
+            // Re-enable all sections
+            if (catalogSection) {
+                catalogSection.classList.remove('disabled-3d-mode');
+            }
+            if (layersHeader) {
+                layersHeader.classList.remove('disabled-3d-mode');
+            }
+            if (featuresList) {
+                featuresList.classList.remove('disabled-3d-mode');
+            }
+            if (models3dSection) {
+                models3dSection.classList.remove('active-3d-mode');
+                // Move back to original position (after catalog section)
+                if (catalogSection && catalogSection.nextSibling !== models3dSection) {
+                    catalogSection.after(models3dSection);
+                }
+            }
+        }
     }
 
     /**

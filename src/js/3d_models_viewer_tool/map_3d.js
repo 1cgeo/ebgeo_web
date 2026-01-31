@@ -7,6 +7,8 @@ import {
     clearCameraPosition
 } from '../store/index.js';
 import { showSuccess } from '../utilities/index.js';
+import { getEventBus } from '../store/services.js';
+import { EventTypes } from '../events/event_types.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -482,15 +484,10 @@ function activeTool() {
     if (toolId === 'help-3d') return;
 
     // Skip non-toggleable tools and camera buttons (handled separately)
-    const nonToggleable = ['screenshot-3d', 'salvar-camera', 'limpar-camera'];
+    const nonToggleable = ['salvar-camera', 'limpar-camera'];
 
     if (nonToggleable.includes(toolId)) {
-        // Execute action without toggle
-        switch (toolId) {
-            case 'screenshot-3d':
-                handleScreenshot();
-                break;
-        }
+        // Camera buttons have their own handlers
         return;
     }
 
@@ -644,20 +641,22 @@ function removeAllTools() {
     deactivateAllActiveTools();
 }
 
-function handleScreenshot() {
-    if (cesiumState.modules.screenshot) {
-        const success = cesiumState.modules.screenshot.takeScreenshot(cesiumState.viewer);
-        if (success) {
-            const button = document.getElementById('screenshot-3d');
-            if (button) {
-                const originalBg = button.style.backgroundColor;
-                button.style.backgroundColor = '#28a745';
-                setTimeout(() => {
-                    button.style.backgroundColor = originalBg;
-                }, 500);
-            }
-        }
+/**
+ * Takes a screenshot of the 3D viewer.
+ * @returns {Promise<boolean>} True if screenshot was taken successfully
+ */
+export async function take3DScreenshot() {
+    if (!cesiumState.isVisible || !cesiumState.viewer) {
+        console.warn('3D viewer is not open');
+        return false;
     }
+
+    if (cesiumState.modules.screenshot) {
+        const success = await cesiumState.modules.screenshot.takeScreenshot(cesiumState.viewer);
+        return success;
+    }
+
+    return false;
 }
 
 // ===== EVENT HANDLERS =====
@@ -1093,6 +1092,12 @@ export async function openViewerWithTileset(tilesetId) {
     registerToolEventListeners();
 
     cesiumState.isVisible = true;
+
+    // Emit event to notify UI components that 3D viewer is now open
+    const eventBus = getEventBus();
+    if (eventBus) {
+        eventBus.emit(EventTypes.VIEWER_3D_OPENED, { tilesetId });
+    }
 }
 
 /**
@@ -1117,6 +1122,12 @@ export function closeViewer() {
 
         pauseRendering();
         cesiumState.isVisible = false;
+
+        // Emit event to notify UI components that 3D viewer is now closed
+        const eventBus = getEventBus();
+        if (eventBus) {
+            eventBus.emit(EventTypes.VIEWER_3D_CLOSED, {});
+        }
     }
 }
 
@@ -1179,4 +1190,13 @@ async function switchTileset(newTilesetId) {
     cleanupActiveTools();
     await loadSingleTileset(cesiumState.viewer, newTilesetId);
     init3DFeatures();
+}
+
+/**
+ * Checks if the 3D viewer is currently visible/open.
+ * This is the single source of truth for 3D viewer state.
+ * @returns {boolean} True if viewer is visible
+ */
+export function isViewer3DOpen() {
+    return cesiumState.isVisible === true;
 }
