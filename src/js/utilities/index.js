@@ -8,6 +8,14 @@
 // ID utilities
 export { IDUtils } from './id_utils.js';
 
+// UUID utilities
+export {
+    generateUUID,
+    isValidUUID,
+    isLegacyId,
+    isValidId
+} from './uuid.js';
+
 // Coordinate converter
 export {
     COORDINATE_FORMATS,

@@ -1,5 +1,6 @@
 // Path: js/utilities/id_utils.js
 import { getFeatureDisplayName, getStorageTypeFromSource, hasImageResource as storeHasImageResource, getImage, storeImage } from '../store';
+import { generateUUID } from './uuid.js';
 
 /**
  * Utilities for generating unique IDs and feature names
@@ -7,11 +8,11 @@ import { getFeatureDisplayName, getStorageTypeFromSource, hasImageResource as st
 export class IDUtils {
 
     /**
-     * Generate unique ID
-     * @returns {string} Unique ID based on timestamp and random string
+     * Generate unique ID using UUID v4.
+     * @returns {string} UUID v4 string
      */
     static generateUniqueId() {
-        return Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+        return generateUUID();
     }
 
     /**
