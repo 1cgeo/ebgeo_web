@@ -84,6 +84,7 @@ const SHORTCUTS_DATA = {
         title: 'Visualizador 3D',
         icon: SHORTCUT_ICONS.viewer3d,
         shortcuts: [
+            { key: 'Delete', description: 'Deletar feição selecionada' },
             { key: 'V', icon: TOOLBAR_ICONS.visibility, description: 'Análise de visibilidade' },
             { key: 'D', icon: TOOLBAR_ICONS.measureDistance, description: 'Medir distância' },
             { key: 'A', icon: TOOLBAR_ICONS.measureArea, description: 'Medir área' },

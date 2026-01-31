@@ -1149,6 +1149,14 @@ export function deselectCurrentMeasurement() {
 }
 
 /**
+ * Gets the currently selected measurement ID.
+ * @returns {string|null} Selected measurement ID or null
+ */
+export function getSelectedMeasurementId() {
+    return selectedMeasurementId;
+}
+
+/**
  * Updates measurement entity visuals to default (non-selected) state.
  * SYNCHRONOUS version - does not fetch from store.
  * @param {string} measurementId - Measurement ID

@@ -750,6 +750,14 @@ export function deselectCurrentViewshed() {
 }
 
 /**
+ * Gets the currently selected viewshed ID.
+ * @returns {string|null} Selected viewshed ID or null
+ */
+export function getSelectedViewshedId() {
+    return selectedViewshedId;
+}
+
+/**
  * Clears all viewshed visualizations (without deleting data).
  * Used by map_3d.js when clearing tools.
  */

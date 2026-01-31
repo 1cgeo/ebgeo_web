@@ -14,7 +14,7 @@ import {
 } from '../../utilities/event-cleanup.js';
 import { showSuccess, showError } from '../../utilities/index.js';
 import { EventTypes } from '../../events/event_types.js';
-import { isViewer3DOpen, take3DScreenshot } from '../../3d_models_viewer_tool/map_3d.js';
+import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
 
 /**
  * Export option configurations.
@@ -414,7 +414,8 @@ export class ExportTab {
     async _handleImageExport() {
         try {
             if (this._is3DViewerOpen) {
-                // Use 3D screenshot
+                // Use 3D screenshot - dynamically import to avoid circular dependency
+                const { take3DScreenshot } = await import('../../3d_models_viewer_tool/map_3d.js');
                 const success = await take3DScreenshot();
                 if (success) {
                     showSuccess('Screenshot 3D capturado com sucesso');

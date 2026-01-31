@@ -647,3 +647,11 @@ export function deselectCurrentMarker() {
         currentViewer.selectedEntity = undefined;
     }
 }
+
+/**
+ * Gets the currently selected marker ID.
+ * @returns {string|null} Selected marker ID or null
+ */
+export function getSelectedMarkerId() {
+    return selectedMarkerId;
+}

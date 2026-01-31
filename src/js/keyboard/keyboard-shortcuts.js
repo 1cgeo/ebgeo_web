@@ -1,5 +1,6 @@
 // Path: js/keyboard/keyboard-shortcuts.js
 import { undoLastAction, redoLastAction } from '../store';
+import { showConfirm } from '../modals/index.js';
 
 /**
  * Keyboard shortcuts manager for the SIG map
@@ -137,7 +138,7 @@ class KeyboardShortcuts {
             case 'delete':
             case 'backspace':
                 e.preventDefault();
-                this.selectionManager.deleteSelectedFeatures();
+                await this._confirmAndDeleteSelectedFeatures();
                 return true;
 
             case 'escape': {
@@ -244,6 +245,13 @@ class KeyboardShortcuts {
     async handle3DShortcuts(e) {
         const key = e.key.toLowerCase();
 
+        // Delete shortcut for 3D features
+        if (key === 'delete' || key === 'backspace') {
+            e.preventDefault();
+            await this._confirmAndDelete3DFeature();
+            return;
+        }
+
         // 3D tool shortcuts
         const tool3DMapping = {
             'v': 'visualizacao',   // Visibility analysis
@@ -268,6 +276,79 @@ class KeyboardShortcuts {
             if (activeButton) {
                 activeButton.click();
             }
+        }
+    }
+
+    /**
+     * Confirm and delete selected 3D feature.
+     * Checks for selected marker, measurement, or viewshed.
+     * @private
+     */
+    async _confirmAndDelete3DFeature() {
+        // Dynamically import 3D tool modules to avoid loading them when not needed
+        const [markerTool, measurementTool, viewshedTool] = await Promise.all([
+            import('../3d_models_viewer_tool/tools/marker_tool_3d.js'),
+            import('../3d_models_viewer_tool/tools/measurement_tool_3d.js'),
+            import('../3d_models_viewer_tool/tools/viewshed_tool_3d.js')
+        ]);
+
+        // Check for selected marker
+        const selectedMarkerId = markerTool.getSelectedMarkerId();
+        if (selectedMarkerId) {
+            const confirmed = await showConfirm('Deletar este marcador?', {
+                message: 'Esta ação não pode ser desfeita.',
+                destructive: true
+            });
+            if (confirmed) {
+                await markerTool.deleteMarker(selectedMarkerId);
+            }
+            return;
+        }
+
+        // Check for selected measurement
+        const selectedMeasurementId = measurementTool.getSelectedMeasurementId();
+        if (selectedMeasurementId) {
+            const confirmed = await showConfirm('Deletar esta medição?', {
+                message: 'Esta ação não pode ser desfeita.',
+                destructive: true
+            });
+            if (confirmed) {
+                await measurementTool.deleteMeasurement(selectedMeasurementId);
+            }
+            return;
+        }
+
+        // Check for selected viewshed
+        const selectedViewshedId = viewshedTool.getSelectedViewshedId();
+        if (selectedViewshedId) {
+            const confirmed = await showConfirm('Deletar esta análise de visibilidade?', {
+                message: 'Esta ação não pode ser desfeita.',
+                destructive: true
+            });
+            if (confirmed) {
+                await viewshedTool.deleteViewshed(selectedViewshedId);
+            }
+
+        }
+    }
+
+    /**
+     * Confirm and delete selected features.
+     * Shows a confirmation dialog before deleting.
+     * @private
+     */
+    async _confirmAndDeleteSelectedFeatures() {
+        const selectedFeatures = this.selectionManager.getAllSelectedFeatures();
+        if (selectedFeatures.length === 0) return;
+
+        const isSingleSelection = selectedFeatures.length === 1;
+        const confirmTitle = isSingleSelection
+            ? 'Deletar esta feição?'
+            : `Deletar ${selectedFeatures.length} feições?`;
+
+        const confirmed = await showConfirm(confirmTitle, { destructive: true });
+        if (confirmed) {
+            this.selectionManager.deleteSelectedFeatures();
         }
     }
 

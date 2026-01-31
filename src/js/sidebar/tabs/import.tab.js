@@ -14,7 +14,7 @@ import {
 } from '../../utilities/event-cleanup.js';
 import { showSuccess, showError } from '../../utilities/index.js';
 import { EventTypes } from '../../events/event_types.js';
-import { isViewer3DOpen } from '../../3d_models_viewer_tool/map_3d.js';
+import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
 
 /**
  * Import format configurations.

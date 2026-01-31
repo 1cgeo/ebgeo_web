@@ -60,7 +60,7 @@ import {
 } from '../store';
 import { EventTypes } from '../events';
 import { showConfirm } from '../modals/index.js';
-import { isViewer3DOpen } from '../3d_models_viewer_tool/map_3d.js';
+import { isViewer3DOpen } from '../utilities/viewer3d-state.js';
 
 /**
  * FeaturesTab class - Main orchestrator for the features panel.
