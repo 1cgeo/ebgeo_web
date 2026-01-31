@@ -132,7 +132,8 @@ class ContextMenuControl {
         const groupingAnalysis = this._analyzeSelectionForGrouping();
         const hasGroupingOptions = groupingAnalysis.canCreateGroup ||
                                  groupingAnalysis.canCombineGroups ||
-                                 groupingAnalysis.canUngroup;
+                                 groupingAnalysis.canUngroup ||
+                                 groupingAnalysis.showDisabledCreateGroup;
 
         const hasSelectedFeatures = groupingAnalysis.selectedFeatures.length > 0;
 
@@ -164,6 +165,12 @@ class ContextMenuControl {
                 () => this._handleCreateGroup(analysis.ungroupedFeatures)
             );
             this._contextMenu.appendChild(createGroupItem);
+        } else if (analysis.showDisabledCreateGroup) {
+            const disabledItem = this._createDisabledMenuItem(
+                'Criar Grupo',
+                'Feições em camadas distintas'
+            );
+            this._contextMenu.appendChild(disabledItem);
         }
 
         if (analysis.canCombineGroups) {
@@ -536,12 +543,28 @@ class ContextMenuControl {
         return separator;
     }
 
+    _createDisabledMenuItem(text, tooltip) {
+        const item = document.createElement('div');
+        item.className = 'context-menu-item disabled';
+        item.textContent = text;
+        item.title = tooltip;
+        item.style.cssText = `
+            padding: 8px 16px;
+            cursor: not-allowed;
+            font-size: 13px;
+            user-select: none;
+            color: #999;
+        `;
+        return item;
+    }
+
     _analyzeSelectionForGrouping() {
         if (!this._selectionManager) {
             return {
                 canCreateGroup: false,
                 canCombineGroups: false,
                 canUngroup: false,
+                showDisabledCreateGroup: false,
                 groupIds: [],
                 ungroupedFeatures: [],
                 selectedFeatures: []
@@ -564,12 +587,16 @@ class ContextMenuControl {
         // Verificar se todas as features selecionadas pertencem à mesma camada
         const allSameLayer = this._allFeaturesInSameLayer(selected);
 
+        // Mostrar opção desabilitada se há 2+ features não agrupadas mas em camadas diferentes
+        const showDisabledCreateGroup = ungroupedFeatures.length > 1 && !allSameLayer;
+
         return {
             // Só pode criar grupo se todas estiverem na mesma camada
             canCreateGroup: ungroupedFeatures.length > 1 && allSameLayer,
             // Só pode combinar grupos se todas estiverem na mesma camada
             canCombineGroups: groups.size > 0 && (groups.size > 1 || ungroupedFeatures.length > 0) && allSameLayer,
             canUngroup: groups.size === 1 && ungroupedFeatures.length === 0,
+            showDisabledCreateGroup,
             groupIds: Array.from(groups),
             ungroupedFeatures: ungroupedFeatures,
             selectedFeatures: selected
