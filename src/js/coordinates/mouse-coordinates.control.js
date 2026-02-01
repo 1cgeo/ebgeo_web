@@ -8,6 +8,7 @@ import { getTerrainElevation } from '../terrain';
 import { GridControl } from '../grid';
 import config from '../config.js';
 import { getStateManager } from '../store';
+import { setupCleanup, addDomListener, cleanup, removeElement } from '../utilities/event-cleanup.js';
 
 /** Throttle interval for coordinate updates (50ms = ~20 FPS, sufficient for display) */
 const COORDINATE_UPDATE_THROTTLE_MS = 50;
@@ -62,6 +63,14 @@ class MouseCoordinatesControl {
         // Performance: Cached StateManager reference
         /** @type {import('../state/state_manager.js').StateManager|null} */
         this._stateManagerRef = null;
+
+        // Initialize cleanup tracking
+        setupCleanup(this);
+
+        // Bind event handlers once for proper cleanup
+        this._onMouseMoveBound = this._onMouseMove.bind(this);
+        this._closeFormatSelectorBound = this._closeFormatSelector.bind(this);
+        this._onTerrainChangeBound = this._onTerrainChange.bind(this);
     }
 
     // =========================================================================
@@ -323,9 +332,9 @@ class MouseCoordinatesControl {
         this._container.appendChild(this._innerContainer);
         this._container.appendChild(this._formatSelector);
 
-        document.addEventListener('click', this._closeFormatSelector.bind(this));
+        addDomListener(this, document, 'click', this._closeFormatSelectorBound);
 
-        this._map.on('mousemove', this._onMouseMove.bind(this));
+        this._map.on('mousemove', this._onMouseMoveBound);
 
         this._checkTerrainAvailability();
 
@@ -338,11 +347,11 @@ class MouseCoordinatesControl {
     }
 
     async _checkTerrainAvailability() {
-        this._map.on('terrain', this._onTerrainChange);
+        this._map.on('terrain', this._onTerrainChangeBound);
         this._onTerrainChange();
     }
 
-    _onTerrainChange = () => {
+    _onTerrainChange() {
         const terrainEnabled = this._map.getTerrain() !== null;
 
         this._terrainAvailable = terrainEnabled;
@@ -648,11 +657,14 @@ class MouseCoordinatesControl {
         this._stateManagerRef = null;
         this._pendingCoordinates = null;
 
-        document.removeEventListener('click', this._closeFormatSelector);
-        this._map.off('mousemove', this._onMouseMove);
-        this._map.off('terrain', this._onTerrainChange);
+        // Cleanup all tracked DOM listeners (including document click)
+        cleanup(this);
 
-        this._container.parentNode.removeChild(this._container);
+        // Remove MapLibre event listeners (using bound handlers)
+        this._map.off('mousemove', this._onMouseMoveBound);
+        this._map.off('terrain', this._onTerrainChangeBound);
+
+        removeElement(this._container);
         this._map = undefined;
     }
 }

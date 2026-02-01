@@ -9,6 +9,12 @@ import {
 import { showSuccess } from '../utilities/index.js';
 import { getEventBus } from '../store/services.js';
 import { EventTypes } from '../events/event_types.js';
+import {
+    setKeyboardCallbacks3D,
+    activateKeyboardService3D,
+    deactivateKeyboardService3D,
+    confirmAndDelete3DFeature
+} from './services/keyboard-service-3d.js';
 
 // ===== GLOBAL STATE MANAGEMENT =====
 let cesiumState = {
@@ -20,7 +26,8 @@ let cesiumState = {
     loadedTilesets: {},
     resizeObserver: null,
     modules: {},
-    currentTilesetId: null  // Track currently active tileset
+    currentTilesetId: null,  // Track currently active tileset
+    screenSpaceHandler: null  // Track ScreenSpaceEventHandler for cleanup
 };
 
 // Track if navigation help has been initialized
@@ -412,6 +419,12 @@ export function cleanup3DFeatures() {
         console.warn('Error cleaning modules:', error);
     }
 
+    // Cleanup ScreenSpaceEventHandler
+    if (cesiumState.screenSpaceHandler) {
+        cesiumState.screenSpaceHandler.destroy();
+        cesiumState.screenSpaceHandler = null;
+    }
+
     if (cesiumState.viewer && !cesiumState.viewer.isDestroyed()) {
         const scene = cesiumState.viewer.scene;
 
@@ -433,6 +446,17 @@ export function cleanup3DFeatures() {
         cesiumState.resizeObserver = null;
     }
 
+    // Cleanup navigation help document listeners to prevent memory leaks
+    if (navHelpHandlers.documentClick) {
+        document.removeEventListener('click', navHelpHandlers.documentClick);
+        navHelpHandlers.documentClick = null;
+    }
+    if (navHelpHandlers.documentKeydown) {
+        document.removeEventListener('keydown', navHelpHandlers.documentKeydown);
+        navHelpHandlers.documentKeydown = null;
+    }
+    navHelpInitialized = false;
+
     cesiumState = {
         isLoaded: false,
         isVisible: false,
@@ -441,7 +465,9 @@ export function cleanup3DFeatures() {
         viewer: null,
         loadedTilesets: {},
         resizeObserver: null,
-        modules: {}
+        modules: {},
+        currentTilesetId: null,
+        screenSpaceHandler: null
     };
 
     window.map = null;
@@ -666,6 +692,12 @@ document.querySelectorAll('#locate-3d-container button').forEach(btn => {
 
 function initCesiumEventHandlers() {
     if (typeof Cesium !== 'undefined' && cesiumState.viewer) {
+        // Clean up existing handler if any
+        if (cesiumState.screenSpaceHandler) {
+            cesiumState.screenSpaceHandler.destroy();
+            cesiumState.screenSpaceHandler = null;
+        }
+
         const handler = new Cesium.ScreenSpaceEventHandler(cesiumState.viewer.canvas);
         handler.setInputAction(function (event) {
             const _scratchRectangle = new Cesium.Rectangle();
@@ -677,6 +709,8 @@ function initCesiumEventHandlers() {
             }
         }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
+        // Store handler for later cleanup
+        cesiumState.screenSpaceHandler = handler;
         return handler;
     }
     return null;
@@ -1023,22 +1057,9 @@ function initNavigationHelp() {
     };
     document.addEventListener('click', navHelpHandlers.documentClick);
 
-    // Close on Escape key - store reference for potential cleanup
-    navHelpHandlers.documentKeydown = (e) => {
-        if (e.key === 'Escape') {
-            const popup = document.getElementById('nav-help-popup');
-            // First close nav help if open
-            if (popup && !popup.hidden) {
-                closeNavHelp();
-                return;
-            }
-            // Then deactivate active tool if any
-            if (activeToolId) {
-                deactivateCurrentTool3D();
-            }
-        }
-    };
-    document.addEventListener('keydown', navHelpHandlers.documentKeydown);
+    // Note: Escape key handling is now done by keyboard-service-3d.js
+    // The navHelpHandlers.documentKeydown is kept only for cleanup reference
+    navHelpHandlers.documentKeydown = null;
 
     navHelpInitialized = true;
 }
@@ -1093,6 +1114,30 @@ export async function openViewerWithTileset(tilesetId) {
 
     cesiumState.isVisible = true;
 
+    // Configure and activate 3D keyboard service
+    setKeyboardCallbacks3D({
+        activateTool: (toolId) => {
+            const button = document.getElementById(toolId);
+            if (button) {
+                button.click();
+            }
+        },
+        deactivateCurrentTool: () => {
+            deactivateCurrentTool3D();
+        },
+        deleteSelectedFeature: async () => {
+            await confirmAndDelete3DFeature();
+        },
+        isHelpPopupOpen: () => {
+            const popup = document.getElementById('nav-help-popup');
+            return popup && !popup.hidden;
+        },
+        closeHelpPopup: () => {
+            closeNavHelp();
+        }
+    });
+    activateKeyboardService3D();
+
     // Emit event to notify UI components that 3D viewer is now open
     const eventBus = getEventBus();
     if (eventBus) {
@@ -1122,6 +1167,9 @@ export function closeViewer() {
 
         pauseRendering();
         cesiumState.isVisible = false;
+
+        // Deactivate 3D keyboard service (re-enables global shortcuts)
+        deactivateKeyboardService3D();
 
         // Emit event to notify UI components that 3D viewer is now closed
         const eventBus = getEventBus();

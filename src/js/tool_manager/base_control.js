@@ -1,10 +1,30 @@
 // Path: js/tool_manager/base_control.js
 
 /**
- * Base Control class with expanded tool-centric interface
- * Each tool should extend this and implement the methods they need
+ * @fileoverview Base Control class for all drawing and editing tools.
+ * Provides a standardized interface for tool activation, selection,
+ * movement, clipboard operations, and attribute panel management.
+ *
+ * @module tool_manager/base_control
+ */
+
+import {
+    pixelsToDegrees,
+    expandBboxWithPadding,
+    normalizeCoordinates
+} from '../utilities/geometry-utils.js';
+
+/**
+ * Base Control class with expanded tool-centric interface.
+ * Each tool should extend this and implement the methods they need.
  */
 class BaseControl {
+    /**
+     * Feature type identifier for this tool.
+     * Subclasses should override this property.
+     * @type {string|null}
+     */
+    featureType = null;
     constructor(toolManager) {
         this.toolManager = toolManager;
         this.selectionManager = toolManager?.selectionManager;
@@ -35,6 +55,36 @@ class BaseControl {
     }
 
     // ===== SELECTION INTERFACE =====
+
+    /**
+     * Get the first selected feature of this tool's type.
+     * Uses the featureType property set by subclasses.
+     *
+     * @param {string} [featureType=this.featureType] - Optional override for feature type
+     * @returns {Object|null} Selected feature or null if none selected
+     */
+    getSelectedFeature(featureType = this.featureType) {
+        if (!this.selectionManager || !featureType) {
+            return null;
+        }
+        const selectedItems = this.selectionManager.getSelectedFeaturesByType(featureType);
+        return selectedItems.length > 0 ? selectedItems[0].feature : null;
+    }
+
+    /**
+     * Get all selected features of this tool's type.
+     * Uses the featureType property set by subclasses.
+     *
+     * @param {string} [featureType=this.featureType] - Optional override for feature type
+     * @returns {Array<Object>} Array of selected features
+     */
+    getSelectedFeatures(featureType = this.featureType) {
+        if (!this.selectionManager || !featureType) {
+            return [];
+        }
+        return this.selectionManager.getSelectedFeaturesByType(featureType)
+            .map(item => item.feature);
+    }
 
     /**
      * Called when a feature of this type is selected
@@ -174,23 +224,16 @@ class BaseControl {
     }
 
     /**
-     * Expand bbox with padding
+     * Expand bbox with padding.
+     * Delegates to shared geometry utility function.
+     *
      * @param {Array} bbox - Bounding box [minX, minY, maxX, maxY]
      * @param {number} paddingPixels - Padding in pixels
      * @param {Object} map - Map instance
      * @returns {Array} Expanded bbox
      */
     expandBboxWithPadding(bbox, paddingPixels, map) {
-        const centerLat = (bbox[1] + bbox[3]) / 2;
-        const zoom = map.getZoom();
-        const paddingDegrees = this.pixelsToDegrees(paddingPixels, centerLat, zoom);
-
-        return [
-            bbox[0] - paddingDegrees,
-            bbox[1] - paddingDegrees,
-            bbox[2] + paddingDegrees,
-            bbox[3] + paddingDegrees
-        ];
+        return expandBboxWithPadding(bbox, paddingPixels, map);
     }
 
     // ===== CLIPBOARD INTERFACE =====
@@ -351,17 +394,16 @@ class BaseControl {
     // ===== UTILITY METHODS =====
 
     /**
-     * Convert pixels to degrees at given latitude and zoom
+     * Convert pixels to degrees at given latitude and zoom.
+     * Delegates to shared geometry utility function.
+     *
      * @param {number} pixels - Pixels
      * @param {number} latitude - Latitude
      * @param {number} zoom - Zoom level
      * @returns {number} Degrees
      */
     pixelsToDegrees(pixels, latitude, zoom) {
-        const earthCircumference = 40075017;
-        const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
-        const degreesPerMeter = 360 / earthCircumference;
-        return pixels * metersPerPixel * degreesPerMeter;
+        return pixelsToDegrees(pixels, latitude, zoom);
     }
 
     /**
@@ -389,20 +431,14 @@ class BaseControl {
     }
 
     /**
-     * Normalize coordinates from various formats
+     * Normalize coordinates from various formats.
+     * Delegates to shared geometry utility function.
+     *
      * @param {string|Array} coordinates - Coordinates to normalize
      * @returns {Array|null} Normalized coordinates or null if invalid
      */
     normalizeCoordinates(coordinates) {
-        if (typeof coordinates === 'string') {
-            try {
-                coordinates = JSON.parse(coordinates);
-            } catch (_e) {
-                console.warn('Error parsing coordinates:', coordinates);
-                return null;
-            }
-        }
-        return Array.isArray(coordinates) ? coordinates : null;
+        return normalizeCoordinates(coordinates);
     }
 }
 

@@ -16,6 +16,7 @@ import {
 import { createCatalogHeader } from './components/catalog-header.js';
 import { createCatalogFilters } from './components/catalog-filters.js';
 import { createCatalogGrid } from './components/catalog-grid.js';
+import { getControl } from '../store';
 // Note: Using literal 'camadas' to avoid circular dependency with sidebar/sidebar.constants.js
 // SIDEBAR_TABS.CAMADAS === 'camadas'
 
@@ -242,7 +243,7 @@ export class CatalogModal extends ModalBase {
      * @param {CatalogItem} item
      */
     async _openModel3D(item) {
-        const modelsViewerControl = window.modelsViewerControl;
+        const modelsViewerControl = getControl('modelsViewer');
         if (modelsViewerControl) {
             // Activate the tool to enable markers if not already active
             if (!modelsViewerControl.isActive && this._toolManager?.toggleViewer) {
@@ -266,7 +267,7 @@ export class CatalogModal extends ModalBase {
      * @param {CatalogItem} item
      */
     async _openPanoramic360(item) {
-        const streetViewControl = window.streetViewControl;
+        const streetViewControl = getControl('streetView');
         if (streetViewControl?.navigateToStreetViewMarker) {
             await streetViewControl.navigateToStreetViewMarker(item.originalData.id);
         }

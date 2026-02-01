@@ -24,19 +24,37 @@ export {
 } from './control.registry.js';
 
 // Repository exports (for internal module usage)
+// NOTE: These are compatibility wrappers that route through LocalRepository
+export { memoryStore, getDefaultLayer, getEmptyCesium3dData } from './repository.js';
 export {
-    memoryStore,
-    setMapGroups,
-    getMapGroups as getMapGroupsFromDB,
-    getMapData,
-    updateMapData,
-    setLayers as setLayersRepo,
-    getLayers as getLayersRepo,
-    setActiveLayerId as setActiveLayerIdRepo,
-    getActiveLayerId as getActiveLayerIdRepo,
-    getDefaultLayer,
-    // Cesium 3D (for import/export service)
-    getCesium3dData,
-    setCesium3dData,
-    getEmptyCesium3dData
-} from './repository.js';
+    getMapDataCompat as getMapData,
+    updateMapDataCompat as updateMapData,
+    setGroupsCompat as setMapGroups,
+    getGroupsCompat as getMapGroupsFromDB,
+    setLayersCompat as setLayersRepo,
+    getLayersCompat as getLayersRepo,
+    setActiveLayerIdCompat as setActiveLayerIdRepo,
+    getActiveLayerIdCompat as getActiveLayerIdRepo,
+    getCesium3dCompat as getCesium3dData,
+    setCesium3dCompat as setCesium3dData
+} from './repositories/index.js';
+
+// Briefing operations
+export {
+    DEFAULT_BRIEFING_SETTINGS,
+    SlideMode,
+    createEmptySlide,
+    createEmptyBriefing,
+    getAllBriefings,
+    getBriefingById,
+    createBriefing,
+    updateBriefing,
+    deleteBriefing,
+    generateUniqueBriefingName,
+    addSlide,
+    updateSlide,
+    removeSlide,
+    reorderSlides,
+    getBriefingsForExport,
+    importBriefings
+} from './briefing.operations.js';

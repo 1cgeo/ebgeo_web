@@ -6,7 +6,7 @@
  * allowing navigation to features in 3D viewer.
  */
 
-import { getAllMarkers, getAllMeasurements, getAllViewsheds, removeAllFeaturesByTileset } from '../store';
+import { getAllMarkers, getAllMeasurements, getAllViewsheds, removeAllFeaturesByTileset, getControl } from '../store';
 import { getStateManager } from '../store/services.js';
 import { EventTypes } from '../events/index.js';
 import config from '../config.js';
@@ -339,9 +339,10 @@ async function openTilesetInViewer(tilesetId) {
         // Collapse sidebar before opening 3D viewer
         collapseSidebar();
 
-        // Use the global modelsViewerControl to properly show the 3D container
-        if (window.modelsViewerControl) {
-            await window.modelsViewerControl.openViewer(tilesetId);
+        // Use the modelsViewerControl from registry to properly show the 3D container
+        const modelsViewerControl = getControl('modelsViewer');
+        if (modelsViewerControl) {
+            await modelsViewerControl.openViewer(tilesetId);
         } else {
             // Fallback: directly import and call (may not show container properly)
             console.warn('modelsViewerControl not found, using fallback');

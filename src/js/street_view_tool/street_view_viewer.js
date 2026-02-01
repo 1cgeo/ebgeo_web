@@ -13,10 +13,20 @@ import { NAV_CONSTANTS } from './navigation/constants.js';
 import { getOrientation, saveOrientation, clearOrientation } from '../store';
 import { showSuccess } from '../utilities/toast_service.js';
 import { URLRouter } from '../url_router.js';
+import { LRUCache } from '../utilities/lru-cache.js';
+import {
+    activateKeyboardService360,
+    deactivateKeyboardService360,
+    setKeyboardCallbacks
+} from './services/keyboard_service_360.js';
 
 // ===== CONFIGURATION =====
 const IMAGES_LOCATION = './street_view/IMG';
 const METADATA_LOCATION = './street_view/METADATA';
+
+// Cache limits
+const TEXTURE_CACHE_MAX_SIZE = 30;  // Max textures to keep in memory (~30-50MB depending on resolution)
+const METADATA_CACHE_MAX_SIZE = 100; // Metadata is small, can keep more
 
 // ===== GLOBAL STATE MANAGEMENT =====
 const streetViewState = {
@@ -35,9 +45,13 @@ const streetViewState = {
     modules: {},
     animationId: null,
     documentListeners: [],
-    // Caches
-    textureCache: new Map(),
-    metadataCache: new Map(),
+    // Caches with LRU eviction (textures dispose automatically when evicted)
+    textureCache: new LRUCache(TEXTURE_CACHE_MAX_SIZE, (texture) => {
+        if (texture && texture.dispose) {
+            texture.dispose();
+        }
+    }),
+    metadataCache: new LRUCache(METADATA_CACHE_MAX_SIZE),
     sphereGeometry: null,
     // External references (set by control)
     miniMap: null,
@@ -360,6 +374,9 @@ let lat = 0;  // Vertical rotation (pitch)
 let onPointerDownLon = 0;
 let onPointerDownLat = 0;
 
+// Reusable Vector3 for lookAt target (avoids allocation in render loop)
+const _lookAtTarget = new THREE.Vector3();
+
 function onPointerDown(event) {
     if (event.isPrimary === false) return;
 
@@ -451,14 +468,14 @@ function update() {
     const phi = THREE.MathUtils.degToRad(90 - lat);
     const theta = THREE.MathUtils.degToRad(lon);
 
-    // Calculate look-at target on sphere
-    const target = new THREE.Vector3(
+    // Calculate look-at target on sphere (reuses pre-allocated Vector3)
+    _lookAtTarget.set(
         500 * Math.sin(phi) * Math.cos(theta),
         500 * Math.cos(phi),
         500 * Math.sin(phi) * Math.sin(theta)
     );
 
-    streetViewState.camera.lookAt(target);
+    streetViewState.camera.lookAt(_lookAtTarget);
     updateCurrentHeading();
 
     // Render Three.js scene
@@ -814,11 +831,6 @@ export async function openViewer360WithPhoto(photoName, options = {}) {
 
     // Activate keyboard service
     try {
-        const {
-            activateKeyboardService360,
-            setKeyboardCallbacks
-        } = await import('./services/keyboard_service_360.js');
-
         // Set callbacks for keyboard actions
         setKeyboardCallbacks({
             rotateCamera: rotateCamera,
@@ -907,7 +919,6 @@ export async function closeViewer360() {
 
     // Deactivate keyboard service
     try {
-        const { deactivateKeyboardService360 } = await import('./services/keyboard_service_360.js');
         deactivateKeyboardService360();
     } catch (error) {
         console.warn('Could not deactivate keyboard service:', error);
@@ -1072,6 +1083,9 @@ export function cleanupStreetViewFeatures() {
     // Remove document listeners
     removeAllDocumentListeners();
 
+    // Remove window resize listener
+    window.removeEventListener('resize', onWindowResize);
+
     // Cleanup navigator
     if (streetViewState.navigator) {
         streetViewState.navigator.dispose();
@@ -1112,12 +1126,19 @@ export function cleanupStreetViewFeatures() {
         streetViewState.sphereGeometry = null;
     }
 
-    // Clean texture cache
-    streetViewState.textureCache.forEach(texture => texture.dispose());
+    // Clean texture cache (LRU cache calls dispose callback automatically)
     streetViewState.textureCache.clear();
 
     // Clear metadata cache
     streetViewState.metadataCache.clear();
+
+    // Reinitialize caches for potential reuse
+    streetViewState.textureCache = new LRUCache(TEXTURE_CACHE_MAX_SIZE, (texture) => {
+        if (texture && texture.dispose) {
+            texture.dispose();
+        }
+    });
+    streetViewState.metadataCache = new LRUCache(METADATA_CACHE_MAX_SIZE);
 
     // Reset state
     streetViewState.scene = null;

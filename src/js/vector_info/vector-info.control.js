@@ -1,5 +1,6 @@
 // Path: js/vector_info/vector-info.control.js
 import config from '../config.js';
+import { setupCleanup, addDomListener, cleanup } from '../utilities/event-cleanup.js';
 
 class VectorTileInfoControl {
     constructor(toolManager, uiManager) {
@@ -7,18 +8,41 @@ class VectorTileInfoControl {
         this.uiManager = uiManager;
         this.isActive = false;
         this.map = null;
-        this.handleMapClickBound = this.handleMapClick.bind(this);
         this.contextMenu = null;
         this.pendingVectorTileFeatures = null;
-        this.setupEventListeners();
+
+        // Initialize cleanup tracking
+        setupCleanup(this);
+
+        // Bound event handlers for proper cleanup
+        this.handleMapClickBound = this.handleMapClick.bind(this);
+        this._handleMoveStart = this._onMoveStart.bind(this);
+        this._handleZoomStart = this._onZoomStart.bind(this);
+        this._handleKeydown = this._onKeydown.bind(this);
+
+        this._setupDocumentListeners();
     }
 
-    setupEventListeners() {
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this.contextMenu) {
-                this._hideVectorTileSelectionMenu();
-            }
-        });
+    _setupDocumentListeners() {
+        addDomListener(this, document, 'keydown', this._handleKeydown);
+    }
+
+    _onKeydown(e) {
+        if (e.key === 'Escape' && this.contextMenu) {
+            this._hideVectorTileSelectionMenu();
+        }
+    }
+
+    _onMoveStart() {
+        if (this.contextMenu) {
+            this._hideVectorTileSelectionMenu();
+        }
+    }
+
+    _onZoomStart() {
+        if (this.contextMenu) {
+            this._hideVectorTileSelectionMenu();
+        }
     }
 
     onAdd(map) {
@@ -30,7 +54,12 @@ class VectorTileInfoControl {
 
         if (this.isActive && this.map) {
             this.map.off('click', this.handleMapClickBound);
+            this.map.off('movestart', this._handleMoveStart);
+            this.map.off('zoomstart', this._handleZoomStart);
         }
+
+        // Cleanup all tracked listeners (including document keydown)
+        cleanup(this);
 
         this.map = undefined;
     }
@@ -45,17 +74,8 @@ class VectorTileInfoControl {
         this.map.getCanvas().style.cursor = 'help';
 
         this.map.on('click', this.handleMapClickBound);
-
-        this.map.on('movestart', () => {
-            if (this.contextMenu) {
-                this._hideVectorTileSelectionMenu();
-            }
-        });
-        this.map.on('zoomstart', () => {
-            if (this.contextMenu) {
-                this._hideVectorTileSelectionMenu();
-            }
-        });
+        this.map.on('movestart', this._handleMoveStart);
+        this.map.on('zoomstart', this._handleZoomStart);
     }
 
     deactivate() {
@@ -63,6 +83,8 @@ class VectorTileInfoControl {
         this.map.getCanvas().style.cursor = '';
 
         this.map.off('click', this.handleMapClickBound);
+        this.map.off('movestart', this._handleMoveStart);
+        this.map.off('zoomstart', this._handleZoomStart);
 
         this.uiManager.saveChangesAndClosePanel();
     }

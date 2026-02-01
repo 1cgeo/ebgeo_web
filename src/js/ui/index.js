@@ -2,5 +2,15 @@
 
 /**
  * @fileoverview Public API for UI module.
- * Provides general UI components.
+ * Provides general UI components and visibility management.
  */
+
+// UI Visibility Controller
+export {
+    UIElement,
+    VisibilityProfile,
+    UIVisibilityEvents,
+    getUIVisibilityController,
+    createUIVisibilityController,
+    default as UIVisibilityController
+} from './ui-visibility.controller.js';

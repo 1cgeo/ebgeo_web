@@ -1,8 +1,9 @@
 // Path: js/tool_manager/group_manager.js
 
 import { memoryStore, setMapGroups, getMapGroupsFromDB } from '../store';
-import { IDUtils } from '../utilities';
+import { generateUUID } from '../utilities/uuid.js';
 import { EventTypes } from '../events';
+import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from '../store/sync/sync-metadata.js';
 
 /**
  * Central manager for feature groups
@@ -40,7 +41,7 @@ class GroupManager {
             throw new Error('É necessário pelo menos 2 features para criar um grupo.');
         }
 
-        const groupId = IDUtils.generateUniqueId();
+        const groupId = generateUUID();
         const groupName = this.generateGroupName(targetMap);
 
         const newGroup = {
@@ -51,11 +52,12 @@ class GroupManager {
                 id: feature.properties.id
             })),
             visible: true,
-            locked: false
+            locked: false,
+            sync: createSyncMetadata(null)
         };
 
         this._ensureMapGroupsExist(targetMap);
-        this.memoryStore.groups[targetMap].set(groupId, newGroup);
+        this.memoryStore.groups[targetMap][groupId] = newGroup;
 
         this._saveGroupsToDBAsync(targetMap);
 
@@ -81,8 +83,8 @@ class GroupManager {
         let combinedGroupName = '';
 
         groupIds.forEach((groupId, index) => {
-            const group = groupsCache.get(groupId);
-            if (group) {
+            const group = groupsCache[groupId];
+            if (group && isActive(group.sync)) {
                 allFeatures.push(...group.features);
                 if (index === 0) {
                     combinedGroupName = group.name;
@@ -109,7 +111,7 @@ class GroupManager {
             throw new Error('É necessário pelo menos 2 features para formar um grupo.');
         }
 
-        const newGroupId = IDUtils.generateUniqueId();
+        const newGroupId = generateUUID();
         const finalGroupName = combinedGroupName || this.generateGroupName(targetMap);
 
         const combinedGroup = {
@@ -117,14 +119,18 @@ class GroupManager {
             name: finalGroupName,
             features: allFeatures,
             visible: true,
-            locked: false
+            locked: false,
+            sync: createSyncMetadata(null)
         };
 
+        // Soft delete old groups
         groupIds.forEach(groupId => {
-            groupsCache.delete(groupId);
+            if (groupsCache[groupId]) {
+                groupsCache[groupId].sync = markDeleted(groupsCache[groupId].sync);
+            }
         });
 
-        groupsCache.set(newGroupId, combinedGroup);
+        groupsCache[newGroupId] = combinedGroup;
 
         this._saveGroupsToDBAsync(targetMap);
 
@@ -144,15 +150,16 @@ class GroupManager {
         this._ensureMapGroupsExist(targetMap);
 
         const groupsCache = this.memoryStore.groups[targetMap];
-        const group = groupsCache.get(groupId);
+        const group = groupsCache[groupId];
 
-        if (!group) {
+        if (!group || !isActive(group.sync)) {
             throw new Error(`Grupo ${groupId} não encontrado.`);
         }
 
         const features = [...group.features];
 
-        groupsCache.delete(groupId);
+        // Soft delete the group
+        group.sync = markDeleted(group.sync);
 
         this._saveGroupsToDBAsync(targetMap);
 
@@ -169,13 +176,14 @@ class GroupManager {
         this._ensureMapGroupsExist(targetMap);
 
         const groupsCache = this.memoryStore.groups[targetMap];
-        const group = groupsCache.get(groupId);
+        const group = groupsCache[groupId];
 
-        if (!group) {
+        if (!group || !isActive(group.sync)) {
             throw new Error(`Grupo ${groupId} não encontrado.`);
         }
 
         group[property] = value;
+        group.sync = touchSyncMetadata(group.sync);
 
         this._saveGroupsToDBAsync(targetMap);
 
@@ -197,7 +205,10 @@ class GroupManager {
 
         const groupsCache = this.memoryStore.groups[targetMap];
 
-        for (const group of groupsCache.values()) {
+        for (const group of Object.values(groupsCache)) {
+            // Only check active groups
+            if (!isActive(group.sync)) continue;
+
             const hasFeature = group.features.some(f =>
                 f.type === type && f.id === featureId
             );
@@ -234,7 +245,8 @@ class GroupManager {
         const targetMap = mapName || this.memoryStore.currentMap;
         this._ensureMapGroupsExist(targetMap);
 
-        return this.memoryStore.groups[targetMap].get(groupId);
+        const group = this.memoryStore.groups[targetMap][groupId];
+        return group && isActive(group.sync) ? group : null;
     }
 
     /**
@@ -255,8 +267,10 @@ class GroupManager {
         const groupsCache = this.memoryStore.groups[mapName];
 
         const existingNames = new Set();
-        for (const group of groupsCache.values()) {
-            existingNames.add(group.name);
+        for (const group of Object.values(groupsCache)) {
+            if (isActive(group.sync)) {
+                existingNames.add(group.name);
+            }
         }
 
         let counter = 1;
@@ -277,16 +291,20 @@ class GroupManager {
         try {
             const groupsData = await getMapGroupsFromDB(mapName);
 
-            const groupsMap = new Map();
-            Object.entries(groupsData).forEach(([groupId, groupData]) => {
-                groupsMap.set(groupId, groupData);
-            });
+            // Ensure all groups have sync metadata (migration support)
+            const normalizedGroups = {};
+            for (const [groupId, groupData] of Object.entries(groupsData)) {
+                normalizedGroups[groupId] = {
+                    ...groupData,
+                    sync: groupData.sync || createSyncMetadata(null)
+                };
+            }
 
-            this.memoryStore.groups[mapName] = groupsMap;
+            this.memoryStore.groups[mapName] = normalizedGroups;
 
         } catch (error) {
             console.warn(`Erro ao carregar grupos do mapa ${mapName}:`, error);
-            this.memoryStore.groups[mapName] = new Map();
+            this.memoryStore.groups[mapName] = {};
         }
     }
 
@@ -300,17 +318,21 @@ class GroupManager {
         try {
             const sourceGroupsData = await getMapGroupsFromDB(sourceMapName);
 
-            if (Object.keys(sourceGroupsData).length === 0) {
+            // Only include active groups
+            const activeGroups = Object.values(sourceGroupsData).filter(g => isActive(g.sync));
+
+            if (activeGroups.length === 0) {
                 return;
             }
 
             const duplicatedGroups = {};
 
-            Object.values(sourceGroupsData).forEach(group => {
-                const newGroupId = IDUtils.generateUniqueId();
+            activeGroups.forEach(group => {
+                const newGroupId = generateUUID();
                 const newGroup = {
                     ...group,
                     id: newGroupId,
+                    sync: createSyncMetadata(null)
                 };
 
                 // Update feature IDs if mapping is provided
@@ -330,11 +352,7 @@ class GroupManager {
             await setMapGroups(targetMapName, duplicatedGroups);
 
             if (targetMapName === this.memoryStore.currentMap) {
-                const groupsMap = new Map();
-                Object.entries(duplicatedGroups).forEach(([groupId, groupData]) => {
-                    groupsMap.set(groupId, groupData);
-                });
-                this.memoryStore.groups[targetMapName] = groupsMap;
+                this.memoryStore.groups[targetMapName] = duplicatedGroups;
             }
 
         } catch (error) {
@@ -352,7 +370,9 @@ class GroupManager {
         try {
             const targetGroups = await getMapGroupsFromDB(targetMapName);
             const existingNames = new Set(
-                Object.values(targetGroups).map(group => group.name)
+                Object.values(targetGroups)
+                    .filter(g => isActive(g.sync))
+                    .map(group => group.name)
             );
 
             for (const sourceMapName of sourceMapNames) {
@@ -360,10 +380,18 @@ class GroupManager {
 
                 const mapIdMapping = idMappings[sourceMapName] || new Map();
 
-                const updatedGroups = this._updateGroupFeatureIds(sourceGroups, mapIdMapping);
+                // Only include active groups
+                const activeSourceGroups = {};
+                for (const [id, group] of Object.entries(sourceGroups)) {
+                    if (isActive(group.sync)) {
+                        activeSourceGroups[id] = group;
+                    }
+                }
+
+                const updatedGroups = this._updateGroupFeatureIds(activeSourceGroups, mapIdMapping);
 
                 Object.values(updatedGroups).forEach(group => {
-                    const newGroupId = IDUtils.generateUniqueId();
+                    const newGroupId = generateUUID();
 
                     let finalName = group.name;
                     let counter = 1;
@@ -376,7 +404,8 @@ class GroupManager {
                     targetGroups[newGroupId] = {
                         ...group,
                         id: newGroupId,
-                        name: finalName
+                        name: finalName,
+                        sync: createSyncMetadata(null)
                     };
                 });
             }
@@ -400,7 +429,7 @@ class GroupManager {
             await setMapGroups(mapName, {});
 
             if (this.memoryStore.groups[mapName]) {
-                this.memoryStore.groups[mapName].clear();
+                this.memoryStore.groups[mapName] = {};
             }
 
         } catch (error) {
@@ -418,16 +447,22 @@ class GroupManager {
         const groupsCache = this.memoryStore.groups[targetMap];
         let modified = false;
 
-        for (const [groupId, group] of groupsCache) {
+        for (const group of Object.values(groupsCache)) {
+            // Skip deleted groups
+            if (!isActive(group.sync)) continue;
+
             const initialLength = group.features.length;
             group.features = group.features.filter(f =>
                 !(f.type === type && f.id === featureId)
             );
 
             if (group.features.length <= 1) {
-                groupsCache.delete(groupId);
+                // Soft delete the group if only 0-1 features left
+                group.sync = markDeleted(group.sync);
                 modified = true;
             } else if (group.features.length < initialLength) {
+                // Update sync metadata if features were removed
+                group.sync = touchSyncMetadata(group.sync);
                 modified = true;
             }
         }
@@ -454,7 +489,7 @@ class GroupManager {
      */
     _ensureMapGroupsExist(mapName) {
         if (!this.memoryStore.groups[mapName]) {
-            this.memoryStore.groups[mapName] = new Map();
+            this.memoryStore.groups[mapName] = {};
         }
     }
 
@@ -465,8 +500,8 @@ class GroupManager {
         setTimeout(async () => {
             try {
                 const groupsCache = this.memoryStore.groups[mapName];
-                const groupsData = Object.fromEntries(groupsCache);
-                await setMapGroups(mapName, groupsData);
+                // groupsCache is now a plain object, no need for Object.fromEntries
+                await setMapGroups(mapName, groupsCache);
             } catch (error) {
                 console.error(`Erro ao salvar grupos do mapa ${mapName}:`, error);
             }

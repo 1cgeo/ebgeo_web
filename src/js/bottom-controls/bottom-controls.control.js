@@ -50,6 +50,9 @@ export class BottomControlsControl {
         this._onFullscreenChange = this._onFullscreenChange.bind(this);
         this._onTerrainChange = this._onTerrainChange.bind(this);
 
+        // Track toolManager subscriptions for cleanup
+        this._toolManagerUnsubscribers = [];
+
         setupCleanup(this);
     }
 
@@ -224,12 +227,15 @@ export class BottomControlsControl {
         this._map.on('terrain', this._onTerrainChange);
 
         // Tool manager activation events - listen on toolManager if it has events
+        // Store unsubscribe functions for cleanup to prevent memory leaks
         if (this._toolManager?.on) {
-            this._toolManager.on('toolActivated', (tool) => this._onToolActivated(tool));
-            this._toolManager.on('toolDeactivated', (tool) => this._onToolDeactivated(tool));
-            // Viewer events (3D, Street View) - viewers can be active simultaneously
-            this._toolManager.on('viewerActivated', (viewer) => this._onViewerActivated(viewer));
-            this._toolManager.on('viewerDeactivated', (viewer) => this._onViewerDeactivated(viewer));
+            this._toolManagerUnsubscribers.push(
+                this._toolManager.on('toolActivated', (tool) => this._onToolActivated(tool)),
+                this._toolManager.on('toolDeactivated', (tool) => this._onToolDeactivated(tool)),
+                // Viewer events (3D, Street View) - viewers can be active simultaneously
+                this._toolManager.on('viewerActivated', (viewer) => this._onViewerActivated(viewer)),
+                this._toolManager.on('viewerDeactivated', (viewer) => this._onViewerDeactivated(viewer))
+            );
         }
     }
 
@@ -558,6 +564,14 @@ export class BottomControlsControl {
         // Remove map event listeners
         this._map.off('rotate', this._updateCompass);
         this._map.off('terrain', this._onTerrainChange);
+
+        // Cleanup toolManager subscriptions to prevent memory leaks
+        this._toolManagerUnsubscribers.forEach(unsub => {
+            if (typeof unsub === 'function') {
+                unsub();
+            }
+        });
+        this._toolManagerUnsubscribers = [];
 
         this._featureToggles.forEach(toggle => toggle.destroy());
         this._featureToggles.clear();

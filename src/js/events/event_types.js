@@ -23,6 +23,30 @@ export const EventTypes = Object.freeze({
      */
     LAYERS_CHANGED: 'layers:changed',
 
+    /**
+     * Emitted when a layer is created.
+     * Payload: { layerId: string, mapId: string, layer: Object }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: layer.operations.js
+     */
+    LAYER_CREATED: 'layer:created',
+
+    /**
+     * Emitted when a layer is modified (name, visibility, locked).
+     * Payload: { layerId: string, mapId: string, layer: Object, previousLayer: Object }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: layer.operations.js
+     */
+    LAYER_MODIFIED: 'layer:modified',
+
+    /**
+     * Emitted when a layer is deleted.
+     * Payload: { layerId: string, mapId: string }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: layer.operations.js
+     */
+    LAYER_DELETED: 'layer:deleted',
+
     // ===== GROUPS =====
     /**
      * Emitted when group list changes (create, delete, combine, feature assignment).
@@ -31,6 +55,30 @@ export const EventTypes = Object.freeze({
      */
     GROUPS_CHANGED: 'groups:changed',
 
+    /**
+     * Emitted when a group is created.
+     * Payload: { groupId: string, mapId: string, group: Object }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: group_manager.js
+     */
+    GROUP_CREATED: 'group:created',
+
+    /**
+     * Emitted when a group is modified (name, features, visibility, locked).
+     * Payload: { groupId: string, mapId: string, group: Object, previousGroup: Object }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: group_manager.js
+     */
+    GROUP_MODIFIED: 'group:modified',
+
+    /**
+     * Emitted when a group is deleted.
+     * Payload: { groupId: string, mapId: string }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: group_manager.js
+     */
+    GROUP_DELETED: 'group:deleted',
+
     // ===== FEATURES =====
     /**
      * Emitted when a feature's user data changes (attributes or images).
@@ -38,6 +86,30 @@ export const EventTypes = Object.freeze({
      * Emitters: user_data_manager.js
      */
     FEATURE_UPDATED: 'feature:updated',
+
+    /**
+     * Emitted when a feature is created.
+     * Payload: { featureId: string, featureType: string, mapId: string, feature: Object }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: feature.operations.js
+     */
+    FEATURE_CREATED: 'feature:created',
+
+    /**
+     * Emitted when a feature is modified (geometry or properties).
+     * Payload: { featureId: string, featureType: string, mapId: string, feature: Object, previousFeature: Object }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: feature.operations.js
+     */
+    FEATURE_MODIFIED: 'feature:modified',
+
+    /**
+     * Emitted when a feature is deleted.
+     * Payload: { featureId: string, featureType: string, mapId: string }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: feature.operations.js
+     */
+    FEATURE_DELETED: 'feature:deleted',
 
     // =========================================================================
     // UI REDESIGN EVENTS
@@ -360,6 +432,31 @@ export const EventTypes = Object.freeze({
      * Emitters: navigator.js
      */
     MARKER_360_POSITION_CLICKED: 'marker360:positionClicked',
+
+    // ===== MAP LIFECYCLE =====
+    /**
+     * Emitted when a map is created.
+     * Payload: { mapId: string, map: Object }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: map.operations.js
+     */
+    MAP_CREATED: 'map:created',
+
+    /**
+     * Emitted when a map is modified (name, notes, metadata).
+     * Payload: { mapId: string, map: Object, previousMap: Object }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: map.operations.js
+     */
+    MAP_MODIFIED: 'map:modified',
+
+    /**
+     * Emitted when a map is deleted.
+     * Payload: { mapId: string }
+     * Subscribers: Sync system, real-time UI updates
+     * Emitters: map.operations.js
+     */
+    MAP_DELETED: 'map:deleted',
 
     // ===== STORE =====
     /**

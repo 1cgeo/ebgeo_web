@@ -1,6 +1,7 @@
 // Path: js/search/feature-search.control.js
 import config from '../config.js';
 import { showError } from '../utilities';
+import { getControl } from '../store';
 
 // Maximum number of 3D model results to display
 const MAX_3D_MODEL_RESULTS = 5;
@@ -310,8 +311,9 @@ class FeatureSearchControl {
 
     // Handle 3D model selection
     if (feature.type === '3d-model') {
-      if (window.modelsViewerControl) {
-        window.modelsViewerControl.navigateToModel(feature.tilesetId);
+      const modelsViewerControl = getControl('modelsViewer');
+      if (modelsViewerControl) {
+        modelsViewerControl.navigateToModel(feature.tilesetId);
       }
       return;
     }

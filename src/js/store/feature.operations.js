@@ -4,9 +4,15 @@
  * @fileoverview Feature CRUD operations.
  */
 
-import { cleanFeature, getMapData, updateMapData, getLayers as getLayersRepo } from './repository.js';
+import { cleanFeature } from './repository.js';
+import { getMapDataCompat, updateMapDataCompat, getLayersCompat } from './repositories/index.js';
 import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource } from './store.constants.js';
 import mapManager from './store-state-manager.js';
+
+// Alias for backward compatibility during migration
+const getMapData = getMapDataCompat;
+const updateMapData = updateMapDataCompat;
+const getLayersRepo = getLayersCompat;
 
 // ===== DEPENDENCY INJECTION =====
 

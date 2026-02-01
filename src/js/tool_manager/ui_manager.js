@@ -1,41 +1,30 @@
 // Path: js/tool_manager/ui_manager.js
 
 /**
- * @fileoverview UI manager for feature selection, attribute panels, and profile display.
- * Handles selection highlighting, attribute editing panels, and profile charts.
+ * @fileoverview UI manager facade coordinating selection, panels, and profiles.
+ * Delegates to specialized managers for specific functionality.
+ *
+ * Refactored to use composition pattern with specialized managers:
+ * - SelectionHighlightManager: Selection box rendering and caching
+ * - ProfilePanelManager: Terrain profile charts with Chart.js
+ *
+ * @module tool_manager/ui_manager
  */
 
-import {
-    Chart,
-    LineController,
-    LineElement,
-    PointElement,
-    CategoryScale,
-    LinearScale,
-    Filler,
-    Tooltip,
-    Legend
-} from 'chart.js';
+import { SelectionHighlightManager, ProfilePanelManager } from './managers';
 import { cleanupFeatureDropdownListeners } from './helpers';
 import { getStateManager, getEventBus } from '../store';
 import { injectTabbedPanelStyles } from './tabbed_attribute_panel.js';
 import { EventTypes } from '../events/event_types.js';
+import { pixelsToDegrees } from '../utilities/geometry-utils.js';
 
-// Register Chart.js components (tree-shaking)
-Chart.register(
-    LineController,
-    LineElement,
-    PointElement,
-    CategoryScale,
-    LinearScale,
-    Filler,
-    Tooltip,
-    Legend
-);
+// ============================================================================
+// UI MANAGER CLASS
+// ============================================================================
 
 class UIManager {
     /**
-     * @param {Object} map - MapLibre map instance
+     * @param {maplibregl.Map} map - MapLibre map instance
      * @param {Object} selectionManager - Selection manager instance
      * @param {Object} toolManager - Tool manager instance
      */
@@ -43,30 +32,37 @@ class UIManager {
         this.map = map;
         this.selectionManager = selectionManager;
         this.toolManager = toolManager;
+
+        // Specialized managers (composition pattern)
+        this._selectionHighlight = new SelectionHighlightManager(map, selectionManager);
+        this._profilePanel = new ProfilePanelManager(selectionManager);
+
+        // External control references
         this.featureSearchControl = null;
-
-        this.selectionBoxes = [];
-
-        // Cache for selection box calculations (performance optimization)
-        this.selectionBoxCache = new Map();
-        this.geometryHashes = new Map();
-        this.rafId = null;
-
-        this.activeChart = null;
+        this.mouseCoordinatesControl = null;
 
         /** @type {Array<Function>} Cleanup functions for subscriptions */
         this._unsubscribers = [];
 
         this._initSubscriptions();
-        this.map.on('zoom', this._handleZoomChange);
-
-        // Injetar estilos do TabbedPanel uma vez
         injectTabbedPanelStyles();
     }
 
-    // =========================================================================
+    // ========================================================================
+    // STATIC PROPERTIES (for backward compatibility)
+    // ========================================================================
+
+    /**
+     * Slope threshold for cavalry mobility alerts.
+     * @type {number}
+     */
+    static get SLOPE_THRESHOLD() {
+        return ProfilePanelManager.SLOPE_THRESHOLD;
+    }
+
+    // ========================================================================
     // STATE MANAGER INTEGRATION
-    // =========================================================================
+    // ========================================================================
 
     /**
      * Initialize StateManager subscriptions.
@@ -80,9 +76,7 @@ class UIManager {
             // Panel updates are handled explicitly by SelectionManager.updateUI()
             // to avoid unnecessary panel recreation during property edits.
             this._unsubscribers.push(
-                stateManager.subscribe('selection.features', (_features) => {
-                    // Only update selection highlight (boxes), not panels
-                    // Panels are managed explicitly to avoid flicker during edits
+                stateManager.subscribe('selection.features', () => {
                     this.updateSelectionHighlight();
                 })
             );
@@ -115,80 +109,25 @@ class UIManager {
         }
     }
 
-    // =========================================================================
-    // ZOOM HANDLING
-    // =========================================================================
+    // ========================================================================
+    // DELEGATION TO SELECTION HIGHLIGHT MANAGER
+    // ========================================================================
 
     /**
-     * Handle map zoom changes with debouncing.
-     * @private
+     * Update selection highlight (selection boxes).
      */
-    _handleZoomChange = () => {
-        if (this.rafId) {
-            cancelAnimationFrame(this.rafId);
-        }
-
-        this.rafId = requestAnimationFrame(() => {
-            if (this.selectionManager.hasSelectedFeatures()) {
-                this.updateSelectionHighlight();
-            }
-            this.rafId = null;
-        });
-    }
-
-    // =========================================================================
-    // CACHE MANAGEMENT
-    // =========================================================================
-
-    /**
-     * Get cache key for feature at current zoom level.
-     * @param {string} featureId
-     * @returns {string}
-     */
-    getCacheKey(featureId) {
-        const zoom = this.map.getZoom();
-        const zoomLevel = Math.round(zoom * 2) / 2;
-        return `${featureId}-${zoomLevel}`;
-    }
-
-    setFeatureSearchControl(featureSearchControl) {
-        this.featureSearchControl = featureSearchControl;
-    }
-
-    setMouseCoordinatesControl(mouseCoordinatesControl) {
-        this.mouseCoordinatesControl = mouseCoordinatesControl;
+    updateSelectionHighlight = () => {
+        this._selectionHighlight.updateSelectionHighlight();
     }
 
     /**
-     * Calculate geometry hash for cache invalidation.
-     * @param {Object} feature - GeoJSON feature
-     * @returns {string}
+     * Shift selection boxes during drag.
+     * @param {number} dx - Delta longitude
+     * @param {number} dy - Delta latitude
+     * @param {boolean} [save=false] - Whether to persist
      */
-    calculateGeometryHash(feature) {
-        const coords = JSON.stringify(feature.geometry.coordinates);
-        const props = JSON.stringify({
-            center: feature.properties.center,
-            radius: feature.properties.radius,
-            majorRadius: feature.properties.majorRadius,
-            minorRadius: feature.properties.minorRadius,
-            bearing: feature.properties.bearing,
-            text: feature.properties.text,
-            size: feature.properties.size,
-            rotation: feature.properties.rotation,
-            width: feature.properties.width,
-            height: feature.properties.height,
-            anchor: feature.properties.anchor,
-            selectionBox: feature.properties.selectionBox ? JSON.stringify(feature.properties.selectionBox) : null
-        });
-
-        let hash = 0;
-        const str = coords + props;
-        for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash;
-        }
-        return hash.toString();
+    shiftSelectionBoxes(dx, dy, save = false) {
+        this._selectionHighlight.shiftSelectionBoxes(dx, dy, save);
     }
 
     /**
@@ -196,233 +135,153 @@ class UIManager {
      * @param {string} featureId
      */
     invalidateCache(featureId) {
-        if (featureId) {
-            const keysToDelete = [];
-            for (const key of this.selectionBoxCache.keys()) {
-                if (key.startsWith(`${featureId}-`)) {
-                    keysToDelete.push(key);
-                }
-            }
-            keysToDelete.forEach(key => this.selectionBoxCache.delete(key));
-            this.geometryHashes.delete(featureId);
-        }
+        this._selectionHighlight.invalidateCache(featureId);
     }
 
     /**
      * Invalidate entire selection box cache.
      */
     invalidateAllCache() {
-        this.selectionBoxCache.clear();
-        this.geometryHashes.clear();
+        this._selectionHighlight.invalidateAllCache();
     }
 
     /**
-     * Notify geometry change (for cache invalidation).
+     * Notify geometry change for cache invalidation.
      * @param {string} featureId
      */
     notifyGeometryChange(featureId) {
-        this.invalidateCache(featureId);
-    }
-
-    // =========================================================================
-    // TOOL-CENTRIC SELECTION HIGHLIGHTING
-    // =========================================================================
-
-    /**
-     * Main selection highlight update using tool-centric approach.
-     */
-    updateSelectionHighlight = () => {
-        if (this.isDragging) return;
-
-        const selectionBoxesSource = this.map.getSource('selection-boxes');
-        if (!selectionBoxesSource) return;
-
-        const featuresByType = this.groupSelectedFeaturesByType();
-        const allSelectionBoxes = [];
-
-        for (const [type, features] of featuresByType.entries()) {
-            const selectionBoxes = this.createSelectionBoxesForTypeToolCentric(type, features);
-            allSelectionBoxes.push(...selectionBoxes);
-        }
-
-        this.selectionBoxes = allSelectionBoxes;
-        selectionBoxesSource.setData({
-            type: 'FeatureCollection',
-            features: allSelectionBoxes
-        });
-    }
-
-    /**
-     * Group selected features by type for efficient processing.
-     * Uses StateManager as source of truth.
-     * @returns {Map<string, Array<Object>>}
-     */
-    groupSelectedFeaturesByType() {
-        const featuresByType = new Map();
-
-        try {
-            const selectedFeatures = getStateManager().getSelectedFeatures();
-
-            for (const item of selectedFeatures) {
-                if (!featuresByType.has(item.type)) {
-                    featuresByType.set(item.type, []);
-                }
-                featuresByType.get(item.type).push(item.feature);
-            }
-        } catch (_e) {
-            // StateManager not available - return empty map
-        }
-
-        return featuresByType;
-    }
-
-    /**
-     * Create selection boxes for features of a specific type using tool-centric approach.
-     * @param {string} type - Feature type
-     * @param {Array<Object>} features - GeoJSON features
-     * @returns {Array<Object>}
-     */
-    createSelectionBoxesForTypeToolCentric(type, features) {
-        if (features.length === 0) return [];
-
-        const control = this.selectionManager.controls.get(type);
-
-        if (!this.supportsToolCentricSelectionBoxes(control)) {
-            console.warn(`Tool ${type} does not implement tool-centric selection box interface`);
-            return [];
-        }
-
-        return this.createSelectionBoxesToolCentric(features, control);
-    }
-
-    /**
-     * Check if control supports tool-centric selection box interface.
-     * @param {Object} control
-     * @returns {boolean}
-     */
-    supportsToolCentricSelectionBoxes(control) {
-        return control &&
-            typeof control.createSelectionBox === 'function' &&
-            typeof control.getSelectionBoxStrategy === 'function';
-    }
-
-    /**
-     * Create selection boxes using tool-centric approach with caching.
-     * @param {Array<Object>} features
-     * @param {Object} control
-     * @returns {Array<Object>}
-     */
-    createSelectionBoxesToolCentric(features, control) {
-        const selectionBoxes = [];
-
-        for (const feature of features) {
-            try {
-                const featureId = feature.properties.id;
-                const currentHash = this.calculateGeometryHash(feature);
-                const cacheKey = this.getCacheKey(featureId);
-                const cached = this.selectionBoxCache.get(cacheKey);
-
-                let selectionBox;
-
-                if (cached && cached.geometryHash === currentHash) {
-                    selectionBox = cached.selectionBox;
-                } else {
-                    const boxGeometry = control.createSelectionBox(feature);
-
-                    if (boxGeometry) {
-                        selectionBox = {
-                            type: 'Feature',
-                            geometry: boxGeometry.geometry || boxGeometry,
-                            properties: {
-                                type: 'selection-box',
-                                source: feature.properties.source,
-                                featureId: featureId
-                            }
-                        };
-
-                        this.selectionBoxCache.set(cacheKey, {
-                            geometryHash: currentHash,
-                            selectionBox: selectionBox
-                        });
-                        this.geometryHashes.set(featureId, currentHash);
-                    }
-                }
-
-                if (selectionBox) {
-                    selectionBoxes.push(selectionBox);
-                }
-            } catch (error) {
-                console.warn(`Error creating tool-centric selection box for ${feature.properties.source}:`, error);
-            }
-        }
-
-        return selectionBoxes;
+        this._selectionHighlight.notifyGeometryChange(featureId);
     }
 
     /**
      * Expand bounding box with padding in pixels.
-     * @param {Array<number>} bbox - [minX, minY, maxX, maxY]
+     * @param {Array<number>} bbox
      * @param {number} paddingPixels
      * @returns {Array<number>}
      */
     expandBboxWithPadding(bbox, paddingPixels) {
-        const centerLat = (bbox[1] + bbox[3]) / 2;
-        const mapCenter = this.map.getCenter();
-        const latitude = isNaN(centerLat) ? mapCenter.lat : centerLat;
-
-        const zoom = this.map.getZoom();
-        const paddingDegrees = this.pixelsToDegrees(paddingPixels, latitude, zoom);
-
-        return [
-            bbox[0] - paddingDegrees,
-            bbox[1] - paddingDegrees,
-            bbox[2] + paddingDegrees,
-            bbox[3] + paddingDegrees
-        ];
+        return this._selectionHighlight.expandBboxWithPadding(bbox, paddingPixels);
     }
 
-    // =========================================================================
-    // ATTRIBUTE PANEL MANAGEMENT
-    // =========================================================================
+    /**
+     * Calculate expanded dimensions after rotation.
+     * @param {number} originalWidth
+     * @param {number} originalHeight
+     * @param {number} rotationDegrees
+     * @returns {{width: number, height: number}}
+     */
+    calculateExpandedDimensions(originalWidth, originalHeight, rotationDegrees) {
+        return this._selectionHighlight.calculateExpandedDimensions(originalWidth, originalHeight, rotationDegrees);
+    }
+
+    /**
+     * Create selection box polygon.
+     * @param {Array<number>} coordinates
+     * @param {number} width
+     * @param {number} height
+     * @param {number} rotation
+     * @returns {Object}
+     */
+    createSelectionBox(coordinates, width, height, rotation) {
+        return this._selectionHighlight.createSelectionBox(coordinates, width, height, rotation);
+    }
+
+    /**
+     * Calculate buffer around feature.
+     * @param {Object} feature
+     * @param {number} bufferSize
+     * @returns {Object}
+     */
+    calculateBuffer(feature, bufferSize) {
+        return this._selectionHighlight.calculateBuffer(feature, bufferSize);
+    }
+
+    /**
+     * Get current selection boxes.
+     * @returns {Array<Object>}
+     */
+    get selectionBoxes() {
+        return this._selectionHighlight.selectionBoxes;
+    }
+
+    /**
+     * Convert pixels to degrees at a given latitude and zoom level.
+     * Used for calculating geographic dimensions from pixel measurements.
+     * @param {number} pixels - Pixel measurement to convert
+     * @param {number} latitude - Latitude where conversion is calculated
+     * @param {number} zoom - Map zoom level
+     * @returns {number} Equivalent measurement in degrees
+     */
+    pixelsToDegrees(pixels, latitude, zoom) {
+        return pixelsToDegrees(pixels, latitude, zoom);
+    }
+
+    // ========================================================================
+    // DELEGATION TO PROFILE PANEL MANAGER
+    // ========================================================================
+
+    /**
+     * Show profile panel for selected features.
+     * @param {Array<Object>} selectedFeatures
+     */
+    showProfilePanel(selectedFeatures) {
+        this._profilePanel.showProfilePanel(selectedFeatures);
+    }
+
+    /**
+     * Hide profile panel.
+     */
+    hideProfilePanel() {
+        this._profilePanel.hideProfilePanel();
+    }
+
+    /**
+     * Create profile panel with chart.
+     * @param {string} profileData
+     * @param {boolean} [linkFirstLast=false]
+     * @param {Object} [feature=null]
+     */
+    createProfilePanel(profileData, linkFirstLast = false, feature = null) {
+        this._profilePanel.createProfilePanel(profileData, linkFirstLast, feature);
+    }
+
+    // ========================================================================
+    // SETTERS
+    // ========================================================================
+
+    /**
+     * Set feature search control reference.
+     * @param {Object} control
+     */
+    setFeatureSearchControl(control) {
+        this.featureSearchControl = control;
+    }
+
+    /**
+     * Set mouse coordinates control reference.
+     * @param {Object} control
+     */
+    setMouseCoordinatesControl(control) {
+        this.mouseCoordinatesControl = control;
+    }
+
+    // ========================================================================
+    // PANEL COORDINATION
+    // ========================================================================
 
     /**
      * Update attribute and profile panels based on selection.
-     * Now delegates to sidebar feature panel via StateManager.
+     * Delegates to sidebar feature panel via StateManager.
      */
     updatePanels = () => {
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
 
         if (allSelectedFeatures.length > 0) {
-            // Remove any legacy floating panel
             this.removeExistingPanel();
-
-            // Show profile panel if needed
             this.showProfilePanel(allSelectedFeatures);
-
-            // Notify StateManager to show feature panel in sidebar
             this._notifyFeaturePanelOpened(allSelectedFeatures[0]);
         } else {
             this.saveChangesAndClosePanel();
-        }
-    }
-
-    /**
-     * Notify StateManager that a feature panel should be opened.
-     * The sidebar will handle rendering the feature attributes.
-     * @private
-     * @param {Object} feature - The selected feature
-     */
-    _notifyFeaturePanelOpened(feature) {
-        try {
-            const stateManager = getStateManager();
-            const featureId = feature?.properties?.id;
-            const featureType = feature?.properties?.source;
-
-            if (featureId && featureType) {
-                stateManager.openFeaturePanel(featureId, featureType);
-            }
-        } catch (_e) {
-            // StateManager not available - UI will work without layout coordination
         }
     }
 
@@ -441,16 +300,13 @@ class UIManager {
 
     /**
      * Remove existing legacy floating panel and cleanup resources.
-     * @private
      */
     removeExistingPanel() {
         const existingPanel = document.querySelector('.unified-attributes-panel');
         if (existingPanel) {
-            // Cleanup do TabbedPanel
             if (existingPanel._tabbedPanelCleanup) {
                 existingPanel._tabbedPanelCleanup();
             }
-            // Cleanup legado (manter para compatibilidade)
             if (existingPanel._userDataCleanup) {
                 existingPanel._userDataCleanup();
             }
@@ -471,624 +327,37 @@ class UIManager {
         panel.appendChild(deleteButton);
     }
 
-    // =========================================================================
-    // DRAG OPERATIONS
-    // =========================================================================
-
     /**
-     * Shift selection boxes by delta (for visual feedback during drag).
-     * @param {number} dx - Delta longitude
-     * @param {number} dy - Delta latitude
-     * @param {boolean} [save=false] - Whether to persist the change
+     * Save changes and close all panels.
      */
-    shiftSelectionBoxes(dx, dy, save = false) {
-        const shiftedFeatures = this.selectionBoxes.map(feature => {
-            return this.translateFeature(feature, dx, dy);
-        });
-
-        const selectionBoxesSource = this.map.getSource('selection-boxes');
-        if (selectionBoxesSource) {
-            selectionBoxesSource.setData({
-                type: 'FeatureCollection',
-                features: shiftedFeatures
-            });
-        }
-
-        if (save) {
-            this.selectionBoxes = shiftedFeatures;
-        }
-    }
-
-    /**
-     * Translate feature geometry by delta.
-     * @param {Object} feature - GeoJSON feature
-     * @param {number} dx - Delta X
-     * @param {number} dy - Delta Y
-     * @returns {Object} Translated feature
-     */
-    translateFeature(feature, dx, dy) {
-        const translatedFeature = JSON.parse(JSON.stringify(feature));
-
-        const translateCoords = (coords) => {
-            if (typeof coords[0] === 'number') {
-                return [coords[0] + dx, coords[1] + dy];
-            }
-            return coords.map(translateCoords);
-        };
-
-        const { type, coordinates } = feature.geometry;
-
-        switch (type) {
-            case 'Point':
-                translatedFeature.geometry.coordinates = translateCoords(coordinates);
-                break;
-            case 'LineString':
-                translatedFeature.geometry.coordinates = coordinates.map(translateCoords);
-                break;
-            case 'Polygon':
-                translatedFeature.geometry.coordinates = coordinates.map(ring => ring.map(translateCoords));
-                break;
-            case 'MultiLineString':
-                translatedFeature.geometry.coordinates = coordinates.map(line => line.map(translateCoords));
-                break;
-            case 'MultiPolygon':
-                translatedFeature.geometry.coordinates = coordinates.map(polygon => polygon.map(ring => ring.map(translateCoords)));
-                break;
-            default:
-                throw new Error(`Unsupported geometry type: ${type}`);
-        }
-
-        return translatedFeature;
-    }
-
-    // =========================================================================
-    // UTILITY METHODS
-    // =========================================================================
-
-    /**
-     * Calculate expanded dimensions after rotation.
-     * @param {number} originalWidth
-     * @param {number} originalHeight
-     * @param {number} rotationDegrees
-     * @returns {{width: number, height: number}}
-     */
-    calculateExpandedDimensions(originalWidth, originalHeight, rotationDegrees) {
-        if (rotationDegrees === 0) {
-            return { width: originalWidth, height: originalHeight };
-        }
-
-        const radians = rotationDegrees * (Math.PI / 180);
-
-        const corners = [
-            { x: -originalWidth / 2, y: -originalHeight / 2 },
-            { x: originalWidth / 2, y: -originalHeight / 2 },
-            { x: originalWidth / 2, y: originalHeight / 2 },
-            { x: -originalWidth / 2, y: originalHeight / 2 }
-        ];
-
-        const rotatedCorners = corners.map(corner => ({
-            x: corner.x * Math.cos(radians) - corner.y * Math.sin(radians),
-            y: corner.x * Math.sin(radians) + corner.y * Math.cos(radians)
-        }));
-
-        const minX = Math.min(...rotatedCorners.map(c => c.x));
-        const maxX = Math.max(...rotatedCorners.map(c => c.x));
-        const minY = Math.min(...rotatedCorners.map(c => c.y));
-        const maxY = Math.max(...rotatedCorners.map(c => c.y));
-
-        return {
-            width: maxX - minX,
-            height: maxY - minY
-        };
-    }
-
-    /**
-     * Convert pixels to degrees at given latitude and zoom.
-     * @param {number} pixels
-     * @param {number} latitude
-     * @param {number} zoom
-     * @returns {number}
-     */
-    pixelsToDegrees = (pixels, latitude, zoom) => {
-        const earthCircumference = 40075017;
-        const metersPerPixel = earthCircumference * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom + 8);
-        const degreesPerMeter = 360 / earthCircumference;
-        return pixels * metersPerPixel * degreesPerMeter;
-    }
-
-    /**
-     * Calculate buffer around feature.
-     * @param {Object} feature - GeoJSON feature
-     * @param {number} bufferSize
-     * @returns {Object}
-     */
-    calculateBuffer = (feature, bufferSize) => {
-        return turf.buffer(feature, bufferSize, { units: 'degrees' });
-    }
-
-    /**
-     * Create selection box polygon.
-     * @param {Array<number>} coordinates - [lng, lat]
-     * @param {number} width
-     * @param {number} height
-     * @param {number} rotation
-     * @returns {Object} GeoJSON Polygon geometry
-     */
-    createSelectionBox = (coordinates, width, height, rotation) => {
-        const radians = rotation * (Math.PI / 180);
-        const point = this.map.project(coordinates);
-        const points = [
-            [-width / 2, -height / 2],
-            [width / 2, -height / 2],
-            [width / 2, height / 2],
-            [-width / 2, height / 2]
-        ];
-
-        const rotatedPoints = points.map(([x, y]) => {
-            const nx = x * Math.cos(radians) - y * Math.sin(radians);
-            const ny = x * Math.sin(radians) + y * Math.cos(radians);
-            return this.map.unproject([point.x + nx, point.y + ny]);
-        });
-
-        return {
-            type: 'Polygon',
-            coordinates: [[
-                ...rotatedPoints.map(p => [p.lng, p.lat]),
-                [rotatedPoints[0].lng, rotatedPoints[0].lat]
-            ]]
-        };
-    }
-
-    // =========================================================================
-    // PROFILE PANEL
-    // =========================================================================
-
-    /**
-     * Show profile panel for selected features.
-     * @param {Array<Object>} selectedFeatures
-     */
-    showProfilePanel(selectedFeatures) {
-        if (selectedFeatures.length !== 1) {
-            this.hideProfilePanel();
-            return;
-        }
-
-        const feature = selectedFeatures[0];
-
-        if (!('properties' in feature) || !('geometry' in feature)) {
-            this.hideProfilePanel();
-            return;
-        }
-
-        const { source } = feature.properties;
-        const isLineFeature = feature.geometry.type === 'LineString';
-        const hasProfileData = feature.properties.profileData && feature.properties.profile;
-
-        if (source === 'los' && hasProfileData) {
-            this.createProfilePanel(feature.properties.profileData, true, feature);
-        } else if (source === 'line' && isLineFeature && hasProfileData) {
-            this.createProfilePanel(feature.properties.profileData, false, feature);
-        } else {
-            this.hideProfilePanel();
-        }
-    }
-
-    /**
-     * Default slope threshold for cavalry mobility alerts (in percentage)
-     * Configurable threshold for when slope is considered critical
-     */
-    static SLOPE_THRESHOLD = 30;
-
-    /**
-     * Check if profile data has valid (non-zero) elevation values.
-     * @param {Array} profileData - Array of profile data points
-     * @returns {boolean} True if all elevations are zero or null
-     * @private
-     */
-    _isProfileDataEmpty(profileData) {
-        if (!profileData || profileData.length === 0) return true;
-        return profileData.every(d => d.elevation === 0 || d.elevation == null);
-    }
-
-    /**
-     * Create elevation profile panel with chart including slope percentage.
-     * @param {string} profileData - JSON string of profile data
-     * @param {boolean} [linkFirstLast=false] - Whether to show line of sight
-     * @param {Object} [feature=null] - The feature for coordinate display
-     */
-    createProfilePanel(profileData, linkFirstLast = false, _feature = null) {
-        let panel = document.querySelector('.profile-panel');
-        if (!panel) {
-            panel = document.createElement('div');
-            panel.className = 'profile-panel';
-            document.body.appendChild(panel);
-        }
-
-        if (this.activeChart) {
-            try {
-                this.activeChart.destroy();
-            } catch (error) {
-                console.warn('Error destroying previous chart:', error);
-            }
-            this.activeChart = null;
-        }
-
-        panel.innerHTML = '';
-
-        // Header with title and action buttons
-        const header = document.createElement('div');
-        header.className = 'profile-panel-header';
-
-        const title = document.createElement('h3');
-        title.textContent = linkFirstLast ? 'Linha de Visada' : 'Perfil do Terreno';
-        header.appendChild(title);
-
-        const buttonGroup = document.createElement('div');
-        buttonGroup.className = 'profile-panel-buttons';
-
-        // Save button
-        const saveButton = document.createElement('button');
-        saveButton.className = 'profile-save-button';
-        saveButton.title = 'Salvar como imagem';
-        saveButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
-        saveButton.addEventListener('click', () => this._saveChartAsImage(linkFirstLast));
-        buttonGroup.appendChild(saveButton);
-
-        // Close button
-        const closeButton = document.createElement('button');
-        closeButton.className = 'close-button';
-        closeButton.title = 'Fechar';
-        closeButton.innerHTML = '×';
-        closeButton.addEventListener('click', () => this._closeProfileAndUpdateFeature());
-        buttonGroup.appendChild(closeButton);
-
-        header.appendChild(buttonGroup);
-        panel.appendChild(header);
-
-        const profileDataParsed = JSON.parse(profileData);
-
-        // Check if profile data is empty (all zeros) - terrain not enabled
-        if (this._isProfileDataEmpty(profileDataParsed)) {
-            const emptyMessage = document.createElement('div');
-            emptyMessage.className = 'profile-empty-message';
-            emptyMessage.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
-                <p>Dados de elevação não disponíveis</p>
-                <span>Habilite o terreno 3D para visualizar o perfil de elevação</span>
-            `;
-            panel.appendChild(emptyMessage);
-            return;
-        }
-        const labels = profileDataParsed.map(d => d.distance.toFixed(0));
-        const elevation = profileDataParsed.map(d => d.elevation);
-        const slopes = profileDataParsed.map(d => d.slope ?? 0);
-
-        // Check for critical slopes and calculate max slope
-        const maxSlope = Math.max(...slopes.map(s => Math.abs(s)));
-        const isCriticalSlope = maxSlope > UIManager.SLOPE_THRESHOLD;
-
-        // Determine color based on slope value
-        const getSlopeAlertColor = (slope) => {
-            if (slope > UIManager.SLOPE_THRESHOLD) return 'red';
-            if (slope > UIManager.SLOPE_THRESHOLD * 0.6) return 'yellow';
-            return 'green';
-        };
-        const slopeColor = getSlopeAlertColor(maxSlope);
-
-        // Always show max slope info with color coding
-        const slopeInfoDiv = document.createElement('div');
-        slopeInfoDiv.className = `profile-slope-info ${slopeColor}`;
-        slopeInfoDiv.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                ${isCriticalSlope ?
-                    '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' :
-                    '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'
-                }
-            </svg>
-            <span>Inclinação máxima: ${maxSlope.toFixed(1)}%</span>
-        `;
-        panel.appendChild(slopeInfoDiv);
-
-        // Toggle for slope visibility (starts OFF)
-        const toggleContainer = document.createElement('div');
-        toggleContainer.className = 'profile-slope-toggle';
-        toggleContainer.innerHTML = `
-            <label class="profile-toggle-label">
-                <input type="checkbox" id="slopeToggle">
-                <span class="profile-toggle-text">Mostrar inclinação</span>
-            </label>
-        `;
-        panel.appendChild(toggleContainer);
-
-        // Chart container for proper sizing
-        const chartContainer = document.createElement('div');
-        chartContainer.className = 'profile-chart-container';
-        panel.appendChild(chartContainer);
-
-        const canvas = document.createElement('canvas');
-        canvas.id = 'profileChart';
-        chartContainer.appendChild(canvas);
-
-        // Color function for slope segments based on threshold
-        const getSlopeColor = (slope) => {
-            const absSlope = Math.abs(slope);
-            if (absSlope > UIManager.SLOPE_THRESHOLD) {
-                return 'rgba(255, 82, 82, 0.8)'; // Critical - red
-            } else if (absSlope > UIManager.SLOPE_THRESHOLD * 0.6) {
-                return 'rgba(255, 193, 7, 0.8)'; // Warning - yellow
-            }
-            return 'rgba(102, 187, 106, 0.8)'; // Normal - green
-        };
-
-        // Slope dataset definition (will be added/removed based on toggle)
-        const slopeDataset = {
-            label: 'Inclinação (%)',
-            data: slopes,
-            borderColor: 'rgba(156, 39, 176, 0.8)',
-            backgroundColor: slopes.map(s => getSlopeColor(s)),
-            fill: false,
-            tension: 0.1,
-            pointRadius: 4,
-            pointHoverRadius: 7,
-            pointBackgroundColor: slopes.map(s => getSlopeColor(s)),
-            pointBorderColor: slopes.map(s => getSlopeColor(s)),
-            yAxisID: 'y1',
-            segment: {
-                borderColor: ctx => {
-                    const slope = slopes[ctx.p1DataIndex];
-                    return getSlopeColor(slope);
-                }
-            }
-        };
-
-        const datasets = [
-            {
-                label: 'Elevação',
-                data: elevation,
-                borderColor: 'rgb(75, 192, 192)',
-                backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                fill: true,
-                tension: 0.1,
-                pointRadius: 3,
-                pointHoverRadius: 6,
-                yAxisID: 'y'
-            }
-            // Slope dataset is NOT added by default (starts OFF)
-        ];
-
-        if (linkFirstLast) {
-            const firstElevation = elevation[0];
-            const lastElevation = elevation[elevation.length - 1];
-            const firstDistance = parseFloat(labels[0]);
-            const lastDistance = parseFloat(labels[labels.length - 1]);
-
-            const slopeLine = (lastElevation - firstElevation) / (lastDistance - firstDistance);
-            let intersectionIndex = -1;
-
-            const lineElevations = labels.map((distance, i) => {
-                const dist = parseFloat(distance);
-                const lineElevation = slopeLine * (dist - firstDistance) + firstElevation;
-
-                if (i !== 0 && i !== labels.length - 1 && intersectionIndex === -1 && elevation[i] >= lineElevation) {
-                    intersectionIndex = i;
-                }
-
-                return lineElevation;
-            });
-
-            datasets.push({
-                label: 'Linha de visada',
-                data: lineElevations,
-                fill: false,
-                tension: 0.1,
-                pointRadius: 0,
-                yAxisID: 'y',
-                segment: {
-                    borderColor: ctx => ctx.p0DataIndex < intersectionIndex || intersectionIndex === -1 ? 'rgb(0, 255, 0)' : 'rgb(255, 0, 0)'
-                }
-            });
-        }
-
-        this.activeChart = new Chart(canvas, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: datasets
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    intersect: false,
-                    mode: 'index'
-                },
-                plugins: {
-                    tooltip: {
-                        enabled: true,
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        titleFont: { size: 12 },
-                        bodyFont: { size: 11 },
-                        padding: 10,
-                        cornerRadius: 4,
-                        callbacks: {
-                            title: (context) => `Distância: ${context[0].label} m`,
-                            label: (context) => {
-                                const value = context.parsed.y;
-                                const datasetLabel = context.dataset.label;
-                                if (datasetLabel === 'Inclinação (%)') {
-                                    const absValue = Math.abs(value);
-                                    const direction = value >= 0 ? 'subida' : 'descida';
-                                    const warning = absValue > UIManager.SLOPE_THRESHOLD ? ' ⚠️' : '';
-                                    return `${datasetLabel}: ${value.toFixed(1)}% (${direction})${warning}`;
-                                }
-                                return `${datasetLabel}: ${value.toFixed(1)} m`;
-                            }
-                        }
-                    },
-                    legend: {
-                        display: true,
-                        position: 'bottom',
-                        labels: {
-                            boxWidth: 12,
-                            padding: 8,
-                            font: { size: 11 }
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Distância (m)',
-                            font: { size: 11 }
-                        },
-                        ticks: { font: { size: 10 } }
-                    },
-                    y: {
-                        type: 'linear',
-                        position: 'left',
-                        title: {
-                            display: true,
-                            text: 'Altitude (m)',
-                            font: { size: 11 }
-                        },
-                        ticks: { font: { size: 10 } }
-                    },
-                    y1: {
-                        type: 'linear',
-                        position: 'right',
-                        display: false, // Hidden by default
-                        title: {
-                            display: true,
-                            text: 'Inclinação (%)',
-                            font: { size: 11 },
-                            color: 'rgba(156, 39, 176, 0.8)'
-                        },
-                        ticks: {
-                            font: { size: 10 },
-                            color: 'rgba(156, 39, 176, 0.8)'
-                        },
-                        grid: {
-                            drawOnChartArea: false
-                        }
-                    }
-                }
-            }
-        });
-
-        // Toggle event listener for slope visibility
-        const slopeToggle = document.getElementById('slopeToggle');
-        if (slopeToggle) {
-            slopeToggle.addEventListener('change', (e) => {
-                if (!this.activeChart) return;
-
-                if (e.target.checked) {
-                    // Add slope dataset
-                    this.activeChart.data.datasets.push(slopeDataset);
-                    this.activeChart.options.scales.y1.display = true;
-                } else {
-                    // Remove slope dataset
-                    const slopeIndex = this.activeChart.data.datasets.findIndex(d => d.label === 'Inclinação (%)');
-                    if (slopeIndex !== -1) {
-                        this.activeChart.data.datasets.splice(slopeIndex, 1);
-                    }
-                    this.activeChart.options.scales.y1.display = false;
-                }
-                this.activeChart.update();
-            });
-        }
-    }
-
-    /**
-     * Save chart as PNG image with white background.
-     * @param {boolean} isLOS - Whether this is a line of sight profile
-     * @private
-     */
-    _saveChartAsImage(isLOS) {
-        if (!this.activeChart) return;
-
-        const canvas = this.activeChart.canvas;
-        const _ctx = canvas.getContext('2d');
-
-        // Create a new canvas with white background
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
-        const tempCtx = tempCanvas.getContext('2d');
-
-        // Fill with white background
-        tempCtx.fillStyle = '#ffffff';
-        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-
-        // Draw the chart on top
-        tempCtx.drawImage(canvas, 0, 0);
-
-        const link = document.createElement('a');
-        link.download = isLOS ? 'linha-de-visada.png' : 'perfil-terreno.png';
-        link.href = tempCanvas.toDataURL('image/png', 1);
-        link.click();
-    }
-
-    /**
-     * Close profile panel and update the feature's profile property to false.
-     * @private
-     */
-    _closeProfileAndUpdateFeature() {
-        const selectedFeatures = this.selectionManager.getAllSelectedFeatures();
-
-        if (selectedFeatures.length === 1) {
-            const feature = selectedFeatures[0];
-            const { source } = feature.properties;
-
-            // Get the appropriate control from selectionManager and update the property
-            const control = this.selectionManager.controls.get(source);
-            if (control && typeof control.updateFeaturesProperty === 'function') {
-                control.updateFeaturesProperty(selectedFeatures, 'profile', false);
-            }
-
-            // Update the toggle in the attribute panel directly
-            const profileToggle = document.getElementById('profile-toggle');
-            if (profileToggle && profileToggle.setChecked) {
-                profileToggle.setChecked(false);
-            }
-        }
-
+    saveChangesAndClosePanel = () => {
+        this.hideFeatureSearchPanel();
         this.hideProfilePanel();
-    }
 
-    /**
-     * Hide profile panel.
-     */
-    hideProfilePanel() {
-        if (this.activeChart) {
-            try {
-                this.activeChart.destroy();
-            } catch (error) {
-                console.warn('Error destroying chart:', error);
+        // Handle legacy floating panel if it exists
+        const panel = document.querySelector('.unified-attributes-panel');
+        if (panel) {
+            const saveButton = panel.querySelector('button[type="submit"]');
+            if (saveButton) {
+                saveButton.click();
             }
-            this.activeChart = null;
+            panel.remove();
+            cleanupFeatureDropdownListeners();
         }
 
-        const panel = document.querySelector('.profile-panel');
-        if (panel) {
-            panel.remove();
+        // Handle sidebar feature panel - save before closing
+        const sidebarSaveButton = document.querySelector('.feature-panel .attr-modern-btn-save');
+        if (sidebarSaveButton) {
+            sidebarSaveButton.click();
         }
+
+        // Always notify StateManager to close feature panel in sidebar
+        this._notifyFeaturePanelClosed();
     }
 
-    /**
-     * Hide feature search panel.
-     */
-    hideFeatureSearchPanel() {
-        const panel = document.querySelector('.feature-search-panel');
-        if (panel) {
-            panel.remove();
-            this.featureSearchControl?.removeMarker();
-        }
-    }
+    // ========================================================================
+    // FEATURE SEARCH PANEL
+    // ========================================================================
 
     /**
      * Show feature search result panel.
@@ -1129,6 +398,21 @@ class UIManager {
     }
 
     /**
+     * Hide feature search panel.
+     */
+    hideFeatureSearchPanel() {
+        const panel = document.querySelector('.feature-search-panel');
+        if (panel) {
+            panel.remove();
+            this.featureSearchControl?.removeMarker();
+        }
+    }
+
+    // ========================================================================
+    // VECTOR TILE INFO PANEL
+    // ========================================================================
+
+    /**
      * Show vector tile info panel.
      * Emits event for sidebar to handle display.
      * @param {Object} feature
@@ -1136,21 +420,8 @@ class UIManager {
     showVectorTileInfoPanel(feature) {
         this.saveChangesAndClosePanel();
 
-        // Get the display title
-        const originalLayerName = feature.sourceLayer;
-        let sourceName;
+        const sourceName = this._getVectorTileTitle(feature);
 
-        if (originalLayerName.startsWith('situacao')) {
-            sourceName = originalLayerName
-                .replace('situacao', 'produtos')
-                .replace(/_(10|25|50|100|250)k/, ' (1:$1.000)');
-        } else {
-            sourceName = originalLayerName
-                .replace(/_10k|_25k|_50k|_100k|_250k/g, '')
-                .replace('edgv_', '');
-        }
-
-        // Emit event for sidebar to handle
         try {
             const eventBus = getEventBus();
             eventBus.emit(EventTypes.VECTOR_INFO_PANEL_OPENED, {
@@ -1167,26 +438,33 @@ class UIManager {
     }
 
     /**
+     * Get display title for vector tile layer.
+     * @private
+     * @param {Object} feature
+     * @returns {string}
+     */
+    _getVectorTileTitle(feature) {
+        const originalLayerName = feature.sourceLayer;
+
+        if (originalLayerName.startsWith('situacao')) {
+            return originalLayerName
+                .replace('situacao', 'produtos')
+                .replace(/_(10|25|50|100|250)k/, ' (1:$1.000)');
+        }
+
+        return originalLayerName
+            .replace(/_10k|_25k|_50k|_100k|_250k/g, '')
+            .replace('edgv_', '');
+    }
+
+    /**
      * Add vector tile info content to panel.
      * @param {HTMLElement} panel
      * @param {Object} feature
      */
     addVectorTileInfoToPanel(panel, feature) {
         const title = document.createElement('h3');
-        let sourceName;
-        const originalLayerName = feature.sourceLayer;
-
-        if (originalLayerName.startsWith('situacao')) {
-            sourceName = originalLayerName
-                .replace('situacao', 'produtos')
-                .replace(/_(10|25|50|100|250)k/, ' (1:$1.000)');
-
-        } else {
-            sourceName = originalLayerName
-                .replace(/_10k|_25k|_50k|_100k|_250k/g, '')
-                .replace('edgv_', '');
-        }
-        title.textContent = `Atributos ${sourceName}:`;
+        title.textContent = `Atributos ${this._getVectorTileTitle(feature)}:`;
         panel.appendChild(title);
 
         const propertiesList = document.createElement('ul');
@@ -1238,32 +516,27 @@ class UIManager {
         panel.appendChild(closeButton);
     }
 
+    // ========================================================================
+    // PRIVATE NOTIFICATIONS
+    // ========================================================================
+
     /**
-     * Save changes and close all panels.
+     * Notify StateManager that a feature panel should be opened.
+     * @private
+     * @param {Object} feature
      */
-    saveChangesAndClosePanel = () => {
-        this.hideFeatureSearchPanel();
-        this.hideProfilePanel();
+    _notifyFeaturePanelOpened(feature) {
+        try {
+            const stateManager = getStateManager();
+            const featureId = feature?.properties?.id;
+            const featureType = feature?.properties?.source;
 
-        // Handle legacy floating panel if it exists
-        const panel = document.querySelector('.unified-attributes-panel');
-        if (panel) {
-            const saveButton = panel.querySelector('button[type="submit"]');
-            if (saveButton) {
-                saveButton.click();
+            if (featureId && featureType) {
+                stateManager.openFeaturePanel(featureId, featureType);
             }
-            panel.remove();
-            cleanupFeatureDropdownListeners();
+        } catch (_e) {
+            // StateManager not available - UI will work without layout coordination
         }
-
-        // Handle sidebar feature panel - save before closing
-        const sidebarSaveButton = document.querySelector('.feature-panel .attr-modern-btn-save');
-        if (sidebarSaveButton) {
-            sidebarSaveButton.click();
-        }
-
-        // Always notify StateManager to close feature panel in sidebar
-        this._notifyFeaturePanelClosed();
     }
 
     /**
@@ -1272,12 +545,15 @@ class UIManager {
      */
     _notifyFeaturePanelClosed() {
         try {
-            const stateManager = getStateManager();
-            stateManager.closeFeaturePanel();
+            getStateManager().closeFeaturePanel();
         } catch (_e) {
             // StateManager not available
         }
     }
+
+    // ========================================================================
+    // CLEANUP
+    // ========================================================================
 
     /**
      * Cleanup resources.
@@ -1287,18 +563,8 @@ class UIManager {
         this._unsubscribers.forEach(unsub => unsub());
         this._unsubscribers = [];
 
-        if (this.rafId) {
-            cancelAnimationFrame(this.rafId);
-        }
-
-        if (this.activeChart) {
-            try {
-                this.activeChart.destroy();
-            } catch (_e) {
-                // Ignore
-            }
-            this.activeChart = null;
-        }
+        this._selectionHighlight.destroy();
+        this._profilePanel.destroy();
     }
 }
 

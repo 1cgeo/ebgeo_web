@@ -5,12 +5,13 @@
  * Delegates to LayerManager for actual implementation.
  */
 
-import {
-    setLayers as setLayersRepo,
-    setActiveLayerId as setActiveLayerIdRepo
-} from './repository.js';
+import { setLayersCompat, setActiveLayerIdCompat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
+
+// Alias for backward compatibility during migration
+const setLayersRepo = setLayersCompat;
+const setActiveLayerIdRepo = setActiveLayerIdCompat;
 
 // ===== DEPENDENCY INJECTION =====
 

@@ -1,4 +1,14 @@
 // Path: js/keyboard/keyboard-shortcuts.js
+
+/**
+ * @fileoverview Keyboard shortcuts manager for the 2D SIG map.
+ * Centralizes all 2D map shortcuts and their respective actions.
+ *
+ * Note: 3D viewer shortcuts are now handled by keyboard-service-3d.js
+ * Note: 360 viewer shortcuts are handled by keyboard_service_360.js
+ * Both services disable this handler when active and re-enable when closed.
+ */
+
 import { undoLastAction, redoLastAction } from '../store';
 import { showConfirm } from '../modals/index.js';
 
@@ -81,16 +91,9 @@ class KeyboardShortcuts {
     }
 
     /**
-     * Check if 3D viewer is open
-     * @returns {boolean} True if 3D viewer is open
-     */
-    is3DViewerOpen() {
-        const map3dContainer = document.getElementById('map-3d-container');
-        return map3dContainer && map3dContainer.style.display !== 'none';
-    }
-
-    /**
      * Main keyboard event handler
+     * Note: When 3D viewer or 360 viewer is open, this handler is disabled
+     * by their respective keyboard services.
      * @param {KeyboardEvent} e - Keyboard event
      */
     async handleKeyDown(e) {
@@ -98,13 +101,9 @@ class KeyboardShortcuts {
             return;
         }
 
+        // Street View 360 has its own keyboard service that disables this one,
+        // but we keep this check as a safety fallback
         if (this.isStreetViewOpen()) {
-            return;
-        }
-
-        // Handle 3D viewer shortcuts separately
-        if (this.is3DViewerOpen()) {
-            await this.handle3DShortcuts(e);
             return;
         }
 
@@ -243,100 +242,6 @@ class KeyboardShortcuts {
                 e.preventDefault();
                 await this.clipboardManager.paste();
                 break;
-        }
-    }
-
-    /**
-     * Handle 3D viewer shortcuts
-     * @param {KeyboardEvent} e - Keyboard event
-     */
-    async handle3DShortcuts(e) {
-        const key = e.key.toLowerCase();
-
-        // Delete shortcut for 3D features
-        if (key === 'delete' || key === 'backspace') {
-            e.preventDefault();
-            await this._confirmAndDelete3DFeature();
-            return;
-        }
-
-        // 3D tool shortcuts
-        const tool3DMapping = {
-            'v': 'visualizacao',   // Visibility analysis
-            'd': 'distancia',      // Measure distance
-            'a': 'area',           // Measure area
-            'm': 'add-marker-3d'   // Add marker
-        };
-
-        if (tool3DMapping[key]) {
-            e.preventDefault();
-            const toolId = tool3DMapping[key];
-            const button = document.getElementById(toolId);
-            if (button) {
-                button.click();
-            }
-        }
-
-        // Escape to deactivate current 3D tool
-        if (key === 'escape') {
-            e.preventDefault();
-            const activeButton = document.querySelector('#toolbar-3d .button-tool-3d.active');
-            if (activeButton) {
-                activeButton.click();
-            }
-        }
-    }
-
-    /**
-     * Confirm and delete selected 3D feature.
-     * Checks for selected marker, measurement, or viewshed.
-     * @private
-     */
-    async _confirmAndDelete3DFeature() {
-        // Dynamically import 3D tool modules to avoid loading them when not needed
-        const [markerTool, measurementTool, viewshedTool] = await Promise.all([
-            import('../3d_models_viewer_tool/tools/marker_tool_3d.js'),
-            import('../3d_models_viewer_tool/tools/measurement_tool_3d.js'),
-            import('../3d_models_viewer_tool/tools/viewshed_tool_3d.js')
-        ]);
-
-        // Check for selected marker
-        const selectedMarkerId = markerTool.getSelectedMarkerId();
-        if (selectedMarkerId) {
-            const confirmed = await showConfirm('Deletar este marcador?', {
-                message: 'Esta ação não pode ser desfeita.',
-                destructive: true
-            });
-            if (confirmed) {
-                await markerTool.deleteMarker(selectedMarkerId);
-            }
-            return;
-        }
-
-        // Check for selected measurement
-        const selectedMeasurementId = measurementTool.getSelectedMeasurementId();
-        if (selectedMeasurementId) {
-            const confirmed = await showConfirm('Deletar esta medição?', {
-                message: 'Esta ação não pode ser desfeita.',
-                destructive: true
-            });
-            if (confirmed) {
-                await measurementTool.deleteMeasurement(selectedMeasurementId);
-            }
-            return;
-        }
-
-        // Check for selected viewshed
-        const selectedViewshedId = viewshedTool.getSelectedViewshedId();
-        if (selectedViewshedId) {
-            const confirmed = await showConfirm('Deletar esta análise de visibilidade?', {
-                message: 'Esta ação não pode ser desfeita.',
-                destructive: true
-            });
-            if (confirmed) {
-                await viewshedTool.deleteViewshed(selectedViewshedId);
-            }
-
         }
     }
 

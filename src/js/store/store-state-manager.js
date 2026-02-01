@@ -1,7 +1,23 @@
 // Path: js/store/store-state-manager.js
 
-import { memoryStore, setAppSetting, setColorUsage, getColorUsage, removeColorUsage, getAllMapNames, getMapData } from './repository.js';
+import { memoryStore } from './repository.js';
+import {
+    setSettingCompat,
+    getColorUsageCompat,
+    setColorUsageCompat,
+    removeColorUsageCompat,
+    getAllMapKeysCompat,
+    getMapDataCompat
+} from './repositories/index.js';
 import { groupManager } from '../tool_manager';
+
+// Alias for backward compatibility during migration
+const setAppSetting = setSettingCompat;
+const setColorUsage = setColorUsageCompat;
+const getColorUsage = getColorUsageCompat;
+const removeColorUsage = removeColorUsageCompat;
+const getAllMapNames = getAllMapKeysCompat;
+const getMapData = getMapDataCompat;
 
 /**
  * In-memory state manager with undo/redo system and color tracking

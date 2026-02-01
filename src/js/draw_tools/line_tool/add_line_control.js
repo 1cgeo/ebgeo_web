@@ -1,13 +1,27 @@
 // Path: js/draw_tools/line_tool/add_line_control.js
 
+/**
+ * @fileoverview Line drawing tool control.
+ * Handles line creation, editing, measurement display, and terrain profiles.
+ *
+ * @module draw_tools/line_tool/add_line_control
+ */
+
 import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync } from '../../store';
 import { IDUtils } from '../../utilities';
 import { isTouchDevice } from '../../utilities/pointer-utils';
 import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touch-helpers';
 import { addLineAttributesToPanel } from './line_attributes_panel.js';
-import { getTerrainElevation } from '../../terrain';
 import AddLineGeometry from './add_line_geometry.js';
 import { BaseControl } from '../../tool_manager';
+
+// Extracted modules
+import {
+    updateFeatureMeasurement,
+    removeMeasurement,
+    setMeasurementLabelSelected
+} from './line_measurement.js';
+import { calculateProfile } from './line_profile.js';
 
 class AddLineControl extends BaseControl {
     constructor(toolManager) {
@@ -1028,115 +1042,47 @@ class AddLineControl extends BaseControl {
     }
 
     // ===== PROFILE CALCULATION =====
+    // Delegated to line_profile.js module
 
     /**
-     * Calculate terrain elevation profile for line with slope percentage
+     * Calculate terrain elevation profile for line.
+     * Delegates to extracted profile module.
      * @param {Array} coordinates - Line coordinates
      * @returns {Promise<Array>} Profile data with distance, elevation and slope
      */
     async calculateProfile(coordinates) {
-        const line = turf.lineString(coordinates);
-        const length = turf.length(line, { units: 'meters' });
-        const steps = 25;
-        const stepLength = length / steps;
-
-        const profileData = [];
-
-        for (let i = 0; i <= steps; i++) {
-            const point = turf.along(line, i * stepLength, { units: 'meters' });
-            const elevation = await getTerrainElevation(this.map, point.geometry.coordinates);
-            profileData.push({
-                distance: i * stepLength,
-                elevation: elevation,
-                slope: 0 // Will be calculated after all elevations are collected
-            });
-        }
-
-        // Calculate slope percentage between consecutive points
-        for (let i = 1; i < profileData.length; i++) {
-            const deltaElevation = profileData[i].elevation - profileData[i - 1].elevation;
-            const deltaDistance = profileData[i].distance - profileData[i - 1].distance;
-
-            if (deltaDistance > 0) {
-                // Slope as percentage: (rise / run) * 100
-                profileData[i].slope = (deltaElevation / deltaDistance) * 100;
-            }
-        }
-
-        // First point inherits slope from second point for display continuity
-        if (profileData.length > 1) {
-            profileData[0].slope = profileData[1].slope;
-        }
-
-        return profileData;
+        return calculateProfile(this.map, coordinates);
     }
 
     // ===== MEASUREMENT SYSTEM =====
+    // Delegated to line_measurement.js module
 
+    /**
+     * Update measurement display for a feature.
+     * Delegates to extracted measurement module.
+     * @param {Object} feature - Line feature
+     */
     updateFeatureMeasurement = (feature) => {
-        this.removeFeatureMeasurement(feature.properties.id);
-
-        if (feature.properties.measure) {
-            const line = turf.lineString(feature.geometry.coordinates);
-            const lengthInMeters = turf.length(line, { units: 'meters' });
-            const lengthFormatted = lengthInMeters >= 1000
-                ? `${(lengthInMeters / 1000).toFixed(2)} km`
-                : `${lengthInMeters.toFixed(2)} m`;
-            const midpoint = turf.along(line, lengthInMeters / 2, { units: 'meters' });
-            this.displayMeasurement(midpoint.geometry.coordinates, lengthFormatted, feature.properties.id);
-        }
+        updateFeatureMeasurement(this.map, feature);
     }
 
+    /**
+     * Remove measurement label for a feature.
+     * Delegates to extracted measurement module.
+     * @param {string} featureId - Feature ID
+     */
     removeFeatureMeasurement = (featureId) => {
-        const measurementLabel = document.querySelector(`.measurement-label[data-feature-id="${featureId}"]`);
-        if (measurementLabel) {
-            measurementLabel.remove();
-        }
+        removeMeasurement(featureId);
     }
 
-    displayMeasurement = (coordinates, measurement, featureId) => {
-        const markerElement = this.createMeasurementLabel(measurement, featureId);
-        new maplibregl.Marker({ element: markerElement })
-            .setLngLat(coordinates)
-            .addTo(this.map);
-    }
-
-    createMeasurementLabel = (measurement, featureId) => {
-        const label = document.createElement('div');
-        label.className = 'measurement-label';
-        label.innerText = measurement;
-        label.dataset.featureId = featureId;
-
-        label.style.cssText = `
-            background-color: rgba(255, 255, 255, 0.9);
-            border: 2px solid #508D4E;
-            border-radius: 6px;
-            padding: 6px 10px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 12px;
-            font-weight: bold;
-            color: #333;
-            text-align: center;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-            white-space: nowrap;
-            pointer-events: none;
-            user-select: none;
-            transform: translate(-50%, -50%);
-            z-index: 10;
-        `;
-
-        return label;
-    }
-
+    /**
+     * Set selection state on measurement label.
+     * Delegates to extracted measurement module.
+     * @param {string} featureId - Feature ID
+     * @param {boolean} isSelected - Whether selected
+     */
     setMeasurementLabelSelected = (featureId, isSelected) => {
-        const measurementLabel = document.querySelector(`.measurement-label[data-feature-id="${featureId}"]`);
-        if (measurementLabel) {
-            if (isSelected) {
-                measurementLabel.classList.add('selected');
-            } else {
-                measurementLabel.classList.remove('selected');
-            }
-        }
+        setMeasurementLabelSelected(featureId, isSelected);
     }
 
     // ===== FEATURE MANAGEMENT INTERFACE =====

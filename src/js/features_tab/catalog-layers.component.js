@@ -21,6 +21,7 @@ import {
     CATALOG_ICONS,
     CATALOG_TYPE_CONFIG
 } from '../catalog/catalog.constants.js';
+import { showSuccess, showToast } from '../utilities';
 
 /**
  * Icons used in the component.
@@ -458,13 +459,11 @@ function showUnavailableLayerPopover(layer, anchorElement, map, eventBus, analys
             eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
 
             // Show success message
-            const { showSuccess } = await import('../utilities');
             showSuccess(`Camada "${layer.name}" carregada com sucesso!`);
 
             popover.remove();
         } else {
             // Show warning
-            const { showToast } = await import('../utilities');
             showToast('Camada ainda não está disponível no config.', 'warning');
         }
     });

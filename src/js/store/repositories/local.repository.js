@@ -67,6 +67,12 @@ const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
  */
 const streetview360Store = localforage.createInstance({ name: 'ebgeo_streetview360' });
 
+/**
+ * Briefings store - stores briefing/story map data.
+ * Key: briefingId (UUID)
+ */
+const briefingStore = localforage.createInstance({ name: 'ebgeo_briefings' });
+
 // ===== HELPER FUNCTIONS =====
 
 /**
@@ -195,14 +201,67 @@ export class LocalRepository {
         return atlas;
     }
 
+    // ===== KEY RESOLUTION =====
+
+    /**
+     * Resolves a map key by trying direct lookup first, then searching by name.
+     * @private
+     * @param {string} mapIdOrName - Map ID or name
+     * @returns {Promise<string>} Resolved map key
+     */
+    async _resolveMapKey(mapIdOrName) {
+        // Try direct lookup in maps
+        const directMap = await mapStore.getItem(mapIdOrName);
+        if (directMap) return mapIdOrName;
+
+        // Search for a map with matching name
+        const keys = await mapStore.keys();
+        for (const key of keys) {
+            const mapData = await mapStore.getItem(key);
+            if (mapData && mapData.name === mapIdOrName) {
+                return key; // Return the actual key (ID)
+            }
+        }
+
+        // Return original as fallback
+        return mapIdOrName;
+    }
+
     // ===== MAP OPERATIONS =====
 
     /**
-     * Gets a map by ID.
-     * @param {string} mapId
+     * Gets a map by ID or name (with fallback).
+     * Tries the provided key first, then falls back to searching all maps.
+     * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<Object|null>}
      */
-    async getMap(mapId) {
+    async getMap(mapIdOrName) {
+        // Try direct lookup first
+        const directResult = await mapStore.getItem(mapIdOrName);
+        if (directResult) return directResult;
+
+        // Fallback: search all maps for matching ID or name
+        const keys = await mapStore.keys();
+        for (const key of keys) {
+            const mapData = await mapStore.getItem(key);
+            if (mapData) {
+                // Check if the stored map's name or id matches what we're looking for
+                if (mapData.name === mapIdOrName || mapData.id === mapIdOrName) {
+                    return mapData;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Gets a map by ID only (no fallback).
+     * Use this when you're sure you have a valid ID.
+     * @param {string} mapId - Map ID
+     * @returns {Promise<Object|null>}
+     */
+    async getMapById(mapId) {
         return await mapStore.getItem(mapId);
     }
 
@@ -232,32 +291,57 @@ export class LocalRepository {
 
     /**
      * Saves a map.
-     * @param {string} mapId
+     * If mapIdOrName resolves to an existing map, updates it.
+     * Otherwise, creates a new entry with the provided key.
+     * @param {string} mapIdOrName - Map ID or name
      * @param {Object} data
      * @returns {Promise<void>}
      */
-    async saveMap(mapId, data) {
-        const mapData = { ...data, id: mapId };
+    async saveMap(mapIdOrName, data) {
+        // Try to resolve to existing map key
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const mapData = { ...data, id: resolvedKey };
+
+        // Ensure name is set
+        if (!mapData.name) {
+            mapData.name = mapIdOrName;
+        }
+
         if (mapData.sync) {
             mapData.sync = touchSyncMetadata(mapData.sync);
         } else {
             mapData.sync = createSyncMetadata(null);
         }
-        await mapStore.setItem(mapId, mapData);
+        await mapStore.setItem(resolvedKey, mapData);
     }
 
     /**
      * Deletes a map and all associated data.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<void>}
      */
-    async deleteMap(mapId) {
-        await mapStore.removeItem(mapId);
-        await groupStore.removeItem(mapId);
-        await layerStore.removeItem(`layers_${mapId}`);
-        await layerStore.removeItem(`activeLayer_${mapId}`);
-        await cesium3dStore.removeItem(`cesium3d_${mapId}`);
-        await streetview360Store.removeItem(`streetview360_${mapId}`);
+    async deleteMap(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+
+        // Remove main map data
+        await mapStore.removeItem(resolvedKey);
+
+        // Remove associated data with resolved key
+        await groupStore.removeItem(resolvedKey);
+        await layerStore.removeItem(`layers_${resolvedKey}`);
+        await layerStore.removeItem(`activeLayer_${resolvedKey}`);
+        await cesium3dStore.removeItem(`cesium3d_${resolvedKey}`);
+        await streetview360Store.removeItem(`streetview360_${resolvedKey}`);
+
+        // Also try to remove with original key if different (legacy cleanup)
+        if (resolvedKey !== mapIdOrName) {
+            await mapStore.removeItem(mapIdOrName);
+            await groupStore.removeItem(mapIdOrName);
+            await layerStore.removeItem(`layers_${mapIdOrName}`);
+            await layerStore.removeItem(`activeLayer_${mapIdOrName}`);
+            await cesium3dStore.removeItem(`cesium3d_${mapIdOrName}`);
+            await streetview360Store.removeItem(`streetview360_${mapIdOrName}`);
+        }
     }
 
     // ===== IMAGE OPERATIONS =====
@@ -308,12 +392,20 @@ export class LocalRepository {
 
     /**
      * Gets layers for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<Array>}
      */
-    async getLayers(mapId) {
-        const key = `layers_${mapId}`;
-        const layers = await layerStore.getItem(key);
+    async getLayers(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `layers_${resolvedKey}`;
+        let layers = await layerStore.getItem(key);
+
+        // Fallback: try with original key if resolved key didn't work
+        if (!layers && resolvedKey !== mapIdOrName) {
+            const fallbackKey = `layers_${mapIdOrName}`;
+            layers = await layerStore.getItem(fallbackKey);
+        }
+
         if (!layers || layers.length === 0) {
             return [getDefaultLayer()];
         }
@@ -322,34 +414,44 @@ export class LocalRepository {
 
     /**
      * Saves layers for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @param {Array} layers
      * @returns {Promise<void>}
      */
-    async saveLayers(mapId, layers) {
-        const key = `layers_${mapId}`;
+    async saveLayers(mapIdOrName, layers) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `layers_${resolvedKey}`;
         await layerStore.setItem(key, layers);
     }
 
     /**
      * Gets active layer ID for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<string>}
      */
-    async getActiveLayerId(mapId) {
-        const key = `activeLayer_${mapId}`;
-        const activeId = await layerStore.getItem(key);
+    async getActiveLayerId(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `activeLayer_${resolvedKey}`;
+        let activeId = await layerStore.getItem(key);
+
+        // Fallback: try with original key if resolved key didn't work
+        if (!activeId && resolvedKey !== mapIdOrName) {
+            const fallbackKey = `activeLayer_${mapIdOrName}`;
+            activeId = await layerStore.getItem(fallbackKey);
+        }
+
         return activeId || 'default';
     }
 
     /**
      * Saves active layer ID for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @param {string} layerId
      * @returns {Promise<void>}
      */
-    async saveActiveLayerId(mapId, layerId) {
-        const key = `activeLayer_${mapId}`;
+    async saveActiveLayerId(mapIdOrName, layerId) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `activeLayer_${resolvedKey}`;
         await layerStore.setItem(key, layerId);
     }
 
@@ -357,43 +459,62 @@ export class LocalRepository {
 
     /**
      * Gets groups for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<Object>}
      */
-    async getGroups(mapId) {
-        return await groupStore.getItem(mapId) || {};
+    async getGroups(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        let groups = await groupStore.getItem(resolvedKey);
+
+        // Fallback: try with original key if resolved key didn't work
+        if (!groups && resolvedKey !== mapIdOrName) {
+            groups = await groupStore.getItem(mapIdOrName);
+        }
+
+        return groups || {};
     }
 
     /**
      * Saves groups for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @param {Object} groups
      * @returns {Promise<void>}
      */
-    async saveGroups(mapId, groups) {
-        await groupStore.setItem(mapId, groups);
+    async saveGroups(mapIdOrName, groups) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        await groupStore.setItem(resolvedKey, groups);
     }
 
     // ===== CESIUM 3D OPERATIONS =====
 
     /**
      * Gets Cesium 3D data for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<Object>}
      */
-    async getCesium3d(mapId) {
-        const key = `cesium3d_${mapId}`;
-        return await cesium3dStore.getItem(key) || getEmptyCesium3dData();
+    async getCesium3d(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `cesium3d_${resolvedKey}`;
+        let data = await cesium3dStore.getItem(key);
+
+        // Fallback: try with original key if resolved key didn't work
+        if (!data && resolvedKey !== mapIdOrName) {
+            const fallbackKey = `cesium3d_${mapIdOrName}`;
+            data = await cesium3dStore.getItem(fallbackKey);
+        }
+
+        return data || getEmptyCesium3dData();
     }
 
     /**
      * Saves Cesium 3D data for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @param {Object} data
      * @returns {Promise<void>}
      */
-    async saveCesium3d(mapId, data) {
-        const key = `cesium3d_${mapId}`;
+    async saveCesium3d(mapIdOrName, data) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `cesium3d_${resolvedKey}`;
         await cesium3dStore.setItem(key, data);
     }
 
@@ -401,22 +522,32 @@ export class LocalRepository {
 
     /**
      * Gets Street View 360 data for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @returns {Promise<Object>}
      */
-    async getStreetview360(mapId) {
-        const key = `streetview360_${mapId}`;
-        return await streetview360Store.getItem(key) || getEmptyStreetview360Data();
+    async getStreetview360(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `streetview360_${resolvedKey}`;
+        let data = await streetview360Store.getItem(key);
+
+        // Fallback: try with original key if resolved key didn't work
+        if (!data && resolvedKey !== mapIdOrName) {
+            const fallbackKey = `streetview360_${mapIdOrName}`;
+            data = await streetview360Store.getItem(fallbackKey);
+        }
+
+        return data || getEmptyStreetview360Data();
     }
 
     /**
      * Saves Street View 360 data for a map.
-     * @param {string} mapId
+     * @param {string} mapIdOrName - Map ID or name
      * @param {Object} data
      * @returns {Promise<void>}
      */
-    async saveStreetview360(mapId, data) {
-        const key = `streetview360_${mapId}`;
+    async saveStreetview360(mapIdOrName, data) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `streetview360_${resolvedKey}`;
         await streetview360Store.setItem(key, data);
     }
 
@@ -450,6 +581,62 @@ export class LocalRepository {
         await appStore.removeItem(key);
     }
 
+    // ===== BRIEFING OPERATIONS =====
+
+    /**
+     * Gets all briefings.
+     * @returns {Promise<Array>} Array of briefings sorted by updatedAt desc
+     */
+    async getAllBriefings() {
+        const briefings = [];
+        const keys = await briefingStore.keys();
+        for (const key of keys) {
+            const data = await briefingStore.getItem(key);
+            if (data) {
+                briefings.push(data);
+            }
+        }
+        // Sort by updatedAt descending (most recent first)
+        briefings.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        return briefings;
+    }
+
+    /**
+     * Gets a briefing by ID.
+     * @param {string} briefingId
+     * @returns {Promise<Object|null>}
+     */
+    async getBriefing(briefingId) {
+        return await briefingStore.getItem(briefingId);
+    }
+
+    /**
+     * Saves a briefing.
+     * @param {string} briefingId
+     * @param {Object} data
+     * @returns {Promise<void>}
+     */
+    async saveBriefing(briefingId, data) {
+        const briefingData = {
+            ...data,
+            id: briefingId,
+            updatedAt: Date.now()
+        };
+        if (!briefingData.createdAt) {
+            briefingData.createdAt = Date.now();
+        }
+        await briefingStore.setItem(briefingId, briefingData);
+    }
+
+    /**
+     * Deletes a briefing.
+     * @param {string} briefingId
+     * @returns {Promise<void>}
+     */
+    async deleteBriefing(briefingId) {
+        await briefingStore.removeItem(briefingId);
+    }
+
     // ===== BULK OPERATIONS =====
 
     /**
@@ -466,6 +653,7 @@ export class LocalRepository {
         await layerStore.clear();
         await cesium3dStore.clear();
         await streetview360Store.clear();
+        await briefingStore.clear();
     }
 }
 

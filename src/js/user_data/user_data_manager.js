@@ -19,6 +19,7 @@ import {
     validateImageFile,
     processImageFile
 } from '../utilities/image_utils.js';
+import { sanitizeHtml } from '../sidebar/panels/notes-panel.js';
 
 /**
  * System properties that should NOT be extracted as user attributes during import.
@@ -406,9 +407,9 @@ const userDataManager = {
 
     /**
      * Extracts custom attributes from imported GeoJSON properties.
-     * Filters out system properties and converts values to strings.
+     * Filters out system properties, converts values to strings, and sanitizes HTML.
      * @param {Object} importedProperties - Properties from imported GeoJSON feature
-     * @returns {Object} Extracted user attributes
+     * @returns {Object} Extracted user attributes (sanitized)
      */
     extractAttributesFromImport(importedProperties) {
         if (!importedProperties || typeof importedProperties !== 'object') {
@@ -435,7 +436,8 @@ const userDataManager = {
 
             // Handle special case: imported property named "attributes" that isn't an object
             if (key === 'attributes' && typeof value !== 'object') {
-                extracted['attributes_imported'] = String(value);
+                // Sanitize to prevent XSS from imported data
+                extracted['attributes_imported'] = sanitizeHtml(String(value));
                 continue;
             }
 
@@ -444,8 +446,8 @@ const userDataManager = {
                 continue;
             }
 
-            // Convert to string and store
-            extracted[key] = String(value);
+            // Convert to string and sanitize to prevent XSS from imported data
+            extracted[key] = sanitizeHtml(String(value));
         }
 
         return extracted;

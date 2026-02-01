@@ -56,3 +56,42 @@ export {
     createThumbnail,
     processImageFile
 } from './image_utils.js';
+
+// Geometry utilities
+export {
+    pixelsToDegrees,
+    degreesToPixels,
+    expandBboxWithPadding,
+    createPointBoundingBox,
+    normalizeCoordinates,
+    calculateDistance,
+    calculateBearing
+} from './geometry-utils.js';
+
+// LRU cache utility
+export {
+    LRUCache,
+    createLRUCache
+} from './lru-cache.js';
+
+// Deep object utilities
+export {
+    deepClone,
+    getByPath,
+    setByPath,
+    deepEqual,
+    shallowClone
+} from './deep-utils.js';
+
+// Quill.js helpers
+export {
+    QUILL_DOMPURIFY_CONFIG,
+    QUILL_IMAGE_CONFIG,
+    QUILL_TOOLBAR_CONFIG,
+    sanitizeQuillHtml,
+    cleanQuillContent,
+    stripHtml,
+    compressQuillImage,
+    handleQuillImageUpload,
+    createQuillEditor
+} from './quill-helpers.js';

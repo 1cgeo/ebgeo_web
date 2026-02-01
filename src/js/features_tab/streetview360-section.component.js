@@ -6,7 +6,7 @@
  * allowing navigation to features in 360 viewer.
  */
 
-import { getAllMarkers360, getAllOrientations } from '../store';
+import { getAllMarkers360, getAllOrientations, getControl } from '../store';
 import { getStateManager, getEventBus } from '../store/services.js';
 import { EventTypes } from '../events/index.js';
 
@@ -273,9 +273,10 @@ async function openPhotoInViewer(photoName) {
             await navigateToTarget(photoName);
         } else {
             // Open viewer with the photo
+            const streetViewControl = getControl('streetView');
             await openViewer360WithPhoto(photoName, {
-                miniMap: window.streetViewControl?.miniMap,
-                controlInstance: window.streetViewControl
+                miniMap: streetViewControl?.miniMap,
+                controlInstance: streetViewControl
             });
         }
     } catch (error) {

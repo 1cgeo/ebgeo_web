@@ -5,17 +5,20 @@
  * Handles camera positions and markers for 3D models.
  */
 
-import {
-    getCesium3dData,
-    setCesium3dData,
-    memoryStore
-} from './repository.js';
+import { memoryStore } from './repository.js';
+import { getCesium3dCompat, setCesium3dCompat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
 import {
     validateImageFile,
     processImageFile
 } from '../utilities/image_utils.js';
+import { createSyncMetadata, touchSyncMetadata, isActive } from './sync/sync-metadata.js';
+import { generateUUID } from '../utilities/uuid.js';
+
+// Alias for backward compatibility during migration
+const getCesium3dData = getCesium3dCompat;
+const setCesium3dData = setCesium3dCompat;
 
 // ===== DEPENDENCY INJECTION =====
 
@@ -163,11 +166,11 @@ export const getAllCameraPositions = async (mapName = null) => {
 // ===== MARKER OPERATIONS =====
 
 /**
- * Generates unique marker ID.
- * @returns {string} Unique ID
+ * Generates unique marker ID using UUID.
+ * @returns {string} Unique UUID
  */
 const generateMarkerId = () => {
-    return Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+    return generateUUID();
 };
 
 /**
@@ -253,8 +256,7 @@ export const addMarker = async (tilesetId, markerData, mapName = null) => {
             labelText: markerData.properties?.rotulo || '',
             ...(markerData.style || {})
         },
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+        sync: createSyncMetadata(null)
     };
 
     data.markers.push(marker);
@@ -269,27 +271,29 @@ export const addMarker = async (tilesetId, markerData, mapName = null) => {
 
 /**
  * Gets all markers for a specific tileset.
+ * Filters out soft-deleted markers.
  *
  * @param {string} tilesetId - Tileset ID
  * @param {string|null} mapName - Map name (null = current)
- * @returns {Promise<Array>} Array of markers
+ * @returns {Promise<Array>} Array of active markers
  */
 export const getMarkers = async (tilesetId, mapName = null) => {
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
-    return data.markers.filter(m => m.tilesetId === tilesetId);
+    return data.markers.filter(m => m.tilesetId === tilesetId && isActive(m.sync));
 };
 
 /**
  * Gets all markers for the current map.
+ * Filters out soft-deleted markers.
  *
  * @param {string|null} mapName - Map name (null = current)
- * @returns {Promise<Array>} Array of all markers
+ * @returns {Promise<Array>} Array of all active markers
  */
 export const getAllMarkers = async (mapName = null) => {
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
-    return data.markers || [];
+    return (data.markers || []).filter(m => isActive(m.sync));
 };
 
 /**
@@ -333,7 +337,8 @@ export const updateMarker = async (markerId, updates, mapName = null) => {
     if (updates.position) {
         marker.position = updates.position;
     }
-    marker.updatedAt = Date.now();
+    // Update sync metadata
+    marker.sync = touchSyncMetadata(marker.sync);
 
     data.markers[markerIndex] = marker;
     await saveCesium3dData(targetMap, data);
@@ -591,11 +596,11 @@ export const removeMarkerImage = async (markerId, imageId, mapName = null) => {
 // ===== MEASUREMENT OPERATIONS =====
 
 /**
- * Generates unique measurement ID.
- * @returns {string} Unique ID
+ * Generates unique measurement ID using UUID.
+ * @returns {string} Unique UUID
  */
 const generateMeasurementId = () => {
-    return Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+    return generateUUID();
 };
 
 /**
@@ -657,8 +662,7 @@ export const addMeasurement = async (tilesetId, measurementData, mapName = null)
             descricao: measurementData.properties?.descricao || ''
         },
         images: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+        sync: createSyncMetadata(null)
     };
 
     data.measurements.push(measurement);
@@ -673,27 +677,29 @@ export const addMeasurement = async (tilesetId, measurementData, mapName = null)
 
 /**
  * Gets all measurements for a specific tileset.
+ * Filters out soft-deleted measurements.
  *
  * @param {string} tilesetId - Tileset ID
  * @param {string|null} mapName - Map name (null = current)
- * @returns {Promise<Array>} Array of measurements
+ * @returns {Promise<Array>} Array of active measurements
  */
 export const getMeasurements = async (tilesetId, mapName = null) => {
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
-    return (data.measurements || []).filter(m => m.tilesetId === tilesetId);
+    return (data.measurements || []).filter(m => m.tilesetId === tilesetId && isActive(m.sync));
 };
 
 /**
  * Gets all measurements for the current map.
+ * Filters out soft-deleted measurements.
  *
  * @param {string|null} mapName - Map name (null = current)
- * @returns {Promise<Array>} Array of all measurements
+ * @returns {Promise<Array>} Array of all active measurements
  */
 export const getAllMeasurements = async (mapName = null) => {
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
-    return data.measurements || [];
+    return (data.measurements || []).filter(m => isActive(m.sync));
 };
 
 /**
@@ -732,7 +738,8 @@ export const updateMeasurement = async (measurementId, updates, mapName = null) 
     if (updates.properties) {
         measurement.properties = { ...measurement.properties, ...updates.properties };
     }
-    measurement.updatedAt = Date.now();
+    // Update sync metadata
+    measurement.sync = touchSyncMetadata(measurement.sync);
 
     data.measurements[measurementIndex] = measurement;
     await saveCesium3dData(targetMap, data);
@@ -882,11 +889,11 @@ export const removeMeasurementImage = async (measurementId, imageId, mapName = n
 // ===== VIEWSHED OPERATIONS =====
 
 /**
- * Generates unique viewshed ID.
- * @returns {string} Unique ID
+ * Generates unique viewshed ID using UUID.
+ * @returns {string} Unique UUID
  */
 const generateViewshedId = () => {
-    return Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+    return generateUUID();
 };
 
 /**
@@ -946,8 +953,7 @@ export const addViewshed = async (tilesetId, viewshedData, mapName = null) => {
             descricao: viewshedData.properties?.descricao || ''
         },
         images: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+        sync: createSyncMetadata(null)
     };
 
     data.viewsheds.push(viewshed);
@@ -962,27 +968,29 @@ export const addViewshed = async (tilesetId, viewshedData, mapName = null) => {
 
 /**
  * Gets all viewsheds for a specific tileset.
+ * Filters out soft-deleted viewsheds.
  *
  * @param {string} tilesetId - Tileset ID
  * @param {string|null} mapName - Map name (null = current)
- * @returns {Promise<Array>} Array of viewsheds
+ * @returns {Promise<Array>} Array of active viewsheds
  */
 export const getViewsheds = async (tilesetId, mapName = null) => {
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
-    return (data.viewsheds || []).filter(v => v.tilesetId === tilesetId);
+    return (data.viewsheds || []).filter(v => v.tilesetId === tilesetId && isActive(v.sync));
 };
 
 /**
  * Gets all viewsheds for the current map.
+ * Filters out soft-deleted viewsheds.
  *
  * @param {string|null} mapName - Map name (null = current)
- * @returns {Promise<Array>} Array of all viewsheds
+ * @returns {Promise<Array>} Array of all active viewsheds
  */
 export const getAllViewsheds = async (mapName = null) => {
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
-    return data.viewsheds || [];
+    return (data.viewsheds || []).filter(v => isActive(v.sync));
 };
 
 /**
@@ -1025,7 +1033,8 @@ export const updateViewshed = async (viewshedId, updates, mapName = null) => {
     if (updates.observerHeight !== undefined) {
         viewshed.observerHeight = updates.observerHeight;
     }
-    viewshed.updatedAt = Date.now();
+    // Update sync metadata
+    viewshed.sync = touchSyncMetadata(viewshed.sync);
 
     data.viewsheds[viewshedIndex] = viewshed;
     await saveCesium3dData(targetMap, data);

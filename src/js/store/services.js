@@ -24,6 +24,8 @@ import { createGroupManager, groupManagerHolder, initColorPickerEvents } from '.
 import { createLayerManager, layerManagerHolder } from '../layers';
 import { initStoreEvents } from './store.js';
 import { createStateManager } from '../state';
+import { mapResolver } from './services/map-resolver.service.js';
+import { getRepository } from './repositories/index.js';
 
 /**
  * @typedef {Object} Services
@@ -31,6 +33,7 @@ import { createStateManager } from '../state';
  * @property {import('../state/state_manager.js').StateManager} stateManager - Centralized UI state manager
  * @property {import('../tool_manager/group_manager.js').GroupManager} groupManager - Group manager
  * @property {import('../layers/layer.manager.js').LayerManager} layerManager - Layer manager
+ * @property {import('./services/map-resolver.service.js').MapResolverService} mapResolver - Map name/ID resolver
  */
 
 /** @type {Services|null} */
@@ -69,12 +72,21 @@ export function initServices() {
     // Initialize color picker event subscriptions
     initColorPickerEvents();
 
+    // Initialize map resolver with repository
+    // Note: This is async but we don't await it to avoid blocking initialization
+    // The resolver will populate itself in the background
+    const repository = getRepository();
+    mapResolver.initialize(repository).catch(err => {
+        console.warn('MapResolver initialization error:', err);
+    });
+
     // Freeze services object to prevent modification
     services = Object.freeze({
         eventBus,
         stateManager,
         groupManager,
         layerManager,
+        mapResolver,
     });
 
     // Expose services globally for debugging in browser console
@@ -136,4 +148,14 @@ export function getLayerManager() {
  */
 export function getGroupManager() {
     return getServices().groupManager;
+}
+
+/**
+ * Get MapResolver instance.
+ * Convenience function for name/ID resolution.
+ * @throws {Error} If services not initialized
+ * @returns {import('./services/map-resolver.service.js').MapResolverService}
+ */
+export function getMapResolver() {
+    return getServices().mapResolver;
 }

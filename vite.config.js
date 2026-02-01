@@ -46,13 +46,14 @@ export default defineConfig({
           // ===== LAZY LOADED CHUNKS (independentes) =====
 
           // Separar código do 3D (lazy load via dynamic import)
-          // NOTA: Apenas map_3d.js e tools/* são lazy-loaded.
+          // NOTA: Apenas map_3d.js, tools/* e services/* são lazy-loaded.
           // add_3d_models_viewer_control.js é importado estaticamente,
           // então não vai para este chunk (fica no main).
           // Os painéis (marker-panel-3d, measurement-panel-3d, viewshed-panel-3d)
           // usam dynamic imports para evitar conflitos.
           if (id.includes('3d_models_viewer_tool/map_3d') ||
-              id.includes('3d_models_viewer_tool/tools/')) {
+              id.includes('3d_models_viewer_tool/tools/') ||
+              id.includes('3d_models_viewer_tool/services/')) {
             return 'cesium-integration';
           }
           // Street view (Three.js - lazy load)
@@ -105,16 +106,27 @@ export default defineConfig({
           }
 
           // ===== CORE CHUNK (base de tudo) =====
-          // Inclui: store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog
+          // Inclui: store, state, events, utilities, layers, terrain, baselayers, toolbar, modals, catalog, tool_manager, mode, briefing
           // utilities está aqui porque é usado por toolbar, modals e também por cesium-integration
           // toolbar/modals/catalog estão aqui porque:
           //   - store/settings.operations importa de catalog/catalog.constants
           //   - modals/shortcuts.modal importa de toolbar/toolbar.constants
           //   - catalog/catalog.modal importa de modals/modal.base
+          // tool_manager está aqui porque:
+          //   - Contém managers compartilhados (selection, ui, clipboard, etc.)
+          //   - É base para todas as ferramentas de desenho
+          // mode está aqui porque:
+          //   - ApplicationModeManager é usado em toda a aplicação
+          // briefing está aqui porque:
+          //   - Keyboard service é carregado junto com outros serviços
 
           // Utilities (base para toolbar, modals, e também usado por cesium-integration)
           // DEVE vir antes de qualquer outro chunk que dependa dele
           if (id.includes('src/js/utilities/')) {
+            return 'core';
+          }
+          // Tool manager (base para todas as ferramentas)
+          if (id.includes('src/js/tool_manager/')) {
             return 'core';
           }
           // Store e state management
@@ -123,6 +135,14 @@ export default defineConfig({
           }
           // Events
           if (id.includes('src/js/events/')) {
+            return 'core';
+          }
+          // Application mode management
+          if (id.includes('src/js/mode/')) {
+            return 'core';
+          }
+          // Briefing infrastructure (keyboard service, etc.)
+          if (id.includes('src/js/briefing/')) {
             return 'core';
           }
           // Layers e baselayers (dependem de store)

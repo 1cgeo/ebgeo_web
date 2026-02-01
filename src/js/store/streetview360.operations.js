@@ -6,15 +6,17 @@
  * Follows the same patterns as cesium3d.operations.js.
  */
 
-import {
-    getStreetview360Data,
-    setStreetview360Data,
-    memoryStore
-} from './repository.js';
+import { memoryStore } from './repository.js';
+import { getStreetview360Compat, setStreetview360Compat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events/event_types.js';
-import { IDUtils } from '../utilities/id_utils.js';
 import { validateImageFile, processImageFile } from '../utilities/image_utils.js';
+import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from './sync/sync-metadata.js';
+import { generateUUID } from '../utilities/uuid.js';
+
+// Alias for backward compatibility during migration
+const getStreetview360Data = getStreetview360Compat;
+const setStreetview360Data = setStreetview360Compat;
 
 /**
  * Module-level dependencies injected via setStreetview360Dependencies()
@@ -64,11 +66,20 @@ export async function saveOrientation(photoName, orientation, mapName = null) {
     const targetMap = mapName || mapManager.getCurrentMapName();
     const data = await getStreetview360Data(targetMap);
 
+    // Check if orientation already exists (update vs create)
+    const existingOrientation = data.orientations[photoName];
+    const sync = existingOrientation?.sync
+        ? touchSyncMetadata(existingOrientation.sync)
+        : createSyncMetadata(null);
+
     data.orientations[photoName] = {
+        id: existingOrientation?.id || generateUUID(),
+        photoName,
         lon: orientation.lon,
         lat: orientation.lat,
         fov: orientation.fov,
-        savedAt: Date.now()
+        savedAt: Date.now(),
+        sync
     };
 
     await setStreetview360Data(targetMap, data);
@@ -92,11 +103,21 @@ export async function getOrientation(photoName, mapName = null) {
 
     // Check memory cache first
     if (memoryStore.streetview360._mapName === targetMap) {
-        return memoryStore.streetview360.orientations[photoName] || null;
+        const orientation = memoryStore.streetview360.orientations[photoName];
+        // Filter out deleted orientations
+        if (orientation && isActive(orientation.sync)) {
+            return orientation;
+        }
+        return null;
     }
 
     const data = await getStreetview360Data(targetMap);
-    return data.orientations[photoName] || null;
+    const orientation = data.orientations[photoName];
+    // Filter out deleted orientations
+    if (orientation && isActive(orientation.sync)) {
+        return orientation;
+    }
+    return null;
 }
 
 /**
@@ -120,16 +141,18 @@ export async function clearOrientation(photoName, mapName = null) {
     const targetMap = mapName || mapManager.getCurrentMapName();
     const data = await getStreetview360Data(targetMap);
 
-    if (!data.orientations[photoName]) {
+    const orientation = data.orientations[photoName];
+    if (!orientation || !isActive(orientation.sync)) {
         return false;
     }
 
-    delete data.orientations[photoName];
+    // Soft delete: mark as deleted instead of removing
+    orientation.sync = markDeleted(orientation.sync);
     await setStreetview360Data(targetMap, data);
 
     // Update memory cache if current map
     if (memoryStore.streetview360._mapName === targetMap) {
-        delete memoryStore.streetview360.orientations[photoName];
+        memoryStore.streetview360.orientations[photoName] = orientation;
     }
 
     deps.eventBus?.emit(EventTypes.ORIENTATION_360_CLEARED, { photoName, mapName: targetMap });
@@ -144,13 +167,23 @@ export async function clearOrientation(photoName, mapName = null) {
 export async function getAllOrientations(mapName = null) {
     const targetMap = mapName || mapManager.getCurrentMapName();
 
+    let orientations;
     // Check memory cache first
     if (memoryStore.streetview360._mapName === targetMap) {
-        return { ...memoryStore.streetview360.orientations };
+        orientations = memoryStore.streetview360.orientations;
+    } else {
+        const data = await getStreetview360Data(targetMap);
+        orientations = data.orientations || {};
     }
 
-    const data = await getStreetview360Data(targetMap);
-    return data.orientations || {};
+    // Filter out deleted orientations
+    const activeOrientations = {};
+    for (const [key, orientation] of Object.entries(orientations)) {
+        if (isActive(orientation.sync)) {
+            activeOrientations[key] = orientation;
+        }
+    }
+    return activeOrientations;
 }
 
 // ===== MARKER CRUD OPERATIONS =====
@@ -169,15 +202,15 @@ export async function addMarker360(photoName, markerData, mapName = null) {
     const targetMap = mapName || mapManager.getCurrentMapName();
     const data = await getStreetview360Data(targetMap);
 
-    // Count existing markers for this photo for auto-naming
-    const existingCount = data.markers.filter(m => m.photoName === photoName).length;
+    // Count existing active markers for this photo for auto-naming
+    const existingCount = data.markers.filter(m => m.photoName === photoName && isActive(m.sync)).length;
 
     // Load user default style from localStorage if available
     const savedDefaultStyle = localStorage.getItem('default_marker_360_style');
     const defaultStyle = savedDefaultStyle ? JSON.parse(savedDefaultStyle) : DEFAULT_MARKER_360_STYLE;
 
     const marker = {
-        id: IDUtils.generateUniqueId(),
+        id: generateUUID(),
         photoName,
         position: {
             heading: markerData.position.heading,
@@ -191,7 +224,8 @@ export async function addMarker360(photoName, markerData, mapName = null) {
         style: { ...defaultStyle, ...markerData.style },
         images: [],
         createdAt: Date.now(),
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        sync: createSyncMetadata(null)
     };
 
     data.markers.push(marker);
@@ -217,11 +251,11 @@ export async function getMarkers360(photoName, mapName = null) {
 
     // Check memory cache first
     if (memoryStore.streetview360._mapName === targetMap) {
-        return memoryStore.streetview360.markers.filter(m => m.photoName === photoName);
+        return memoryStore.streetview360.markers.filter(m => m.photoName === photoName && isActive(m.sync));
     }
 
     const data = await getStreetview360Data(targetMap);
-    return data.markers.filter(m => m.photoName === photoName);
+    return data.markers.filter(m => m.photoName === photoName && isActive(m.sync));
 }
 
 /**
@@ -234,11 +268,11 @@ export async function getAllMarkers360(mapName = null) {
 
     // Check memory cache first
     if (memoryStore.streetview360._mapName === targetMap) {
-        return [...memoryStore.streetview360.markers];
+        return memoryStore.streetview360.markers.filter(m => isActive(m.sync));
     }
 
     const data = await getStreetview360Data(targetMap);
-    return data.markers || [];
+    return (data.markers || []).filter(m => isActive(m.sync));
 }
 
 /**
@@ -252,11 +286,13 @@ export async function getMarker360ById(markerId, mapName = null) {
 
     // Check memory cache first
     if (memoryStore.streetview360._mapName === targetMap) {
-        return memoryStore.streetview360.markers.find(m => m.id === markerId) || null;
+        const marker = memoryStore.streetview360.markers.find(m => m.id === markerId);
+        return marker && isActive(marker.sync) ? marker : null;
     }
 
     const data = await getStreetview360Data(targetMap);
-    return data.markers.find(m => m.id === markerId) || null;
+    const marker = data.markers.find(m => m.id === markerId);
+    return marker && isActive(marker.sync) ? marker : null;
 }
 
 /**
@@ -280,6 +316,11 @@ export async function updateMarker360(markerId, updates, mapName = null) {
 
     const marker = data.markers[index];
 
+    // Only update active markers
+    if (!isActive(marker.sync)) {
+        return null;
+    }
+
     // Merge updates
     if (updates.properties) {
         marker.properties = { ...marker.properties, ...updates.properties };
@@ -292,6 +333,7 @@ export async function updateMarker360(markerId, updates, mapName = null) {
     }
 
     marker.updatedAt = Date.now();
+    marker.sync = touchSyncMetadata(marker.sync);
 
     await setStreetview360Data(targetMap, data);
 
@@ -322,14 +364,22 @@ export async function removeMarker360(markerId, mapName = null) {
         return false;
     }
 
-    data.markers.splice(index, 1);
+    const marker = data.markers[index];
+
+    // Only remove active markers
+    if (!isActive(marker.sync)) {
+        return false;
+    }
+
+    // Soft delete: mark as deleted instead of removing
+    marker.sync = markDeleted(marker.sync);
     await setStreetview360Data(targetMap, data);
 
     // Update memory cache if current map
     if (memoryStore.streetview360._mapName === targetMap) {
         const memIndex = memoryStore.streetview360.markers.findIndex(m => m.id === markerId);
         if (memIndex !== -1) {
-            memoryStore.streetview360.markers.splice(memIndex, 1);
+            memoryStore.streetview360.markers[memIndex] = marker;
         }
     }
 
@@ -347,18 +397,25 @@ export async function removeMarkers360ByPhoto(photoName, mapName = null) {
     const targetMap = mapName || mapManager.getCurrentMapName();
     const data = await getStreetview360Data(targetMap);
 
-    const initialCount = data.markers.length;
-    data.markers = data.markers.filter(m => m.photoName !== photoName);
-    const removedCount = initialCount - data.markers.length;
+    // Soft delete: mark matching active markers as deleted
+    let removedCount = 0;
+    for (const marker of data.markers) {
+        if (marker.photoName === photoName && isActive(marker.sync)) {
+            marker.sync = markDeleted(marker.sync);
+            removedCount++;
+        }
+    }
 
     if (removedCount > 0) {
         await setStreetview360Data(targetMap, data);
 
         // Update memory cache if current map
         if (memoryStore.streetview360._mapName === targetMap) {
-            memoryStore.streetview360.markers = memoryStore.streetview360.markers.filter(
-                m => m.photoName !== photoName
-            );
+            for (const marker of memoryStore.streetview360.markers) {
+                if (marker.photoName === photoName && isActive(marker.sync)) {
+                    marker.sync = markDeleted(marker.sync);
+                }
+            }
         }
 
         deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
@@ -387,13 +444,13 @@ export async function addMarker360Image(markerId, file, mapName = null) {
     const data = await getStreetview360Data(targetMap);
 
     const marker = data.markers.find(m => m.id === markerId);
-    if (!marker) {
+    if (!marker || !isActive(marker.sync)) {
         return null;
     }
 
     const imageData = await processImageFile(file);
     const image = {
-        id: IDUtils.generateUniqueId(),
+        id: generateUUID(),
         name: file.name,
         type: file.type,
         size: file.size,
@@ -404,6 +461,7 @@ export async function addMarker360Image(markerId, file, mapName = null) {
 
     marker.images.push(image);
     marker.updatedAt = Date.now();
+    marker.sync = touchSyncMetadata(marker.sync);
 
     await setStreetview360Data(targetMap, data);
 
@@ -413,6 +471,7 @@ export async function addMarker360Image(markerId, file, mapName = null) {
         if (memMarker) {
             memMarker.images = marker.images;
             memMarker.updatedAt = marker.updatedAt;
+            memMarker.sync = marker.sync;
         }
     }
 
@@ -443,7 +502,7 @@ export async function removeMarker360Image(markerId, imageId, mapName = null) {
     const data = await getStreetview360Data(targetMap);
 
     const marker = data.markers.find(m => m.id === markerId);
-    if (!marker) {
+    if (!marker || !isActive(marker.sync)) {
         return false;
     }
 
@@ -454,6 +513,7 @@ export async function removeMarker360Image(markerId, imageId, mapName = null) {
 
     marker.images.splice(imgIndex, 1);
     marker.updatedAt = Date.now();
+    marker.sync = touchSyncMetadata(marker.sync);
 
     await setStreetview360Data(targetMap, data);
 
@@ -463,6 +523,7 @@ export async function removeMarker360Image(markerId, imageId, mapName = null) {
         if (memMarker) {
             memMarker.images = marker.images;
             memMarker.updatedAt = marker.updatedAt;
+            memMarker.sync = marker.sync;
         }
     }
 
@@ -508,16 +569,27 @@ export function clearStreetview360Cache() {
 export async function getStreetview360DataForExport(mapName) {
     const data = await getStreetview360Data(mapName);
 
-    const hasOrientations = Object.keys(data.orientations).length > 0;
-    const hasMarkers = data.markers.length > 0;
+    // Filter to only active orientations
+    const activeOrientations = {};
+    for (const [key, orientation] of Object.entries(data.orientations || {})) {
+        if (isActive(orientation.sync)) {
+            activeOrientations[key] = orientation;
+        }
+    }
+
+    // Filter to only active markers
+    const activeMarkers = (data.markers || []).filter(m => isActive(m.sync));
+
+    const hasOrientations = Object.keys(activeOrientations).length > 0;
+    const hasMarkers = activeMarkers.length > 0;
 
     if (!hasOrientations && !hasMarkers) {
         return null;
     }
 
     return {
-        orientations: data.orientations,
-        markers: data.markers
+        orientations: activeOrientations,
+        markers: activeMarkers
     };
 }
 
@@ -531,21 +603,28 @@ export async function getStreetview360DataForExport(mapName) {
 export async function setStreetview360DataForImport(mapName, importData) {
     const existingData = await getStreetview360Data(mapName);
 
-    // Merge orientations (import overwrites existing)
-    const mergedOrientations = {
-        ...existingData.orientations,
-        ...(importData.orientations || {})
-    };
+    // Merge orientations (import overwrites existing), ensuring sync metadata
+    const mergedOrientations = { ...existingData.orientations };
+    for (const [key, orientation] of Object.entries(importData.orientations || {})) {
+        mergedOrientations[key] = {
+            ...orientation,
+            id: orientation.id || generateUUID(),
+            sync: orientation.sync || createSyncMetadata(null)
+        };
+    }
 
-    // Regenerate marker IDs to avoid conflicts and merge
+    // Regenerate marker IDs to avoid conflicts and ensure sync metadata
     const newMarkers = (importData.markers || []).map(marker => ({
         ...marker,
-        id: IDUtils.generateUniqueId(),
+        id: generateUUID(),
         createdAt: marker.createdAt || Date.now(),
-        updatedAt: marker.updatedAt || Date.now()
+        updatedAt: marker.updatedAt || Date.now(),
+        sync: marker.sync || createSyncMetadata(null)
     }));
 
-    const mergedMarkers = [...existingData.markers, ...newMarkers];
+    // Only include active existing markers
+    const activeExistingMarkers = existingData.markers.filter(m => isActive(m.sync));
+    const mergedMarkers = [...activeExistingMarkers, ...newMarkers];
 
     await setStreetview360Data(mapName, {
         orientations: mergedOrientations,

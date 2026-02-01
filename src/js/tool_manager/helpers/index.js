@@ -78,3 +78,12 @@ export {
 export {
     createModernButtons
 } from './buttons.helpers.js';
+
+// Base attributes panel utilities
+export {
+    createInitialPropertiesMap,
+    createPanelHeader,
+    createActionButtons,
+    AttributePanelBuilder,
+    getFeatureTypeDisplayName
+} from './base-attributes-panel.js';

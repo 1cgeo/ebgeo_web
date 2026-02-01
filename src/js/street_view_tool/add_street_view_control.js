@@ -13,7 +13,7 @@
 import config from '../config.js';
 import StreetviewMarkers from './streetview_markers.js';
 import SavedPhotosMarkers from './saved_photos_markers.js';
-import { getEventBus } from '../store';
+import { getEventBus, registerControl } from '../store';
 import { EventTypes } from '../events/event_types.js';
 
 class AddStreetViewControl {
@@ -88,8 +88,8 @@ class AddStreetViewControl {
         // Initialize saved photos markers manager
         this.savedPhotosMarkers = new SavedPhotosMarkers(map, this);
 
-        // Expose globally for search integration
-        window.streetViewControl = this;
+        // Register in control registry for search integration
+        registerControl('streetView', this);
 
         // Register PMTiles protocol
         if (typeof PMTiles !== 'undefined' && !this.map._pmtilesRegistered) {

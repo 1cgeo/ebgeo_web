@@ -25,6 +25,8 @@ import { hideLoadingScreen } from './index.js';
 import { ContextMenuControl } from './context-menu';
 import { RectangleSelectionControl } from './selection_tools';
 import { KeyboardShortcuts } from './keyboard';
+import { initKeyboardService360 } from './street_view_tool/services/keyboard_service_360.js';
+import { initKeyboardService3D } from './3d_models_viewer_tool/services/keyboard-service-3d.js';
 import { URLRouter } from './url_router.js';
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
@@ -397,6 +399,11 @@ toolbarManagedControls.forEach(control => {
 // Enable keyboard shortcuts after controls have map reference
 keyboardShortcuts.enable();
 
+// Initialize viewer keyboard services with global shortcuts reference
+// This allows them to disable/re-enable global shortcuts when activated
+initKeyboardService360(keyboardShortcuts);
+initKeyboardService3D(keyboardShortcuts);
+
 // ===== TOOLBAR CONTROL (Reorganized tool groups) =====
 
 const toolbarControl = new ToolbarControl({
@@ -523,8 +530,9 @@ window.addEventListener('error', (event) => {
     console.error('JavaScript error:', event.error);
 });
 
-window.streetViewControl = addStreetViewControl;
-window.modelsViewerControl = add3DModelsViewerControl;
+// Register controls for centralized access (replaces deprecated window.* exports)
+registerControl('streetView', addStreetViewControl);
+registerControl('modelsViewer', add3DModelsViewerControl);
 
 // ===== CLEANUP =====
 

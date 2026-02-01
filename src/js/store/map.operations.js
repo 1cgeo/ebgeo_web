@@ -5,20 +5,31 @@
  */
 
 import {
-    createMapData,
-    getMapData,
-    updateMapData,
-    deleteMapData,
-    getAllMapNames,
     renameMapData,
-    setAppSetting,
-    getAppSetting,
-    getMapOrder as getMapOrderRepo,
-    setMapOrder as setMapOrderRepo,
     setMapNotes as setMapNotesRepo
 } from './repository.js';
+import {
+    getMapDataCompat,
+    updateMapDataCompat,
+    createMapCompat,
+    deleteMapCompat,
+    getAllMapKeysCompat,
+    getSettingCompat,
+    setSettingCompat
+} from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import config from '../config.js';
+
+// Alias for backward compatibility during migration
+const getMapData = getMapDataCompat;
+const updateMapData = updateMapDataCompat;
+const createMapData = createMapCompat;
+const deleteMapData = deleteMapCompat;
+const getAllMapNames = getAllMapKeysCompat;
+const getAppSetting = getSettingCompat;
+const setAppSetting = setSettingCompat;
+const getMapOrderRepo = async () => await getSettingCompat('mapOrder') || [];
+const setMapOrderRepo = async (order) => await setSettingCompat('mapOrder', order);
 
 // ===== DEPENDENCY INJECTION =====
 
