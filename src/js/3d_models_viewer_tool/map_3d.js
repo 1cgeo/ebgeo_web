@@ -1248,3 +1248,11 @@ async function switchTileset(newTilesetId) {
 export function isViewer3DOpen() {
     return cesiumState.isVisible === true;
 }
+
+/**
+ * Returns the Cesium viewer instance.
+ * @returns {Cesium.Viewer|null} The viewer or null if not initialized
+ */
+export function getCesiumViewer() {
+    return cesiumState.viewer;
+}

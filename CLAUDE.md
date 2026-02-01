@@ -55,6 +55,7 @@ src/js/
 │   ├── cesium3d.operations.js  # Cesium 3D CRUD operations
 │   ├── streetview360.operations.js  # Street View 360 operations
 │   ├── catalog.operations.js   # Catalog operations
+│   ├── briefing.operations.js  # Briefing CRUD operations
 │   │
 │   ├── atlas/               # Project management (v2.0)
 │   │   └── atlas.entity.js  # Atlas entity (top-level container)
@@ -118,6 +119,7 @@ src/js/
 │   └── tabs/                # Sidebar tab implementations
 │       ├── maps.tab.js      # Maps management tab
 │       ├── layers.tab.js    # Layers management tab
+│       ├── briefings.tab.js # Briefings management tab
 │       ├── import.tab.js    # Import options tab
 │       └── export.tab.js    # Export options tab
 │
@@ -218,6 +220,26 @@ src/js/
 │   └── services/            # Street view services
 │       └── keyboard_service_360.js
 │
+├── briefing/                # Briefing (Story Map) system
+│   ├── index.js             # Public exports
+│   ├── components/          # UI components
+│   │   ├── slide-list.component.js      # Slide list with drag-drop
+│   │   ├── slide-editor.component.js    # Slide editing form
+│   │   ├── presentation-text-panel.js   # Floating text panel
+│   │   └── presentation-controls.js     # Navigation controls
+│   ├── editor/              # Editor mode
+│   │   └── briefing-editor.control.js   # Full-screen editor
+│   ├── presentation/        # Presentation mode
+│   │   ├── briefing-presenter.control.js # Main presenter
+│   │   └── transition.service.js        # Slide transitions
+│   ├── services/            # Briefing services
+│   │   └── keyboard-service-briefing.js # Keyboard shortcuts
+│   └── validation/          # Validation
+│       └── reference-validator.js       # Reference validation
+│
+├── mode/                    # Application mode management
+│   └── application-mode.manager.js  # Mode state machine
+│
 ├── baselayers/              # Base map configurations
 ├── layers/                  # Layer styles and management
 ├── features_tab/            # Layer/feature list components
@@ -252,16 +274,26 @@ Each tool follows a consistent three-file pattern:
 
 ### UI Architecture
 The UI is organized into distinct components:
-- **SidebarControl** - Collapsible sidebar with tabs (Maps, Layers, Import, Export)
+- **SidebarControl** - Collapsible sidebar with tabs (Maps, Layers, Briefings, Import, Export)
 - **ToolbarControl** - Grouped tool buttons with popup menus
 - **BottomControlsControl** - Feature toggles (terrain, 3D, street view)
 - **BaseLayerSelectorControl** - Base map picker with thumbnails
 - **FeaturePanel** - Integrated in sidebar for feature attributes
 - **AttributeTableControl** - Data grid with filtering and sorting
+- **BriefingEditorControl** - Full-screen briefing editor
+- **BriefingPresenterControl** - Presentation mode with transitions
 
 UI state is managed by `StateManager` which enforces mutual exclusivity:
 - Sidebar and Feature Panel cannot both be open
 - Only one toolbar group popup can be open at a time
+
+### Application Modes
+The application supports different operational modes via `ApplicationModeManager`:
+- `NORMAL` - Default mode for map interaction
+- `BRIEFING_EDIT` - Full-screen briefing editor
+- `BRIEFING_PRESENT` - Presentation mode with transitions
+
+Mode changes trigger UI visibility profiles that show/hide relevant UI elements.
 
 ### Store Pattern
 Central state management with:
@@ -324,6 +356,10 @@ Entity lifecycle events (for sync triggers):
 - `LAYER_CREATED`, `LAYER_MODIFIED`, `LAYER_DELETED`
 - `GROUP_CREATED`, `GROUP_MODIFIED`, `GROUP_DELETED`
 - `MAP_CREATED`, `MAP_MODIFIED`, `MAP_DELETED`
+- `BRIEFING_CREATED`, `BRIEFING_UPDATED`, `BRIEFING_DELETED`
+- `BRIEFING_EDIT_STARTED`, `BRIEFING_EDIT_ENDED`
+- `BRIEFING_PRESENT_STARTED`, `BRIEFING_PRESENT_ENDED`
+- `BRIEFING_SLIDE_CHANGED`
 
 ### Control Registry Pattern
 Centralized access to tool controls:
@@ -527,7 +563,7 @@ function setupEventHandlers() { /* ... */ }
 ## Build Configuration
 
 Vite splits code into chunks:
-- `core` - Store, state, events, layers, terrain, toolbar, modals, catalog, UI utilities
+- `core` - Store, state, events, layers, terrain, toolbar, modals, catalog, UI utilities, briefing, mode
 - `ui-components` - Sidebar, features_tab, attribute_table
 - `draw-tools` - All drawing tools
 - `military-tools` - Military symbology

@@ -55,3 +55,7 @@
 
 /* ===== 13. ATTRIBUTE TABLE ===== */
 @import url('./attribute-table.css');
+
+/* ===== 14. BRIEFING ===== */
+@import url('./briefing/briefing-editor.css');
+@import url('./briefing/briefing-presentation.css');

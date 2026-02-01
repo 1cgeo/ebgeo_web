@@ -32,6 +32,9 @@ import {
     // Street View 360 imports
     getStreetview360DataForExport,
     setStreetview360DataForImport,
+    // Briefing imports
+    getBriefingsForExport,
+    importBriefings,
 } from '../store';
 
 import { IDUtils, showToast, showSuccess, generateUUID } from '../utilities';
@@ -364,6 +367,7 @@ export class ExportImportService {
                 layers: {},
                 cesium3d: {},
                 streetview360: {},
+                briefings: [],
             };
 
             // Export map data with optimization
@@ -452,6 +456,16 @@ export class ExportImportService {
                 } catch (error) {
                     console.warn(`Could not export 360 data from map ${mapName}:`, error);
                 }
+            }
+
+            // Export briefings (not map-specific, global)
+            try {
+                const briefings = await getBriefingsForExport();
+                if (briefings && briefings.length > 0) {
+                    data.briefings = briefings;
+                }
+            } catch (error) {
+                console.warn('Could not export briefings:', error);
             }
 
             // Add data.json to ZIP without indentation and with maximum compression
@@ -668,6 +682,9 @@ export class ExportImportService {
                 // Import street view 360 data additively
                 await this.importStreetview360Additively(data.streetview360, mapNameMapping);
 
+                // Import briefings (additive import - no overwrite)
+                await this.importBriefingsAdditively(data.briefings);
+
             } else {
                 for (const [mapName, mapData] of Object.entries(data.maps)) {
                     // Normalizar estrutura para versão atual
@@ -693,6 +710,9 @@ export class ExportImportService {
 
                 // Import street view 360 data directly (normal import)
                 await this.importStreetview360Directly(data.streetview360);
+
+                // Import briefings (normal import - overwrite if same ID)
+                await this.importBriefingsDirectly(data.briefings);
 
                 // Restore map order if available
                 if (data.mapOrder && Array.isArray(data.mapOrder) && data.mapOrder.length > 0) {
@@ -1117,6 +1137,44 @@ export class ExportImportService {
             'warning',
             5000
         );
+    }
+
+    /**
+     * Imports briefings directly (normal import - overwrites if same ID)
+     * @param {Array} briefingsData - Briefings data to import
+     */
+    async importBriefingsDirectly(briefingsData) {
+        if (!briefingsData || !Array.isArray(briefingsData) || briefingsData.length === 0) {
+            return;
+        }
+
+        try {
+            const result = await importBriefings(briefingsData, { overwrite: true });
+            if (result.imported > 0) {
+                console.log(`Imported ${result.imported} briefing(s), skipped ${result.skipped}`);
+            }
+        } catch (error) {
+            console.error('Error importing briefings directly:', error);
+        }
+    }
+
+    /**
+     * Imports briefings additively (additive import - no overwrite)
+     * @param {Array} briefingsData - Briefings data to import
+     */
+    async importBriefingsAdditively(briefingsData) {
+        if (!briefingsData || !Array.isArray(briefingsData) || briefingsData.length === 0) {
+            return;
+        }
+
+        try {
+            const result = await importBriefings(briefingsData, { overwrite: false });
+            if (result.imported > 0) {
+                console.log(`Imported ${result.imported} briefing(s) additively, skipped ${result.skipped}`);
+            }
+        } catch (error) {
+            console.error('Error importing briefings additively:', error);
+        }
     }
 
     /**

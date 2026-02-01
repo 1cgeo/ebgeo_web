@@ -466,6 +466,72 @@ export const EventTypes = Object.freeze({
      * Emitters: store.js (clearAllDataStore)
      */
     ALL_DATA_CLEARED: 'store:allDataCleared',
+
+    // ===== BRIEFING EVENTS =====
+
+    /**
+     * Emitted when a briefing is created.
+     * Payload: { briefingId: string, briefing: Object }
+     * Subscribers: BriefingsTab
+     * Emitters: briefing.operations.js
+     */
+    BRIEFING_CREATED: 'briefing:created',
+
+    /**
+     * Emitted when a briefing is updated.
+     * Payload: { briefingId: string, briefing: Object }
+     * Subscribers: BriefingsTab
+     * Emitters: briefing.operations.js
+     */
+    BRIEFING_UPDATED: 'briefing:updated',
+
+    /**
+     * Emitted when a briefing is deleted.
+     * Payload: { briefingId: string }
+     * Subscribers: BriefingsTab
+     * Emitters: briefing.operations.js
+     */
+    BRIEFING_DELETED: 'briefing:deleted',
+
+    /**
+     * Emitted when briefing edit mode starts.
+     * Payload: { briefingId: string }
+     * Subscribers: UI components
+     * Emitters: BriefingEditorControl
+     */
+    BRIEFING_EDIT_STARTED: 'briefing:editStarted',
+
+    /**
+     * Emitted when briefing edit mode ends.
+     * Payload: { briefingId: string }
+     * Subscribers: UI components
+     * Emitters: BriefingEditorControl
+     */
+    BRIEFING_EDIT_ENDED: 'briefing:editEnded',
+
+    /**
+     * Emitted when briefing presentation starts.
+     * Payload: { briefingId: string }
+     * Subscribers: UI components
+     * Emitters: BriefingPresenter
+     */
+    BRIEFING_PRESENT_STARTED: 'briefing:presentStarted',
+
+    /**
+     * Emitted when briefing presentation ends.
+     * Payload: { briefingId: string }
+     * Subscribers: UI components
+     * Emitters: BriefingPresenter
+     */
+    BRIEFING_PRESENT_ENDED: 'briefing:presentEnded',
+
+    /**
+     * Emitted when slide changes during presentation.
+     * Payload: { briefingId: string, slideIndex: number, slide: Object }
+     * Subscribers: UI components, presentation controls
+     * Emitters: BriefingPresenter
+     */
+    BRIEFING_SLIDE_CHANGED: 'briefing:slideChanged',
 });
 
 /**

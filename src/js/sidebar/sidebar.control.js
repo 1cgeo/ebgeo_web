@@ -12,6 +12,7 @@ import { FeaturePanel } from './components/feature-panel.js';
 import { SIDEBAR_TABS, SIDEBAR_DIMENSIONS } from './sidebar.constants.js';
 import { MapsTab } from './tabs/maps.tab.js';
 import { LayersTab } from './tabs/layers.tab.js';
+import { BriefingsTab } from './tabs/briefings.tab.js';
 import { ImportTab } from './tabs/import.tab.js';
 import { ExportTab } from './tabs/export.tab.js';
 import { EventTypes } from '../events/event_types.js';
@@ -29,7 +30,8 @@ import {
     getCurrentMapName,
     getAllMapNamesStore,
     getMapOrder,
-    getAllMapBadgeColors
+    getAllMapBadgeColors,
+    getControl
 } from '../store/index.js';
 // Extracted panel modules
 import { createNotesPanelContent } from './panels/notes-panel.js';
@@ -92,6 +94,7 @@ export class SidebarControl {
         this._tabComponents = {
             [SIDEBAR_TABS.MAPAS]: null,
             [SIDEBAR_TABS.CAMADAS]: null,
+            [SIDEBAR_TABS.BRIEFINGS]: null,
             [SIDEBAR_TABS.IMPORTAR]: null,
             [SIDEBAR_TABS.EXPORTAR]: null,
         };
@@ -802,6 +805,43 @@ export class SidebarControl {
                 });
                 break;
 
+            case SIDEBAR_TABS.BRIEFINGS:
+                component = new BriefingsTab({
+                    eventBus: this._eventBus,
+                    stateManager: this._stateManager,
+                });
+                // Wire up edit callback to open the briefing editor
+                component.setOnEditBriefing((briefingId) => {
+                    const briefingEditor = getControl('briefingEditor');
+                    if (briefingEditor) {
+                        // Collapse sidebar before opening editor
+                        this._stateManager.collapseSidebar();
+                        // Set onClose to return to briefings tab
+                        briefingEditor.setOnClose(() => {
+                            this._stateManager.expandSidebar(SIDEBAR_TABS.BRIEFINGS);
+                        });
+                        briefingEditor.open(briefingId);
+                    } else {
+                        console.warn('Briefing editor control not found');
+                    }
+                });
+                // Wire up present callback to start presentation
+                component.setOnPresentBriefing((briefingId) => {
+                    const briefingPresenter = getControl('briefingPresenter');
+                    if (briefingPresenter) {
+                        // Collapse sidebar before starting presentation
+                        this._stateManager.collapseSidebar();
+                        // Set onExit to return to briefings tab
+                        briefingPresenter.setOnExit(() => {
+                            this._stateManager.expandSidebar(SIDEBAR_TABS.BRIEFINGS);
+                        });
+                        briefingPresenter.start(briefingId);
+                    } else {
+                        console.warn('Briefing presenter control not found');
+                    }
+                });
+                break;
+
             case SIDEBAR_TABS.IMPORTAR:
                 component = new ImportTab({
                     importControl: this._importControl,
@@ -842,6 +882,7 @@ export class SidebarControl {
         const tabNames = {
             [SIDEBAR_TABS.MAPAS]: 'Mapas',
             [SIDEBAR_TABS.CAMADAS]: 'Camadas',
+            [SIDEBAR_TABS.BRIEFINGS]: 'Briefings',
             [SIDEBAR_TABS.IMPORTAR]: 'Importar',
             [SIDEBAR_TABS.EXPORTAR]: 'Exportar',
         };

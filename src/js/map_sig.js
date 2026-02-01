@@ -27,6 +27,7 @@ import { RectangleSelectionControl } from './selection_tools';
 import { KeyboardShortcuts } from './keyboard';
 import { initKeyboardService360 } from './street_view_tool/services/keyboard_service_360.js';
 import { initKeyboardService3D } from './3d_models_viewer_tool/services/keyboard-service-3d.js';
+import { initKeyboardServiceBriefing, BriefingEditorControl, BriefingPresenterControl } from './briefing/index.js';
 import { URLRouter } from './url_router.js';
 import { ToolbarControl, ActiveToolChip } from './toolbar';
 import { AttributeTableControl } from './attribute_table';
@@ -403,6 +404,27 @@ keyboardShortcuts.enable();
 // This allows them to disable/re-enable global shortcuts when activated
 initKeyboardService360(keyboardShortcuts);
 initKeyboardService3D(keyboardShortcuts);
+initKeyboardServiceBriefing(keyboardShortcuts);
+
+// ===== BRIEFING EDITOR CONTROL =====
+
+const briefingEditorControl = new BriefingEditorControl({
+    map: map,
+    eventBus: getEventBus(),
+});
+
+// Register briefing editor control for access from other components
+registerControl('briefingEditor', briefingEditorControl);
+
+// ===== BRIEFING PRESENTER CONTROL =====
+
+const briefingPresenterControl = new BriefingPresenterControl({
+    map: map,
+    eventBus: getEventBus(),
+});
+
+// Register briefing presenter control for access from other components
+registerControl('briefingPresenter', briefingPresenterControl);
 
 // ===== TOOLBAR CONTROL (Reorganized tool groups) =====
 

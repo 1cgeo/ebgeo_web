@@ -19,6 +19,7 @@ export const SIDEBAR_DIMENSIONS = {
 export const SIDEBAR_TABS = {
     MAPAS: 'mapas',
     CAMADAS: 'camadas',
+    BRIEFINGS: 'briefings',
     IMPORTAR: 'importar',
     EXPORTAR: 'exportar',
 };
@@ -45,6 +46,11 @@ export const TAB_CONFIG = {
         label: 'Exportar',
         title: 'EBGeo - Exportar',
     },
+    [SIDEBAR_TABS.BRIEFINGS]: {
+        id: SIDEBAR_TABS.BRIEFINGS,
+        label: 'Briefings',
+        title: 'EBGeo - Briefings',
+    },
 };
 
 /**
@@ -60,6 +66,8 @@ export const SIDEBAR_ICONS = {
     upload: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
 
     download: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+
+    presentation: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
 
     // Panel icons
     chevronLeft: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`,

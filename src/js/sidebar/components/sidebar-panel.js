@@ -152,6 +152,7 @@ export class SidebarPanel {
         const iconMap = {
             mapas: SIDEBAR_ICONS.map,
             camadas: SIDEBAR_ICONS.layers,
+            briefings: SIDEBAR_ICONS.presentation,
             importar: SIDEBAR_ICONS.upload,
             exportar: SIDEBAR_ICONS.download,
         };
