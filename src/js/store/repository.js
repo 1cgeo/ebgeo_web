@@ -2,10 +2,15 @@
 
 import localforage from 'localforage';
 import _config from '../config.js';
+import { detectMigrationNeeded, safelyMigrate } from './migration/migration.service.js';
+import { ATLAS_SCHEMA_VERSION } from './atlas/atlas.entity.js';
 
 const SCHEMA_VERSION = '1.7';
 const MIN_SCHEMA_VERSION = '1.3';
 const MAX_SCHEMA_VERSION = '1.7';
+
+// Schema version for v2.0+ (Atlas-based)
+const CURRENT_SCHEMA_VERSION = ATLAS_SCHEMA_VERSION;
 
 const mapStore = localforage.createInstance({ name: 'ebgeo_maps' });
 const imageStore = localforage.createInstance({ name: 'ebgeo_images' });
@@ -569,6 +574,7 @@ const initializeRepository = async () => {
 
         const currentSchemaVersion = await appStore.getItem('schemaVersion');
 
+        // First, run legacy migrations (v1.3 -> v1.7) if needed
         if (currentSchemaVersion === '1.3') {
             await migrateAllMapsTo14();
             await migrateAllMapsTo15();
@@ -589,6 +595,19 @@ const initializeRepository = async () => {
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
         } else if (!currentSchemaVersion) {
             await appStore.setItem('schemaVersion', SCHEMA_VERSION);
+        }
+
+        // Then, run v2.0 migration if needed (adds Atlas, sync metadata, etc.)
+        const { needed } = await detectMigrationNeeded();
+        if (needed) {
+            console.log('Running v2.0 migration...');
+            const result = await safelyMigrate();
+            if (!result.success) {
+                console.error('v2.0 migration failed:', result.error);
+                // Continue with existing data - migration is non-blocking
+            } else {
+                console.log('v2.0 migration completed successfully');
+            }
         }
 
         const allMapNames = await getAllMapNames();
@@ -845,6 +864,7 @@ export {
     SCHEMA_VERSION,
     MIN_SCHEMA_VERSION,
     MAX_SCHEMA_VERSION,
+    CURRENT_SCHEMA_VERSION,
     cleanFeature,
     isInternalProperty,
     compareVersions,

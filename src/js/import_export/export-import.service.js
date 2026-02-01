@@ -6,8 +6,6 @@ import {
     getCurrentBaseLayer,
     setBaseLayer,
     MIN_SCHEMA_VERSION,
-    MAX_SCHEMA_VERSION,
-    SCHEMA_VERSION,
     compareVersions,
     addMap,
     setCurrentMap,
@@ -36,12 +34,93 @@ import {
     setStreetview360DataForImport,
 } from '../store';
 
-import { IDUtils, showToast, showSuccess } from '../utilities';
+import { IDUtils, showToast, showSuccess, generateUUID } from '../utilities';
+import { createSyncMetadata } from '../store/sync/sync-metadata.js';
+import { ATLAS_SCHEMA_VERSION } from '../store/atlas/atlas.entity.js';
 import JSZip from 'jszip';
 import config from '../config.js';
 import { groupManager } from '../tool_manager';
 import { showExportModal } from '../modals/export.modal.js';
 import { EventTypes } from '../events/event_types.js';
+
+/**
+ * Checks if import data is in v1.x format (pre-v2.0).
+ * @param {Object} data - Import data
+ * @returns {boolean} True if v1.x format
+ */
+const isV1Format = (data) => {
+    // v2.0 files will have atlas property or schemaVersion >= 2.0
+    if (data.atlas) return false;
+    if (data.schemaVersion && compareVersions(data.schemaVersion, '2.0') >= 0) return false;
+    // v1.x files use 'version' property with values like '1.7'
+    return data.version && compareVersions(data.version, '2.0') < 0;
+};
+
+/**
+ * Migrates import data from v1.x to v2.0 format.
+ * Adds sync metadata to maps, features, layers, and groups.
+ * @param {Object} data - v1.x format import data
+ * @returns {Object} Migrated data in v2.0 format
+ */
+const migrateImportDataToV2 = (data) => {
+    const migrated = { ...data };
+
+    // Update version
+    migrated.version = ATLAS_SCHEMA_VERSION;
+
+    // Migrate each map
+    if (migrated.maps) {
+        for (const [_mapName, mapData] of Object.entries(migrated.maps)) {
+            // Add sync metadata to map
+            if (!mapData.sync) {
+                mapData.sync = createSyncMetadata(null);
+            }
+
+            // Add ID if missing
+            if (!mapData.id) {
+                mapData.id = generateUUID();
+            }
+
+            // Migrate features
+            if (mapData.features) {
+                for (const [_featureType, features] of Object.entries(mapData.features)) {
+                    if (!Array.isArray(features)) continue;
+                    for (const feature of features) {
+                        if (feature.properties && !feature.properties.sync) {
+                            feature.properties.sync = createSyncMetadata(null);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Migrate layers
+    if (migrated.layers) {
+        for (const [_mapName, layers] of Object.entries(migrated.layers)) {
+            if (!Array.isArray(layers)) continue;
+            for (const layer of layers) {
+                if (!layer.sync) {
+                    layer.sync = createSyncMetadata(null);
+                }
+            }
+        }
+    }
+
+    // Migrate groups
+    if (migrated.groups) {
+        for (const [_mapName, groups] of Object.entries(migrated.groups)) {
+            if (!groups || typeof groups !== 'object') continue;
+            for (const [_groupId, group] of Object.entries(groups)) {
+                if (!group.sync) {
+                    group.sync = createSyncMetadata(null);
+                }
+            }
+        }
+    }
+
+    return migrated;
+};
 
 /**
  * Normalizes mapData structure to current version
@@ -54,6 +133,16 @@ const normalizeMapDataForCurrentVersion = (mapData) => {
     // Ensure coordination_measures exists (v1.4)
     if (!mapData.features.coordination_measures) {
         mapData.features.coordination_measures = [];
+    }
+
+    // Add sync metadata if missing (v2.0)
+    if (!mapData.sync) {
+        mapData.sync = createSyncMetadata(null);
+    }
+
+    // Add ID if missing (v2.0)
+    if (!mapData.id) {
+        mapData.id = generateUUID();
     }
 
     // Validate catalog layers availability
@@ -265,7 +354,7 @@ export class ExportImportService {
             const filteredMapOrder = fullMapOrder.filter(name => mapsToExport.includes(name));
 
             const data = {
-                version: SCHEMA_VERSION,
+                version: ATLAS_SCHEMA_VERSION,  // Use v2.0 for exports
                 currentMap: exportCurrentMap,
                 mapOrder: filteredMapOrder,
                 maps: {},
@@ -482,20 +571,31 @@ export class ExportImportService {
             }
 
             const dataJson = await dataFile.async('string');
-            const data = JSON.parse(dataJson);
+            let data = JSON.parse(dataJson);
 
             if (!data.version) {
                 throw new Error('Arquivo .ebgeo sem informação de versão. Use a versão mais recente da aplicação para gerar o arquivo.');
             }
 
-            if (compareVersions(data.version, MIN_SCHEMA_VERSION) < 0) {
-                throw new Error(`Arquivo .ebgeo incompatível. Versão do arquivo: ${data.version}, versão mínima aceita: ${MIN_SCHEMA_VERSION}`);
-            }
-            if (compareVersions(data.version, MAX_SCHEMA_VERSION) > 0) {
-                throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${MAX_SCHEMA_VERSION}. Atualize a aplicação para usar este arquivo.`);
+            // Migrate v1.x data to v2.0 format if needed
+            if (isV1Format(data)) {
+                console.log(`Migrating import data from v${data.version} to v${ATLAS_SCHEMA_VERSION}`);
+                data = migrateImportDataToV2(data);
             }
 
-            await setSchemaVersion(SCHEMA_VERSION);
+            // Check version compatibility (after potential migration)
+            // Accept v1.3+ and v2.0+
+            const effectiveMinVersion = MIN_SCHEMA_VERSION;
+            const effectiveMaxVersion = ATLAS_SCHEMA_VERSION; // v2.0 is now max
+
+            if (compareVersions(data.version, effectiveMinVersion) < 0) {
+                throw new Error(`Arquivo .ebgeo incompatível. Versão do arquivo: ${data.version}, versão mínima aceita: ${effectiveMinVersion}`);
+            }
+            if (compareVersions(data.version, effectiveMaxVersion) > 0) {
+                throw new Error(`Arquivo .ebgeo incompatível - versão muito recente. Versão do arquivo: ${data.version}, versão máxima aceita: ${effectiveMaxVersion}. Atualize a aplicação para usar este arquivo.`);
+            }
+
+            await setSchemaVersion(ATLAS_SCHEMA_VERSION);
 
             let importedMapsCount = 0;
             let totalUnavailableCatalogLayers = 0;
@@ -522,11 +622,22 @@ export class ExportImportService {
                         counter++;
                     }
 
-                    mapNameMapping.set(originalMapName, finalMapName);
                     newlyCreatedMaps.add(finalMapName);
 
-                    // Regenerate feature IDs
-                    const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName);
+                    // Create layer ID mapping BEFORE regenerating feature IDs
+                    // This ensures features get the correct new layer IDs
+                    const layerIdMapping = new Map();
+                    const originalLayers = data.layers?.[originalMapName] || [];
+                    for (const layer of originalLayers) {
+                        if (layer.id === 'default') {
+                            layerIdMapping.set('default', 'default');
+                        } else {
+                            layerIdMapping.set(layer.id, IDUtils.generateUniqueId());
+                        }
+                    }
+
+                    // Regenerate feature IDs with layer ID mapping
+                    const { newMapData } = await IDUtils.regenerateMapIds(mapData, finalMapName, layerIdMapping);
 
                     // Normalizar estrutura para versão atual
                     const { unavailableCatalogLayersCount } = normalizeMapDataForCurrentVersion(newMapData);
@@ -540,6 +651,9 @@ export class ExportImportService {
                     await addMap(finalMapName, newMapData, originalColorUsage, originalNotes);
                     existingMapNames.push(finalMapName);
                     importedMapsCount++;
+
+                    // Store mapping with layer ID mapping for importLayersAdditively
+                    mapNameMapping.set(originalMapName, { finalMapName, layerIdMapping });
                 }
 
                 // Import groups with updated map names
@@ -665,7 +779,8 @@ export class ExportImportService {
 
         try {
             for (const [originalMapName, mapGroups] of Object.entries(groupsData)) {
-                const finalMapName = mapNameMapping.get(originalMapName);
+                const mappingEntry = mapNameMapping.get(originalMapName);
+                const finalMapName = mappingEntry?.finalMapName || mappingEntry;
 
                 if (!finalMapName || !mapGroups || Object.keys(mapGroups).length === 0) {
                     continue;
@@ -752,7 +867,7 @@ export class ExportImportService {
     /**
      * Imports layers additively (additive import - with conflict resolution)
      * @param {Object} layersData - Layers data to import
-     * @param {Map} mapNameMapping - Mapping of original to final map names
+     * @param {Map} mapNameMapping - Mapping of original to final map names (with layerIdMapping)
      * @param {Set} newlyCreatedMaps - Set of map names that were just created during import
      */
     async importLayersAdditively(layersData, mapNameMapping, newlyCreatedMaps) {
@@ -762,7 +877,9 @@ export class ExportImportService {
 
         try {
             for (const [originalMapName, layers] of Object.entries(layersData)) {
-                const finalMapName = mapNameMapping.get(originalMapName);
+                const mappingEntry = mapNameMapping.get(originalMapName);
+                const finalMapName = mappingEntry?.finalMapName || mappingEntry;
+                const layerIdMapping = mappingEntry?.layerIdMapping || null;
 
                 if (!finalMapName || !layers || !Array.isArray(layers) || layers.length === 0) {
                     continue;
@@ -772,8 +889,9 @@ export class ExportImportService {
                 // (don't try to merge with the auto-created default layer)
                 if (newlyCreatedMaps.has(finalMapName)) {
                     const processedLayers = layers.map(layer => {
-                        // Generate new ID to avoid conflicts, but keep 'default' if present
-                        const newId = layer.id === 'default' ? 'default' : IDUtils.generateUniqueId();
+                        // Use the pre-generated layer ID from layerIdMapping if available
+                        // This ensures features already have the correct layerId
+                        const newId = layerIdMapping?.get(layer.id) || (layer.id === 'default' ? 'default' : IDUtils.generateUniqueId());
                         return {
                             ...layer,
                             id: newId
@@ -789,8 +907,9 @@ export class ExportImportService {
                 const existingIds = new Set(existingLayers.map(l => l.id));
 
                 const processedLayers = layers.map(layer => {
-                    let newId = layer.id;
-                    if (existingIds.has(newId) || newId === 'default') {
+                    // Use pre-generated ID from mapping if available, otherwise generate new one
+                    let newId = layerIdMapping?.get(layer.id) || layer.id;
+                    if (existingIds.has(newId) || (newId === 'default' && !layerIdMapping)) {
                         newId = IDUtils.generateUniqueId();
                     }
 
@@ -856,7 +975,8 @@ export class ExportImportService {
 
         try {
             for (const [originalMapName, data] of Object.entries(cesium3dData)) {
-                const finalMapName = mapNameMapping.get(originalMapName);
+                const mappingEntry = mapNameMapping.get(originalMapName);
+                const finalMapName = mappingEntry?.finalMapName || mappingEntry;
 
                 if (!finalMapName || !data) {
                     continue;
@@ -903,7 +1023,8 @@ export class ExportImportService {
 
         try {
             for (const [originalMapName, data] of Object.entries(streetview360Data)) {
-                const finalMapName = mapNameMapping.get(originalMapName);
+                const mappingEntry = mapNameMapping.get(originalMapName);
+                const finalMapName = mappingEntry?.finalMapName || mappingEntry;
 
                 if (!finalMapName || !data) {
                     continue;
