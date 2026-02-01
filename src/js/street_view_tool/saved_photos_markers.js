@@ -369,6 +369,13 @@ class SavedPhotosMarkers {
 
         const feature = e.features[0];
         const photoName = feature.properties.photoName;
+        const coordinates = feature.geometry.coordinates.slice();
+
+        // Fly to marker to center it on the map
+        this.map.flyTo({
+            center: coordinates,
+            duration: 500
+        });
 
         // Open the photo directly (no preview popup)
         await this.openPhoto(photoName);

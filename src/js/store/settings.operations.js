@@ -45,6 +45,17 @@ export const setMapNotes = async (mapName, notes) => {
     await setMapNotesRepo(targetMap, notes);
 };
 
+/**
+ * Checks if a map has notes (title or description not empty).
+ *
+ * @param {string} [mapName=null] - Map name (null = current)
+ * @returns {Promise<boolean>} True if map has notes
+ */
+export const hasMapNotes = async (mapName = null) => {
+    const notes = await getMapNotes(mapName);
+    return !!(notes && (notes.title?.trim() || notes.description?.trim()));
+};
+
 // ===== GRID STYLE =====
 
 /**

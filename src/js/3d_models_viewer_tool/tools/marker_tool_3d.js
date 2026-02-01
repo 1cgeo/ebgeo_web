@@ -257,9 +257,12 @@ export function deactivateMarkerTool() {
 
     if (currentViewer) {
         currentViewer.canvas.style.cursor = '';
+
+        // Re-setup passive handler to continue handling marker clicks/deselection
+        setupMarkerSelectionHandler(currentViewer);
     }
 
-    selectedMarkerId = null;
+    // Don't clear selectedMarkerId here - let the passive handler manage selection state
 }
 
 /**
@@ -334,10 +337,20 @@ async function createNewMarker(position) {
     const entity = createMarkerEntity(marker);
     if (entity) {
         markerEntities.set(marker.id, entity);
+
+        // Immediately select the new marker (highlight it visually)
+        selectedMarkerId = marker.id;
+        if (entity.billboard) {
+            entity.billboard.scale = new Cesium.ConstantProperty(1.2);
+        }
+
+        // Set Cesium's selected entity to show the selection indicator
+        if (currentViewer && !currentViewer.isDestroyed()) {
+            currentViewer.selectedEntity = entity;
+        }
     }
 
-    // Select the new marker and open panel
-    selectMarker(marker.id);
+    // Emit marker clicked event to open panel
     emitMarkerClicked(marker);
 
     // Deactivate the marker tool after adding
@@ -385,6 +398,16 @@ function selectMarker(markerId) {
         const entity = markerEntities.get(markerId);
         if (entity.billboard) {
             entity.billboard.scale = new Cesium.ConstantProperty(1.2);
+        }
+
+        // Set Cesium's selected entity to show the selection indicator
+        if (currentViewer && !currentViewer.isDestroyed()) {
+            currentViewer.selectedEntity = entity;
+        }
+    } else {
+        // Clear Cesium's selected entity when deselecting
+        if (currentViewer && !currentViewer.isDestroyed()) {
+            currentViewer.selectedEntity = undefined;
         }
     }
 }

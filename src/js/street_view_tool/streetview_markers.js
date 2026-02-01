@@ -373,6 +373,12 @@ class StreetviewMarkers {
             coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
         }
 
+        // Fly to marker to center it on the map
+        this.map.flyTo({
+            center: coordinates,
+            duration: 500
+        });
+
         this.createPreviewPopup(coordinates, markerId, name, dataCaptura, previewThumbnail, photoName);
     }
 

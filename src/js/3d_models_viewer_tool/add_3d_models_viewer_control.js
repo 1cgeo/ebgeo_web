@@ -594,6 +594,12 @@ class Add3DModelsViewerControl {
         }
 
         const coordinates = feature.geometry.coordinates.slice();
+
+        // Fly to marker to center it on the map
+        this.map.flyTo({
+            center: coordinates,
+            duration: 500
+        });
         const name = feature.properties.name;
         const dataCaptura = feature.properties.dataCaptura;
         const previewVideo = feature.properties.previewVideo;

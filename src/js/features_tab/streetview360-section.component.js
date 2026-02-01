@@ -6,9 +6,11 @@
  * allowing navigation to features in 360 viewer.
  */
 
-import { getAllMarkers360, getAllOrientations, getControl } from '../store';
+import { getAllMarkers360, getAllOrientations, getControl, removeMarkers360ByPhoto, clearOrientation } from '../store';
 import { getStateManager, getEventBus } from '../store/services.js';
 import { EventTypes } from '../events/index.js';
+import { showConfirm } from '../modals/confirm.modal.js';
+import { showSuccess, showError } from '../utilities/toast_service.js';
 
 /**
  * Icons used in the component.
@@ -19,7 +21,8 @@ const ICONS = {
     ORIENTATION: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4"/><path d="M12 18v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="m16.24 16.24 2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="m4.93 19.07 2.83-2.83"/><path d="m16.24 7.76 2.83-2.83"/></svg>`,
     CHEVRON_DOWN: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
     CHEVRON_RIGHT: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`,
-    EXTERNAL: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`
+    EXTERNAL: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`,
+    TRASH: `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`
 };
 
 // Module state for collapse states
@@ -176,6 +179,9 @@ function createPhotoItem(photoName, features, eventBus) {
             <span class="streetview360-photo-icon">${ICONS.CAMERA_360}</span>
             <span class="streetview360-photo-name" title="${photoName}">${photoName}</span>
             <span class="streetview360-feature-count">${features.length}</span>
+            <button class="streetview360-delete-all" title="Deletar todas as feições">
+                ${ICONS.TRASH}
+            </button>
             <button class="streetview360-open-viewer" title="Abrir no visualizador 360">
                 ${ICONS.EXTERNAL}
             </button>
@@ -227,6 +233,14 @@ function attachPhotoItemEvents(item, photoName, features, _eventBus) {
         openPhotoInViewer(photoName);
     });
 
+    // Delete all features button
+    const deleteAllBtn = item.querySelector('.streetview360-delete-all');
+    deleteAllBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const hasOrientation = features.some(f => f.type === 'orientation');
+        await handleDeleteAllFeatures(photoName, features.length, hasOrientation);
+    });
+
     // Feature clicks
     const featureItems = item.querySelectorAll('.streetview360-feature-item');
     featureItems.forEach((featureItem) => {
@@ -244,6 +258,46 @@ function attachPhotoItemEvents(item, photoName, features, _eventBus) {
             }
         });
     });
+}
+
+/**
+ * Handles the deletion of all features for a photo.
+ * Shows a confirmation modal before deleting.
+ * @param {string} photoName - Photo name
+ * @param {number} featureCount - Number of features to delete
+ * @param {boolean} hasOrientation - Whether the photo has a saved orientation
+ */
+async function handleDeleteAllFeatures(photoName, featureCount, hasOrientation = false) {
+    const orientationText = hasOrientation ? ' (incluindo orientação salva)' : '';
+    const confirmed = await showConfirm(
+        `Deletar todas as feições de "${photoName}"?`,
+        {
+            message: `${featureCount} feição(ões) serão permanentemente excluídas${orientationText}.\nEsta ação não pode ser desfeita.`,
+            confirmText: 'Deletar',
+            destructive: true
+        }
+    );
+
+    if (!confirmed) return;
+
+    try {
+        // Remove all markers for this photo
+        const markersRemoved = await removeMarkers360ByPhoto(photoName);
+
+        // Also clear orientation if it exists
+        let orientationCleared = false;
+        if (hasOrientation) {
+            orientationCleared = await clearOrientation(photoName);
+        }
+
+        const totalDeleted = markersRemoved + (orientationCleared ? 1 : 0);
+        if (totalDeleted > 0) {
+            showSuccess(`${totalDeleted} feição(ões) deletadas com sucesso!`);
+        }
+    } catch (error) {
+        console.error('Error deleting features:', error);
+        showError('Erro ao deletar feições.');
+    }
 }
 
 /**

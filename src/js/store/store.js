@@ -315,6 +315,7 @@ export {
 export {
     getMapNotes,
     setMapNotes,
+    hasMapNotes,
     getGridStyle,
     setGridStyle,
     getMapAnalysisLayersStates,
@@ -346,6 +347,7 @@ export {
     getCameraPosition,
     hasSavedCameraPosition,
     clearCameraPosition,
+    getAllCameraPositions,
     addMarker,
     getMarkers,
     getAllMarkers,

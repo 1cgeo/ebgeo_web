@@ -24,6 +24,7 @@ import {
     getMapOrder,
     getLayers,
     hasMapSavedPosition,
+    hasMapNotes,
 } from '../../store/index.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '../../utilities/index.js';
@@ -335,10 +336,13 @@ export class MapsTab {
             }
         });
 
-        // Build map data with saved position info
+        // Build map data with saved position and notes info
         for (const mapName of sortedMaps) {
-            const hasSavedPosition = await hasMapSavedPosition(mapName);
-            const item = this._createMapListItem(mapName, hasSavedPosition);
+            const [hasSavedPosition, hasNotes] = await Promise.all([
+                hasMapSavedPosition(mapName),
+                hasMapNotes(mapName)
+            ]);
+            const item = this._createMapListItem(mapName, hasSavedPosition, hasNotes);
             this._mapsList.appendChild(item);
         }
 
@@ -351,9 +355,10 @@ export class MapsTab {
      * @private
      * @param {string} mapName - Map name
      * @param {boolean} hasSavedPosition - Whether the map has a saved position
+     * @param {boolean} hasNotes - Whether the map has notes
      * @returns {HTMLElement}
      */
-    _createMapListItem(mapName, hasSavedPosition = false) {
+    _createMapListItem(mapName, hasSavedPosition = false, hasNotes = false) {
         const isSelected = mapName === this._currentMapName;
 
         const item = document.createElement('div');
@@ -364,6 +369,11 @@ export class MapsTab {
         // Build position indicator
         const positionIndicator = hasSavedPosition
             ? `<span class="map-position-indicator" title="Posicao salva">${MAPS_ICONS.mapPin}</span>`
+            : '';
+
+        // Build notes indicator
+        const notesIndicator = hasNotes
+            ? `<span class="map-notes-indicator" title="Tem notas">${MAPS_ICONS.fileText}</span>`
             : '';
 
         // Build meta text
@@ -383,6 +393,7 @@ export class MapsTab {
                 <div class="map-list-name">
                     ${this._escapeHtml(mapName)}
                     ${positionIndicator}
+                    ${notesIndicator}
                 </div>
                 <div class="map-list-meta">${metaText}</div>
             </div>
