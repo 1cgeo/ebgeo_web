@@ -383,7 +383,7 @@ class AddCoordinationMeasureControl extends BaseControl {
   };
 
   createCoordinationMeasureFeature = async (lngLat) => {
-    const featureId = IDUtils.generateUniqueId();
+    const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
     const featureName = await IDUtils.generateFeatureName(
       "coordination_measure",
       this.map
@@ -407,7 +407,7 @@ class AddCoordinationMeasureControl extends BaseControl {
 
     const feature = {
       type: "Feature",
-      id: Date.now().toString(),
+      id: geoJsonId,
       properties: {
         ...AddCoordinationMeasureControl.DEFAULT_PROPERTIES,
         layerId: getActiveLayerIdSync(),

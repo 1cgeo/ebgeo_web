@@ -179,6 +179,18 @@ export async function deleteMapCompat(mapNameOrId) {
 }
 
 /**
+ * Renames a map and transfers all associated data.
+ * Compatible with legacy renameMapData(oldName, newName) signature.
+ * @param {string} oldName - Current map name
+ * @param {string} newName - New map name
+ * @returns {Promise<void>}
+ */
+export async function renameMapCompat(oldName, newName) {
+    const repo = getRepository();
+    await repo.renameMap(oldName, newName);
+}
+
+/**
  * Gets a setting from app storage.
  * Compatible with legacy getAppSetting(key) signature.
  * @param {string} key - Setting key
@@ -365,4 +377,65 @@ export async function removeColorUsageCompat(mapNameOrId) {
     const repo = getRepository();
     const key = `color_usage_${mapNameOrId}`;
     await repo.deleteSetting(key);
+}
+
+// ===== MAP NOTES OPERATIONS =====
+
+/**
+ * Gets map notes.
+ * Compatible with legacy getMapNotes(mapName) signature.
+ * @param {string} mapNameOrId - Map name or ID
+ * @returns {Promise<{title: string, description: string}>}
+ */
+export async function getMapNotesCompat(mapNameOrId) {
+    const repo = getRepository();
+    return await repo.getMapNotes(mapNameOrId);
+}
+
+/**
+ * Saves map notes.
+ * Compatible with legacy setMapNotes(mapName, notes) signature.
+ * @param {string} mapNameOrId - Map name or ID
+ * @param {{title: string, description: string}} notes - Notes data
+ * @returns {Promise<void>}
+ */
+export async function setMapNotesCompat(mapNameOrId, notes) {
+    const repo = getRepository();
+    await repo.saveMapNotes(mapNameOrId, notes);
+}
+
+/**
+ * Removes map notes.
+ * Compatible with legacy removeMapNotes(mapName) signature.
+ * @param {string} mapNameOrId - Map name or ID
+ * @returns {Promise<void>}
+ */
+export async function removeMapNotesCompat(mapNameOrId) {
+    const repo = getRepository();
+    await repo.deleteMapNotes(mapNameOrId);
+}
+
+// ===== GRID STYLE OPERATIONS =====
+
+/**
+ * Gets grid style for a map.
+ * Compatible with legacy getGridStyle(mapName) signature.
+ * @param {string} mapNameOrId - Map name or ID
+ * @returns {Promise<Object|null>}
+ */
+export async function getGridStyleCompat(mapNameOrId) {
+    const repo = getRepository();
+    return await repo.getGridStyle(mapNameOrId);
+}
+
+/**
+ * Saves grid style for a map.
+ * Compatible with legacy setGridStyle(mapName, gridStyle) signature.
+ * @param {string} mapNameOrId - Map name or ID
+ * @param {Object} gridStyle - Grid style data
+ * @returns {Promise<void>}
+ */
+export async function setGridStyleCompat(mapNameOrId, gridStyle) {
+    const repo = getRepository();
+    await repo.saveGridStyle(mapNameOrId, gridStyle);
 }

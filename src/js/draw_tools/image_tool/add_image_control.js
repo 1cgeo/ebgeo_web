@@ -361,7 +361,7 @@ class AddImageControl extends BaseControl {
   createImageFeature = (lngLat, imageId, width, height) => {
     return {
       type: "Feature",
-      id: Date.now().toString(),
+      id: IDUtils.generateGeoJSONId(),
       properties: {
         ...AddImageControl.DEFAULT_PROPERTIES,
         width,

@@ -14,7 +14,8 @@ export {
     getEventBus,
     getStateManager,
     getLayerManager,
-    getGroupManager
+    getGroupManager,
+    getMapResolver
 } from './services.js';
 
 // Control Registry (centralized access to tool controls)
@@ -24,8 +25,9 @@ export {
 } from './control.registry.js';
 
 // Repository exports (for internal module usage)
-// NOTE: These are compatibility wrappers that route through LocalRepository
-export { memoryStore, getDefaultLayer, getEmptyCesium3dData } from './repository.js';
+// NOTE: These are from the new modular structure
+export { memoryStore } from './memory-store.js';
+export { getDefaultLayer, getEmptyCesium3dData } from './repository.utils.js';
 export {
     getMapDataCompat as getMapData,
     updateMapDataCompat as updateMapData,

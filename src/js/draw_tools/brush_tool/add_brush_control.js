@@ -429,12 +429,12 @@ class AddBrushControl extends BaseControl {
         const currentZoom = this.map.getZoom();
         const calculatedLineWidth = AddBrushControl.DEFAULT_PROPERTIES.lineWidth;
 
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('brush', this.map);
 
         const feature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: {
                 ...AddBrushControl.DEFAULT_PROPERTIES,
                 layerId: getActiveLayerIdSync(),

@@ -5,7 +5,7 @@
  * Handles camera positions and markers for 3D models.
  */
 
-import { memoryStore } from './repository.js';
+import { memoryStore } from './memory-store.js';
 import { getCesium3dCompat, setCesium3dCompat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events';
@@ -15,6 +15,13 @@ import {
 } from '../utilities/image_utils.js';
 import { createSyncMetadata, touchSyncMetadata, isActive } from './sync/sync-metadata.js';
 import { generateUUID } from '../utilities/uuid.js';
+import {
+    logMarker3dOperation,
+    logMeasurement3dOperation,
+    logViewshed3dOperation,
+    logCameraPosition3dOperation,
+    OperationType
+} from './sync/index.js';
 
 // Alias for backward compatibility during migration
 const getCesium3dData = getCesium3dCompat;
@@ -93,17 +100,37 @@ export const saveCameraPosition = async (tilesetId, position, orientation, mapNa
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
+    // Check if this is an update or create
+    const existingPosition = data.cameraPositions[tilesetId];
+    const isUpdate = !!existingPosition;
+    const previousData = existingPosition ? { ...existingPosition } : null;
+
+    const sync = existingPosition?.sync
+        ? touchSyncMetadata(existingPosition.sync)
+        : createSyncMetadata(null);
+
     data.cameraPositions[tilesetId] = {
+        id: existingPosition?.id || generateUUID(),
         tilesetId,
         position,
         orientation,
-        savedAt: Date.now()
+        savedAt: Date.now(),
+        sync
     };
 
     await saveCesium3dData(targetMap, data);
 
     if (deps.eventBus) {
         deps.eventBus.emit(EventTypes.CAMERA_3D_SAVED, { tilesetId, mapName: targetMap });
+    }
+
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    const newPosition = data.cameraPositions[tilesetId];
+    if (isUpdate) {
+        logCameraPosition3dOperation(OperationType.UPDATE, newPosition.id, mapId, newPosition, previousData);
+    } else {
+        logCameraPosition3dOperation(OperationType.CREATE, newPosition.id, mapId, newPosition);
     }
 };
 
@@ -143,9 +170,19 @@ export const clearCameraPosition = async (tilesetId, mapName = null) => {
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
-    if (data.cameraPositions[tilesetId]) {
+    const existingPosition = data.cameraPositions[tilesetId];
+    if (existingPosition) {
+        // Capture for logging
+        const previousData = { ...existingPosition };
+        const positionId = existingPosition.id || tilesetId;
+
         delete data.cameraPositions[tilesetId];
         await saveCesium3dData(targetMap, data);
+
+        // Log operation for sync
+        const mapId = mapManager.getCurrentMapId();
+        logCameraPosition3dOperation(OperationType.DELETE, positionId, mapId, null, previousData);
+
         return true;
     }
     return false;
@@ -266,6 +303,10 @@ export const addMarker = async (tilesetId, markerData, mapName = null) => {
         deps.eventBus.emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
     }
 
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logMarker3dOperation(OperationType.CREATE, marker.id, mapId, marker);
+
     return marker;
 };
 
@@ -326,6 +367,9 @@ export const updateMarker = async (markerId, updates, mapName = null) => {
 
     const marker = data.markers[markerIndex];
 
+    // Capture old state for logging
+    const oldMarker = { ...marker };
+
     // Update properties
     if (updates.properties) {
         marker.properties = { ...marker.properties, ...updates.properties };
@@ -347,6 +391,10 @@ export const updateMarker = async (markerId, updates, mapName = null) => {
         deps.eventBus.emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
     }
 
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logMarker3dOperation(OperationType.UPDATE, markerId, mapId, marker, oldMarker);
+
     return marker;
 };
 
@@ -361,6 +409,9 @@ export const removeMarker = async (markerId, mapName = null) => {
     const targetMap = getTargetMapName(mapName);
     const data = await getCesium3dDataWithCache(targetMap);
 
+    // Find marker for logging before removal
+    const deletedMarker = data.markers.find(m => m.id === markerId);
+
     const initialLength = data.markers.length;
     data.markers = data.markers.filter(m => m.id !== markerId);
 
@@ -370,6 +421,11 @@ export const removeMarker = async (markerId, mapName = null) => {
         if (deps.eventBus) {
             deps.eventBus.emit(EventTypes.MARKERS_3D_CHANGED, { mapName: targetMap });
         }
+
+        // Log operation for sync
+        const mapId = mapManager.getCurrentMapId();
+        logMarker3dOperation(OperationType.DELETE, markerId, mapId, null, deletedMarker);
+
         return true;
     }
     return false;
@@ -672,6 +728,10 @@ export const addMeasurement = async (tilesetId, measurementData, mapName = null)
         deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
     }
 
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logMeasurement3dOperation(OperationType.CREATE, measurement.id, mapId, measurement);
+
     return measurement;
 };
 
@@ -734,6 +794,9 @@ export const updateMeasurement = async (measurementId, updates, mapName = null) 
 
     const measurement = data.measurements[measurementIndex];
 
+    // Capture old state for logging
+    const oldMeasurement = { ...measurement };
+
     // Update properties
     if (updates.properties) {
         measurement.properties = { ...measurement.properties, ...updates.properties };
@@ -747,6 +810,10 @@ export const updateMeasurement = async (measurementId, updates, mapName = null) 
     if (deps.eventBus) {
         deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
     }
+
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logMeasurement3dOperation(OperationType.UPDATE, measurementId, mapId, measurement, oldMeasurement);
 
     return measurement;
 };
@@ -764,6 +831,9 @@ export const removeMeasurement = async (measurementId, mapName = null) => {
 
     if (!data.measurements) return false;
 
+    // Find measurement for logging before removal
+    const deletedMeasurement = data.measurements.find(m => m.id === measurementId);
+
     const initialLength = data.measurements.length;
     data.measurements = data.measurements.filter(m => m.id !== measurementId);
 
@@ -773,6 +843,11 @@ export const removeMeasurement = async (measurementId, mapName = null) => {
         if (deps.eventBus) {
             deps.eventBus.emit(EventTypes.MEASUREMENTS_3D_CHANGED, { mapName: targetMap });
         }
+
+        // Log operation for sync
+        const mapId = mapManager.getCurrentMapId();
+        logMeasurement3dOperation(OperationType.DELETE, measurementId, mapId, null, deletedMeasurement);
+
         return true;
     }
     return false;
@@ -963,6 +1038,10 @@ export const addViewshed = async (tilesetId, viewshedData, mapName = null) => {
         deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
     }
 
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logViewshed3dOperation(OperationType.CREATE, viewshed.id, mapId, viewshed);
+
     return viewshed;
 };
 
@@ -1025,6 +1104,9 @@ export const updateViewshed = async (viewshedId, updates, mapName = null) => {
 
     const viewshed = data.viewsheds[viewshedIndex];
 
+    // Capture old state for logging
+    const oldViewshed = { ...viewshed };
+
     // Update properties
     if (updates.properties) {
         viewshed.properties = { ...viewshed.properties, ...updates.properties };
@@ -1043,6 +1125,10 @@ export const updateViewshed = async (viewshedId, updates, mapName = null) => {
         deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
     }
 
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logViewshed3dOperation(OperationType.UPDATE, viewshedId, mapId, viewshed, oldViewshed);
+
     return viewshed;
 };
 
@@ -1059,6 +1145,9 @@ export const removeViewshed = async (viewshedId, mapName = null) => {
 
     if (!data.viewsheds) return false;
 
+    // Find viewshed for logging before removal
+    const deletedViewshed = data.viewsheds.find(v => v.id === viewshedId);
+
     const initialLength = data.viewsheds.length;
     data.viewsheds = data.viewsheds.filter(v => v.id !== viewshedId);
 
@@ -1068,6 +1157,11 @@ export const removeViewshed = async (viewshedId, mapName = null) => {
         if (deps.eventBus) {
             deps.eventBus.emit(EventTypes.VIEWSHEDS_3D_CHANGED, { mapName: targetMap });
         }
+
+        // Log operation for sync
+        const mapId = mapManager.getCurrentMapId();
+        logViewshed3dOperation(OperationType.DELETE, viewshedId, mapId, null, deletedViewshed);
+
         return true;
     }
     return false;

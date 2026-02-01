@@ -676,7 +676,7 @@ export class SearchBarComponent {
     async _saveApiResultAsFeature(result) {
         try {
             const original = result.original || {};
-            const featureId = IDUtils.generateUniqueId();
+            const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
 
             // Build attributes from API result
             const attributes = {};
@@ -694,7 +694,7 @@ export class SearchBarComponent {
 
             const feature = {
                 type: 'Feature',
-                id: Date.now().toString(),
+                id: geoJsonId,
                 properties: {
                     id: featureId,
                     layerId: getActiveLayerIdSync(),

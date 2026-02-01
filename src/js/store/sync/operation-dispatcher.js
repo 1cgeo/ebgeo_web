@@ -199,6 +199,74 @@ export async function logBriefingOperation(opType, briefingId, data = null, prev
     await logOperation(EntityType.BRIEFING, opType, briefingId, null, data, previousData);
 }
 
+/**
+ * Logs a 3D camera position operation.
+ * @param {string} opType - Operation type
+ * @param {string} positionId - Position ID (typically tilesetId)
+ * @param {string} mapId - Map ID
+ * @param {Object|null} data - Camera position data
+ * @param {Object|null} previousData - Previous camera position data
+ */
+export async function logCameraPosition3dOperation(opType, positionId, mapId, data = null, previousData = null) {
+    await logOperation(EntityType.CAMERA_POSITION_3D, opType, positionId, mapId, data, previousData);
+}
+
+/**
+ * Logs a map position operation.
+ * @param {string} opType - Operation type
+ * @param {string} mapId - Map ID
+ * @param {Object|null} data - Map position data
+ * @param {Object|null} previousData - Previous map position data
+ */
+export async function logMapPositionOperation(opType, mapId, data = null, previousData = null) {
+    await logOperation(EntityType.MAP_POSITION, opType, mapId, mapId, data, previousData);
+}
+
+/**
+ * Logs a base layer change operation.
+ * @param {string} opType - Operation type
+ * @param {string} mapId - Map ID
+ * @param {Object|null} data - Base layer data
+ * @param {Object|null} previousData - Previous base layer data
+ */
+export async function logBaseLayerOperation(opType, mapId, data = null, previousData = null) {
+    await logOperation(EntityType.BASE_LAYER, opType, mapId, mapId, data, previousData);
+}
+
+/**
+ * Logs a map notes operation.
+ * @param {string} opType - Operation type
+ * @param {string} mapId - Map ID
+ * @param {Object|null} data - Notes data
+ * @param {Object|null} previousData - Previous notes data
+ */
+export async function logMapNotesOperation(opType, mapId, data = null, previousData = null) {
+    await logOperation(EntityType.MAP_NOTES, opType, mapId, mapId, data, previousData);
+}
+
+/**
+ * Logs a catalog layer operation.
+ * @param {string} opType - Operation type
+ * @param {string} layerId - Catalog layer ID
+ * @param {string} mapId - Map ID
+ * @param {Object|null} data - Catalog layer data
+ * @param {Object|null} previousData - Previous catalog layer data
+ */
+export async function logCatalogLayerOperation(opType, layerId, mapId, data = null, previousData = null) {
+    await logOperation(EntityType.CATALOG_LAYER, opType, layerId, mapId, data, previousData);
+}
+
+/**
+ * Logs a grid style operation.
+ * @param {string} opType - Operation type
+ * @param {string} mapId - Map ID
+ * @param {Object|null} data - Grid style data
+ * @param {Object|null} previousData - Previous grid style data
+ */
+export async function logGridStyleOperation(opType, mapId, data = null, previousData = null) {
+    await logOperation(EntityType.GRID_STYLE, opType, mapId, mapId, data, previousData);
+}
+
 // Re-export types and queue for external access
 export { EntityType, OperationType };
 export { operationQueue };

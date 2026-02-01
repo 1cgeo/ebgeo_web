@@ -5,29 +5,33 @@
  */
 
 import {
-    renameMapData,
-    setMapNotes as setMapNotesRepo
-} from './repository.js';
-import {
     getMapDataCompat,
     updateMapDataCompat,
     createMapCompat,
     deleteMapCompat,
+    renameMapCompat,
     getAllMapKeysCompat,
     getSettingCompat,
-    setSettingCompat
+    setSettingCompat,
+    setMapNotesCompat
 } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
+import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
+import { logMapOperation, logMapPositionOperation, logBaseLayerOperation, OperationType } from './sync/index.js';
+import { generateUUID } from '../utilities/uuid.js';
+import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
 
 // Alias for backward compatibility during migration
 const getMapData = getMapDataCompat;
 const updateMapData = updateMapDataCompat;
 const createMapData = createMapCompat;
 const deleteMapData = deleteMapCompat;
+const renameMapData = renameMapCompat;
 const getAllMapNames = getAllMapKeysCompat;
 const getAppSetting = getSettingCompat;
 const setAppSetting = setSettingCompat;
+const setMapNotesRepo = setMapNotesCompat;
 const getMapOrderRepo = async () => await getSettingCompat('mapOrder') || [];
 const setMapOrderRepo = async (order) => await setSettingCompat('mapOrder', order);
 
@@ -121,6 +125,10 @@ export const addMap = async (mapName, mapData = null, colorUsageData = null, not
         await setMapNotesRepo(mapName, notesData);
     }
 
+    // Log operation for sync (use map ID from resolver if available)
+    const mapId = mapResolver.resolveToId(mapName) || mapName;
+    logMapOperation(OperationType.CREATE, mapId, newMapData);
+
     return newMapData;
 };
 
@@ -136,6 +144,9 @@ export const removeMap = async (mapName) => {
         console.warn(`Tentativa de remover mapa inexistente: ${mapName}`);
         return { success: false, reason: 'MAP_NOT_FOUND' };
     }
+
+    // Get map ID before deletion for logging
+    const mapId = mapResolver.resolveToId(mapName) || mapName;
 
     const currentMapName = mapManager.getCurrentMapName();
     const isCurrentMap = mapName === currentMapName;
@@ -163,6 +174,9 @@ export const removeMap = async (mapName) => {
         }
     }
 
+    // Log operation for sync
+    logMapOperation(OperationType.DELETE, mapId, null, mapData);
+
     return {
         success: true,
         wasCurrentMap: isCurrentMap,
@@ -179,8 +193,15 @@ export const removeMap = async (mapName) => {
  * @returns {Promise<void>}
  */
 export const renameMap = async (oldName, newName) => {
+    // Get map data for logging before rename
+    const oldMapData = await getMapData(oldName);
+    const mapId = mapResolver.resolveToId(oldName) || oldName;
+
     await renameMapData(oldName, newName);
     mapManager.renameMapInMemory(oldName, newName);
+
+    // Update MapResolverService mapping
+    mapResolver.renameMap(oldName, newName);
 
     // Transfer badge color to new name
     const colors = await getAppSetting('mapBadgeColors');
@@ -193,6 +214,10 @@ export const renameMap = async (oldName, newName) => {
     if (mapManager.getCurrentMapName() === newName) {
         await deps.groupManager.loadGroupsToMemory(newName);
     }
+
+    // Log operation for sync
+    const newMapData = await getMapData(newName);
+    logMapOperation(OperationType.UPDATE, mapId, newMapData, oldMapData);
 };
 
 /**
@@ -223,6 +248,25 @@ export const getCurrentMapName = async () => {
  */
 export const getCurrentMapNameSync = () => {
     return mapManager.getCurrentMapName();
+};
+
+/**
+ * Gets the current map UUID synchronously.
+ * Uses MapResolverService for name → ID resolution.
+ *
+ * @returns {string} Current map UUID (or name if resolver not initialized)
+ */
+export const getCurrentMapIdSync = () => {
+    return mapManager.getCurrentMapId();
+};
+
+/**
+ * Gets both current map name and ID synchronously.
+ *
+ * @returns {{name: string, id: string}} Object with name and id
+ */
+export const getCurrentMapInfoSync = () => {
+    return mapManager.getCurrentMapInfo();
 };
 
 /**
@@ -285,8 +329,16 @@ export const setBaseLayer = async (layer, mapName = null) => {
 
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
+
+    // Capture old state for logging
+    const previousBaseLayer = currentMapData.baseLayer;
+
     currentMapData.baseLayer = layer;
     await updateMapData(targetMap, currentMapData);
+
+    // Log operation for sync
+    const mapId = mapResolver.resolveToId(targetMap) || targetMap;
+    logBaseLayerOperation(OperationType.UPDATE, mapId, { baseLayer: layer }, { baseLayer: previousBaseLayer });
 };
 
 /**
@@ -303,12 +355,45 @@ export const setBaseLayer = async (layer, mapName = null) => {
 export const updateMapPosition = async (center_lat, center_long, zoom, bearing, pitch, mapName = null) => {
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
+
+    // Check if this is an update or create
+    const existingPosition = currentMapData.savedPosition;
+    const isUpdate = !!existingPosition?.id;
+    const previousData = existingPosition ? { ...existingPosition } : null;
+
+    const sync = existingPosition?.sync
+        ? touchSyncMetadata(existingPosition.sync)
+        : createSyncMetadata(null);
+
+    // Store position as a proper entity with UUID and sync metadata
+    currentMapData.savedPosition = {
+        id: existingPosition?.id || generateUUID(),
+        center_lat,
+        center_long,
+        zoom,
+        bearing,
+        pitch,
+        savedAt: Date.now(),
+        sync
+    };
+
+    // Keep legacy fields for backward compatibility
     currentMapData.center_lat = center_lat;
     currentMapData.center_long = center_long;
     currentMapData.zoom = zoom;
     currentMapData.bearing = bearing;
     currentMapData.pitch = pitch;
+
     await updateMapData(targetMap, currentMapData);
+
+    // Log operation for sync
+    const mapId = mapResolver.resolveToId(targetMap) || targetMap;
+    const newPosition = currentMapData.savedPosition;
+    if (isUpdate) {
+        logMapPositionOperation(OperationType.UPDATE, mapId, newPosition, previousData);
+    } else {
+        logMapPositionOperation(OperationType.CREATE, mapId, newPosition);
+    }
 };
 
 /**
@@ -353,6 +438,15 @@ export const clearMapPosition = async (mapName = null) => {
     const targetMapName = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMapName);
 
+    // Capture for logging before clearing
+    const existingPosition = currentMapData.savedPosition;
+    const previousData = existingPosition ? { ...existingPosition } : null;
+    const positionId = existingPosition?.id;
+
+    // Clear the saved position entity
+    delete currentMapData.savedPosition;
+
+    // Clear legacy fields
     currentMapData.center_lat = null;
     currentMapData.center_long = null;
     currentMapData.zoom = null;
@@ -360,6 +454,12 @@ export const clearMapPosition = async (mapName = null) => {
     currentMapData.pitch = null;
 
     await updateMapData(targetMapName, currentMapData);
+
+    // Log operation for sync (only if there was a saved position)
+    if (positionId) {
+        const mapId = mapResolver.resolveToId(targetMapName) || targetMapName;
+        logMapPositionOperation(OperationType.DELETE, mapId, null, previousData);
+    }
 };
 
 // ===== UNDO/REDO =====

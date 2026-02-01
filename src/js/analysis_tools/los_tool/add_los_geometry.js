@@ -2,6 +2,7 @@
 
 import { BaseGeometry } from '../../tool_manager';
 import { getTerrainElevation } from '../../terrain';
+import { IDUtils } from '../../utilities/id_utils.js';
 
 /**
  * Line of Sight Geometry Operations
@@ -322,7 +323,7 @@ class AddLOSGeometry extends BaseGeometry {
 
         return {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: IDUtils.generateGeoJSONId(),
             properties: {
                 ...properties,
                 observerHeight: options.observerHeight,

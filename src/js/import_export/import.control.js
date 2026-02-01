@@ -569,13 +569,16 @@ class AddImportControl {
      * @returns {Object} Prepared feature with complete properties
      */
     async prepareFeatureForImportAsync(feature, targetType, typeCounters, layerId) {
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = this.generateImportName(targetType, typeCounters);
 
         // Extract custom attributes from imported properties (non-system properties)
         const extractedAttributes = userDataManager.extractAttributesFromImport(
             feature.properties
         );
+
+        // Store geoJsonId for use in the return statement
+        this._lastGeoJsonId = geoJsonId;
 
         const baseProperties = {
             ...this.getDefaultProperties(targetType),
@@ -621,7 +624,7 @@ class AddImportControl {
 
         return {
             type: 'Feature',
-            id: Date.now().toString() + Math.random(),
+            id: this._lastGeoJsonId,
             properties: baseProperties,
             geometry: feature.geometry
         };

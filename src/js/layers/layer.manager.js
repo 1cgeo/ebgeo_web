@@ -10,6 +10,7 @@ import {
 } from '../store';
 import { IDUtils } from '../utilities';
 import { EventTypes } from '../events';
+import { logLayerOperation, OperationType } from '../store/sync/index.js';
 
 /**
  * Central layer manager
@@ -154,18 +155,24 @@ class LayerManager {
             layerName = IDUtils.generateUniqueLayerName(existingLayers, 'Nova Camada');
         }
 
+        const now = Date.now();
         const newLayer = {
             id: layerId,
             name: layerName,
             visible: true,
             locked: false,
             order: order,
-            createdAt: Date.now()
+            createdAt: now,
+            updatedAt: now,
+            version: 1
         };
 
         this.memoryStore.layers[targetMap].set(layerId, newLayer);
         this._persistLayersAsync(targetMap);
         this._notifyLayersChanged();
+
+        // Log operation for sync
+        logLayerOperation(OperationType.CREATE, layerId, targetMap, newLayer);
 
         return newLayer;
     }
@@ -190,18 +197,24 @@ class LayerManager {
             layerName = IDUtils.generateUniqueLayerName(existingLayers, 'Importação');
         }
 
+        const now = Date.now();
         const newLayer = {
             id: layerId,
             name: layerName,
             visible: true,
             locked: false,
             order: order,
-            createdAt: Date.now()
+            createdAt: now,
+            updatedAt: now,
+            version: 1
         };
 
         this.memoryStore.layers[targetMap].set(layerId, newLayer);
         this._persistLayersAsync(targetMap);
         // No event emission - will be emitted after import is complete
+
+        // Log operation for sync
+        logLayerOperation(OperationType.CREATE, layerId, targetMap, newLayer);
 
         return newLayer;
     }
@@ -222,6 +235,9 @@ class LayerManager {
         if (!layersMap.has(layerId)) {
             throw new Error(`Layer ${layerId} not found.`);
         }
+
+        // Capture layer data before deletion for logging
+        const deletedLayer = layersMap.get(layerId);
 
         const isLastLayer = layersMap.size <= 1;
         let createdDefaultLayer = null;
@@ -260,6 +276,9 @@ class LayerManager {
         this._persistActiveLayerAsync(targetMap);
         this._notifyLayersChanged();
 
+        // Log operation for sync
+        logLayerOperation(OperationType.DELETE, layerId, targetMap, null, deletedLayer);
+
         return {
             success: true,
             deletedLayerId: layerId,
@@ -282,9 +301,17 @@ class LayerManager {
             throw new Error(`Layer ${layerId} not found.`);
         }
 
+        // Capture old state for logging
+        const oldLayer = { ...layer };
+
         layer.name = newName;
+        layer.updatedAt = Date.now();
+        layer.version = (layer.version || 0) + 1;
         this._persistLayersAsync(targetMap);
         this._notifyLayersChanged();
+
+        // Log operation for sync
+        logLayerOperation(OperationType.UPDATE, layerId, targetMap, layer, oldLayer);
 
         return layer;
     }
@@ -334,9 +361,17 @@ class LayerManager {
             throw new Error(`Layer ${layerId} not found.`);
         }
 
+        // Capture old state for logging
+        const oldLayer = { ...layer };
+
         layer.visible = visible;
+        layer.updatedAt = Date.now();
+        layer.version = (layer.version || 0) + 1;
         this._persistLayersAsync(targetMap);
         this._notifyLayersChanged();
+
+        // Log operation for sync
+        logLayerOperation(OperationType.UPDATE, layerId, targetMap, layer, oldLayer);
 
         return layer;
     }
@@ -356,9 +391,17 @@ class LayerManager {
             throw new Error(`Layer ${layerId} not found.`);
         }
 
+        // Capture old state for logging
+        const oldLayer = { ...layer };
+
         layer.locked = locked;
+        layer.updatedAt = Date.now();
+        layer.version = (layer.version || 0) + 1;
         this._persistLayersAsync(targetMap);
         this._notifyLayersChanged();
+
+        // Log operation for sync
+        logLayerOperation(OperationType.UPDATE, layerId, targetMap, layer, oldLayer);
 
         return layer;
     }
@@ -433,13 +476,16 @@ class LayerManager {
             const duplicatedLayers = [];
             let newActiveId = 'default';
 
+            const now = Date.now();
             sourceLayers.forEach(layer => {
                 const newId = layer.id === 'default' ? 'default' : IDUtils.generateUniqueId('layer');
 
                 duplicatedLayers.push({
                     ...layer,
                     id: newId,
-                    createdAt: Date.now()
+                    createdAt: now,
+                    updatedAt: now,
+                    version: 1
                 });
 
                 idMapping.set(layer.id, newId);

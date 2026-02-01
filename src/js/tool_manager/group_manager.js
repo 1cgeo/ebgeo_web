@@ -4,6 +4,7 @@ import { memoryStore, setMapGroups, getMapGroupsFromDB } from '../store';
 import { generateUUID } from '../utilities/uuid.js';
 import { EventTypes } from '../events';
 import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from '../store/sync/sync-metadata.js';
+import { logGroupOperation, OperationType } from '../store/sync/index.js';
 
 /**
  * Central manager for feature groups
@@ -62,6 +63,9 @@ class GroupManager {
         this._saveGroupsToDBAsync(targetMap);
 
         this._notifyGroupsChanged();
+
+        // Log operation for sync
+        logGroupOperation(OperationType.CREATE, groupId, targetMap, newGroup);
 
         return newGroup;
     }
@@ -123,10 +127,13 @@ class GroupManager {
             sync: createSyncMetadata(null)
         };
 
-        // Soft delete old groups
+        // Soft delete old groups and log deletions
         groupIds.forEach(groupId => {
             if (groupsCache[groupId]) {
+                const oldGroup = { ...groupsCache[groupId] };
                 groupsCache[groupId].sync = markDeleted(groupsCache[groupId].sync);
+                // Log delete operation for old group
+                logGroupOperation(OperationType.DELETE, groupId, targetMap, null, oldGroup);
             }
         });
 
@@ -135,6 +142,9 @@ class GroupManager {
         this._saveGroupsToDBAsync(targetMap);
 
         this._notifyGroupsChanged();
+
+        // Log create operation for the combined group
+        logGroupOperation(OperationType.CREATE, newGroupId, targetMap, combinedGroup);
 
         return combinedGroup;
     }
@@ -158,12 +168,18 @@ class GroupManager {
 
         const features = [...group.features];
 
+        // Capture old state for logging
+        const oldGroup = { ...group };
+
         // Soft delete the group
         group.sync = markDeleted(group.sync);
 
         this._saveGroupsToDBAsync(targetMap);
 
         this._notifyGroupsChanged();
+
+        // Log operation for sync
+        logGroupOperation(OperationType.DELETE, groupId, targetMap, null, oldGroup);
 
         return features;
     }
@@ -182,10 +198,16 @@ class GroupManager {
             throw new Error(`Grupo ${groupId} não encontrado.`);
         }
 
+        // Capture old state for logging
+        const oldGroup = { ...group };
+
         group[property] = value;
         group.sync = touchSyncMetadata(group.sync);
 
         this._saveGroupsToDBAsync(targetMap);
+
+        // Log operation for sync
+        logGroupOperation(OperationType.UPDATE, groupId, targetMap, group, oldGroup);
 
         return group;
     }

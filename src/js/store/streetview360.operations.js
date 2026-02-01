@@ -6,13 +6,18 @@
  * Follows the same patterns as cesium3d.operations.js.
  */
 
-import { memoryStore } from './repository.js';
+import { memoryStore } from './memory-store.js';
 import { getStreetview360Compat, setStreetview360Compat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { EventTypes } from '../events/event_types.js';
 import { validateImageFile, processImageFile } from '../utilities/image_utils.js';
 import { createSyncMetadata, touchSyncMetadata, markDeleted, isActive } from './sync/sync-metadata.js';
 import { generateUUID } from '../utilities/uuid.js';
+import {
+    logOrientation360Operation,
+    logMarker360Operation,
+    OperationType
+} from './sync/index.js';
 
 // Alias for backward compatibility during migration
 const getStreetview360Data = getStreetview360Compat;
@@ -68,6 +73,9 @@ export async function saveOrientation(photoName, orientation, mapName = null) {
 
     // Check if orientation already exists (update vs create)
     const existingOrientation = data.orientations[photoName];
+    const isUpdate = !!existingOrientation?.sync;
+    const oldOrientation = existingOrientation ? { ...existingOrientation } : null;
+
     const sync = existingOrientation?.sync
         ? touchSyncMetadata(existingOrientation.sync)
         : createSyncMetadata(null);
@@ -90,6 +98,15 @@ export async function saveOrientation(photoName, orientation, mapName = null) {
     }
 
     deps.eventBus?.emit(EventTypes.ORIENTATION_360_SAVED, { photoName, mapName: targetMap });
+
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    const newOrientation = data.orientations[photoName];
+    if (isUpdate) {
+        logOrientation360Operation(OperationType.UPDATE, newOrientation.id, mapId, newOrientation, oldOrientation);
+    } else {
+        logOrientation360Operation(OperationType.CREATE, newOrientation.id, mapId, newOrientation);
+    }
 }
 
 /**
@@ -146,6 +163,9 @@ export async function clearOrientation(photoName, mapName = null) {
         return false;
     }
 
+    // Capture old state for logging
+    const oldOrientation = { ...orientation };
+
     // Soft delete: mark as deleted instead of removing
     orientation.sync = markDeleted(orientation.sync);
     await setStreetview360Data(targetMap, data);
@@ -156,6 +176,11 @@ export async function clearOrientation(photoName, mapName = null) {
     }
 
     deps.eventBus?.emit(EventTypes.ORIENTATION_360_CLEARED, { photoName, mapName: targetMap });
+
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logOrientation360Operation(OperationType.DELETE, orientation.id, mapId, null, oldOrientation);
+
     return true;
 }
 
@@ -237,6 +262,11 @@ export async function addMarker360(photoName, markerData, mapName = null) {
     }
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
+
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logMarker360Operation(OperationType.CREATE, marker.id, mapId, marker);
+
     return marker;
 }
 
@@ -321,6 +351,9 @@ export async function updateMarker360(markerId, updates, mapName = null) {
         return null;
     }
 
+    // Capture previous state for operation logging
+    const previousData = JSON.parse(JSON.stringify(marker));
+
     // Merge updates
     if (updates.properties) {
         marker.properties = { ...marker.properties, ...updates.properties };
@@ -344,6 +377,9 @@ export async function updateMarker360(markerId, updates, mapName = null) {
             memoryStore.streetview360.markers[memIndex] = marker;
         }
     }
+
+    // Log operation for sync
+    await logMarker360Operation(OperationType.UPDATE, markerId, targetMap, marker, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
     return marker;
@@ -371,6 +407,9 @@ export async function removeMarker360(markerId, mapName = null) {
         return false;
     }
 
+    // Capture previous state for operation logging
+    const previousData = JSON.parse(JSON.stringify(marker));
+
     // Soft delete: mark as deleted instead of removing
     marker.sync = markDeleted(marker.sync);
     await setStreetview360Data(targetMap, data);
@@ -382,6 +421,9 @@ export async function removeMarker360(markerId, mapName = null) {
             memoryStore.streetview360.markers[memIndex] = marker;
         }
     }
+
+    // Log operation for sync
+    await logMarker360Operation(OperationType.DELETE, markerId, targetMap, null, previousData);
 
     deps.eventBus?.emit(EventTypes.MARKERS_360_CHANGED, { mapName: targetMap });
     return true;

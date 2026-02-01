@@ -16,6 +16,30 @@ export class IDUtils {
     }
 
     /**
+     * Generate both IDs needed for a GeoJSON feature.
+     * - `id`: UUID v4 for properties.id (primary identifier for sync/backend)
+     * - `geoJsonId`: Timestamp-based for GeoJSON id field (MapLibre compatibility)
+     *
+     * Usage:
+     * ```javascript
+     * const { id, geoJsonId } = IDUtils.generateFeatureIds();
+     * const feature = {
+     *     type: 'Feature',
+     *     id: geoJsonId,
+     *     properties: { id, nome: 'My Feature' }
+     * };
+     * ```
+     *
+     * @returns {{id: string, geoJsonId: number}} Object with both IDs
+     */
+    static generateFeatureIds() {
+        return {
+            id: generateUUID(),
+            geoJsonId: Date.now() + Math.floor(Math.random() * 10000)
+        };
+    }
+
+    /**
      * Generate unique layer name based on existing layers
      * @param {Array} existingLayers - Array of existing layer objects with 'name' property
      * @param {string} baseName - Base name for the layer (default: 'Nova Camada')

@@ -485,7 +485,7 @@ class AddLOSControl extends BaseControl {
 
         try {
             const coordinates = [this.startPoint, this.endPoint];
-            const featureId = IDUtils.generateUniqueId();
+            const { id: featureId } = IDUtils.generateFeatureIds();
             const featureName = await IDUtils.generateFeatureName('los', this.map);
 
             const properties = {

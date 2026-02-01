@@ -232,12 +232,12 @@ class AddPointControl extends BaseControl {
             return null;
         }
 
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('point', this.map);
 
         const feature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: {
                 ...AddPointControl.DEFAULT_PROPERTIES,
                 layerId: getActiveLayerIdSync(),

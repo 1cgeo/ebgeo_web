@@ -5,9 +5,16 @@
  * Manages persistence of catalog layers added to the map.
  */
 
-import { getMapData, updateMapData } from './repository.js';
+import { getMapDataCompat, updateMapDataCompat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import config from '../config.js';
+import { generateUUID } from '../utilities/uuid.js';
+import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
+import { logCatalogLayerOperation, OperationType } from './sync/index.js';
+
+// Alias for backward compatibility during migration
+const getMapData = getMapDataCompat;
+const updateMapData = updateMapDataCompat;
 
 /**
  * Catalog layer status.
@@ -66,8 +73,19 @@ export const addCatalogLayer = async (layer, mapName = null) => {
     // Avoid duplicates
     const exists = mapData.catalogLayers.some(l => l.id === layer.id);
     if (!exists) {
-        mapData.catalogLayers.push(layer);
+        // Add UUID and sync metadata if not present
+        const layerWithMetadata = {
+            ...layer,
+            id: layer.id || generateUUID(),
+            sync: createSyncMetadata(null)
+        };
+
+        mapData.catalogLayers.push(layerWithMetadata);
         await updateMapData(targetMap, mapData);
+
+        // Log operation for sync
+        const mapId = mapManager.getCurrentMapId();
+        logCatalogLayerOperation(OperationType.CREATE, layerWithMetadata.id, mapId, layerWithMetadata);
     }
 };
 
@@ -83,8 +101,17 @@ export const removeCatalogLayer = async (layerId, mapName = null) => {
     const mapData = await getMapData(targetMap);
 
     if (mapData.catalogLayers) {
+        // Capture layer data before removal for logging
+        const removedLayer = mapData.catalogLayers.find(l => l.id === layerId);
+
         mapData.catalogLayers = mapData.catalogLayers.filter(l => l.id !== layerId);
         await updateMapData(targetMap, mapData);
+
+        // Log operation for sync
+        if (removedLayer) {
+            const mapId = mapManager.getCurrentMapId();
+            logCatalogLayerOperation(OperationType.DELETE, layerId, mapId, null, removedLayer);
+        }
     }
 };
 
@@ -103,8 +130,21 @@ export const updateCatalogLayer = async (layerId, updates, mapName = null) => {
     if (mapData.catalogLayers) {
         const layer = mapData.catalogLayers.find(l => l.id === layerId);
         if (layer) {
+            // Capture old state for logging
+            const oldLayer = { ...layer };
+
             Object.assign(layer, updates);
+
+            // Update sync metadata
+            if (layer.sync) {
+                layer.sync = touchSyncMetadata(layer.sync);
+            }
+
             await updateMapData(targetMap, mapData);
+
+            // Log operation for sync
+            const mapId = mapManager.getCurrentMapId();
+            logCatalogLayerOperation(OperationType.UPDATE, layerId, mapId, layer, oldLayer);
         }
     }
 };

@@ -738,7 +738,7 @@ async function convertLineToArrow(lineFeature, selectionManager, uiManager) {
         }
 
         // Generate new ID and name for arrow
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('arrow', map);
 
         // Get default arrow properties
@@ -773,7 +773,7 @@ async function convertLineToArrow(lineFeature, selectionManager, uiManager) {
 
         const arrowFeature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: arrowProperties,
             geometry: arrowGeometry
         };
@@ -831,7 +831,7 @@ async function convertLineToBoundary(lineFeature, selectionManager, uiManager) {
         }
 
         // Generate new ID and name for boundary
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('boundary', map);
 
         // Get default boundary properties
@@ -865,7 +865,7 @@ async function convertLineToBoundary(lineFeature, selectionManager, uiManager) {
 
         const boundaryFeature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: boundaryProperties,
             geometry: boundaryGeometry
         };

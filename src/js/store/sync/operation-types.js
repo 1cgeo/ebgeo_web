@@ -22,10 +22,20 @@ export const EntityType = Object.freeze({
     MARKER_3D: 'marker3d',
     MEASUREMENT_3D: 'measurement3d',
     VIEWSHED_3D: 'viewshed3d',
+    CAMERA_POSITION_3D: 'cameraPosition3d',
 
     // StreetView 360 entities
     ORIENTATION_360: 'orientation360',
     MARKER_360: 'marker360',
+
+    // Map position
+    MAP_POSITION: 'mapPosition',
+
+    // Map settings
+    BASE_LAYER: 'baseLayer',
+    MAP_NOTES: 'mapNotes',
+    GRID_STYLE: 'gridStyle',
+    CATALOG_LAYER: 'catalogLayer',
 
     // Briefing entities
     BRIEFING: 'briefing',

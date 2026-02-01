@@ -351,13 +351,13 @@ class AddOccupiedFrontControl extends BaseControl {
             return;
         }
 
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('occupied_front', this.map);
         const coordinates = [p1, p2, p3];
 
         const feature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: {
                 ...AddOccupiedFrontControl.DEFAULT_PROPERTIES,
                 layerId: getActiveLayerIdSync(),

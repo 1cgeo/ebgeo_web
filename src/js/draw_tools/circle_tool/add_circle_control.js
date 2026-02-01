@@ -300,11 +300,11 @@ class AddCircleControl extends BaseControl {
             this.drawPoints = [];
             return;
         }
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('circle', this.map);
         const feature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: {
                 ...AddCircleControl.DEFAULT_PROPERTIES,
                 layerId: getActiveLayerIdSync(),

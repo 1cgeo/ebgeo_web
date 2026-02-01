@@ -12,6 +12,7 @@
 import { localRepository } from './repositories/local.repository.js';
 import { generateUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
+import { logBriefingOperation, logOperation, EntityType, OperationType } from './sync/index.js';
 
 // ============================================================================
 // CONSTANTS
@@ -137,6 +138,10 @@ export async function createBriefing(data) {
     }
 
     await localRepository.saveBriefing(briefing.id, briefing);
+
+    // Log operation for sync
+    logBriefingOperation(OperationType.CREATE, briefing.id, briefing);
+
     return briefing;
 }
 
@@ -153,6 +158,9 @@ export async function updateBriefing(briefingId, data) {
         return null;
     }
 
+    // Capture previous state for logging
+    const previousData = JSON.parse(JSON.stringify(existing));
+
     const updated = {
         ...existing,
         ...data,
@@ -165,6 +173,10 @@ export async function updateBriefing(briefingId, data) {
     updated.createdAt = existing.createdAt;
 
     await localRepository.saveBriefing(briefingId, updated);
+
+    // Log operation for sync
+    logBriefingOperation(OperationType.UPDATE, briefingId, updated, previousData);
+
     return updated;
 }
 
@@ -179,7 +191,12 @@ export async function deleteBriefing(briefingId) {
     if (!existing) {
         return false;
     }
+
     await localRepository.deleteBriefing(briefingId);
+
+    // Log operation for sync
+    logBriefingOperation(OperationType.DELETE, briefingId, null, existing);
+
     return true;
 }
 
@@ -230,7 +247,8 @@ export async function addSlide(briefingId, slideData = {}, position = null) {
     const slide = {
         ...createEmptySlide(order),
         ...slideData,
-        id: slideData.id || generateUUID()
+        id: slideData.id || generateUUID(),
+        sync: createSyncMetadata(null)
     };
 
     // Insert at position or append
@@ -246,6 +264,10 @@ export async function addSlide(briefingId, slideData = {}, position = null) {
     }
 
     await updateBriefing(briefingId, { slides: briefing.slides });
+
+    // Log slide operation for sync
+    logOperation(EntityType.SLIDE, OperationType.CREATE, slide.id, briefingId, slide);
+
     return slide;
 }
 
@@ -268,13 +290,21 @@ export async function updateSlide(briefingId, slideId, slideData) {
         return null;
     }
 
+    // Capture previous state for logging
+    const previousSlide = { ...briefing.slides[slideIndex] };
+
     briefing.slides[slideIndex] = {
         ...briefing.slides[slideIndex],
         ...slideData,
-        id: slideId // Ensure ID is not changed
+        id: slideId, // Ensure ID is not changed
+        sync: touchSyncMetadata(briefing.slides[slideIndex].sync || createSyncMetadata(null))
     };
 
     await updateBriefing(briefingId, { slides: briefing.slides });
+
+    // Log slide operation for sync
+    logOperation(EntityType.SLIDE, OperationType.UPDATE, slideId, briefingId, briefing.slides[slideIndex], previousSlide);
+
     return briefing.slides[slideIndex];
 }
 
@@ -296,6 +326,9 @@ export async function removeSlide(briefingId, slideId) {
         return false;
     }
 
+    // Capture slide data before removal for logging
+    const removedSlide = { ...briefing.slides[slideIndex] };
+
     briefing.slides.splice(slideIndex, 1);
 
     // Reorder remaining slides
@@ -304,6 +337,10 @@ export async function removeSlide(briefingId, slideId) {
     }
 
     await updateBriefing(briefingId, { slides: briefing.slides });
+
+    // Log slide operation for sync
+    logOperation(EntityType.SLIDE, OperationType.DELETE, slideId, briefingId, null, removedSlide);
+
     return true;
 }
 

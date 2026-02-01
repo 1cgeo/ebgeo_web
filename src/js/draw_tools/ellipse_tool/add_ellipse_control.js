@@ -385,12 +385,12 @@ class AddEllipseControl extends BaseControl {
             return;
         }
 
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('ellipse', this.map);
 
         const feature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: {
                 ...AddEllipseControl.DEFAULT_PROPERTIES,
                 layerId: getActiveLayerIdSync(),

@@ -466,7 +466,7 @@ class AddBoundaryControl extends BaseControl {
             return;
         }
 
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('boundary', this.map);
 
         const currentZoom = this.map.getZoom();
@@ -490,7 +490,7 @@ class AddBoundaryControl extends BaseControl {
 
         const feature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: properties,
             geometry: geometry
         };

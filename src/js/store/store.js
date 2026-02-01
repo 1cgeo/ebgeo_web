@@ -13,8 +13,10 @@ import {
     MAX_SCHEMA_VERSION,
     cleanFeature,
     isInternalProperty,
-    compareVersions,
-    resetMemoryStore,
+    compareVersions
+} from './repository.utils.js';
+import { resetMemoryStore } from './memory-store.js';
+import {
     initializeRepository,
     clearAllMapData,
     clearAllImageData,
@@ -270,6 +272,8 @@ export {
     setCurrentMap,
     getCurrentMapName,
     getCurrentMapNameSync,
+    getCurrentMapIdSync,
+    getCurrentMapInfoSync,
     setSchemaVersion,
     getMapDataStore,
     getCurrentBaseLayer,

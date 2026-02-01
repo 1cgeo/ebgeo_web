@@ -470,13 +470,13 @@ class AddPolygonControl extends BaseControl {
             return;
         }
 
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('polygon', this.map);
         const coordinates = [...this.drawPoints];
 
         const feature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: {
                 ...AddPolygonControl.DEFAULT_PROPERTIES,
                 layerId: getActiveLayerIdSync(),

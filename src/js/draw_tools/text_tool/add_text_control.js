@@ -353,7 +353,7 @@ class AddTextControl extends BaseControl {
     }
 
     createTextFeature = async (lngLat) => {
-        const featureId = IDUtils.generateUniqueId();
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
         const featureName = await IDUtils.generateFeatureName('text', this.map);
 
         const currentZoom = this.map.getZoom();
@@ -372,7 +372,7 @@ class AddTextControl extends BaseControl {
 
         const feature = {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: geoJsonId,
             properties: {
                 ...AddTextControl.DEFAULT_PROPERTIES,
                 layerId: getActiveLayerIdSync(),

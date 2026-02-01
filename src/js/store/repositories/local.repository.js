@@ -146,13 +146,16 @@ function getEmptyStreetview360Data() {
  * @returns {Object} Default layer
  */
 function getDefaultLayer() {
+    const now = Date.now();
     return {
         id: 'default',
         name: 'Padrão',
         visible: true,
         locked: false,
         order: 0,
-        createdAt: Date.now()
+        createdAt: now,
+        updatedAt: now,
+        version: 1
     };
 }
 
@@ -341,6 +344,94 @@ export class LocalRepository {
             await layerStore.removeItem(`activeLayer_${mapIdOrName}`);
             await cesium3dStore.removeItem(`cesium3d_${mapIdOrName}`);
             await streetview360Store.removeItem(`streetview360_${mapIdOrName}`);
+        }
+    }
+
+    /**
+     * Renames a map by updating its name property.
+     * The map UUID (key) remains unchanged.
+     *
+     * For v2.0+, maps are keyed by UUID and this method only updates the display name.
+     * For legacy data (keyed by name), it transfers all associated data to maintain
+     * backward compatibility during migration.
+     *
+     * @param {string} mapIdOrOldName - Map UUID or legacy name
+     * @param {string} newName - New display name
+     * @returns {Promise<void>}
+     */
+    async renameMap(mapIdOrOldName, newName) {
+        // Try to resolve to the actual map key (could be UUID or legacy name)
+        const resolvedKey = await this._resolveMapKey(mapIdOrOldName);
+        const mapData = await mapStore.getItem(resolvedKey);
+        if (!mapData) return;
+
+        // Check if the map is using UUID-based storage (v2.0+)
+        const isUuidBased = mapData.id && mapData.id === resolvedKey;
+
+        if (isUuidBased) {
+            // v2.0+: Simply update the name property, keep UUID as key
+            mapData.name = newName;
+            mapData.sync = touchSyncMetadata(mapData.sync);
+            await mapStore.setItem(resolvedKey, mapData);
+        } else {
+            // Legacy: Transfer data from old name key to new name key
+            // This path handles legacy data during migration
+            mapData.name = newName;
+            mapData.sync = touchSyncMetadata(mapData.sync);
+            await mapStore.setItem(newName, mapData);
+            await mapStore.removeItem(resolvedKey);
+
+            // Transfer color usage
+            const colorData = await appStore.getItem(`color_usage_${resolvedKey}`);
+            if (colorData && Object.keys(colorData).length > 0) {
+                await appStore.setItem(`color_usage_${newName}`, colorData);
+                await appStore.removeItem(`color_usage_${resolvedKey}`);
+            }
+
+            // Transfer notes
+            const notesData = await appStore.getItem(`map_notes_${resolvedKey}`);
+            if (notesData && (notesData.title || notesData.description)) {
+                await appStore.setItem(`map_notes_${newName}`, notesData);
+                await appStore.removeItem(`map_notes_${resolvedKey}`);
+            }
+
+            // Transfer groups
+            const groupsData = await groupStore.getItem(resolvedKey);
+            if (groupsData && Object.keys(groupsData).length > 0) {
+                await groupStore.setItem(newName, groupsData);
+                await groupStore.removeItem(resolvedKey);
+            }
+
+            // Transfer layers
+            const layersData = await layerStore.getItem(`layers_${resolvedKey}`);
+            const activeLayerId = await layerStore.getItem(`activeLayer_${resolvedKey}`);
+            if (layersData && layersData.length > 0) {
+                await layerStore.setItem(`layers_${newName}`, layersData);
+                await layerStore.setItem(`activeLayer_${newName}`, activeLayerId || 'default');
+                await layerStore.removeItem(`layers_${resolvedKey}`);
+                await layerStore.removeItem(`activeLayer_${resolvedKey}`);
+            }
+
+            // Transfer Cesium 3D data
+            const cesium3dData = await cesium3dStore.getItem(`cesium3d_${resolvedKey}`);
+            if (cesium3dData && (Object.keys(cesium3dData.cameraPositions || {}).length > 0 || (cesium3dData.markers || []).length > 0)) {
+                await cesium3dStore.setItem(`cesium3d_${newName}`, cesium3dData);
+                await cesium3dStore.removeItem(`cesium3d_${resolvedKey}`);
+            }
+
+            // Transfer Street View 360 data
+            const streetview360Data = await streetview360Store.getItem(`streetview360_${resolvedKey}`);
+            if (streetview360Data && (Object.keys(streetview360Data.orientations || {}).length > 0 || (streetview360Data.markers || []).length > 0)) {
+                await streetview360Store.setItem(`streetview360_${newName}`, streetview360Data);
+                await streetview360Store.removeItem(`streetview360_${resolvedKey}`);
+            }
+
+            // Transfer grid style
+            const gridStyle = await appStore.getItem(`gridStyle_${resolvedKey}`);
+            if (gridStyle) {
+                await appStore.setItem(`gridStyle_${newName}`, gridStyle);
+                await appStore.removeItem(`gridStyle_${resolvedKey}`);
+            }
         }
     }
 
@@ -579,6 +670,89 @@ export class LocalRepository {
      */
     async deleteSetting(key) {
         await appStore.removeItem(key);
+    }
+
+    // ===== MAP NOTES OPERATIONS =====
+
+    /**
+     * Gets map notes.
+     * @param {string} mapIdOrName - Map ID or name
+     * @returns {Promise<{title: string, description: string}>}
+     */
+    async getMapNotes(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `map_notes_${resolvedKey}`;
+        let notes = await appStore.getItem(key);
+
+        // Fallback: try with original key if resolved key didn't work
+        if (!notes && resolvedKey !== mapIdOrName) {
+            const fallbackKey = `map_notes_${mapIdOrName}`;
+            notes = await appStore.getItem(fallbackKey);
+        }
+
+        return notes || { title: '', description: '' };
+    }
+
+    /**
+     * Saves map notes.
+     * @param {string} mapIdOrName - Map ID or name
+     * @param {{title: string, description: string}} notes - Notes data
+     * @returns {Promise<void>}
+     */
+    async saveMapNotes(mapIdOrName, notes) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `map_notes_${resolvedKey}`;
+        await appStore.setItem(key, notes);
+    }
+
+    /**
+     * Deletes map notes.
+     * @param {string} mapIdOrName - Map ID or name
+     * @returns {Promise<void>}
+     */
+    async deleteMapNotes(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `map_notes_${resolvedKey}`;
+        await appStore.removeItem(key);
+
+        // Also try to remove with original key if different (legacy cleanup)
+        if (resolvedKey !== mapIdOrName) {
+            const fallbackKey = `map_notes_${mapIdOrName}`;
+            await appStore.removeItem(fallbackKey);
+        }
+    }
+
+    // ===== GRID STYLE OPERATIONS =====
+
+    /**
+     * Gets grid style for a map.
+     * @param {string} mapIdOrName - Map ID or name
+     * @returns {Promise<Object|null>}
+     */
+    async getGridStyle(mapIdOrName) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `gridStyle_${resolvedKey}`;
+        let gridStyle = await appStore.getItem(key);
+
+        // Fallback: try with original key if resolved key didn't work
+        if (!gridStyle && resolvedKey !== mapIdOrName) {
+            const fallbackKey = `gridStyle_${mapIdOrName}`;
+            gridStyle = await appStore.getItem(fallbackKey);
+        }
+
+        return gridStyle;
+    }
+
+    /**
+     * Saves grid style for a map.
+     * @param {string} mapIdOrName - Map ID or name
+     * @param {Object} gridStyle - Grid style data
+     * @returns {Promise<void>}
+     */
+    async saveGridStyle(mapIdOrName, gridStyle) {
+        const resolvedKey = await this._resolveMapKey(mapIdOrName);
+        const key = `gridStyle_${resolvedKey}`;
+        await appStore.setItem(key, gridStyle);
     }
 
     // ===== BRIEFING OPERATIONS =====

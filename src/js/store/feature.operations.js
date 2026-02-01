@@ -4,10 +4,46 @@
  * @fileoverview Feature CRUD operations.
  */
 
-import { cleanFeature } from './repository.js';
+import { cleanFeature } from './repository.utils.js';
 import { getMapDataCompat, updateMapDataCompat, getLayersCompat } from './repositories/index.js';
 import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource } from './store.constants.js';
 import mapManager from './store-state-manager.js';
+import { logFeatureOperation, OperationType } from './sync/index.js';
+
+// ===== TIMESTAMP AND VERSION HELPERS =====
+
+/**
+ * Adds createdAt timestamp and initial version to a new feature.
+ * @param {Object} feature - Feature to timestamp
+ * @returns {Object} Feature with createdAt, updatedAt, and version in properties
+ */
+const addCreatedTimestamp = (feature) => {
+    if (!feature || !feature.properties) return feature;
+    if (!feature.properties.createdAt) {
+        feature.properties.createdAt = Date.now();
+    }
+    if (!feature.properties.updatedAt) {
+        feature.properties.updatedAt = feature.properties.createdAt;
+    }
+    // Initialize version for new features
+    if (feature.properties.version === undefined) {
+        feature.properties.version = 1;
+    }
+    return feature;
+};
+
+/**
+ * Updates the updatedAt timestamp and increments version on a feature.
+ * @param {Object} feature - Feature to update
+ * @returns {Object} Feature with updated timestamp and version
+ */
+const touchUpdatedTimestamp = (feature) => {
+    if (!feature || !feature.properties) return feature;
+    feature.properties.updatedAt = Date.now();
+    // Increment version on update
+    feature.properties.version = (feature.properties.version || 0) + 1;
+    return feature;
+};
 
 // Alias for backward compatibility during migration
 const getMapData = getMapDataCompat;
@@ -69,6 +105,9 @@ export const addFeature = async (type, feature, mapName = null) => {
         return;
     }
 
+    // Add creation timestamp
+    addCreatedTimestamp(cleanedFeature);
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
     currentMapData.features[type].push(cleanedFeature);
@@ -87,6 +126,10 @@ export const addFeature = async (type, feature, mapName = null) => {
             feature: JSON.parse(JSON.stringify(cleanedFeature))
         });
     }
+
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logFeatureOperation(OperationType.CREATE, cleanedFeature.properties.id, mapId, cleanedFeature);
 };
 
 /**
@@ -139,6 +182,16 @@ export const updateFeature = async (type, feature, mapName = null) => {
             cleanedFeature.properties.descricao = oldDescricao;
         }
 
+        // Preserve createdAt and version from old feature, then update
+        if (oldFeature.properties.createdAt) {
+            cleanedFeature.properties.createdAt = oldFeature.properties.createdAt;
+        }
+        // Preserve current version before incrementing
+        if (oldFeature.properties.version !== undefined) {
+            cleanedFeature.properties.version = oldFeature.properties.version;
+        }
+        touchUpdatedTimestamp(cleanedFeature);
+
         if (JSON.stringify(oldFeature) !== JSON.stringify(cleanedFeature)) {
             currentMapData.features[type][index] = cleanedFeature;
             await updateMapData(targetMap, currentMapData);
@@ -151,6 +204,10 @@ export const updateFeature = async (type, feature, mapName = null) => {
                     newFeature: JSON.parse(JSON.stringify(cleanedFeature))
                 });
             }
+
+            // Log operation for sync
+            const mapId = mapManager.getCurrentMapId();
+            logFeatureOperation(OperationType.UPDATE, cleanedFeature.properties.id, mapId, cleanedFeature, oldFeature);
         }
     }
 };
@@ -197,6 +254,10 @@ export const removeFeature = async (type, id, mapName = null) => {
             } : null
         });
     }
+
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logFeatureOperation(OperationType.DELETE, id, mapId, null, mainFeature);
 
     // Robust deletion verification
     setTimeout(async () => {
@@ -276,6 +337,9 @@ export const addFeatureSilent = async (type, feature, mapName = null) => {
     const cleanedFeature = cleanFeature(feature);
     if (!cleanedFeature) return;
 
+    // Add creation timestamp
+    addCreatedTimestamp(cleanedFeature);
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
     currentMapData.features[type].push(cleanedFeature);
@@ -312,6 +376,10 @@ export const addFeatures = async (featuresMap, mapName = null) => {
         const features = featuresMap[type] || [];
         if (features.length > 0) {
             const cleanedFeatures = features.map(cleanFeature).filter(Boolean);
+
+            // Add creation timestamps to all features
+            cleanedFeatures.forEach(addCreatedTimestamp);
+
             currentMapData.features[type].push(...cleanedFeatures);
             action.features[type] = JSON.parse(JSON.stringify(cleanedFeatures));
 
@@ -376,6 +444,9 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
         return false;
     }
 
+    // Capture old state for logging
+    const oldFeature = JSON.parse(JSON.stringify(feature));
+
     const isColorProperty = ['color', 'fillColor', 'lineColor', 'outlinecolor', 'backgroundColor'].includes(property);
     if (isColorProperty) {
         const oldColor = mapManager.getFeatureColor(feature);
@@ -388,7 +459,15 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
         feature.properties[property] = value;
     }
 
+    // Update timestamp
+    touchUpdatedTimestamp(feature);
+
     await updateMapData(targetMap, currentMapData);
+
+    // Log operation for sync
+    const mapId = mapManager.getCurrentMapId();
+    logFeatureOperation(OperationType.UPDATE, featureId, mapId, feature, oldFeature);
+
     return true;
 };
 

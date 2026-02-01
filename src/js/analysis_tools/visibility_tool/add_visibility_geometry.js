@@ -2,6 +2,7 @@
 
 import { BaseGeometry } from '../../tool_manager';
 import { getTerrainElevation } from '../../terrain';
+import { IDUtils } from '../../utilities/id_utils.js';
 
 /**
  * Visibility Geometry Operations
@@ -351,7 +352,7 @@ class AddVisibilityGeometry extends BaseGeometry {
     createViewshedFeature(cellsData, radius, angle, observerHeight = 2) {
         return {
             type: 'Feature',
-            id: Date.now().toString(),
+            id: IDUtils.generateGeoJSONId(),
             properties: {
                 radius: radius,
                 angle: angle,

@@ -5,20 +5,34 @@
  */
 
 import {
-    getMapData,
-    updateMapData,
-    storeImageData,
-    getImageData,
-    removeImageData,
-    hasImageData,
-    setMapNotes as setMapNotesRepo,
-    getMapNotes as getMapNotesRepo,
-    setGridStyle as setGridStyleRepo,
-    getGridStyle as getGridStyleRepo
-} from './repository.js';
+    getMapDataCompat,
+    updateMapDataCompat,
+    saveImageCompat,
+    getImageCompat,
+    deleteImageCompat,
+    hasImageCompat,
+    setMapNotesCompat,
+    getMapNotesCompat,
+    setGridStyleCompat,
+    getGridStyleCompat
+} from './repositories/index.js';
 import mapManager from './store-state-manager.js';
 import { getCatalogLayers } from './catalog.operations.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
+import { logMapNotesOperation, logGridStyleOperation, OperationType } from './sync/index.js';
+import { mapResolver } from './services/map-resolver.service.js';
+
+// Alias for backward compatibility during migration
+const getMapData = getMapDataCompat;
+const updateMapData = updateMapDataCompat;
+const storeImageData = saveImageCompat;
+const getImageData = getImageCompat;
+const removeImageData = deleteImageCompat;
+const hasImageData = hasImageCompat;
+const setMapNotesRepo = setMapNotesCompat;
+const getMapNotesRepo = getMapNotesCompat;
+const setGridStyleRepo = setGridStyleCompat;
+const getGridStyleRepo = getGridStyleCompat;
 
 // ===== MAP NOTES =====
 
@@ -42,7 +56,18 @@ export const getMapNotes = async (mapName = null) => {
  */
 export const setMapNotes = async (mapName, notes) => {
     const targetMap = mapName || mapManager.getCurrentMapName();
+
+    // Get previous notes for logging
+    const previousNotes = await getMapNotesRepo(targetMap);
+
     await setMapNotesRepo(targetMap, notes);
+
+    // Log operation for sync
+    const mapId = mapResolver.resolveToId(targetMap) || targetMap;
+    const opType = previousNotes?.title || previousNotes?.description
+        ? OperationType.UPDATE
+        : OperationType.CREATE;
+    logMapNotesOperation(opType, mapId, notes, previousNotes);
 };
 
 /**
@@ -76,7 +101,17 @@ export const getGridStyle = async (mapName) => {
  * @returns {Promise<void>}
  */
 export const setGridStyle = async (mapName, gridStyle) => {
-    await setGridStyleRepo(mapName, gridStyle);
+    const targetMap = mapName || mapManager.getCurrentMapName();
+
+    // Get previous grid style for logging
+    const previousGridStyle = await getGridStyleRepo(targetMap);
+
+    await setGridStyleRepo(targetMap, gridStyle);
+
+    // Log operation for sync
+    const mapId = mapResolver.resolveToId(targetMap) || targetMap;
+    const opType = previousGridStyle ? OperationType.UPDATE : OperationType.CREATE;
+    logGridStyleOperation(opType, mapId, gridStyle, previousGridStyle);
 };
 
 // ===== HILLSHADE =====

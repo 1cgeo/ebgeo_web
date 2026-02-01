@@ -416,7 +416,7 @@ class AddMilitarySymbolControl extends BaseControl {
   };
 
   createMilitarySymbolFeature = async (lngLat) => {
-    const featureId = IDUtils.generateUniqueId();
+    const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
     const featureName = await IDUtils.generateFeatureName(
       "military_symbol",
       this.map
@@ -443,7 +443,7 @@ class AddMilitarySymbolControl extends BaseControl {
 
     const feature = {
       type: "Feature",
-      id: Date.now().toString(),
+      id: geoJsonId,
       properties: {
         ...AddMilitarySymbolControl.DEFAULT_PROPERTIES,
         layerId: getActiveLayerIdSync(),

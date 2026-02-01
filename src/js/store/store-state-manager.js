@@ -1,6 +1,6 @@
 // Path: js/store/store-state-manager.js
 
-import { memoryStore } from './repository.js';
+import { memoryStore } from './memory-store.js';
 import {
     setSettingCompat,
     getColorUsageCompat,
@@ -10,6 +10,8 @@ import {
     getMapDataCompat
 } from './repositories/index.js';
 import { groupManager } from '../tool_manager';
+import { mapResolver } from './services/map-resolver.service.js';
+import { logOperation, EntityType, OperationType } from './sync/index.js';
 
 // Alias for backward compatibility during migration
 const setAppSetting = setSettingCompat;
@@ -31,8 +33,36 @@ class MapManager {
 
     // ===== MEMORY STORE MANAGEMENT =====
 
+    /**
+     * Gets the current map name.
+     * @returns {string} Current map name
+     */
     getCurrentMapName() {
         return this.memoryStore.currentMap;
+    }
+
+    /**
+     * Gets the current map UUID.
+     * Uses the MapResolverService to resolve the name to an ID.
+     * @returns {string} Current map UUID (or name if resolver not initialized)
+     */
+    getCurrentMapId() {
+        const mapName = this.memoryStore.currentMap;
+        if (!mapName) return mapName;
+
+        // Use the mapResolver to get the UUID
+        // If resolver is not initialized, returns the name as fallback
+        return mapResolver.resolveToId(mapName);
+    }
+
+    /**
+     * Gets both the current map name and ID.
+     * @returns {{name: string, id: string}} Object with name and id
+     */
+    getCurrentMapInfo() {
+        const name = this.memoryStore.currentMap;
+        const id = this.getCurrentMapId();
+        return { name, id };
     }
 
     setCurrentMapName(mapName) {
@@ -47,8 +77,10 @@ class MapManager {
     }
 
     async setCurrentMap(mapName) {
-        if (this.memoryStore.currentMap && this.memoryStore.currentMap !== mapName) {
-            await this.saveColorUsageToDB(this.memoryStore.currentMap);
+        const previousMap = this.memoryStore.currentMap;
+
+        if (previousMap && previousMap !== mapName) {
+            await this.saveColorUsageToDB(previousMap);
         }
 
         this.setCurrentMapName(mapName);
@@ -56,6 +88,16 @@ class MapManager {
         await this.loadColorUsageFromDB(mapName);
         await groupManager.loadGroupsToMemory(mapName);
         await setAppSetting('lastActiveMap', mapName);
+
+        // Log operation for sync
+        logOperation(
+            EntityType.SETTING,
+            OperationType.UPDATE,
+            'lastActiveMap',
+            null,
+            { value: mapName },
+            { value: previousMap }
+        );
     }
 
     // ===== COLOR TRACKING SYSTEM =====

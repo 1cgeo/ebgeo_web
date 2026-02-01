@@ -414,7 +414,7 @@ class AddVisibilityControl extends BaseControl {
         try {
             this.showProgressModal();
 
-            const featureId = IDUtils.generateUniqueId();
+            const { id: featureId } = IDUtils.generateFeatureIds();
             const featureName = await IDUtils.generateFeatureName('visibility', this.map);
 
             const properties = {
