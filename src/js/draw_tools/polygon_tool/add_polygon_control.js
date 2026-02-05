@@ -7,6 +7,7 @@ import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touc
 import { addPolygonAttributesToPanel } from './polygon_attributes_panel.js';
 import AddPolygonGeometry from './add_polygon_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddPolygonControl extends BaseControl {
     constructor(toolManager) {
@@ -281,7 +282,9 @@ class AddPolygonControl extends BaseControl {
             return;
         }
 
-        const newPoint = [e.lngLat.lng, e.lngLat.lat];
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        const newPoint = [snap.lng, snap.lat];
 
         // Check if point is too close to last point
         if (this.geometry.isPointTooClose(newPoint, this.drawPoints)) {
@@ -317,8 +320,11 @@ class AddPolygonControl extends BaseControl {
         e.preventDefault();
         e.stopPropagation();
 
-        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
-        const finalPoint = [coordinates.lng, coordinates.lat];
+        const screenPoint = { x: e.offsetX, y: e.offsetY };
+        const coordinates = this.map.unproject([screenPoint.x, screenPoint.y]);
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, screenPoint, coordinates) ?? coordinates;
+        const finalPoint = [snap.lng, snap.lat];
 
         if (!this.geometry.isPointTooClose(finalPoint, this.drawPoints)) {
             this.drawPoints.push(finalPoint);
@@ -373,7 +379,15 @@ class AddPolygonControl extends BaseControl {
 
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length >= 1) {
-            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+            const snapping = getSnappingService();
+            const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+            this.lastPreviewPosition = [snap.lng, snap.lat];
+
+            if (snap.snapped) {
+                snapping.showIndicator(this.map, snap, snap.snapType);
+            } else {
+                snapping?.hideIndicator(this.map);
+            }
 
             if (!this.pendingPreviewUpdate) {
                 this.pendingPreviewUpdate = true;
@@ -618,7 +632,16 @@ class AddPolygonControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!this.isDraggingHandle || !selectedFeature) return;
 
-        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+        const snapping = getSnappingService();
+        const excludeId = selectedFeature.properties?.id;
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat, excludeId) ?? e.lngLat;
+        this.lastPreviewPosition = [snap.lng, snap.lat];
+
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;

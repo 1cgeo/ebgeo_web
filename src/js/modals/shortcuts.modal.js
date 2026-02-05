@@ -42,7 +42,6 @@ const SHORTCUTS_DATA = {
         title: 'Desenho',
         icon: SHORTCUT_ICONS.draw,
         shortcuts: [
-            { key: 'Q', icon: TOOLBAR_ICONS.select, description: 'Seleção retangular' },
             { key: 'P', icon: TOOLBAR_ICONS.point, description: 'Ponto' },
             { key: 'L', icon: TOOLBAR_ICONS.line, description: 'Linha' },
             { key: 'A', icon: TOOLBAR_ICONS.polygon, description: 'Polígono' },
@@ -63,7 +62,6 @@ const SHORTCUTS_DATA = {
             { key: 'S', icon: TOOLBAR_ICONS.arrow, description: 'Seta' },
             { key: 'D', icon: TOOLBAR_ICONS.boundary, description: 'Linha de limite' },
             { key: 'F', icon: TOOLBAR_ICONS.occupiedFront, description: 'Frente ocupada' },
-            { key: 'Z', icon: TOOLBAR_ICONS.azimuthDistance, description: 'Azimute e distância' },
         ],
     },
     analysis: {
@@ -75,10 +73,13 @@ const SHORTCUTS_DATA = {
         ],
     },
     other: {
-        title: 'Outras',
+        title: 'Utilitários',
         icon: SHORTCUT_ICONS.other,
         shortcuts: [
+            { key: 'Q', icon: TOOLBAR_ICONS.select, description: 'Seleção retangular' },
+            { key: 'Z', icon: TOOLBAR_ICONS.azimuthDistance, description: 'Azimute e distância' },
             { key: 'N', icon: TOOLBAR_ICONS.featureInfo, description: 'Informações da carta' },
+            { key: 'G', icon: TOOLBAR_ICONS.snapping, description: 'Ativar/desativar snap' },
         ],
     },
     viewer3d: {

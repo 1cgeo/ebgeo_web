@@ -6,7 +6,7 @@
  */
 
 import { ToolbarGroup } from './components/toolbar-group.js';
-import { TOOL_GROUPS, STANDALONE_TOOLS } from './toolbar.constants.js';
+import { TOOL_GROUPS, STANDALONE_TOOLS, TOGGLE_TOOLS } from './toolbar.constants.js';
 import {
     setupCleanup,
     addDomListener,
@@ -71,6 +71,14 @@ export class ToolbarControl {
             });
         }
 
+        // Create toggle buttons (state-driven, not tool-driven)
+        if (TOGGLE_TOOLS.length > 0) {
+            TOGGLE_TOOLS.forEach(toolConfig => {
+                const button = this._createToggleButton(toolConfig);
+                this._container.appendChild(button);
+            });
+        }
+
         parentElement.appendChild(this._container);
 
         // Setup event listeners
@@ -98,6 +106,40 @@ export class ToolbarControl {
                 this._toolManager.setActiveTool(control);
             }
         });
+
+        this._standaloneButtons.set(toolConfig.id, button);
+        return button;
+    }
+
+    /**
+     * Creates a toggle button driven by a StateManager path.
+     * Unlike standalone buttons, toggle buttons don't activate a tool —
+     * they flip a boolean state and visually reflect it.
+     * @private
+     * @param {Object} toolConfig - { id, label, icon, shortcut, statePath }
+     * @returns {HTMLButtonElement}
+     */
+    _createToggleButton(toolConfig) {
+        const button = document.createElement('button');
+        button.className = 'toolbar-standalone-btn';
+        button.dataset.toolId = toolConfig.id;
+        button.dataset.active = 'false';
+        button.title = `${toolConfig.label} (${toolConfig.shortcut})`;
+        button.setAttribute('aria-label', toolConfig.label);
+        button.innerHTML = toolConfig.icon;
+
+        addDomListener(this, button, 'click', () => {
+            const current = this._stateManager.getUnsafe(toolConfig.statePath);
+            this._stateManager.set(toolConfig.statePath, !current);
+        });
+
+        // Subscribe to state changes to keep button visual in sync
+        if (this._stateManager) {
+            const unsubscribe = this._stateManager.subscribe(toolConfig.statePath, (enabled) => {
+                button.dataset.active = String(!!enabled);
+            });
+            this._unsubscribers.push(unsubscribe);
+        }
 
         this._standaloneButtons.set(toolConfig.id, button);
         return button;

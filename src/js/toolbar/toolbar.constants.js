@@ -94,6 +94,9 @@ export const TOOLBAR_ICONS = {
 
     // Marker 3D (map pin with cube)
     marker3d: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`,
+
+    // Snapping magnet icon
+    snapping: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15a6 6 0 0 0 12 0V9h-4v6a2 2 0 1 1-4 0V9H6v6z"/><line x1="6" y1="9" x2="6" y2="5"/><line x1="10" y1="9" x2="10" y2="5"/><line x1="14" y1="9" x2="14" y2="5"/><line x1="18" y1="9" x2="18" y2="5"/></svg>`,
 };
 
 /**
@@ -157,3 +160,17 @@ export const TOOL_GROUPS = {
  * Standalone tools (not in groups).
  */
 export const STANDALONE_TOOLS = [];
+
+/**
+ * Toggle tools — buttons that toggle a boolean state path instead of activating a tool.
+ * Active state is driven by StateManager subscription, not by activeTool.type.
+ */
+export const TOGGLE_TOOLS = [
+    {
+        id: 'snapping',
+        label: 'Snap',
+        icon: TOOLBAR_ICONS.snapping,
+        shortcut: 'G',
+        statePath: 'ui.snapping.enabled',
+    },
+];

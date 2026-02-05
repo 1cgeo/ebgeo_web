@@ -57,6 +57,9 @@ import {
 // Azimuth Distance tool
 import { AddAzimuthDistanceControl } from './azimuth_distance_tool/index.js';
 
+// Snapping
+import { SnappingService } from './snapping/snapping.service.js';
+
 // Analysis tools
 import {
     AddLOSControl,
@@ -272,6 +275,10 @@ const clipboardManager = new ClipboardManager(selectionManager, map);
 
 const rectangleSelectionControl = new RectangleSelectionControl(toolManager);
 selectionManager.setRectangleSelectionControl(rectangleSelectionControl);
+
+// ===== SNAPPING SERVICE =====
+
+const _snappingService = new SnappingService({ stateManager: getStateManager() });
 
 // ===== KEYBOARD SHORTCUTS =====
 
@@ -572,6 +579,7 @@ registerControl('modelsViewer', add3DModelsViewerControl);
 
 window.addEventListener('beforeunload', () => {
     keyboardShortcuts.destroy();
+    _snappingService.destroy();
     chipsComponent.destroy();
     sidebarControl.destroy();
     toolbarControl.destroy();

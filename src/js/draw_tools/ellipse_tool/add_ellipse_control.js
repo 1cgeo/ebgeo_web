@@ -6,6 +6,7 @@ import { getPointerPosition } from '../../utilities/pointer-utils';
 import { addEllipseAttributesToPanel } from './ellipse_attributes_panel.js';
 import AddEllipseGeometry from './add_ellipse_geometry.js';
 import { BaseControl, HatchPatternGenerator } from '../../tool_manager';
+import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddEllipseControl extends BaseControl {
     constructor(toolManager) {
@@ -231,8 +232,11 @@ class AddEllipseControl extends BaseControl {
         e.preventDefault();
         e.stopPropagation();
 
-        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
-        const finalPoint = [coordinates.lng, coordinates.lat];
+        const screenPoint = { x: e.offsetX, y: e.offsetY };
+        const coordinates = this.map.unproject([screenPoint.x, screenPoint.y]);
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, screenPoint, coordinates) ?? coordinates;
+        const finalPoint = [snap.lng, snap.lat];
 
         this.drawPoints.push(finalPoint);
 
@@ -298,7 +302,9 @@ class AddEllipseControl extends BaseControl {
             return;
         }
 
-        this.drawPoints.push([e.lngLat.lng, e.lngLat.lat]);
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        this.drawPoints.push([snap.lng, snap.lat]);
 
         if (this.drawPoints.length === 1) {
             this.map.on('mousemove', this.handlePreviewMouseMove);
@@ -312,7 +318,16 @@ class AddEllipseControl extends BaseControl {
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length === 1) {
             this.lastPreviewCenter = this.drawPoints[0];
-            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+
+            const snapping = getSnappingService();
+            const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+            this.lastPreviewPosition = [snap.lng, snap.lat];
+
+            if (snap.snapped) {
+                snapping.showIndicator(this.map, snap, snap.snapType);
+            } else {
+                snapping?.hideIndicator(this.map);
+            }
 
             if (!this.pendingPreviewUpdate) {
                 this.pendingPreviewUpdate = true;
@@ -559,7 +574,17 @@ class AddEllipseControl extends BaseControl {
         const point = getPointerPosition(e, canvas);
         const lngLat = this.map.unproject([point.x, point.y]);
 
-        this.lastPreviewPosition = [lngLat.lng, lngLat.lat];
+        const snapping = getSnappingService();
+        const excludeId = selectedFeature.properties?.id;
+        const snap = snapping?.resolve(this.map, point, lngLat, excludeId) ?? lngLat;
+
+        this.lastPreviewPosition = [snap.lng, snap.lat];
+
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;

@@ -5,6 +5,7 @@ import { IDUtils } from '../../utilities';
 import { addPointAttributesToPanel } from './point_attributes_panel.js';
 import AddPointGeometry from './add_point_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import { getSnappingService } from '../../snapping/snapping.service.js';
 
 class AddPointControl extends BaseControl {
     constructor(toolManager) {
@@ -215,7 +216,13 @@ class AddPointControl extends BaseControl {
             return;
         }
 
-        await this.createPointAtCoordinates(e.lngLat.lng, e.lngLat.lat);
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        if (snap.snapped) {
+            snapping.hideIndicator(this.map);
+        }
+
+        await this.createPointAtCoordinates(snap.lng, snap.lat);
     }
 
     /**

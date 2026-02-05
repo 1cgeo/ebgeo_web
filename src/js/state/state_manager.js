@@ -80,6 +80,9 @@ const DEFAULT_STATE = Object.freeze({
         featurePanelOpen: false,                // UI Redesign: feature attributes panel state
         activeToolbarGroup: null,               // UI Redesign: 'draw' | 'military' | 'analysis' | null
         baseLayerSelectorOpen: false,           // UI Redesign: base layer selector expanded state
+        snapping: {
+            enabled: false,                     // Global snapping toggle
+        },
     },
     clipboard: {
         features: [],               // Array<{type: string, feature: GeoJSON}>

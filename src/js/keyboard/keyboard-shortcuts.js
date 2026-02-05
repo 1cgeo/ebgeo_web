@@ -9,7 +9,7 @@
  * Both services disable this handler when active and re-enable when closed.
  */
 
-import { undoLastAction, redoLastAction } from '../store';
+import { undoLastAction, redoLastAction, getStateManager } from '../store';
 import { showConfirm } from '../modals/index.js';
 
 /**
@@ -184,6 +184,14 @@ class KeyboardShortcuts {
      * @param {string} key - Pressed key
      */
     handleToolShortcuts(e, key) {
+        // Snapping toggle (not a tool activation)
+        if (key === 'g') {
+            e.preventDefault();
+            const sm = getStateManager();
+            sm.set('ui.snapping.enabled', !sm.getUnsafe('ui.snapping.enabled'));
+            return;
+        }
+
         const toolMapping = {
             'q': this.controls.rectangleSelectionControl,
             'n': this.controls.vectorTileInfoControl,

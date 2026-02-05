@@ -1,8 +1,14 @@
 // Path: js/layers/styles/auxiliary.layers.js
 
 /**
- * @fileoverview Auxiliary layer styles (selection, feedback, separators).
+ * @fileoverview Auxiliary layer styles (selection, feedback, separators, snap indicator).
  */
+
+import {
+    SNAP_INDICATOR_SOURCE,
+    SNAP_INDICATOR_LAYER,
+    SNAP_INDICATOR_STYLE,
+} from '../../snapping/snapping.constants.js';
 
 /**
  * Sets up layer separators for ordering control.
@@ -87,6 +93,30 @@ export function setupAuxiliaryLayers(mapInstance) {
                 'line-width': 2,
                 'line-dasharray': [2, 2]
             }
+        });
+    }
+
+    // Snap indicator — shown when cursor is near a snappable vertex/edge
+    if (!mapInstance.getSource(SNAP_INDICATOR_SOURCE)) {
+        mapInstance.addSource(SNAP_INDICATOR_SOURCE, {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+        });
+    }
+
+    if (!mapInstance.getLayer(SNAP_INDICATOR_LAYER)) {
+        const vertexStyle = SNAP_INDICATOR_STYLE.vertex;
+        mapInstance.addLayer({
+            id: SNAP_INDICATOR_LAYER,
+            type: 'circle',
+            source: SNAP_INDICATOR_SOURCE,
+            paint: {
+                'circle-radius': ['coalesce', ['get', 'radius'], vertexStyle.radius],
+                'circle-color': ['coalesce', ['get', 'color'], vertexStyle.color],
+                'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], vertexStyle.strokeWidth],
+                'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], vertexStyle.strokeColor],
+                'circle-opacity': ['coalesce', ['get', 'opacity'], vertexStyle.opacity],
+            },
         });
     }
 }

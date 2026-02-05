@@ -14,6 +14,7 @@ import { DrawingFinishButton, setupVertexRemoveLongPress } from '../drawing-touc
 import { addLineAttributesToPanel } from './line_attributes_panel.js';
 import AddLineGeometry from './add_line_geometry.js';
 import { BaseControl } from '../../tool_manager';
+import { getSnappingService } from '../../snapping/snapping.service.js';
 
 // Extracted modules
 import {
@@ -392,7 +393,9 @@ class AddLineControl extends BaseControl {
             return;
         }
 
-        const newPoint = [e.lngLat.lng, e.lngLat.lat];
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+        const newPoint = [snap.lng, snap.lat];
 
         if (this.geometry.isPointTooClose(newPoint, this.drawPoints)) {
             return;
@@ -426,8 +429,11 @@ class AddLineControl extends BaseControl {
         e.preventDefault();
         e.stopPropagation();
 
-        const coordinates = this.map.unproject([e.offsetX, e.offsetY]);
-        const finalPoint = [coordinates.lng, coordinates.lat];
+        const screenPoint = { x: e.offsetX, y: e.offsetY };
+        const coordinates = this.map.unproject([screenPoint.x, screenPoint.y]);
+        const snapping = getSnappingService();
+        const snap = snapping?.resolve(this.map, screenPoint, coordinates) ?? coordinates;
+        const finalPoint = [snap.lng, snap.lat];
 
         if (!this.geometry.isPointTooClose(finalPoint, this.drawPoints)) {
             this.drawPoints.push(finalPoint);
@@ -477,7 +483,15 @@ class AddLineControl extends BaseControl {
 
     handlePreviewMouseMove = (e) => {
         if (this.drawPoints.length >= 1) {
-            this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+            const snapping = getSnappingService();
+            const snap = snapping?.resolve(this.map, e.point, e.lngLat) ?? e.lngLat;
+            this.lastPreviewPosition = [snap.lng, snap.lat];
+
+            if (snap.snapped) {
+                snapping.showIndicator(this.map, snap, snap.snapType);
+            } else {
+                snapping?.hideIndicator(this.map);
+            }
 
             if (!this.pendingPreviewUpdate) {
                 this.pendingPreviewUpdate = true;
@@ -698,7 +712,16 @@ class AddLineControl extends BaseControl {
         const selectedFeature = this.getSelectedFeature();
         if (!this.isDraggingHandle || !selectedFeature) return;
 
-        this.lastPreviewPosition = [e.lngLat.lng, e.lngLat.lat];
+        const snapping = getSnappingService();
+        const excludeId = selectedFeature.properties?.id;
+        const snap = snapping?.resolve(this.map, e.point, e.lngLat, excludeId) ?? e.lngLat;
+        this.lastPreviewPosition = [snap.lng, snap.lat];
+
+        if (snap.snapped) {
+            snapping.showIndicator(this.map, snap, snap.snapType);
+        } else {
+            snapping?.hideIndicator(this.map);
+        }
 
         if (!this.pendingPreviewUpdate) {
             this.pendingPreviewUpdate = true;
