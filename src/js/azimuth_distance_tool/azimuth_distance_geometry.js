@@ -1,10 +1,10 @@
-// Path: js/military_tools/azimuth_distance_tool/azimuth_distance_geometry.js
+// Path: js/azimuth_distance_tool/azimuth_distance_geometry.js
 
 /**
  * @fileoverview Geometry calculations for Azimuth and Distance tool.
  * Uses turf.js for geographic calculations.
  *
- * @module military_tools/azimuth_distance_tool/azimuth_distance_geometry
+ * @module azimuth_distance_tool/azimuth_distance_geometry
  */
 
 import {
@@ -286,7 +286,7 @@ export function generateGeometry(waypoints, referencePoint, outputMode) {
                 coordinates: waypoints
             };
 
-        case OUTPUT_MODE.AREA:
+        case OUTPUT_MODE.AREA: {
             // Return a Polygon, closing back to the reference point
             if (waypoints.length < 3) {
                 return null;
@@ -297,6 +297,7 @@ export function generateGeometry(waypoints, referencePoint, outputMode) {
                 type: 'Polygon',
                 coordinates: [closedCoords]
             };
+        }
 
         default:
             return null;
@@ -490,9 +491,6 @@ export function generateFeature(options) {
         };
     } else if (outputMode === OUTPUT_MODE.AREA) {
         // POLYGON feature (matching add_polygon_control.js structure)
-        // For polygon, baseCoordinates doesn't include the closing point
-        const baseCoords = waypoints.slice(0, -1).length >= 3 ? waypoints : waypoints;
-
         return {
             type: 'Feature',
             id: geoJsonId,
@@ -543,7 +541,7 @@ export function generateFeature(options) {
  * @param {string} distanceUnit - Distance unit
  * @returns {number} Total distance in the specified unit
  */
-export function calculateTotalDistance(legs, distanceUnit) {
+export function calculateTotalDistance(legs, _distanceUnit) {
     let total = 0;
 
     for (const leg of legs) {

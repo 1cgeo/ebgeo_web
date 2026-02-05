@@ -1,10 +1,10 @@
-// Path: js/military_tools/azimuth_distance_tool/azimuth_distance_attributes_panel.js
+// Path: js/azimuth_distance_tool/azimuth_distance_attributes_panel.js
 
 /**
  * @fileoverview Attributes panel for editing existing azimuth/distance features.
  * Allows reconfiguration of polar construction parameters after creation.
  *
- * @module military_tools/azimuth_distance_tool/azimuth_distance_attributes_panel
+ * @module azimuth_distance_tool/azimuth_distance_attributes_panel
  */
 
 import {
@@ -14,7 +14,7 @@ import {
     createSectionDivider,
     createFeatureHeaderWithOptions,
     createFeatureOptionsButton
-} from '../../tool_manager/helpers/index.js';
+} from '../tool_manager/helpers/index.js';
 
 import {
     ANGULAR_UNIT,
@@ -26,9 +26,6 @@ import {
 } from './azimuth_distance_constants.js';
 
 import {
-    convertAzimuth,
-    convertDistance,
-    calculateContraAzimuth,
     formatTotalDistance,
     calculateTotalDistance
 } from './azimuth_distance_geometry.js';

@@ -51,9 +51,11 @@ import {
     AddCoordinationMeasureControl,
     AddArrowControl,
     AddBoundaryControl,
-    AddOccupiedFrontControl,
-    AddAzimuthDistanceControl
+    AddOccupiedFrontControl
 } from './military_tools/index.js';
+
+// Azimuth Distance tool
+import { AddAzimuthDistanceControl } from './azimuth_distance_tool/index.js';
 
 // Analysis tools
 import {

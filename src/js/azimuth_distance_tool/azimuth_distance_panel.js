@@ -1,11 +1,11 @@
-// Path: js/military_tools/azimuth_distance_tool/azimuth_distance_panel.js
+// Path: js/azimuth_distance_tool/azimuth_distance_panel.js
 
 /**
  * @fileoverview Main panel for the Azimuth and Distance tool.
  * Implements the Caderneta de Campanha Digital UI.
  * Content only - rendered inside the existing FeaturePanel structure.
  *
- * @module military_tools/azimuth_distance_tool/azimuth_distance_panel
+ * @module azimuth_distance_tool/azimuth_distance_panel
  */
 
 import {
@@ -37,9 +37,9 @@ import {
     setupCleanup,
     addDomListener,
     cleanup
-} from '../../utilities/event-cleanup.js';
+} from '../utilities/event-cleanup.js';
 
-import { showConfirm } from '../../modals/confirm.modal.js';
+import { showConfirm } from '../modals/confirm.modal.js';
 
 /**
  * Azimuth Distance Panel class.

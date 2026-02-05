@@ -61,11 +61,11 @@ const TOOLBAR_TOOLS = new Set([
     // Military tools
     'military_symbol', 'militarysymbol', 'coordination_measure', 'coordinationmeasure',
     'arrow', 'boundary', 'occupied_front', 'occupiedfront',
-    'azimuth_distance', 'azimuthdistance',
     // Analysis tools
     'los', 'visibility',
-    // Standalone tools
+    // Utility tools
     'vectortileinfo', 'rectangleselection',
+    'azimuth_distance', 'azimuthdistance',
 ]);
 
 /**

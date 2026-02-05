@@ -1,10 +1,10 @@
-// Path: js/military_tools/azimuth_distance_tool/components/reference-point.component.js
+// Path: js/azimuth_distance_tool/components/reference-point.component.js
 
 /**
  * @fileoverview Reference Point component for the azimuth distance tool.
  * Displays the origin point status and allows setting it.
  *
- * @module military_tools/azimuth_distance_tool/components/reference-point
+ * @module azimuth_distance_tool/components/reference-point
  */
 
 import { COLORS } from '../azimuth_distance_constants.js';

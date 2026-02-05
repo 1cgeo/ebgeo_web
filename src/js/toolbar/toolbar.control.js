@@ -63,16 +63,13 @@ export class ToolbarControl {
             this._groups.set(groupConfig.id, group);
         });
 
-        // Add separator
-        const separator = document.createElement('div');
-        separator.className = 'toolbar-separator';
-        this._container.appendChild(separator);
-
-        // Create standalone buttons
-        STANDALONE_TOOLS.forEach(toolConfig => {
-            const button = this._createStandaloneButton(toolConfig);
-            this._container.appendChild(button);
-        });
+        // Create standalone buttons (if any)
+        if (STANDALONE_TOOLS.length > 0) {
+            STANDALONE_TOOLS.forEach(toolConfig => {
+                const button = this._createStandaloneButton(toolConfig);
+                this._container.appendChild(button);
+            });
+        }
 
         parentElement.appendChild(this._container);
 

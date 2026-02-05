@@ -10,7 +10,8 @@ import {
     addViewshed,
     getViewsheds,
     updateViewshed,
-    removeViewshed
+    removeViewshed,
+    getViewshedById as getViewshedByIdStore
 } from '../../store/index.js';
 import { getEventBus } from '../../store/services.js';
 import { EventTypes } from '../../events/event_types.js';
@@ -431,8 +432,7 @@ function selectViewshed(viewshedId) {
  * @returns {Promise<Object|null>} Viewshed or null
  */
 async function getViewshedById(viewshedId) {
-    const { getViewshedById: getById } = await import('../../store/index.js');
-    return await getById(viewshedId);
+    return await getViewshedByIdStore(viewshedId);
 }
 
 /**

@@ -1,9 +1,9 @@
-// Path: js/military_tools/azimuth_distance_tool/index.js
+// Path: js/azimuth_distance_tool/index.js
 
 /**
  * @fileoverview Public exports for Azimuth and Distance tool.
  *
- * @module military_tools/azimuth_distance_tool
+ * @module azimuth_distance_tool
  */
 
 // Control

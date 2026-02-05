@@ -1,13 +1,13 @@
-// Path: js/military_tools/azimuth_distance_tool/add_azimuth_distance_control.js
+// Path: js/azimuth_distance_tool/add_azimuth_distance_control.js
 
 /**
  * @fileoverview Azimuth and Distance Tool Control.
  * Manages the tool activation, map interaction, and feature creation.
  *
- * @module military_tools/azimuth_distance_tool/add_azimuth_distance_control
+ * @module azimuth_distance_tool/add_azimuth_distance_control
  */
 
-import { BaseControl } from '../../tool_manager/index.js';
+import { BaseControl } from '../tool_manager/index.js';
 import { AzimuthDistancePanel } from './azimuth_distance_panel.js';
 import { generateFeature, generatePointFeatures, calculateWaypoints } from './azimuth_distance_geometry.js';
 import { addAzimuthDistanceAttributesToPanel } from './azimuth_distance_attributes_panel.js';
@@ -15,13 +15,13 @@ import {
     DEFAULT_PROPERTIES,
     OUTPUT_MODE,
     MODE_TO_SOURCE,
-    NORTH_REFERENCE
+    NORTH_REFERENCE,
+    COLORS
 } from './azimuth_distance_constants.js';
-import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getControl } from '../../store/index.js';
-import { IDUtils } from '../../utilities/index.js';
-import { showCoordinateEditModal } from '../../modals/coordinate-edit.modal.js';
-import { showConfirm } from '../../modals/confirm.modal.js';
-import { COLORS } from './azimuth_distance_constants.js';
+import { addFeature, updateFeature, removeFeature, getActiveLayerIdSync, getControl } from '../store/index.js';
+import { IDUtils } from '../utilities/index.js';
+import { showCoordinateEditModal } from '../modals/coordinate-edit.modal.js';
+import { showConfirm } from '../modals/confirm.modal.js';
 
 /**
  * Azimuth and Distance Tool Control.
@@ -699,7 +699,7 @@ class AddAzimuthDistanceControl extends BaseControl {
         this.clearEditHandles();
     }
 
-    createEditHandles(feature) {
+    createEditHandles(_feature) {
         // For now, no edit handles
         // Could add waypoint handles for advanced editing
     }
@@ -712,7 +712,7 @@ class AddAzimuthDistanceControl extends BaseControl {
         return false;
     }
 
-    hasEditHandle(featureId) {
+    hasEditHandle(_featureId) {
         return false;
     }
 
@@ -778,7 +778,7 @@ class AddAzimuthDistanceControl extends BaseControl {
 
         // Update geometry based on output mode
         switch (outputMode) {
-            case OUTPUT_MODE.POINT:
+            case OUTPUT_MODE.POINT: {
                 // For point features, use the waypoint at the stored index
                 const waypointIndex = props.azimuthDistanceData?.waypointIndex ?? waypoints.length - 1;
                 if (waypointIndex < waypoints.length) {
@@ -788,6 +788,7 @@ class AddAzimuthDistanceControl extends BaseControl {
                     };
                 }
                 break;
+            }
             case OUTPUT_MODE.ROUTE:
                 feature.geometry = {
                     type: 'LineString',
@@ -812,7 +813,7 @@ class AddAzimuthDistanceControl extends BaseControl {
         }
     }
 
-    async saveFeatures(features, initialPropertiesMap) {
+    async saveFeatures(features, _initialPropertiesMap) {
         for (const feature of features) {
             const sourceName = feature.properties.source || 'lines';
             const source = this.map.getSource(sourceName);

@@ -1,4 +1,4 @@
-// Path: js/military_tools/azimuth_distance_tool/components/index.js
+// Path: js/azimuth_distance_tool/components/index.js
 
 /**
  * @fileoverview Barrel exports for azimuth distance components.

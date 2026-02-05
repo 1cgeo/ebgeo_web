@@ -1,10 +1,10 @@
-// Path: js/military_tools/azimuth_distance_tool/components/geometry-preview.component.js
+// Path: js/azimuth_distance_tool/components/geometry-preview.component.js
 
 /**
  * @fileoverview Geometry Preview SVG component.
  * Digital protractor / map preview for the azimuth distance tool.
  *
- * @module military_tools/azimuth_distance_tool/components/geometry-preview
+ * @module azimuth_distance_tool/components/geometry-preview
  */
 
 import { COLORS, OUTPUT_MODE, NORTH_REFERENCE } from '../azimuth_distance_constants.js';

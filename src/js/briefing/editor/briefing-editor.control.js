@@ -32,8 +32,17 @@ import {
     reorderSlides,
     createEmptySlide,
     SlideMode,
-    getAllMapNamesStore
+    getAllMapNamesStore,
+    setCurrentMap
 } from '../../store/index.js';
+import {
+    getAllMarkers,
+    getMeasurements,
+    getViewsheds,
+    getCameraPosition
+} from '../../store/cesium3d.operations.js';
+import { getAllOrientations } from '../../store/streetview360.operations.js';
+import { createQuillEditor } from '../../utilities/quill-helpers.js';
 import { EventTypes } from '../../events/event_types.js';
 import { getEventBus } from '../../store/services.js';
 import { showSuccess, showError, showWarning } from '../../utilities/index.js';
@@ -587,10 +596,6 @@ export class BriefingEditorControl {
         if (!slide.mapId) return; // No map selected yet
 
         try {
-            // Import required functions
-            const { getAllMarkers, getMeasurements, getViewsheds, getCameraPosition } =
-                await import('../../store/cesium3d.operations.js');
-
             const tilesets = config.tilesets || [];
 
             // Check which tilesets have any saved data for this map
@@ -643,8 +648,6 @@ export class BriefingEditorControl {
         if (!slide.mapId) return;
 
         try {
-            const { getAllOrientations } = await import('../../store/streetview360.operations.js');
-
             // Get all saved orientations for this map
             const orientations = await getAllOrientations(slide.mapId);
 
@@ -772,8 +775,6 @@ export class BriefingEditorControl {
         if (!mapId) return;
 
         try {
-            const { setCurrentMap } = await import('../../store/index.js');
-
             // Switch to the selected map
             await setCurrentMap(mapId);
 
@@ -1167,8 +1168,6 @@ export class BriefingEditorControl {
      */
     async _initQuillEditor(container, slide) {
         try {
-            const { createQuillEditor } = await import('../../utilities/quill-helpers.js');
-
             // Destroy previous editor if exists
             if (this._quillEditor) {
                 this._quillEditor = null;

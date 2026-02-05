@@ -1,10 +1,10 @@
-// Path: js/military_tools/azimuth_distance_tool/components/compass-rose.component.js
+// Path: js/azimuth_distance_tool/components/compass-rose.component.js
 
 /**
  * @fileoverview Compass Rose SVG component.
  * Replicates the lensatic compass bezel with azimuth indicator.
  *
- * @module military_tools/azimuth_distance_tool/components/compass-rose
+ * @module azimuth_distance_tool/components/compass-rose
  */
 
 import { COLORS, NORTH_REFERENCE } from '../azimuth_distance_constants.js';

@@ -10,7 +10,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { getEventBus } from '../store/services.js';
 import { EventTypes } from '../events/event_types.js';
 import { NAV_CONSTANTS } from './navigation/constants.js';
-import { getOrientation, saveOrientation, clearOrientation } from '../store';
+import { getOrientation, saveOrientation, clearOrientation, getMarkers360 } from '../store';
 import { showSuccess } from '../utilities/toast_service.js';
 import { URLRouter } from '../url_router.js';
 import { LRUCache } from '../utilities/lru-cache.js';
@@ -646,7 +646,6 @@ async function loadMarkersForCurrentPhoto() {
     if (!streetViewState.navigator || !streetViewState.currentPhotoName) return;
 
     try {
-        const { getMarkers360 } = await import('../store');
         const markers = await getMarkers360(streetViewState.currentPhotoName);
         streetViewState.navigator.setPOIs(markers);
     } catch (error) {

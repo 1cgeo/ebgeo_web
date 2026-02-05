@@ -83,6 +83,10 @@ export default defineConfig({
           if (id.includes('selection_tools')) {
             return 'selection-tools';
           }
+          // Azimuth Distance tool (utility tool)
+          if (id.includes('azimuth_distance_tool')) {
+            return 'draw-tools';
+          }
 
           // ===== UI COMPONENTS (depende de core) =====
           // Inclui: sidebar, features_tab, user_data, attribute_table, search, bottom-controls, base-layer-selector, context-menu

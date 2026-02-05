@@ -1,10 +1,10 @@
-// Path: js/military_tools/azimuth_distance_tool/azimuth_distance_constants.js
+// Path: js/azimuth_distance_tool/azimuth_distance_constants.js
 
 /**
  * @fileoverview Constants and configuration for the Azimuth and Distance tool.
  * Implements military navigation standards (NATO 6400-mil system).
  *
- * @module military_tools/azimuth_distance_tool/azimuth_distance_constants
+ * @module azimuth_distance_tool/azimuth_distance_constants
  */
 
 // ============================================================================
@@ -164,7 +164,7 @@ export const VALIDATION = {
     MAX_DECLINATION_DEG: 45,
     MIN_DECLINATION_DEG: -45,
     MAX_OBSERVATION_LENGTH: 12,
-    MIN_LEGS_FOR_AREA: 3
+    MIN_LEGS_FOR_AREA: 2  // 2 legs + closing to origin = 3 points for polygon
 };
 
 // ============================================================================

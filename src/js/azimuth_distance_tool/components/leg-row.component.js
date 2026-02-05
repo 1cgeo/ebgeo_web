@@ -1,10 +1,10 @@
-// Path: js/military_tools/azimuth_distance_tool/components/leg-row.component.js
+// Path: js/azimuth_distance_tool/components/leg-row.component.js
 
 /**
  * @fileoverview Leg Row component for the azimuth distance tool.
  * Each row represents one leg in the Quadro de Azimutes (azimuth table).
  *
- * @module military_tools/azimuth_distance_tool/components/leg-row
+ * @module azimuth_distance_tool/components/leg-row
  */
 
 import { COLORS, ANGULAR_UNIT, DISTANCE_UNIT, MILS_PER_CIRCLE, DEGREES_PER_CIRCLE } from '../azimuth_distance_constants.js';
