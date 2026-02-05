@@ -39,6 +39,8 @@ const TOOL_NAMES = {
     boundary: 'Linha de Limite',
     occupied_front: 'Frente Ocupada',
     occupiedfront: 'Frente Ocupada',
+    azimuth_distance: 'Azimute e Distância',
+    azimuthdistance: 'Azimute e Distância',
 
     // Analysis tools
     los: 'Linha de Visada',
@@ -59,6 +61,7 @@ const TOOLBAR_TOOLS = new Set([
     // Military tools
     'military_symbol', 'militarysymbol', 'coordination_measure', 'coordinationmeasure',
     'arrow', 'boundary', 'occupied_front', 'occupiedfront',
+    'azimuth_distance', 'azimuthdistance',
     // Analysis tools
     'los', 'visibility',
     // Standalone tools

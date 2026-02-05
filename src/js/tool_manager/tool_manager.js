@@ -101,6 +101,11 @@ class ToolManager {
             this._emit('toolDeactivated', previousTool);
         }
 
+        // Clear selection BEFORE activating a tool
+        // This must happen before activate() because some tools (like azimuth_distance)
+        // open panels in their activate() method, and deselectAllFeatures() closes panels
+        this.selectionManager.deselectAllFeatures();
+
         // Activate new tool
         this.activeTool = tool;
         tool.activate();
@@ -110,9 +115,6 @@ class ToolManager {
 
         // Sync to StateManager for reactive UI updates
         this._syncToStateManager(tool);
-
-        // Clear selection when activating a tool
-        this.selectionManager.deselectAllFeatures();
     }
 
     /**

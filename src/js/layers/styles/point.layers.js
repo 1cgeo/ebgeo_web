@@ -52,9 +52,9 @@ export function setupPointLayers(features, mapInstance) {
             type: 'circle',
             source: 'point-feedback',
             paint: {
-                'circle-radius': 8,
-                'circle-color': '#ff0000',
-                'circle-opacity': 0.8
+                'circle-radius': ['coalesce', ['get', 'size'], 8],
+                'circle-color': ['coalesce', ['get', 'fillColor'], '#ff0000'],
+                'circle-opacity': ['coalesce', ['get', 'opacity'], 0.8]
             }
         });
     }

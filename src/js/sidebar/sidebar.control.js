@@ -311,22 +311,30 @@ export class SidebarControl {
      * @private
      */
     async _handleFeaturePanelClose() {
-        // Check if we're closing the notes panel or 3D feature panels
+        // Check if we're closing the notes panel, 3D feature panels, or tool panels
         const featureType = this._stateManager.get('ui.currentFeatureType');
         const isNotes = featureType === 'notes';
         const is3dFeature = ['marker3d', 'measurement3d', 'viewshed3d'].includes(featureType);
+        const isToolPanel = featureType === 'tool_panel';
+
+        // Handle tool panel close - trigger onClose callback to deactivate the tool
+        if (isToolPanel && this._toolPanelOnClose) {
+            this._toolPanelOnClose();
+            this._toolPanelOnClose = null;
+        }
 
         // Save changes before closing (this triggers save button click)
         // Must happen BEFORE deselecting features
-        this._featurePanel.hide(true);
+        // Don't save for tool panels (they handle their own state)
+        this._featurePanel.hide(!isToolPanel);
 
         // Deselect 3D features if closing their panels
         if (is3dFeature) {
             await deselect3dFeature(featureType);
         }
 
-        // Only clear selection if we're not showing notes or 3D features
-        if (!isNotes && !is3dFeature && this._selectionManager) {
+        // Only clear selection if we're not showing notes, 3D features, or tool panels
+        if (!isNotes && !is3dFeature && !isToolPanel && this._selectionManager) {
             this._selectionManager.deselectAllFeatures();
         }
 
@@ -409,6 +417,13 @@ export class SidebarControl {
      * @param {Object} payload - Event payload with featureId and featureType
      */
     _onFeaturePanelOpened(payload) {
+        // Ignore special panel types that manage their own content
+        // (tool_panel, searchResult, vectorInfo are handled by their respective methods)
+        const specialTypes = ['tool_panel', 'searchResult', 'vectorInfo'];
+        if (specialTypes.includes(payload.featureType)) {
+            return;
+        }
+
         // Collapse sidebar panel first
         this._collapsePanel();
 
@@ -960,6 +975,84 @@ export class SidebarControl {
         } catch (error) {
             console.warn('Failed to update recent maps:', error);
         }
+    }
+
+    /**
+     * Shows custom content in the feature panel.
+     * Used by tools that need to show their own panel UI during creation.
+     * @param {HTMLElement} contentElement - The content to show
+     * @param {string} title - Panel title
+     * @param {Function} [cleanupFn] - Optional cleanup function
+     * @param {Function} [onCloseFn] - Optional callback when panel is closed by user
+     */
+    showToolPanel(contentElement, title, cleanupFn, onCloseFn) {
+        if (!contentElement || !this._featurePanel) return;
+
+        // Collapse sidebar panel first
+        this._collapsePanel();
+
+        // Update state to reflect feature panel is open (for layout updates)
+        this._stateManager.set('ui.featurePanelOpen', true);
+        this._stateManager.set('ui.currentFeatureType', 'tool_panel');
+
+        // Emit FEATURE_PANEL_OPENED event for consistency
+        this._eventBus.emit(EventTypes.FEATURE_PANEL_OPENED, {
+            featureId: 'tool_panel',
+            featureType: 'tool_panel'
+        });
+
+        // Emit layout changed to move search bar, chips, etc.
+        this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+            sidebarExpanded: false,
+            featurePanelOpen: true,
+            contentLeftOffset: 376
+        });
+
+        // Cleanup previous content
+        this._cleanupFeaturePanelContent();
+
+        // Store cleanup function if provided
+        if (cleanupFn) {
+            this._currentFeaturePanelCleanup = cleanupFn;
+        }
+
+        // Store onClose callback
+        this._toolPanelOnClose = onCloseFn;
+
+        // Show in feature panel
+        this._featurePanel.show(contentElement, title);
+    }
+
+    /**
+     * Hides the feature panel (for tools).
+     * @param {boolean} [saveChanges=false] - Whether to save changes
+     * @param {boolean} [triggerOnClose=true] - Whether to trigger onClose callback
+     */
+    hideToolPanel(saveChanges = false, triggerOnClose = true) {
+        if (!this._featurePanel) return;
+
+        // Trigger onClose callback if set
+        if (triggerOnClose && this._toolPanelOnClose) {
+            this._toolPanelOnClose();
+            this._toolPanelOnClose = null;
+        }
+
+        this._featurePanel.hide(saveChanges);
+        this._cleanupFeaturePanelContent();
+
+        // Update state
+        this._stateManager.set('ui.featurePanelOpen', false);
+        this._stateManager.set('ui.currentFeatureType', null);
+
+        // Emit layout changed
+        this._eventBus.emit(EventTypes.UI_LAYOUT_CHANGED, {
+            sidebarExpanded: false,
+            featurePanelOpen: false,
+            contentLeftOffset: 56
+        });
+
+        // Emit FEATURE_PANEL_CLOSED event
+        this._eventBus.emit(EventTypes.FEATURE_PANEL_CLOSED, {});
     }
 
     /**

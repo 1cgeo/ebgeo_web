@@ -39,7 +39,8 @@ const FEATURE_TYPE_NAMES = {
     military_symbol: { singular: 'símbolo militar', plural: 'símbolos militares' },
     coordination_measure: { singular: 'medida de coordenação', plural: 'medidas de coordenação' },
     los: { singular: 'linha de visada', plural: 'linhas de visada' },
-    visibility: { singular: 'análise de visibilidade', plural: 'análises de visibilidade' }
+    visibility: { singular: 'análise de visibilidade', plural: 'análises de visibilidade' },
+    azimuth_distance: { singular: 'azimute e distância', plural: 'azimutes e distâncias' }
 };
 
 // ============================================================================

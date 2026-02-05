@@ -63,6 +63,7 @@ const SHORTCUTS_DATA = {
             { key: 'S', icon: TOOLBAR_ICONS.arrow, description: 'Seta' },
             { key: 'D', icon: TOOLBAR_ICONS.boundary, description: 'Linha de limite' },
             { key: 'F', icon: TOOLBAR_ICONS.occupiedFront, description: 'Frente ocupada' },
+            { key: 'Z', icon: TOOLBAR_ICONS.azimuthDistance, description: 'Azimute e distância' },
         ],
     },
     analysis: {

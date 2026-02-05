@@ -51,7 +51,8 @@ import {
     AddCoordinationMeasureControl,
     AddArrowControl,
     AddBoundaryControl,
-    AddOccupiedFrontControl
+    AddOccupiedFrontControl,
+    AddAzimuthDistanceControl
 } from './military_tools/index.js';
 
 // Analysis tools
@@ -203,6 +204,7 @@ const occupiedFrontControl = new AddOccupiedFrontControl(toolManager);
 const militarySymbolControl = new AddMilitarySymbolControl(toolManager);
 const brushControl = new AddBrushControl(toolManager);
 const coordinationMeasureControl = new AddCoordinationMeasureControl(toolManager);
+const azimuthDistanceControl = new AddAzimuthDistanceControl(toolManager);
 
 selectionManager.registerControl('point', pointControl);
 selectionManager.registerControl('line', lineControl);
@@ -220,6 +222,7 @@ selectionManager.registerControl('occupied_front', occupiedFrontControl);
 selectionManager.registerControl('military_symbol', militarySymbolControl);
 selectionManager.registerControl('brush', brushControl);
 selectionManager.registerControl('coordination_measure', coordinationMeasureControl);
+selectionManager.registerControl('azimuth_distance', azimuthDistanceControl);
 
 const uiManager = new UIManager(map, selectionManager, toolManager);
 selectionManager.setUIManager(uiManager);
@@ -297,7 +300,8 @@ const keyboardShortcuts = new KeyboardShortcuts({
         brushControl,
         rectangleSelectionControl,
         vectorTileInfoControl,
-        coordinationMeasureControl
+        coordinationMeasureControl,
+        azimuthDistanceControl
     }
 });
 
@@ -351,6 +355,9 @@ const sidebarControl = new SidebarControl({
 });
 sidebarControl.init(document.body);
 
+// Register sidebar control for access from other components (like azimuth distance tool)
+registerControl('sidebarControl', sidebarControl);
+
 // ===== ATTRIBUTE TABLE CONTROL =====
 
 const attributeTableControl = new AttributeTableControl({
@@ -385,6 +392,7 @@ const toolbarManagedControls = [
     occupiedFrontControl,
     militarySymbolControl,
     coordinationMeasureControl,
+    azimuthDistanceControl,
     losControl,
     visibilityControl,
     vectorTileInfoControl,
@@ -446,6 +454,7 @@ const toolbarControl = new ToolbarControl({
         arrowControl,
         boundaryControl,
         occupiedFrontControl,
+        azimuthDistanceControl,
         losControl,
         visibilityControl,
         vectorTileInfoControl,
@@ -534,6 +543,7 @@ registerControl('AddOccupiedFrontControl', occupiedFrontControl);
 registerControl('AddMilitarySymbolControl', militarySymbolControl);
 registerControl('AddBrushControl', brushControl);
 registerControl('AddCoordinationMeasureControl', coordinationMeasureControl);
+registerControl('AddAzimuthDistanceControl', azimuthDistanceControl);
 registerControl('TerrainControl', terrainControl);
 registerControl('MouseCoordinatesControl', mouseCoordinatesControl);
 registerControl('Add3DModelsViewerControl', add3DModelsViewerControl);

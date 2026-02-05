@@ -28,3 +28,13 @@ export { addBoundaryAttributesToPanel } from './boundary_tool/boundary_attribute
 export { default as AddOccupiedFrontControl } from './occupied_front_tool/add_occupied_front_control.js';
 export { default as AddOccupiedFrontGeometry } from './occupied_front_tool/add_occupied_front_geometry.js';
 export { addOccupiedFrontAttributesToPanel } from './occupied_front_tool/occupied_front_attributes_panel.js';
+
+// Azimuth Distance tool
+export { AddAzimuthDistanceControl } from './azimuth_distance_tool/index.js';
+export { addAzimuthDistanceAttributesToPanel } from './azimuth_distance_tool/index.js';
+export {
+    ANGULAR_UNIT,
+    DISTANCE_UNIT,
+    NORTH_REFERENCE,
+    OUTPUT_MODE
+} from './azimuth_distance_tool/index.js';

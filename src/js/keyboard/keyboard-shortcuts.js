@@ -200,7 +200,8 @@ class KeyboardShortcuts {
             'm': this.controls.militarySymbolControl,
             'r': this.controls.rectangleControl,
             'b': this.controls.brushControl,
-            'k': this.controls.coordinationMeasureControl
+            'k': this.controls.coordinationMeasureControl,
+            'z': this.controls.azimuthDistanceControl
         };
 
         if (key === 'v') {
