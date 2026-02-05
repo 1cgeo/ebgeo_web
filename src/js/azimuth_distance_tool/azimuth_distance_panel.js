@@ -41,6 +41,8 @@ import {
 
 import { showConfirm } from '../modals/confirm.modal.js';
 
+import { calculateMagneticDeclination } from '@utils/geomagnetic/wmm_calculator.js';
+
 /**
  * Azimuth Distance Panel class.
  * Content-only panel that renders inside the FeaturePanel.
@@ -66,6 +68,9 @@ export class AzimuthDistancePanel {
             distanceUnit: DISTANCE_UNIT.METERS,
             northReference: NORTH_REFERENCE.MAGNETIC,
             magneticDeclination: -21.5, // Default for Brazil
+            autoDeclinationValue: null, // WMM calculated value (degrees)
+            autoDeclinationWarning: null, // Warning if coefficients expired
+            manuallyEdited: false, // Operator manually edited declination field
             outputMode: OUTPUT_MODE.ROUTE,
             activeIndex: 0,
             legs: [{ azimuth: '', distance: '' }]
@@ -281,8 +286,8 @@ export class AzimuthDistancePanel {
     _createDeclinationSection() {
         const section = document.createElement('div');
         section.className = 'azd-section azd-declination';
-        const showWarning = this._state.northReference === NORTH_REFERENCE.MAGNETIC &&
-            this._state.magneticDeclination !== 0;
+        const isMagnetic = this._state.northReference === NORTH_REFERENCE.MAGNETIC;
+        const showWarning = isMagnetic && this._state.magneticDeclination !== 0;
 
         if (showWarning) {
             section.classList.add('azd-declination-active');
@@ -303,8 +308,8 @@ export class AzimuthDistancePanel {
         northToggle.appendChild(nvBtn);
         row.appendChild(northToggle);
 
-        // Declination input
-        const isDisabled = this._state.northReference === NORTH_REFERENCE.TRUE;
+        // Declination input + auto button wrapper
+        const isDisabled = !isMagnetic;
         const declContainer = document.createElement('div');
         declContainer.className = `azd-decl-container ${isDisabled ? 'disabled' : ''}`;
 
@@ -319,16 +324,15 @@ export class AzimuthDistancePanel {
         declInput.value = this._state.magneticDeclination;
         declInput.step = '0.5';
         declInput.disabled = isDisabled;
+        declInput.title = 'Oeste (−) / Leste (+)';
 
         addDomListener(this, declInput, 'input', (e) => {
             const val = parseFloat(e.target.value);
             if (!isNaN(val)) {
                 this._state.magneticDeclination = Math.max(-45, Math.min(45, val));
-                // Update compass to reflect new declination
+                this._state.manuallyEdited = true;
                 this._updateCompass();
-                // Update declination helper text without rebuilding input
                 this._updateDeclinationHelper();
-                // Notify for map preview update
                 this._notifyStateChange();
             }
         });
@@ -341,29 +345,141 @@ export class AzimuthDistancePanel {
         unitLabel.textContent = '°';
         declContainer.appendChild(unitLabel);
 
+        // Auto-calculate button [⟳]
+        const autoBtn = this._createAutoDeclinationButton();
+        declContainer.appendChild(autoBtn);
+
         row.appendChild(declContainer);
         section.appendChild(row);
 
-        // Helper text
+        // WMM info line + correction warning
         const helper = document.createElement('div');
         helper.className = 'azd-decl-helper';
 
-        const helperLeft = document.createElement('span');
-        helperLeft.textContent = 'Oeste (−) / Leste (+)';
-        helper.appendChild(helperLeft);
+        // Auto-declination info line
+        const autoInfo = document.createElement('span');
+        autoInfo.className = 'azd-auto-decl-info';
+        this._renderAutoDeclinationInfo(autoInfo);
+        helper.appendChild(autoInfo);
 
+        // Correction active warning
         if (showWarning) {
-            const helperRight = document.createElement('span');
-            helperRight.className = 'azd-decl-warning';
+            const warningSpan = document.createElement('span');
+            warningSpan.className = 'azd-decl-warning';
             const sign = this._state.magneticDeclination > 0 ? '+' : '';
-            helperRight.textContent = `Correção ativa: ${sign}${this._state.magneticDeclination}°`;
-            helper.appendChild(helperRight);
+            warningSpan.textContent = `Correção ativa: ${sign}${this._state.magneticDeclination}°`;
+            helper.appendChild(warningSpan);
         }
 
         section.appendChild(helper);
 
         this._declinationSection = section;
         return section;
+    }
+
+    /**
+     * Creates the auto-calculate declination button [⟳].
+     * @returns {HTMLButtonElement}
+     */
+    _createAutoDeclinationButton() {
+        const isDisabled = !this._state.referencePoint ||
+            this._state.northReference === NORTH_REFERENCE.TRUE;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'azd-auto-decl-btn';
+        btn.title = 'Calcular declinação automática (WMM2025)';
+        btn.disabled = isDisabled;
+        btn.style.cssText = `
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            margin-left: 4px;
+            border: 1px solid ${isDisabled ? COLORS.gray200 : COLORS.gray300};
+            border-radius: 6px;
+            background: ${isDisabled ? COLORS.gray50 : COLORS.white};
+            cursor: ${isDisabled ? 'not-allowed' : 'pointer'};
+            opacity: ${isDisabled ? '0.4' : '1'};
+            transition: all 0.15s;
+            flex-shrink: 0;
+        `;
+
+        // SVG refresh icon
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '14');
+        svg.setAttribute('height', '14');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', isDisabled ? COLORS.gray400 : COLORS.gray600);
+        svg.setAttribute('stroke-width', '2.5');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.innerHTML = `
+            <path d="M21 2v6h-6"/>
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+            <path d="M3 22v-6h6"/>
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+        `;
+        btn.appendChild(svg);
+
+        if (!isDisabled) {
+            btn.addEventListener('mouseenter', () => {
+                btn.style.borderColor = COLORS.primary600;
+                btn.style.background = COLORS.primary50;
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.borderColor = COLORS.gray300;
+                btn.style.background = COLORS.white;
+            });
+            addDomListener(this, btn, 'click', () => this._applyAutoDeclinacao());
+        }
+
+        return btn;
+    }
+
+    /**
+     * Renders the auto-declination info text into the given span element.
+     * @param {HTMLSpanElement} el
+     */
+    _renderAutoDeclinationInfo(el) {
+        el.style.cssText = `
+            font-size: 11px;
+            color: ${COLORS.gray500};
+        `;
+
+        if (this._state.northReference === NORTH_REFERENCE.TRUE) {
+            el.textContent = '';
+            return;
+        }
+
+        if (!this._state.referencePoint) {
+            el.textContent = '\u25B8 Defina o ponto de referência';
+            return;
+        }
+
+        if (this._state.autoDeclinationValue != null) {
+            let displayValue = this._state.autoDeclinationValue;
+            let unit = '°';
+            if (this._state.angularUnit === ANGULAR_UNIT.MILS) {
+                displayValue = parseFloat((displayValue * DEG_TO_MIL).toFixed(1));
+                unit = '₥';
+            }
+
+            const modelLabel = this._state.autoDeclinationWarning
+                ? 'WMM2025 \u2014 expirado'
+                : 'WMM2025';
+
+            el.textContent = `\u25B8 Auto: ${displayValue}${unit} (${modelLabel})`;
+
+            if (this._state.autoDeclinationWarning) {
+                el.style.color = COLORS.amber600;
+            }
+        } else {
+            el.textContent = '\u25B8 Defina o ponto de referência';
+        }
     }
 
     _createNorthButton(label, title, northRef) {
@@ -724,6 +840,35 @@ export class AzimuthDistancePanel {
         this._options.onCreateFeature?.(this.getState());
     }
 
+    // =========================================================================
+    // WMM AUTO-DECLINATION
+    // =========================================================================
+
+    /**
+     * Calculates auto-declination from the current reference point using WMM2025.
+     */
+    _calculateAutoDeclinacao() {
+        if (!this._state.referencePoint) return;
+        const [lng, lat] = this._state.referencePoint;
+        const result = calculateMagneticDeclination(lat, lng);
+        if (!result) return;
+        this._state.autoDeclinationValue = result.declination;
+        this._state.autoDeclinationWarning = result.warning;
+    }
+
+    /**
+     * Applies WMM auto-declination value to the input field.
+     * Called by the [⟳] button — always overwrites, resets manual flag.
+     */
+    _applyAutoDeclinacao() {
+        this._calculateAutoDeclinacao();
+        if (this._state.autoDeclinationValue != null) {
+            this._state.magneticDeclination = this._state.autoDeclinationValue;
+            this._state.manuallyEdited = false;
+            this._updateAll();
+        }
+    }
+
     _notifyStateChange() {
         this._options.onStateChange?.(this.getState());
     }
@@ -839,11 +984,16 @@ export class AzimuthDistancePanel {
     _updateDeclinationHelper() {
         if (!this._declinationSection) return;
 
-        // Find the helper element
         const helper = this._declinationSection.querySelector('.azd-decl-helper');
         if (!helper) return;
 
-        // Update or create warning text
+        // Update auto-declination info line
+        const autoInfo = helper.querySelector('.azd-auto-decl-info');
+        if (autoInfo) {
+            this._renderAutoDeclinationInfo(autoInfo);
+        }
+
+        // Update or create correction warning
         const showWarning = this._state.northReference === NORTH_REFERENCE.MAGNETIC &&
             this._state.magneticDeclination !== 0;
 
@@ -862,7 +1012,6 @@ export class AzimuthDistancePanel {
                 helper.appendChild(warningSpan);
             }
 
-            // Update section styling
             this._declinationSection.classList.add('azd-declination-active');
         } else {
             if (warningSpan) {
@@ -944,11 +1093,24 @@ export class AzimuthDistancePanel {
 
     /**
      * Set reference point from map click.
+     * Auto-calculates magnetic declination via WMM2025.
+     * Auto-fills the declination field if not manually edited.
      * @param {number} lng - Longitude
      * @param {number} lat - Latitude
      */
     setReferencePoint(lng, lat) {
         this._state.referencePoint = [lng, lat];
+
+        // Auto-calculate declination from WMM
+        this._calculateAutoDeclinacao();
+
+        // Auto-fill if NM and operator hasn't manually edited
+        if (this._state.northReference === NORTH_REFERENCE.MAGNETIC &&
+            this._state.autoDeclinationValue != null &&
+            !this._state.manuallyEdited) {
+            this._state.magneticDeclination = this._state.autoDeclinationValue;
+        }
+
         this._updateAll();
     }
 
@@ -970,6 +1132,9 @@ export class AzimuthDistancePanel {
             distanceUnit: DISTANCE_UNIT.METERS,
             northReference: NORTH_REFERENCE.MAGNETIC,
             magneticDeclination: -21.5,
+            autoDeclinationValue: null,
+            autoDeclinationWarning: null,
+            manuallyEdited: false,
             outputMode: OUTPUT_MODE.ROUTE,
             activeIndex: 0,
             legs: [{ azimuth: '', distance: '' }]
