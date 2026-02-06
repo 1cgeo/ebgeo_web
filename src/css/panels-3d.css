@@ -430,3 +430,12 @@ body.cesium-active .modal-overlay {
     width: 16px;
     height: 16px;
 }
+
+/* ===== MAP LOCK: HIDE WRITE-ACTION BUTTONS ===== */
+#toolbar-3d.map-locked .button-tool-3d:not(#help-3d) {
+    display: none;
+}
+
+#toolbar-3d.map-locked .toolbar-3d-separator {
+    display: none;
+}

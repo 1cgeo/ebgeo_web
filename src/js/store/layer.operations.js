@@ -7,6 +7,7 @@
 
 import { setLayersCompat, setActiveLayerIdCompat } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
+import { isCurrentMapLockedSync } from './map.operations.js';
 import { EventTypes } from '../events';
 
 // Alias for backward compatibility during migration
@@ -96,6 +97,10 @@ export const getVisibleLayerIds = (mapName = null) => {
  * @returns {import('./store.types.js').Layer} Created layer
  */
 export const createLayer = (name = 'Nova Camada', mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot create layer.');
+        return null;
+    }
     return deps.layerManager.createLayer(name, mapName);
 };
 
@@ -143,6 +148,10 @@ export const setActiveLayerId = async (mapName, layerId) => {
  * @returns {import('./store.types.js').Layer} Renamed layer
  */
 export const renameLayer = (layerId, newName, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot rename layer.');
+        return null;
+    }
     return deps.layerManager.renameLayer(layerId, newName, mapName);
 };
 
@@ -177,6 +186,10 @@ export const setLayerLocked = (layerId, locked, mapName = null) => {
  * @param {string} [mapName=null] - Map name
  */
 export const reorderLayers = (orderedLayerIds, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot reorder layers.');
+        return;
+    }
     return deps.layerManager.reorderLayers(orderedLayerIds, mapName);
 };
 
@@ -192,6 +205,10 @@ export const reorderLayers = (orderedLayerIds, mapName = null) => {
  * @returns {Object} Deletion result
  */
 export const deleteLayerOnly = (layerId, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot delete layer.');
+        return { success: false, reason: 'MAP_LOCKED' };
+    }
     return deps.layerManager.deleteLayer(layerId, mapName);
 };
 

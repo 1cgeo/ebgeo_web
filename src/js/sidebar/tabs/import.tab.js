@@ -15,6 +15,7 @@ import {
 import { showSuccess, showError } from '../../utilities/index.js';
 import { EventTypes } from '../../events/event_types.js';
 import { isViewer3DOpen } from '../../utilities/viewer3d-state.js';
+import { isCurrentMapLockedSync } from '../../store/index.js';
 
 /**
  * Import format configurations.
@@ -112,9 +113,16 @@ export class ImportTab {
         // Setup 3D viewer state listeners
         this._setup3DViewerListeners();
 
+        // Setup map lock listener
+        subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED,
+            () => this._updateMapLockUI());
+
         // Check initial 3D state
         this._is3DViewerOpen = isViewer3DOpen();
         this._update3DViewerModeUI();
+
+        // Check initial lock state
+        this._updateMapLockUI();
 
         return this._container;
     }
@@ -154,13 +162,31 @@ export class ImportTab {
                 this._dropZone.classList.add('disabled-3d-mode');
             }
         } else {
-            // Re-enable import options and drop zone
-            if (this._optionsContainer) {
-                this._optionsContainer.classList.remove('disabled-3d-mode');
+            // Re-enable import options and drop zone, but only if map is NOT locked
+            if (!isCurrentMapLockedSync()) {
+                if (this._optionsContainer) {
+                    this._optionsContainer.classList.remove('disabled-3d-mode');
+                }
+                if (this._dropZone) {
+                    this._dropZone.classList.remove('disabled-3d-mode');
+                }
             }
-            if (this._dropZone) {
-                this._dropZone.classList.remove('disabled-3d-mode');
-            }
+        }
+    }
+
+    /**
+     * Updates UI based on map lock state.
+     * @private
+     */
+    _updateMapLockUI() {
+        if (!this._container) return;
+        const locked = isCurrentMapLockedSync();
+
+        if (this._optionsContainer) {
+            this._optionsContainer.classList.toggle('disabled-3d-mode', locked);
+        }
+        if (this._dropZone) {
+            this._dropZone.classList.toggle('disabled-3d-mode', locked);
         }
     }
 
@@ -256,6 +282,12 @@ export class ImportTab {
      * @param {Object} format - Selected format
      */
     _handleFormatClick(format) {
+        // Block import when map is locked
+        if (isCurrentMapLockedSync()) {
+            showError('Mapa bloqueado');
+            return;
+        }
+
         // Block import when 3D viewer is open
         if (this._is3DViewerOpen) {
             showError('Importação desabilitada no modo 3D');
@@ -289,6 +321,12 @@ export class ImportTab {
      * @param {DragEvent} e - Drop event
      */
     async _handleFileDrop(e) {
+        // Block import when map is locked
+        if (isCurrentMapLockedSync()) {
+            showError('Mapa bloqueado');
+            return;
+        }
+
         // Block import when 3D viewer is open
         if (this._is3DViewerOpen) {
             showError('Importação desabilitada no modo 3D');

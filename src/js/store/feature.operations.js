@@ -8,6 +8,8 @@ import { cleanFeature } from './repository.utils.js';
 import { getMapDataCompat, updateMapDataCompat, getLayersCompat } from './repositories/index.js';
 import { FEATURE_TYPE_MAPPINGS, getAllStorageTypes, getStorageTypeFromSource } from './store.constants.js';
 import mapManager from './store-state-manager.js';
+import { memoryStore } from './memory-store.js';
+import { isCurrentMapLockedSync } from './map.operations.js';
 import { logFeatureOperation, OperationType } from './sync/index.js';
 
 // ===== TIMESTAMP AND VERSION HELPERS =====
@@ -99,6 +101,12 @@ const removeProcessedFeaturesFromData = (processedType, processedFeatures, mapDa
  * @param {string} [mapName=null] - Target map name
  */
 export const addFeature = async (type, feature, mapName = null) => {
+    const targetMap = mapName || mapManager.getCurrentMapName();
+    if (memoryStore.lockedMaps.has(targetMap)) {
+        console.warn('Map is locked. Cannot add feature.');
+        return;
+    }
+
     const cleanedFeature = cleanFeature(feature);
     if (!cleanedFeature) {
         console.warn('Feature ignored after cleanup:', feature);
@@ -108,7 +116,6 @@ export const addFeature = async (type, feature, mapName = null) => {
     // Add creation timestamp
     addCreatedTimestamp(cleanedFeature);
 
-    const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
     currentMapData.features[type].push(cleanedFeature);
     await updateMapData(targetMap, currentMapData);
@@ -139,6 +146,11 @@ export const addFeature = async (type, feature, mapName = null) => {
  * @param {string} [mapName=null] - Target map name
  */
 export const updateFeature = async (type, feature, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot update feature.');
+        return;
+    }
+
     const cleanedFeature = cleanFeature(feature);
     if (!cleanedFeature) {
         console.warn('Feature ignored after cleanup:', feature);
@@ -219,6 +231,11 @@ export const updateFeature = async (type, feature, mapName = null) => {
  * @param {string} [mapName=null] - Target map name
  */
 export const removeFeature = async (type, id, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot remove feature.');
+        return;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
     const featureIndex = currentMapData.features[type].findIndex(f => f.properties.id === id);
@@ -369,6 +386,10 @@ export const removeFeatureSilent = async (type, id, mapName = null) => {
  */
 export const addFeatures = async (featuresMap, mapName = null) => {
     const targetMap = mapName || mapManager.getCurrentMapName();
+    if (memoryStore.lockedMaps.has(targetMap)) {
+        console.warn('Map is locked. Cannot add features.');
+        return;
+    }
     const currentMapData = await getMapData(targetMap);
     const action = { type: 'addMultiple', features: {} };
 
@@ -435,6 +456,11 @@ export const getFeatureById = async (featureType, featureId, mapName = null) => 
  * @returns {Promise<boolean>} Whether update was successful
  */
 export const updateFeatureProperty = async (featureType, featureId, property, value, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot update feature property.');
+        return false;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
     const feature = currentMapData.features[featureType].find(f => f.properties.id === featureId);
@@ -480,6 +506,16 @@ export const updateFeatureProperty = async (featureType, featureId, property, va
  */
 export const moveFeaturesToMap = async (features, targetMapName) => {
     if (!features || features.length === 0) return;
+
+    // Guard: cannot move out of or into a locked map
+    if (isCurrentMapLockedSync()) {
+        console.warn('Source map is locked. Cannot move features.');
+        return;
+    }
+    if (memoryStore.lockedMaps.has(targetMapName)) {
+        console.warn('Target map is locked. Cannot move features.');
+        return;
+    }
 
     const sourceMapName = mapManager.getCurrentMapName();
     if (sourceMapName === targetMapName) {
@@ -640,6 +676,11 @@ async function buildLayerMappingForMove(features, sourceMapName, targetMapName) 
  * @param {string} [mapName=null] - Target map name
  */
 export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot update LOS features.');
+        return;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
 
@@ -675,6 +716,11 @@ export const batchUpdateLOSFeatures = async (losFeature, processedFeatures, mapN
  * @param {string} [mapName=null] - Target map name
  */
 export const batchUpdateVisibilityFeatures = async (visibilityFeature, processedFeatures, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot update visibility features.');
+        return;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
 
@@ -772,6 +818,11 @@ export const getLayerFeatures = async (layerId, mapName = null) => {
  * @returns {Promise<boolean>} Whether any features were moved
  */
 export const moveFeaturesToLayer = async (featureRefs, targetLayerId, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot move features to layer.');
+        return false;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
     let modified = false;

@@ -51,6 +51,7 @@ const SHORTCUTS_DATA = {
             { key: 'T', icon: TOOLBAR_ICONS.text, description: 'Texto' },
             { key: 'I', icon: TOOLBAR_ICONS.image, description: 'Imagem' },
             { key: 'B', icon: TOOLBAR_ICONS.brush, description: 'Pincel' },
+            { key: 'Z', icon: TOOLBAR_ICONS.azimuthDistance, description: 'Azimute e distância' },
         ],
     },
     military: {
@@ -77,7 +78,6 @@ const SHORTCUTS_DATA = {
         icon: SHORTCUT_ICONS.other,
         shortcuts: [
             { key: 'Q', icon: TOOLBAR_ICONS.select, description: 'Seleção retangular' },
-            { key: 'Z', icon: TOOLBAR_ICONS.azimuthDistance, description: 'Azimute e distância' },
             { key: 'N', icon: TOOLBAR_ICONS.featureInfo, description: 'Informações da carta' },
             { key: 'G', icon: TOOLBAR_ICONS.snapping, description: 'Ativar/desativar snap' },
         ],

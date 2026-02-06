@@ -3,6 +3,7 @@
 import { memoryStore } from './memory-store.js';
 import {
     setSettingCompat,
+    getSettingCompat,
     getColorUsageCompat,
     setColorUsageCompat,
     removeColorUsageCompat,
@@ -88,6 +89,14 @@ class MapManager {
         await this.loadColorUsageFromDB(mapName);
         await groupManager.loadGroupsToMemory(mapName);
         await setAppSetting('lastActiveMap', mapName);
+
+        // Load lock state into memory cache
+        const locked = await getSettingCompat(`mapLocked_${mapName}`);
+        if (locked) {
+            this.memoryStore.lockedMaps.add(mapName);
+        } else {
+            this.memoryStore.lockedMaps.delete(mapName);
+        }
 
         // Log operation for sync
         logOperation(

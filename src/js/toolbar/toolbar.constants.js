@@ -107,7 +107,7 @@ export const TOOL_GROUPS = {
         id: 'draw',
         label: 'Desenho',
         icon: TOOLBAR_ICONS.draw,
-        layout: 'grid', // 3x3 grid (9 tools)
+        layout: 'grid', // 4 columns (10 tools)
         tools: [
             { id: 'point', label: 'Ponto', icon: TOOLBAR_ICONS.point, shortcut: 'P', controlKey: 'pointControl' },
             { id: 'line', label: 'Linha', icon: TOOLBAR_ICONS.line, shortcut: 'L', controlKey: 'lineControl' },
@@ -118,6 +118,7 @@ export const TOOL_GROUPS = {
             { id: 'text', label: 'Texto', icon: TOOLBAR_ICONS.text, shortcut: 'T', controlKey: 'textControl' },
             { id: 'image', label: 'Imagem', icon: TOOLBAR_ICONS.image, shortcut: 'I', controlKey: 'imageControl' },
             { id: 'brush', label: 'Pincel', icon: TOOLBAR_ICONS.brush, shortcut: 'B', controlKey: 'brushControl' },
+            { id: 'azimuthDistance', label: 'Azimute e Distância', icon: TOOLBAR_ICONS.azimuthDistance, shortcut: 'Z', controlKey: 'azimuthDistanceControl' },
         ],
     },
     military: {
@@ -151,7 +152,6 @@ export const TOOL_GROUPS = {
         tools: [
             { id: 'featureInfo', label: 'Informações da Carta', icon: TOOLBAR_ICONS.featureInfo, shortcut: 'N', controlKey: 'vectorTileInfoControl' },
             { id: 'rectangleSelection', label: 'Selecionar', icon: TOOLBAR_ICONS.select, shortcut: 'Q', controlKey: 'rectangleSelectionControl' },
-            { id: 'azimuthDistance', label: 'Azimute e Distância', icon: TOOLBAR_ICONS.azimuthDistance, shortcut: 'Z', controlKey: 'azimuthDistanceControl' },
         ],
     },
 };

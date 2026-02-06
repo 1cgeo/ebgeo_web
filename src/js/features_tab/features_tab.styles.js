@@ -671,6 +671,72 @@ export function inject3DViewerModeStyles() {
 }
 
 /**
+ * Injects CSS styles for map-locked mode.
+ * Hides edit controls when the map is locked.
+ */
+export function injectMapLockedStyles() {
+    if (document.getElementById('map-locked-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'map-locked-styles';
+    style.textContent = `
+        /* Hide "Nova camada" button */
+        .features-tab-content.map-locked > .sidebar-section-header-with-action .sidebar-section-header-btn {
+            display: none;
+        }
+
+        /* Hide layer delete button */
+        .features-tab-content.map-locked .layer-delete-btn {
+            display: none;
+        }
+
+        /* Hide layer attribute table button when locked */
+        .features-tab-content.map-locked .table-toggle {
+            display: none;
+        }
+
+        /* Disable layer name editing (double-click rename) */
+        .features-tab-content.map-locked .layer-name {
+            pointer-events: none;
+        }
+
+        /* Hide layer drag handles (no reorder) */
+        .features-tab-content.map-locked .layer-drag-handle {
+            display: none;
+        }
+
+        /* Hide layer visibility and lock toggles when locked */
+        .features-tab-content.map-locked .layer-controls .visibility-toggle,
+        .features-tab-content.map-locked .layer-controls .lock-toggle {
+            display: none;
+        }
+
+        /* Hide feature-level visibility and lock toggles when locked */
+        .features-tab-content.map-locked .feature-controls .visibility-toggle,
+        .features-tab-content.map-locked .feature-controls .lock-toggle {
+            display: none;
+        }
+
+        /* Hide group-level visibility and lock toggles when locked */
+        .features-tab-content.map-locked .group-controls .visibility-toggle,
+        .features-tab-content.map-locked .group-controls .lock-toggle {
+            display: none;
+        }
+
+        /* Hide 3D models section delete button (keep open-viewer) */
+        .features-tab-content.map-locked .models3d-delete-all {
+            display: none;
+        }
+
+        /* Hide 360 section delete button (keep open-viewer) */
+        .features-tab-content.map-locked .streetview360-delete-all {
+            display: none;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+/**
  * Injects all features tab styles.
  * Call once during initialization.
  */
@@ -680,4 +746,5 @@ export function injectAllFeaturesTabStyles() {
     injectLayerStyles();
     injectSpinnerStyles();
     inject3DViewerModeStyles();
+    injectMapLockedStyles();
 }

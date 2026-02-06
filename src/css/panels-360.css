@@ -506,3 +506,12 @@ body.streetview-active .modal-overlay {
         border: 2px solid white;
     }
 }
+
+/* ===== MAP LOCK: HIDE WRITE-ACTION BUTTONS ===== */
+#toolbar-360.map-locked .button-tool-360:not(#help-360) {
+    display: none;
+}
+
+#toolbar-360.map-locked .toolbar-360-separator {
+    display: none;
+}

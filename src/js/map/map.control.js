@@ -553,8 +553,14 @@ class MapControl {
      * @param {string} targetMapName - Target map to combine into
      */
     async showCombineMapsModal(targetMapName) {
+        const { isMapLocked } = await import('../store/map.operations.js');
         const allMapNames = await getAllMapNamesStore();
-        const availableMaps = allMapNames.filter(name => name !== targetMapName);
+        const lockedChecks = await Promise.all(
+            allMapNames.map(async name => ({ name, locked: await isMapLocked(name) }))
+        );
+        const availableMaps = lockedChecks
+            .filter(m => m.name !== targetMapName && !m.locked)
+            .map(m => m.name);
 
         if (availableMaps.length === 0) {
             this.showToast('Não há outros mapas para combinar', 'warning');

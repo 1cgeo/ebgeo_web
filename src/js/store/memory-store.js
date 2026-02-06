@@ -93,7 +93,14 @@ export const memoryStore = {
         orientations: {},     // { photoName: PhotoOrientation }
         markers: [],          // Marker360[]
         _mapName: null        // Current map name for cache validation
-    }
+    },
+
+    /**
+     * Set of locked (read-only) map names.
+     * Loaded from IndexedDB on map switch for synchronous access.
+     * @type {Set<string>}
+     */
+    lockedMaps: new Set()
 };
 
 // ===== MEMORY STORE OPERATIONS =====
@@ -127,4 +134,5 @@ export function resetMemoryStore() {
         markers: [],
         _mapName: null
     };
+    memoryStore.lockedMaps = new Set();
 }

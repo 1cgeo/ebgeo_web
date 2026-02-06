@@ -4,7 +4,8 @@ import {
     saveCameraPosition,
     getCameraPosition,
     hasSavedCameraPosition,
-    clearCameraPosition
+    clearCameraPosition,
+    isCurrentMapLockedSync
 } from '../store/index.js';
 import { showSuccess } from '../utilities/index.js';
 import { getEventBus } from '../store/services.js';
@@ -509,6 +510,9 @@ function activeTool() {
     // Skip help button - handled separately
     if (toolId === 'help-3d') return;
 
+    // Block tool activation when map is locked
+    if (isCurrentMapLockedSync()) return;
+
     // Skip non-toggleable tools and camera buttons (handled separately)
     const nonToggleable = ['salvar-camera', 'limpar-camera'];
 
@@ -937,6 +941,18 @@ function registerToolEventListeners() {
 
         // Initialize camera buttons
         initCameraButtons();
+
+        // Apply map lock state to 3D toolbar
+        const toolbar3d = document.getElementById('toolbar-3d');
+        if (toolbar3d) {
+            toolbar3d.classList.toggle('map-locked', isCurrentMapLockedSync());
+            try {
+                const eventBus = getEventBus();
+                eventBus.on(EventTypes.MAP_LOCK_CHANGED, () => {
+                    toolbar3d.classList.toggle('map-locked', isCurrentMapLockedSync());
+                });
+            } catch { /* EventBus not available */ }
+        }
     }, 100);
 }
 
@@ -954,6 +970,7 @@ function initCameraButtons() {
 
         newSaveBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
+            if (isCurrentMapLockedSync()) return;
             const success = await saveCurrentCameraPosition();
             if (success) {
                 showSuccess('Posição da câmera salva!');
@@ -968,6 +985,7 @@ function initCameraButtons() {
 
         newClearBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
+            if (isCurrentMapLockedSync()) return;
             const success = await clearCurrentCameraPosition();
             if (success) {
                 showSuccess('Posição da câmera removida');

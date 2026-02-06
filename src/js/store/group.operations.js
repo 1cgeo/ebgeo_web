@@ -5,6 +5,8 @@
  * Delegates to GroupManager for actual implementation.
  */
 
+import { isCurrentMapLockedSync } from './map.operations.js';
+
 // ===== DEPENDENCY INJECTION =====
 
 /**
@@ -36,6 +38,10 @@ export function setGroupDependencies(dependencies) {
  * @returns {import('./store.types.js').Group} Created group
  */
 export const createGroup = (features, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot create group.');
+        return null;
+    }
     return deps.groupManager.createGroup(features, mapName);
 };
 
@@ -48,6 +54,10 @@ export const createGroup = (features, mapName = null) => {
  * @returns {import('./store.types.js').Group} Combined group
  */
 export const combineGroups = (groupIds, selectedFeatures = [], mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot combine groups.');
+        return null;
+    }
     return deps.groupManager.combineGroups(groupIds, selectedFeatures, mapName);
 };
 
@@ -121,6 +131,10 @@ export const isFeatureGrouped = (type, featureId, mapName = null) => {
  * @returns {boolean} Whether update was successful
  */
 export const updateGroupProperty = (groupId, property, value, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot update group property.');
+        return false;
+    }
     return deps.groupManager.updateGroupProperty(groupId, property, value, mapName);
 };
 
@@ -134,6 +148,10 @@ export const updateGroupProperty = (groupId, property, value, mapName = null) =>
  * @returns {boolean} Whether ungroup was successful
  */
 export const ungroupFeatures = (groupId, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot ungroup features.');
+        return false;
+    }
     return deps.groupManager.ungroupFeatures(groupId, mapName);
 };
 

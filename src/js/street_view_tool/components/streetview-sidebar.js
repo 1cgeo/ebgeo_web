@@ -6,6 +6,10 @@
  * Based on the 3D viewer toolbar pattern from map_3d.js.
  */
 
+import { isCurrentMapLockedSync } from '../../store/index.js';
+import { getEventBus } from '../../store/services.js';
+import { EventTypes } from '../../events/event_types.js';
+
 // =========================================================================
 // STATE
 // =========================================================================
@@ -73,6 +77,16 @@ export function initToolbar360() {
         }
     });
 
+    // Subscribe to map lock changes for toolbar visibility
+    try {
+        const eventBus = getEventBus();
+        eventBus.on(EventTypes.MAP_LOCK_CHANGED, () => {
+            if (elements.toolbar) {
+                elements.toolbar.classList.toggle('map-locked', isCurrentMapLockedSync());
+            }
+        });
+    } catch { /* EventBus not available */ }
+
     isInitialized = true;
 }
 
@@ -116,6 +130,8 @@ function setupHelpPopupTabs() {
 export function showToolbar360() {
     if (elements.toolbar) {
         elements.toolbar.style.display = '';
+        // Apply current map lock state
+        elements.toolbar.classList.toggle('map-locked', isCurrentMapLockedSync());
     }
 }
 
@@ -267,7 +283,10 @@ export function isHelpPopupOpen360() {
  */
 export function onAddMarkerClick(handler) {
     if (elements.addMarkerButton) {
-        elements.addMarkerButton.addEventListener('click', handler);
+        elements.addMarkerButton.addEventListener('click', () => {
+            if (isCurrentMapLockedSync()) return;
+            handler();
+        });
     }
 }
 
@@ -287,7 +306,10 @@ export function onScreenshotClick(handler) {
  */
 export function onSaveOrientationClick(handler) {
     if (elements.saveOrientationButton) {
-        elements.saveOrientationButton.addEventListener('click', handler);
+        elements.saveOrientationButton.addEventListener('click', () => {
+            if (isCurrentMapLockedSync()) return;
+            handler();
+        });
     }
 }
 
@@ -297,7 +319,10 @@ export function onSaveOrientationClick(handler) {
  */
 export function onClearOrientationClick(handler) {
     if (elements.clearOrientationButton) {
-        elements.clearOrientationButton.addEventListener('click', handler);
+        elements.clearOrientationButton.addEventListener('click', () => {
+            if (isCurrentMapLockedSync()) return;
+            handler();
+        });
     }
 }
 

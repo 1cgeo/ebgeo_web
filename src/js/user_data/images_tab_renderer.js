@@ -6,6 +6,7 @@
 
 import userDataManager from './user_data_manager.js';
 import { showConfirm } from '../modals/index.js';
+import { isCurrentMapLockedSync } from '../store/index.js';
 
 /**
  * Renderiza o conteúdo da tab de Imagens.
@@ -73,10 +74,12 @@ function createDropzone(featureId, featureType) {
     };
 
     dropzone.addEventListener('click', (e) => {
+        if (isCurrentMapLockedSync()) return;
         if (e.target !== fileInput) fileInput.click();
     });
 
     fileInput.addEventListener('change', async (e) => {
+        if (isCurrentMapLockedSync()) { fileInput.value = ''; return; }
         if (e.target.files?.length) {
             await handleFiles(Array.from(e.target.files));
             fileInput.value = '';
@@ -96,6 +99,7 @@ function createDropzone(featureId, featureType) {
     dropzone.addEventListener('drop', async (e) => {
         e.preventDefault();
         dropzone.classList.remove('dragover');
+        if (isCurrentMapLockedSync()) return;
         const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
         if (files.length) await handleFiles(files);
     });
@@ -134,6 +138,7 @@ function createImageCard(imageData, featureId, featureType) {
 
     deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        if (isCurrentMapLockedSync()) return;
         const confirmed = await showConfirm('Remover esta imagem?', { destructive: true });
         if (confirmed) {
             await userDataManager.removeImage(featureId, featureType, imageData.id);

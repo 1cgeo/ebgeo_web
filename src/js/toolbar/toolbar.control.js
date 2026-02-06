@@ -10,9 +10,12 @@ import { TOOL_GROUPS, STANDALONE_TOOLS, TOGGLE_TOOLS } from './toolbar.constants
 import {
     setupCleanup,
     addDomListener,
+    subscribe,
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';
+import { EventTypes } from '../events/event_types.js';
+import { isCurrentMapLockedSync } from '../store/index.js';
 
 /**
  * Main toolbar controller.
@@ -83,6 +86,9 @@ export class ToolbarControl {
 
         // Setup event listeners
         this._setupEventListeners();
+
+        // Apply initial lock state
+        this._applyMapLockState();
     }
 
     /**
@@ -156,6 +162,44 @@ export class ToolbarControl {
                 this._updateStandaloneButtonStates(activeToolType);
             });
             this._unsubscribers.push(unsubscribe);
+        }
+
+        // Listen for map lock changes
+        subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED,
+            () => this._applyMapLockState());
+    }
+
+    /**
+     * Shows or hides toolbar groups based on map lock state.
+     * When locked: hide draw, military, analysis groups and snapping toggle.
+     * Utility group remains visible.
+     * @private
+     */
+    _applyMapLockState() {
+        const locked = isCurrentMapLockedSync();
+        const hiddenGroups = ['draw', 'military', 'analysis'];
+
+        hiddenGroups.forEach(groupId => {
+            const group = this._groups.get(groupId);
+            if (group) {
+                const el = group.getContainer();
+                if (el) {
+                    el.style.display = locked ? 'none' : '';
+                }
+            }
+        });
+
+        // Hide toggle buttons (snapping) when locked
+        TOGGLE_TOOLS.forEach(toolConfig => {
+            const button = this._standaloneButtons.get(toolConfig.id);
+            if (button) {
+                button.style.display = locked ? 'none' : '';
+            }
+        });
+
+        // Deactivate current tool when locking
+        if (locked && this._toolManager) {
+            this._toolManager.deactivateCurrentTool();
         }
     }
 

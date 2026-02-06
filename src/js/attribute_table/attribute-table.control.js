@@ -19,7 +19,7 @@ import { createFiltersBar } from './components/table-filters.js';
 import { renderTable, updateRowSelections } from './components/table-renderer.js';
 import { showColumnContextMenu } from './components/column-context-menu.js';
 import { EventTypes } from '../events/event_types.js';
-import { getLayers, getCurrentMapNameSync } from '../store';
+import { getLayers, getCurrentMapNameSync, isCurrentMapLockedSync } from '../store';
 import { FEATURE_TYPE_MAPPINGS } from '../store/store.constants.js';
 import { showPrompt } from '../modals/prompt.modal.js';
 import userDataManager from '../user_data/user_data_manager.js';
@@ -366,6 +366,7 @@ export class AttributeTableControl {
             sortState: this._sortState,
             columnWidths: config.columnWidths,
             callbacks: {
+                readOnly: isCurrentMapLockedSync(),
                 onCheckboxChange: (featureId, checked) =>
                     this._handleCheckboxChange(featureId, checked),
                 onSelectAll: (checked) => this._handleSelectAll(checked),
@@ -628,6 +629,8 @@ export class AttributeTableControl {
      * @param {string} newValue - New value
      */
     async _handleCellEdit(featureId, featureType, columnKey, newValue) {
+        if (isCurrentMapLockedSync()) return;
+
         try {
             if (columnKey === 'nome') {
                 // Convert singular type to plural storage type (e.g., 'polygon' -> 'polygons')
@@ -718,6 +721,7 @@ export class AttributeTableControl {
      * Handles add column action.
      */
     async _handleAddColumn() {
+        if (isCurrentMapLockedSync()) return;
         const name = await showPrompt('Nome do novo atributo:', '');
         if (!name || !name.trim()) return;
 
@@ -762,6 +766,7 @@ export class AttributeTableControl {
      * @param {string} columnKey - Column key
      */
     async _handleRemoveColumn(columnKey) {
+        if (isCurrentMapLockedSync()) return;
         try {
             // Remove attribute from all features in this layer
             for (const feature of this._allFeatures) {

@@ -9,7 +9,7 @@
  * Both services disable this handler when active and re-enable when closed.
  */
 
-import { undoLastAction, redoLastAction, getStateManager } from '../store';
+import { undoLastAction, redoLastAction, getStateManager, isCurrentMapLockedSync } from '../store';
 import { showConfirm } from '../modals/index.js';
 
 /**
@@ -145,7 +145,9 @@ class KeyboardShortcuts {
             case 'delete':
             case 'backspace':
                 e.preventDefault();
-                await this._confirmAndDeleteSelectedFeatures();
+                if (!isCurrentMapLockedSync()) {
+                    await this._confirmAndDeleteSelectedFeatures();
+                }
                 return true;
 
             case 'escape': {
@@ -158,7 +160,7 @@ class KeyboardShortcuts {
             case 'z':
                 if (hasCtrl && !hasShift) {
                     e.preventDefault();
-                    if (undoLastAction()) {
+                    if (!isCurrentMapLockedSync() && undoLastAction()) {
                         this.baseLayerControl.switchMap(false);
                     }
                     return true;
@@ -168,7 +170,7 @@ class KeyboardShortcuts {
             case 'y':
                 if (hasCtrl && !hasShift) {
                     e.preventDefault();
-                    if (redoLastAction()) {
+                    if (!isCurrentMapLockedSync() && redoLastAction()) {
                         this.baseLayerControl.switchMap(false);
                     }
                     return true;
@@ -186,15 +188,21 @@ class KeyboardShortcuts {
     handleToolShortcuts(e, key) {
         // Snapping toggle (not a tool activation)
         if (key === 'g') {
+            if (isCurrentMapLockedSync()) return;
             e.preventDefault();
             const sm = getStateManager();
             sm.set('ui.snapping.enabled', !sm.getUnsafe('ui.snapping.enabled'));
             return;
         }
 
-        const toolMapping = {
+        // Tools allowed even when locked (read-only utilities)
+        const readOnlyTools = {
             'q': this.controls.rectangleSelectionControl,
-            'n': this.controls.vectorTileInfoControl,
+            'n': this.controls.vectorTileInfoControl
+        };
+
+        // Tools that require write access
+        const writeTools = {
             'p': this.controls.pointControl,
             'l': this.controls.lineControl,
             'a': this.controls.polygonControl,
@@ -212,7 +220,10 @@ class KeyboardShortcuts {
             'z': this.controls.azimuthDistanceControl
         };
 
+        const locked = isCurrentMapLockedSync();
+
         if (key === 'v') {
+            if (locked) return;
             if (this.map.getTerrain()) {
                 e.preventDefault();
                 this.toolManager.setActiveTool(this.controls.visibilityControl);
@@ -221,6 +232,7 @@ class KeyboardShortcuts {
         }
 
         if (key === 'o') {
+            if (locked) return;
             if (this.map.getTerrain()) {
                 e.preventDefault();
                 this.toolManager.setActiveTool(this.controls.losControl);
@@ -228,10 +240,21 @@ class KeyboardShortcuts {
             return;
         }
 
-        const tool = toolMapping[key];
-        if (tool) {
+        // Read-only tools always allowed
+        const readOnlyTool = readOnlyTools[key];
+        if (readOnlyTool) {
             e.preventDefault();
-            this.toolManager.setActiveTool(tool);
+            this.toolManager.setActiveTool(readOnlyTool);
+            return;
+        }
+
+        // Write tools blocked when locked
+        if (locked) return;
+
+        const writeTool = writeTools[key];
+        if (writeTool) {
+            e.preventDefault();
+            this.toolManager.setActiveTool(writeTool);
         }
     }
 
@@ -249,7 +272,9 @@ class KeyboardShortcuts {
 
             case 'v':
                 e.preventDefault();
-                await this.clipboardManager.paste();
+                if (!isCurrentMapLockedSync()) {
+                    await this.clipboardManager.paste();
+                }
                 break;
         }
     }

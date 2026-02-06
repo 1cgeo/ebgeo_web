@@ -16,8 +16,10 @@ import {
     setMapNotesCompat
 } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
+import { memoryStore } from './memory-store.js';
 import { mapResolver } from './services/map-resolver.service.js';
 import config from '../config.js';
+import { EventTypes } from '../events';
 import { logMapOperation, logMapPositionOperation, logBaseLayerOperation, OperationType } from './sync/index.js';
 import { generateUUID } from '../utilities/uuid.js';
 import { createSyncMetadata, touchSyncMetadata } from './sync/sync-metadata.js';
@@ -193,6 +195,11 @@ export const removeMap = async (mapName) => {
  * @returns {Promise<void>}
  */
 export const renameMap = async (oldName, newName) => {
+    if (memoryStore.lockedMaps.has(oldName)) {
+        console.warn('Map is locked. Cannot rename.');
+        return;
+    }
+
     // Get map data for logging before rename
     const oldMapData = await getMapData(oldName);
     const mapId = mapResolver.resolveToId(oldName) || oldName;
@@ -230,6 +237,10 @@ export const setCurrentMap = async (mapName) => {
     await mapManager.setCurrentMap(mapName);
     await deps.groupManager.loadGroupsToMemory(mapName);
     await deps.layerManager.loadLayersToMemory(mapName);
+
+    // Emit lock state change so all UI components update on map switch
+    const locked = memoryStore.lockedMaps.has(mapName);
+    deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName, locked });
 };
 
 /**
@@ -321,6 +332,11 @@ export const getCurrentBaseLayer = async (mapName = null) => {
  * @returns {Promise<void>}
  */
 export const setBaseLayer = async (layer, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot change base layer.');
+        return;
+    }
+
     if (!config.basemaps[layer]?.enabled) {
         const fallback = config.getValidBasemapFallback();
         console.warn(`Base layer "${layer}" not enabled. Using "${fallback}".`);
@@ -353,6 +369,11 @@ export const setBaseLayer = async (layer, mapName = null) => {
  * @returns {Promise<void>}
  */
 export const updateMapPosition = async (center_lat, center_long, zoom, bearing, pitch, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot update position.');
+        return;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMap);
 
@@ -435,6 +456,11 @@ export const hasMapSavedPosition = async (mapName = null) => {
  * @returns {Promise<void>}
  */
 export const clearMapPosition = async (mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot clear position.');
+        return;
+    }
+
     const targetMapName = mapName || mapManager.getCurrentMapName();
     const currentMapData = await getMapData(targetMapName);
 
@@ -642,4 +668,48 @@ export const getAllMapBadgeColors = async () => {
     }
 
     return colors;
+};
+
+// ===== MAP LOCK (READ-ONLY) =====
+
+/**
+ * Gets lock state for a map (async, from IndexedDB).
+ *
+ * @param {string} [mapName=null] - Map name (null = current)
+ * @returns {Promise<boolean>} True if map is locked
+ */
+export const isMapLocked = async (mapName = null) => {
+    const target = mapName || mapManager.getCurrentMapName();
+    return !!(await getAppSetting(`mapLocked_${target}`));
+};
+
+/**
+ * Gets lock state for current map (synchronous, from memory cache).
+ * Use this in guards and hot paths that cannot await.
+ *
+ * @returns {boolean} True if current map is locked
+ */
+export const isCurrentMapLockedSync = () => {
+    return memoryStore.lockedMaps.has(memoryStore.currentMap);
+};
+
+/**
+ * Toggles lock state for a map.
+ * Persists to IndexedDB, updates memory cache, emits MAP_LOCK_CHANGED.
+ *
+ * @param {string} [mapName=null] - Map name (null = current)
+ * @returns {Promise<boolean>} New lock state
+ */
+export const toggleMapLock = async (mapName = null) => {
+    const target = mapName || mapManager.getCurrentMapName();
+    const current = await isMapLocked(target);
+    const newState = !current;
+    await setAppSetting(`mapLocked_${target}`, newState);
+    if (newState) {
+        memoryStore.lockedMaps.add(target);
+    } else {
+        memoryStore.lockedMaps.delete(target);
+    }
+    deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName: target, locked: newState });
+    return newState;
 };

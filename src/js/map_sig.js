@@ -45,6 +45,9 @@ import {
     AddBrushControl
 } from './draw_tools/index.js';
 
+// Azimuth Distance tool (drawing tool - polar construction)
+import { AddAzimuthDistanceControl } from './azimuth_distance_tool/index.js';
+
 // Military tools
 import {
     AddMilitarySymbolControl,
@@ -53,9 +56,6 @@ import {
     AddBoundaryControl,
     AddOccupiedFrontControl
 } from './military_tools/index.js';
-
-// Azimuth Distance tool
-import { AddAzimuthDistanceControl } from './azimuth_distance_tool/index.js';
 
 // Snapping
 import { SnappingService } from './snapping/snapping.service.js';

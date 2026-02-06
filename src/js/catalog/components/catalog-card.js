@@ -20,7 +20,7 @@ const { CALENDAR, MAP_PIN, CHEVRON_RIGHT } = CATALOG_UI_ICONS;
  * @param {Function} options.onClick - Click callback
  * @returns {HTMLElement}
  */
-export function createCatalogCard({ item, onClick }) {
+export function createCatalogCard({ item, onClick, mapLocked = false }) {
     const typeConfig = CATALOG_TYPE_CONFIG[item.type];
 
     const card = document.createElement('article');
@@ -97,20 +97,32 @@ export function createCatalogCard({ item, onClick }) {
 
     const openBtn = document.createElement('button');
     openBtn.className = 'catalog-card-btn';
-    openBtn.innerHTML = `
-        <span>Abrir</span>
-        ${CHEVRON_RIGHT}
-    `;
-    openBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        onClick();
-    });
+
+    // Only block data/analysis/hillshade types when locked; 3D and 360 remain accessible
+    const isBlockedByLock = mapLocked && !['model_3d', 'panoramic_360'].includes(item.type);
+
+    if (isBlockedByLock) {
+        openBtn.innerHTML = `<span>Mapa Bloqueado</span>`;
+        openBtn.disabled = true;
+        card.classList.add('catalog-card--locked');
+    } else {
+        openBtn.innerHTML = `
+            <span>Abrir</span>
+            ${CHEVRON_RIGHT}
+        `;
+        openBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onClick();
+        });
+    }
 
     footer.appendChild(openBtn);
     card.appendChild(footer);
 
-    // Click on card also opens
-    card.addEventListener('click', onClick);
+    // Click on card also opens (only when not blocked by lock)
+    if (!isBlockedByLock) {
+        card.addEventListener('click', onClick);
+    }
 
     return card;
 }

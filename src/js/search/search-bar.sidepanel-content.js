@@ -8,6 +8,7 @@
 
 import { SEARCH_ICONS } from './search-bar.icons.js';
 import { formatCoordinates, COORDINATE_FORMATS } from '../utilities/coordinate_converter.js';
+import { isCurrentMapLockedSync } from '../store/store.js';
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -167,43 +168,46 @@ export function createCoordinateResultContent(result, callbacks) {
     container.appendChild(conversionSection);
 
     // Create feature section
-    const createSection = document.createElement('div');
-    createSection.className = 'coordinate-create-section';
+    // Create feature section (hidden when map is locked)
+    if (!isCurrentMapLockedSync()) {
+        const createSection = document.createElement('div');
+        createSection.className = 'coordinate-create-section';
 
-    const createHeader = document.createElement('div');
-    createHeader.className = 'search-result-section-header';
-    createHeader.textContent = 'Criar feição nesta coordenada';
-    createSection.appendChild(createHeader);
+        const createHeader = document.createElement('div');
+        createHeader.className = 'search-result-section-header';
+        createHeader.textContent = 'Criar feição nesta coordenada';
+        createSection.appendChild(createHeader);
 
-    const createButtons = document.createElement('div');
-    createButtons.className = 'coordinate-create-buttons';
+        const createButtons = document.createElement('div');
+        createButtons.className = 'coordinate-create-buttons';
 
-    // Create Point button
-    const createPointBtn = document.createElement('button');
-    createPointBtn.className = 'coordinate-create-btn';
-    createPointBtn.innerHTML = `${SEARCH_ICONS.point}<span>Ponto</span>`;
-    createPointBtn.title = 'Criar ponto nesta coordenada';
-    createPointBtn.onclick = () => callbacks.onCreatePoint?.(result);
-    createButtons.appendChild(createPointBtn);
+        // Create Point button
+        const createPointBtn = document.createElement('button');
+        createPointBtn.className = 'coordinate-create-btn';
+        createPointBtn.innerHTML = `${SEARCH_ICONS.point}<span>Ponto</span>`;
+        createPointBtn.title = 'Criar ponto nesta coordenada';
+        createPointBtn.onclick = () => callbacks.onCreatePoint?.(result);
+        createButtons.appendChild(createPointBtn);
 
-    // Create Military Symbol button
-    const createMilitaryBtn = document.createElement('button');
-    createMilitaryBtn.className = 'coordinate-create-btn';
-    createMilitaryBtn.innerHTML = `${SEARCH_ICONS.military}<span>Simbologia Militar</span>`;
-    createMilitaryBtn.title = 'Criar simbologia militar nesta coordenada';
-    createMilitaryBtn.onclick = () => callbacks.onCreateMilitarySymbol?.(result);
-    createButtons.appendChild(createMilitaryBtn);
+        // Create Military Symbol button
+        const createMilitaryBtn = document.createElement('button');
+        createMilitaryBtn.className = 'coordinate-create-btn';
+        createMilitaryBtn.innerHTML = `${SEARCH_ICONS.military}<span>Simbologia Militar</span>`;
+        createMilitaryBtn.title = 'Criar simbologia militar nesta coordenada';
+        createMilitaryBtn.onclick = () => callbacks.onCreateMilitarySymbol?.(result);
+        createButtons.appendChild(createMilitaryBtn);
 
-    // Create Coordination Measure button
-    const createCoordMeasureBtn = document.createElement('button');
-    createCoordMeasureBtn.className = 'coordinate-create-btn';
-    createCoordMeasureBtn.innerHTML = `${SEARCH_ICONS.crosshair}<span>Medida de Coordenação</span>`;
-    createCoordMeasureBtn.title = 'Criar medida de coordenação nesta coordenada';
-    createCoordMeasureBtn.onclick = () => callbacks.onCreateCoordinationMeasure?.(result);
-    createButtons.appendChild(createCoordMeasureBtn);
+        // Create Coordination Measure button
+        const createCoordMeasureBtn = document.createElement('button');
+        createCoordMeasureBtn.className = 'coordinate-create-btn';
+        createCoordMeasureBtn.innerHTML = `${SEARCH_ICONS.crosshair}<span>Medida de Coordenação</span>`;
+        createCoordMeasureBtn.title = 'Criar medida de coordenação nesta coordenada';
+        createCoordMeasureBtn.onclick = () => callbacks.onCreateCoordinationMeasure?.(result);
+        createButtons.appendChild(createCoordMeasureBtn);
 
-    createSection.appendChild(createButtons);
-    container.appendChild(createSection);
+        createSection.appendChild(createButtons);
+        container.appendChild(createSection);
+    }
 
     return container;
 }
@@ -294,18 +298,20 @@ export function createApiResultContent(result, callbacks) {
     propertiesSection.appendChild(propertiesList);
     container.appendChild(propertiesSection);
 
-    // Save as feature button section
-    const saveSection = document.createElement('div');
-    saveSection.className = 'search-result-save-section';
+    // Save as feature button section (hidden when map is locked)
+    if (!isCurrentMapLockedSync()) {
+        const saveSection = document.createElement('div');
+        saveSection.className = 'search-result-save-section';
 
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'search-result-save-btn';
-    saveBtn.innerHTML = `${SEARCH_ICONS.save} Salvar como Feição`;
-    saveBtn.title = 'Salvar este resultado como uma feição ponto no mapa';
-    saveBtn.onclick = () => callbacks.onSaveAsFeature?.(result);
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'search-result-save-btn';
+        saveBtn.innerHTML = `${SEARCH_ICONS.save} Salvar como Feição`;
+        saveBtn.title = 'Salvar este resultado como uma feição ponto no mapa';
+        saveBtn.onclick = () => callbacks.onSaveAsFeature?.(result);
 
-    saveSection.appendChild(saveBtn);
-    container.appendChild(saveSection);
+        saveSection.appendChild(saveBtn);
+        container.appendChild(saveSection);
+    }
 
     return container;
 }

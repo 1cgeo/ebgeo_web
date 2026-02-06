@@ -11,6 +11,7 @@
  */
 
 import { showConfirm } from '../../modals/index.js';
+import { isCurrentMapLockedSync } from '../../store/index.js';
 
 // =========================================================================
 // STATE
@@ -140,6 +141,9 @@ async function handleKeyDown(e) {
         handleEscape();
         return;
     }
+
+    // Block write shortcuts when map is locked
+    if (isCurrentMapLockedSync()) return;
 
     // Handle Delete/Backspace for deleting features
     if (key === 'delete' || key === 'backspace') {

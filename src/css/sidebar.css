@@ -700,6 +700,163 @@
     height: 14px;
 }
 
+/* Lock Indicator (map list) */
+.map-lock-indicator {
+    display: inline-flex;
+    align-items: center;
+    margin-left: var(--space-1);
+    color: var(--danger-500, #ef4444);
+}
+
+.map-lock-indicator svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Locked map list item */
+.map-list-item--locked {
+    border-color: var(--danger-200, #fecaca);
+    background: rgba(239, 68, 68, 0.04);
+}
+
+.map-list-item--locked:hover {
+    border-color: var(--danger-300, #fca5a5);
+}
+
+/* Current Map Card - Locked state */
+.current-map-card--locked {
+    background: rgba(239, 68, 68, 0.08);
+    border-left: 3px solid var(--danger-500, #ef4444);
+}
+
+.current-map-card--locked .current-map-name input {
+    color: var(--gray-500);
+}
+
+/* Lock button on current map card */
+.current-map-lock-btn {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: var(--gray-200);
+    border-radius: var(--radius-md);
+    color: var(--gray-600);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.current-map-lock-btn:hover {
+    background: var(--gray-300);
+    transform: scale(1.05);
+}
+
+.current-map-lock-btn[data-locked="true"] {
+    background: var(--danger-500, #ef4444);
+    color: white;
+}
+
+.current-map-lock-btn[data-locked="true"]:hover {
+    background: var(--danger-600, #dc2626);
+}
+
+.current-map-lock-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* =========================================================================
+   FEATURE PANEL LOCKED STATE
+   ========================================================================= */
+
+/* Hide name click-to-edit */
+.feature-panel--locked .feature-identification-name {
+    pointer-events: none;
+}
+
+/* Hide description edit controls */
+.feature-panel--locked .feature-description-add-btn,
+.feature-panel--locked .feature-description-edit-btn {
+    display: none;
+}
+
+/* Hide photo gallery add/delete buttons */
+.feature-panel--locked .feature-photo-gallery-add-btn,
+.feature-panel--locked .feature-photo-gallery-delete {
+    display: none;
+}
+
+/* Disable style/attribute tab inputs */
+.feature-panel--locked .feature-tab-content input,
+.feature-panel--locked .feature-tab-content select,
+.feature-panel--locked .feature-tab-content textarea,
+.feature-panel--locked .feature-tab-content button {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* Hide save/discard/set-default buttons */
+.feature-panel--locked .attr-modern-btn-save,
+.feature-panel--locked .attr-modern-btn-discard,
+.feature-panel--locked .attr-modern-btn-default,
+.feature-panel--locked .attr-modern-buttons-row,
+.feature-panel--locked .group-type-global-buttons {
+    display: none;
+}
+
+/* Hide feature options gear button */
+.feature-panel--locked .feature-options-button {
+    display: none;
+}
+
+/* Hide coordinate edit button */
+.feature-panel--locked .feature-location-edit-btn {
+    display: none;
+}
+
+/* Hide delete section (used by 3D/360 panels) */
+.feature-panel--locked .feature-panel-delete-section {
+    display: none;
+}
+
+/* Disable toggle switches when locked (div-based, not caught by input rule) */
+.feature-panel--locked .attr-modern-toggle-switch {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* Disable slider controls when locked */
+.feature-panel--locked .attr-modern-slider {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* Disable color picker when locked */
+.feature-panel--locked .color-picker-circles {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* Disable all inputs when locked (covers viewshed observer height and others) */
+.feature-panel--locked input {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* Hide dropzone when locked */
+.feature-panel--locked .user-data-dropzone {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* Hide image delete buttons when locked */
+.feature-panel--locked .user-data-image-delete {
+    display: none;
+}
+
 /* =========================================================================
    MAP CONTEXT MENU
    ========================================================================= */

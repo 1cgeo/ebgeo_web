@@ -25,6 +25,8 @@ import {
     getLayers,
     hasMapSavedPosition,
     hasMapNotes,
+    isMapLocked,
+    toggleMapLock,
 } from '../../store/index.js';
 import { EventTypes } from '../../events/event_types.js';
 import { showSuccess, showError, showWarning, IDUtils } from '../../utilities/index.js';
@@ -63,6 +65,10 @@ const MAPS_ICONS = {
     edit: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
 
     plus: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+
+    lock: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+
+    lockOpen: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`,
 };
 
 /**
@@ -191,6 +197,9 @@ export class MapsTab {
                         0 feições - 1 camada
                     </div>
                 </div>
+                <button class="current-map-lock-btn" id="current-map-lock-btn" title="Bloquear mapa" data-locked="false">
+                    ${MAPS_ICONS.lockOpen}
+                </button>
                 <button class="current-map-notes-btn" id="current-map-notes-btn" title="Notas do mapa">
                     ${MAPS_ICONS.fileText}
                 </button>
@@ -206,11 +215,30 @@ export class MapsTab {
             }
         });
 
+        // Setup lock button handler
+        const lockBtn = card.querySelector('#current-map-lock-btn');
+        addDomListener(this, lockBtn, 'click', () => this._handleToggleLock());
+
         // Setup notes button handler
         const notesBtn = card.querySelector('#current-map-notes-btn');
         addDomListener(this, notesBtn, 'click', () => this._handleShowCurrentMapNotes());
 
         return card;
+    }
+
+    /**
+     * Handles toggling map lock.
+     * @private
+     */
+    async _handleToggleLock() {
+        if (!this._currentMapName) return;
+
+        const newState = await toggleMapLock(this._currentMapName);
+        if (newState) {
+            showWarning('Mapa bloqueado');
+        } else {
+            showSuccess('Mapa desbloqueado');
+        }
     }
 
     /**
@@ -232,6 +260,7 @@ export class MapsTab {
      */
     _setupEventListeners() {
         subscribe(this, this._eventBus, EventTypes.LAYERS_CHANGED, () => this._loadMaps());
+        subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED, () => this._loadMaps());
     }
 
     /**
@@ -277,6 +306,27 @@ export class MapsTab {
         const badgeEl = this._currentMapCard.querySelector('#current-map-badge');
         if (badgeEl && this._currentMapName) {
             badgeEl.textContent = this._currentMapName.charAt(0).toUpperCase();
+        }
+
+        // Update lock state
+        const locked = await isMapLocked(this._currentMapName);
+        const lockBtn = this._currentMapCard.querySelector('#current-map-lock-btn');
+        const notesBtn = this._currentMapCard.querySelector('#current-map-notes-btn');
+
+        if (lockBtn) {
+            lockBtn.dataset.locked = locked.toString();
+            lockBtn.innerHTML = locked ? MAPS_ICONS.lock : MAPS_ICONS.lockOpen;
+            lockBtn.title = locked ? 'Desbloquear mapa' : 'Bloquear mapa';
+        }
+
+        this._currentMapCard.classList.toggle('current-map-card--locked', locked);
+
+        if (nameInput) {
+            nameInput.disabled = locked;
+        }
+
+        if (notesBtn) {
+            notesBtn.style.display = locked ? 'none' : '';
         }
 
         await this._updateCurrentMapStats();
@@ -336,13 +386,14 @@ export class MapsTab {
             }
         });
 
-        // Build map data with saved position and notes info
+        // Build map data with saved position, notes, and lock info
         for (const mapName of sortedMaps) {
-            const [hasSavedPosition, hasNotes] = await Promise.all([
+            const [hasSavedPosition, hasNotes, locked] = await Promise.all([
                 hasMapSavedPosition(mapName),
-                hasMapNotes(mapName)
+                hasMapNotes(mapName),
+                isMapLocked(mapName)
             ]);
-            const item = this._createMapListItem(mapName, hasSavedPosition, hasNotes);
+            const item = this._createMapListItem(mapName, hasSavedPosition, hasNotes, locked);
             this._mapsList.appendChild(item);
         }
 
@@ -358,11 +409,11 @@ export class MapsTab {
      * @param {boolean} hasNotes - Whether the map has notes
      * @returns {HTMLElement}
      */
-    _createMapListItem(mapName, hasSavedPosition = false, hasNotes = false) {
+    _createMapListItem(mapName, hasSavedPosition = false, hasNotes = false, locked = false) {
         const isSelected = mapName === this._currentMapName;
 
         const item = document.createElement('div');
-        item.className = 'map-list-item';
+        item.className = `map-list-item${locked ? ' map-list-item--locked' : ''}`;
         item.dataset.mapName = mapName;
         item.dataset.selected = isSelected.toString();
 
@@ -374,6 +425,11 @@ export class MapsTab {
         // Build notes indicator
         const notesIndicator = hasNotes
             ? `<span class="map-notes-indicator" title="Tem notas">${MAPS_ICONS.fileText}</span>`
+            : '';
+
+        // Build lock indicator
+        const lockIndicator = locked
+            ? `<span class="map-lock-indicator" title="Mapa bloqueado">${MAPS_ICONS.lock}</span>`
             : '';
 
         // Build meta text
@@ -392,6 +448,7 @@ export class MapsTab {
             <div class="map-list-info">
                 <div class="map-list-name">
                     ${this._escapeHtml(mapName)}
+                    ${lockIndicator}
                     ${positionIndicator}
                     ${notesIndicator}
                 </div>
@@ -428,67 +485,69 @@ export class MapsTab {
      * @param {HTMLElement} anchorEl - Element to anchor the menu to
      * @param {boolean} hasSavedPosition - Whether the map has a saved position
      */
-    _showMapContextMenu(mapName, anchorEl, hasSavedPosition) {
+    async _showMapContextMenu(mapName, anchorEl, hasSavedPosition) {
         // Close any existing menu
         this._closeContextMenu();
+
+        const locked = await isMapLocked(mapName);
 
         const menu = document.createElement('div');
         menu.className = 'map-context-menu';
         this._contextMenu = menu;
 
         // Menu items
-        const menuItems = [
-            {
+        const menuItems = [];
+
+        // Position items only when unlocked
+        if (!locked) {
+            menuItems.push({
                 icon: MAPS_ICONS.mapPin,
                 label: hasSavedPosition ? 'Atualizar posicao' : 'Salvar posicao',
                 handler: () => this._handleSaveMapPosition(mapName)
-            },
-        ];
-
-        // Add clear position if exists
-        if (hasSavedPosition) {
-            menuItems.push({
-                icon: SIDEBAR_ICONS.trash,
-                label: 'Limpar posicao salva',
-                handler: () => this._handleClearMapPosition(mapName),
-                className: 'menu-item-danger'
             });
+
+            if (hasSavedPosition) {
+                menuItems.push({
+                    icon: SIDEBAR_ICONS.trash,
+                    label: 'Limpar posicao salva',
+                    handler: () => this._handleClearMapPosition(mapName),
+                    className: 'menu-item-danger'
+                });
+            }
+
+            menuItems.push({ separator: true });
         }
 
-        // Separator
-        menuItems.push({ separator: true });
-
-        // Duplicate
+        // Duplicate (always available - read-only operation)
         menuItems.push({
             icon: MAPS_ICONS.copy,
             label: 'Duplicar',
             handler: () => this._handleDuplicateMap(mapName)
         });
 
-        // Rename
-        menuItems.push({
-            icon: MAPS_ICONS.edit,
-            label: 'Renomear',
-            handler: () => this._handleRenameMap(mapName)
-        });
+        // Rename, Combine, Delete only when unlocked
+        if (!locked) {
+            menuItems.push({
+                icon: MAPS_ICONS.edit,
+                label: 'Renomear',
+                handler: () => this._handleRenameMap(mapName)
+            });
 
-        // Combine maps
-        menuItems.push({
-            icon: MAPS_ICONS.merge,
-            label: 'Puxar outros mapas',
-            handler: () => this._handleCombineMaps(mapName)
-        });
+            menuItems.push({
+                icon: MAPS_ICONS.merge,
+                label: 'Puxar outros mapas',
+                handler: () => this._handleCombineMaps(mapName)
+            });
 
-        // Separator
-        menuItems.push({ separator: true });
+            menuItems.push({ separator: true });
 
-        // Delete
-        menuItems.push({
-            icon: SIDEBAR_ICONS.trash,
-            label: 'Deletar',
-            handler: () => this._handleDeleteMap(mapName),
-            className: 'menu-item-danger'
-        });
+            menuItems.push({
+                icon: SIDEBAR_ICONS.trash,
+                label: 'Deletar',
+                handler: () => this._handleDeleteMap(mapName),
+                className: 'menu-item-danger'
+            });
+        }
 
         // Build menu items
         menuItems.forEach(item => {

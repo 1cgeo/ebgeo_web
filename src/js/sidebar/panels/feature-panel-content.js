@@ -13,6 +13,7 @@ import { createPhotoGallery } from '../components/feature-photo-gallery.js';
 import { createFeatureTabs } from '../components/feature-tabs.js';
 import { createLocationSection } from '../components/feature-location-section.js';
 import { createGroupTypeSelector } from '../components/group-type-selector.js';
+import { isCurrentMapLockedSync } from '../../store';
 
 // ============================================================================
 // CONSTANTS
@@ -192,8 +193,12 @@ export async function createFeaturePanelContent({
     const isMixedTypes = types.size > 1;
 
     // Main container
+    const mapLocked = isCurrentMapLockedSync();
     const container = document.createElement('div');
     container.className = 'feature-panel-sections';
+    if (mapLocked) {
+        container.classList.add('feature-panel--locked');
+    }
 
     // Array to store cleanup functions
     const cleanupFunctions = [];
@@ -370,13 +375,15 @@ export async function createFeaturePanelContent({
         container.appendChild(locationSection);
     }
 
-    // 6. Delete button
-    const deleteSection = createDeleteSection({
-        isSingleSelection,
-        featureCount: selectedFeatures.length,
-        selectionManager
-    });
-    container.appendChild(deleteSection);
+    // 6. Delete button (hidden when map locked)
+    if (!mapLocked) {
+        const deleteSection = createDeleteSection({
+            isSingleSelection,
+            featureCount: selectedFeatures.length,
+            selectionManager
+        });
+        container.appendChild(deleteSection);
+    }
 
     // Cleanup function
     const cleanup = () => {

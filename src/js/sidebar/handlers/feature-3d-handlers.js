@@ -7,6 +7,8 @@
  * @module sidebar/handlers/feature-3d-handlers
  */
 
+import { isCurrentMapLockedSync } from '../../store/index.js';
+
 // ============================================================================
 // LAZY-LOADED MODULES
 // ============================================================================
@@ -61,6 +63,10 @@ export async function handleMarker3dClick({
         tilesetId,
         onPanelClose
     );
+
+    if (isCurrentMapLockedSync()) {
+        element.classList.add('feature-panel--locked');
+    }
 
     const markerName = marker.properties?.nome || 'Marcador 3D';
 
@@ -135,6 +141,10 @@ export async function handleMeasurement3dClick({
         tilesetId,
         onPanelClose
     );
+
+    if (isCurrentMapLockedSync()) {
+        element.classList.add('feature-panel--locked');
+    }
 
     const measurementName = measurement.properties?.nome ||
         (measurement.type === 'area' ? 'Medição de Área' : 'Medição de Distância');
@@ -211,6 +221,10 @@ export async function handleViewshed3dClick({
         onPanelClose
     );
 
+    if (isCurrentMapLockedSync()) {
+        element.classList.add('feature-panel--locked');
+    }
+
     const viewshedName = viewshed.properties?.nome || 'Análise de Visibilidade';
 
     return {
@@ -284,6 +298,10 @@ export async function handleMarker360Click({
         photoName,
         onPanelClose
     );
+
+    if (isCurrentMapLockedSync()) {
+        element.classList.add('feature-panel--locked');
+    }
 
     const markerName = marker.properties?.nome || 'Marcador 360';
 

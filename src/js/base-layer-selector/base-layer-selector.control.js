@@ -15,6 +15,7 @@ import {
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';
+import { isCurrentMapLockedSync } from '../store/index.js';
 
 /**
  * Base layer selector control.
@@ -71,6 +72,9 @@ export class BaseLayerSelectorControl {
 
         // Sync initial state
         this._syncCurrentLayer();
+
+        // Apply initial lock state
+        this._applyMapLockState();
     }
 
     /**
@@ -264,6 +268,20 @@ export class BaseLayerSelectorControl {
         // Listen for base layer changes to sync the selector
         subscribe(this, this._eventBus, EventTypes.BASE_LAYER_CHANGED,
             (payload) => this._setActiveLayer(payload.layer));
+
+        // Listen for map lock changes
+        subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED,
+            () => this._applyMapLockState());
+    }
+
+    /**
+     * Shows or hides the selector based on map lock state.
+     * @private
+     */
+    _applyMapLockState() {
+        if (!this._container) return;
+        const locked = isCurrentMapLockedSync();
+        this._container.style.display = locked ? 'none' : '';
     }
 
     /**

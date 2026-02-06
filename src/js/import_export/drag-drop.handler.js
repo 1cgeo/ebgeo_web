@@ -1,5 +1,6 @@
 // Path: js/import_export/drag-drop.handler.js
-import { showError } from '../utilities';
+import { showError, showWarning } from '../utilities';
+import { isCurrentMapLockedSync } from '../store';
 
 class DragDropHandler {
     static FILE_TYPES = {
@@ -74,6 +75,11 @@ class DragDropHandler {
         event.preventDefault();
         this.dragCounter = 0;
         this.hideDropOverlay();
+
+        if (isCurrentMapLockedSync()) {
+            showWarning('Mapa bloqueado');
+            return;
+        }
 
         const files = Array.from(event.dataTransfer.files);
 

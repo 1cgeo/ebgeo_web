@@ -14,7 +14,7 @@ import { CATALOG_UI_ICONS } from '../catalog.constants.js';
  * @param {Function} options.onItemClick - Item click callback
  * @returns {HTMLElement}
  */
-export function createCatalogGrid({ items, onItemClick }) {
+export function createCatalogGrid({ items, onItemClick, mapLocked = false }) {
     const grid = document.createElement('div');
     grid.className = 'catalog-grid';
 
@@ -32,7 +32,8 @@ export function createCatalogGrid({ items, onItemClick }) {
     items.forEach(item => {
         const card = createCatalogCard({
             item,
-            onClick: () => onItemClick(item)
+            onClick: () => onItemClick(item),
+            mapLocked
         });
         grid.appendChild(card);
     });

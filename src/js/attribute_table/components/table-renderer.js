@@ -379,8 +379,11 @@ function createEditableCell(options) {
  * @param {TableCallbacks} callbacks - Callbacks
  */
 function startCellEditing(td, feature, columnKey, isAttribute, callbacks) {
-    // Don't start editing if already editing
+    // Don't start editing if already editing or if read-only
     if (td.classList.contains(ATTRIBUTE_TABLE.CSS_CLASSES.CELL_EDITING)) {
+        return;
+    }
+    if (callbacks.readOnly) {
         return;
     }
 

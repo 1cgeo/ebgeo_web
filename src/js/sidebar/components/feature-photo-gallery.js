@@ -6,7 +6,7 @@
  */
 
 import userDataManager from '../../user_data/user_data_manager.js';
-import { getEventBus } from '../../store/index.js';
+import { getEventBus, isCurrentMapLockedSync } from '../../store/index.js';
 import { EventTypes, FeatureUpdateProperty } from '../../events/index.js';
 import { showConfirm } from '../../modals/index.js';
 
@@ -78,8 +78,8 @@ export async function createPhotoGallery(options) {
             grid.appendChild(card);
         });
 
-        // Add button card (only show if 2 or fewer images in compact mode)
-        if (images.length <= 2) {
+        // Add button card (hide when map is locked)
+        if (!isCurrentMapLockedSync() && images.length <= 2) {
             const addCard = createAddCard(fileInput);
             grid.appendChild(addCard);
         }
@@ -96,6 +96,7 @@ export async function createPhotoGallery(options) {
 
     // File input handler
     fileInput.addEventListener('change', async (e) => {
+        if (isCurrentMapLockedSync()) { fileInput.value = ''; return; }
         if (e.target.files?.length) {
             for (const file of Array.from(e.target.files)) {
                 if (!file.type.startsWith('image/')) continue;
@@ -111,6 +112,7 @@ export async function createPhotoGallery(options) {
 
     // Add button click
     addButton.addEventListener('click', () => {
+        if (isCurrentMapLockedSync()) return;
         fileInput.click();
     });
 
@@ -196,6 +198,7 @@ function createAddCard(fileInput) {
     card.title = 'Adicionar imagem';
 
     card.addEventListener('click', () => {
+        if (isCurrentMapLockedSync()) return;
         fileInput.click();
     });
 

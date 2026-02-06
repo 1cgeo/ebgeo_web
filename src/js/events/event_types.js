@@ -458,6 +458,15 @@ export const EventTypes = Object.freeze({
      */
     MAP_DELETED: 'map:deleted',
 
+    // ===== MAP LOCK =====
+    /**
+     * Emitted when a map's lock (read-only) state changes.
+     * Payload: { mapName: string, locked: boolean }
+     * Subscribers: toolbar, sidebar, features_tab, catalog, import, attribute_table, search, context-menu, keyboard, bottom-controls, base-layer-selector
+     * Emitters: map.operations.js (toggleMapLock), store-state-manager.js (setCurrentMap)
+     */
+    MAP_LOCK_CHANGED: 'map:lockChanged',
+
     // ===== STORE =====
     /**
      * Emitted when all data is cleared from storage.

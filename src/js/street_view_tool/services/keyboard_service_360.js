@@ -6,6 +6,8 @@
  * Disables global keyboard shortcuts when active and re-enables them when deactivated.
  */
 
+import { isCurrentMapLockedSync } from '../../store/index.js';
+
 // Dynamic imports to avoid static import conflict with viewer's dynamic import
 let sidebarModule = null;
 
@@ -172,13 +174,13 @@ async function handleKeyDown(e) {
         case 'm':
         case 'M':
             e.preventDefault();
-            callbacks.toggleMarkerTool?.();
+            if (!isCurrentMapLockedSync()) callbacks.toggleMarkerTool?.();
             break;
 
         case 'o':
         case 'O':
             e.preventDefault();
-            callbacks.saveOrientation?.();
+            if (!isCurrentMapLockedSync()) callbacks.saveOrientation?.();
             break;
     }
 }

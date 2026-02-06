@@ -12,7 +12,9 @@ import {
     getCurrentMapNameSync,
     getEventBus,
     getAllMapNamesStore,
-    getControl
+    getControl,
+    isCurrentMapLockedSync,
+    isMapLocked
 } from '../store';
 import { EventTypes } from '../events';
 
@@ -129,11 +131,14 @@ class ContextMenuControl {
 
         this._contextMenu.innerHTML = '';
 
+        const locked = isCurrentMapLockedSync();
         const groupingAnalysis = this._analyzeSelectionForGrouping();
-        const hasGroupingOptions = groupingAnalysis.canCreateGroup ||
-                                 groupingAnalysis.canCombineGroups ||
-                                 groupingAnalysis.canUngroup ||
-                                 groupingAnalysis.showDisabledCreateGroup;
+        const hasGroupingOptions = !locked && (
+            groupingAnalysis.canCreateGroup ||
+            groupingAnalysis.canCombineGroups ||
+            groupingAnalysis.canUngroup ||
+            groupingAnalysis.showDisabledCreateGroup
+        );
 
         const hasSelectedFeatures = groupingAnalysis.selectedFeatures.length > 0;
 
@@ -144,7 +149,7 @@ class ContextMenuControl {
             this._contextMenu.appendChild(separator);
         }
 
-        if (hasSelectedFeatures) {
+        if (hasSelectedFeatures && !locked) {
             const layerOptionsAdded = await this._addLayerMoveOptions(groupingAnalysis.selectedFeatures);
             const mapOptionsAdded = await this._addMapMoveOptions(groupingAnalysis.selectedFeatures);
 
@@ -347,8 +352,13 @@ class ContextMenuControl {
         const allMaps = await getAllMapNamesStore();
         const currentMapName = getCurrentMapNameSync();
 
-        // Filter out current map
-        const availableMaps = allMaps.filter(name => name !== currentMapName);
+        // Filter out current map and locked maps
+        const lockedChecks = await Promise.all(
+            allMaps.map(async name => ({ name, locked: await isMapLocked(name) }))
+        );
+        const availableMaps = lockedChecks
+            .filter(m => m.name !== currentMapName && !m.locked)
+            .map(m => m.name);
 
         if (availableMaps.length === 0) {
             return false;

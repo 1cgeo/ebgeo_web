@@ -14,7 +14,8 @@ import {
     isUncopyableFeatureType,
     hasImageResource,
     getAllSourceTypes,
-    getStateManager
+    getStateManager,
+    isCurrentMapLockedSync
 } from '../store';
 import { IDUtils, ToastService } from '../utilities';
 
@@ -93,6 +94,8 @@ class ClipboardManager {
      * Applies offset only when pasting on the same map.
      */
     async paste() {
+        if (isCurrentMapLockedSync()) return;
+
         if (!this.hasClipboardData()) {
             ToastService.showWarning('Nenhuma feição copiada');
             return;

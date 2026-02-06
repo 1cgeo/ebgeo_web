@@ -5,7 +5,7 @@
  * Implements tool-centric architecture for feature movement calculations.
  */
 
-import { getStateManager } from '../store';
+import { getStateManager, isCurrentMapLockedSync } from '../store';
 
 class MoveHandler {
     /**
@@ -388,6 +388,8 @@ class MoveHandler {
      * @private
      */
     _startDrag(e) {
+        if (isCurrentMapLockedSync()) return;
+
         const allSelectedFeatures = this.selectionManager.getAllSelectedFeatures();
         if (allSelectedFeatures.length === 0) return;
 

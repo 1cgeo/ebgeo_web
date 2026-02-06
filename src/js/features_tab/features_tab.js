@@ -62,6 +62,7 @@ import {
     deleteLayer,
     renameLayer,
     getCurrentMapNameSync,
+    isCurrentMapLockedSync,
 } from '../store';
 import { EventTypes } from '../events';
 import { showConfirm } from '../modals/index.js';
@@ -222,6 +223,9 @@ export class FeaturesTab {
 
             // Apply viewer mode UI after content is loaded
             this._updateViewerModeUI();
+
+            // Apply map lock state
+            this._applyMapLockState();
         }
     }
 
@@ -870,6 +874,12 @@ export class FeaturesTab {
             this._eventBus.on(EventTypes.VIEWER_3D_CLOSED, this._viewer3DClosedHandler)
         );
 
+        // Listen for map lock changes
+        this._mapLockChangedHandler = () => this._applyMapLockState();
+        this._unsubscribers.push(
+            this._eventBus.on(EventTypes.MAP_LOCK_CHANGED, this._mapLockChangedHandler)
+        );
+
         // Listen for 360 viewer state changes
         this._viewer360OpenedHandler = () => {
             this._is360ViewerOpen = true;
@@ -902,10 +912,21 @@ export class FeaturesTab {
 
         this._groupsChangedHandler = null;
         this._layersChangedHandler = null;
+        this._mapLockChangedHandler = null;
         this._viewer3DOpenedHandler = null;
         this._viewer3DClosedHandler = null;
         this._viewer360OpenedHandler = null;
         this._viewer360ClosedHandler = null;
+    }
+
+    /**
+     * Applies map lock state to the features tab.
+     * Toggles 'map-locked' class on container to hide edit controls via CSS.
+     * @private
+     */
+    _applyMapLockState() {
+        if (!this.container) return;
+        this.container.classList.toggle('map-locked', isCurrentMapLockedSync());
     }
 
     /**

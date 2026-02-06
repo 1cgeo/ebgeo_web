@@ -17,6 +17,7 @@ import {
     getGridStyleCompat
 } from './repositories/index.js';
 import mapManager from './store-state-manager.js';
+import { isCurrentMapLockedSync } from './map.operations.js';
 import { getCatalogLayers } from './catalog.operations.js';
 import { CATALOG_ITEM_TYPES } from '../catalog/catalog.constants.js';
 import { logMapNotesOperation, logGridStyleOperation, OperationType } from './sync/index.js';
@@ -55,6 +56,11 @@ export const getMapNotes = async (mapName = null) => {
  * @returns {Promise<void>}
  */
 export const setMapNotes = async (mapName, notes) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot set map notes.');
+        return;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
 
     // Get previous notes for logging
@@ -101,6 +107,11 @@ export const getGridStyle = async (mapName) => {
  * @returns {Promise<void>}
  */
 export const setGridStyle = async (mapName, gridStyle) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot set grid style.');
+        return;
+    }
+
     const targetMap = mapName || mapManager.getCurrentMapName();
 
     // Get previous grid style for logging

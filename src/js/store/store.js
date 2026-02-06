@@ -15,7 +15,7 @@ import {
     isInternalProperty,
     compareVersions
 } from './repository.utils.js';
-import { resetMemoryStore } from './memory-store.js';
+import { resetMemoryStore, memoryStore } from './memory-store.js';
 import {
     initializeRepository,
     clearAllMapData,
@@ -46,7 +46,8 @@ import {
 } from './feature.operations.js';
 import {
     setMapDependencies,
-    getCurrentMapNameSync
+    getCurrentMapNameSync,
+    isCurrentMapLockedSync
 } from './map.operations.js';
 import {
     setLayerDependencies,
@@ -110,6 +111,11 @@ export const initializeWithLastActiveMap = async () => {
     await loadCesium3dDataToMemory(lastActiveMap);
     await loadStreetview360DataToMemory(lastActiveMap);
 
+    // Emit lock state so UI components created later can read it via isCurrentMapLockedSync().
+    // Components that init before this resolves will pick it up via MAP_LOCK_CHANGED listener.
+    const locked = memoryStore.lockedMaps.has(lastActiveMap);
+    deps.eventBus.emit(EventTypes.MAP_LOCK_CHANGED, { mapName: lastActiveMap, locked });
+
     return lastActiveMap;
 };
 
@@ -163,6 +169,10 @@ export const clearAllDataStore = async () => {
  * @returns {Promise<Object>} Deletion result
  */
 export const deleteLayer = async (layerId, mapName = null) => {
+    if (isCurrentMapLockedSync()) {
+        console.warn('Map is locked. Cannot delete layer.');
+        return { success: false, reason: 'MAP_LOCKED' };
+    }
     await deleteLayerFeatures(layerId, mapName);
     return deleteLayerOnly(layerId, mapName);
 };
@@ -175,6 +185,8 @@ export const deleteLayer = async (layerId, mapName = null) => {
  * @returns {Promise<Object>} Undo result
  */
 export const undoLastAction = async () => {
+    if (isCurrentMapLockedSync()) return false;
+
     const executeFunction = {
         addFeature,
         updateFeature,
@@ -192,6 +204,8 @@ export const undoLastAction = async () => {
  * @returns {Promise<Object>} Redo result
  */
 export const redoLastAction = async () => {
+    if (isCurrentMapLockedSync()) return false;
+
     const executeFunction = {
         addFeature,
         updateFeature,
@@ -286,7 +300,10 @@ export {
     clearMapPosition,
     getFrequentColors,
     getMapBadgeColors,
-    getAllMapBadgeColors
+    getAllMapBadgeColors,
+    isMapLocked,
+    isCurrentMapLockedSync,
+    toggleMapLock
 } from './map.operations.js';
 
 // ===== RE-EXPORTS FROM LAYER OPERATIONS =====

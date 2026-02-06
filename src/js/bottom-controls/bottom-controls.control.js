@@ -17,6 +17,7 @@ import {
     cleanup,
     removeElement
 } from '../utilities/event-cleanup.js';
+import { isCurrentMapLockedSync } from '../store/index.js';
 
 /**
  * Main bottom controls controller.
@@ -96,6 +97,13 @@ export class BottomControlsControl {
             () => this._on3DViewerOpened());
         subscribe(this, this._eventBus, EventTypes.VIEWER_3D_CLOSED,
             () => this._on3DViewerClosed());
+
+        // Listen for map lock changes
+        subscribe(this, this._eventBus, EventTypes.MAP_LOCK_CHANGED,
+            () => this._applyMapLockState());
+
+        // Apply initial lock state
+        this._applyMapLockState();
     }
 
     /**
@@ -516,6 +524,17 @@ export class BottomControlsControl {
     _onLayoutChanged(_payload) {
         // Feature toggles are now positioned on the right side
         // No need to adjust left offset based on sidebar state
+    }
+
+    /**
+     * Applies map lock state to bottom controls.
+     * All toggles remain visible — 3D/360 are viewers (read-only), not write operations.
+     * Write operations inside the viewers are blocked at the store guard level.
+     * @private
+     */
+    _applyMapLockState() {
+        // No toggles are hidden when locked.
+        // 3D and 360 viewers are accessible for viewing; edits inside are guarded.
     }
 
     /**

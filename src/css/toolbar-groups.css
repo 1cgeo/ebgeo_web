@@ -80,10 +80,10 @@
     transform: translateX(0);
 }
 
-/* Grid Layout (Drawing tools - 3x3) */
+/* Grid Layout (Drawing tools - 4 columns) */
 .toolbar-popup-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: var(--space-1);
 }
 
