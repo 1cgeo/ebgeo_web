@@ -27,6 +27,12 @@ body.cesium-active .sidebar-container {
     z-index: 300 !important;
 }
 
+/* Hide sidebar when briefing editor is open (even if cesium-active) */
+body.cesium-active .briefing-editor ~ .sidebar-container,
+body.cesium-active:has(.briefing-editor) .sidebar-container {
+    display: none !important;
+}
+
 /* ===== MODALS VISIBILITY IN 3D MODE ===== */
 
 /* Ensure modals appear above Cesium viewer */

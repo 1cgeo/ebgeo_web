@@ -161,16 +161,20 @@ export async function updateBriefing(briefingId, data) {
     // Capture previous state for logging
     const previousData = JSON.parse(JSON.stringify(existing));
 
+    // Deep merge settings to avoid losing nested fields
+    const mergedSettings = data.settings
+        ? { ...existing.settings, ...data.settings }
+        : existing.settings;
+
     const updated = {
         ...existing,
         ...data,
+        settings: mergedSettings,
         id: briefingId, // Ensure ID is not changed
         sync: touchSyncMetadata(existing.sync),
+        createdAt: existing.createdAt,
         updatedAt: Date.now()
     };
-
-    // Preserve createdAt
-    updated.createdAt = existing.createdAt;
 
     await localRepository.saveBriefing(briefingId, updated);
 
@@ -243,9 +247,8 @@ export async function addSlide(briefingId, slideData = {}, position = null) {
         return null;
     }
 
-    const order = position !== null ? position : briefing.slides.length;
     const slide = {
-        ...createEmptySlide(order),
+        ...createEmptySlide(0),
         ...slideData,
         id: slideData.id || generateUUID(),
         sync: createSyncMetadata(null)
@@ -253,9 +256,10 @@ export async function addSlide(briefingId, slideData = {}, position = null) {
 
     // Insert at position or append
     if (position !== null && position < briefing.slides.length) {
+        slide.order = position;
         briefing.slides.splice(position, 0, slide);
-        // Reorder subsequent slides
-        for (let i = position + 1; i < briefing.slides.length; i++) {
+        // Reorder all slides from insertion point (inclusive)
+        for (let i = position; i < briefing.slides.length; i++) {
             briefing.slides[i].order = i;
         }
     } else {
@@ -371,10 +375,13 @@ export async function reorderSlides(briefingId, slideIds) {
         }
     }
 
-    // Append any slides not in slideIds (shouldn't happen, but safety)
-    for (const slide of slideMap.values()) {
-        slide.order = reorderedSlides.length;
-        reorderedSlides.push(slide);
+    // Append any slides not in slideIds and warn about incomplete array
+    if (slideMap.size > 0) {
+        console.warn(`reorderSlides: ${slideMap.size} slide(s) missing from slideIds array, appending at end`);
+        for (const slide of slideMap.values()) {
+            slide.order = reorderedSlides.length;
+            reorderedSlides.push(slide);
+        }
     }
 
     await updateBriefing(briefingId, { slides: reorderedSlides });
@@ -413,19 +420,23 @@ export async function importBriefings(briefings, options = {}) {
             continue;
         }
 
-        const existing = await getBriefingById(briefing.id);
+        // Clone to avoid mutating the input object
+        const toSave = { ...briefing };
+
+        const existing = await getBriefingById(toSave.id);
         if (existing && !overwrite) {
-            skipped++;
-            continue;
+            // Rename strategy: generate new UUID and unique name
+            toSave.id = generateUUID();
+            toSave.name = await generateUniqueBriefingName(toSave.name);
         }
 
         // Ensure sync metadata
-        if (!briefing.sync) {
-            briefing.sync = createSyncMetadata(null);
+        if (!toSave.sync) {
+            toSave.sync = createSyncMetadata(null);
         }
 
-        await localRepository.saveBriefing(briefing.id, {
-            ...briefing,
+        await localRepository.saveBriefing(toSave.id, {
+            ...toSave,
             updatedAt: Date.now()
         });
         imported++;

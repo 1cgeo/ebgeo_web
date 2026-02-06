@@ -57,6 +57,7 @@ const groupStore = localforage.createInstance({ name: 'ebgeo_groups' });
 const layerStore = localforage.createInstance({ name: 'ebgeo_layers' });
 const cesium3dStore = localforage.createInstance({ name: 'ebgeo_cesium3d' });
 const streetview360Store = localforage.createInstance({ name: 'ebgeo_streetview360' });
+const briefingStore = localforage.createInstance({ name: 'ebgeo_briefings' });
 
 // ===== HELPER FUNCTIONS FOR INITIALIZATION =====
 
@@ -364,6 +365,13 @@ export const clearAllCesium3dData = async () => {
  */
 export const clearAllStreetview360Data = async () => {
     await streetview360Store.clear();
+};
+
+/**
+ * Clears all briefing data.
+ */
+export const clearAllBriefingData = async () => {
+    await briefingStore.clear();
 };
 
 /**

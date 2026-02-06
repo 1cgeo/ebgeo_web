@@ -25,6 +25,7 @@ import {
     clearAllLayerData,
     clearAllCesium3dData,
     clearAllStreetview360Data,
+    clearAllBriefingData,
     setAppSetting,
     getColorUsage
 } from './repository.js';
@@ -128,6 +129,7 @@ export const clearAllDataStore = async () => {
     await clearAllLayerData();
     await clearAllCesium3dData();
     await clearAllStreetview360Data();
+    await clearAllBriefingData();
 
     await mapManager.clearAllColorCaches();
 

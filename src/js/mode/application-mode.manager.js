@@ -84,8 +84,8 @@ class ApplicationModeManager {
         /** @type {Object|null} Context data for current mode */
         this._modeContext = null;
 
-        /** @type {Object|null} Previous state for restoration */
-        this._previousState = null;
+        /** @type {Array<Object>} State stack for multi-level restoration */
+        this._stateStack = [];
     }
 
     // =========================================================================
@@ -204,12 +204,12 @@ class ApplicationModeManager {
             return false;
         }
 
-        // Save current state for restoration
-        this._previousState = {
+        // Push current state onto stack for restoration
+        this._stateStack.push({
             mode: this._currentMode,
             viewerMode: this._currentViewerMode,
             context: this._modeContext
-        };
+        });
 
         const previousMode = this._currentMode;
         this._currentMode = mode;
@@ -252,7 +252,7 @@ class ApplicationModeManager {
      * @returns {boolean} True if state was restored
      */
     exitMode() {
-        if (!this._previousState) {
+        if (this._stateStack.length === 0) {
             // No previous state, reset to normal
             if (this._currentMode !== ApplicationMode.NORMAL) {
                 const previousMode = this._currentMode;
@@ -264,13 +264,12 @@ class ApplicationModeManager {
             return false;
         }
 
-        const { mode, viewerMode, context } = this._previousState;
+        const { mode, viewerMode, context } = this._stateStack.pop();
         const previousMode = this._currentMode;
         const previousViewerMode = this._currentViewerMode;
 
         this._currentMode = mode;
         this._modeContext = context;
-        this._previousState = null;
 
         // Emit mode change event
         if (previousMode !== mode) {
@@ -297,7 +296,7 @@ class ApplicationModeManager {
         this._currentMode = ApplicationMode.NORMAL;
         this._currentViewerMode = ViewerMode.MAP_2D;
         this._modeContext = null;
-        this._previousState = null;
+        this._stateStack = [];
 
         if (previousMode !== ApplicationMode.NORMAL) {
             this._emitModeChanged(previousMode, ApplicationMode.NORMAL, null);
@@ -361,13 +360,16 @@ export function getApplicationModeManager() {
 
 /**
  * Creates the ApplicationModeManager instance.
- * Should be called during service initialization.
+ * Should be called once during service initialization.
+ * Throws if already created to prevent accidental double-init.
  * @returns {ApplicationModeManager}
  */
 export function createApplicationModeManager() {
-    if (!instance) {
-        instance = new ApplicationModeManager();
+    if (instance) {
+        console.warn('ApplicationModeManager already created, returning existing instance');
+        return instance;
     }
+    instance = new ApplicationModeManager();
     return instance;
 }
 

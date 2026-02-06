@@ -763,13 +763,11 @@ export class LocalRepository {
      */
     async getAllBriefings() {
         const briefings = [];
-        const keys = await briefingStore.keys();
-        for (const key of keys) {
-            const data = await briefingStore.getItem(key);
-            if (data) {
-                briefings.push(data);
+        await briefingStore.iterate((value) => {
+            if (value) {
+                briefings.push(value);
             }
-        }
+        });
         // Sort by updatedAt descending (most recent first)
         briefings.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         return briefings;
@@ -791,13 +789,16 @@ export class LocalRepository {
      * @returns {Promise<void>}
      */
     async saveBriefing(briefingId, data) {
+        const now = Date.now();
         const briefingData = {
             ...data,
-            id: briefingId,
-            updatedAt: Date.now()
+            id: briefingId
         };
+        if (!briefingData.updatedAt) {
+            briefingData.updatedAt = now;
+        }
         if (!briefingData.createdAt) {
-            briefingData.createdAt = Date.now();
+            briefingData.createdAt = now;
         }
         await briefingStore.setItem(briefingId, briefingData);
     }
