@@ -646,41 +646,6 @@
     text-align: center;
 }
 
-/* =========================================================================
-   HIDE OLD STANDALONE CONTROLS (UI REDESIGN)
-   These controls are now managed by the new UI components.
-   They still need to be added to the map for functionality, but their
-   buttons are hidden since new components provide the UI.
-   ========================================================================= */
-
-/* ----- Controls managed by BottomControlsControl -----
-   Note: display:none rules merged into positioning rules above */
-
-/* ----- Analysis tools managed by ToolbarControl ----- */
-.los-control.controls-column-left,
-.visibility-control.controls-column-left {
-    display: none !important;
-}
-
-/* =========================================================================
-   PHASE 2: LEGACY MAP PANEL HIDING
-   The new SidebarControl replaces the old MapControl panel completely.
-   These rules hide the legacy elements without breaking internal functionality.
-   ========================================================================= */
-
-/* === LEGACY MAP PANEL (hidden - replaced by SidebarControl) === */
-.list-map-container,
-#map-list {
-    display: none !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
-}
-
-.reopen-panel-btn,
-.reopen-button {
-    display: none !important;
-}
-
 /* === CLEANUP EMPTY CONTROL GROUPS === */
 .maplibregl-ctrl-top-right .maplibregl-ctrl-group:empty,
 .maplibregl-ctrl-top-left .maplibregl-ctrl-group:empty {

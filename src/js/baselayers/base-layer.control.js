@@ -31,7 +31,10 @@ class BaseLayerControl {
         this.container = null;
         this.uiManager = uiManager;
         this.hillshadeConfig = hillshadeConfig;
-        this.mapControl = null;
+        this._selectionManager = null;
+        this._toolManager = null;
+        this._analysisLayersManager = null;
+        this._dataLayersManager = null;
 
         this.isChanging = false;
         this.changeDebounceTimer = null;
@@ -92,8 +95,15 @@ class BaseLayerControl {
     // CONTROL SETUP
     // =========================================================================
 
-    setMapControl(mapControl) {
-        this.mapControl = mapControl;
+    /**
+     * Injects runtime dependencies needed by switchMap().
+     * Called once during initialization in map_sig.js.
+     */
+    setDependencies({ selectionManager, toolManager, analysisLayersManager, dataLayersManager }) {
+        this._selectionManager = selectionManager;
+        this._toolManager = toolManager;
+        this._analysisLayersManager = analysisLayersManager;
+        this._dataLayersManager = dataLayersManager;
     }
 
     onAdd(map) {
@@ -255,14 +265,12 @@ class BaseLayerControl {
             await setBaseLayer(baseLayer);
         }
 
-        this.mapControl.deactivateActiveTools();
-        this.mapControl.selectionManager.deselectAllFeatures();
+        this._toolManager.deactivateCurrentTool();
+        this._selectionManager.deselectAllFeatures();
 
         await this.switchLayer(baseLayer);
 
-        const analysisLayersManager = this.mapControl.getAnalysisLayersManager();
-        const dataLayersManager = this.mapControl.getDataLayersManager();
-        await setupMapFeatures(this.map, analysisLayersManager, dataLayersManager, getEventBus());
+        await setupMapFeatures(this.map, this._analysisLayersManager, this._dataLayersManager, getEventBus());
 
         if(applyPosition){
             await this.applyMapSavedPosition(currentMapName);

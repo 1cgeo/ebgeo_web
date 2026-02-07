@@ -27,12 +27,7 @@ class MapManager {
     constructor(baseLayerControl, selectionManager) {
         this.baseLayerControl = baseLayerControl;
         this.selectionManager = selectionManager;
-        this.mapControl = null;
         this.map = null;
-    }
-
-    setMapControl(mapControl) {
-        this.mapControl = mapControl;
     }
 
     setMap(map) {

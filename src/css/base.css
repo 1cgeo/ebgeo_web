@@ -72,6 +72,15 @@ h3 {
   opacity: 1;
 }
 
+/* Hides file inputs used by ExportImportService buttons */
+.hidden-file-input {
+  display: none !important;
+  position: absolute !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
+
 .measurement-label.selected {
   opacity: 0.3 !important;
 }

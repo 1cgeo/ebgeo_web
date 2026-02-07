@@ -1022,9 +1022,9 @@ export class BriefingEditorControl {
             await setCurrentMap(mapId);
 
             // switchMap() renders features on the map (setupMapFeatures)
-            const mapControl = getControl('MapControl');
-            if (mapControl?.baseLayerControl) {
-                await mapControl.baseLayerControl.switchMap(false);
+            const baseLayerControl = getControl('BaseLayerControl');
+            if (baseLayerControl) {
+                await baseLayerControl.switchMap(false);
             }
 
             if (this._map) {

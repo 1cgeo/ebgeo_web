@@ -160,9 +160,9 @@ const normalizeMapDataForCurrentVersion = (mapData) => {
 };
 
 export class ExportImportService {
-    constructor(baseLayerControl, mapControl, mapManager, eventBus = null) {
+    constructor(baseLayerControl, toolManager, mapManager, eventBus = null) {
         this.baseLayerControl = baseLayerControl;
-        this.mapControl = mapControl;
+        this._toolManager = toolManager;
         this.mapManager = mapManager;
         this._eventBus = eventBus;
     }
@@ -333,7 +333,7 @@ export class ExportImportService {
      */
     async handleExport(selectedMaps = null) {
         try {
-            this.mapControl.deactivateActiveTools();
+            this._toolManager.deactivateCurrentTool();
 
             const zip = new JSZip();
 
@@ -554,7 +554,7 @@ export class ExportImportService {
      * @param {boolean} isAdditiveImport - Whether to add to current project or replace
      */
     async handleImport(event, isAdditiveImport) {
-        this.mapControl.deactivateActiveTools();
+        this._toolManager.deactivateCurrentTool();
 
         const file = event.target.files[0];
         if (!file) return;
@@ -737,9 +737,8 @@ export class ExportImportService {
             setBaseLayer(validBaseLayer);
 
             await this.baseLayerControl.switchMap();
-            await this.mapControl.updateMapList();
 
-            // Emit event to update sidebar recent maps display
+            // Notify sidebar to refresh map list
             if (this._eventBus) {
                 this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
             }

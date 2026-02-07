@@ -188,10 +188,10 @@
 }
 
 /* =========================================================================
-   HIDE OLD BASE LAYER CONTROL
+   HIDE MAPLIBRE CONTROL WRAPPER
+   The radio-button base layer control is added via map.addControl() but its
+   container is hidden because BaseLayerSelectorControl provides the UI.
    ========================================================================= */
-
-/* Hide the old MapLibre control-based selector */
 .base-layer-control.mapboxgl-ctrl {
     display: none !important;
 }

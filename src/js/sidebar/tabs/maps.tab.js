@@ -916,31 +916,46 @@ export class MapsTab {
     }
 
     /**
-     * Handles showing map notes.
+     * Handles showing map notes via event.
      * @private
      * @param {string} mapName - Map to show notes for
      */
     async _handleShowMapNotes(mapName) {
-        // Access the map notes manager through the mapManager's mapControl reference
-        if (this._mapManager?.mapControl?.mapNotesManager) {
-            await this._mapManager.mapControl.mapNotesManager.showViewPanel(mapName);
-        } else {
-            showWarning('Notas nao disponiveis');
-        }
+        this._eventBus.emit(EventTypes.MAP_NOTES_REQUESTED, { mapName });
     }
 
     /**
-     * Handles combining maps.
+     * Handles combining maps using the standalone modal.
      * @private
      * @param {string} targetMapName - Target map to combine into
      */
     async _handleCombineMaps(targetMapName) {
-        // Use the modal from map control if available
-        if (this._mapManager?.mapControl?.showCombineMapsModal) {
-            await this._mapManager.mapControl.showCombineMapsModal(targetMapName);
-        } else {
-            showWarning('Funcao de combinar mapas nao disponivel');
+        const allMapNames = await getAllMapNamesStore();
+        const lockedChecks = await Promise.all(
+            allMapNames.map(async name => ({ name, locked: await isMapLocked(name) }))
+        );
+        const availableMaps = lockedChecks
+            .filter(m => m.name !== targetMapName && !m.locked)
+            .map(m => m.name);
+
+        if (availableMaps.length === 0) {
+            showWarning('Não há outros mapas para combinar');
+            return;
         }
+
+        const { showCombineMapsModal } = await import('../../modals/index.js');
+        showCombineMapsModal(targetMapName, availableMaps, async (selectedMaps) => {
+            try {
+                const result = await this._mapManager.combineSelectedMapsIntoTarget(selectedMaps, targetMapName);
+                const message = result.totalFeatures > 0
+                    ? `${selectedMaps.length} mapa(s) combinado(s): ${result.totalFeatures} feições adicionadas a "${targetMapName}"`
+                    : 'Mapas combinados mas nenhuma feição foi encontrada';
+                showSuccess(message);
+            } catch (error) {
+                console.error('Error combining maps:', error);
+                showError(error.message || 'Erro ao combinar mapas');
+            }
+        });
     }
 
     /**

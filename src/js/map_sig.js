@@ -13,14 +13,15 @@
  * No side-effects at module level — all initialization is explicit.
  */
 
-import { getEventBus, getStateManager, registerControl } from './store';
+import { getEventBus, getStateManager, registerControl, initializeWithLastActiveMap } from './store';
 
 import { showConfirm } from './modals';
 
 import { BaseLayerControl } from './baselayers';
-import { AddImportControl, ScreenshotControl, DragDropHandler } from './import_export';
+import { AddImportControl, ScreenshotControl, DragDropHandler, ExportImportService, PDFExportTab } from './import_export';
 import { ToolManager, SelectionManager, UIManager, MoveHandler, ClipboardManager } from './tool_manager';
-import { MapControl, DragRotateHandler } from './map';
+import { MapManager, DragRotateHandler } from './map';
+import { FeaturesTab } from './features_tab';
 import { AddStreetViewControl } from './street_view_tool';
 import { Add3DModelsViewerControl } from './3d_models_viewer_tool';
 import { VectorTileInfoControl } from './vector_info';
@@ -169,7 +170,7 @@ export function createMap() {
  * @param {maplibregl.Map} map - Map instance
  * @param {AnalysisLayersManager} analysisLayersManager
  * @param {DataLayersManager} dataLayersManager
- * @returns {Object} Controls object with mapControl, baseLayerControl, viewer controls, and destroyables
+ * @returns {Object} Controls object with baseLayerControl, viewer controls, and destroyables
  */
 export function createControls(map, analysisLayersManager, dataLayersManager) {
 
@@ -250,10 +251,15 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
     selectionManager.setvectorTileInfoControl(vectorTileInfoControl);
     const baseLayerControl = new BaseLayerControl(uiManager, config.map2d.hillshade);
 
-    const mapControl = new MapControl(baseLayerControl, analysisLayersManager, dataLayersManager);
-    mapControl.setSelectionManager(selectionManager);
+    const mapManager = new MapManager(baseLayerControl, selectionManager);
+    const exportImportService = new ExportImportService(baseLayerControl, toolManager, mapManager, getEventBus());
 
-    baseLayerControl.setMapControl(mapControl);
+    baseLayerControl.setDependencies({
+        selectionManager,
+        toolManager,
+        analysisLayersManager,
+        dataLayersManager
+    });
 
     importControl.setControls(pointControl, lineControl, polygonControl);
 
@@ -273,7 +279,7 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
         map.getContainer(),
         toolManager,
         importControl,
-        mapControl,
+        exportImportService,
         imageControl
     );
     dragDropHandler.enable();
@@ -297,7 +303,6 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
         clipboardManager,
         addStreetViewControl,
         add3DModelsViewerControl,
-        mapControl,
         controls: {
             pointControl,
             lineControl,
@@ -324,19 +329,13 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
     // NOTE: keyboardShortcuts.enable() is called after toolbar controls are initialized
     // to ensure controls have map reference when shortcuts are triggered
 
-    // ===== ADD CONTROLS TO MAP (MUST BE FIRST - creates dependencies) =====
-    // MapControl.onAdd() creates featuresTab and pdfExportTab, so it must run
-    // before we create SidebarControl which depends on these
+    // ===== ADD BASE LAYER CONTROL TO MAP =====
     map.addControl(baseLayerControl, 'top-left');
-    map.addControl(mapControl, 'top-left');
 
-    // ===== EXTRACT DEPENDENCIES FROM MAP CONTROL =====
-    // These are created inside MapControl's onAdd() method and must be extracted
-    // AFTER mapControl is added to the map
-    const featuresTab = mapControl.featuresTab;
-    const pdfExportTab = mapControl.pdfExportTab;
-    const exportImportService = mapControl.exportImportService;
-    const mapManager = mapControl.mapManager;
+    // ===== CREATE UI COMPONENTS (require map reference) =====
+    mapManager.setMap(map);
+    const featuresTab = new FeaturesTab(map, selectionManager, analysisLayersManager, dataLayersManager, getEventBus());
+    const pdfExportTab = new PDFExportTab(map);
 
     // ===== CHIPS COMPONENT (Quick Actions) =====
 
@@ -546,7 +545,8 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
         ['AddStreetViewControl', addStreetViewControl],
         ['RectangleSelectionControl', rectangleSelectionControl],
         ['VectorTileInfoControl', vectorTileInfoControl],
-        ['MapControl', mapControl],
+        ['MapManager', mapManager],
+        ['BaseLayerControl', baseLayerControl],
         // UI
         ['sidebarControl', sidebarControl],
         ['briefingEditor', briefingEditorControl],
@@ -562,7 +562,6 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
 
     // Return everything needed by later phases
     return {
-        mapControl,
         baseLayerControl,
         add3DModelsViewerControl,
         addStreetViewControl,
@@ -593,11 +592,10 @@ export function createControls(map, analysisLayersManager, dataLayersManager) {
  * @param {Object} controls - Controls from createControls()
  */
 export function initializeApp(map, controls) {
-    const { mapControl, baseLayerControl, add3DModelsViewerControl, addStreetViewControl } = controls;
+    const { baseLayerControl, add3DModelsViewerControl, addStreetViewControl } = controls;
 
     // Start loading state from IndexedDB (fast, ~10-50ms).
-    // This promise is captured in closure by the map.on('load') callback.
-    const statePromise = mapControl.loadMenu();
+    const statePromise = initializeWithLastActiveMap();
 
     // Map load handler — fires when MapLibre finishes rendering tiles
     map.on('load', async () => {

@@ -483,12 +483,12 @@ class ContextMenuControl {
      */
     async _handleMoveToMap(features, targetMapName) {
         try {
-            const mapControl = getControl('MapControl');
-            if (!mapControl || !mapControl.mapManager) {
+            const mapManager = getControl('MapManager');
+            if (!mapManager) {
                 throw new Error('MapManager não disponível');
             }
 
-            const result = await mapControl.mapManager.moveFeaturesToMap(features, targetMapName);
+            const result = await mapManager.moveFeaturesToMap(features, targetMapName);
 
             if (result.success) {
                 showSuccess(result.message);

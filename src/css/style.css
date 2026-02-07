@@ -26,10 +26,7 @@
 /* ===== 2. COORDINATES SYSTEM ===== */
 @import url('./coordinates.css');
 
-/* ===== 3. MAP LIST ===== */
-@import url('./map-list.css');
-
-/* ===== 5. MAP CONTROLS ===== */
+/* ===== 3. MAP CONTROLS ===== */
 @import url('./map-controls.css');
 
 /* ===== 6. 2D MODE PANELS ===== */

@@ -9,11 +9,11 @@ class DragDropHandler {
         IMAGE: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
     };
 
-    constructor(mapElement, toolManager, importControl, mapControl, imageControl) {
+    constructor(mapElement, toolManager, importControl, exportImportService, imageControl) {
         this.mapElement = mapElement;
         this.toolManager = toolManager;
         this.importControl = importControl;
-        this.mapControl = mapControl;
+        this.exportImportService = exportImportService;
         this.imageControl = imageControl;
 
         this.isDragOver = false;
@@ -171,7 +171,7 @@ class DragDropHandler {
                 if (result.cancelled) {
                     return;
                 }
-                await this.mapControl.exportImportService.processFileDirectly(file, result.additive);
+                await this.exportImportService.processFileDirectly(file, result.additive);
                 break;
             }
 

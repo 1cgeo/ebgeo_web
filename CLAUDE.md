@@ -332,9 +332,8 @@ src/js/
 │   ├── collapse-state.manager.js     # Collapse state management
 │   ├── feature-organizer.service.js  # Feature organization service
 │   └── sortable.handler.js
-├── map/                     # Map controls and management
-│   ├── map.control.js       # Map control
-│   ├── map.manager.js       # Map management
+├── map/                     # Map management and animations
+│   ├── map.manager.js       # Map management (registered as 'MapManager')
 │   ├── animation.service.js # Map animation service
 │   └── drag-rotate.handler.js # Drag-to-rotate handler
 ├── terrain/                 # Terrain/hillshade
