@@ -221,6 +221,16 @@ export const renameMap = async (oldName, newName) => {
     // Update MapResolverService mapping
     mapResolver.renameMap(oldName, newName);
 
+    // Update map order
+    const order = await getMapOrderRepo();
+    if (order?.length > 0) {
+        const idx = order.indexOf(oldName);
+        if (idx !== -1) {
+            order[idx] = newName;
+            await setMapOrderRepo(order);
+        }
+    }
+
     // Transfer badge color to new name
     const colors = await getAppSetting('mapBadgeColors');
     if (colors && colors[oldName]) {

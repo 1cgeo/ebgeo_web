@@ -623,7 +623,7 @@ export class SidebarControl {
      * @param {Object} payload - Event payload with mapName
      */
     async _onMapNotesRequested(payload) {
-        const { mapName } = payload;
+        const { mapName, readOnly } = payload;
         if (!mapName) return;
 
         // Collapse sidebar panel first
@@ -636,7 +636,7 @@ export class SidebarControl {
         this._cleanupFeaturePanelContent();
 
         // Create notes panel content using extracted module
-        const { element, cleanup, title } = await createNotesPanelContent({ mapName });
+        const { element, cleanup, title } = await createNotesPanelContent({ mapName, readOnly });
 
         // Store cleanup
         this._notesQuillCleanup = cleanup;

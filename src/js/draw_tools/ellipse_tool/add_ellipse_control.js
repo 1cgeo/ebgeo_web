@@ -634,6 +634,7 @@ class AddEllipseControl extends BaseControl {
             }
         }
 
+        getSnappingService()?.hideIndicator(this.map);
         this.isDraggingHandle = false;
         this.activeHandleType = null;
         this.map.dragPan.enable();

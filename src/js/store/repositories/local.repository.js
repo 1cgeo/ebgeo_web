@@ -391,7 +391,7 @@ export class LocalRepository {
         if (!mapData) return;
 
         // Check if the map is using UUID-based storage (v2.0+)
-        const isUuidBased = mapData.id && mapData.id === resolvedKey;
+        const isUuidBased = isValidUUID(resolvedKey);
 
         if (isUuidBased) {
             // v2.0+: Simply update the name property, keep UUID as key

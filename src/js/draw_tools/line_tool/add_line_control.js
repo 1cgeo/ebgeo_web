@@ -782,6 +782,7 @@ class AddLineControl extends BaseControl {
             }
         }
 
+        getSnappingService()?.hideIndicator(this.map);
         this.isDraggingHandle = false;
         this.activeHandle = null;
         this.activeHandleType = null;

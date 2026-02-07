@@ -30,9 +30,10 @@ export const sanitizeHtml = sanitizeQuillHtml;
  *
  * @param {Object} options - Options
  * @param {string} options.mapName - Map name for notes
+ * @param {boolean} [options.readOnly=false] - Whether notes are read-only (locked map)
  * @returns {Promise<{ element: HTMLElement, cleanup: Function }>}
  */
-export async function createNotesPanelContent({ mapName }) {
+export async function createNotesPanelContent({ mapName, readOnly = false }) {
     // Load notes
     let notesData;
     try {
@@ -86,7 +87,9 @@ export async function createNotesPanelContent({ mapName }) {
         descDisplay.innerHTML = '<p class="map-notes-sidebar-placeholder">Clique em editar para adicionar uma descrição...</p>';
     }
 
-    viewContainer.appendChild(editBtn);
+    if (!readOnly) {
+        viewContainer.appendChild(editBtn);
+    }
     viewContainer.appendChild(titleDisplay);
     viewContainer.appendChild(descDisplay);
 

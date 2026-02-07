@@ -101,7 +101,7 @@ class MapManager {
             }
 
             await renameMap(oldName, newName.trim());
-            setCurrentMap(newName.trim());
+            await setCurrentMap(newName.trim());
 
             return { success: true, message: `Mapa renomeado para "${newName}"` };
         } catch (error) {

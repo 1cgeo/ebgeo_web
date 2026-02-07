@@ -249,9 +249,12 @@ export class MapsTab {
     async _handleShowCurrentMapNotes() {
         if (!this._currentMapName) return;
 
+        const locked = await isMapLocked(this._currentMapName);
+
         // Emit event to show notes in sidebar
         this._eventBus.emit(EventTypes.MAP_NOTES_REQUESTED, {
-            mapName: this._currentMapName
+            mapName: this._currentMapName,
+            readOnly: locked
         });
     }
 
@@ -327,7 +330,7 @@ export class MapsTab {
         }
 
         if (notesBtn) {
-            notesBtn.style.display = locked ? 'none' : '';
+            notesBtn.title = locked ? 'Notas do mapa (somente leitura)' : 'Notas do mapa';
         }
 
         await this._updateCurrentMapStats();
@@ -420,7 +423,7 @@ export class MapsTab {
 
         // Build position indicator
         const positionIndicator = hasSavedPosition
-            ? `<span class="map-position-indicator" title="Posicao salva">${MAPS_ICONS.mapPin}</span>`
+            ? `<span class="map-position-indicator" title="Posição salva">${MAPS_ICONS.mapPin}</span>`
             : '';
 
         // Build notes indicator
@@ -487,6 +490,12 @@ export class MapsTab {
      * @param {boolean} hasSavedPosition - Whether the map has a saved position
      */
     async _showMapContextMenu(mapName, anchorEl, hasSavedPosition) {
+        // Toggle: if clicking the same button, just close
+        if (this._contextMenu && this._contextMenuAnchor === anchorEl) {
+            this._closeContextMenu();
+            return;
+        }
+
         // Close any existing menu
         this._closeContextMenu();
 
@@ -495,22 +504,24 @@ export class MapsTab {
         const menu = document.createElement('div');
         menu.className = 'map-context-menu';
         this._contextMenu = menu;
+        this._contextMenuAnchor = anchorEl;
 
         // Menu items
         const menuItems = [];
 
-        // Position items only when unlocked
-        if (!locked) {
+        // Position items only for active map when unlocked
+        const isActiveMap = mapName === this._currentMapName;
+        if (!locked && isActiveMap) {
             menuItems.push({
                 icon: MAPS_ICONS.mapPin,
-                label: hasSavedPosition ? 'Atualizar posicao' : 'Salvar posicao',
+                label: hasSavedPosition ? 'Atualizar posição' : 'Salvar posição',
                 handler: () => this._handleSaveMapPosition(mapName)
             });
 
             if (hasSavedPosition) {
                 menuItems.push({
                     icon: SIDEBAR_ICONS.trash,
-                    label: 'Limpar posicao salva',
+                    label: 'Limpar posição salva',
                     handler: () => this._handleClearMapPosition(mapName),
                     className: 'menu-item-danger'
                 });
@@ -623,6 +634,7 @@ export class MapsTab {
         if (this._contextMenu) {
             this._contextMenu.remove();
             this._contextMenu = null;
+            this._contextMenuAnchor = null;
         }
     }
 
@@ -764,6 +776,7 @@ export class MapsTab {
         try {
             const result = await this._mapManager.renameMap(this._currentMapName, newName.trim());
             if (result.success) {
+                this._currentMapName = newName.trim();
                 showSuccess(result.message);
                 // Emit event to update sidebar shortcuts and maps list
                 this._eventBus.emit(EventTypes.LAYERS_CHANGED, { mapName: null });
@@ -889,7 +902,7 @@ export class MapsTab {
                 showWarning(result.message);
             }
         } catch (_error) {
-            showError('Erro ao salvar posicao');
+            showError('Erro ao salvar posição');
         }
     }
 
@@ -911,7 +924,7 @@ export class MapsTab {
                 showWarning(result.message);
             }
         } catch (_error) {
-            showError('Erro ao limpar posicao');
+            showError('Erro ao limpar posição');
         }
     }
 

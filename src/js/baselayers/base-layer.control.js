@@ -232,6 +232,9 @@ class BaseLayerControl {
             if (config.map2d.globe_projection) {
                 this.map.setProjection({ type: 'globe' });
             }
+
+            // Disable sky/fog - setStyle resets it (background is set via CSS)
+            this.map.setSky(undefined);
         }
         await this._updateHillshadeVisibility(layer);
         this.syncVisualState(layer);

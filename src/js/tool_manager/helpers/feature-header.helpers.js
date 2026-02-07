@@ -4,7 +4,7 @@
  * @fileoverview Feature header components for attribute panels.
  */
 
-import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature, getGroupManager } from '../../store';
+import { getLayers, isFeatureEffectivelyLocked, addFeature, removeFeature, updateFeature, storeImage, getGroupManager } from '../../store';
 import { IDUtils } from '../../utilities';
 
 /**
@@ -287,6 +287,37 @@ async function openFeatureDropdown(button, selectedFeatures, selectionManager, u
             closeAllFeatureDropdowns(true);
         });
         dropdown.appendChild(reverseArrowButton);
+    }
+
+    // Add conversion options for point features (single selection only)
+    if (selectedFeatures.length === 1 && currentFeature?.properties?.source === 'point') {
+        const separatorPoint = document.createElement('div');
+        separatorPoint.style.cssText = 'height: 1px; background: #e0e0e0; margin: 4px 0;';
+        dropdown.appendChild(separatorPoint);
+
+        const convertToMilSymButton = document.createElement('button');
+        convertToMilSymButton.className = 'feature-menu-button';
+        convertToMilSymButton.textContent = 'Converter para Símbolo Militar';
+
+        convertToMilSymButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await convertPointToMilitarySymbol(currentFeature, selectionManager, uiManager);
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(convertToMilSymButton);
+
+        const convertToCoordMeasureButton = document.createElement('button');
+        convertToCoordMeasureButton.className = 'feature-menu-button';
+        convertToCoordMeasureButton.textContent = 'Converter para Medida de Coordenação';
+
+        convertToCoordMeasureButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await convertPointToCoordinationMeasure(currentFeature, selectionManager, uiManager);
+            closeAllFeatureDropdowns(true);
+        });
+        dropdown.appendChild(convertToCoordMeasureButton);
     }
 
     document.body.appendChild(dropdown);
@@ -973,6 +1004,240 @@ async function reverseArrow(arrowFeature, selectionManager, uiManager) {
         uiManager.updatePanels();
     } catch (error) {
         console.error('Error reversing arrow:', error);
+    }
+}
+
+// ===== POINT CONVERSION FUNCTIONS =====
+
+/**
+ * Converts a point feature to a military symbol feature.
+ * Creates a default MIL-STD-2525D symbol at the same position.
+ *
+ * @param {Object} pointFeature - Point feature to convert
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ */
+async function convertPointToMilitarySymbol(pointFeature, selectionManager, uiManager) {
+    try {
+        const map = selectionManager.map;
+        const milSymControl = selectionManager.controls.get('military_symbol');
+
+        if (!milSymControl) {
+            console.error('Military symbol control not found');
+            return;
+        }
+
+        const coordinates = pointFeature.geometry.coordinates;
+        if (!coordinates) {
+            console.error('Point does not have coordinates');
+            return;
+        }
+
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
+        const featureName = await IDUtils.generateFeatureName('military_symbol', map);
+
+        const currentZoom = map.getZoom();
+        const DefaultProps = milSymControl.constructor.DEFAULT_PROPERTIES;
+
+        // Build initial SIDC from default properties
+        const sidc30 = milSymControl.symbolGenerator.buildSIDC(DefaultProps);
+
+        // Calculate initial selection box
+        const selectionBox = milSymControl.geometry.calculateSelectionBoxGeometry(
+            coordinates,
+            DefaultProps.width,
+            DefaultProps.height,
+            DefaultProps.size,
+            DefaultProps.rotation,
+            currentZoom,
+            uiManager
+        );
+
+        const feature = {
+            type: 'Feature',
+            id: geoJsonId,
+            properties: {
+                ...DefaultProps,
+                layerId: pointFeature.properties.layerId || 'default',
+                id: featureId,
+                nome: pointFeature.properties.nome || featureName,
+                descricao: pointFeature.properties.descricao || '',
+                visivel: pointFeature.properties.visivel !== false,
+                bloqueado: pointFeature.properties.bloqueado || false,
+                opacity: pointFeature.properties.opacity ?? DefaultProps.opacity,
+                sidc: sidc30,
+                createdAtZoom: currentZoom,
+                calculatedSize: DefaultProps.size,
+                selectionBox: selectionBox
+            },
+            geometry: {
+                type: 'Point',
+                coordinates: [coordinates[0], coordinates[1]]
+            }
+        };
+
+        // Generate symbol image and capture real dimensions
+        const result = await milSymControl.symbolGenerator.generateSymbolBlob(feature.properties);
+
+        feature.properties.width = result.width;
+        feature.properties.height = result.height;
+
+        // Recalculate selection box with real dimensions
+        feature.properties.selectionBox = milSymControl.geometry.calculateSelectionBoxGeometry(
+            coordinates,
+            result.width,
+            result.height,
+            feature.properties.size,
+            feature.properties.rotation,
+            currentZoom,
+            uiManager
+        );
+
+        await storeImage(featureId, result.blob);
+
+        // Deselect and remove point
+        selectionManager.deselectAllFeatures();
+
+        const pointId = pointFeature.properties.id;
+        await removeFeature('points', pointId);
+
+        const pointData = await map.getSource('points').getData();
+        pointData.features = pointData.features.filter(f => f.properties.id !== pointId);
+        map.getSource('points').setData(pointData);
+
+        // Add military symbol
+        await addFeature('military_symbols', feature);
+
+        const milSymData = await map.getSource('military_symbols').getData();
+        milSymData.features.push(feature);
+        map.getSource('military_symbols').setData(milSymData);
+
+        await milSymControl.loadSymbolToMap(featureId, result.blob);
+
+        // Select the new feature
+        await selectionManager.toggleFeatureSelection('military_symbol', featureId, feature);
+
+        uiManager.updateSelectionHighlight();
+        uiManager.updatePanels();
+    } catch (error) {
+        console.error('Error converting point to military symbol:', error);
+    }
+}
+
+/**
+ * Converts a point feature to a coordination measure feature.
+ * Creates a default coordination measure (generic point) at the same position.
+ *
+ * @param {Object} pointFeature - Point feature to convert
+ * @param {Object} selectionManager - SelectionManager instance
+ * @param {Object} uiManager - UIManager instance
+ */
+async function convertPointToCoordinationMeasure(pointFeature, selectionManager, uiManager) {
+    try {
+        const map = selectionManager.map;
+        const coordControl = selectionManager.controls.get('coordination_measure');
+
+        if (!coordControl) {
+            console.error('Coordination measure control not found');
+            return;
+        }
+
+        const coordinates = pointFeature.geometry.coordinates;
+        if (!coordinates) {
+            console.error('Point does not have coordinates');
+            return;
+        }
+
+        const { id: featureId, geoJsonId } = IDUtils.generateFeatureIds();
+        const featureName = await IDUtils.generateFeatureName('coordination_measure', map);
+
+        const currentZoom = map.getZoom();
+        const DefaultProps = coordControl.constructor.DEFAULT_PROPERTIES;
+        const pointCode = DefaultProps.pointCode;
+
+        // Calculate initial selection box
+        const selectionBox = coordControl.geometry.calculateSelectionBoxGeometry(
+            coordinates,
+            DefaultProps.width,
+            DefaultProps.height,
+            DefaultProps.size,
+            DefaultProps.rotation,
+            currentZoom,
+            uiManager,
+            'center'
+        );
+
+        const feature = {
+            type: 'Feature',
+            id: geoJsonId,
+            properties: {
+                ...DefaultProps,
+                layerId: pointFeature.properties.layerId || 'default',
+                id: featureId,
+                nome: pointFeature.properties.nome || featureName,
+                descricao: pointFeature.properties.descricao || '',
+                visivel: pointFeature.properties.visivel !== false,
+                bloqueado: pointFeature.properties.bloqueado || false,
+                opacity: pointFeature.properties.opacity ?? DefaultProps.opacity,
+                pointCode: pointCode,
+                createdAtZoom: currentZoom,
+                calculatedSize: DefaultProps.size,
+                selectionBox: selectionBox
+            },
+            geometry: {
+                type: 'Point',
+                coordinates: [coordinates[0], coordinates[1]]
+            }
+        };
+
+        // Generate symbol image
+        const result = await coordControl.symbolGenerator.generate(pointCode, feature.properties);
+
+        feature.properties.imageUrl = result.dataUrl;
+        feature.properties.width = result.width;
+        feature.properties.height = result.height;
+        feature.properties.anchor = result.anchor;
+
+        // Recalculate selection box with real dimensions and anchor
+        feature.properties.selectionBox = coordControl.geometry.calculateSelectionBoxGeometry(
+            coordinates,
+            result.width,
+            result.height,
+            feature.properties.size,
+            feature.properties.rotation,
+            currentZoom,
+            uiManager,
+            result.anchor
+        );
+
+        await storeImage(featureId, result.blob);
+
+        // Deselect and remove point
+        selectionManager.deselectAllFeatures();
+
+        const pointId = pointFeature.properties.id;
+        await removeFeature('points', pointId);
+
+        const pointData = await map.getSource('points').getData();
+        pointData.features = pointData.features.filter(f => f.properties.id !== pointId);
+        map.getSource('points').setData(pointData);
+
+        // Add coordination measure
+        await addFeature('coordination_measures', feature);
+
+        const coordData = await map.getSource('coordination_measures').getData();
+        coordData.features.push(feature);
+        map.getSource('coordination_measures').setData(coordData);
+
+        await coordControl.loadSymbolToMap(featureId, result.blob);
+
+        // Select the new feature
+        await selectionManager.toggleFeatureSelection('coordination_measure', featureId, feature);
+
+        uiManager.updateSelectionHighlight();
+        uiManager.updatePanels();
+    } catch (error) {
+        console.error('Error converting point to coordination measure:', error);
     }
 }
 

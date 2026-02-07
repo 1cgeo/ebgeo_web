@@ -507,6 +507,7 @@ class AddCircleControl extends BaseControl {
                 this.saveFeatureChanges(updatedFeature);
             }
         }
+        getSnappingService()?.hideIndicator(this.map);
         this.isDraggingHandle = false;
         this.map.dragPan.enable();
         this.map.getCanvas().style.cursor = '';
